@@ -1,0 +1,50 @@
+schema: '2.0'
+stages:
+  project_overview:
+    cmd: bash scripts/render_llm.sh --prompt docs/project-overview.prompt.md 
+      --out docs/project-overview.md --name project_overview
+    deps:
+    - path: docs/command-reference.md
+      hash: md5
+      md5: 466f8c53e8141b48b6f7622cba347f1a
+      size: 3440
+    - path: docs/configuration.md
+      hash: md5
+      md5: a7101a7062ca0fd869059093b398f72e
+      size: 3020
+    - path: docs/getting-started.md
+      hash: md5
+      md5: b009d4c08484cde427d43455f81dfc87
+      size: 2010
+    - path: docs/how-it-works.md
+      hash: md5
+      md5: 68a5755be03aed8c4f95e8e3942198d3
+      size: 3059
+    - path: docs/project-overview.prompt.md
+      hash: md5
+      md5: 9189e2eaa84b1230a0894ad785171c92
+      size: 2096
+    - path: docs/troubleshooting.md
+      hash: md5
+      md5: 66971c9fe978ed81d0c34891ef24e5d3
+      size: 4149
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a6e434b4aa474917d8e80a90d3509d48
+      size: 1923
+      isexec: true
+    outs:
+    - path: docs/project-overview.md
+      hash: md5
+      md5: b34e454aaa29ee106455bdabe504ac1d
+      size: 6618

@@ -1,0 +1,31 @@
+#!/bin/bash
+# Docflow - LLM-powered documentation pipeline
+# This is a template wrapper for dependent repositories
+
+set -euo pipefail
+
+# Find docflow directory relative to this repo
+# Default: assume docflow is a sibling directory
+DOCFLOW_DIR="${DOCFLOW_DIR:-$(dirname "$(dirname "$(realpath "$0")")")/../docflow}"
+
+if [ ! -d "$DOCFLOW_DIR" ]; then
+  echo "Error: Cannot find docflow directory at $DOCFLOW_DIR" >&2
+  echo "Set DOCFLOW_DIR environment variable to point to docflow repo" >&2
+  echo "Example: DOCFLOW_DIR=/path/to/docflow $0 $*" >&2
+  exit 1
+fi
+
+# Check if Docker image exists
+if ! docker image inspect docflow:local >/dev/null 2>&1; then
+  echo "Error: docflow:local image not found" >&2
+  echo "Build it first: cd $DOCFLOW_DIR && make build" >&2
+  exit 1
+fi
+
+# Run docflow Docker image
+exec docker run --rm \
+  -v "$(pwd):/work" \
+  -v "$DOCFLOW_DIR/scripts:/usr/local/lib/docflow:ro" \
+  --env-file .env \
+  docflow:local \
+  "$@"
