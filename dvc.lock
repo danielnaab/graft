@@ -257,3 +257,252 @@ stages:
       hash: md5
       md5: 0a68b7b414eca5ab530c3ea8fc104fbc
       size: 6213
+  color_palette:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/logo-exploration/01-explorations/color-palette.prompt.md --out 
+      docs/logo-exploration/01-explorations/color-palette.md --name 
+      color_palette
+    deps:
+    - path: docs/logo-exploration/00-sources/brand-personality.md
+      hash: md5
+      md5: d162fd6aa2e5492236d543405376c6e0
+      size: 6547
+    - path: docs/logo-exploration/00-sources/technical-requirements.md
+      hash: md5
+      md5: 530159348f970b4dbeff31ecc3dce8f4
+      size: 8098
+    - path: docs/logo-exploration/01-explorations/color-palette.prompt.md
+      hash: md5
+      md5: e7faf7d6dcda92f801b438a8e14fac65
+      size: 2668
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a5b9526bc90be12303e5c49de9c52a4a
+      size: 2919
+      isexec: true
+    outs:
+    - path: docs/logo-exploration/01-explorations/color-palette.md
+      hash: md5
+      md5: dfbe8a4a3a4ca768dc3b28ac49109ade
+      size: 15116
+  symbol_concepts:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/logo-exploration/01-explorations/symbol-concepts.prompt.md --out 
+      docs/logo-exploration/01-explorations/symbol-concepts.md --name 
+      symbol_concepts
+    deps:
+    - path: docs/logo-exploration/00-sources/brand-personality.md
+      hash: md5
+      md5: d162fd6aa2e5492236d543405376c6e0
+      size: 6547
+    - path: docs/logo-exploration/00-sources/technical-requirements.md
+      hash: md5
+      md5: 530159348f970b4dbeff31ecc3dce8f4
+      size: 8098
+    - path: docs/logo-exploration/00-sources/visual-metaphors.md
+      hash: md5
+      md5: 187d3b93aa4a4defb5017784397f5c0a
+      size: 6889
+    - path: docs/logo-exploration/01-explorations/symbol-concepts.prompt.md
+      hash: md5
+      md5: ddf862b520cedbd07b669932551a188b
+      size: 1896
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a5b9526bc90be12303e5c49de9c52a4a
+      size: 2919
+      isexec: true
+    outs:
+    - path: docs/logo-exploration/01-explorations/symbol-concepts.md
+      hash: md5
+      md5: 5a937c8eeee2358ce6598466355db1a5
+      size: 17044
+  visual_metaphor_studies:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/logo-exploration/01-explorations/visual-metaphor-studies.prompt.md 
+      --out docs/logo-exploration/01-explorations/visual-metaphor-studies.md 
+      --name visual_metaphor_studies
+    deps:
+    - path: docs/logo-exploration/00-sources/brand-personality.md
+      hash: md5
+      md5: d162fd6aa2e5492236d543405376c6e0
+      size: 6547
+    - path: docs/logo-exploration/00-sources/visual-metaphors.md
+      hash: md5
+      md5: 187d3b93aa4a4defb5017784397f5c0a
+      size: 6889
+    - path: 
+        docs/logo-exploration/01-explorations/visual-metaphor-studies.prompt.md
+      hash: md5
+      md5: 84926982927f44bec4c4c4172f0ef113
+      size: 1895
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a5b9526bc90be12303e5c49de9c52a4a
+      size: 2919
+      isexec: true
+    outs:
+    - path: docs/logo-exploration/01-explorations/visual-metaphor-studies.md
+      hash: md5
+      md5: 9edae7af30479d3b847df5822a509336
+      size: 19536
+  composition_studies:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/logo-exploration/01-explorations/composition-studies.prompt.md --out 
+      docs/logo-exploration/01-explorations/composition-studies.md --name 
+      composition_studies
+    deps:
+    - path: docs/logo-exploration/00-sources/technical-requirements.md
+      hash: md5
+      md5: 530159348f970b4dbeff31ecc3dce8f4
+      size: 8098
+    - path: docs/logo-exploration/01-explorations/color-palette.md
+      hash: md5
+      md5: dfbe8a4a3a4ca768dc3b28ac49109ade
+      size: 15116
+    - path: docs/logo-exploration/01-explorations/composition-studies.prompt.md
+      hash: md5
+      md5: b31330627d1330280cc01b6fc435245c
+      size: 3403
+    - path: docs/logo-exploration/01-explorations/symbol-concepts.md
+      hash: md5
+      md5: 5a937c8eeee2358ce6598466355db1a5
+      size: 17044
+    - path: docs/logo-exploration/01-explorations/visual-metaphor-studies.md
+      hash: md5
+      md5: 9edae7af30479d3b847df5822a509336
+      size: 19536
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a5b9526bc90be12303e5c49de9c52a4a
+      size: 2919
+      isexec: true
+    outs:
+    - path: docs/logo-exploration/01-explorations/composition-studies.md
+      hash: md5
+      md5: 903f18f75f40a3dee13aa0df9338ff2b
+      size: 14722
+  logo_evaluation:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/logo-exploration/01-explorations/logo-evaluation.prompt.md --out 
+      docs/logo-exploration/01-explorations/logo-evaluation.md --name 
+      logo_evaluation
+    deps:
+    - path: docs/logo-exploration/00-sources/logo-design-criteria.md
+      hash: md5
+      md5: b5a23c8295ce9ceb358cc16b2f2638a0
+      size: 6272
+    - path: docs/logo-exploration/01-explorations/composition-studies.md
+      hash: md5
+      md5: 903f18f75f40a3dee13aa0df9338ff2b
+      size: 14722
+    - path: docs/logo-exploration/01-explorations/logo-evaluation.prompt.md
+      hash: md5
+      md5: 226d0fb600e2f915b51b478d005ee69d
+      size: 3812
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a5b9526bc90be12303e5c49de9c52a4a
+      size: 2919
+      isexec: true
+    outs:
+    - path: docs/logo-exploration/01-explorations/logo-evaluation.md
+      hash: md5
+      md5: 456fca3f3e07c6ba7ac18a22de0424d0
+      size: 17488
+  logo_recommendation:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/logo-exploration/02-final/logo-recommendation.prompt.md --out 
+      docs/logo-exploration/02-final/logo-recommendation.md --name 
+      logo_recommendation
+    deps:
+    - path: docs/logo-exploration/00-sources/technical-requirements.md
+      hash: md5
+      md5: 530159348f970b4dbeff31ecc3dce8f4
+      size: 8098
+    - path: docs/logo-exploration/01-explorations/color-palette.md
+      hash: md5
+      md5: dfbe8a4a3a4ca768dc3b28ac49109ade
+      size: 15116
+    - path: docs/logo-exploration/01-explorations/composition-studies.md
+      hash: md5
+      md5: 903f18f75f40a3dee13aa0df9338ff2b
+      size: 14722
+    - path: docs/logo-exploration/01-explorations/logo-evaluation.md
+      hash: md5
+      md5: 456fca3f3e07c6ba7ac18a22de0424d0
+      size: 17488
+    - path: docs/logo-exploration/02-final/logo-recommendation.prompt.md
+      hash: md5
+      md5: ab155209b8317f3c638264df25931e68
+      size: 6671
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a5b9526bc90be12303e5c49de9c52a4a
+      size: 2919
+      isexec: true
+    outs:
+    - path: docs/logo-exploration/02-final/logo-recommendation.md
+      hash: md5
+      md5: 37800696dc81aad964c71c1a10eb27d5
+      size: 15084
