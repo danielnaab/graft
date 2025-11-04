@@ -14,9 +14,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt README.prompt.md --out README.md --name
       README
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - README.prompt.md
     - docs/naming-exploration/02-final/recommendation.md
     - docs/getting-started.md
@@ -32,9 +29,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/claude-skills.prompt.md --out docs/claude-skills.md
       --name claude_skills
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/claude-skills.prompt.md
     - .claude/skills/steward/SKILL.md
     - scripts/entrypoint.sh
@@ -46,9 +40,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/command-reference.prompt.md --out
       docs/command-reference.md --name command_reference
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/command-reference.prompt.md
     - scripts/entrypoint.sh
     - bin/graft
@@ -62,9 +53,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/configuration.prompt.md --out docs/configuration.md
       --name configuration
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/configuration.prompt.md
     - Dockerfile
     - .env.example
@@ -77,9 +65,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/getting-started.prompt.md --out
       docs/getting-started.md --name getting_started
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/getting-started.prompt.md
     - Makefile
     - bin/graft
@@ -92,9 +77,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/how-it-works.prompt.md --out docs/how-it-works.md
       --name how_it_works
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/how-it-works.prompt.md
     - scripts/pack_prompt.py
     - scripts/generate_dvc.py
@@ -106,9 +88,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/01-explorations/color-palette.prompt.md
       --out docs/logo-exploration/01-explorations/color-palette.md --name color_palette
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/logo-exploration/01-explorations/color-palette.prompt.md
     - docs/logo-exploration/00-sources/brand-personality.md
     - docs/logo-exploration/00-sources/technical-requirements.md
@@ -119,9 +98,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/01-explorations/composition-studies.prompt.md
       --out docs/logo-exploration/01-explorations/composition-studies.md --name composition_studies
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/logo-exploration/01-explorations/composition-studies.prompt.md
     - docs/logo-exploration/01-explorations/symbol-concepts.md
     - docs/logo-exploration/01-explorations/visual-metaphor-studies.md
@@ -134,9 +110,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/01-explorations/logo-evaluation.prompt.md
       --out docs/logo-exploration/01-explorations/logo-evaluation.md --name logo_evaluation
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/logo-exploration/01-explorations/logo-evaluation.prompt.md
     - docs/logo-exploration/01-explorations/composition-studies.md
     - docs/logo-exploration/00-sources/logo-design-criteria.md
@@ -147,9 +120,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/01-explorations/symbol-concepts.prompt.md
       --out docs/logo-exploration/01-explorations/symbol-concepts.md --name symbol_concepts
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/logo-exploration/01-explorations/symbol-concepts.prompt.md
     - docs/logo-exploration/00-sources/brand-personality.md
     - docs/logo-exploration/00-sources/visual-metaphors.md
@@ -162,9 +132,6 @@ stages:
       --out docs/logo-exploration/01-explorations/visual-metaphor-studies.md --name
       visual_metaphor_studies
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/logo-exploration/01-explorations/visual-metaphor-studies.prompt.md
     - docs/logo-exploration/00-sources/visual-metaphors.md
     - docs/logo-exploration/00-sources/brand-personality.md
@@ -175,9 +142,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/02-final/logo-recommendation.prompt.md
       --out docs/logo-exploration/02-final/logo-recommendation.md --name logo_recommendation
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/logo-exploration/02-final/logo-recommendation.prompt.md
     - docs/logo-exploration/01-explorations/logo-evaluation.md
     - docs/logo-exploration/01-explorations/composition-studies.md
@@ -190,9 +154,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/hybrid-names.prompt.md
       --out docs/naming-exploration/01-explorations/hybrid-names.md --name hybrid_names
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/naming-exploration/01-explorations/hybrid-names.prompt.md
     - docs/naming-exploration/00-sources/project-essence.md
     - docs/naming-exploration/00-sources/naming-criteria.md
@@ -204,9 +165,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/metaphor-names.prompt.md
       --out docs/naming-exploration/01-explorations/metaphor-names.md --name metaphor_names
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/naming-exploration/01-explorations/metaphor-names.prompt.md
     - docs/naming-exploration/00-sources/project-essence.md
     - docs/naming-exploration/00-sources/naming-criteria.md
@@ -218,9 +176,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/name-evaluation.prompt.md
       --out docs/naming-exploration/01-explorations/name-evaluation.md --name name_evaluation
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/naming-exploration/01-explorations/name-evaluation.prompt.md
     - docs/naming-exploration/00-sources/naming-criteria.md
     - docs/naming-exploration/01-explorations/metaphor-names.md
@@ -233,9 +188,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/technical-names.prompt.md
       --out docs/naming-exploration/01-explorations/technical-names.md --name technical_names
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/naming-exploration/01-explorations/technical-names.prompt.md
     - docs/naming-exploration/00-sources/project-essence.md
     - docs/naming-exploration/00-sources/naming-criteria.md
@@ -247,9 +199,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/02-final/recommendation.prompt.md
       --out docs/naming-exploration/02-final/recommendation.md --name recommendation
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/naming-exploration/02-final/recommendation.prompt.md
     - docs/naming-exploration/00-sources/project-essence.md
     - docs/naming-exploration/01-explorations/name-evaluation.md
@@ -260,9 +209,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/project-overview.prompt.md --out
       docs/project-overview.md --name project_overview
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/project-overview.prompt.md
     - docs/getting-started.md
     - docs/how-it-works.md
@@ -276,9 +222,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/troubleshooting.prompt.md --out
       docs/troubleshooting.md --name troubleshooting
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/troubleshooting.prompt.md
     - scripts/render_llm.sh
     - scripts/entrypoint.sh
@@ -290,9 +233,6 @@ stages:
     cmd: bash scripts/render_llm.sh --prompt docs/use-cases.prompt.md --out docs/use-cases.md
       --name use_cases
     deps:
-    - scripts/render_llm.sh
-    - scripts/pack_prompt.py
-    - scripts/ensure_llm.py
     - docs/use-cases.prompt.md
     - docs/project-overview.md
     - docs/how-it-works.md
