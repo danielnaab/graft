@@ -24,11 +24,14 @@ This builds the `graft:local` Docker image with all dependencies.
 ```bash
 cd ../your-project
 
-# Copy environment template
+# Configure AWS credentials (choose one method):
+# Method 1 (recommended): Use your existing ~/.aws configuration
+#   - Graft automatically mounts ~/.aws for profiles and SSO
+#   - No additional setup needed
+#
+# Method 2: Use environment variables in .env file
 cp .env.example .env
-
-# Edit .env with your AWS credentials
-# Required: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+# Edit .env: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 ```
 
 ### Initialize graft
@@ -85,14 +88,15 @@ cat docs/strategy/executive-summary.md
 ```
 
 To refine:
-- Edit source files to add content
-- Edit the prompt to change tone or structure
+- Edit source files to add content → triggers UPDATE (incorporates new content only)
+- Edit the prompt instructions → triggers full regeneration with new instructions
 - Run `bin/graft rebuild` again
 
 The system automatically detects what changed and applies appropriate updates.
 
 ## Next steps
 
+- Explore [use-cases.md](use-cases.md) for powerful workflows and creative applications
 - Read [how-it-works.md](how-it-works.md) to understand change detection and DAGs
 - See [configuration.md](configuration.md) for all options
 - Check [command-reference.md](command-reference.md) for all CLI commands

@@ -10,6 +10,24 @@
 # Dependencies come from the 'deps:' field in frontmatter.
 
 stages:
+  README:
+    cmd: bash scripts/render_llm.sh --prompt README.prompt.md --out README.md --name
+      README
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - README.prompt.md
+    - docs/naming-exploration/02-final/recommendation.md
+    - docs/getting-started.md
+    - docs/use-cases.md
+    - docs/how-it-works.md
+    - docs/configuration.md
+    - docs/command-reference.md
+    - docs/project-overview.md
+    outs:
+    - README.md:
+        cache: false
   color_palette:
     cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/01-explorations/color-palette.prompt.md
       --out docs/logo-exploration/01-explorations/color-palette.md --name color_palette
@@ -179,4 +197,21 @@ stages:
     - docs/troubleshooting.md
     outs:
     - docs/project-overview.md:
+        cache: false
+  use_cases:
+    cmd: bash scripts/render_llm.sh --prompt docs/use-cases.prompt.md --out docs/use-cases.md
+      --name use_cases
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/use-cases.prompt.md
+    - docs/project-overview.md
+    - docs/how-it-works.md
+    - docs/getting-started.md
+    - docs/configuration.md
+    - docs/command-reference.md
+    - docs/claude-skills.md
+    outs:
+    - docs/use-cases.md:
         cache: false

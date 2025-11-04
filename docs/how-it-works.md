@@ -36,8 +36,8 @@ Based on what changed, the system determines the action:
 
 - **GENERATE** - No previous draft exists → create document from scratch
 - **UPDATE** - Sources changed, prompt unchanged → apply semantic changes only, keep rest identical
-- **RESTYLE** - Prompt changed, sources unchanged → rewrite entire document with new style
-- **REFRESH** - Both changed → apply source updates AND new style
+- **RESTYLE** - Prompt changed, sources unchanged → regenerate entire document with new instructions
+- **REFRESH** - Both changed → apply source updates AND new instructions
 - **MAINTAIN** - Nothing changed → keep document unchanged
 
 These directives are passed to Claude, which applies them intelligently.

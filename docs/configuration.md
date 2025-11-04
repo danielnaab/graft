@@ -2,17 +2,29 @@
 
 ## Environment variables
 
-Set in `.env` file or CI secrets:
+### AWS Credentials
+
+Graft supports multiple authentication methods (in order of preference):
+
+1. **AWS directory mount** (recommended): Your `~/.aws` directory is automatically mounted, supporting:
+   - AWS profiles
+   - SSO sessions
+   - Credential files
+
+2. **Environment variables**: Set via `.env` file or CI secrets:
+   ```bash
+   AWS_ACCESS_KEY_ID=AKIA...
+   AWS_SECRET_ACCESS_KEY=...
+   AWS_SESSION_TOKEN=...           # For temporary credentials
+   AWS_REGION=us-west-2
+   AWS_DEFAULT_REGION=us-west-2
+   ```
+
+3. **Container environment**: Variables passed through from host environment
+
+### Other Environment Variables
 
 ```bash
-# Required
-AWS_ACCESS_KEY_ID=AKIA...
-AWS_SECRET_ACCESS_KEY=...
-AWS_REGION=us-west-2
-AWS_DEFAULT_REGION=us-west-2
-
-# Optional
-AWS_SESSION_TOKEN=...           # For temporary credentials
 DOCFLOW_DIR=/path/to/graft    # Override graft location
 ```
 
