@@ -58,12 +58,20 @@ jobs:
 
           echo "✅ dvc.yaml is synchronized"
 
-      - name: Check for missing dependencies
+      - name: Validate prompt files
         id: check-deps
         run: |
-          echo "⏭️  Skipping dependency check (requires proper YAML parsing)"
-          echo "TODO: Implement using Python with PyYAML in Phase 2"
-          # For now, DVC will catch missing deps during regeneration
+          echo "Validating prompt file structure and dependencies..."
+
+          # Run Python validation script (checks frontmatter, deps, cycles)
+          if python3 scripts/validate.py --verbose; then
+            echo "✅ All prompt files validated successfully"
+          else
+            echo "❌ Validation failed - see errors above"
+            echo ""
+            echo "Fix: Address the validation errors and commit the changes"
+            exit 1
+          fi
 
       - name: Check for stale documentation
         id: check-stale
@@ -101,9 +109,9 @@ jobs:
           fi
 
           if [ "${{ steps.check-deps.outcome }}" == "success" ]; then
-            echo "✅ All dependencies present" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Prompt files validated (frontmatter, deps, cycles)" >> $GITHUB_STEP_SUMMARY
           else
-            echo "❌ Missing dependencies" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Prompt validation failed" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ steps.check-stale.outcome }}" == "success" ]; then

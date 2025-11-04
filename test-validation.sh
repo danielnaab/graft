@@ -15,9 +15,13 @@ else
 fi
 echo ""
 
-# Test 2: Missing dependencies
-echo "Test 2: Missing Dependencies"
-echo "⏭️  SKIP: Dependency parsing needs better YAML handling (TODO)"
+# Test 2: Prompt file validation
+echo "Test 2: Prompt File Validation"
+if python3 scripts/validate.py; then
+  echo "✅ PASS: All prompt files validated"
+else
+  echo "❌ FAIL: Prompt validation failed"
+fi
 echo ""
 
 # Test 3: Stale documentation
