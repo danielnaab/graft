@@ -115,11 +115,9 @@ def main():
     if "model" in meta and meta["model"] is not None:
         eff["model"] = meta["model"]
 
-    # Try filesystem first, fall back to git HEAD if file doesn't exist (e.g., DVC removed it)
-    if exists(args.prev):
-        prev = pathlib.Path(args.prev).read_text("utf-8")
-    else:
-        prev = get_current_commit_content(args.prev) or ""
+    # Always read from git HEAD to ensure reproducible builds based on committed state
+    # Fall back to empty string if file doesn't exist in git (first generation)
+    prev = get_current_commit_content(args.prev) or ""
 
     diff = git_unified_diff(deps)
 
