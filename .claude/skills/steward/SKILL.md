@@ -67,12 +67,12 @@ find docs -name '*.md' ! -name '*.prompt.md'
 find docs -name '*.prompt.md'
 
 # See what a prompt generates
-bin/docflow diff <stage_name>
+bin/graft diff <stage_name>
 # Opens build/<stage_name>.promptpack.txt showing full context
 
 # Check which prompts use a file (reverse dependencies)
-bin/docflow uses <file>
-# Example: bin/docflow uses docs/strategy/messaging-framework.md
+bin/graft uses <file>
+# Example: bin/graft uses docs/strategy/messaging-framework.md
 ```
 
 Read relevant files to understand content and dependencies.
@@ -90,8 +90,8 @@ Determine what needs to change. Common operations:
 #### Create New Prompt
 ```bash
 # Scaffold with proper frontmatter
-bin/docflow new <name> <directory>
-# Example: bin/docflow new architecture-exploration 01-explorations
+bin/graft new <name> <directory>
+# Example: bin/graft new architecture-exploration 01-explorations
 # Generates docs/01-explorations/<name>.prompt.md
 
 # Then edit the frontmatter and prompt
@@ -136,7 +136,7 @@ Before making changes, analyze impact:
 
 ```bash
 # Check which prompts depend on a file you're editing
-bin/docflow uses docs/architecture/components.md
+bin/graft uses docs/architecture/components.md
 
 # Output shows all prompts that will regenerate
 ```
@@ -152,10 +152,10 @@ Before rebuilding:
 
 ```bash
 # Validate all dependencies exist, no circular deps
-bin/docflow check
+bin/graft check
 
 # Or validate specific prompt
-bin/docflow check docs/architecture/high-level.prompt.md
+bin/graft check docs/architecture/high-level.prompt.md
 ```
 
 Fix any errors before proceeding.
@@ -165,7 +165,7 @@ Fix any errors before proceeding.
 Make the changes using standard tools:
 - `Write` - Create new source files
 - `Edit` - Modify existing sources or frontmatter
-- `bin/docflow new` - Scaffold new prompts
+- `bin/graft new` - Scaffold new prompts
 
 Keep a todo list of operations and mark them complete.
 
@@ -173,7 +173,7 @@ Keep a todo list of operations and mark them complete.
 
 ```bash
 # Regenerate dvc.yaml and run DVC
-bin/docflow rebuild
+bin/graft rebuild
 ```
 
 DVC will:
@@ -198,7 +198,7 @@ If outputs don't meet goals:
 - Edit source files to add missing content
 - Adjust prompt instructions for better synthesis
 - Add/remove dependencies
-- Run `bin/docflow rebuild` again
+- Run `bin/graft rebuild` again
 
 Repeat until goals met.
 
@@ -232,7 +232,7 @@ User: "We need deployment documentation"
    - docs/00-sources/deployment-cicd.md
 
 2. Create exploration prompt:
-   bin/docflow new deployment-overview 01-explorations
+   bin/graft new deployment-overview 01-explorations
 
 3. Edit deployment-overview.prompt.md frontmatter:
    deps:
@@ -241,10 +241,10 @@ User: "We need deployment documentation"
      - docs/00-sources/deployment-cicd.md
 
 4. Validate:
-   bin/docflow check
+   bin/graft check
 
 5. Build:
-   bin/docflow rebuild
+   bin/graft rebuild
 
 6. Review:
    Read docs/01-explorations/deployment-overview.md
@@ -258,14 +258,14 @@ User: "We need deployment documentation"
 User: "Technical framework needs deployment info"
 
 1. Check impact:
-   bin/docflow uses docs/01-explorations/case-management-architecture.md
+   bin/graft uses docs/01-explorations/case-management-architecture.md
    # Shows: 02-frameworks/technical-framework.prompt.md depends on it
 
 2. Edit source:
    # Add "Deployment" section to case-management-architecture.md
 
 3. Build:
-   bin/docflow rebuild
+   bin/graft rebuild
    # Triggers: technical-framework.md regeneration (UPDATE mode)
 
 4. Review:
@@ -291,10 +291,10 @@ User: "Technical framework should also consider deployment"
      - docs/00-sources/deployment-overview.md  # <- Add this
 
 4. Validate:
-   bin/docflow check docs/02-frameworks/technical-framework.prompt.md
+   bin/graft check docs/02-frameworks/technical-framework.prompt.md
 
 5. Build:
-   bin/docflow rebuild
+   bin/graft rebuild
    # Triggers: REFRESH (dep changed)
 
 6. Review cascade:
@@ -304,7 +304,7 @@ User: "Technical framework should also consider deployment"
 ### Pattern: Fix Broken Dependencies
 
 ```
-bin/docflow check
+bin/graft check
 # Error: docs/old-file.md doesn't exist
 
 1. Find affected prompts:
@@ -315,7 +315,7 @@ bin/docflow check
    b) Remove the dependency (Edit frontmatter)
 
 3. Validate again:
-   bin/docflow check
+   bin/graft check
 ```
 
 ## Key Commands Reference
@@ -323,18 +323,18 @@ bin/docflow check
 ### Existing Commands (Use Freely)
 
 ```bash
-bin/docflow new <name> <topic>     # Scaffold new prompt
-bin/docflow diff <stage>           # See prompt context
-bin/docflow check [prompt]         # Validate dependencies
-bin/docflow rebuild                # Regenerate + build
-bin/docflow sync                   # Just regenerate dvc.yaml
-bin/docflow status                 # DVC pipeline status
+bin/graft new <name> <topic>     # Scaffold new prompt
+bin/graft diff <stage>           # See prompt context
+bin/graft check [prompt]         # Validate dependencies
+bin/graft rebuild                # Regenerate + build
+bin/graft sync                   # Just regenerate dvc.yaml
+bin/graft status                 # DVC pipeline status
 ```
 
 ### New Commands (To Be Implemented)
 
 ```bash
-bin/docflow uses <file>            # Show reverse dependencies
+bin/graft uses <file>            # Show reverse dependencies
 ```
 
 ### Standard Tools (Always Available)
@@ -386,7 +386,7 @@ Steward (you):
 I'll help create deployment documentation. Let me analyze the current structure.
 
 [Uses find to see docs/ structure]
-[Uses bin/docflow uses to check dependencies]
+[Uses bin/graft uses to check dependencies]
 
 I'll create:
 1. Source files in 00-sources: deployment-aws.md, deployment-local.md, deployment-cicd.md
@@ -403,10 +403,10 @@ Estimated rebuild: 3 stages, ~90 seconds
 Proceed? [User confirms]
 
 [Creates source files using Write in 00-sources]
-[Scaffolds prompts with bin/docflow new]
+[Scaffolds prompts with bin/graft new]
 [Edits frontmatter with Edit]
-[Validates with bin/docflow check]
-[Builds with bin/docflow rebuild]
+[Validates with bin/graft check]
+[Builds with bin/graft rebuild]
 [Shows git diff]
 
 Review the generated docs. Need any refinements?

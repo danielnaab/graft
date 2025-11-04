@@ -13,10 +13,10 @@ AWS_DEFAULT_REGION=us-west-2
 
 # Optional
 AWS_SESSION_TOKEN=...           # For temporary credentials
-DOCFLOW_DIR=/path/to/docflow    # Override docflow location
+DOCFLOW_DIR=/path/to/graft    # Override graft location
 ```
 
-Docflow uses the `llm` CLI with the `llm-bedrock-anthropic` plugin to invoke AWS Bedrock.
+Graft uses the `llm` CLI with the `llm-bedrock-anthropic` plugin to invoke AWS Bedrock.
 
 ## Prompt frontmatter schema
 
@@ -62,7 +62,7 @@ Rules:
 
 ## Model parameters
 
-Docflow does not currently expose model inference parameters like temperature, top_p, or max_tokens. The models use their default settings:
+Graft does not currently expose model inference parameters like temperature, top_p, or max_tokens. The models use their default settings:
 
 - **Temperature**: Model default (typically 1.0)
 - **Top P**: Model default (typically 0.999)
@@ -96,12 +96,12 @@ The `Dockerfile` includes:
 - Python 3.12 base image
 - DVC with local support
 - `llm` CLI with Bedrock plugins
-- All docflow scripts
+- All graft scripts
 
 To customize:
 1. Edit `Dockerfile`
 2. Run `make build`
-3. Use updated image in `bin/docflow`
+3. Use updated image in `bin/graft`
 
 ## Git hooks
 
@@ -111,7 +111,7 @@ Pre-commit hook in `.git/hooks/pre-commit`:
 #!/bin/bash
 # Auto-regenerate dvc.yaml if prompts changed
 if git diff --cached --name-only | grep -q '\.prompt\.md$'; then
-  bin/docflow sync
+  bin/graft sync
   git add dvc.yaml
 fi
 ```

@@ -6,10 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip install --no-cache-dir dvc llm llm-bedrock llm-bedrock-anthropic pyyaml
 
-COPY scripts/entrypoint.sh /usr/local/bin/docflow-entrypoint
-RUN chmod +x /usr/local/bin/docflow-entrypoint
+COPY scripts/entrypoint.sh /usr/local/bin/graft-entrypoint
+RUN chmod +x /usr/local/bin/graft-entrypoint
 
 ENV AWS_REGION=us-west-2
 WORKDIR /work
-ENTRYPOINT ["/usr/local/bin/docflow-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/graft-entrypoint"]
 CMD ["rebuild"]

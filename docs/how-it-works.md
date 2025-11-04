@@ -1,6 +1,6 @@
 # How It Works
 
-Docflow combines git-based change detection with DVC pipeline management to generate documentation efficiently.
+Graft combines git-based change detection with DVC pipeline management to generate documentation efficiently.
 
 ## Architecture
 
@@ -88,4 +88,4 @@ All operations run in Docker:
 - AWS credentials passed via environment
 - Working directory mounted as volume
 
-The `bin/docflow` wrapper handles Docker invocation transparently.
+The `bin/graft` wrapper handles Docker invocation transparently.

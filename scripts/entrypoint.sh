@@ -26,7 +26,7 @@ case "$cmd" in
     name="${1:-}"
     topic="${2:-strategy}"
     if [ -z "$name" ]; then
-      echo "Usage: bin/docflow new <name> [topic]"
+      echo "Usage: bin/graft new <name> [topic]"
       echo "  name:  Document name (e.g., 'exec-summary')"
       echo "  topic: Topic directory under docs/ (default: strategy)"
       exit 2
@@ -50,8 +50,8 @@ P
   diff)
     name="${1:-}"
     if [ -z "$name" ]; then
-      echo "Usage: bin/docflow diff <stage-name>"
-      echo "  Example: bin/docflow diff exec_summary"
+      echo "Usage: bin/graft diff <stage-name>"
+      echo "  Example: bin/graft diff exec_summary"
       exit 2
     fi
     # Find the prompt file for this stage
@@ -70,8 +70,8 @@ P
   uses)
     file="${1:-}"
     if [ -z "$file" ]; then
-      echo "Usage: bin/docflow uses <file>"
-      echo "  Example: bin/docflow uses docs/strategy/messaging-framework.md"
+      echo "Usage: bin/graft uses <file>"
+      echo "  Example: bin/graft uses docs/strategy/messaging-framework.md"
       echo ""
       echo "Shows which prompts depend on the given file (reverse dependency lookup)."
       exit 2
@@ -86,7 +86,7 @@ P
     echo "Done."
     ;;
   help|--help|-h)
-    echo "Usage: bin/docflow [COMMAND] [OPTIONS]"
+    echo "Usage: bin/graft [COMMAND] [OPTIONS]"
     echo ""
     echo "Commands:"
     echo "  init            Initialize project (DVC + hooks)"
@@ -102,7 +102,7 @@ P
   *)
     echo "Error: Unknown command '$cmd'"
     echo ""
-    echo "Usage: bin/docflow [COMMAND] [OPTIONS]"
+    echo "Usage: bin/graft [COMMAND] [OPTIONS]"
     echo ""
     echo "Commands:"
     echo "  init            Initialize project (DVC + hooks)"

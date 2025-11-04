@@ -1,15 +1,15 @@
 # Command Reference
 
-All commands run via `bin/docflow` wrapper which handles Docker execution.
+All commands run via `bin/graft` wrapper which handles Docker execution.
 
 ## Core commands
 
 ### init
 
-Initialize docflow in a project.
+Initialize graft in a project.
 
 ```bash
-bin/docflow init
+bin/graft init
 ```
 
 Sets up:
@@ -24,7 +24,7 @@ Run once per project.
 Regenerate `dvc.yaml` and run the full pipeline.
 
 ```bash
-bin/docflow rebuild
+bin/graft rebuild
 ```
 
 This is the main command for generating documentation. It:
@@ -40,7 +40,7 @@ Default command if no arguments provided.
 Regenerate `dvc.yaml` without running the pipeline.
 
 ```bash
-bin/docflow sync
+bin/graft sync
 ```
 
 Useful when:
@@ -48,14 +48,14 @@ Useful when:
 - Changing dependencies
 - Validating configuration
 
-Also aliased as `bin/docflow check`.
+Also aliased as `bin/graft check`.
 
 ### status
 
 Show DVC pipeline status.
 
 ```bash
-bin/docflow status
+bin/graft status
 ```
 
 Displays:
@@ -72,17 +72,17 @@ Equivalent to `dvc status`.
 Scaffold a new prompt file.
 
 ```bash
-bin/docflow new <name> [topic]
+bin/graft new <name> [topic]
 ```
 
 Examples:
 
 ```bash
 # Create docs/executive-summary.prompt.md
-bin/docflow new executive-summary
+bin/graft new executive-summary
 
 # Create docs/strategy/board-brief.prompt.md
-bin/docflow new board-brief strategy
+bin/graft new board-brief strategy
 ```
 
 Creates a template with:
@@ -99,13 +99,13 @@ Edit the file to add dependencies and instructions, then run `rebuild`.
 View the packed prompt context for a stage.
 
 ```bash
-bin/docflow diff <stage_name>
+bin/graft diff <stage_name>
 ```
 
 Example:
 
 ```bash
-bin/docflow diff executive_summary
+bin/graft diff executive_summary
 ```
 
 Opens `build/<stage_name>.promptpack.txt` showing:
@@ -121,13 +121,13 @@ Useful for debugging why a document generates specific content.
 Show which prompts depend on a file.
 
 ```bash
-bin/docflow uses <file>
+bin/graft uses <file>
 ```
 
 Example:
 
 ```bash
-bin/docflow uses docs/strategy/foundations.md
+bin/graft uses docs/strategy/foundations.md
 ```
 
 Displays all prompt files that list this file in their `deps:`. Helps understand:
@@ -137,14 +137,14 @@ Displays all prompt files that list this file in their `deps:`. Helps understand
 
 ## Environment
 
-The `bin/docflow` wrapper accepts environment variables:
+The `bin/graft` wrapper accepts environment variables:
 
 ```bash
-# Use docflow from custom location
-DOCFLOW_DIR=/custom/path bin/docflow rebuild
+# Use graft from custom location
+DOCFLOW_DIR=/custom/path bin/graft rebuild
 
 # Pass through to docker
-AWS_REGION=us-east-1 bin/docflow rebuild
+AWS_REGION=us-east-1 bin/graft rebuild
 ```
 
 AWS credentials should be in `.env` file, but can be overridden on command line.
@@ -160,43 +160,43 @@ AWS credentials should be in `.env` file, but can be overridden on command line.
 ### Add a new document
 
 ```bash
-bin/docflow new report analysis
+bin/graft new report analysis
 # Edit docs/analysis/report.prompt.md
-bin/docflow rebuild
+bin/graft rebuild
 ```
 
 ### Update dependencies
 
 ```bash
 # Edit frontmatter deps: list in prompt file
-bin/docflow rebuild
+bin/graft rebuild
 ```
 
 ### Change prompt tone
 
 ```bash
 # Edit prompt instructions
-bin/docflow rebuild
+bin/graft rebuild
 # Triggers RESTYLE action
 ```
 
 ### Debug generation
 
 ```bash
-bin/docflow diff report
+bin/graft diff report
 # Review packed prompt context
 # Edit sources or prompt
-bin/docflow rebuild
+bin/graft rebuild
 ```
 
 ### Check what will regenerate
 
 ```bash
 # Before editing a source file
-bin/docflow uses docs/strategy/foundations.md
+bin/graft uses docs/strategy/foundations.md
 # Shows impact
 
 # After changes
-bin/docflow status
+bin/graft status
 # Shows what needs to run
 ```

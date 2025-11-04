@@ -1,0 +1,31 @@
+#!/bin/bash
+# Graft - LLM-powered documentation pipeline
+# This is a template wrapper for dependent repositories
+
+set -euo pipefail
+
+# Find graft directory relative to this repo
+# Default: assume graft is a sibling directory
+GRAFT_DIR="${GRAFT_DIR:-$(dirname "$(dirname "$(realpath "$0")")")/../graft}"
+
+if [ ! -d "$GRAFT_DIR" ]; then
+  echo "Error: Cannot find graft directory at $GRAFT_DIR" >&2
+  echo "Set GRAFT_DIR environment variable to point to graft repo" >&2
+  echo "Example: GRAFT_DIR=/path/to/graft $0 $*" >&2
+  exit 1
+fi
+
+# Check if Docker image exists
+if ! docker image inspect graft:local >/dev/null 2>&1; then
+  echo "Error: graft:local image not found" >&2
+  echo "Build it first: cd $GRAFT_DIR && make build" >&2
+  exit 1
+fi
+
+# Run graft Docker image
+exec docker run --rm \
+  -v "$(pwd):/work" \
+  -v "$GRAFT_DIR/scripts:/usr/local/lib/graft:ro" \
+  --env-file .env \
+  graft:local \
+  "$@"

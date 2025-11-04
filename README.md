@@ -1,10 +1,10 @@
-# Docflow
+# Graft
 
 LLM-powered documentation pipeline that generates Markdown documents from Markdown prompts using DVC, AWS Bedrock, and Claude Sonnet 4.5.
 
 ## Overview
 
-Docflow treats documentation as code, using git-based change detection and DVC pipeline management to keep docs synchronized with sources. The system intelligently detects what changed and applies the right update strategy—whether that's generating from scratch, applying semantic updates, or restyling entirely.
+Graft treats documentation as code, using git-based change detection and DVC pipeline management to keep docs synchronized with sources. The system intelligently detects what changed and applies the right update strategy—whether that's generating from scratch, applying semantic updates, or restyling entirely.
 
 Key capabilities:
 
@@ -22,11 +22,11 @@ Key capabilities:
 - Docker
 - AWS credentials with Bedrock access
 
-### Build docflow
+### Build Graft
 
 ```bash
-git clone <docflow-repo>
-cd docflow
+git clone <graft-repo>
+cd graft
 make build
 ```
 
@@ -39,15 +39,15 @@ cd ../your-project
 cp .env.example .env
 # Edit .env with your AWS credentials
 
-# Initialize docflow
-bin/docflow init
+# Initialize graft
+bin/graft init
 
 # Create your first document
-bin/docflow new executive-summary strategy
+bin/graft new executive-summary strategy
 # Edit docs/strategy/executive-summary.prompt.md
 
 # Generate documentation
-bin/docflow rebuild
+bin/graft rebuild
 ```
 
 ## Documentation
@@ -65,19 +65,19 @@ Reference documentation:
 ## Core Commands
 
 ```bash
-bin/docflow init                      # Initialize project (DVC + hooks)
-bin/docflow rebuild                   # Generate dvc.yaml and run pipeline
-bin/docflow status                    # Show pipeline status
-bin/docflow new <name> [topic]        # Scaffold a new document
-bin/docflow uses <file>               # Show which prompts depend on a file
-bin/docflow diff <stage>              # Inspect prompt context
+bin/graft init                      # Initialize project (DVC + hooks)
+bin/graft rebuild                   # Generate dvc.yaml and run pipeline
+bin/graft status                    # Show pipeline status
+bin/graft new <name> [topic]        # Scaffold a new document
+bin/graft uses <file>               # Show which prompts depend on a file
+bin/graft diff <stage>              # Inspect prompt context
 ```
 
 ## How It Works
 
 1. **Write sources** - Create manual `.md` files with your content
 2. **Define prompts** - Create `.prompt.md` files with frontmatter specifying dependencies
-3. **Generate** - Run `bin/docflow rebuild` to create output documents
+3. **Generate** - Run `bin/graft rebuild` to create output documents
 4. **Iterate** - Edit sources or prompts, rebuild to apply changes
 
 The system automatically detects what changed (sources vs prompts) and applies the appropriate action:

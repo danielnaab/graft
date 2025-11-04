@@ -4,7 +4,7 @@
 # To add a new document:
 #   1. Create docs/<topic>/<name>.prompt.md
 #   2. Add 'deps:' list in frontmatter
-#   3. Run: bin/docflow rebuild
+#   3. Run: bin/graft rebuild
 #
 # Each stage is generated from its corresponding .prompt.md file.
 # Dependencies come from the 'deps:' field in frontmatter.

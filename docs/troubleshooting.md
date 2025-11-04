@@ -7,7 +7,7 @@ Common issues and solutions.
 ### Check pipeline status
 
 ```bash
-bin/docflow status
+bin/graft status
 ```
 
 If all stages show "up to date", no changes were detected.
@@ -28,7 +28,7 @@ The system only regenerates when files in `deps:` change.
 ```bash
 # Touch the prompt file to trigger RESTYLE
 touch docs/your-doc.prompt.md
-bin/docflow rebuild
+bin/graft rebuild
 ```
 
 ## AWS authentication errors
@@ -48,7 +48,7 @@ Ensure these are set:
 
 ```bash
 # Inside the container
-docker run --rm --env-file .env docflow:local \
+docker run --rm --env-file .env graft:local \
   llm -m bedrock-claude-v4.5-sonnet-us "test"
 ```
 
@@ -71,23 +71,23 @@ AWS_SESSION_TOKEN=your-token-here
 ### Build the image
 
 ```bash
-cd /path/to/docflow
+cd /path/to/graft
 make build
 ```
 
 ### Verify image exists
 
 ```bash
-docker images | grep docflow
+docker images | grep graft
 ```
 
-Should show `docflow:local`.
+Should show `graft:local`.
 
-### Custom docflow location
+### Custom graft location
 
 ```bash
-export DOCFLOW_DIR=/custom/path/to/docflow
-bin/docflow rebuild
+export DOCFLOW_DIR=/custom/path/to/graft
+bin/graft rebuild
 ```
 
 ## Large diffs in generated docs
@@ -104,7 +104,7 @@ Check that prompts instruct:
 ### Review packed prompt
 
 ```bash
-bin/docflow diff your-stage
+bin/graft diff your-stage
 ```
 
 Verify:
@@ -131,7 +131,7 @@ Keep formatting, headings, and unchanged sections identical.
 ### Dependency not found
 
 ```bash
-bin/docflow sync
+bin/graft sync
 # Error: docs/missing-file.md doesn't exist
 ```
 
@@ -142,7 +142,7 @@ Either:
 ### Circular dependencies
 
 ```bash
-bin/docflow check
+bin/graft check
 # Error: Circular dependency detected
 ```
 
@@ -163,13 +163,13 @@ sources.md -> stage1.md -> stage2.md
 ```bash
 dvc cache dir
 rm -rf .dvc/cache/*
-bin/docflow rebuild
+bin/graft rebuild
 ```
 
 ### Stage failed
 
 ```bash
-bin/docflow status
+bin/graft status
 # Shows failed stage
 
 # View logs
@@ -198,7 +198,7 @@ To optimize:
 
 ```bash
 # Check what's using a file
-bin/docflow uses docs/frequently-changing.md
+bin/graft uses docs/frequently-changing.md
 ```
 
 If many docs depend on a frequently-changing file:
@@ -211,9 +211,9 @@ If many docs depend on a frequently-changing file:
 If you encounter issues not covered here:
 
 1. Check git history for changes to prompts or sources
-2. Review packed prompt context with `bin/docflow diff`
-3. Validate dependencies with `bin/docflow sync`
+2. Review packed prompt context with `bin/graft diff`
+3. Validate dependencies with `bin/graft sync`
 4. Test AWS access directly with `llm` CLI
 5. Check DVC status and logs
 
-For bugs or feature requests, open an issue in the docflow repository.
+For bugs or feature requests, open an issue in the graft repository.

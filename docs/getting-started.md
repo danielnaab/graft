@@ -1,6 +1,6 @@
 # Getting Started
 
-Docflow is an LLM-powered documentation pipeline that generates Markdown documents from Markdown prompts using DVC, AWS Bedrock, and Claude Sonnet 4.5.
+Graft is an LLM-powered documentation pipeline that generates Markdown documents from Markdown prompts using DVC, AWS Bedrock, and Claude Sonnet 4.5.
 
 ## Prerequisites
 
@@ -9,15 +9,15 @@ Docflow is an LLM-powered documentation pipeline that generates Markdown documen
 
 ## Installation
 
-### Build docflow
+### Build graft
 
 ```bash
-git clone <docflow-repo>
-cd docflow
+git clone <graft-repo>
+cd graft
 make build
 ```
 
-This builds the `docflow:local` Docker image with all dependencies.
+This builds the `graft:local` Docker image with all dependencies.
 
 ### Set up your project
 
@@ -31,10 +31,10 @@ cp .env.example .env
 # Required: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 ```
 
-### Initialize docflow
+### Initialize graft
 
 ```bash
-bin/docflow init
+bin/graft init
 ```
 
 This initializes DVC and sets up git hooks for automatic `dvc.yaml` regeneration.
@@ -44,7 +44,7 @@ This initializes DVC and sets up git hooks for automatic `dvc.yaml` regeneration
 ### Scaffold a new prompt
 
 ```bash
-bin/docflow new executive-summary strategy
+bin/graft new executive-summary strategy
 ```
 
 This creates `docs/strategy/executive-summary.prompt.md` with template frontmatter.
@@ -68,7 +68,7 @@ Focus on key insights and actionable recommendations.
 ### Generate the document
 
 ```bash
-bin/docflow rebuild
+bin/graft rebuild
 ```
 
 This:
@@ -87,7 +87,7 @@ cat docs/strategy/executive-summary.md
 To refine:
 - Edit source files to add content
 - Edit the prompt to change tone or structure
-- Run `bin/docflow rebuild` again
+- Run `bin/graft rebuild` again
 
 The system automatically detects what changed and applies appropriate updates.
 
