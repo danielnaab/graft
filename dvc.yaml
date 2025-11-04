@@ -28,6 +28,80 @@ stages:
     outs:
     - README.md:
         cache: false
+  claude_skills:
+    cmd: bash scripts/render_llm.sh --prompt docs/claude-skills.prompt.md --out docs/claude-skills.md
+      --name claude_skills
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/claude-skills.prompt.md
+    - .claude/skills/steward/SKILL.md
+    - scripts/entrypoint.sh
+    - docs/project-overview.md
+    outs:
+    - docs/claude-skills.md:
+        cache: false
+  command_reference:
+    cmd: bash scripts/render_llm.sh --prompt docs/command-reference.prompt.md --out
+      docs/command-reference.md --name command_reference
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/command-reference.prompt.md
+    - scripts/entrypoint.sh
+    - bin/graft
+    - docs/how-it-works.md
+    - docs/configuration.md
+    - docs/troubleshooting.md
+    outs:
+    - docs/command-reference.md:
+        cache: false
+  configuration:
+    cmd: bash scripts/render_llm.sh --prompt docs/configuration.prompt.md --out docs/configuration.md
+      --name configuration
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/configuration.prompt.md
+    - Dockerfile
+    - .env.example
+    - scripts/render_llm.sh
+    - bin/graft
+    outs:
+    - docs/configuration.md:
+        cache: false
+  getting_started:
+    cmd: bash scripts/render_llm.sh --prompt docs/getting-started.prompt.md --out
+      docs/getting-started.md --name getting_started
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/getting-started.prompt.md
+    - Makefile
+    - bin/graft
+    - scripts/entrypoint.sh
+    - .env.example
+    outs:
+    - docs/getting-started.md:
+        cache: false
+  how_it_works:
+    cmd: bash scripts/render_llm.sh --prompt docs/how-it-works.prompt.md --out docs/how-it-works.md
+      --name how_it_works
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/how-it-works.prompt.md
+    - scripts/pack_prompt.py
+    - scripts/generate_dvc.py
+    - scripts/render_llm.sh
+    outs:
+    - docs/how-it-works.md:
+        cache: false
   color_palette:
     cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/01-explorations/color-palette.prompt.md
       --out docs/logo-exploration/01-explorations/color-palette.md --name color_palette
@@ -197,6 +271,20 @@ stages:
     - docs/troubleshooting.md
     outs:
     - docs/project-overview.md:
+        cache: false
+  troubleshooting:
+    cmd: bash scripts/render_llm.sh --prompt docs/troubleshooting.prompt.md --out
+      docs/troubleshooting.md --name troubleshooting
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/troubleshooting.prompt.md
+    - scripts/render_llm.sh
+    - scripts/entrypoint.sh
+    - bin/graft
+    outs:
+    - docs/troubleshooting.md:
         cache: false
   use_cases:
     cmd: bash scripts/render_llm.sh --prompt docs/use-cases.prompt.md --out docs/use-cases.md
