@@ -1,15 +1,27 @@
 # GitHub Actions Setup for Graft
 
-This guide explains how to configure GitHub Actions to validate Graft documentation automatically in pull requests.
+This guide explains how to configure GitHub Actions to validate and preview Graft documentation automatically in pull requests.
 
 ## Overview
 
-The Graft validation workflow runs automatically on pull requests to:
-1. Verify `dvc.yaml` is synchronized with prompt files
-2. Check all dependencies exist
-3. Detect stale documentation
+Graft provides two GitHub Actions workflows:
 
-**Note**: The validation workflow does NOT regenerate documentation. It only checks for inconsistencies. Regeneration happens locally via `bin/graft rebuild`.
+### 1. Validation Workflow (Automatic)
+Runs automatically on all pull requests to:
+- Verify `dvc.yaml` is synchronized with prompt files
+- Check all dependencies exist
+- Detect stale documentation
+
+**No AWS credentials required** - validation is fast and free.
+
+### 2. Preview Workflow (On-Demand)
+Triggered by adding the `preview-docs` label to a PR:
+- Actually regenerates documentation using LLM APIs
+- Posts PR comment showing what will change
+- Provides cost and time estimates
+- Helps review AI-generated output before committing
+
+**Requires AWS credentials** - uses LLM APIs and incurs costs.
 
 ## Prerequisites
 
@@ -61,6 +73,82 @@ The workflow only runs when relevant files change:
 - **No AWS costs**: Validation doesn't call LLM APIs
 - **Caching**: Docker images are cached between runs
 
+## Preview Workflow Usage
+
+### When to Use Preview
+
+The preview workflow is perfect for:
+- **Reviewing AI output before committing** - See what regeneration will produce
+- **Validating prompt changes** - Check if your prompt edits produce the desired output
+- **Getting reviewer feedback** - Show generated docs in the PR for team review
+- **Cost estimation** - See actual AWS costs before running locally
+
+### How to Trigger Preview
+
+1. Open a pull request with documentation changes
+2. Add the label `preview-docs` to the PR
+3. Wait for the workflow to complete (~2-5 minutes depending on doc count)
+4. Review the preview comment posted to the PR
+
+### What You'll See
+
+The preview workflow posts a comment with:
+
+```markdown
+## ✅ Documentation Preview Complete
+
+**Summary:**
+- 📄 Documents regenerated: 3
+- 📝 Files changed: 3
+- ⏱️ Time: 2m 34s
+- 💰 Estimated cost: ~$0.15
+
+### Changes Preview
+
+### `docs/how-it-works.md`
+```diff
+- Old content based on previous sources
++ New content incorporating your changes
+```
+
+### Next Steps
+- Review the changes above
+- If they look good, run `bin/graft rebuild` locally and commit
+- Or re-trigger this preview after updating prompts/sources
+```
+
+### After Preview
+
+If the regenerated output looks good:
+```bash
+# Run regeneration locally
+bin/graft rebuild
+
+# Review what changed
+git diff docs/
+
+# Commit the changes
+git add docs/
+git commit -m "Regenerate documentation"
+git push
+```
+
+If you need to refine the output:
+- Edit your source files or prompts
+- Push the changes
+- The preview workflow will NOT automatically re-run
+- Remove and re-add the `preview-docs` label to trigger again
+
+### Preview Workflow Behavior
+
+**Triggered by**: Adding the `preview-docs` label
+**AWS Credentials**: Required (uses LLM APIs)
+**Cost**: ~$0.05 per document regenerated
+**Time**: ~30-60 seconds per document
+**Output**: PR comment with diffs (does NOT commit to branch)
+
+**Important**: The preview workflow does NOT commit changes to your branch. It only shows you what regeneration would produce. You must run `bin/graft rebuild` locally and commit to apply the changes.
+
 ## Setup Instructions
 
 ### Step 1: Workflow File
@@ -69,9 +157,11 @@ The workflow file is at `.github/workflows/graft-validate.yml`. It's automatical
 
 No changes needed for basic validation.
 
-### Step 2: Configure Secrets (Optional for Validation)
+### Step 2: Configure AWS Secrets (Required for Preview)
 
-Validation doesn't require AWS credentials, but if you want to enable full regeneration in CI (future feature), you'll need to configure AWS access.
+The validation workflow doesn't require AWS credentials, but the **preview workflow requires them** to regenerate documentation.
+
+To enable the preview workflow, configure AWS access:
 
 #### Option A: AWS Access Keys (Simple)
 
@@ -101,7 +191,20 @@ Validation doesn't require AWS credentials, but if you want to enable full regen
 
 For production use, OIDC federation is recommended. See [AWS documentation](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services) for setup instructions.
 
-### Step 3: Enable Branch Protection (Recommended)
+### Step 3: Create Preview Label
+
+For the preview workflow to work, create a `preview-docs` label:
+
+1. Go to Issues → Labels
+2. Click "New label"
+3. Name: `preview-docs`
+4. Description: "Trigger documentation preview generation"
+5. Color: Choose any color (suggestion: blue #0366d6)
+6. Click "Create label"
+
+Now you can trigger previews by adding this label to PRs.
+
+### Step 4: Enable Branch Protection (Recommended)
 
 To prevent merging PRs with stale documentation:
 
@@ -113,7 +216,7 @@ To prevent merging PRs with stale documentation:
 
 Now PRs with stale docs cannot be merged until fixed.
 
-## Using the Workflow
+## Using the Workflows
 
 ### Successful Validation
 
