@@ -83,7 +83,7 @@ P
     python3 scripts/generate_dvc.py
 
     # Show pipeline summary before running
-    total_stages=$(dvc status 2>/dev/null | grep -c "changed" || echo "0")
+    total_stages=$(dvc status 2>/dev/null | grep -c "changed" || true)
     if [[ "$total_stages" -gt 0 ]]; then
       echo "📋 Pipeline has $total_stages stage(s) to run" >&2
       echo "" >&2
