@@ -23,9 +23,28 @@ if ! docker image inspect graft:local >/dev/null 2>&1; then
 fi
 
 # Run graft Docker image
+# Mount AWS credentials from host for SSO/profile support
+AWS_DIR="${HOME}/.aws"
+AWS_MOUNT=""
+AWS_ENV_ARGS=""
+
+if [ -d "$AWS_DIR" ]; then
+  AWS_MOUNT="-v ${AWS_DIR}:/root/.aws:ro"
+fi
+
+# Pass through AWS environment variables from host if they exist
+# This supports both SSO and direct credentials
+for var in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_DEFAULT_PROFILE; do
+  if [ -n "${!var:-}" ]; then
+    AWS_ENV_ARGS="$AWS_ENV_ARGS -e $var"
+  fi
+done
+
 exec docker run --rm \
   -v "$(pwd):/work" \
   -v "$GRAFT_DIR/scripts:/usr/local/lib/graft:ro" \
+  $AWS_MOUNT \
+  $AWS_ENV_ARGS \
   --env-file .env \
   graft:local \
   "$@"

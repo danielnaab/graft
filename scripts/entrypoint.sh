@@ -79,11 +79,21 @@ P
     python3 scripts/find_uses.py "$file"
     ;;
   rebuild|"")
-    echo "Generating dvc.yaml from prompt files..."
+    echo "🔧 Generating dvc.yaml from prompt files..." >&2
     python3 scripts/generate_dvc.py
-    echo "Running DVC pipeline..."
+
+    # Show pipeline summary before running
+    total_stages=$(dvc status 2>/dev/null | grep -c "changed" || echo "0")
+    if [[ "$total_stages" -gt 0 ]]; then
+      echo "📋 Pipeline has $total_stages stage(s) to run" >&2
+      echo "" >&2
+    fi
+
+    echo "🚀 Running DVC pipeline..." >&2
     dvc repro
-    echo "Done."
+
+    echo "" >&2
+    echo "✅ Done." >&2
     ;;
   help|--help|-h)
     echo "Usage: bin/graft [COMMAND] [OPTIONS]"
