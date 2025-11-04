@@ -73,6 +73,71 @@ stages:
     outs:
     - docs/getting-started.md:
         cache: false
+  claude_code_integration:
+    cmd: bash scripts/render_llm.sh --prompt docs/github-integration/01-explorations/claude-code-integration.prompt.md
+      --out docs/github-integration/01-explorations/claude-code-integration.md --name
+      claude_code_integration
+    deps:
+    - docs/github-integration/01-explorations/claude-code-integration.prompt.md
+    - docs/github-integration/00-sources/design-philosophy.md
+    - docs/how-it-works.md
+    - docs/claude-skills.md
+    - .claude/skills/steward/SKILL.md
+    outs:
+    - docs/github-integration/01-explorations/claude-code-integration.md:
+        cache: false
+  github_actions_strategy:
+    cmd: bash scripts/render_llm.sh --prompt docs/github-integration/01-explorations/github-actions-strategy.prompt.md
+      --out docs/github-integration/01-explorations/github-actions-strategy.md --name
+      github_actions_strategy
+    deps:
+    - docs/github-integration/01-explorations/github-actions-strategy.prompt.md
+    - docs/github-integration/00-sources/design-philosophy.md
+    - docs/how-it-works.md
+    - docs/configuration.md
+    - bin/graft
+    - Dockerfile
+    outs:
+    - docs/github-integration/01-explorations/github-actions-strategy.md:
+        cache: false
+  validation_strategy:
+    cmd: bash scripts/render_llm.sh --prompt docs/github-integration/01-explorations/validation-strategy.prompt.md
+      --out docs/github-integration/01-explorations/validation-strategy.md --name
+      validation_strategy
+    deps:
+    - docs/github-integration/01-explorations/validation-strategy.prompt.md
+    - docs/github-integration/00-sources/design-philosophy.md
+    - docs/how-it-works.md
+    - scripts/pack_prompt.py
+    - scripts/generate_dvc.py
+    outs:
+    - docs/github-integration/01-explorations/validation-strategy.md:
+        cache: false
+  workflow_patterns:
+    cmd: bash scripts/render_llm.sh --prompt docs/github-integration/01-explorations/workflow-patterns.prompt.md
+      --out docs/github-integration/01-explorations/workflow-patterns.md --name workflow_patterns
+    deps:
+    - docs/github-integration/01-explorations/workflow-patterns.prompt.md
+    - docs/github-integration/00-sources/design-philosophy.md
+    - docs/how-it-works.md
+    - docs/use-cases.md
+    outs:
+    - docs/github-integration/01-explorations/workflow-patterns.md:
+        cache: false
+  implementation_framework:
+    cmd: bash scripts/render_llm.sh --prompt docs/github-integration/02-frameworks/implementation-framework.prompt.md
+      --out docs/github-integration/02-frameworks/implementation-framework.md --name
+      implementation_framework
+    deps:
+    - docs/github-integration/02-frameworks/implementation-framework.prompt.md
+    - docs/github-integration/00-sources/design-philosophy.md
+    - docs/github-integration/01-explorations/workflow-patterns.md
+    - docs/github-integration/01-explorations/github-actions-strategy.md
+    - docs/github-integration/01-explorations/claude-code-integration.md
+    - docs/github-integration/01-explorations/validation-strategy.md
+    outs:
+    - docs/github-integration/02-frameworks/implementation-framework.md:
+        cache: false
   how_it_works:
     cmd: bash scripts/render_llm.sh --prompt docs/how-it-works.prompt.md --out docs/how-it-works.md
       --name how_it_works
