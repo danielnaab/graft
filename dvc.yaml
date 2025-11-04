@@ -283,15 +283,6 @@ stages:
     outs:
     - docs/project-overview.md:
         cache: false
-  __help:
-    cmd: bash scripts/render_llm.sh --prompt docs/strategy/--help.prompt.md --out
-      docs/strategy/--help.md --name __help
-    deps:
-    - docs/strategy/--help.prompt.md
-    - docs/strategy/foundations.md
-    outs:
-    - docs/strategy/--help.md:
-        cache: false
   troubleshooting:
     cmd: bash scripts/render_llm.sh --prompt docs/troubleshooting.prompt.md --out
       docs/troubleshooting.md --name troubleshooting
