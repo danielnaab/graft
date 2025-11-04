@@ -15,7 +15,9 @@ Follow the action directive precisely:
 - REFRESH: Both sources and prompt changed - review BOTH diffs carefully and apply only the necessary changes from each, preserving unchanged content exactly
 - MAINTAIN: Nothing changed - output should be identical to previous draft
 
-For REFINE/REFRESH: The diff shows you exactly what changed in the instructions. Use semantic judgment to determine the scope of changes needed. A factual correction (e.g., license name) requires only a line change. A style directive (e.g., "rewrite in formal tone") requires broader changes. Let the diff guide your judgment."""
+For REFINE/REFRESH: The diff shows you exactly what changed in the instructions. Use semantic judgment to determine the scope of changes needed. A factual correction (e.g., license name) requires only a line change. A style directive (e.g., "rewrite in formal tone") requires broader changes. Let the diff guide your judgment.
+
+CRITICAL: Output ONLY the final document content. Do not include any preamble, explanation, or meta-commentary about what you're doing. Start directly with the document content."""
 
 def read(p): return pathlib.Path(p).read_text(encoding="utf-8")
 def exists(p): return pathlib.Path(p).exists()
@@ -39,10 +41,18 @@ def redact(text):
     return re.sub(r"(AWS_[A-Z_]+=)[^\s]+", r"\1***", text)
 
 def get_prev_commit_content(path):
-    """Get file content from previous commit"""
+    """Get file content from previous commit (HEAD~1)"""
     try:
         base = subprocess.check_output(["git", "rev-parse", "HEAD~1"], text=True).strip()
         content = subprocess.check_output(["git", "show", f"{base}:{path}"], text=True)
+        return content
+    except Exception:
+        return None
+
+def get_current_commit_content(path):
+    """Get file content from current commit (HEAD)"""
+    try:
+        content = subprocess.check_output(["git", "show", f"HEAD:{path}"], text=True)
         return content
     except Exception:
         return None
@@ -105,7 +115,12 @@ def main():
     if "model" in meta and meta["model"] is not None:
         eff["model"] = meta["model"]
 
-    prev = pathlib.Path(args.prev).read_text("utf-8") if exists(args.prev) else ""
+    # Try filesystem first, fall back to git HEAD if file doesn't exist (e.g., DVC removed it)
+    if exists(args.prev):
+        prev = pathlib.Path(args.prev).read_text("utf-8")
+    else:
+        prev = get_current_commit_content(args.prev) or ""
+
     diff = git_unified_diff(deps)
 
     # Detect what changed
