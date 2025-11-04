@@ -598,3 +598,169 @@ stages:
       hash: md5
       md5: f104e764409dcc41d29289726d4e1259
       size: 16654
+  claude_code_integration:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/github-integration/01-explorations/claude-code-integration.prompt.md 
+      --out docs/github-integration/01-explorations/claude-code-integration.md 
+      --name claude_code_integration
+    deps:
+    - path: .claude/skills/steward/SKILL.md
+      hash: md5
+      md5: ed16dfba7f9251cda1f8e1861a959b85
+      size: 12082
+    - path: docs/claude-skills.md
+      hash: md5
+      md5: f104e764409dcc41d29289726d4e1259
+      size: 16654
+    - path: docs/github-integration/00-sources/design-philosophy.md
+      hash: md5
+      md5: ad06b30b80b6d3c63f7cc3cfc0cd3dea
+      size: 11704
+    - path: 
+        docs/github-integration/01-explorations/claude-code-integration.prompt.md
+      hash: md5
+      md5: 0c98357f9c52aa4893573e775a8252b0
+      size: 6298
+    - path: docs/how-it-works.md
+      hash: md5
+      md5: c5e11c868ac051802630d476995c9f58
+      size: 13107
+    outs:
+    - path: docs/github-integration/01-explorations/claude-code-integration.md
+      hash: md5
+      md5: 8b2178ee8475f41933f7ecfe60717416
+      size: 14808
+  github_actions_strategy:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/github-integration/01-explorations/github-actions-strategy.prompt.md 
+      --out docs/github-integration/01-explorations/github-actions-strategy.md 
+      --name github_actions_strategy
+    deps:
+    - path: Dockerfile
+      hash: md5
+      md5: 7adc629e2a00d99ecdde40b4ef44cf35
+      size: 445
+    - path: bin/graft
+      hash: md5
+      md5: 35179f6d80767c9a7ff484866877a0d9
+      size: 1425
+      isexec: true
+    - path: docs/configuration.md
+      hash: md5
+      md5: b761d03b1e6b021e3cafa7c22815ce5b
+      size: 328
+    - path: docs/github-integration/00-sources/design-philosophy.md
+      hash: md5
+      md5: ad06b30b80b6d3c63f7cc3cfc0cd3dea
+      size: 11704
+    - path: 
+        docs/github-integration/01-explorations/github-actions-strategy.prompt.md
+      hash: md5
+      md5: d4ce2916b7e36cebb90154f7d7ea4bd5
+      size: 3113
+    - path: docs/how-it-works.md
+      hash: md5
+      md5: c5e11c868ac051802630d476995c9f58
+      size: 13107
+    outs:
+    - path: docs/github-integration/01-explorations/github-actions-strategy.md
+      hash: md5
+      md5: 4851f9b1a2c914ee8239be2f2680153e
+      size: 14344
+  validation_strategy:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/github-integration/01-explorations/validation-strategy.prompt.md 
+      --out docs/github-integration/01-explorations/validation-strategy.md 
+      --name validation_strategy
+    deps:
+    - path: docs/github-integration/00-sources/design-philosophy.md
+      hash: md5
+      md5: ad06b30b80b6d3c63f7cc3cfc0cd3dea
+      size: 11704
+    - path: 
+        docs/github-integration/01-explorations/validation-strategy.prompt.md
+      hash: md5
+      md5: b45e1a88f04de1da95fbf9f1b6d8d981
+      size: 9998
+    - path: docs/how-it-works.md
+      hash: md5
+      md5: c5e11c868ac051802630d476995c9f58
+      size: 13107
+    - path: scripts/generate_dvc.py
+      hash: md5
+      md5: 3f542bb33b27481e9f26d6aac93a667c
+      size: 3810
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: ba1ea6a89ba9ce210fb7f0c00b4c9f4b
+      size: 8331
+      isexec: true
+    outs:
+    - path: docs/github-integration/01-explorations/validation-strategy.md
+      hash: md5
+      md5: 27a75dffecbf47afa182a814492e375f
+      size: 15195
+  workflow_patterns:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/github-integration/01-explorations/workflow-patterns.prompt.md --out 
+      docs/github-integration/01-explorations/workflow-patterns.md --name 
+      workflow_patterns
+    deps:
+    - path: docs/github-integration/00-sources/design-philosophy.md
+      hash: md5
+      md5: ad06b30b80b6d3c63f7cc3cfc0cd3dea
+      size: 11704
+    - path: docs/github-integration/01-explorations/workflow-patterns.prompt.md
+      hash: md5
+      md5: a972e5124c6796ee6a4b003429991301
+      size: 2455
+    - path: docs/how-it-works.md
+      hash: md5
+      md5: c5e11c868ac051802630d476995c9f58
+      size: 13107
+    - path: docs/use-cases.md
+      hash: md5
+      md5: 32c637fc682a425a1f826fe9fbb860ff
+      size: 18073
+    outs:
+    - path: docs/github-integration/01-explorations/workflow-patterns.md
+      hash: md5
+      md5: d6389490b5470a4273e6935bcc795303
+      size: 14814
+  implementation_framework:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/github-integration/02-frameworks/implementation-framework.prompt.md 
+      --out docs/github-integration/02-frameworks/implementation-framework.md 
+      --name implementation_framework
+    deps:
+    - path: docs/github-integration/00-sources/design-philosophy.md
+      hash: md5
+      md5: ad06b30b80b6d3c63f7cc3cfc0cd3dea
+      size: 11704
+    - path: docs/github-integration/01-explorations/claude-code-integration.md
+      hash: md5
+      md5: 8b2178ee8475f41933f7ecfe60717416
+      size: 14808
+    - path: docs/github-integration/01-explorations/github-actions-strategy.md
+      hash: md5
+      md5: 4851f9b1a2c914ee8239be2f2680153e
+      size: 14344
+    - path: docs/github-integration/01-explorations/validation-strategy.md
+      hash: md5
+      md5: 27a75dffecbf47afa182a814492e375f
+      size: 15195
+    - path: docs/github-integration/01-explorations/workflow-patterns.md
+      hash: md5
+      md5: d6389490b5470a4273e6935bcc795303
+      size: 14814
+    - path: 
+        docs/github-integration/02-frameworks/implementation-framework.prompt.md
+      hash: md5
+      md5: e63c4ec70b409997ad092319e056c31d
+      size: 4845
+    outs:
+    - path: docs/github-integration/02-frameworks/implementation-framework.md
+      hash: md5
+      md5: 547dff0d8b0b652a8bbcb81e5c6f38eb
+      size: 15232
