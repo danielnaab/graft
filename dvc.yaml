@@ -10,6 +10,76 @@
 # Dependencies come from the 'deps:' field in frontmatter.
 
 stages:
+  hybrid_names:
+    cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/hybrid-names.prompt.md
+      --out docs/naming-exploration/01-explorations/hybrid-names.md --name hybrid_names
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/naming-exploration/01-explorations/hybrid-names.prompt.md
+    - docs/naming-exploration/00-sources/project-essence.md
+    - docs/naming-exploration/00-sources/naming-criteria.md
+    - docs/naming-exploration/00-sources/existing-tools-research.md
+    outs:
+    - docs/naming-exploration/01-explorations/hybrid-names.md:
+        cache: false
+  metaphor_names:
+    cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/metaphor-names.prompt.md
+      --out docs/naming-exploration/01-explorations/metaphor-names.md --name metaphor_names
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/naming-exploration/01-explorations/metaphor-names.prompt.md
+    - docs/naming-exploration/00-sources/project-essence.md
+    - docs/naming-exploration/00-sources/naming-criteria.md
+    - docs/naming-exploration/00-sources/existing-tools-research.md
+    outs:
+    - docs/naming-exploration/01-explorations/metaphor-names.md:
+        cache: false
+  name_evaluation:
+    cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/name-evaluation.prompt.md
+      --out docs/naming-exploration/01-explorations/name-evaluation.md --name name_evaluation
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/naming-exploration/01-explorations/name-evaluation.prompt.md
+    - docs/naming-exploration/00-sources/naming-criteria.md
+    - docs/naming-exploration/01-explorations/metaphor-names.md
+    - docs/naming-exploration/01-explorations/technical-names.md
+    - docs/naming-exploration/01-explorations/hybrid-names.md
+    outs:
+    - docs/naming-exploration/01-explorations/name-evaluation.md:
+        cache: false
+  technical_names:
+    cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/technical-names.prompt.md
+      --out docs/naming-exploration/01-explorations/technical-names.md --name technical_names
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/naming-exploration/01-explorations/technical-names.prompt.md
+    - docs/naming-exploration/00-sources/project-essence.md
+    - docs/naming-exploration/00-sources/naming-criteria.md
+    - docs/naming-exploration/00-sources/existing-tools-research.md
+    outs:
+    - docs/naming-exploration/01-explorations/technical-names.md:
+        cache: false
+  recommendation:
+    cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/02-final/recommendation.prompt.md
+      --out docs/naming-exploration/02-final/recommendation.md --name recommendation
+    deps:
+    - scripts/render_llm.sh
+    - scripts/pack_prompt.py
+    - scripts/ensure_llm.py
+    - docs/naming-exploration/02-final/recommendation.prompt.md
+    - docs/naming-exploration/00-sources/project-essence.md
+    - docs/naming-exploration/01-explorations/name-evaluation.md
+    outs:
+    - docs/naming-exploration/02-final/recommendation.md:
+        cache: false
   project_overview:
     cmd: bash scripts/render_llm.sh --prompt docs/project-overview.prompt.md --out
       docs/project-overview.md --name project_overview

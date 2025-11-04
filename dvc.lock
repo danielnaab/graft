@@ -48,3 +48,212 @@ stages:
       hash: md5
       md5: b34e454aaa29ee106455bdabe504ac1d
       size: 6618
+  hybrid_names:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/naming-exploration/01-explorations/hybrid-names.prompt.md --out 
+      docs/naming-exploration/01-explorations/hybrid-names.md --name 
+      hybrid_names
+    deps:
+    - path: docs/naming-exploration/00-sources/existing-tools-research.md
+      hash: md5
+      md5: dd60740111a637a19ebd5f2e98a671bc
+      size: 4255
+    - path: docs/naming-exploration/00-sources/naming-criteria.md
+      hash: md5
+      md5: 33b1c26dc8f699a9869964c923fbae21
+      size: 3553
+    - path: docs/naming-exploration/00-sources/project-essence.md
+      hash: md5
+      md5: 194cb84a2fb262f2c60e9e740b10c91c
+      size: 4786
+    - path: docs/naming-exploration/01-explorations/hybrid-names.prompt.md
+      hash: md5
+      md5: 29c51e9085c0dbc666881712eb5450b8
+      size: 1839
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a6e434b4aa474917d8e80a90d3509d48
+      size: 1923
+      isexec: true
+    outs:
+    - path: docs/naming-exploration/01-explorations/hybrid-names.md
+      hash: md5
+      md5: 1ddca5be6f1fe71e9f91de2b589d3aaa
+      size: 7643
+  metaphor_names:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/naming-exploration/01-explorations/metaphor-names.prompt.md --out 
+      docs/naming-exploration/01-explorations/metaphor-names.md --name 
+      metaphor_names
+    deps:
+    - path: docs/naming-exploration/00-sources/existing-tools-research.md
+      hash: md5
+      md5: dd60740111a637a19ebd5f2e98a671bc
+      size: 4255
+    - path: docs/naming-exploration/00-sources/naming-criteria.md
+      hash: md5
+      md5: 33b1c26dc8f699a9869964c923fbae21
+      size: 3553
+    - path: docs/naming-exploration/00-sources/project-essence.md
+      hash: md5
+      md5: 194cb84a2fb262f2c60e9e740b10c91c
+      size: 4786
+    - path: docs/naming-exploration/01-explorations/metaphor-names.prompt.md
+      hash: md5
+      md5: 1ba3f39a682eea179798e4f7a4018c8e
+      size: 1380
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a6e434b4aa474917d8e80a90d3509d48
+      size: 1923
+      isexec: true
+    outs:
+    - path: docs/naming-exploration/01-explorations/metaphor-names.md
+      hash: md5
+      md5: 793020201625d292b0cbcd030b1b5037
+      size: 7897
+  technical_names:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/naming-exploration/01-explorations/technical-names.prompt.md --out 
+      docs/naming-exploration/01-explorations/technical-names.md --name 
+      technical_names
+    deps:
+    - path: docs/naming-exploration/00-sources/existing-tools-research.md
+      hash: md5
+      md5: dd60740111a637a19ebd5f2e98a671bc
+      size: 4255
+    - path: docs/naming-exploration/00-sources/naming-criteria.md
+      hash: md5
+      md5: 33b1c26dc8f699a9869964c923fbae21
+      size: 3553
+    - path: docs/naming-exploration/00-sources/project-essence.md
+      hash: md5
+      md5: 194cb84a2fb262f2c60e9e740b10c91c
+      size: 4786
+    - path: docs/naming-exploration/01-explorations/technical-names.prompt.md
+      hash: md5
+      md5: 5f62678942bc2128b2e0dbfd1e6a86eb
+      size: 1578
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a6e434b4aa474917d8e80a90d3509d48
+      size: 1923
+      isexec: true
+    outs:
+    - path: docs/naming-exploration/01-explorations/technical-names.md
+      hash: md5
+      md5: eea84039b6f8c0fbdb980424b17ca0a4
+      size: 6465
+  name_evaluation:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/naming-exploration/01-explorations/name-evaluation.prompt.md --out 
+      docs/naming-exploration/01-explorations/name-evaluation.md --name 
+      name_evaluation
+    deps:
+    - path: docs/naming-exploration/00-sources/naming-criteria.md
+      hash: md5
+      md5: 33b1c26dc8f699a9869964c923fbae21
+      size: 3553
+    - path: docs/naming-exploration/01-explorations/hybrid-names.md
+      hash: md5
+      md5: 1ddca5be6f1fe71e9f91de2b589d3aaa
+      size: 7643
+    - path: docs/naming-exploration/01-explorations/metaphor-names.md
+      hash: md5
+      md5: 793020201625d292b0cbcd030b1b5037
+      size: 7897
+    - path: docs/naming-exploration/01-explorations/name-evaluation.prompt.md
+      hash: md5
+      md5: f710d5f67b396e859ba74c35fd23961d
+      size: 1918
+    - path: docs/naming-exploration/01-explorations/technical-names.md
+      hash: md5
+      md5: eea84039b6f8c0fbdb980424b17ca0a4
+      size: 6465
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a6e434b4aa474917d8e80a90d3509d48
+      size: 1923
+      isexec: true
+    outs:
+    - path: docs/naming-exploration/01-explorations/name-evaluation.md
+      hash: md5
+      md5: 23d15abf99bf212c14dbf15fd024453d
+      size: 9248
+  recommendation:
+    cmd: bash scripts/render_llm.sh --prompt 
+      docs/naming-exploration/02-final/recommendation.prompt.md --out 
+      docs/naming-exploration/02-final/recommendation.md --name recommendation
+    deps:
+    - path: docs/naming-exploration/00-sources/project-essence.md
+      hash: md5
+      md5: 194cb84a2fb262f2c60e9e740b10c91c
+      size: 4786
+    - path: docs/naming-exploration/01-explorations/name-evaluation.md
+      hash: md5
+      md5: 23d15abf99bf212c14dbf15fd024453d
+      size: 9248
+    - path: docs/naming-exploration/02-final/recommendation.prompt.md
+      hash: md5
+      md5: bf010c9b647595b9eae45d03dee2c4f0
+      size: 1591
+    - path: scripts/ensure_llm.py
+      hash: md5
+      md5: 1b232f7f966a2eafbd1c7750ee2f52d3
+      size: 664
+      isexec: true
+    - path: scripts/pack_prompt.py
+      hash: md5
+      md5: 4135604db1dd5377c76158a4b5617c0b
+      size: 6784
+      isexec: true
+    - path: scripts/render_llm.sh
+      hash: md5
+      md5: a6e434b4aa474917d8e80a90d3509d48
+      size: 1923
+      isexec: true
+    outs:
+    - path: docs/naming-exploration/02-final/recommendation.md
+      hash: md5
+      md5: e1c4d228d3fadd62e48d0d24c67d5986
+      size: 7359
