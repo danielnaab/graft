@@ -49,7 +49,7 @@ Follow this structure, keeping it CONCISE and HIGH-LEVEL:
    - Configuration
    - Command Reference
    - Troubleshooting
-6. **License** - MIT License
+6. **License** - CC0 1.0 Universal License statement
 
 IMPORTANT: Keep the README scannable, compelling, and quick to read. Avoid detailed examples or usage patterns that could become outdated or inaccurate - link to documentation instead.
 

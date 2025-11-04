@@ -9,13 +9,13 @@ SYSTEM = """You are maintaining a strategic Markdown document. You will receive 
 
 Follow the action directive precisely:
 
-- GENERATE: Create a new document from scratch using source content and style prompt
-- RESTYLE: The style/tone has changed but sources haven't - rewrite the ENTIRE document to match the new style, preserving the same semantic content but changing tone, structure, or presentation as directed
-- UPDATE: Sources changed but style hasn't - apply ONLY the semantic changes from the source diff, keeping all other sections byte-identical
-- REFRESH: Both sources and style changed - apply source updates AND rewrite in the new style
+- GENERATE: Create a new document from scratch using source content and instructions
+- REFINE: Prompt instructions changed but sources haven't - review the PROMPT DIFF to understand what changed, then apply ONLY the necessary changes to align the document with updated instructions. Preserve all unchanged content exactly.
+- UPDATE: Sources changed but prompt hasn't - apply ONLY the semantic changes from the SOURCE DIFF, keeping all other sections byte-identical
+- REFRESH: Both sources and prompt changed - review BOTH diffs carefully and apply only the necessary changes from each, preserving unchanged content exactly
 - MAINTAIN: Nothing changed - output should be identical to previous draft
 
-When RESTYLE is requested, you MUST rewrite the full document. Compare PREVIOUS STYLE PROMPT vs CURRENT STYLE PROMPT to understand what changed."""
+For REFINE/REFRESH: The diff shows you exactly what changed in the instructions. Use semantic judgment to determine the scope of changes needed. A factual correction (e.g., license name) requires only a line change. A style directive (e.g., "rewrite in formal tone") requires broader changes. Let the diff guide your judgment."""
 
 def read(p): return pathlib.Path(p).read_text(encoding="utf-8")
 def exists(p): return pathlib.Path(p).exists()
@@ -46,6 +46,14 @@ def get_prev_commit_content(path):
         return content
     except Exception:
         return None
+
+def text_unified_diff(old_text, new_text, old_label="previous", new_label="current"):
+    """Generate a unified diff between two text strings"""
+    import difflib
+    old_lines = old_text.splitlines(keepends=True)
+    new_lines = new_text.splitlines(keepends=True)
+    diff = difflib.unified_diff(old_lines, new_lines, fromfile=old_label, tofile=new_label, lineterm='')
+    return ''.join(diff)
 
 def git_unified_diff(paths):
     if not paths:
@@ -117,11 +125,11 @@ def main():
     if not output_exists:
         action = "GENERATE (no previous draft exists)"
     elif prompt_changed and not sources_changed:
-        action = "RESTYLE (prompt changed, sources unchanged - rewrite entire document with new style)"
+        action = "REFINE (prompt changed, sources unchanged - apply only necessary changes from prompt diff)"
     elif sources_changed and not prompt_changed:
         action = "UPDATE (sources changed - apply semantic changes only)"
     elif sources_changed and prompt_changed:
-        action = "REFRESH (both changed - apply source updates AND new style)"
+        action = "REFRESH (both changed - apply necessary changes from both diffs)"
     else:
         action = "MAINTAIN (no changes detected - keep document unchanged)"
 
@@ -133,15 +141,19 @@ def main():
 - Action required: {action}
 """
 
-    # Show prompt diff if it changed
+    # Show prompt diff if it changed, otherwise just current prompt
     prompt_section = ""
     if prompt_changed and prev_prompt_body:
+        # Compute unified diff of prompt instructions
+        prompt_diff = text_unified_diff(prev_prompt_body, prompt_body,
+                                        old_label="previous instructions",
+                                        new_label="current instructions")
         prompt_section = (
-            f"---BEGIN PREVIOUS STYLE PROMPT---\n{prev_prompt_body}\n---END PREVIOUS STYLE PROMPT---\n\n"
-            f"---BEGIN CURRENT STYLE PROMPT---\n{prompt_body}\n---END CURRENT STYLE PROMPT---\n\n"
+            f"---BEGIN PROMPT DIFF---\n{prompt_diff}\n---END PROMPT DIFF---\n\n"
+            f"---BEGIN CURRENT INSTRUCTIONS---\n{prompt_body}\n---END CURRENT INSTRUCTIONS---\n\n"
         )
     else:
-        prompt_section = f"---BEGIN STYLE PROMPT---\n{prompt_body}\n---END STYLE PROMPT---\n\n"
+        prompt_section = f"---BEGIN INSTRUCTIONS---\n{prompt_body}\n---END INSTRUCTIONS---\n\n"
 
     packed = (
         f"SYSTEM:\n{SYSTEM}\n\n"

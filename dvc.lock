@@ -6,28 +6,28 @@ stages:
     deps:
     - path: docs/command-reference.md
       hash: md5
-      md5: 3f9689ac461e273d6981f8f8bfdea16c
-      size: 7921
+      md5: 2f788d9797f2dfc661860d2295dbffab
+      size: 11357
     - path: docs/configuration.md
       hash: md5
-      md5: 1de1e39ff0bcc54ea58caf3fb9bafaab
-      size: 11785
+      md5: d5377834992b6ef063ae6f11a2c957d8
+      size: 164
     - path: docs/getting-started.md
       hash: md5
-      md5: 5296ce5791b635538f5cd730ea888e70
-      size: 5648
+      md5: d31b90ba05420dffcf95c027b3fffc56
+      size: 5925
     - path: docs/how-it-works.md
       hash: md5
-      md5: 96c2ad1946a61071b0faa3c2d5b784f2
-      size: 11047
+      md5: ad47de32bbb1095633534bd8e908ce05
+      size: 12741
     - path: docs/project-overview.prompt.md
       hash: md5
       md5: 1d3b69ca57b8af3be5808a2a5e7c103e
       size: 2088
     - path: docs/troubleshooting.md
       hash: md5
-      md5: d3d5ad746d412a10dfaeecacabce1b68
-      size: 14631
+      md5: ee715415c6507200099bb19b7238db6a
+      size: 14627
     - path: scripts/ensure_llm.py
       hash: md5
       md5: 1b232f7f966a2eafbd1c7750ee2f52d3
@@ -35,8 +35,8 @@ stages:
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/render_llm.sh
       hash: md5
@@ -46,8 +46,8 @@ stages:
     outs:
     - path: docs/project-overview.md
       hash: md5
-      md5: c560a6194b21e70e5a4a788fc6ba767d
-      size: 7802
+      md5: 493142653a4a44b1ebe91f09bf503bd0
+      size: 11617
   hybrid_names:
     cmd: bash scripts/render_llm.sh --prompt 
       docs/naming-exploration/01-explorations/hybrid-names.prompt.md --out 
@@ -77,8 +77,8 @@ stages:
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/render_llm.sh
       hash: md5
@@ -88,8 +88,8 @@ stages:
     outs:
     - path: docs/naming-exploration/01-explorations/hybrid-names.md
       hash: md5
-      md5: 2558edfe146ade5dd9bbaab3451c6107
-      size: 7876
+      md5: d18b7f007a2e9a905bd84c83c20fc84b
+      size: 7249
   metaphor_names:
     cmd: bash scripts/render_llm.sh --prompt 
       docs/naming-exploration/01-explorations/metaphor-names.prompt.md --out 
@@ -119,8 +119,8 @@ stages:
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/render_llm.sh
       hash: md5
@@ -130,8 +130,8 @@ stages:
     outs:
     - path: docs/naming-exploration/01-explorations/metaphor-names.md
       hash: md5
-      md5: e95a052d2996abc63bba84bb145affc6
-      size: 7731
+      md5: aec32f21db77accca58a414b7680c784
+      size: 8050
   technical_names:
     cmd: bash scripts/render_llm.sh --prompt 
       docs/naming-exploration/01-explorations/technical-names.prompt.md --out 
@@ -161,8 +161,8 @@ stages:
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/render_llm.sh
       hash: md5
@@ -172,8 +172,8 @@ stages:
     outs:
     - path: docs/naming-exploration/01-explorations/technical-names.md
       hash: md5
-      md5: f461eff1cd1fec656324c8779984d281
-      size: 6438
+      md5: 44a55ce520b82f01b5068d2162bfe808
+      size: 6358
   name_evaluation:
     cmd: bash scripts/render_llm.sh --prompt 
       docs/naming-exploration/01-explorations/name-evaluation.prompt.md --out 
@@ -186,20 +186,20 @@ stages:
       size: 3553
     - path: docs/naming-exploration/01-explorations/hybrid-names.md
       hash: md5
-      md5: 2558edfe146ade5dd9bbaab3451c6107
-      size: 7876
+      md5: d18b7f007a2e9a905bd84c83c20fc84b
+      size: 7249
     - path: docs/naming-exploration/01-explorations/metaphor-names.md
       hash: md5
-      md5: e95a052d2996abc63bba84bb145affc6
-      size: 7731
+      md5: aec32f21db77accca58a414b7680c784
+      size: 8050
     - path: docs/naming-exploration/01-explorations/name-evaluation.prompt.md
       hash: md5
       md5: f710d5f67b396e859ba74c35fd23961d
       size: 1918
     - path: docs/naming-exploration/01-explorations/technical-names.md
       hash: md5
-      md5: f461eff1cd1fec656324c8779984d281
-      size: 6438
+      md5: 44a55ce520b82f01b5068d2162bfe808
+      size: 6358
     - path: scripts/ensure_llm.py
       hash: md5
       md5: 1b232f7f966a2eafbd1c7750ee2f52d3
@@ -207,8 +207,8 @@ stages:
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/render_llm.sh
       hash: md5
@@ -218,8 +218,8 @@ stages:
     outs:
     - path: docs/naming-exploration/01-explorations/name-evaluation.md
       hash: md5
-      md5: 02d4d3ffd143815e065eed76af8b179f
-      size: 13017
+      md5: 2e033bca523995117506ec78828862df
+      size: 10248
   recommendation:
     cmd: bash scripts/render_llm.sh --prompt 
       docs/naming-exploration/02-final/recommendation.prompt.md --out 
@@ -231,8 +231,8 @@ stages:
       size: 4786
     - path: docs/naming-exploration/01-explorations/name-evaluation.md
       hash: md5
-      md5: 02d4d3ffd143815e065eed76af8b179f
-      size: 13017
+      md5: 2e033bca523995117506ec78828862df
+      size: 10248
     - path: docs/naming-exploration/02-final/recommendation.prompt.md
       hash: md5
       md5: bf010c9b647595b9eae45d03dee2c4f0
@@ -244,8 +244,8 @@ stages:
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/render_llm.sh
       hash: md5
@@ -255,8 +255,8 @@ stages:
     outs:
     - path: docs/naming-exploration/02-final/recommendation.md
       hash: md5
-      md5: 0a68b7b414eca5ab530c3ea8fc104fbc
-      size: 6213
+      md5: 4967a86f2effae0a1b2849cb1d289f5e
+      size: 6439
   color_palette:
     cmd: bash scripts/render_llm.sh --prompt 
       docs/logo-exploration/01-explorations/color-palette.prompt.md --out 
@@ -512,8 +512,8 @@ stages:
     deps:
     - path: README.prompt.md
       hash: md5
-      md5: 0a06bd2135ba8614bded2db123150d09
-      size: 3426
+      md5: 6de9467100c1fe3643088d0f0f963282
+      size: 3450
     - path: docs/command-reference.md
       hash: md5
       md5: 3f9689ac461e273d6981f8f8bfdea16c
@@ -560,8 +560,8 @@ stages:
     outs:
     - path: README.md
       hash: md5
-      md5: dc9df32075f604dcb0e4594e30e43b11
-      size: 2958
+      md5: 613bd67854e0c62a8eea9d5c071fc55b
+      size: 2857
   use_cases:
     cmd: bash scripts/render_llm.sh --prompt docs/use-cases.prompt.md --out 
       docs/use-cases.md --name use_cases
@@ -647,8 +647,8 @@ stages:
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/render_llm.sh
       hash: md5
@@ -658,8 +658,8 @@ stages:
     outs:
     - path: docs/getting-started.md
       hash: md5
-      md5: 5296ce5791b635538f5cd730ea888e70
-      size: 5648
+      md5: d31b90ba05420dffcf95c027b3fffc56
+      size: 5925
   how_it_works:
     cmd: bash scripts/render_llm.sh --prompt docs/how-it-works.prompt.md --out 
       docs/how-it-works.md --name how_it_works
@@ -680,13 +680,13 @@ stages:
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/render_llm.sh
       hash: md5
@@ -701,8 +701,8 @@ stages:
     outs:
     - path: docs/how-it-works.md
       hash: md5
-      md5: 96c2ad1946a61071b0faa3c2d5b784f2
-      size: 11047
+      md5: ad47de32bbb1095633534bd8e908ce05
+      size: 12741
   configuration:
     cmd: bash scripts/render_llm.sh --prompt docs/configuration.prompt.md --out 
       docs/configuration.md --name configuration
@@ -731,8 +731,8 @@ stages:
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/render_llm.sh
       hash: md5
@@ -747,8 +747,8 @@ stages:
     outs:
     - path: docs/configuration.md
       hash: md5
-      md5: 1de1e39ff0bcc54ea58caf3fb9bafaab
-      size: 11785
+      md5: d5377834992b6ef063ae6f11a2c957d8
+      size: 164
   troubleshooting:
     cmd: bash scripts/render_llm.sh --prompt docs/troubleshooting.prompt.md 
       --out docs/troubleshooting.md --name troubleshooting
@@ -774,8 +774,8 @@ stages:
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/render_llm.sh
       hash: md5
@@ -790,8 +790,8 @@ stages:
     outs:
     - path: docs/troubleshooting.md
       hash: md5
-      md5: d3d5ad746d412a10dfaeecacabce1b68
-      size: 14631
+      md5: ee715415c6507200099bb19b7238db6a
+      size: 14627
   command_reference:
     cmd: bash scripts/render_llm.sh --prompt docs/command-reference.prompt.md 
       --out docs/command-reference.md --name command_reference
@@ -807,16 +807,16 @@ stages:
       size: 5307
     - path: docs/configuration.md
       hash: md5
-      md5: 1de1e39ff0bcc54ea58caf3fb9bafaab
-      size: 11785
+      md5: d5377834992b6ef063ae6f11a2c957d8
+      size: 164
     - path: docs/how-it-works.md
       hash: md5
-      md5: 96c2ad1946a61071b0faa3c2d5b784f2
-      size: 11047
+      md5: ad47de32bbb1095633534bd8e908ce05
+      size: 12741
     - path: docs/troubleshooting.md
       hash: md5
-      md5: d3d5ad746d412a10dfaeecacabce1b68
-      size: 14631
+      md5: ee715415c6507200099bb19b7238db6a
+      size: 14627
     - path: scripts/ensure_llm.py
       hash: md5
       md5: 1b232f7f966a2eafbd1c7750ee2f52d3
@@ -829,8 +829,8 @@ stages:
       isexec: true
     - path: scripts/pack_prompt.py
       hash: md5
-      md5: 4135604db1dd5377c76158a4b5617c0b
-      size: 6784
+      md5: 225ff7dd8ddc0873729833b370fe8306
+      size: 7750
       isexec: true
     - path: scripts/render_llm.sh
       hash: md5
@@ -840,8 +840,8 @@ stages:
     outs:
     - path: docs/command-reference.md
       hash: md5
-      md5: 3f9689ac461e273d6981f8f8bfdea16c
-      size: 7921
+      md5: 2f788d9797f2dfc661860d2295dbffab
+      size: 11357
   claude_skills:
     cmd: bash scripts/render_llm.sh --prompt docs/claude-skills.prompt.md --out 
       docs/claude-skills.md --name claude_skills
