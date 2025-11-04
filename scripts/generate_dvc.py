@@ -10,11 +10,10 @@ ROOT = pathlib.Path(".").resolve()
 DVC_YAML = ROOT / "dvc.yaml"
 
 # Common script dependencies for all stages
-SCRIPT_DEPS = [
-    "scripts/render_llm.sh",
-    "scripts/pack_prompt.py",
-    "scripts/ensure_llm.py",
-]
+# Implementation scripts are not tracked as dependencies to avoid
+# expensive regeneration when only the tooling changes.
+# Use `dvc repro -f` to force regeneration when needed.
+SCRIPT_DEPS = []
 
 def parse_frontmatter(prompt_path: pathlib.Path):
     """Extract deps from frontmatter"""

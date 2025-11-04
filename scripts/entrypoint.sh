@@ -89,8 +89,10 @@ P
       echo "" >&2
     fi
 
-    echo "🚀 Running DVC pipeline..." >&2
-    dvc repro
+    # Make parallel execution configurable via environment variable
+    DVC_JOBS="${DVC_JOBS:-8}"  # Default to 8 concurrent jobs
+    echo "🚀 Running DVC pipeline with ${DVC_JOBS} concurrent jobs..." >&2
+    dvc repro --jobs "$DVC_JOBS"
 
     echo "" >&2
     echo "✅ Done." >&2
