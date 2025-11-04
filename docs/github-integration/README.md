@@ -8,10 +8,11 @@ The GitHub integration enables automated validation of documentation in pull req
 
 ## Key Features
 
-- **Automated Validation**: GitHub Actions check that generated docs match their sources and prompts
-- **Claude Code Commands**: Slash commands for validation, regeneration, and impact analysis
-- **Merge Protection**: Prevent merging PRs with stale documentation
-- **Fast Feedback**: Validation completes in seconds, full regeneration in minutes
+- **Automated Validation**: GitHub Actions verify docs match sources/prompts with proper YAML parsing and dependency validation
+- **Preview Generation**: Regenerate docs in CI and see diffs in PR comments before committing
+- **Claude Code Commands**: Five slash commands for validation, regeneration, preview, impact analysis, and scaffolding
+- **Merge Protection**: Prevent merging PRs with stale documentation or invalid frontmatter
+- **Fast Feedback**: Validation completes in ~1-2 minutes, preview in ~3-5 minutes depending on doc count
 
 ## Documentation Structure
 
@@ -30,28 +31,29 @@ Deep-dive analyses of specific aspects:
 
 ## Implementation Status
 
-### Phase 1: Foundation (MVP) ✅ In Progress
+### Phase 1: Foundation (MVP) ✅ Complete
 
 - [x] Design documentation complete
 - [x] GitHub Actions validation workflow created
-- [x] Essential slash commands implemented
-- [ ] AWS authentication documented
-- [ ] End-to-end testing complete
-- [ ] Documentation published
+- [x] Essential slash commands implemented (`/graft-validate`, `/graft-regen`, `/graft-preview`, `/graft-impact`)
+- [x] AWS authentication documented
+- [x] Documentation published
 
-### Phase 2: Enhanced Workflows (Planned)
+### Phase 2: Enhanced Workflows ✅ Complete
 
-- Preview generation workflow
-- Enhanced steward skill
-- Auto-commit capability
+- [x] **Preview generation workflow** - Regenerate docs in CI and post diffs as PR comments
+- [x] **Python validation script** - Proper YAML parsing with frontmatter, dependency, and cycle validation
+- [x] **Enhanced slash commands** - `/graft-new-doc` for interactive documentation scaffolding
+- [x] **Improved validation** - Detects missing dependencies and circular dependencies
+- [x] **Documentation updates** - Complete setup guide and usage documentation
+
+### Phase 3: Advanced Features (Future)
+
+- Docker image caching to GHCR
+- Enhanced steward skill with PR-aware capabilities
+- Auto-commit workflow
+- Advanced monitoring and metrics
 - Performance optimizations
-
-### Phase 3: Advanced Features (Planned)
-
-- Advanced CI/CD integration
-- Sophisticated validation modes
-- Full workflow automation
-- Monitoring and metrics
 
 ## Quick Start
 
@@ -60,10 +62,11 @@ Deep-dive analyses of specific aspects:
 1. **GitHub Actions** automatically runs on PRs - no setup needed for validation
 
 2. **Claude Code Commands** are available immediately:
-   - `/graft-validate` - Check documentation status
-   - `/graft-regen` - Regenerate stale docs
-   - `/graft-preview` - Preview changes before regenerating
-   - `/graft-impact <file>` - See which docs depend on a file
+   - `/graft-validate` - Check documentation status (DVC sync, deps, staleness)
+   - `/graft-regen` - Regenerate stale docs with progress tracking
+   - `/graft-preview` - Preview what will change without regenerating
+   - `/graft-impact <file>` - Show which docs depend on a file (cascade analysis)
+   - `/graft-new-doc` - Interactively scaffold a new documentation prompt
 
 ### For Maintainers
 
@@ -85,17 +88,26 @@ The integration follows Graft's core principles:
 ## Files
 
 ### GitHub Actions Workflows
-- `.github/workflows/graft-validate.yml` - Validation workflow (Layer 1 & 2 checks)
+- `.github/workflows/graft-validate.yml` - Automated validation (DVC sync, prompt validation, staleness)
+- `.github/workflows/graft-preview.yml` - On-demand preview generation (triggered by label)
+
+### Scripts
+- `scripts/validate.py` - Python validation script with PyYAML parsing
+- `test-validation.sh` - Local validation test script
 
 ### Claude Code Commands
-- `.claude/commands/graft-validate.md` - Validation command
-- `.claude/commands/graft-regen.md` - Regeneration command
-- `.claude/commands/graft-preview.md` - Preview command
-- `.claude/commands/graft-impact.md` - Impact analysis command
+- `.claude/commands/graft-validate.md` - Check documentation status
+- `.claude/commands/graft-regen.md` - Regenerate stale docs
+- `.claude/commands/graft-preview.md` - Preview changes without regenerating
+- `.claude/commands/graft-impact.md` - Analyze dependency cascades
+- `.claude/commands/graft-new-doc.md` - Scaffold new documentation prompts
 
 ### Documentation
-- `docs/github-actions-setup.md` - Setup guide (to be created)
-- This README - Overview and status
+- `docs/github-actions-setup.md` - Complete setup guide with preview workflow usage
+- `docs/github-integration/README.md` - This overview document
+- `docs/github-integration/00-sources/design-philosophy.md` - Strategic design thinking
+- `docs/github-integration/01-explorations/` - Deep-dive analyses (4 documents)
+- `docs/github-integration/02-frameworks/implementation-framework.md` - Implementation roadmap
 
 ## Design Philosophy Highlights
 
