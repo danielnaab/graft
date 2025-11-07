@@ -43,8 +43,8 @@ def redact(text):
 def get_prev_commit_content(path):
     """Get file content from previous commit (HEAD~1)"""
     try:
-        base = subprocess.check_output(["git", "rev-parse", "HEAD~1"], text=True).strip()
-        content = subprocess.check_output(["git", "show", f"{base}:{path}"], text=True)
+        base = subprocess.check_output(["git", "rev-parse", "HEAD~1"], text=True, stderr=subprocess.DEVNULL).strip()
+        content = subprocess.check_output(["git", "show", f"{base}:{path}"], text=True, stderr=subprocess.DEVNULL)
         return content
     except Exception:
         return None
@@ -52,7 +52,7 @@ def get_prev_commit_content(path):
 def get_current_commit_content(path):
     """Get file content from current commit (HEAD)"""
     try:
-        content = subprocess.check_output(["git", "show", f"HEAD:{path}"], text=True)
+        content = subprocess.check_output(["git", "show", f"HEAD:{path}"], text=True, stderr=subprocess.DEVNULL)
         return content
     except Exception:
         return None
@@ -65,13 +65,34 @@ def text_unified_diff(old_text, new_text, old_label="previous", new_label="curre
     diff = difflib.unified_diff(old_lines, new_lines, fromfile=old_label, tofile=new_label, lineterm='')
     return ''.join(diff)
 
+def is_attachment_file(path):
+    """Check if a file should be passed as an attachment rather than diffed as text"""
+    # PDF files and other binary formats that LLMs can read directly
+    attachment_extensions = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp'}
+    return pathlib.Path(path).suffix.lower() in attachment_extensions
+
+def check_file_changed_in_git(path):
+    """Check if a file's content changed between HEAD~1 and HEAD"""
+    try:
+        base = subprocess.check_output(["git", "rev-parse", "HEAD~1"], text=True, stderr=subprocess.DEVNULL).strip()
+        # Check if file exists in both commits and if hash changed
+        result = subprocess.run(
+            ["git", "diff", "--quiet", base, "HEAD", "--", path],
+            capture_output=True,
+            stderr=subprocess.DEVNULL
+        )
+        return result.returncode != 0  # Non-zero means file changed
+    except Exception:
+        # If no previous commit or file is new, consider it changed
+        return True
+
 def git_unified_diff(paths):
     if not paths:
         return ""
     try:
         # Show diff vs last commit; fallback to working tree if needed
-        base = subprocess.check_output(["git", "rev-parse", "HEAD~1"], text=True).strip()
-        diff = subprocess.check_output(["git", "diff", "--unified=3", base, "HEAD", "--"] + paths, text=True)
+        base = subprocess.check_output(["git", "rev-parse", "HEAD~1"], text=True, stderr=subprocess.DEVNULL).strip()
+        diff = subprocess.check_output(["git", "diff", "--unified=3", base, "HEAD", "--"] + paths, text=True, stderr=subprocess.DEVNULL)
         # If no diff (files unchanged), show full content instead
         if not diff.strip():
             chunks = []
@@ -110,6 +131,10 @@ def main():
             print(f"Error: dep does not exist: {d}", file=sys.stderr)
             sys.exit(1)
 
+    # Separate text deps from attachment deps (PDFs, images, etc.)
+    text_deps = [d for d in deps if not is_attachment_file(d)]
+    attachment_deps = [d for d in deps if is_attachment_file(d)]
+
     # Effective params with defaults
     eff = dict(DEFAULTS)
     if "model" in meta and meta["model"] is not None:
@@ -119,10 +144,22 @@ def main():
     # Fall back to empty string if file doesn't exist in git (first generation)
     prev = get_current_commit_content(args.prev) or ""
 
-    diff = git_unified_diff(deps)
+    # Generate diff for text files
+    diff = git_unified_diff(text_deps)
+
+    # Check attachment status (changed or not)
+    attachment_status = []
+    attachments_changed = False
+    for att in attachment_deps:
+        changed = check_file_changed_in_git(att)
+        status = "CHANGED" if changed else "UNCHANGED"
+        attachment_status.append(f"  - {att}: {status}")
+        if changed:
+            attachments_changed = True
 
     # Detect what changed
-    sources_changed = bool(diff.strip() and "@@ CURRENT CONTENT @@" not in diff)
+    text_sources_changed = bool(diff.strip() and "@@ CURRENT CONTENT @@" not in diff)
+    sources_changed = text_sources_changed or attachments_changed
     output_exists = bool(prev.strip())
 
     # Check if prompt changed
@@ -147,9 +184,13 @@ def main():
         action = "MAINTAIN (no changes detected - keep document unchanged)"
 
     # Build change analysis section
+    attachment_section = ""
+    if attachment_deps:
+        attachment_section = "\n- Attachments:\n" + "\n".join(attachment_status)
+
     change_analysis = f"""CHANGE ANALYSIS:
-- Source files: {'CHANGED' if sources_changed else 'NO CHANGES'}
-- Prompt instructions: {'CHANGED' if prompt_changed else 'NO CHANGES'}
+- Text source files: {'CHANGED' if text_sources_changed else 'NO CHANGES'}
+- Prompt instructions: {'CHANGED' if prompt_changed else 'NO CHANGES'}{attachment_section}
 - Previous draft: {'EXISTS' if output_exists else 'NONE'}
 - Action required: {action}
 """
@@ -185,11 +226,18 @@ def main():
         po.parent.mkdir(parents=True, exist_ok=True)
         po.write_text(json.dumps(eff, indent=2), "utf-8")
 
+    # Write attachments list if there are any
+    if attachment_deps and args.name:
+        att_file = outp.parent / f"{args.name}.attachments.json"
+        att_file.write_text(json.dumps({"attachments": attachment_deps}, indent=2), "utf-8")
+
     # Also write a small summary for humans/agents
     name = args.name or outp.stem
     summ = {
       "name": name,
       "deps": deps,
+      "text_deps": text_deps,
+      "attachment_deps": attachment_deps,
       "effective": eff
     }
     (outp.parent / f"{name}.context.json").write_text(json.dumps(summ, indent=2), "utf-8")

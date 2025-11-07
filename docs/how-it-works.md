@@ -73,6 +73,65 @@ When changes are detected, `pack_prompt.py` creates a packed prompt containing:
 
 This structure gives Claude complete context to apply the requested action intelligently.
 
+## Document Attachments (PDFs and Images)
+
+Graft supports PDF documents and images as dependencies, automatically passing them to Claude as attachments rather than attempting to diff their content.
+
+### Supported Attachment Types
+
+Files with the following extensions are treated as attachments:
+- **PDFs**: `.pdf`
+- **Images**: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`
+
+All other files are treated as text sources and processed via git diff.
+
+### How Attachments Work
+
+When you list a PDF or image in your prompt's `deps` array, Graft's `pack_prompt.py` script:
+
+1. **Detects attachment files** by extension (`is_attachment_file()` function)
+2. **Separates** text dependencies from attachment dependencies
+3. **Tracks changes** via git file hash (not content diff)
+4. **Outputs metadata** to `build/<name>.attachments.json`
+
+The `render_llm.sh` script then:
+
+1. **Reads** the attachments list from the JSON file
+2. **Passes each attachment** to the LLM using the `-a` flag: `llm -m <model> -a file.pdf`
+3. **Lets Claude** read and interpret the document natively
+
+### Change Detection for Attachments
+
+When an attachment changes:
+- Git detects the binary file hash changed
+- The change analysis shows: `Attachments: <file>: CHANGED`
+- The action directive (UPDATE/REFRESH) instructs Claude to review the attachment
+- Claude receives the full attachment and applies semantic changes
+
+Unlike text files, attachments don't show unified diffs (because binary files don't diff meaningfully). Instead, Claude receives the complete attachment and uses its native document understanding to interpret the content.
+
+### Benefits
+
+This approach is simpler and more accurate than text extraction:
+- **No extraction pipeline needed** - Claude reads PDFs directly
+- **Preserves formatting** - Tables, figures, and layout remain intact
+- **Git-native** - PDFs versioned like any other source
+- **Extensible** - Same pattern works for all multimodal content
+
+### Example
+
+```yaml
+---
+deps:
+  - sources/research-paper.pdf
+  - docs/introduction.md
+---
+
+Summarize the key findings from the research paper and integrate them with our existing introduction.
+```
+
+When `research-paper.pdf` changes, Graft regenerates the document with Claude having access to the updated PDF content.
+
 ## Actions and Directives
 
 The action selection logic (defined in `pack_prompt.py:117-134`) determines which directive to pass to Claude based on what changed:

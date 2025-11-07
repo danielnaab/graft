@@ -22,6 +22,7 @@ Built on git and DVC, Graft tracks what changed in your repository and applies s
 
 - **Intelligent change detection** - Distinguishes between source updates and instruction changes, applying appropriate regeneration strategies
 - **Multi-level documentation hierarchies** - Generated documents can serve as inputs to other prompts, creating cascading documentation DAGs
+- **Multimodal source support** - Reference PDFs, images, and any text-based sources; Claude reads documents natively for accurate interpretation
 - **Git-native workflow** - All prompts, sources, and outputs are version controlled; DVC manages the pipeline execution
 - **AWS Bedrock integration** - Leverages Claude Sonnet 4.5 for high-quality synthesis with flexible authentication (profiles, SSO, env vars)
 - **Minimal regeneration** - Only affected documents rebuild when dependencies change; unchanged sections stay byte-identical

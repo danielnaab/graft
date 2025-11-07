@@ -308,3 +308,12 @@ stages:
     outs:
     - docs/use-cases.md:
         cache: false
+  research_summary:
+    cmd: bash scripts/render_llm.sh --prompt examples/pdf-support/research-summary.prompt.md
+      --out examples/pdf-support/research-summary.md --name research_summary
+    deps:
+    - examples/pdf-support/research-summary.prompt.md
+    - examples/pdf-support/sample-research.pdf
+    outs:
+    - examples/pdf-support/research-summary.md:
+        cache: false

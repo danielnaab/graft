@@ -21,6 +21,7 @@ PACK_DIR="build"
 DOC_NAME="${NAME:-$(basename "$(dirname "$OUT")")}"
 PACK="$PACK_DIR/${DOC_NAME}.promptpack.txt"
 PARAMS="$PACK_DIR/${DOC_NAME}.params.json"
+ATTACHMENTS_FILE="$PACK_DIR/${DOC_NAME}.attachments.json"
 TMP_OUT="$PACK_DIR/${DOC_NAME}.tmp"
 TMP_ERR="$PACK_DIR/${DOC_NAME}.err"
 
@@ -34,6 +35,23 @@ python3 scripts/pack_prompt.py   --prompt "$PROMPT"   --prev "$OUT"   --out "$PA
 MODEL=$(jq -r '.model // empty' "$PARAMS" 2>/dev/null || echo "")
 MODEL="${MODEL:-$LLM_MODEL}"
 
+# Build attachment flags if attachments exist
+ATTACHMENT_ARGS=()
+if [[ -f "$ATTACHMENTS_FILE" ]]; then
+  # Read attachments array and build -a flags
+  # Copy attachments with modified names (Bedrock doesn't allow periods in document names)
+  while IFS= read -r attachment; do
+    basename_file="$(basename "$attachment")"
+    # Replace extension period with hyphen to satisfy Bedrock name validation
+    # E.g., "file.pdf" becomes "file-pdf"
+    sanitized_name="${basename_file//\./-}"
+    # Copy to current directory with sanitized name
+    cp "$attachment" "$sanitized_name"
+    ATTACHMENT_ARGS+=("-a" "$sanitized_name")
+    echo "📎 Attaching: $basename_file (as $sanitized_name)" >&2
+  done < <(jq -r '.attachments[]' "$ATTACHMENTS_FILE" 2>/dev/null)
+fi
+
 echo "🤖 Using model: $MODEL" >&2
 
 # Gentle retries for transient errors
@@ -42,7 +60,8 @@ max_attempts=3
 delay=1
 while :; do
   set +e
-  llm -m "$MODEL" < "$PACK" > "$TMP_OUT" 2> "$TMP_ERR"
+  # Build command with attachments (use array to handle paths with spaces safely)
+  llm -m "$MODEL" "${ATTACHMENT_ARGS[@]}" < "$PACK" > "$TMP_OUT" 2> "$TMP_ERR"
   code=$?
   set -e
   if [[ $code -eq 0 ]]; then
