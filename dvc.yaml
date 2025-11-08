@@ -15,7 +15,7 @@ stages:
       README
     deps:
     - README.prompt.md
-    - docs/naming-exploration/02-final/recommendation.md
+    - docs/explorations/naming/02-final/recommendation.md
     - docs/getting-started.md
     - docs/use-cases.md
     - docs/how-it-works.md
@@ -24,185 +24,6 @@ stages:
     - docs/project-overview.md
     outs:
     - README.md:
-        cache: false
-  core_use_cases:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/core-use-cases.prompt.md
-      --out architecture-exploration/01-explorations/core-use-cases.md --name core_use_cases
-    deps:
-    - architecture-exploration/01-explorations/core-use-cases.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    - architecture-exploration/01-explorations/unique-value-proposition.md
-    - architecture-exploration/01-explorations/versioning-generated-artifacts.md
-    outs:
-    - architecture-exploration/01-explorations/core-use-cases.md:
-        cache: false
-  dependency_management:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/dependency-management.prompt.md
-      --out architecture-exploration/01-explorations/dependency-management.md --name
-      dependency_management
-    deps:
-    - architecture-exploration/01-explorations/dependency-management.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    outs:
-    - architecture-exploration/01-explorations/dependency-management.md:
-        cache: false
-  determinism_and_caching:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/determinism-and-caching.prompt.md
-      --out architecture-exploration/01-explorations/determinism-and-caching.md --name
-      determinism_and_caching
-    deps:
-    - architecture-exploration/01-explorations/determinism-and-caching.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    outs:
-    - architecture-exploration/01-explorations/determinism-and-caching.md:
-        cache: false
-  dvc_determinism_integration:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/dvc-determinism-integration.prompt.md
-      --out architecture-exploration/01-explorations/dvc-determinism-integration.md
-      --name dvc_determinism_integration
-    deps:
-    - architecture-exploration/01-explorations/dvc-determinism-integration.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    - architecture-exploration/01-explorations/dvc-reliance.md
-    - architecture-exploration/01-explorations/determinism-and-caching.md
-    outs:
-    - architecture-exploration/01-explorations/dvc-determinism-integration.md:
-        cache: false
-  dvc_reliance:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/dvc-reliance.prompt.md
-      --out architecture-exploration/01-explorations/dvc-reliance.md --name dvc_reliance
-    deps:
-    - architecture-exploration/01-explorations/dvc-reliance.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    outs:
-    - architecture-exploration/01-explorations/dvc-reliance.md:
-        cache: false
-  external_process_determinism:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/external-process-determinism.prompt.md
-      --out architecture-exploration/01-explorations/external-process-determinism.md
-      --name external_process_determinism
-    deps:
-    - architecture-exploration/01-explorations/external-process-determinism.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    - architecture-exploration/01-explorations/external-process-model.md
-    - architecture-exploration/01-explorations/determinism-and-caching.md
-    outs:
-    - architecture-exploration/01-explorations/external-process-determinism.md:
-        cache: false
-  external_process_model:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/external-process-model.prompt.md
-      --out architecture-exploration/01-explorations/external-process-model.md --name
-      external_process_model
-    deps:
-    - architecture-exploration/01-explorations/external-process-model.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    outs:
-    - architecture-exploration/01-explorations/external-process-model.md:
-        cache: false
-  lock_mechanism_with_determinism:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/lock-mechanism-with-determinism.prompt.md
-      --out architecture-exploration/01-explorations/lock-mechanism-with-determinism.md
-      --name lock_mechanism_with_determinism
-    deps:
-    - architecture-exploration/01-explorations/lock-mechanism-with-determinism.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    - architecture-exploration/01-explorations/lock-mechanism.md
-    - architecture-exploration/01-explorations/determinism-and-caching.md
-    outs:
-    - architecture-exploration/01-explorations/lock-mechanism-with-determinism.md:
-        cache: false
-  lock_mechanism:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/lock-mechanism.prompt.md
-      --out architecture-exploration/01-explorations/lock-mechanism.md --name lock_mechanism
-    deps:
-    - architecture-exploration/01-explorations/lock-mechanism.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    outs:
-    - architecture-exploration/01-explorations/lock-mechanism.md:
-        cache: false
-  multi_file_outputs:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/multi-file-outputs.prompt.md
-      --out architecture-exploration/01-explorations/multi-file-outputs.md --name
-      multi_file_outputs
-    deps:
-    - architecture-exploration/01-explorations/multi-file-outputs.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    outs:
-    - architecture-exploration/01-explorations/multi-file-outputs.md:
-        cache: false
-  naming_conventions:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/naming-conventions.prompt.md
-      --out architecture-exploration/01-explorations/naming-conventions.md --name
-      naming_conventions
-    deps:
-    - architecture-exploration/01-explorations/naming-conventions.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    outs:
-    - architecture-exploration/01-explorations/naming-conventions.md:
-        cache: false
-  unique_value_proposition:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/unique-value-proposition.prompt.md
-      --out architecture-exploration/01-explorations/unique-value-proposition.md --name
-      unique_value_proposition
-    deps:
-    - architecture-exploration/01-explorations/unique-value-proposition.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    - architecture-exploration/01-explorations/versioning-generated-artifacts.md
-    outs:
-    - architecture-exploration/01-explorations/unique-value-proposition.md:
-        cache: false
-  versioning_generated_artifacts:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/versioning-generated-artifacts.prompt.md
-      --out architecture-exploration/01-explorations/versioning-generated-artifacts.md
-      --name versioning_generated_artifacts
-    deps:
-    - architecture-exploration/01-explorations/versioning-generated-artifacts.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    outs:
-    - architecture-exploration/01-explorations/versioning-generated-artifacts.md:
-        cache: false
-  architecture_recommendations:
-    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/02-final/architecture-recommendations.prompt.md
-      --out architecture-exploration/02-final/architecture-recommendations.md --name
-      architecture_recommendations
-    deps:
-    - architecture-exploration/02-final/architecture-recommendations.prompt.md
-    - architecture-exploration/00-sources/current-implementation.md
-    - architecture-exploration/00-sources/design-goals.md
-    - architecture-exploration/00-sources/open-questions.md
-    - architecture-exploration/01-explorations/external-process-model.md
-    - architecture-exploration/01-explorations/multi-file-outputs.md
-    - architecture-exploration/01-explorations/naming-conventions.md
-    - architecture-exploration/01-explorations/dependency-management.md
-    - architecture-exploration/01-explorations/lock-mechanism.md
-    outs:
-    - architecture-exploration/02-final/architecture-recommendations.md:
         cache: false
   claude_skills:
     cmd: bash scripts/render_llm.sh --prompt docs/claude-skills.prompt.md --out docs/claude-skills.md
@@ -240,6 +61,374 @@ stages:
     outs:
     - docs/configuration.md:
         cache: false
+  core_use_cases:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/core-use-cases.prompt.md
+      --out docs/explorations/architecture/01-explorations/core-use-cases.md --name
+      core_use_cases
+    deps:
+    - docs/explorations/architecture/01-explorations/core-use-cases.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    - docs/explorations/architecture/01-explorations/unique-value-proposition.md
+    - docs/explorations/architecture/01-explorations/versioning-generated-artifacts.md
+    outs:
+    - docs/explorations/architecture/01-explorations/core-use-cases.md:
+        cache: false
+  dependency_management:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/dependency-management.prompt.md
+      --out docs/explorations/architecture/01-explorations/dependency-management.md
+      --name dependency_management
+    deps:
+    - docs/explorations/architecture/01-explorations/dependency-management.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    outs:
+    - docs/explorations/architecture/01-explorations/dependency-management.md:
+        cache: false
+  determinism_and_caching:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/determinism-and-caching.prompt.md
+      --out docs/explorations/architecture/01-explorations/determinism-and-caching.md
+      --name determinism_and_caching
+    deps:
+    - docs/explorations/architecture/01-explorations/determinism-and-caching.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    outs:
+    - docs/explorations/architecture/01-explorations/determinism-and-caching.md:
+        cache: false
+  dvc_determinism_integration:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/dvc-determinism-integration.prompt.md
+      --out docs/explorations/architecture/01-explorations/dvc-determinism-integration.md
+      --name dvc_determinism_integration
+    deps:
+    - docs/explorations/architecture/01-explorations/dvc-determinism-integration.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    - docs/explorations/architecture/01-explorations/dvc-reliance.md
+    - docs/explorations/architecture/01-explorations/determinism-and-caching.md
+    outs:
+    - docs/explorations/architecture/01-explorations/dvc-determinism-integration.md:
+        cache: false
+  dvc_reliance:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/dvc-reliance.prompt.md
+      --out docs/explorations/architecture/01-explorations/dvc-reliance.md --name
+      dvc_reliance
+    deps:
+    - docs/explorations/architecture/01-explorations/dvc-reliance.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    outs:
+    - docs/explorations/architecture/01-explorations/dvc-reliance.md:
+        cache: false
+  external_process_determinism:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/external-process-determinism.prompt.md
+      --out docs/explorations/architecture/01-explorations/external-process-determinism.md
+      --name external_process_determinism
+    deps:
+    - docs/explorations/architecture/01-explorations/external-process-determinism.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    - docs/explorations/architecture/01-explorations/external-process-model.md
+    - docs/explorations/architecture/01-explorations/determinism-and-caching.md
+    outs:
+    - docs/explorations/architecture/01-explorations/external-process-determinism.md:
+        cache: false
+  external_process_model:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/external-process-model.prompt.md
+      --out docs/explorations/architecture/01-explorations/external-process-model.md
+      --name external_process_model
+    deps:
+    - docs/explorations/architecture/01-explorations/external-process-model.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    outs:
+    - docs/explorations/architecture/01-explorations/external-process-model.md:
+        cache: false
+  lock_mechanism_with_determinism:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/lock-mechanism-with-determinism.prompt.md
+      --out docs/explorations/architecture/01-explorations/lock-mechanism-with-determinism.md
+      --name lock_mechanism_with_determinism
+    deps:
+    - docs/explorations/architecture/01-explorations/lock-mechanism-with-determinism.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    - docs/explorations/architecture/01-explorations/lock-mechanism.md
+    - docs/explorations/architecture/01-explorations/determinism-and-caching.md
+    outs:
+    - docs/explorations/architecture/01-explorations/lock-mechanism-with-determinism.md:
+        cache: false
+  lock_mechanism:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/lock-mechanism.prompt.md
+      --out docs/explorations/architecture/01-explorations/lock-mechanism.md --name
+      lock_mechanism
+    deps:
+    - docs/explorations/architecture/01-explorations/lock-mechanism.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    outs:
+    - docs/explorations/architecture/01-explorations/lock-mechanism.md:
+        cache: false
+  multi_file_outputs:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/multi-file-outputs.prompt.md
+      --out docs/explorations/architecture/01-explorations/multi-file-outputs.md --name
+      multi_file_outputs
+    deps:
+    - docs/explorations/architecture/01-explorations/multi-file-outputs.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    outs:
+    - docs/explorations/architecture/01-explorations/multi-file-outputs.md:
+        cache: false
+  naming_conventions:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/naming-conventions.prompt.md
+      --out docs/explorations/architecture/01-explorations/naming-conventions.md --name
+      naming_conventions
+    deps:
+    - docs/explorations/architecture/01-explorations/naming-conventions.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    outs:
+    - docs/explorations/architecture/01-explorations/naming-conventions.md:
+        cache: false
+  unique_value_proposition:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/unique-value-proposition.prompt.md
+      --out docs/explorations/architecture/01-explorations/unique-value-proposition.md
+      --name unique_value_proposition
+    deps:
+    - docs/explorations/architecture/01-explorations/unique-value-proposition.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    - docs/explorations/architecture/01-explorations/versioning-generated-artifacts.md
+    outs:
+    - docs/explorations/architecture/01-explorations/unique-value-proposition.md:
+        cache: false
+  versioning_generated_artifacts:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/01-explorations/versioning-generated-artifacts.prompt.md
+      --out docs/explorations/architecture/01-explorations/versioning-generated-artifacts.md
+      --name versioning_generated_artifacts
+    deps:
+    - docs/explorations/architecture/01-explorations/versioning-generated-artifacts.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    outs:
+    - docs/explorations/architecture/01-explorations/versioning-generated-artifacts.md:
+        cache: false
+  architecture_recommendations:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/architecture/02-final/architecture-recommendations.prompt.md
+      --out docs/explorations/architecture/02-final/architecture-recommendations.md
+      --name architecture_recommendations
+    deps:
+    - docs/explorations/architecture/02-final/architecture-recommendations.prompt.md
+    - docs/explorations/architecture/00-sources/current-implementation.md
+    - docs/explorations/architecture/00-sources/design-goals.md
+    - docs/explorations/architecture/00-sources/open-questions.md
+    - docs/explorations/architecture/01-explorations/external-process-model.md
+    - docs/explorations/architecture/01-explorations/multi-file-outputs.md
+    - docs/explorations/architecture/01-explorations/naming-conventions.md
+    - docs/explorations/architecture/01-explorations/dependency-management.md
+    - docs/explorations/architecture/01-explorations/lock-mechanism.md
+    outs:
+    - docs/explorations/architecture/02-final/architecture-recommendations.md:
+        cache: false
+  claude_code_integration:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/github/01-explorations/claude-code-integration.prompt.md
+      --out docs/explorations/github/01-explorations/claude-code-integration.md --name
+      claude_code_integration
+    deps:
+    - docs/explorations/github/01-explorations/claude-code-integration.prompt.md
+    - docs/explorations/github/00-sources/design-philosophy.md
+    - docs/how-it-works.md
+    - docs/claude-skills.md
+    - .claude/skills/steward/SKILL.md
+    outs:
+    - docs/explorations/github/01-explorations/claude-code-integration.md:
+        cache: false
+  github_actions_strategy:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/github/01-explorations/github-actions-strategy.prompt.md
+      --out docs/explorations/github/01-explorations/github-actions-strategy.md --name
+      github_actions_strategy
+    deps:
+    - docs/explorations/github/01-explorations/github-actions-strategy.prompt.md
+    - docs/explorations/github/00-sources/design-philosophy.md
+    - docs/how-it-works.md
+    - docs/configuration.md
+    - bin/graft
+    - Dockerfile
+    outs:
+    - docs/explorations/github/01-explorations/github-actions-strategy.md:
+        cache: false
+  validation_strategy:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/github/01-explorations/validation-strategy.prompt.md
+      --out docs/explorations/github/01-explorations/validation-strategy.md --name
+      validation_strategy
+    deps:
+    - docs/explorations/github/01-explorations/validation-strategy.prompt.md
+    - docs/explorations/github/00-sources/design-philosophy.md
+    - docs/how-it-works.md
+    - scripts/pack_prompt.py
+    - scripts/generate_dvc.py
+    outs:
+    - docs/explorations/github/01-explorations/validation-strategy.md:
+        cache: false
+  workflow_patterns:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/github/01-explorations/workflow-patterns.prompt.md
+      --out docs/explorations/github/01-explorations/workflow-patterns.md --name workflow_patterns
+    deps:
+    - docs/explorations/github/01-explorations/workflow-patterns.prompt.md
+    - docs/explorations/github/00-sources/design-philosophy.md
+    - docs/how-it-works.md
+    - docs/use-cases.md
+    outs:
+    - docs/explorations/github/01-explorations/workflow-patterns.md:
+        cache: false
+  implementation_framework:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/github/02-frameworks/implementation-framework.prompt.md
+      --out docs/explorations/github/02-frameworks/implementation-framework.md --name
+      implementation_framework
+    deps:
+    - docs/explorations/github/02-frameworks/implementation-framework.prompt.md
+    - docs/explorations/github/00-sources/design-philosophy.md
+    - docs/explorations/github/01-explorations/workflow-patterns.md
+    - docs/explorations/github/01-explorations/github-actions-strategy.md
+    - docs/explorations/github/01-explorations/claude-code-integration.md
+    - docs/explorations/github/01-explorations/validation-strategy.md
+    outs:
+    - docs/explorations/github/02-frameworks/implementation-framework.md:
+        cache: false
+  color_palette:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/logo/01-explorations/color-palette.prompt.md
+      --out docs/explorations/logo/01-explorations/color-palette.md --name color_palette
+    deps:
+    - docs/explorations/logo/01-explorations/color-palette.prompt.md
+    - docs/explorations/logo/00-sources/brand-personality.md
+    - docs/explorations/logo/00-sources/technical-requirements.md
+    outs:
+    - docs/explorations/logo/01-explorations/color-palette.md:
+        cache: false
+  composition_studies:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/logo/01-explorations/composition-studies.prompt.md
+      --out docs/explorations/logo/01-explorations/composition-studies.md --name composition_studies
+    deps:
+    - docs/explorations/logo/01-explorations/composition-studies.prompt.md
+    - docs/explorations/logo/01-explorations/symbol-concepts.md
+    - docs/explorations/logo/01-explorations/visual-metaphor-studies.md
+    - docs/explorations/logo/01-explorations/color-palette.md
+    - docs/explorations/logo/00-sources/technical-requirements.md
+    outs:
+    - docs/explorations/logo/01-explorations/composition-studies.md:
+        cache: false
+  logo_evaluation:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/logo/01-explorations/logo-evaluation.prompt.md
+      --out docs/explorations/logo/01-explorations/logo-evaluation.md --name logo_evaluation
+    deps:
+    - docs/explorations/logo/01-explorations/logo-evaluation.prompt.md
+    - docs/explorations/logo/01-explorations/composition-studies.md
+    - docs/explorations/logo/00-sources/logo-design-criteria.md
+    outs:
+    - docs/explorations/logo/01-explorations/logo-evaluation.md:
+        cache: false
+  symbol_concepts:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/logo/01-explorations/symbol-concepts.prompt.md
+      --out docs/explorations/logo/01-explorations/symbol-concepts.md --name symbol_concepts
+    deps:
+    - docs/explorations/logo/01-explorations/symbol-concepts.prompt.md
+    - docs/explorations/logo/00-sources/brand-personality.md
+    - docs/explorations/logo/00-sources/visual-metaphors.md
+    - docs/explorations/logo/00-sources/technical-requirements.md
+    outs:
+    - docs/explorations/logo/01-explorations/symbol-concepts.md:
+        cache: false
+  visual_metaphor_studies:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/logo/01-explorations/visual-metaphor-studies.prompt.md
+      --out docs/explorations/logo/01-explorations/visual-metaphor-studies.md --name
+      visual_metaphor_studies
+    deps:
+    - docs/explorations/logo/01-explorations/visual-metaphor-studies.prompt.md
+    - docs/explorations/logo/00-sources/visual-metaphors.md
+    - docs/explorations/logo/00-sources/brand-personality.md
+    outs:
+    - docs/explorations/logo/01-explorations/visual-metaphor-studies.md:
+        cache: false
+  logo_recommendation:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/logo/02-final/logo-recommendation.prompt.md
+      --out docs/explorations/logo/02-final/logo-recommendation.md --name logo_recommendation
+    deps:
+    - docs/explorations/logo/02-final/logo-recommendation.prompt.md
+    - docs/explorations/logo/01-explorations/logo-evaluation.md
+    - docs/explorations/logo/01-explorations/composition-studies.md
+    - docs/explorations/logo/01-explorations/color-palette.md
+    - docs/explorations/logo/00-sources/technical-requirements.md
+    outs:
+    - docs/explorations/logo/02-final/logo-recommendation.md:
+        cache: false
+  hybrid_names:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/naming/01-explorations/hybrid-names.prompt.md
+      --out docs/explorations/naming/01-explorations/hybrid-names.md --name hybrid_names
+    deps:
+    - docs/explorations/naming/01-explorations/hybrid-names.prompt.md
+    - docs/explorations/naming/00-sources/project-essence.md
+    - docs/explorations/naming/00-sources/naming-criteria.md
+    - docs/explorations/naming/00-sources/existing-tools-research.md
+    outs:
+    - docs/explorations/naming/01-explorations/hybrid-names.md:
+        cache: false
+  metaphor_names:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/naming/01-explorations/metaphor-names.prompt.md
+      --out docs/explorations/naming/01-explorations/metaphor-names.md --name metaphor_names
+    deps:
+    - docs/explorations/naming/01-explorations/metaphor-names.prompt.md
+    - docs/explorations/naming/00-sources/project-essence.md
+    - docs/explorations/naming/00-sources/naming-criteria.md
+    - docs/explorations/naming/00-sources/existing-tools-research.md
+    outs:
+    - docs/explorations/naming/01-explorations/metaphor-names.md:
+        cache: false
+  name_evaluation:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/naming/01-explorations/name-evaluation.prompt.md
+      --out docs/explorations/naming/01-explorations/name-evaluation.md --name name_evaluation
+    deps:
+    - docs/explorations/naming/01-explorations/name-evaluation.prompt.md
+    - docs/explorations/naming/00-sources/naming-criteria.md
+    - docs/explorations/naming/01-explorations/metaphor-names.md
+    - docs/explorations/naming/01-explorations/technical-names.md
+    - docs/explorations/naming/01-explorations/hybrid-names.md
+    outs:
+    - docs/explorations/naming/01-explorations/name-evaluation.md:
+        cache: false
+  technical_names:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/naming/01-explorations/technical-names.prompt.md
+      --out docs/explorations/naming/01-explorations/technical-names.md --name technical_names
+    deps:
+    - docs/explorations/naming/01-explorations/technical-names.prompt.md
+    - docs/explorations/naming/00-sources/project-essence.md
+    - docs/explorations/naming/00-sources/naming-criteria.md
+    - docs/explorations/naming/00-sources/existing-tools-research.md
+    outs:
+    - docs/explorations/naming/01-explorations/technical-names.md:
+        cache: false
+  recommendation:
+    cmd: bash scripts/render_llm.sh --prompt docs/explorations/naming/02-final/recommendation.prompt.md
+      --out docs/explorations/naming/02-final/recommendation.md --name recommendation
+    deps:
+    - docs/explorations/naming/02-final/recommendation.prompt.md
+    - docs/explorations/naming/00-sources/project-essence.md
+    - docs/explorations/naming/01-explorations/name-evaluation.md
+    outs:
+    - docs/explorations/naming/02-final/recommendation.md:
+        cache: false
   getting_started:
     cmd: bash scripts/render_llm.sh --prompt docs/getting-started.prompt.md --out
       docs/getting-started.md --name getting_started
@@ -252,71 +441,6 @@ stages:
     outs:
     - docs/getting-started.md:
         cache: false
-  claude_code_integration:
-    cmd: bash scripts/render_llm.sh --prompt docs/github-integration/01-explorations/claude-code-integration.prompt.md
-      --out docs/github-integration/01-explorations/claude-code-integration.md --name
-      claude_code_integration
-    deps:
-    - docs/github-integration/01-explorations/claude-code-integration.prompt.md
-    - docs/github-integration/00-sources/design-philosophy.md
-    - docs/how-it-works.md
-    - docs/claude-skills.md
-    - .claude/skills/steward/SKILL.md
-    outs:
-    - docs/github-integration/01-explorations/claude-code-integration.md:
-        cache: false
-  github_actions_strategy:
-    cmd: bash scripts/render_llm.sh --prompt docs/github-integration/01-explorations/github-actions-strategy.prompt.md
-      --out docs/github-integration/01-explorations/github-actions-strategy.md --name
-      github_actions_strategy
-    deps:
-    - docs/github-integration/01-explorations/github-actions-strategy.prompt.md
-    - docs/github-integration/00-sources/design-philosophy.md
-    - docs/how-it-works.md
-    - docs/configuration.md
-    - bin/graft
-    - Dockerfile
-    outs:
-    - docs/github-integration/01-explorations/github-actions-strategy.md:
-        cache: false
-  validation_strategy:
-    cmd: bash scripts/render_llm.sh --prompt docs/github-integration/01-explorations/validation-strategy.prompt.md
-      --out docs/github-integration/01-explorations/validation-strategy.md --name
-      validation_strategy
-    deps:
-    - docs/github-integration/01-explorations/validation-strategy.prompt.md
-    - docs/github-integration/00-sources/design-philosophy.md
-    - docs/how-it-works.md
-    - scripts/pack_prompt.py
-    - scripts/generate_dvc.py
-    outs:
-    - docs/github-integration/01-explorations/validation-strategy.md:
-        cache: false
-  workflow_patterns:
-    cmd: bash scripts/render_llm.sh --prompt docs/github-integration/01-explorations/workflow-patterns.prompt.md
-      --out docs/github-integration/01-explorations/workflow-patterns.md --name workflow_patterns
-    deps:
-    - docs/github-integration/01-explorations/workflow-patterns.prompt.md
-    - docs/github-integration/00-sources/design-philosophy.md
-    - docs/how-it-works.md
-    - docs/use-cases.md
-    outs:
-    - docs/github-integration/01-explorations/workflow-patterns.md:
-        cache: false
-  implementation_framework:
-    cmd: bash scripts/render_llm.sh --prompt docs/github-integration/02-frameworks/implementation-framework.prompt.md
-      --out docs/github-integration/02-frameworks/implementation-framework.md --name
-      implementation_framework
-    deps:
-    - docs/github-integration/02-frameworks/implementation-framework.prompt.md
-    - docs/github-integration/00-sources/design-philosophy.md
-    - docs/github-integration/01-explorations/workflow-patterns.md
-    - docs/github-integration/01-explorations/github-actions-strategy.md
-    - docs/github-integration/01-explorations/claude-code-integration.md
-    - docs/github-integration/01-explorations/validation-strategy.md
-    outs:
-    - docs/github-integration/02-frameworks/implementation-framework.md:
-        cache: false
   how_it_works:
     cmd: bash scripts/render_llm.sh --prompt docs/how-it-works.prompt.md --out docs/how-it-works.md
       --name how_it_works
@@ -327,127 +451,6 @@ stages:
     - scripts/render_llm.sh
     outs:
     - docs/how-it-works.md:
-        cache: false
-  color_palette:
-    cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/01-explorations/color-palette.prompt.md
-      --out docs/logo-exploration/01-explorations/color-palette.md --name color_palette
-    deps:
-    - docs/logo-exploration/01-explorations/color-palette.prompt.md
-    - docs/logo-exploration/00-sources/brand-personality.md
-    - docs/logo-exploration/00-sources/technical-requirements.md
-    outs:
-    - docs/logo-exploration/01-explorations/color-palette.md:
-        cache: false
-  composition_studies:
-    cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/01-explorations/composition-studies.prompt.md
-      --out docs/logo-exploration/01-explorations/composition-studies.md --name composition_studies
-    deps:
-    - docs/logo-exploration/01-explorations/composition-studies.prompt.md
-    - docs/logo-exploration/01-explorations/symbol-concepts.md
-    - docs/logo-exploration/01-explorations/visual-metaphor-studies.md
-    - docs/logo-exploration/01-explorations/color-palette.md
-    - docs/logo-exploration/00-sources/technical-requirements.md
-    outs:
-    - docs/logo-exploration/01-explorations/composition-studies.md:
-        cache: false
-  logo_evaluation:
-    cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/01-explorations/logo-evaluation.prompt.md
-      --out docs/logo-exploration/01-explorations/logo-evaluation.md --name logo_evaluation
-    deps:
-    - docs/logo-exploration/01-explorations/logo-evaluation.prompt.md
-    - docs/logo-exploration/01-explorations/composition-studies.md
-    - docs/logo-exploration/00-sources/logo-design-criteria.md
-    outs:
-    - docs/logo-exploration/01-explorations/logo-evaluation.md:
-        cache: false
-  symbol_concepts:
-    cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/01-explorations/symbol-concepts.prompt.md
-      --out docs/logo-exploration/01-explorations/symbol-concepts.md --name symbol_concepts
-    deps:
-    - docs/logo-exploration/01-explorations/symbol-concepts.prompt.md
-    - docs/logo-exploration/00-sources/brand-personality.md
-    - docs/logo-exploration/00-sources/visual-metaphors.md
-    - docs/logo-exploration/00-sources/technical-requirements.md
-    outs:
-    - docs/logo-exploration/01-explorations/symbol-concepts.md:
-        cache: false
-  visual_metaphor_studies:
-    cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/01-explorations/visual-metaphor-studies.prompt.md
-      --out docs/logo-exploration/01-explorations/visual-metaphor-studies.md --name
-      visual_metaphor_studies
-    deps:
-    - docs/logo-exploration/01-explorations/visual-metaphor-studies.prompt.md
-    - docs/logo-exploration/00-sources/visual-metaphors.md
-    - docs/logo-exploration/00-sources/brand-personality.md
-    outs:
-    - docs/logo-exploration/01-explorations/visual-metaphor-studies.md:
-        cache: false
-  logo_recommendation:
-    cmd: bash scripts/render_llm.sh --prompt docs/logo-exploration/02-final/logo-recommendation.prompt.md
-      --out docs/logo-exploration/02-final/logo-recommendation.md --name logo_recommendation
-    deps:
-    - docs/logo-exploration/02-final/logo-recommendation.prompt.md
-    - docs/logo-exploration/01-explorations/logo-evaluation.md
-    - docs/logo-exploration/01-explorations/composition-studies.md
-    - docs/logo-exploration/01-explorations/color-palette.md
-    - docs/logo-exploration/00-sources/technical-requirements.md
-    outs:
-    - docs/logo-exploration/02-final/logo-recommendation.md:
-        cache: false
-  hybrid_names:
-    cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/hybrid-names.prompt.md
-      --out docs/naming-exploration/01-explorations/hybrid-names.md --name hybrid_names
-    deps:
-    - docs/naming-exploration/01-explorations/hybrid-names.prompt.md
-    - docs/naming-exploration/00-sources/project-essence.md
-    - docs/naming-exploration/00-sources/naming-criteria.md
-    - docs/naming-exploration/00-sources/existing-tools-research.md
-    outs:
-    - docs/naming-exploration/01-explorations/hybrid-names.md:
-        cache: false
-  metaphor_names:
-    cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/metaphor-names.prompt.md
-      --out docs/naming-exploration/01-explorations/metaphor-names.md --name metaphor_names
-    deps:
-    - docs/naming-exploration/01-explorations/metaphor-names.prompt.md
-    - docs/naming-exploration/00-sources/project-essence.md
-    - docs/naming-exploration/00-sources/naming-criteria.md
-    - docs/naming-exploration/00-sources/existing-tools-research.md
-    outs:
-    - docs/naming-exploration/01-explorations/metaphor-names.md:
-        cache: false
-  name_evaluation:
-    cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/name-evaluation.prompt.md
-      --out docs/naming-exploration/01-explorations/name-evaluation.md --name name_evaluation
-    deps:
-    - docs/naming-exploration/01-explorations/name-evaluation.prompt.md
-    - docs/naming-exploration/00-sources/naming-criteria.md
-    - docs/naming-exploration/01-explorations/metaphor-names.md
-    - docs/naming-exploration/01-explorations/technical-names.md
-    - docs/naming-exploration/01-explorations/hybrid-names.md
-    outs:
-    - docs/naming-exploration/01-explorations/name-evaluation.md:
-        cache: false
-  technical_names:
-    cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/01-explorations/technical-names.prompt.md
-      --out docs/naming-exploration/01-explorations/technical-names.md --name technical_names
-    deps:
-    - docs/naming-exploration/01-explorations/technical-names.prompt.md
-    - docs/naming-exploration/00-sources/project-essence.md
-    - docs/naming-exploration/00-sources/naming-criteria.md
-    - docs/naming-exploration/00-sources/existing-tools-research.md
-    outs:
-    - docs/naming-exploration/01-explorations/technical-names.md:
-        cache: false
-  recommendation:
-    cmd: bash scripts/render_llm.sh --prompt docs/naming-exploration/02-final/recommendation.prompt.md
-      --out docs/naming-exploration/02-final/recommendation.md --name recommendation
-    deps:
-    - docs/naming-exploration/02-final/recommendation.prompt.md
-    - docs/naming-exploration/00-sources/project-essence.md
-    - docs/naming-exploration/01-explorations/name-evaluation.md
-    outs:
-    - docs/naming-exploration/02-final/recommendation.md:
         cache: false
   project_overview:
     cmd: bash scripts/render_llm.sh --prompt docs/project-overview.prompt.md --out
