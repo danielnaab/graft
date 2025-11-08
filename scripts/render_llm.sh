@@ -35,6 +35,9 @@ python3 scripts/pack_prompt.py   --prompt "$PROMPT"   --prev "$OUT"   --out "$PA
 MODEL=$(jq -r '.model // empty' "$PARAMS" 2>/dev/null || echo "")
 MODEL="${MODEL:-$LLM_MODEL}"
 
+MAX_TOKENS=$(jq -r '.max_tokens // empty' "$PARAMS" 2>/dev/null || echo "")
+MAX_TOKENS="${MAX_TOKENS:-${LLM_MAX_TOKENS:-8192}}"
+
 # Build attachment flags if attachments exist
 ATTACHMENT_ARGS=()
 if [[ -f "$ATTACHMENTS_FILE" ]]; then
@@ -52,7 +55,7 @@ if [[ -f "$ATTACHMENTS_FILE" ]]; then
   done < <(jq -r '.attachments[]' "$ATTACHMENTS_FILE" 2>/dev/null)
 fi
 
-echo "🤖 Using model: $MODEL" >&2
+echo "🤖 Using model: $MODEL (max_tokens_to_sample: $MAX_TOKENS)" >&2
 
 # Gentle retries for transient errors
 attempt=0
@@ -60,8 +63,8 @@ max_attempts=3
 delay=1
 while :; do
   set +e
-  # Build command with attachments (use array to handle paths with spaces safely)
-  llm -m "$MODEL" "${ATTACHMENT_ARGS[@]}" < "$PACK" > "$TMP_OUT" 2> "$TMP_ERR"
+  # Build command with attachments and max_tokens_to_sample (use array to handle paths with spaces safely)
+  llm -m "$MODEL" -o max_tokens_to_sample "$MAX_TOKENS" "${ATTACHMENT_ARGS[@]}" < "$PACK" > "$TMP_OUT" 2> "$TMP_ERR"
   code=$?
   set -e
   if [[ $code -eq 0 ]]; then

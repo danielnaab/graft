@@ -27,17 +27,24 @@ Create comprehensive configuration documentation for Graft that covers:
 3. **Prompt Frontmatter Schema**
    - Document the YAML frontmatter structure for .prompt.md files
    - Explain the `model` parameter with available options
+   - Explain the `max_tokens` parameter for controlling output length
    - Detail the `deps` parameter with examples showing:
      - Manual source files
      - Generated docs as inputs (DAG creation)
      - Files outside docs/ directory
+   - Detail the `attachments` parameter for including PDFs, images, etc.
    - Explain the rules and behaviors
 
 4. **Model Configuration**
    - List available AWS Bedrock models with their IDs
    - Explain the default model and when to use alternatives
    - Document the US inference profiles and their benefits
-   - Note: Graft doesn't currently expose temperature, top_p, or max_tokens - explain this and suggest workarounds via prompt instructions
+   - Document max_tokens configuration:
+     - Can be set via LLM_MAX_TOKENS environment variable (default: 8192)
+     - Can be set per-prompt in frontmatter: `max_tokens: 8192`
+     - Claude supports up to 8192 output tokens
+     - Increase for longer documents that might get truncated
+   - Note: Graft doesn't currently expose temperature or top_p - explain this and suggest workarounds via prompt instructions
 
 5. **DVC Configuration**
    - Document the .dvc/config structure

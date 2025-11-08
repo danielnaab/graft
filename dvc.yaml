@@ -25,6 +25,185 @@ stages:
     outs:
     - README.md:
         cache: false
+  core_use_cases:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/core-use-cases.prompt.md
+      --out architecture-exploration/01-explorations/core-use-cases.md --name core_use_cases
+    deps:
+    - architecture-exploration/01-explorations/core-use-cases.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    - architecture-exploration/01-explorations/unique-value-proposition.md
+    - architecture-exploration/01-explorations/versioning-generated-artifacts.md
+    outs:
+    - architecture-exploration/01-explorations/core-use-cases.md:
+        cache: false
+  dependency_management:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/dependency-management.prompt.md
+      --out architecture-exploration/01-explorations/dependency-management.md --name
+      dependency_management
+    deps:
+    - architecture-exploration/01-explorations/dependency-management.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    outs:
+    - architecture-exploration/01-explorations/dependency-management.md:
+        cache: false
+  determinism_and_caching:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/determinism-and-caching.prompt.md
+      --out architecture-exploration/01-explorations/determinism-and-caching.md --name
+      determinism_and_caching
+    deps:
+    - architecture-exploration/01-explorations/determinism-and-caching.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    outs:
+    - architecture-exploration/01-explorations/determinism-and-caching.md:
+        cache: false
+  dvc_determinism_integration:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/dvc-determinism-integration.prompt.md
+      --out architecture-exploration/01-explorations/dvc-determinism-integration.md
+      --name dvc_determinism_integration
+    deps:
+    - architecture-exploration/01-explorations/dvc-determinism-integration.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    - architecture-exploration/01-explorations/dvc-reliance.md
+    - architecture-exploration/01-explorations/determinism-and-caching.md
+    outs:
+    - architecture-exploration/01-explorations/dvc-determinism-integration.md:
+        cache: false
+  dvc_reliance:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/dvc-reliance.prompt.md
+      --out architecture-exploration/01-explorations/dvc-reliance.md --name dvc_reliance
+    deps:
+    - architecture-exploration/01-explorations/dvc-reliance.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    outs:
+    - architecture-exploration/01-explorations/dvc-reliance.md:
+        cache: false
+  external_process_determinism:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/external-process-determinism.prompt.md
+      --out architecture-exploration/01-explorations/external-process-determinism.md
+      --name external_process_determinism
+    deps:
+    - architecture-exploration/01-explorations/external-process-determinism.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    - architecture-exploration/01-explorations/external-process-model.md
+    - architecture-exploration/01-explorations/determinism-and-caching.md
+    outs:
+    - architecture-exploration/01-explorations/external-process-determinism.md:
+        cache: false
+  external_process_model:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/external-process-model.prompt.md
+      --out architecture-exploration/01-explorations/external-process-model.md --name
+      external_process_model
+    deps:
+    - architecture-exploration/01-explorations/external-process-model.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    outs:
+    - architecture-exploration/01-explorations/external-process-model.md:
+        cache: false
+  lock_mechanism_with_determinism:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/lock-mechanism-with-determinism.prompt.md
+      --out architecture-exploration/01-explorations/lock-mechanism-with-determinism.md
+      --name lock_mechanism_with_determinism
+    deps:
+    - architecture-exploration/01-explorations/lock-mechanism-with-determinism.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    - architecture-exploration/01-explorations/lock-mechanism.md
+    - architecture-exploration/01-explorations/determinism-and-caching.md
+    outs:
+    - architecture-exploration/01-explorations/lock-mechanism-with-determinism.md:
+        cache: false
+  lock_mechanism:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/lock-mechanism.prompt.md
+      --out architecture-exploration/01-explorations/lock-mechanism.md --name lock_mechanism
+    deps:
+    - architecture-exploration/01-explorations/lock-mechanism.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    outs:
+    - architecture-exploration/01-explorations/lock-mechanism.md:
+        cache: false
+  multi_file_outputs:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/multi-file-outputs.prompt.md
+      --out architecture-exploration/01-explorations/multi-file-outputs.md --name
+      multi_file_outputs
+    deps:
+    - architecture-exploration/01-explorations/multi-file-outputs.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    outs:
+    - architecture-exploration/01-explorations/multi-file-outputs.md:
+        cache: false
+  naming_conventions:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/naming-conventions.prompt.md
+      --out architecture-exploration/01-explorations/naming-conventions.md --name
+      naming_conventions
+    deps:
+    - architecture-exploration/01-explorations/naming-conventions.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    outs:
+    - architecture-exploration/01-explorations/naming-conventions.md:
+        cache: false
+  unique_value_proposition:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/unique-value-proposition.prompt.md
+      --out architecture-exploration/01-explorations/unique-value-proposition.md --name
+      unique_value_proposition
+    deps:
+    - architecture-exploration/01-explorations/unique-value-proposition.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    - architecture-exploration/01-explorations/versioning-generated-artifacts.md
+    outs:
+    - architecture-exploration/01-explorations/unique-value-proposition.md:
+        cache: false
+  versioning_generated_artifacts:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/01-explorations/versioning-generated-artifacts.prompt.md
+      --out architecture-exploration/01-explorations/versioning-generated-artifacts.md
+      --name versioning_generated_artifacts
+    deps:
+    - architecture-exploration/01-explorations/versioning-generated-artifacts.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    outs:
+    - architecture-exploration/01-explorations/versioning-generated-artifacts.md:
+        cache: false
+  architecture_recommendations:
+    cmd: bash scripts/render_llm.sh --prompt architecture-exploration/02-final/architecture-recommendations.prompt.md
+      --out architecture-exploration/02-final/architecture-recommendations.md --name
+      architecture_recommendations
+    deps:
+    - architecture-exploration/02-final/architecture-recommendations.prompt.md
+    - architecture-exploration/00-sources/current-implementation.md
+    - architecture-exploration/00-sources/design-goals.md
+    - architecture-exploration/00-sources/open-questions.md
+    - architecture-exploration/01-explorations/external-process-model.md
+    - architecture-exploration/01-explorations/multi-file-outputs.md
+    - architecture-exploration/01-explorations/naming-conventions.md
+    - architecture-exploration/01-explorations/dependency-management.md
+    - architecture-exploration/01-explorations/lock-mechanism.md
+    outs:
+    - architecture-exploration/02-final/architecture-recommendations.md:
+        cache: false
   claude_skills:
     cmd: bash scripts/render_llm.sh --prompt docs/claude-skills.prompt.md --out docs/claude-skills.md
       --name claude_skills
@@ -307,13 +486,4 @@ stages:
     - docs/claude-skills.md
     outs:
     - docs/use-cases.md:
-        cache: false
-  research_summary:
-    cmd: bash scripts/render_llm.sh --prompt examples/pdf-support/research-summary.prompt.md
-      --out examples/pdf-support/research-summary.md --name research_summary
-    deps:
-    - examples/pdf-support/research-summary.prompt.md
-    - examples/pdf-support/sample-research.pdf
-    outs:
-    - examples/pdf-support/research-summary.md:
         cache: false
