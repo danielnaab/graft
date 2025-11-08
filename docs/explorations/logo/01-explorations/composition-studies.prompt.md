@@ -1,9 +1,9 @@
 ---
 deps:
-  - docs/logo-exploration/01-explorations/symbol-concepts.md
-  - docs/logo-exploration/01-explorations/visual-metaphor-studies.md
-  - docs/logo-exploration/01-explorations/color-palette.md
-  - docs/logo-exploration/00-sources/technical-requirements.md
+  - docs/explorations/logo/01-explorations/symbol-concepts.md
+  - docs/explorations/logo/01-explorations/visual-metaphor-studies.md
+  - docs/explorations/logo/01-explorations/color-palette.md
+  - docs/explorations/logo/00-sources/technical-requirements.md
 lock:
   enabled: true
   reason: "Completed logo exploration - historical record"

@@ -1,10 +1,10 @@
 ---
 deps:
-  - architecture-exploration/00-sources/current-implementation.md
-  - architecture-exploration/00-sources/design-goals.md
-  - architecture-exploration/00-sources/open-questions.md
-  - architecture-exploration/01-explorations/lock-mechanism.md
-  - architecture-exploration/01-explorations/determinism-and-caching.md
+  - docs/explorations/architecture/00-sources/current-implementation.md
+  - docs/explorations/architecture/00-sources/design-goals.md
+  - docs/explorations/architecture/00-sources/open-questions.md
+  - docs/explorations/architecture/01-explorations/lock-mechanism.md
+  - docs/explorations/architecture/01-explorations/determinism-and-caching.md
 lock:
   enabled: true
   reason: "Completed architecture exploration - historical record"

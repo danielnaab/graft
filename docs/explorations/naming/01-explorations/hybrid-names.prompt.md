@@ -1,8 +1,8 @@
 ---
 deps:
-  - docs/naming-exploration/00-sources/project-essence.md
-  - docs/naming-exploration/00-sources/naming-criteria.md
-  - docs/naming-exploration/00-sources/existing-tools-research.md
+  - docs/explorations/naming/00-sources/project-essence.md
+  - docs/explorations/naming/00-sources/naming-criteria.md
+  - docs/explorations/naming/00-sources/existing-tools-research.md
 lock:
   enabled: true
   reason: "Completed naming exploration - historical record"

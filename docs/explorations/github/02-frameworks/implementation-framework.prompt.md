@@ -1,10 +1,10 @@
 ---
 deps:
-  - docs/github-integration/00-sources/design-philosophy.md
-  - docs/github-integration/01-explorations/workflow-patterns.md
-  - docs/github-integration/01-explorations/github-actions-strategy.md
-  - docs/github-integration/01-explorations/claude-code-integration.md
-  - docs/github-integration/01-explorations/validation-strategy.md
+  - docs/explorations/github/00-sources/design-philosophy.md
+  - docs/explorations/github/01-explorations/workflow-patterns.md
+  - docs/explorations/github/01-explorations/github-actions-strategy.md
+  - docs/explorations/github/01-explorations/claude-code-integration.md
+  - docs/explorations/github/01-explorations/validation-strategy.md
 lock:
   enabled: true
   reason: "Completed GitHub integration exploration - historical record"

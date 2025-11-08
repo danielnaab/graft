@@ -1,9 +1,9 @@
 ---
 deps:
-  - docs/naming-exploration/00-sources/naming-criteria.md
-  - docs/naming-exploration/01-explorations/metaphor-names.md
-  - docs/naming-exploration/01-explorations/technical-names.md
-  - docs/naming-exploration/01-explorations/hybrid-names.md
+  - docs/explorations/naming/00-sources/naming-criteria.md
+  - docs/explorations/naming/01-explorations/metaphor-names.md
+  - docs/explorations/naming/01-explorations/technical-names.md
+  - docs/explorations/naming/01-explorations/hybrid-names.md
 lock:
   enabled: true
   reason: "Completed naming exploration - historical record"

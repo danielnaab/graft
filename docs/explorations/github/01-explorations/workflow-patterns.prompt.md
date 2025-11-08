@@ -1,6 +1,6 @@
 ---
 deps:
-  - docs/github-integration/00-sources/design-philosophy.md
+  - docs/explorations/github/00-sources/design-philosophy.md
   - docs/how-it-works.md
   - docs/use-cases.md
 lock:

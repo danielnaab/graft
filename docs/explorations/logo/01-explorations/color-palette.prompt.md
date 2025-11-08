@@ -1,7 +1,7 @@
 ---
 deps:
-  - docs/logo-exploration/00-sources/brand-personality.md
-  - docs/logo-exploration/00-sources/technical-requirements.md
+  - docs/explorations/logo/00-sources/brand-personality.md
+  - docs/explorations/logo/00-sources/technical-requirements.md
 lock:
   enabled: true
   reason: "Completed logo exploration - historical record"

@@ -1,8 +1,8 @@
 ---
 deps:
-  - architecture-exploration/00-sources/current-implementation.md
-  - architecture-exploration/00-sources/design-goals.md
-  - architecture-exploration/00-sources/open-questions.md
+  - docs/explorations/architecture/00-sources/current-implementation.md
+  - docs/explorations/architecture/00-sources/design-goals.md
+  - docs/explorations/architecture/00-sources/open-questions.md
 lock:
   enabled: true
   reason: "Completed architecture exploration - historical record"
@@ -172,7 +172,7 @@ Graft commits generated documentation to git. Why?
 
 **Scenario**:
 ```
-architecture-exploration/
+docs/explorations/architecture/
   00-sources/design-goals.md (human-written)
   01-explorations/external-process.prompt.md (template)
   01-explorations/external-process.md (generated)
@@ -264,7 +264,7 @@ git log → (graft) → CHANGELOG.md
 
 **Scenario**:
 ```
-architecture-exploration/
+docs/explorations/architecture/
   explorations/ (generated from prompts)
   final-recommendation.md (generated synthesis)
 ```

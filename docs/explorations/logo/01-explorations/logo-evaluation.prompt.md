@@ -1,7 +1,7 @@
 ---
 deps:
-  - docs/logo-exploration/01-explorations/composition-studies.md
-  - docs/logo-exploration/00-sources/logo-design-criteria.md
+  - docs/explorations/logo/01-explorations/composition-studies.md
+  - docs/explorations/logo/00-sources/logo-design-criteria.md
 lock:
   enabled: true
   reason: "Completed logo exploration - historical record"

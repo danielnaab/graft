@@ -1,13 +1,13 @@
 ---
 deps:
-  - architecture-exploration/00-sources/current-implementation.md
-  - architecture-exploration/00-sources/design-goals.md
-  - architecture-exploration/00-sources/open-questions.md
-  - architecture-exploration/01-explorations/external-process-model.md
-  - architecture-exploration/01-explorations/multi-file-outputs.md
-  - architecture-exploration/01-explorations/naming-conventions.md
-  - architecture-exploration/01-explorations/dependency-management.md
-  - architecture-exploration/01-explorations/lock-mechanism.md
+  - docs/explorations/architecture/00-sources/current-implementation.md
+  - docs/explorations/architecture/00-sources/design-goals.md
+  - docs/explorations/architecture/00-sources/open-questions.md
+  - docs/explorations/architecture/01-explorations/external-process-model.md
+  - docs/explorations/architecture/01-explorations/multi-file-outputs.md
+  - docs/explorations/architecture/01-explorations/naming-conventions.md
+  - docs/explorations/architecture/01-explorations/dependency-management.md
+  - docs/explorations/architecture/01-explorations/lock-mechanism.md
 lock:
   enabled: true
   reason: "Completed architecture exploration - historical record"

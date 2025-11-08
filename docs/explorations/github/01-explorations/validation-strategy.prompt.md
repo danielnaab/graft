@@ -1,6 +1,6 @@
 ---
 deps:
-  - docs/github-integration/00-sources/design-philosophy.md
+  - docs/explorations/github/00-sources/design-philosophy.md
   - docs/how-it-works.md
   - scripts/pack_prompt.py
   - scripts/generate_dvc.py

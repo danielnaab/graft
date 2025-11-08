@@ -1,7 +1,7 @@
 ---
 deps:
-  - docs/naming-exploration/00-sources/project-essence.md
-  - docs/naming-exploration/01-explorations/name-evaluation.md
+  - docs/explorations/naming/00-sources/project-essence.md
+  - docs/explorations/naming/01-explorations/name-evaluation.md
 lock:
   enabled: true
   reason: "Completed naming exploration - historical record"
