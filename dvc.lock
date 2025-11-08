@@ -35,294 +35,294 @@ stages:
       size: 14507
   hybrid_names:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/naming-exploration/01-explorations/hybrid-names.prompt.md --out 
-      docs/naming-exploration/01-explorations/hybrid-names.md --name 
+      docs/explorations/naming/01-explorations/hybrid-names.prompt.md --out 
+      docs/explorations/naming/01-explorations/hybrid-names.md --name 
       hybrid_names
     deps:
-    - path: docs/naming-exploration/00-sources/existing-tools-research.md
+    - path: docs/explorations/naming/00-sources/existing-tools-research.md
       hash: md5
       md5: dd60740111a637a19ebd5f2e98a671bc
       size: 4255
-    - path: docs/naming-exploration/00-sources/naming-criteria.md
+    - path: docs/explorations/naming/00-sources/naming-criteria.md
       hash: md5
       md5: 33b1c26dc8f699a9869964c923fbae21
       size: 3553
-    - path: docs/naming-exploration/00-sources/project-essence.md
+    - path: docs/explorations/naming/00-sources/project-essence.md
       hash: md5
       md5: 194cb84a2fb262f2c60e9e740b10c91c
       size: 4786
-    - path: docs/naming-exploration/01-explorations/hybrid-names.prompt.md
+    - path: docs/explorations/naming/01-explorations/hybrid-names.prompt.md
       hash: md5
       md5: 29c51e9085c0dbc666881712eb5450b8
       size: 1839
     outs:
-    - path: docs/naming-exploration/01-explorations/hybrid-names.md
+    - path: docs/explorations/naming/01-explorations/hybrid-names.md
       hash: md5
       md5: 22937cd2bc53b7c6252ac61b4d50a34c
       size: 7249
   metaphor_names:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/naming-exploration/01-explorations/metaphor-names.prompt.md --out 
-      docs/naming-exploration/01-explorations/metaphor-names.md --name 
+      docs/explorations/naming/01-explorations/metaphor-names.prompt.md --out 
+      docs/explorations/naming/01-explorations/metaphor-names.md --name 
       metaphor_names
     deps:
-    - path: docs/naming-exploration/00-sources/existing-tools-research.md
+    - path: docs/explorations/naming/00-sources/existing-tools-research.md
       hash: md5
       md5: dd60740111a637a19ebd5f2e98a671bc
       size: 4255
-    - path: docs/naming-exploration/00-sources/naming-criteria.md
+    - path: docs/explorations/naming/00-sources/naming-criteria.md
       hash: md5
       md5: 33b1c26dc8f699a9869964c923fbae21
       size: 3553
-    - path: docs/naming-exploration/00-sources/project-essence.md
+    - path: docs/explorations/naming/00-sources/project-essence.md
       hash: md5
       md5: 194cb84a2fb262f2c60e9e740b10c91c
       size: 4786
-    - path: docs/naming-exploration/01-explorations/metaphor-names.prompt.md
+    - path: docs/explorations/naming/01-explorations/metaphor-names.prompt.md
       hash: md5
       md5: 1ba3f39a682eea179798e4f7a4018c8e
       size: 1380
     outs:
-    - path: docs/naming-exploration/01-explorations/metaphor-names.md
+    - path: docs/explorations/naming/01-explorations/metaphor-names.md
       hash: md5
       md5: 22eb1d0077b661774d2666954d3d050a
       size: 8050
   technical_names:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/naming-exploration/01-explorations/technical-names.prompt.md --out 
-      docs/naming-exploration/01-explorations/technical-names.md --name 
+      docs/explorations/naming/01-explorations/technical-names.prompt.md --out 
+      docs/explorations/naming/01-explorations/technical-names.md --name 
       technical_names
     deps:
-    - path: docs/naming-exploration/00-sources/existing-tools-research.md
+    - path: docs/explorations/naming/00-sources/existing-tools-research.md
       hash: md5
       md5: dd60740111a637a19ebd5f2e98a671bc
       size: 4255
-    - path: docs/naming-exploration/00-sources/naming-criteria.md
+    - path: docs/explorations/naming/00-sources/naming-criteria.md
       hash: md5
       md5: 33b1c26dc8f699a9869964c923fbae21
       size: 3553
-    - path: docs/naming-exploration/00-sources/project-essence.md
+    - path: docs/explorations/naming/00-sources/project-essence.md
       hash: md5
       md5: 194cb84a2fb262f2c60e9e740b10c91c
       size: 4786
-    - path: docs/naming-exploration/01-explorations/technical-names.prompt.md
+    - path: docs/explorations/naming/01-explorations/technical-names.prompt.md
       hash: md5
       md5: 5f62678942bc2128b2e0dbfd1e6a86eb
       size: 1578
     outs:
-    - path: docs/naming-exploration/01-explorations/technical-names.md
+    - path: docs/explorations/naming/01-explorations/technical-names.md
       hash: md5
       md5: cf15599cbf8c6e4aa65074efa2cc91b1
       size: 6358
   name_evaluation:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/naming-exploration/01-explorations/name-evaluation.prompt.md --out 
-      docs/naming-exploration/01-explorations/name-evaluation.md --name 
+      docs/explorations/naming/01-explorations/name-evaluation.prompt.md --out 
+      docs/explorations/naming/01-explorations/name-evaluation.md --name 
       name_evaluation
     deps:
-    - path: docs/naming-exploration/00-sources/naming-criteria.md
+    - path: docs/explorations/naming/00-sources/naming-criteria.md
       hash: md5
       md5: 33b1c26dc8f699a9869964c923fbae21
       size: 3553
-    - path: docs/naming-exploration/01-explorations/hybrid-names.md
+    - path: docs/explorations/naming/01-explorations/hybrid-names.md
       hash: md5
       md5: 22937cd2bc53b7c6252ac61b4d50a34c
       size: 7249
-    - path: docs/naming-exploration/01-explorations/metaphor-names.md
+    - path: docs/explorations/naming/01-explorations/metaphor-names.md
       hash: md5
       md5: 22eb1d0077b661774d2666954d3d050a
       size: 8050
-    - path: docs/naming-exploration/01-explorations/name-evaluation.prompt.md
+    - path: docs/explorations/naming/01-explorations/name-evaluation.prompt.md
       hash: md5
       md5: f710d5f67b396e859ba74c35fd23961d
       size: 1918
-    - path: docs/naming-exploration/01-explorations/technical-names.md
+    - path: docs/explorations/naming/01-explorations/technical-names.md
       hash: md5
       md5: cf15599cbf8c6e4aa65074efa2cc91b1
       size: 6358
     outs:
-    - path: docs/naming-exploration/01-explorations/name-evaluation.md
+    - path: docs/explorations/naming/01-explorations/name-evaluation.md
       hash: md5
       md5: 658492a0d405f2bdcb39c24067242dc9
       size: 10248
   recommendation:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/naming-exploration/02-final/recommendation.prompt.md --out 
-      docs/naming-exploration/02-final/recommendation.md --name recommendation
+      docs/explorations/naming/02-final/recommendation.prompt.md --out 
+      docs/explorations/naming/02-final/recommendation.md --name recommendation
     deps:
-    - path: docs/naming-exploration/00-sources/project-essence.md
+    - path: docs/explorations/naming/00-sources/project-essence.md
       hash: md5
       md5: 194cb84a2fb262f2c60e9e740b10c91c
       size: 4786
-    - path: docs/naming-exploration/01-explorations/name-evaluation.md
+    - path: docs/explorations/naming/01-explorations/name-evaluation.md
       hash: md5
       md5: 658492a0d405f2bdcb39c24067242dc9
       size: 10248
-    - path: docs/naming-exploration/02-final/recommendation.prompt.md
+    - path: docs/explorations/naming/02-final/recommendation.prompt.md
       hash: md5
       md5: bf010c9b647595b9eae45d03dee2c4f0
       size: 1591
     outs:
-    - path: docs/naming-exploration/02-final/recommendation.md
+    - path: docs/explorations/naming/02-final/recommendation.md
       hash: md5
       md5: 4550936cbc80ccf1b0363962cbdb399d
       size: 6439
   color_palette:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/logo-exploration/01-explorations/color-palette.prompt.md --out 
-      docs/logo-exploration/01-explorations/color-palette.md --name 
+      docs/explorations/logo/01-explorations/color-palette.prompt.md --out 
+      docs/explorations/logo/01-explorations/color-palette.md --name 
       color_palette
     deps:
-    - path: docs/logo-exploration/00-sources/brand-personality.md
+    - path: docs/explorations/logo/00-sources/brand-personality.md
       hash: md5
       md5: d162fd6aa2e5492236d543405376c6e0
       size: 6547
-    - path: docs/logo-exploration/00-sources/technical-requirements.md
+    - path: docs/explorations/logo/00-sources/technical-requirements.md
       hash: md5
       md5: 530159348f970b4dbeff31ecc3dce8f4
       size: 8098
-    - path: docs/logo-exploration/01-explorations/color-palette.prompt.md
+    - path: docs/explorations/logo/01-explorations/color-palette.prompt.md
       hash: md5
       md5: e7faf7d6dcda92f801b438a8e14fac65
       size: 2668
     outs:
-    - path: docs/logo-exploration/01-explorations/color-palette.md
+    - path: docs/explorations/logo/01-explorations/color-palette.md
       hash: md5
       md5: 9095b31aea9311806fe52038d2a8dce4
       size: 14746
   symbol_concepts:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/logo-exploration/01-explorations/symbol-concepts.prompt.md --out 
-      docs/logo-exploration/01-explorations/symbol-concepts.md --name 
+      docs/explorations/logo/01-explorations/symbol-concepts.prompt.md --out 
+      docs/explorations/logo/01-explorations/symbol-concepts.md --name 
       symbol_concepts
     deps:
-    - path: docs/logo-exploration/00-sources/brand-personality.md
+    - path: docs/explorations/logo/00-sources/brand-personality.md
       hash: md5
       md5: d162fd6aa2e5492236d543405376c6e0
       size: 6547
-    - path: docs/logo-exploration/00-sources/technical-requirements.md
+    - path: docs/explorations/logo/00-sources/technical-requirements.md
       hash: md5
       md5: 530159348f970b4dbeff31ecc3dce8f4
       size: 8098
-    - path: docs/logo-exploration/00-sources/visual-metaphors.md
+    - path: docs/explorations/logo/00-sources/visual-metaphors.md
       hash: md5
       md5: 187d3b93aa4a4defb5017784397f5c0a
       size: 6889
-    - path: docs/logo-exploration/01-explorations/symbol-concepts.prompt.md
+    - path: docs/explorations/logo/01-explorations/symbol-concepts.prompt.md
       hash: md5
       md5: ddf862b520cedbd07b669932551a188b
       size: 1896
     outs:
-    - path: docs/logo-exploration/01-explorations/symbol-concepts.md
+    - path: docs/explorations/logo/01-explorations/symbol-concepts.md
       hash: md5
       md5: 506a1d8003ca50f7006f5bb237fd69f8
       size: 16649
   visual_metaphor_studies:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/logo-exploration/01-explorations/visual-metaphor-studies.prompt.md 
-      --out docs/logo-exploration/01-explorations/visual-metaphor-studies.md 
+      docs/explorations/logo/01-explorations/visual-metaphor-studies.prompt.md 
+      --out docs/explorations/logo/01-explorations/visual-metaphor-studies.md 
       --name visual_metaphor_studies
     deps:
-    - path: docs/logo-exploration/00-sources/brand-personality.md
+    - path: docs/explorations/logo/00-sources/brand-personality.md
       hash: md5
       md5: d162fd6aa2e5492236d543405376c6e0
       size: 6547
-    - path: docs/logo-exploration/00-sources/visual-metaphors.md
+    - path: docs/explorations/logo/00-sources/visual-metaphors.md
       hash: md5
       md5: 187d3b93aa4a4defb5017784397f5c0a
       size: 6889
     - path: 
-        docs/logo-exploration/01-explorations/visual-metaphor-studies.prompt.md
+        docs/explorations/logo/01-explorations/visual-metaphor-studies.prompt.md
       hash: md5
       md5: 84926982927f44bec4c4c4172f0ef113
       size: 1895
     outs:
-    - path: docs/logo-exploration/01-explorations/visual-metaphor-studies.md
+    - path: docs/explorations/logo/01-explorations/visual-metaphor-studies.md
       hash: md5
       md5: 578a99687131fdca4570a26de8f21783
       size: 19154
   composition_studies:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/logo-exploration/01-explorations/composition-studies.prompt.md --out 
-      docs/logo-exploration/01-explorations/composition-studies.md --name 
+      docs/explorations/logo/01-explorations/composition-studies.prompt.md --out 
+      docs/explorations/logo/01-explorations/composition-studies.md --name 
       composition_studies
     deps:
-    - path: docs/logo-exploration/00-sources/technical-requirements.md
+    - path: docs/explorations/logo/00-sources/technical-requirements.md
       hash: md5
       md5: 530159348f970b4dbeff31ecc3dce8f4
       size: 8098
-    - path: docs/logo-exploration/01-explorations/color-palette.md
+    - path: docs/explorations/logo/01-explorations/color-palette.md
       hash: md5
       md5: 9095b31aea9311806fe52038d2a8dce4
       size: 14746
-    - path: docs/logo-exploration/01-explorations/composition-studies.prompt.md
+    - path: docs/explorations/logo/01-explorations/composition-studies.prompt.md
       hash: md5
       md5: b31330627d1330280cc01b6fc435245c
       size: 3403
-    - path: docs/logo-exploration/01-explorations/symbol-concepts.md
+    - path: docs/explorations/logo/01-explorations/symbol-concepts.md
       hash: md5
       md5: 506a1d8003ca50f7006f5bb237fd69f8
       size: 16649
-    - path: docs/logo-exploration/01-explorations/visual-metaphor-studies.md
+    - path: docs/explorations/logo/01-explorations/visual-metaphor-studies.md
       hash: md5
       md5: 578a99687131fdca4570a26de8f21783
       size: 19154
     outs:
-    - path: docs/logo-exploration/01-explorations/composition-studies.md
+    - path: docs/explorations/logo/01-explorations/composition-studies.md
       hash: md5
       md5: d235cb8dd65d9676c569d3ab83a38fd5
       size: 14391
   logo_evaluation:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/logo-exploration/01-explorations/logo-evaluation.prompt.md --out 
-      docs/logo-exploration/01-explorations/logo-evaluation.md --name 
+      docs/explorations/logo/01-explorations/logo-evaluation.prompt.md --out 
+      docs/explorations/logo/01-explorations/logo-evaluation.md --name 
       logo_evaluation
     deps:
-    - path: docs/logo-exploration/00-sources/logo-design-criteria.md
+    - path: docs/explorations/logo/00-sources/logo-design-criteria.md
       hash: md5
       md5: b5a23c8295ce9ceb358cc16b2f2638a0
       size: 6272
-    - path: docs/logo-exploration/01-explorations/composition-studies.md
+    - path: docs/explorations/logo/01-explorations/composition-studies.md
       hash: md5
       md5: d235cb8dd65d9676c569d3ab83a38fd5
       size: 14391
-    - path: docs/logo-exploration/01-explorations/logo-evaluation.prompt.md
+    - path: docs/explorations/logo/01-explorations/logo-evaluation.prompt.md
       hash: md5
       md5: 226d0fb600e2f915b51b478d005ee69d
       size: 3812
     outs:
-    - path: docs/logo-exploration/01-explorations/logo-evaluation.md
+    - path: docs/explorations/logo/01-explorations/logo-evaluation.md
       hash: md5
       md5: 175ab277ffc70a5c19e73075ff96ca06
       size: 17180
   logo_recommendation:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/logo-exploration/02-final/logo-recommendation.prompt.md --out 
-      docs/logo-exploration/02-final/logo-recommendation.md --name 
+      docs/explorations/logo/02-final/logo-recommendation.prompt.md --out 
+      docs/explorations/logo/02-final/logo-recommendation.md --name 
       logo_recommendation
     deps:
-    - path: docs/logo-exploration/00-sources/technical-requirements.md
+    - path: docs/explorations/logo/00-sources/technical-requirements.md
       hash: md5
       md5: 530159348f970b4dbeff31ecc3dce8f4
       size: 8098
-    - path: docs/logo-exploration/01-explorations/color-palette.md
+    - path: docs/explorations/logo/01-explorations/color-palette.md
       hash: md5
       md5: 9095b31aea9311806fe52038d2a8dce4
       size: 14746
-    - path: docs/logo-exploration/01-explorations/composition-studies.md
+    - path: docs/explorations/logo/01-explorations/composition-studies.md
       hash: md5
       md5: d235cb8dd65d9676c569d3ab83a38fd5
       size: 14391
-    - path: docs/logo-exploration/01-explorations/logo-evaluation.md
+    - path: docs/explorations/logo/01-explorations/logo-evaluation.md
       hash: md5
       md5: 175ab277ffc70a5c19e73075ff96ca06
       size: 17180
-    - path: docs/logo-exploration/02-final/logo-recommendation.prompt.md
+    - path: docs/explorations/logo/02-final/logo-recommendation.prompt.md
       hash: md5
       md5: ab155209b8317f3c638264df25931e68
       size: 6671
     outs:
-    - path: docs/logo-exploration/02-final/logo-recommendation.md
+    - path: docs/explorations/logo/02-final/logo-recommendation.md
       hash: md5
       md5: 96d6e82b603b57ba34a4ca481c6fe1ec
       size: 14361
@@ -350,7 +350,7 @@ stages:
       hash: md5
       md5: 15f40d1dfc2b81279e2fb50684c33eec
       size: 15768
-    - path: docs/naming-exploration/02-final/recommendation.md
+    - path: docs/explorations/naming/02-final/recommendation.md
       hash: md5
       md5: 4550936cbc80ccf1b0363962cbdb399d
       size: 6439
@@ -585,8 +585,8 @@ stages:
       size: 16625
   claude_code_integration:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/github-integration/01-explorations/claude-code-integration.prompt.md 
-      --out docs/github-integration/01-explorations/claude-code-integration.md 
+      docs/explorations/github/01-explorations/claude-code-integration.prompt.md 
+      --out docs/explorations/github/01-explorations/claude-code-integration.md 
       --name claude_code_integration
     deps:
     - path: .claude/skills/steward/SKILL.md
@@ -597,12 +597,12 @@ stages:
       hash: md5
       md5: 26a22a701d399b2392c2f41c2bc172d3
       size: 16625
-    - path: docs/github-integration/00-sources/design-philosophy.md
+    - path: docs/explorations/github/00-sources/design-philosophy.md
       hash: md5
       md5: ad06b30b80b6d3c63f7cc3cfc0cd3dea
       size: 11704
     - path: 
-        docs/github-integration/01-explorations/claude-code-integration.prompt.md
+        docs/explorations/github/01-explorations/claude-code-integration.prompt.md
       hash: md5
       md5: 0c98357f9c52aa4893573e775a8252b0
       size: 6298
@@ -611,14 +611,14 @@ stages:
       md5: 15f40d1dfc2b81279e2fb50684c33eec
       size: 15768
     outs:
-    - path: docs/github-integration/01-explorations/claude-code-integration.md
+    - path: docs/explorations/github/01-explorations/claude-code-integration.md
       hash: md5
       md5: 75518127d1aa69ad9206885b53026e2e
       size: 17681
   github_actions_strategy:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/github-integration/01-explorations/github-actions-strategy.prompt.md 
-      --out docs/github-integration/01-explorations/github-actions-strategy.md 
+      docs/explorations/github/01-explorations/github-actions-strategy.prompt.md 
+      --out docs/explorations/github/01-explorations/github-actions-strategy.md 
       --name github_actions_strategy
     deps:
     - path: Dockerfile
@@ -634,12 +634,12 @@ stages:
       hash: md5
       md5: 863c8f8bf3ab06c51c07e187457a5310
       size: 9885
-    - path: docs/github-integration/00-sources/design-philosophy.md
+    - path: docs/explorations/github/00-sources/design-philosophy.md
       hash: md5
       md5: ad06b30b80b6d3c63f7cc3cfc0cd3dea
       size: 11704
     - path: 
-        docs/github-integration/01-explorations/github-actions-strategy.prompt.md
+        docs/explorations/github/01-explorations/github-actions-strategy.prompt.md
       hash: md5
       md5: d4ce2916b7e36cebb90154f7d7ea4bd5
       size: 3113
@@ -648,22 +648,22 @@ stages:
       md5: 15f40d1dfc2b81279e2fb50684c33eec
       size: 15768
     outs:
-    - path: docs/github-integration/01-explorations/github-actions-strategy.md
+    - path: docs/explorations/github/01-explorations/github-actions-strategy.md
       hash: md5
       md5: 3288f028e7b053fdb3e2b49ab0318a7b
       size: 28409
   validation_strategy:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/github-integration/01-explorations/validation-strategy.prompt.md 
-      --out docs/github-integration/01-explorations/validation-strategy.md 
+      docs/explorations/github/01-explorations/validation-strategy.prompt.md 
+      --out docs/explorations/github/01-explorations/validation-strategy.md 
       --name validation_strategy
     deps:
-    - path: docs/github-integration/00-sources/design-philosophy.md
+    - path: docs/explorations/github/00-sources/design-philosophy.md
       hash: md5
       md5: ad06b30b80b6d3c63f7cc3cfc0cd3dea
       size: 11704
     - path: 
-        docs/github-integration/01-explorations/validation-strategy.prompt.md
+        docs/explorations/github/01-explorations/validation-strategy.prompt.md
       hash: md5
       md5: b45e1a88f04de1da95fbf9f1b6d8d981
       size: 9998
@@ -682,21 +682,21 @@ stages:
       size: 10605
       isexec: true
     outs:
-    - path: docs/github-integration/01-explorations/validation-strategy.md
+    - path: docs/explorations/github/01-explorations/validation-strategy.md
       hash: md5
       md5: 13be10d4e742ba37d523c9b783f4ab25
       size: 28746
   workflow_patterns:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/github-integration/01-explorations/workflow-patterns.prompt.md --out 
-      docs/github-integration/01-explorations/workflow-patterns.md --name 
+      docs/explorations/github/01-explorations/workflow-patterns.prompt.md --out 
+      docs/explorations/github/01-explorations/workflow-patterns.md --name 
       workflow_patterns
     deps:
-    - path: docs/github-integration/00-sources/design-philosophy.md
+    - path: docs/explorations/github/00-sources/design-philosophy.md
       hash: md5
       md5: ad06b30b80b6d3c63f7cc3cfc0cd3dea
       size: 11704
-    - path: docs/github-integration/01-explorations/workflow-patterns.prompt.md
+    - path: docs/explorations/github/01-explorations/workflow-patterns.prompt.md
       hash: md5
       md5: a972e5124c6796ee6a4b003429991301
       size: 2455
@@ -709,498 +709,498 @@ stages:
       md5: 02bbac5e62ab46999a418d0c8b02dce0
       size: 36549
     outs:
-    - path: docs/github-integration/01-explorations/workflow-patterns.md
+    - path: docs/explorations/github/01-explorations/workflow-patterns.md
       hash: md5
       md5: 54fd5f5618a6c89b4f6b626b4ada35c8
       size: 29851
   implementation_framework:
     cmd: bash scripts/render_llm.sh --prompt 
-      docs/github-integration/02-frameworks/implementation-framework.prompt.md 
-      --out docs/github-integration/02-frameworks/implementation-framework.md 
+      docs/explorations/github/02-frameworks/implementation-framework.prompt.md 
+      --out docs/explorations/github/02-frameworks/implementation-framework.md 
       --name implementation_framework
     deps:
-    - path: docs/github-integration/00-sources/design-philosophy.md
+    - path: docs/explorations/github/00-sources/design-philosophy.md
       hash: md5
       md5: ad06b30b80b6d3c63f7cc3cfc0cd3dea
       size: 11704
-    - path: docs/github-integration/01-explorations/claude-code-integration.md
+    - path: docs/explorations/github/01-explorations/claude-code-integration.md
       hash: md5
       md5: 75518127d1aa69ad9206885b53026e2e
       size: 17681
-    - path: docs/github-integration/01-explorations/github-actions-strategy.md
+    - path: docs/explorations/github/01-explorations/github-actions-strategy.md
       hash: md5
       md5: 3288f028e7b053fdb3e2b49ab0318a7b
       size: 28409
-    - path: docs/github-integration/01-explorations/validation-strategy.md
+    - path: docs/explorations/github/01-explorations/validation-strategy.md
       hash: md5
       md5: 13be10d4e742ba37d523c9b783f4ab25
       size: 28746
-    - path: docs/github-integration/01-explorations/workflow-patterns.md
+    - path: docs/explorations/github/01-explorations/workflow-patterns.md
       hash: md5
       md5: 54fd5f5618a6c89b4f6b626b4ada35c8
       size: 29851
     - path: 
-        docs/github-integration/02-frameworks/implementation-framework.prompt.md
+        docs/explorations/github/02-frameworks/implementation-framework.prompt.md
       hash: md5
       md5: e63c4ec70b409997ad092319e056c31d
       size: 4845
     outs:
-    - path: docs/github-integration/02-frameworks/implementation-framework.md
+    - path: docs/explorations/github/02-frameworks/implementation-framework.md
       hash: md5
       md5: e373db38b3a493e5810a94587d3a3095
       size: 30202
   dependency_management:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/dependency-management.prompt.md 
-      --out architecture-exploration/01-explorations/dependency-management.md 
+      docs/explorations/architecture/01-explorations/dependency-management.prompt.md 
+      --out docs/explorations/architecture/01-explorations/dependency-management.md 
       --name dependency_management
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
     - path: 
-        architecture-exploration/01-explorations/dependency-management.prompt.md
+        docs/explorations/architecture/01-explorations/dependency-management.prompt.md
       hash: md5
       md5: 106f34902cc5eaacaf3e3bc8a4b1089f
       size: 8125
     outs:
-    - path: architecture-exploration/01-explorations/dependency-management.md
+    - path: docs/explorations/architecture/01-explorations/dependency-management.md
       hash: md5
       md5: dcb3d689c59a6a6f8fa9994ee178dd43
       size: 14682
   external_process_model:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/external-process-model.prompt.md 
-      --out architecture-exploration/01-explorations/external-process-model.md 
+      docs/explorations/architecture/01-explorations/external-process-model.prompt.md 
+      --out docs/explorations/architecture/01-explorations/external-process-model.md 
       --name external_process_model
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
     - path: 
-        architecture-exploration/01-explorations/external-process-model.prompt.md
+        docs/explorations/architecture/01-explorations/external-process-model.prompt.md
       hash: md5
       md5: b9c4d1772d64cacabb115e59be5e5ded
       size: 3239
     outs:
-    - path: architecture-exploration/01-explorations/external-process-model.md
+    - path: docs/explorations/architecture/01-explorations/external-process-model.md
       hash: md5
       md5: f7ad6bc070cc70326df117201a856b89
       size: 14528
   lock_mechanism:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/lock-mechanism.prompt.md --out 
-      architecture-exploration/01-explorations/lock-mechanism.md --name 
+      docs/explorations/architecture/01-explorations/lock-mechanism.prompt.md --out 
+      docs/explorations/architecture/01-explorations/lock-mechanism.md --name 
       lock_mechanism
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
-    - path: architecture-exploration/01-explorations/lock-mechanism.prompt.md
+    - path: docs/explorations/architecture/01-explorations/lock-mechanism.prompt.md
       hash: md5
       md5: cb85137747416c436ea5de6f9b070269
       size: 8408
     outs:
-    - path: architecture-exploration/01-explorations/lock-mechanism.md
+    - path: docs/explorations/architecture/01-explorations/lock-mechanism.md
       hash: md5
       md5: 0572b41c4926f81feb885f3e63a793e3
       size: 13627
   multi_file_outputs:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/multi-file-outputs.prompt.md 
-      --out architecture-exploration/01-explorations/multi-file-outputs.md 
+      docs/explorations/architecture/01-explorations/multi-file-outputs.prompt.md 
+      --out docs/explorations/architecture/01-explorations/multi-file-outputs.md 
       --name multi_file_outputs
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
     - path: 
-        architecture-exploration/01-explorations/multi-file-outputs.prompt.md
+        docs/explorations/architecture/01-explorations/multi-file-outputs.prompt.md
       hash: md5
       md5: 1ac9a2a0133a89d657567f7d031bf76e
       size: 4945
     outs:
-    - path: architecture-exploration/01-explorations/multi-file-outputs.md
+    - path: docs/explorations/architecture/01-explorations/multi-file-outputs.md
       hash: md5
       md5: 0336837839089d9dc4ad4b181147c3db
       size: 14891
   naming_conventions:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/naming-conventions.prompt.md 
-      --out architecture-exploration/01-explorations/naming-conventions.md 
+      docs/explorations/architecture/01-explorations/naming-conventions.prompt.md 
+      --out docs/explorations/architecture/01-explorations/naming-conventions.md 
       --name naming_conventions
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
     - path: 
-        architecture-exploration/01-explorations/naming-conventions.prompt.md
+        docs/explorations/architecture/01-explorations/naming-conventions.prompt.md
       hash: md5
       md5: 365c3650ec332dba09e23e5570186a92
       size: 6448
     outs:
-    - path: architecture-exploration/01-explorations/naming-conventions.md
+    - path: docs/explorations/architecture/01-explorations/naming-conventions.md
       hash: md5
       md5: 3d4f07b59b6ae6ce1a9c30d4689788d8
       size: 14369
   architecture_recommendations:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/02-final/architecture-recommendations.prompt.md 
-      --out architecture-exploration/02-final/architecture-recommendations.md 
+      docs/explorations/architecture/02-final/architecture-recommendations.prompt.md 
+      --out docs/explorations/architecture/02-final/architecture-recommendations.md 
       --name architecture_recommendations
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
-    - path: architecture-exploration/01-explorations/dependency-management.md
+    - path: docs/explorations/architecture/01-explorations/dependency-management.md
       hash: md5
       md5: dcb3d689c59a6a6f8fa9994ee178dd43
       size: 14682
-    - path: architecture-exploration/01-explorations/external-process-model.md
+    - path: docs/explorations/architecture/01-explorations/external-process-model.md
       hash: md5
       md5: f7ad6bc070cc70326df117201a856b89
       size: 14528
-    - path: architecture-exploration/01-explorations/lock-mechanism.md
+    - path: docs/explorations/architecture/01-explorations/lock-mechanism.md
       hash: md5
       md5: 0572b41c4926f81feb885f3e63a793e3
       size: 13627
-    - path: architecture-exploration/01-explorations/multi-file-outputs.md
+    - path: docs/explorations/architecture/01-explorations/multi-file-outputs.md
       hash: md5
       md5: 0336837839089d9dc4ad4b181147c3db
       size: 14891
-    - path: architecture-exploration/01-explorations/naming-conventions.md
+    - path: docs/explorations/architecture/01-explorations/naming-conventions.md
       hash: md5
       md5: 3d4f07b59b6ae6ce1a9c30d4689788d8
       size: 14369
     - path: 
-        architecture-exploration/02-final/architecture-recommendations.prompt.md
+        docs/explorations/architecture/02-final/architecture-recommendations.prompt.md
       hash: md5
       md5: 42200d30da65d88421f3da5c0e046a4e
       size: 7651
     outs:
-    - path: architecture-exploration/02-final/architecture-recommendations.md
+    - path: docs/explorations/architecture/02-final/architecture-recommendations.md
       hash: md5
       md5: 9ac5ed588f70e43bfe48588af2fa85b1
       size: 16124
   determinism_and_caching:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/determinism-and-caching.prompt.md
-      --out architecture-exploration/01-explorations/determinism-and-caching.md 
+      docs/explorations/architecture/01-explorations/determinism-and-caching.prompt.md
+      --out docs/explorations/architecture/01-explorations/determinism-and-caching.md 
       --name determinism_and_caching
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
     - path: 
-        architecture-exploration/01-explorations/determinism-and-caching.prompt.md
+        docs/explorations/architecture/01-explorations/determinism-and-caching.prompt.md
       hash: md5
       md5: 1a92e7ce002a96644d55b287c6ce19ef
       size: 11071
     outs:
-    - path: architecture-exploration/01-explorations/determinism-and-caching.md
+    - path: docs/explorations/architecture/01-explorations/determinism-and-caching.md
       hash: md5
       md5: aeba08ba12a01cfb11c198861827fc05
       size: 14535
   dvc_reliance:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/dvc-reliance.prompt.md --out 
-      architecture-exploration/01-explorations/dvc-reliance.md --name 
+      docs/explorations/architecture/01-explorations/dvc-reliance.prompt.md --out 
+      docs/explorations/architecture/01-explorations/dvc-reliance.md --name 
       dvc_reliance
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
-    - path: architecture-exploration/01-explorations/dvc-reliance.prompt.md
+    - path: docs/explorations/architecture/01-explorations/dvc-reliance.prompt.md
       hash: md5
       md5: 88131fadaa13148174ba2539264b3c9f
       size: 19211
     outs:
-    - path: architecture-exploration/01-explorations/dvc-reliance.md
+    - path: docs/explorations/architecture/01-explorations/dvc-reliance.md
       hash: md5
       md5: ac8a08c09d658ca9deecd7b0ff238f2a
       size: 14364
   dvc_determinism_integration:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/dvc-determinism-integration.prompt.md
+      docs/explorations/architecture/01-explorations/dvc-determinism-integration.prompt.md
       --out 
-      architecture-exploration/01-explorations/dvc-determinism-integration.md 
+      docs/explorations/architecture/01-explorations/dvc-determinism-integration.md 
       --name dvc_determinism_integration
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
-    - path: architecture-exploration/01-explorations/determinism-and-caching.md
+    - path: docs/explorations/architecture/01-explorations/determinism-and-caching.md
       hash: md5
       md5: aeba08ba12a01cfb11c198861827fc05
       size: 14535
     - path: 
-        architecture-exploration/01-explorations/dvc-determinism-integration.prompt.md
+        docs/explorations/architecture/01-explorations/dvc-determinism-integration.prompt.md
       hash: md5
       md5: 7ecdd484dd58fc5082476599f608f22e
       size: 17417
-    - path: architecture-exploration/01-explorations/dvc-reliance.md
+    - path: docs/explorations/architecture/01-explorations/dvc-reliance.md
       hash: md5
       md5: ac8a08c09d658ca9deecd7b0ff238f2a
       size: 14364
     outs:
     - path: 
-        architecture-exploration/01-explorations/dvc-determinism-integration.md
+        docs/explorations/architecture/01-explorations/dvc-determinism-integration.md
       hash: md5
       md5: f910443dd98f6446134c58aaa53dbd27
       size: 13716
   external_process_determinism:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/external-process-determinism.prompt.md
+      docs/explorations/architecture/01-explorations/external-process-determinism.prompt.md
       --out 
-      architecture-exploration/01-explorations/external-process-determinism.md 
+      docs/explorations/architecture/01-explorations/external-process-determinism.md 
       --name external_process_determinism
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
-    - path: architecture-exploration/01-explorations/determinism-and-caching.md
+    - path: docs/explorations/architecture/01-explorations/determinism-and-caching.md
       hash: md5
       md5: aeba08ba12a01cfb11c198861827fc05
       size: 14535
     - path: 
-        architecture-exploration/01-explorations/external-process-determinism.prompt.md
+        docs/explorations/architecture/01-explorations/external-process-determinism.prompt.md
       hash: md5
       md5: 3fe59e9f1bc8f6041c5edfe274f6477b
       size: 13305
-    - path: architecture-exploration/01-explorations/external-process-model.md
+    - path: docs/explorations/architecture/01-explorations/external-process-model.md
       hash: md5
       md5: f7ad6bc070cc70326df117201a856b89
       size: 14528
     outs:
     - path: 
-        architecture-exploration/01-explorations/external-process-determinism.md
+        docs/explorations/architecture/01-explorations/external-process-determinism.md
       hash: md5
       md5: e5915354e6ace64a5b93b47a860dbee0
       size: 14093
   lock_mechanism_with_determinism:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/lock-mechanism-with-determinism.prompt.md
+      docs/explorations/architecture/01-explorations/lock-mechanism-with-determinism.prompt.md
       --out 
-      architecture-exploration/01-explorations/lock-mechanism-with-determinism.md
+      docs/explorations/architecture/01-explorations/lock-mechanism-with-determinism.md
       --name lock_mechanism_with_determinism
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
-    - path: architecture-exploration/01-explorations/determinism-and-caching.md
+    - path: docs/explorations/architecture/01-explorations/determinism-and-caching.md
       hash: md5
       md5: aeba08ba12a01cfb11c198861827fc05
       size: 14535
     - path: 
-        architecture-exploration/01-explorations/lock-mechanism-with-determinism.prompt.md
+        docs/explorations/architecture/01-explorations/lock-mechanism-with-determinism.prompt.md
       hash: md5
       md5: a20d98461194e352998932f859dde066
       size: 12152
-    - path: architecture-exploration/01-explorations/lock-mechanism.md
+    - path: docs/explorations/architecture/01-explorations/lock-mechanism.md
       hash: md5
       md5: 0572b41c4926f81feb885f3e63a793e3
       size: 13627
     outs:
     - path: 
-        architecture-exploration/01-explorations/lock-mechanism-with-determinism.md
+        docs/explorations/architecture/01-explorations/lock-mechanism-with-determinism.md
       hash: md5
       md5: 7e8acce79942e8beb8ff7b815df7819b
       size: 14361
   versioning_generated_artifacts:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/versioning-generated-artifacts.prompt.md
+      docs/explorations/architecture/01-explorations/versioning-generated-artifacts.prompt.md
       --out 
-      architecture-exploration/01-explorations/versioning-generated-artifacts.md
+      docs/explorations/architecture/01-explorations/versioning-generated-artifacts.md
       --name versioning_generated_artifacts
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
     - path: 
-        architecture-exploration/01-explorations/versioning-generated-artifacts.prompt.md
+        docs/explorations/architecture/01-explorations/versioning-generated-artifacts.prompt.md
       hash: md5
       md5: 2e5071c540d7d1d19527a45c3182dfaa
       size: 17243
     outs:
     - path: 
-        architecture-exploration/01-explorations/versioning-generated-artifacts.md
+        docs/explorations/architecture/01-explorations/versioning-generated-artifacts.md
       hash: md5
       md5: 7eb032e753d0ef1b9524674c53cf200e
       size: 14126
   unique_value_proposition:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/unique-value-proposition.prompt.md
-      --out architecture-exploration/01-explorations/unique-value-proposition.md
+      docs/explorations/architecture/01-explorations/unique-value-proposition.prompt.md
+      --out docs/explorations/architecture/01-explorations/unique-value-proposition.md
       --name unique_value_proposition
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
     - path: 
-        architecture-exploration/01-explorations/unique-value-proposition.prompt.md
+        docs/explorations/architecture/01-explorations/unique-value-proposition.prompt.md
       hash: md5
       md5: 6b0dc008e4ba0b6d2e22b60945c7af1e
       size: 16962
     - path: 
-        architecture-exploration/01-explorations/versioning-generated-artifacts.md
+        docs/explorations/architecture/01-explorations/versioning-generated-artifacts.md
       hash: md5
       md5: 7eb032e753d0ef1b9524674c53cf200e
       size: 14126
     outs:
-    - path: architecture-exploration/01-explorations/unique-value-proposition.md
+    - path: docs/explorations/architecture/01-explorations/unique-value-proposition.md
       hash: md5
       md5: fcfb27a9d80d6fad1bde6e8712d360e9
       size: 15431
   core_use_cases:
     cmd: bash scripts/render_llm.sh --prompt 
-      architecture-exploration/01-explorations/core-use-cases.prompt.md --out 
-      architecture-exploration/01-explorations/core-use-cases.md --name 
+      docs/explorations/architecture/01-explorations/core-use-cases.prompt.md --out 
+      docs/explorations/architecture/01-explorations/core-use-cases.md --name 
       core_use_cases
     deps:
-    - path: architecture-exploration/00-sources/current-implementation.md
+    - path: docs/explorations/architecture/00-sources/current-implementation.md
       hash: md5
       md5: 3c0e6062a11b5b702f4906cb29848709
       size: 1974
-    - path: architecture-exploration/00-sources/design-goals.md
+    - path: docs/explorations/architecture/00-sources/design-goals.md
       hash: md5
       md5: f0a835fe2dd600f92a54fb7e3c3e0241
       size: 1447
-    - path: architecture-exploration/00-sources/open-questions.md
+    - path: docs/explorations/architecture/00-sources/open-questions.md
       hash: md5
       md5: f2c6c4302fd59b1bad651b310e1c289d
       size: 2890
-    - path: architecture-exploration/01-explorations/core-use-cases.prompt.md
+    - path: docs/explorations/architecture/01-explorations/core-use-cases.prompt.md
       hash: md5
       md5: eba5f2b0e49b121de768e11446d083d9
       size: 19188
-    - path: architecture-exploration/01-explorations/unique-value-proposition.md
+    - path: docs/explorations/architecture/01-explorations/unique-value-proposition.md
       hash: md5
       md5: fcfb27a9d80d6fad1bde6e8712d360e9
       size: 15431
     - path: 
-        architecture-exploration/01-explorations/versioning-generated-artifacts.md
+        docs/explorations/architecture/01-explorations/versioning-generated-artifacts.md
       hash: md5
       md5: 7eb032e753d0ef1b9524674c53cf200e
       size: 14126
     outs:
-    - path: architecture-exploration/01-explorations/core-use-cases.md
+    - path: docs/explorations/architecture/01-explorations/core-use-cases.md
       hash: md5
       md5: 2fa97525d78d451298b6a9c4b89639fd
       size: 15833
