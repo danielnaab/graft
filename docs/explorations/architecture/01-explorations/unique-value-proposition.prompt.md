@@ -1,0 +1,590 @@
+---
+deps:
+  - architecture-exploration/00-sources/current-implementation.md
+  - architecture-exploration/00-sources/design-goals.md
+  - architecture-exploration/00-sources/open-questions.md
+  - architecture-exploration/01-explorations/versioning-generated-artifacts.md
+lock:
+  enabled: true
+  reason: "Completed architecture exploration - historical record"
+  date: 2024-11-08T07:07:00Z
+---
+
+# Deep Exploration: Graft's Unique Value Proposition
+
+You are a product strategist analyzing what makes graft genuinely unique and valuable versus existing tools in the ecosystem.
+
+## Your Task
+
+Be ruthlessly honest: what can graft do that existing tools cannot? When should someone use graft vs alternatives?
+
+Existing tools can already:
+- Generate documentation (Sphinx, MkDocs, Quarto, etc.)
+- Run LLM transformations (scripts calling Claude API)
+- Manage data pipelines (DVC, Airflow, Dagster)
+- Track dependencies (Make, Bazel, DVC)
+- Version control (git)
+
+**So what's graft's unique value?**
+
+### The Competitive Landscape
+
+#### Category 1: Documentation Generators
+
+**Sphinx / MkDocs / Docusaurus / Jekyll**
+
+What they do:
+- Convert source (RST, Markdown, MDX) → HTML docs site
+- Support themes, search, navigation
+- Rebuild deterministically
+- Deploy to docs hosting
+
+What they DON'T do:
+- ✗ Synthesize content from multiple sources
+- ✗ LLM-powered generation
+- ✗ Understand what changed and patch intelligently
+- ✗ Track dependencies between docs
+
+**Graft's potential advantage**:
+- ✓ Synthesizes from multiple sources (code, specs, research)
+- ✓ LLM understands context and writes prose
+- ✓ Intelligent patching (UPDATE vs REFINE)
+
+**Question**: Is this enough? Could you achieve the same with "MkDocs + custom LLM plugin"?
+
+#### Category 2: Literate Programming / Notebook Tools
+
+**Jupyter / Quarto / R Markdown / Observable**
+
+What they do:
+- Interleave code and documentation
+- Execute code and show results
+- Generate reports from templates
+- Support multiple output formats
+
+What they DON'T do:
+- ✗ Multi-file dependency DAGs
+- ✗ Intelligent change detection
+- ✗ Pure synthesis (they execute, not synthesize)
+
+**Graft's potential advantage**:
+- ✓ DAG of dependent documents
+- ✓ Change detection (GENERATE/UPDATE/REFINE)
+- ✓ Synthesis without execution
+
+**Question**: Could Quarto be extended to do this? Is graft just "Quarto for LLMs"?
+
+#### Category 3: Data Pipeline Tools
+
+**DVC / Airflow / Dagster / Prefect**
+
+What they do:
+- Define data transformation pipelines
+- Track dependencies and cache outputs
+- Distributed execution
+- Experiment tracking
+
+What they DON'T do:
+- ✗ Optimize for documentation workflows
+- ✗ Intelligent patching (UPDATE vs REFINE semantics)
+- ✗ Literate prompts (`.prompt.md` format)
+
+**Graft's potential advantage**:
+- ✓ Designed for documentation, not arbitrary data
+- ✓ `.prompt.md` format is readable and version-controllable
+- ✓ Git-native (uses git history for change detection)
+
+**Question**: Is graft just "DVC for docs"? Could you use DVC directly?
+
+#### Category 4: LLM-Powered Tools
+
+**LangChain / LlamaIndex / Custom Scripts**
+
+What they do:
+- Call LLM APIs programmatically
+- Build RAG (retrieval-augmented generation) systems
+- Chain LLM calls
+- Handle context windows
+
+What they DON'T do:
+- ✗ Pipeline orchestration (run only changed stages)
+- ✗ Versioning of outputs
+- ✗ Declarative dependency tracking
+
+**Graft's potential advantage**:
+- ✓ Declarative (frontmatter, not code)
+- ✓ Pipeline orchestration via DVC
+- ✓ Change detection (don't regenerate unchanged)
+
+**Question**: Could you build graft functionality with LangChain + DVC + custom scripts?
+
+#### Category 5: Static Site Generators with Plugins
+
+**Gatsby / Next.js / Eleventy + LLM plugins**
+
+What they do:
+- Build sites from various sources
+- Plugin ecosystem for custom sources
+- Incremental builds
+- Deploy to CDN
+
+What they DON'T do:
+- ✗ LLM synthesis (not common)
+- ✗ Intelligent patching
+- ✗ Version control outputs (usually build, not commit)
+
+**Graft's potential advantage**:
+- ✓ Focused on synthesis, not just templating
+- ✓ Versioned outputs (if that's a feature, not a bug)
+- ✓ Simpler (Markdown, not React components)
+
+**Question**: Is graft just "Eleventy with LLM data sources"?
+
+### Unique Value Hypothesis
+
+Let me propose what makes graft unique (to be validated):
+
+#### Hypothesis 1: "Intelligent Documentation Synthesis"
+
+**Claim**: Graft is the only tool that:
+1. Synthesizes prose from multiple sources using LLMs
+2. Tracks dependencies in a DAG
+3. Intelligently patches existing docs (UPDATE vs REFINE)
+4. Versions outputs for git-based collaboration
+
+**Validation questions**:
+- Can you achieve #1 with custom script + LLM API? (Yes, but more work)
+- Can you achieve #2 with DVC? (Yes, DVC does this)
+- Can you achieve #3 anywhere else? (This might be unique)
+- Is #4 valuable or just noise? (Depends on use case)
+
+**Unique element**: #3 (intelligent patching based on change type)
+
+#### Hypothesis 2: "Literate Data Pipelines for Documentation"
+
+**Claim**: Graft combines:
+- Literate programming (`.prompt.md` is readable)
+- Data pipelines (DVC for orchestration)
+- Version control (git-native)
+- LLM synthesis (modern AI capabilities)
+
+**Validation**: No other tool combines all four
+
+**Question**: Is this combination genuinely useful, or overly complex?
+
+#### Hypothesis 3: "Living Documentation That Grows with Git Trees"
+
+**Claim**: Graft enables documentation that:
+- Lives alongside code (in-repo)
+- Evolves as sources change (automatic updates)
+- Preserves history (git versioning)
+- Doesn't require manual rewriting (LLM synthesis)
+
+**Validation**: This is the "graft as a horticultural metaphor" value prop
+
+**Question**: Is this valuable enough to justify a dedicated tool?
+
+### Use Cases: Where Does Graft Shine?
+
+Let me analyze specific use cases where graft might be uniquely valuable:
+
+#### Use Case 1: Multi-Source API Documentation
+
+**Scenario**: Generate API docs from:
+- OpenAPI spec (structure)
+- Code comments (implementation details)
+- Usage examples (from tests)
+- Architecture docs (context)
+
+**Traditional approach**:
+```
+openapi-spec.yaml → openapi-generator → basic HTML docs
+# Manual writing to add context and examples
+```
+
+**Graft approach**:
+```yaml
+---
+deps:
+  - openapi-spec.yaml
+  - src/api/*.ts
+  - tests/examples/*.ts
+  - architecture/api-design.md
+lock:
+  enabled: true
+  reason: "Completed architecture exploration - historical record"
+  date: 2024-11-08T07:07:00Z
+---
+
+Synthesize comprehensive API documentation that:
+- Uses OpenAPI spec as structure
+- Incorporates code comments for details
+- Includes real usage examples from tests
+- Provides architectural context
+```
+
+**Value over alternatives**:
+- ✓ Combines multiple sources automatically
+- ✓ LLM understands and synthesizes context
+- ✓ When OpenAPI changes, LLM patches docs intelligently
+- ✓ When architecture changes, context updates
+
+**Question**: Could you do this with a custom script + LLM? Yes, but graft provides the orchestration and change detection.
+
+**Verdict**: Moderate unique value (convenience over custom solution)
+
+#### Use Case 2: Research Synthesis / Literature Review
+
+**Scenario**: Synthesize research findings from:
+- Multiple PDF papers
+- Internal notes and explorations
+- Experiment results
+- Previous synthesis documents
+
+**Traditional approach**:
+- Read papers manually
+- Write synthesis by hand
+- Update when new papers added (manual)
+
+**Graft approach**:
+```yaml
+---
+deps:
+  - papers/*.pdf
+  - notes/experiments.md
+  - data/results.csv
+lock:
+  enabled: true
+  reason: "Completed architecture exploration - historical record"
+  date: 2024-11-08T07:07:00Z
+---
+
+Synthesize current understanding of [topic]:
+- Key findings from papers
+- Our experimental results
+- Open questions
+- Recommendations
+```
+
+**Value over alternatives**:
+- ✓ Automatically incorporates new papers (add PDF, regenerate)
+- ✓ LLM can read and understand papers
+- ✓ Tracks evolution of understanding (git history)
+- ✓ Multilevel synthesis (papers → themes → recommendations)
+
+**Question**: Could you do this with LlamaIndex RAG? Similar, but graft's DAG structure and versioning might be valuable.
+
+**Verdict**: Moderate-to-high unique value (DAG + versioning adds value)
+
+#### Use Case 3: Architecture Decision Records (ADRs)
+
+**Scenario**: Generate architecture docs from:
+- Code structure (what exists)
+- Design documents (intent)
+- Meeting notes (decisions)
+- Previous ADRs (context)
+
+**Traditional approach**:
+- Write ADRs manually
+- Update as architecture changes (often neglected)
+
+**Graft approach**:
+```yaml
+---
+deps:
+  - src/architecture/**
+  - docs/design/*.md
+  - meetings/2024-*.md
+  - adr/*.md
+lock:
+  enabled: true
+  reason: "Completed architecture exploration - historical record"
+  date: 2024-11-08T07:07:00Z
+---
+
+Generate current architecture overview:
+- What components exist (from code)
+- Why they were designed this way (from design docs)
+- Recent decisions (from meeting notes)
+- Links to detailed ADRs
+```
+
+**Value over alternatives**:
+- ✓ Stays synchronized with code (detects when architecture changes)
+- ✓ Multilevel docs (detailed ADRs → overview synthesis)
+- ✓ Incorporates context from multiple sources
+
+**Question**: Is auto-generated architecture docs desirable? Or should this always be human-written?
+
+**Verdict**: Questionable value (architecture docs may need human judgment)
+
+#### Use Case 4: Release Notes / Changelogs
+
+**Scenario**: Generate release notes from:
+- Git commit history
+- Merged PRs (with descriptions)
+- Issue tracker
+- Breaking changes docs
+
+**Traditional approach**:
+- Manual changelog (tedious, often skipped)
+- Auto-generated from commits (low quality)
+- Tools like `git-cliff` (template-based)
+
+**Graft approach**:
+```yaml
+---
+deps:
+  - .git/logs/HEAD  # Git history
+  - github/pulls/*.json  # PR metadata
+  - docs/breaking-changes.md
+lock:
+  enabled: true
+  reason: "Completed architecture exploration - historical record"
+  date: 2024-11-08T07:07:00Z
+---
+
+Generate release notes that:
+- Summarize features from PRs
+- Group related changes
+- Highlight breaking changes
+- Provide migration guidance
+```
+
+**Value over alternatives**:
+- ✓ LLM can write better prose than templates
+- ✓ Understands and groups related changes
+- ✓ Incorporates context (breaking changes guide)
+
+**Question**: How often do release notes actually change once written? If they're for a specific release, they're immutable after publishing.
+
+**Verdict**: Moderate value (better than templates, but one-shot generation might be enough)
+
+#### Use Case 5: Internal Knowledge Base
+
+**Scenario**: Company wiki that synthesizes:
+- Project documentation
+- Runbooks and procedures
+- Design documents
+- Meeting notes
+- Slack archives
+
+**Traditional approach**:
+- Confluence/Notion (manual writing)
+- Wikis (manual, often stale)
+
+**Graft approach**:
+```yaml
+---
+deps:
+  - projects/*/README.md
+  - runbooks/*.md
+  - designs/*.md
+  - meetings/2024-*.md
+lock:
+  enabled: true
+  reason: "Completed architecture exploration - historical record"
+  date: 2024-11-08T07:07:00Z
+---
+
+Generate team knowledge hub:
+- Current project status (from READMEs)
+- How-to guides (from runbooks)
+- Design rationale (from design docs)
+- Recent decisions (from meetings)
+```
+
+**Value over alternatives**:
+- ✓ Auto-updates as sources change
+- ✓ Synthesizes across many sources
+- ✓ Reduces manual wiki maintenance
+- ✓ Versioned in git (not locked in Confluence)
+
+**Question**: Do teams want auto-generated wikis, or do they value human curation?
+
+**Verdict**: High potential value (IF teams struggle with stale wikis)
+
+### What Graft Is NOT Good For
+
+Be honest about where graft doesn't fit:
+
+#### NOT Good For: Traditional Static Sites
+
+If you just need:
+- A blog or marketing site
+- Mostly hand-written content
+- Themes, navigation, search
+- Fast rebuilds
+
+**Use**: Docusaurus, MkDocs, Hugo, Jekyll
+
+**Why not graft**: These are mature, fast, deterministic. Graft adds LLM complexity for no benefit.
+
+#### NOT Good For: One-Off LLM Generations
+
+If you just need:
+- Generate a document once
+- No dependencies, no updates
+- Simple LLM prompt
+
+**Use**: Claude.ai, ChatGPT, or simple script
+
+**Why not graft**: Graft's orchestration is overkill for one-off generations.
+
+#### NOT Good For: Real-Time Documentation
+
+If you need:
+- Live docs (always current, query-time generation)
+- Interactive docs (user asks questions, LLM answers)
+- Searchable knowledge bases (RAG)
+
+**Use**: LlamaIndex, LangChain, custom RAG
+
+**Why not graft**: Graft is batch-oriented (regenerate on change), not real-time query.
+
+#### NOT Good For: Large-Scale Data Pipelines
+
+If you need:
+- Process terabytes of data
+- Distributed execution
+- Complex dependencies beyond docs
+
+**Use**: Airflow, Dagster, Spark
+
+**Why not graft**: Graft is optimized for documentation, not large-scale data.
+
+### The Graft Sweet Spot
+
+Based on analysis, graft is uniquely valuable when:
+
+1. **Multi-source synthesis**: Combining code, specs, notes, research
+2. **Living documentation**: Docs that evolve as sources change
+3. **Dependency DAGs**: Multi-level synthesis (sources → explorations → final docs)
+4. **Intelligent updates**: REFINE vs UPDATE patching matters
+5. **Git-native workflow**: Version control of docs is valuable, not noise
+6. **Medium scale**: 10-100 documents, not 1 or 10,000
+7. **Team collaboration**: Multiple people contributing sources, consuming docs
+
+**Anti-patterns** (when NOT to use graft):
+- ❌ Simple static site (use MkDocs)
+- ❌ One-off generation (use LLM directly)
+- ❌ Real-time query (use RAG)
+- ❌ No dependencies (use simple scripts)
+- ❌ Fully manual curation (use Notion/Confluence)
+
+### Competitive Positioning
+
+Where does graft fit in the ecosystem?
+
+```
+Manual Documentation (Notion, Confluence)
+  ↓ (automate synthesis)
+Graft
+  ↓ (simplify to templates)
+Static Site Generators (MkDocs, Sphinx)
+  ↓ (add interactivity)
+Interactive Docs (RAG, chatbots)
+```
+
+Or:
+
+```
+Build Systems (Make, Bazel)
+  ↓ (add LLM synthesis)
+Graft
+  ↓ (scale to big data)
+Data Pipelines (DVC, Airflow)
+```
+
+Or:
+
+```
+LLM Scripts (custom code)
+  ↓ (add orchestration)
+Graft
+  ↓ (add features)
+LLM Frameworks (LangChain, LlamaIndex)
+```
+
+**Graft occupies the intersection**:
+- Build system + LLM + Documentation + Git
+- More orchestration than scripts
+- More documentation-focused than data pipelines
+- More git-native than LLM frameworks
+- More automated than manual wikis
+- More structured than static generators
+
+### The "Is This Just X + Y?" Test
+
+**Is graft just DVC + LLM scripts?**
+- Partly yes (that's the implementation)
+- Value-add: `.prompt.md` format, intelligent patching, documentation-specific conventions
+- Verdict: Graft is "opinionated DVC for docs"
+
+**Is graft just MkDocs + LLM plugin?**
+- No: MkDocs doesn't have dependency DAGs or change detection
+- Graft is a pipeline tool, not a site generator
+- Different layer of abstraction
+
+**Is graft just LangChain + git?**
+- No: LangChain is a library, graft is a pipeline orchestrator
+- LangChain could be used WITHIN graft for LLM calls
+- Different scope
+
+**Can you build graft functionality with existing tools?**
+- Yes: DVC + custom Python scripts + LLM API
+- Graft's value: Pre-packaged, opinionated, easier to use
+- Like saying "Can you build Next.js with webpack + React?" (Yes, but Next.js adds value)
+
+### Value Proposition Statement
+
+**For**: Technical teams maintaining complex documentation
+
+**Who**: Need to synthesize information from multiple evolving sources
+
+**Graft is**: A git-native documentation pipeline
+
+**That**: Orchestrates LLM-powered synthesis with intelligent change detection
+
+**Unlike**: Static site generators (no synthesis), data pipelines (not doc-focused), or manual wikis (not automated)
+
+**Graft**: Combines literate prompts, dependency tracking, version control, and LLM synthesis in a single tool
+
+### Open Questions for Validation
+
+1. **Do teams actually struggle with multi-source documentation?**
+   - Or is manual writing good enough?
+
+2. **Is intelligent patching (UPDATE vs REFINE) valuable in practice?**
+   - Or do users just regenerate everything?
+
+3. **Is git versioning of generated docs valuable or just noise?**
+   - Do teams review history, or just current state?
+
+4. **Could graft's value be delivered as plugins to existing tools?**
+   - MkDocs plugin? DVC extension? Quarto format?
+
+5. **What's the minimum viable differentiation?**
+   - What's the ONE thing graft does that justifies a separate tool?
+
+6. **Who is the target user?**
+   - Developers? Technical writers? Data scientists? Product managers?
+
+## Output Requirements
+
+Produce a comprehensive analysis with:
+
+1. **Executive Summary**: What is graft's unique value proposition?
+2. **Competitive Landscape**: How does graft compare to existing tools?
+3. **Unique Features**: What can ONLY graft do (or do best)?
+4. **Use Case Analysis**: Where does graft shine vs alternatives?
+5. **Anti-Patterns**: When should you NOT use graft?
+6. **Sweet Spot**: Ideal conditions for graft usage
+7. **Positioning**: Where does graft fit in the ecosystem?
+8. **Value Proposition**: Clear, concise statement
+9. **"Is This Just X + Y?" Test**: Honest assessment
+10. **Differentiation**: Minimum viable unique features
+11. **Target Users**: Who benefits most from graft?
+12. **Validation Questions**: What needs user research?
+
+Think like a product manager who's seen many "we're Uber for X" pitches fail. Be skeptical. Demand real differentiation. If graft can be replicated with existing tools + light glue code, admit it. Only claim unique value where it genuinely exists.
