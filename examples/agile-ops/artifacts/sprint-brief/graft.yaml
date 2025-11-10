@@ -7,7 +7,7 @@ derivations:
     transformer: { ref: report-md, params: { title: "Sprint Brief" } }
     template:
       source: file
-      engine: mustache
+      engine: jinja2
       content_type: text/markdown
       file: "./template.md"
       persist: text

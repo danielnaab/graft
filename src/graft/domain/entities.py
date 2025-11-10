@@ -25,7 +25,7 @@ class Template:
     source: str
     engine: str
     content_type: str
-    file: str
+    file: str | None = None
     persist: str | None = None
     persist_path: str | None = None
 

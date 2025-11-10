@@ -7,6 +7,7 @@ from .utils import print_json, load_yaml
 from .adapters.filesystem import LocalFileSystem
 from .adapters.config import ConfigAdapter
 from .services.explain import ExplainService
+from .services.run import RunService, TemplateNotFoundError, TemplateRenderError
 
 app = typer.Typer(add_completion=False, help="Graft starter CLI (stub — outside-in contract)")
 
@@ -14,6 +15,7 @@ app = typer.Typer(add_completion=False, help="Graft starter CLI (stub — outsid
 fs = LocalFileSystem()
 config_adapter = ConfigAdapter(fs)
 explain_service = ExplainService(config_adapter)
+run_service = RunService(config_adapter, fs)
 
 
 def _artifact_path(p: str) -> pathlib.Path:
@@ -70,24 +72,39 @@ def explain(artifact: str, json_out: bool = typer.Option(False, "--json", help="
 
 @app.command()
 def run(artifact: str, id: Optional[str] = typer.Option(None, "--id", help="Derivation id")):
-    """Execute the graft (stub: copy template file(s) to outputs)."""
-    a = _artifact_path(artifact)
-    conf = load_yaml(a / "graft.yaml")
-    for d in conf.get("derivations", []):
-        if id and d.get("id") != id:
-            continue
-        outs = d.get("outputs", [])
-        template = d.get("template", {})
-        if template.get("file"):
-            src = (a / template["file"])
-            if not src.exists():
-                raise typer.Exit(code=1)
-            data = src.read_bytes()
-            for o in outs:
-                out_path = a / o["path"]
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_bytes(data)
-    typer.echo("Run complete (stub).")
+    """Execute derivations by rendering templates to outputs."""
+    try:
+        artifact_path = _artifact_path(artifact)
+        result = run_service.run(artifact_path, derivation_id=id)
+
+        # Human-readable output
+        typer.echo(f"Run complete: {len(result.derivations_run)} derivation(s), "
+                   f"{len(result.outputs_created)} output(s)")
+
+    except typer.BadParameter as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except TemplateNotFoundError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except FileNotFoundError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except yaml.YAMLError as e:
+        typer.echo(f"Error: Invalid YAML in graft.yaml: {e}", err=True)
+        raise typer.Exit(code=1)
+    except KeyError as e:
+        typer.echo(f"Error: Missing required field in graft.yaml: {e}", err=True)
+        raise typer.Exit(code=1)
+    except TemplateRenderError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except PermissionError as e:
+        typer.echo(f"System error: Permission denied: {e}", err=True)
+        raise typer.Exit(code=2)
+    except Exception as e:
+        typer.echo(f"System error: {e}", err=True)
+        raise typer.Exit(code=2)
 
 @app.command()
 def status(artifact: str, json_out: bool = typer.Option(False, "--json")):
