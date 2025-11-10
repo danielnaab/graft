@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graft3"
+version = "0.0.1"
+description = "Graft proposal starter — auditable file-first derivations"
+authors = [{name="Graft Authors"}]
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "typer>=0.12.3",
+  "pyyaml>=6.0.1",
+  "jsonschema>=4.21.1",
+  "markdown-it-py>=3.0.0",
+  "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0.0"]
+
+[project.scripts]
+graft = "graft.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

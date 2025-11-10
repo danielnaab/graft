@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "graft.yaml",
+  "type": "object",
+  "required": [
+    "graft",
+    "derivations"
+  ],
+  "properties": {
+    "graft": {
+      "type": "string"
+    },
+    "inputs": {
+      "type": "object"
+    },
+    "derivations": {
+      "type": "array"
+    },
+    "policy": {
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+version: 1
+defaults:
+  policy:
+    deterministic: true
+    network: off
+    attest: required

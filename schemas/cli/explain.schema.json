@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "artifact": {
+      "type": "string"
+    },
+    "graft": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "policy": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "inputs": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "derivations": {
+      "type": "array"
+    }
+  },
+  "required": [
+    "artifact",
+    "derivations"
+  ]
+}

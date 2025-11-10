@@ -1,0 +1,20 @@
+graft: sprint-brief
+inputs:
+  materials:
+    - { path: "../../sources/tickets/sprint-2025-11W1.yaml", rev: HEAD }
+derivations:
+  - id: brief
+    transformer: { ref: report-md, params: { title: "Sprint Brief" } }
+    template:
+      source: file
+      engine: mustache
+      content_type: text/markdown
+      file: "./template.md"
+      persist: text
+      persist_path: "./.graft/evaluated/brief-input.md"
+    outputs:
+      - { path: "./brief.md", schema: sprint_brief }
+    policy:
+      deterministic: true
+      attest: required
+      direct_edit: true

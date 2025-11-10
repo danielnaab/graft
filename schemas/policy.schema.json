@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "policy",
+  "type": "object",
+  "properties": {
+    "deterministic": {
+      "type": "boolean"
+    },
+    "attest": {
+      "type": "string"
+    },
+    "network": {
+      "type": "string"
+    },
+    "direct_edit": {
+      "type": "boolean"
+    },
+    "require_human_review": {
+      "type": "boolean"
+    }
+  }
+}
