@@ -13,4 +13,4 @@ def test_impact_and_simulate(tmp_path):
     assert "downstream" in data
     sim = run_cli("simulate", str(dst), "--cascade")
     assert sim.returncode == 0
-    assert "Simulated build" in sim.stdout
+    assert "Simulation complete" in sim.stdout

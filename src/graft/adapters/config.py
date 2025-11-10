@@ -13,6 +13,8 @@ from ..domain.entities import (
     Output,
     Policy,
     Template,
+    Transformer,
+    TransformerBuild,
 )
 from .filesystem import FileSystemPort
 
@@ -61,10 +63,26 @@ class ConfigAdapter:
         """Parse a single derivation."""
         return Derivation(
             id=raw["id"],
-            transformer=raw.get("transformer", {}),
+            transformer=self._parse_transformer(raw.get("transformer", {})),
             outputs=[Output(path=o["path"], schema=o.get("schema")) for o in raw.get("outputs", [])],
             template=self._parse_template(raw.get("template")) if "template" in raw else None,
             policy=self._parse_policy(raw.get("policy", {})) if "policy" in raw else None,
+        )
+
+    def _parse_transformer(self, raw: dict[str, Any]) -> Transformer:
+        """Parse transformer specification."""
+        build = None
+        if "build" in raw:
+            build_raw = raw["build"]
+            build = TransformerBuild(
+                image=build_raw["image"],
+                context=build_raw.get("context", ".")
+            )
+
+        return Transformer(
+            build=build,
+            ref=raw.get("ref"),
+            params=raw.get("params", {})
         )
 
     def _parse_template(self, raw: dict[str, Any]) -> Template:

@@ -40,10 +40,25 @@ class Policy:
 
 
 @dataclass(frozen=True)
+class TransformerBuild:
+    """Container build specification."""
+    image: str
+    context: str = "."
+
+
+@dataclass(frozen=True)
+class Transformer:
+    """Transformer specification."""
+    build: TransformerBuild | None = None
+    ref: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class Derivation:
     """A single derivation within an artifact."""
     id: str
-    transformer: dict[str, Any]
+    transformer: Transformer
     outputs: list[Output]
     template: Template | None = None
     policy: Policy | None = None

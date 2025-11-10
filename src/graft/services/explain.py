@@ -86,7 +86,7 @@ class ExplainService:
         """Convert derivation entity to dict."""
         result = {
             "id": derivation.id,
-            "transformer": derivation.transformer,
+            "transformer": self._transformer_to_dict(derivation.transformer),
             "outputs": [self._output_to_dict(o) for o in derivation.outputs],
         }
 
@@ -96,6 +96,24 @@ class ExplainService:
 
         if derivation.policy:
             result["policy"] = self._policy_to_dict(derivation.policy)
+
+        return result
+
+    def _transformer_to_dict(self, transformer) -> dict:
+        """Convert transformer entity to dict."""
+        result = {}
+
+        if transformer.build:
+            result["build"] = {
+                "image": transformer.build.image,
+                "context": transformer.build.context,
+            }
+
+        if transformer.ref:
+            result["ref"] = transformer.ref
+
+        if transformer.params:
+            result["params"] = transformer.params
 
         return result
 

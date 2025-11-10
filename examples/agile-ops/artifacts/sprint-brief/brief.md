@@ -1,3 +1,4 @@
 # Sprint Brief
 
-(placeholder; run graft to regenerate)
+## Decisions
+- Adopt file-first derivations

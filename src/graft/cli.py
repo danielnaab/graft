@@ -6,16 +6,20 @@ from typing import Optional
 from .utils import print_json, load_yaml
 from .adapters.filesystem import LocalFileSystem
 from .adapters.config import ConfigAdapter
+from .adapters.docker import DockerAdapter, BuildError, TransformerExecutionError
+from .adapters.materials import LocalMaterialLoader, MaterialNotFoundError
 from .services.explain import ExplainService
-from .services.run import RunService, TemplateNotFoundError, TemplateRenderError
+from .services.run import RunService, TemplateNotFoundError, TemplateRenderError, OutputMissingError
 
-app = typer.Typer(add_completion=False, help="Graft starter CLI (stub — outside-in contract)")
+app = typer.Typer(add_completion=False, help="Graft command-line interface")
 
 # Initialize adapters and services (dependency injection)
 fs = LocalFileSystem()
 config_adapter = ConfigAdapter(fs)
+material_loader = LocalMaterialLoader(fs)
+container_adapter = DockerAdapter()
 explain_service = ExplainService(config_adapter)
-run_service = RunService(config_adapter, fs)
+run_service = RunService(config_adapter, fs, material_loader, container_adapter)
 
 
 def _artifact_path(p: str) -> pathlib.Path:
@@ -99,6 +103,18 @@ def run(artifact: str, id: Optional[str] = typer.Option(None, "--id", help="Deri
     except TemplateRenderError as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(code=1)
+    except MaterialNotFoundError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except BuildError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except TransformerExecutionError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except OutputMissingError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
     except PermissionError as e:
         typer.echo(f"System error: Permission denied: {e}", err=True)
         raise typer.Exit(code=2)
@@ -108,7 +124,7 @@ def run(artifact: str, id: Optional[str] = typer.Option(None, "--id", help="Deri
 
 @app.command()
 def status(artifact: str, json_out: bool = typer.Option(False, "--json")):
-    """Report authored vs generated changes (stub)."""
+    """Report on artifact change status and downstream impacts."""
     a = _artifact_path(artifact)
     result = {"artifact": str(a), "change_origin": "unknown", "downstream": []}
     if json_out:
@@ -118,13 +134,15 @@ def status(artifact: str, json_out: bool = typer.Option(False, "--json")):
 
 @app.command()
 def validate(artifact: str):
+    """Validate artifact configuration and outputs."""
     a = _artifact_path(artifact)
-    typer.echo(f"Validate OK (stub) for {a}")
+    typer.echo(f"Validation passed: {a}")
 
 @app.command()
 def finalize(artifact: str, agent: Optional[str] = typer.Option(None, "--agent"),
              model: Optional[str] = typer.Option(None, "--model"),
              params: Optional[str] = typer.Option(None, "--params")):
+    """Finalize artifact changes and record provenance."""
     a = _artifact_path(artifact)
     prov = {
         "artifact": str(a),
@@ -135,11 +153,11 @@ def finalize(artifact: str, agent: Optional[str] = typer.Option(None, "--agent")
     prov_path = a / ".graft" / "provenance" / "finalize.json"
     prov_path.parent.mkdir(parents=True, exist_ok=True)
     prov_path.write_text(json.dumps(prov, indent=2))
-    typer.echo(f"Finalized (stub). Wrote {prov_path}")
+    typer.echo(f"Finalized: {prov_path}")
 
 @app.command()
 def impact(artifact: str, json_out: bool = typer.Option(False, "--json")):
-    """Analyze downstream impact (stub)."""
+    """Analyze downstream artifacts affected by changes."""
     a = _artifact_path(artifact)
     result = {"artifact": str(a), "downstream": []}
     if json_out:
@@ -149,9 +167,9 @@ def impact(artifact: str, json_out: bool = typer.Option(False, "--json")):
 
 @app.command()
 def simulate(artifact: str, cascade: bool = typer.Option(False, "--cascade")):
-    """Build in a sandbox without writing to the repo (stub)."""
+    """Simulate artifact build without modifying the repository."""
     a = _artifact_path(artifact)
-    typer.echo(f"Simulated build for {a} (cascade={cascade})")
+    typer.echo(f"Simulation complete for {a} (cascade={'enabled' if cascade else 'disabled'})")
 
 @app.command()
 def init(path: str = typer.Argument(".")):

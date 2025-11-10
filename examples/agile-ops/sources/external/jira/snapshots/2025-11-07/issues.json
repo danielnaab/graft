@@ -1,1 +1,5 @@
-{"issues": [{"key": "AO-1", "summary": "Initial skeleton", "labels": ["feature"]}]}
+{"issues": [
+  {"key": "AO-1", "summary": "Initial skeleton", "labels": ["feature"]},
+  {"key": "AO-2", "summary": "Add documentation", "labels": ["docs"]},
+  {"key": "AO-3", "summary": "Fix login bug", "labels": ["bug"]}
+]}

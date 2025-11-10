@@ -8,16 +8,158 @@
   ],
   "properties": {
     "graft": {
-      "type": "string"
+      "type": "string",
+      "description": "Name of this artifact"
     },
     "inputs": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "materials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Path to material file relative to artifact"
+              },
+              "rev": {
+                "type": "string",
+                "description": "Git revision",
+                "default": "HEAD"
+              }
+            }
+          }
+        }
+      }
     },
     "derivations": {
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "transformer", "outputs"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for this derivation"
+          },
+          "transformer": {
+            "type": "object",
+            "description": "Transformer specification",
+            "properties": {
+              "build": {
+                "type": "object",
+                "description": "Local container build specification",
+                "required": ["image"],
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "description": "Docker image tag"
+                  },
+                  "context": {
+                    "type": "string",
+                    "description": "Build context path",
+                    "default": "."
+                  }
+                }
+              },
+              "ref": {
+                "type": "string",
+                "description": "Remote transformer reference (future)"
+              },
+              "params": {
+                "type": "object",
+                "description": "Parameters passed to transformer"
+              }
+            }
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path"],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Output file path relative to artifact"
+                },
+                "schema": {
+                  "type": "string",
+                  "description": "Schema identifier for validation"
+                }
+              }
+            }
+          },
+          "template": {
+            "type": "object",
+            "description": "Template specification (for template-based derivations)",
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "engine": {
+                "type": "string"
+              },
+              "content_type": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              },
+              "persist": {
+                "type": "string"
+              },
+              "persist_path": {
+                "type": "string"
+              }
+            }
+          },
+          "policy": {
+            "type": "object",
+            "properties": {
+              "deterministic": {
+                "type": "boolean",
+                "default": true
+              },
+              "network": {
+                "type": "string",
+                "default": "off"
+              },
+              "attest": {
+                "type": "string",
+                "default": "required"
+              },
+              "direct_edit": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          }
+        }
+      }
     },
     "policy": {
-      "type": "object"
+      "type": "object",
+      "description": "Global policy defaults",
+      "properties": {
+        "deterministic": {
+          "type": "boolean",
+          "default": true
+        },
+        "network": {
+          "type": "string",
+          "default": "off"
+        },
+        "attest": {
+          "type": "string",
+          "default": "required"
+        },
+        "direct_edit": {
+          "type": "boolean",
+          "default": false
+        }
+      }
     }
   }
 }

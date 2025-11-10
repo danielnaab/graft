@@ -1,10 +1,14 @@
 graft: backlog
 inputs:
   materials:
-    - { path: "../../sources/external/jira/latest/issues.json", rev: HEAD }
+    - { path: "../../sources/external/jira/snapshots/2025-11-07/issues.json", rev: HEAD }
 derivations:
   - id: normalize
-    transformer: { ref: csv-tools, params: { mode: "jira->yaml" } }
+    transformer:
+      build:
+        image: "graft-backlog:local"
+        context: "."
+      params: { mode: "jira->yaml" }
     template: { source: inline, engine: none, content_type: application/json, persist: never }
     outputs:
       - { path: "./backlog.yaml", schema: backlog }
