@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graft.dev/schemas/provenance/finalize.schema.json",
+  "title": "Graft finalize provenance",
+  "description": "Schema for the provenance file written by 'graft finalize'",
+  "type": "object",
+  "properties": {
+    "artifact": {
+      "type": "string",
+      "description": "Path to the artifact directory"
+    },
+    "finalized_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when artifact was finalized"
+    },
+    "agent": {
+      "type": ["object", "null"],
+      "description": "Information about the agent that made changes (null if not provided)",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the agent"
+        },
+        "model": {
+          "type": ["string", "null"],
+          "description": "Model identifier (for AI agents)"
+        },
+        "params": {
+          "type": ["string", "null"],
+          "description": "Additional parameters or context"
+        }
+      },
+      "required": ["name"]
+    },
+    "change_origin": {
+      "type": "string",
+      "description": "Classification of how changes originated",
+      "enum": ["derived", "authored", "unknown"]
+    }
+  },
+  "required": [
+    "artifact",
+    "finalized_at",
+    "change_origin"
+  ]
+}

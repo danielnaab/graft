@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, pathlib, time, yaml
+import json, pathlib, yaml
 import typer
 from typing import Optional
 
@@ -10,6 +10,8 @@ from .adapters.docker import DockerAdapter, BuildError, TransformerExecutionErro
 from .adapters.materials import LocalMaterialLoader, MaterialNotFoundError
 from .services.explain import ExplainService
 from .services.run import RunService, TemplateNotFoundError, TemplateRenderError, OutputMissingError
+from .services.status import StatusService
+from .services.finalize import FinalizeService, AgentInfo
 
 app = typer.Typer(add_completion=False, help="Graft command-line interface")
 
@@ -20,6 +22,8 @@ material_loader = LocalMaterialLoader(fs)
 container_adapter = DockerAdapter()
 explain_service = ExplainService(config_adapter)
 run_service = RunService(config_adapter, fs, material_loader, container_adapter)
+status_service = StatusService()
+finalize_service = FinalizeService(fs)
 
 
 def _artifact_path(p: str) -> pathlib.Path:
@@ -125,12 +129,20 @@ def run(artifact: str, id: Optional[str] = typer.Option(None, "--id", help="Deri
 @app.command()
 def status(artifact: str, json_out: bool = typer.Option(False, "--json")):
     """Report on artifact change status and downstream impacts."""
-    a = _artifact_path(artifact)
-    result = {"artifact": str(a), "change_origin": "unknown", "downstream": []}
-    if json_out:
-        print_json(result)
-    else:
-        typer.echo(json.dumps(result, indent=2))
+    try:
+        artifact_path = _artifact_path(artifact)
+        result = status_service.status(artifact_path)
+
+        if json_out:
+            print_json(result.to_dict())
+        else:
+            typer.echo(json.dumps(result.to_dict(), indent=2))
+    except typer.BadParameter as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except Exception as e:
+        typer.echo(f"System error: {e}", err=True)
+        raise typer.Exit(code=2)
 
 @app.command()
 def validate(artifact: str):
@@ -143,17 +155,20 @@ def finalize(artifact: str, agent: Optional[str] = typer.Option(None, "--agent")
              model: Optional[str] = typer.Option(None, "--model"),
              params: Optional[str] = typer.Option(None, "--params")):
     """Finalize artifact changes and record provenance."""
-    a = _artifact_path(artifact)
-    prov = {
-        "artifact": str(a),
-        "finalized_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "agent": {"name": agent, "model": model, "params": params} if agent else None,
-        "change_origin": "authored"
-    }
-    prov_path = a / ".graft" / "provenance" / "finalize.json"
-    prov_path.parent.mkdir(parents=True, exist_ok=True)
-    prov_path.write_text(json.dumps(prov, indent=2))
-    typer.echo(f"Finalized: {prov_path}")
+    try:
+        artifact_path = _artifact_path(artifact)
+
+        # Create agent info if provided
+        agent_info = AgentInfo(name=agent, model=model, params=params) if agent else None
+
+        result = finalize_service.finalize(artifact_path, agent=agent_info)
+        typer.echo(f"Finalized: {result.provenance_path}")
+    except typer.BadParameter as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except Exception as e:
+        typer.echo(f"System error: {e}", err=True)
+        raise typer.Exit(code=2)
 
 @app.command()
 def impact(artifact: str, json_out: bool = typer.Option(False, "--json")):

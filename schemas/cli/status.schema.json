@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graft.dev/schemas/cli/status.schema.json",
+  "title": "Graft status --json output",
+  "description": "Schema for the JSON output of 'graft status <artifact/> --json' command",
+  "type": "object",
+  "properties": {
+    "artifact": {
+      "type": "string",
+      "description": "Path to the artifact directory"
+    },
+    "change_origin": {
+      "type": "string",
+      "description": "Classification of how changes originated",
+      "enum": ["derived", "authored", "unknown"]
+    },
+    "downstream": {
+      "type": "array",
+      "description": "Array of downstream artifacts affected by changes",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "type": "string",
+            "description": "Path to downstream artifact"
+          },
+          "relationship": {
+            "type": "string",
+            "description": "Type of dependency relationship"
+          }
+        },
+        "required": ["artifact"]
+      }
+    }
+  },
+  "required": [
+    "artifact",
+    "change_origin",
+    "downstream"
+  ]
+}
