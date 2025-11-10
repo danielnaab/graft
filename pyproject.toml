@@ -19,6 +19,13 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8.0.0"]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.1.9",
+  "mypy>=1.8.0",
+  "pre-commit>=3.6.0",
+  "types-PyYAML>=6.0.0",
+]
 
 [project.scripts]
 graft = "graft.cli:app"
@@ -26,3 +33,34 @@ graft = "graft.cli:app"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "N",   # pep8-naming
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "C4",  # flake8-comprehensions
+  "SIM", # flake8-simplify
+]
+ignore = [
+  "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.14"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true

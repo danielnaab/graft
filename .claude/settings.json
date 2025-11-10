@@ -1,0 +1,98 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest:*)",
+      "Bash(pip install:*)",
+      "Bash(uv pip install:*)",
+      "Bash(uv python install:*)",
+      "Bash(uv venv:*)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(python -m graft.cli:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(tree:*)",
+      "Bash(date:*)",
+      "Bash(ls:*)",
+      "Read(schemas/**/*.json)",
+      "Read(docs/**)",
+      "Read(tests/**)",
+      "Read(src/**)",
+      "Read(examples/**)",
+      "Read(agent-records/**)",
+      "Read(pyproject.toml)",
+      "Read(.gitignore)",
+      "Read(README.md)",
+      "SlashCommand:/slice:*",
+      "SlashCommand:/test",
+      "SlashCommand:/work-log",
+      "SlashCommand:/check-contract",
+      "SlashCommand:/adr:*",
+      "SlashCommand:/schema",
+      "SlashCommand:/format",
+      "Bash(ruff:*)",
+      "Bash(black:*)",
+      "Bash(pre-commit:*)",
+      "Bash(mypy:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(sudo:*)",
+      "Edit(.venv/**)",
+      "Write(.venv/**)",
+      "Edit(.git/**)",
+      "Write(.git/**)",
+      "Edit(uv.lock)",
+      "Write(uv.lock)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git rebase:*)",
+      "Bash(git reset:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "tool": "Edit",
+        "paths": ["src/**/*.py"],
+        "command": "echo '✓ Python source file edited. Consider running: pytest -q'"
+      },
+      {
+        "tool": "Write",
+        "paths": ["src/**/*.py"],
+        "command": "echo '✓ Python source file created. Consider running: pytest -q'"
+      },
+      {
+        "tool": "Edit",
+        "paths": ["tests/**/*.py"],
+        "command": "echo '✓ Test file modified. Run tests to verify: pytest -q'"
+      },
+      {
+        "tool": "Write",
+        "paths": ["tests/**/*.py"],
+        "command": "echo '✓ Test file created. Run tests to verify: pytest -q'"
+      },
+      {
+        "tool": "Edit",
+        "paths": ["schemas/**/*.json"],
+        "command": "echo '✓ Schema modified. Verify with /schema command'"
+      }
+    ],
+    "Stop": [
+      {
+        "command": "echo '\n📋 Remember to update work log: /work-log'"
+      }
+    ]
+  },
+  "env": {
+    "PYTHONPATH": "src"
+  },
+  "outputStyle": "default"
+}
