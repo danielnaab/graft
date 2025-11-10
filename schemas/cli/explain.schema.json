@@ -1,34 +1,142 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graft.dev/schemas/cli/explain.schema.json",
+  "title": "Graft explain --json output",
+  "description": "Schema for the JSON output of 'graft explain <artifact/> --json' command",
   "type": "object",
   "properties": {
     "artifact": {
-      "type": "string"
+      "type": "string",
+      "description": "Path to the artifact directory"
     },
     "graft": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string",
+      "description": "Name of the graft artifact"
     },
     "policy": {
-      "type": [
-        "object",
-        "null"
-      ]
+      "type": "object",
+      "description": "Policy configuration (optional)",
+      "properties": {
+        "deterministic": {
+          "type": "boolean"
+        },
+        "network": {
+          "type": "string"
+        },
+        "attest": {
+          "type": "string"
+        },
+        "direct_edit": {
+          "type": "boolean"
+        }
+      }
     },
     "inputs": {
-      "type": [
-        "object",
-        "null"
-      ]
+      "type": "object",
+      "description": "Input materials (optional)",
+      "properties": {
+        "materials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Relative path to the material file"
+              },
+              "rev": {
+                "type": "string",
+                "description": "Git revision (default: HEAD)"
+              }
+            },
+            "required": ["path", "rev"]
+          }
+        }
+      }
     },
     "derivations": {
-      "type": "array"
+      "type": "array",
+      "description": "Array of derivation objects",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for this derivation"
+          },
+          "transformer": {
+            "type": "object",
+            "description": "Transformer reference and parameters"
+          },
+          "outputs": {
+            "type": "array",
+            "description": "Output file specifications",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Relative path to output file"
+                },
+                "schema": {
+                  "type": "string",
+                  "description": "Optional schema identifier"
+                }
+              },
+              "required": ["path"]
+            }
+          },
+          "template": {
+            "type": "object",
+            "description": "Template configuration (optional)",
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "engine": {
+                "type": "string"
+              },
+              "content_type": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              },
+              "persist": {
+                "type": "string"
+              },
+              "persist_path": {
+                "type": "string"
+              }
+            },
+            "required": ["source", "engine", "content_type", "file"]
+          },
+          "policy": {
+            "type": "object",
+            "description": "Derivation-specific policy override (optional)",
+            "properties": {
+              "deterministic": {
+                "type": "boolean"
+              },
+              "network": {
+                "type": "string"
+              },
+              "attest": {
+                "type": "string"
+              },
+              "direct_edit": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "required": ["id", "transformer", "outputs"]
+      }
     }
   },
   "required": [
     "artifact",
+    "graft",
     "derivations"
   ]
 }

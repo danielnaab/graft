@@ -4,10 +4,14 @@ Deliver narrow slices; each slice ships tests, docs, and CLI behavior.
 
 ## Slice 0 — Foundations (CLI + schemas)
 - CLI boots; `graft explain` prints merged config (local-only merge for starter).
-- Schemas: `schemas/graft.schema.json`, `schemas/policy.schema.json`.
+- Schemas: `schemas/graft.schema.json`, `schemas/policy.schema.json`, `schemas/cli/explain.schema.json`.
 - Acceptance criteria:
-  - Explain emits JSON with artifact path, graft id, derivation ids.
-  - Invalid artifact directory returns an error.
+  - Explain emits JSON with artifact path, graft name, policy, inputs, and full derivation objects (id, transformer, outputs, template, policy).
+  - Default output (without --json) is human-readable summary format.
+  - Invalid artifact directory returns exit code 1 with helpful error message including path.
+  - Malformed YAML returns exit code 1 with parse error.
+  - Missing required fields return exit code 1.
+  - System errors (permissions, etc.) return exit code 2.
 
 ## Slice 1 — Deterministic single derivation
 - `graft run` renders template → outputs (stub copies template to outputs).
