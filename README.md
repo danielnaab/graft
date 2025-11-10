@@ -12,10 +12,8 @@ Graft lets people, agents, CI systems, and deterministic tools collaborate on ev
 
 ```bash
 # Install uv (see https://github.com/astral-sh/uv) then:
-uv python install 3.14
-uv venv
-source .venv/bin/activate
-uv pip install -e .
+uv install
+uv run graft --help
 
 # Try the CLI (JSON for agents)
 graft explain examples/agile-ops/artifacts/sprint-brief/ --json
