@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graft.dev/schemas/cli/impact.schema.json",
+  "title": "Graft impact --json output",
+  "description": "Schema for the JSON output of 'graft impact <artifact/> --json' command",
+  "type": "object",
+  "properties": {
+    "artifact": {
+      "type": "string",
+      "description": "Path to the artifact directory"
+    },
+    "downstream": {
+      "type": "array",
+      "description": "Array of downstream artifacts that depend on this artifact",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "type": "string",
+            "description": "Path to downstream artifact"
+          },
+          "relationship": {
+            "type": "string",
+            "description": "Type of dependency relationship (e.g., 'material', 'transformer')"
+          }
+        },
+        "required": ["artifact"]
+      }
+    }
+  },
+  "required": [
+    "artifact",
+    "downstream"
+  ]
+}
