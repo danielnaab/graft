@@ -49,11 +49,19 @@ Deliver narrow slices; each slice ships tests, docs, and CLI behavior.
 - Acceptance criteria:
   - Commands exist and return valid JSON/text without side effects.
 
-## Slice 5 — DVC scaffold
-- `graft dvc-scaffold` writes `dvc.yaml` stages mapping artifacts to `graft run`.
+## Slice 5 — DVC orchestrator integration (seamful autosync)
+- Graft keeps `dvc.yaml` in sync with derivations via configurable autosync.
 - Acceptance criteria:
-  - `dvc.yaml` contains stages with `cmd`, `deps`, `outs` constructed from `graft.yaml`.
-  - Works for both template and transformer derivations.
+  - Autosync triggers on write-intent commands (`run`, `init`) with default `apply` policy.
+  - Read-intent commands (`explain`, `status`) default to `warn` policy (show drift, no write).
+  - `dvc.yaml` contains one stage per derivation with canonical naming: `graft:<artifact>:<derivation-id>`.
+  - Stage specs include `wdir`, `cmd`, `deps` (materials, graft.yaml, template file, Dockerfile), `outs`.
+  - Non-managed stages (without `managed_stage_prefix`) are preserved unchanged.
+  - Drift detection: missing stages, mismatched specs, orphaned stages shown in plan.
+  - `--sync off|warn|apply|enforce` flag overrides default policy per command.
+  - JSON output includes `orchestrator` block with `type`, `sync_policy`, `drift`, `plan`, `applied`.
+  - Graceful degradation: missing DVC/`.dvc/` directory degrades to warn behavior.
+  - Error codes: `E_ORCH_DRIFT_ENFORCED` (enforce mode with drift), `E_DVC_YAML_INVALID` (unparseable).
 
 ## Slice 6 — Container-based transformers (future)
 - Local Dockerfile builds with `transformer.build` specification.

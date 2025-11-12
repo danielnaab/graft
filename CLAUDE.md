@@ -68,8 +68,12 @@ Graft is a CLI tool for auditable, file-first derivations with DVC integration. 
 - `/schema` — Validate JSON schemas
 
 ## Current State
-- **Slice 0** (explain command): ✅ Complete with full layered architecture
-- **Next**: Slice 1 (run command) — deterministic single derivation
+- **Slice 0** (explain command): ✅ Complete
+- **Slice 1** (run command): ✅ Complete
+- **Slice 2** (container transformers): ✅ Complete
+- **Slice 3** (status/finalize): ✅ Complete
+- **Slice 4** (impact/simulate): ✅ Complete
+- **Next**: Slice 5 (DVC orchestrator integration with seamful autosync)
 
 ## Common Patterns
 ```python

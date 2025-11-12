@@ -1,13 +1,26 @@
-# CLI Spec (proposed)
+# CLI Spec
 
 All commands accept `--json` where applicable. Exit codes: `0` success, `1` user error, `2` system error.
 
-- `graft explain <artifact/> [--json]`
-- `graft run <artifact/> [--id <derivation-id>]`
-- `graft status <artifact/> [--json]`
+## Commands
+
+- `graft explain <artifact/> [--json] [--sync off|warn|apply|enforce]`
+- `graft run <artifact/> [--id <derivation-id>] [--sync off|warn|apply|enforce]`
+- `graft status <artifact/> [--json] [--sync off|warn|apply|enforce]`
 - `graft validate <artifact/>`
-- `graft finalize <artifact/> [--agent <name>] [--model <m>] [--params <json>]`
-- `graft impact <artifact/> [--json]`
-- `graft simulate <artifact/> [--cascade]`
+- `graft finalize <artifact/> [--agent <name>] [--model <m>] [--params <json>] [--sync off|warn|apply|enforce]`
+- `graft impact <artifact/> [--json] [--sync off|warn|apply|enforce]`
+- `graft simulate <artifact/> [--cascade] [--sync off|warn|apply|enforce]`
 - `graft init [<path>]` — create `graft.config.yaml` (defaults)
-- `graft dvc-scaffold [<project-root>]` — generate `dvc.yaml` stages for artifacts
+- `graft dvc scaffold [--check] [--json]` — manage `dvc.yaml` stages for all artifacts
+
+## Orchestrator Integration
+
+The `--sync` flag controls DVC autosync behavior on commands that support it:
+
+- `off`: Never write dvc.yaml; show plan if drift exists
+- `warn`: Never write; show plan; exit 0 (default for read-only commands)
+- `apply`: Write dvc.yaml automatically if drift exists (default for write commands)
+- `enforce`: Fail with exit code 1 if drift exists; don't write
+
+If not specified, each command uses its default policy (see docs/dvc-integration.md).

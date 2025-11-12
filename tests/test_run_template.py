@@ -9,10 +9,28 @@ Black-box integration tests that verify:
 """
 import subprocess
 import sys
+import os
 import shutil
 from pathlib import Path
 
 import pytest
+
+
+def run_graft_cli(*args):
+    """Helper to run graft CLI with proper PYTHONPATH."""
+    env = os.environ.copy()
+    src_path = str(Path(__file__).parent.parent / "src")
+    if "PYTHONPATH" in env:
+        env["PYTHONPATH"] = f"{src_path}:{env['PYTHONPATH']}"
+    else:
+        env["PYTHONPATH"] = src_path
+
+    return subprocess.run(
+        [sys.executable, "-m", "graft.cli"] + list(args),
+        capture_output=True,
+        text=True,
+        env=env
+    )
 
 
 def test_run_renders_jinja2_template_to_output(tmp_path):
@@ -39,11 +57,7 @@ derivations:
     template = artifact_dir / "template.txt"
     template.write_text("Hello {{ name }}! The answer is {{ value }}.")
 
-    result = subprocess.run(
-        [sys.executable, "-m", "graft.cli", "run", str(artifact_dir)],
-        capture_output=True,
-        text=True
-    )
+    result = run_graft_cli("run", str(artifact_dir))
 
     assert result.returncode == 0, f"Command failed: {result.stderr}"
 
@@ -61,11 +75,7 @@ def test_run_with_existing_example_sprint_brief(tmp_path):
     dst = tmp_path / "artifact"
     shutil.copytree(src, dst)
 
-    result = subprocess.run(
-        [sys.executable, "-m", "graft.cli", "run", str(dst)],
-        capture_output=True,
-        text=True
-    )
+    result = run_graft_cli("run", str(dst))
 
     assert result.returncode == 0, f"Command failed: {result.stderr}"
 
@@ -109,11 +119,7 @@ derivations:
     (artifact_dir / "template2.txt").write_text("Second template content")
 
     # Run with --id flag targeting only "second"
-    result = subprocess.run(
-        [sys.executable, "-m", "graft.cli", "run", str(artifact_dir), "--id", "second"],
-        capture_output=True,
-        text=True
-    )
+    result = run_graft_cli("run", str(artifact_dir), "--id", "second")
 
     assert result.returncode == 0, f"Command failed: {result.stderr}"
 
@@ -146,11 +152,7 @@ derivations:
       - {path: "./output.txt"}
 """)
 
-    result = subprocess.run(
-        [sys.executable, "-m", "graft.cli", "run", str(artifact_dir)],
-        capture_output=True,
-        text=True
-    )
+    result = run_graft_cli("run", str(artifact_dir))
 
     # Should fail with exit code 1 (user error)
     assert result.returncode == 1, "Expected exit code 1 for missing template"
@@ -162,11 +164,7 @@ def test_run_fails_with_invalid_artifact_path(tmp_path):
     """Test that invalid artifact path causes exit code 1."""
     nonexistent = tmp_path / "does-not-exist"
 
-    result = subprocess.run(
-        [sys.executable, "-m", "graft.cli", "run", str(nonexistent)],
-        capture_output=True,
-        text=True
-    )
+    result = run_graft_cli("run", str(nonexistent))
 
     assert result.returncode == 1, "Expected exit code 1 for invalid path"
     assert "graft.yaml" in result.stderr or "graft.yaml" in result.stdout
@@ -193,11 +191,7 @@ derivations:
 
     (artifact_dir / "template.txt").write_text("Nested template content")
 
-    result = subprocess.run(
-        [sys.executable, "-m", "graft.cli", "run", str(artifact_dir)],
-        capture_output=True,
-        text=True
-    )
+    result = run_graft_cli("run", str(artifact_dir))
 
     assert result.returncode == 0, f"Command failed: {result.stderr}"
 
@@ -229,11 +223,7 @@ derivations:
 
     (artifact_dir / "template.txt").write_text("Shared template content")
 
-    result = subprocess.run(
-        [sys.executable, "-m", "graft.cli", "run", str(artifact_dir)],
-        capture_output=True,
-        text=True
-    )
+    result = run_graft_cli("run", str(artifact_dir))
 
     assert result.returncode == 0, f"Command failed: {result.stderr}"
 
@@ -279,11 +269,7 @@ derivations:
     (artifact_dir / "template1.txt").write_text("First content")
     (artifact_dir / "template2.txt").write_text("Second content")
 
-    result = subprocess.run(
-        [sys.executable, "-m", "graft.cli", "run", str(artifact_dir)],
-        capture_output=True,
-        text=True
-    )
+    result = run_graft_cli("run", str(artifact_dir))
 
     assert result.returncode == 0, f"Command failed: {result.stderr}"
 

@@ -30,12 +30,20 @@
 - Contract: `simulate --cascade` prints a confirmation line, no file changes.
 - Tests: `tests/test_impact_and_simulate_stubs.py`.
 
-## Slice 5 — DVC scaffold
-- Contract: `dvc-scaffold .` writes `dvc.yaml` with one stage per artifact:
-  - `cmd: graft run <artifact/>`
-  - `deps:` includes materials and `graft.yaml`
-  - `outs:` includes declared outputs
-- Tests: `tests/test_dvc_scaffold.py`.
+## Slice 5 — DVC orchestrator integration (seamful autosync)
+- Contract: Graft keeps `dvc.yaml` in sync with derivations via configurable autosync.
+- Stage mapping: One stage per derivation (`graft:<artifact>:<derivation-id>`).
+- Sync policies: `off`, `warn`, `apply`, `enforce` (configurable in `graft.config.yaml`).
+- Per-command defaults:
+  - `run`, `init`: `apply` (auto-write dvc.yaml)
+  - `explain`, `status`, `impact`, `simulate`, `finalize`: `warn` (show drift, no write)
+  - `dvc scaffold`: explicit write/check mode
+- Drift detection: missing stages, mismatched specs, orphaned stages.
+- Non-managed stages: Preserved verbatim (only stages with `managed_stage_prefix` are touched).
+- JSON output: All autosyncing commands include `orchestrator` block with drift/plan info.
+- Error handling: `E_ORCH_DRIFT_ENFORCED`, `E_DVC_YAML_INVALID`, etc.
+- Tests: `tests/test_dvc_orchestrator.py`, `tests/test_dvc_autosync.py`.
+- See: `docs/dvc-integration.md` for detailed specification.
 
 ## Slice 6 — Container-based transformers (future)
 - Contract: Derivations with `transformer.build` execute via container runtime.

@@ -1,7 +1,11 @@
-import json, subprocess, sys, pathlib, shutil
+import json, subprocess, sys, pathlib, shutil, os
 
 def run_cli(*args, cwd=None):
-    return subprocess.run([sys.executable, "-m", "graft.cli", *args], capture_output=True, text=True, cwd=cwd)
+    # Set PYTHONPATH for the subprocess
+    env = os.environ.copy()
+    src_path = str(pathlib.Path(__file__).parent.parent / "src")
+    env["PYTHONPATH"] = src_path
+    return subprocess.run([sys.executable, "-m", "graft.cli", *args], capture_output=True, text=True, cwd=cwd, env=env)
 
 def test_impact_and_simulate(tmp_path):
     src = pathlib.Path("examples/agile-ops/artifacts/sprint-brief/")

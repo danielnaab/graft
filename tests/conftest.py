@@ -111,6 +111,14 @@ def run_graft(tmp_path: Path):
 
         # Merge environment variables
         cmd_env = os.environ.copy()
+
+        # Add src/ to PYTHONPATH so graft module can be imported
+        src_path = str(Path(__file__).parent.parent / "src")
+        if "PYTHONPATH" in cmd_env:
+            cmd_env["PYTHONPATH"] = f"{src_path}:{cmd_env['PYTHONPATH']}"
+        else:
+            cmd_env["PYTHONPATH"] = src_path
+
         if env:
             cmd_env.update(env)
 

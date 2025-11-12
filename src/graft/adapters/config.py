@@ -16,6 +16,7 @@ from ..domain.entities import (
     Transformer,
     TransformerBuild,
 )
+from ..domain.orchestrator import OrchestratorConfig, SyncPolicy
 from .filesystem import FileSystemPort
 
 
@@ -103,4 +104,40 @@ class ConfigAdapter:
             network=raw.get("network", "off"),
             attest=raw.get("attest", "required"),
             direct_edit=raw.get("direct_edit", False),
+        )
+
+    def load_root_config(self, repo_root: Path) -> OrchestratorConfig:
+        """Load graft.config.yaml from repo root."""
+        config_path = repo_root / "graft.config.yaml"
+
+        # Return defaults if config doesn't exist
+        if not self.fs.exists(config_path):
+            return OrchestratorConfig()
+
+        try:
+            raw_yaml = self.fs.read_text(config_path)
+            raw_config = yaml.safe_load(raw_yaml)
+
+            if not raw_config or "orchestrator" not in raw_config:
+                return OrchestratorConfig()
+
+            orch_raw = raw_config["orchestrator"]
+            return self._parse_orchestrator_config(orch_raw)
+        except Exception:
+            # Return defaults on any parsing error
+            return OrchestratorConfig()
+
+    def _parse_orchestrator_config(self, raw: dict[str, Any]) -> OrchestratorConfig:
+        """Parse orchestrator configuration."""
+        sync_policy_str = raw.get("sync_policy", "apply")
+        try:
+            sync_policy = SyncPolicy(sync_policy_str)
+        except ValueError:
+            sync_policy = SyncPolicy.APPLY
+
+        return OrchestratorConfig(
+            type=raw.get("type", "dvc"),
+            managed_stage_prefix=raw.get("managed_stage_prefix", "graft:"),
+            sync_policy=sync_policy,
+            roots=raw.get("roots", ["."]),
         )

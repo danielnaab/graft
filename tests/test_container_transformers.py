@@ -198,11 +198,7 @@ def test_backlog_artifact_with_container(tmp_path):
     # Run from the backlog artifact directory
     backlog_dir = dst / "artifacts" / "backlog"
 
-    result = subprocess.run(
-        [sys.executable, "-m", "graft.cli", "run", str(backlog_dir)],
-        capture_output=True,
-        text=True
-    )
+    result = run_graft_run(backlog_dir)
 
     assert result.returncode == 0, f"Command failed: {result.stderr}"
 
@@ -226,23 +222,13 @@ def test_both_examples_work(tmp_path):
 
     # Test sprint-brief (template-based, Slice 1)
     sprint_brief = dst / "artifacts" / "sprint-brief"
-    result1 = subprocess.run(
-        [sys.executable, "-m", "graft.cli", "run", str(sprint_brief)],
-        capture_output=True,
-        text=True,
-        cwd=dst
-    )
+    result1 = run_graft_run(sprint_brief, cwd=dst)
     assert result1.returncode == 0, f"sprint-brief failed: {result1.stderr}"
     assert (sprint_brief / "brief.md").exists()
 
     # Test backlog (container-based, Slice 2)
     backlog = dst / "artifacts" / "backlog"
-    result2 = subprocess.run(
-        [sys.executable, "-m", "graft.cli", "run", str(backlog)],
-        capture_output=True,
-        text=True,
-        cwd=dst
-    )
+    result2 = run_graft_run(backlog, cwd=dst)
     assert result2.returncode == 0, f"backlog failed: {result2.stderr}"
     assert (backlog / "backlog.yaml").exists()
 

@@ -6,6 +6,7 @@ keeping test intent clear and explicit.
 import subprocess
 import sys
 import json
+import os
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
@@ -25,10 +26,19 @@ def run_graft_run(artifact_dir: Path, **kwargs) -> subprocess.CompletedProcess:
     Returns:
         CompletedProcess with returncode, stdout, stderr
     """
+    # Set PYTHONPATH to include src/ so graft module can be imported
+    env = kwargs.pop("env", None) or os.environ.copy()
+    src_path = str(Path(__file__).parent.parent / "src")
+    if "PYTHONPATH" in env:
+        env["PYTHONPATH"] = f"{src_path}:{env['PYTHONPATH']}"
+    else:
+        env["PYTHONPATH"] = src_path
+
     return subprocess.run(
         [sys.executable, "-m", "graft.cli", "run", str(artifact_dir)],
         capture_output=True,
         text=True,
+        env=env,
         **kwargs
     )
 
