@@ -1,0 +1,22 @@
+graft: working-agreements
+inputs:
+  materials:
+    - { path: "../../sources/retrospectives/2025-Q1-*.md", rev: HEAD }
+derivations:
+  - id: team-agreements
+    # Manual derivation with template guidance
+    # Team reviews retrospective action items and codifies agreements
+    template:
+      source: file
+      engine: jinja2
+      content_type: text/markdown
+      file: "./template.md"
+      persist: text
+      persist_path: "./.graft/evaluated/guidance.md"
+    outputs:
+      - { path: "./team-handbook.md" }
+    policy:
+      deterministic: false  # Manual editing expected
+      attest: required      # Track who approved these agreements
+      direct_edit: true     # Team directly edits the output
+      # In real workflow: would require PR review for consensus

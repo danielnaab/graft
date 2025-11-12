@@ -1,7 +1,10 @@
 graft: sprint-brief
 inputs:
   materials:
-    - { path: "../../sources/tickets/sprint-2025-11W1.yaml", rev: HEAD }
+    # Product roadmap provides strategic direction
+    - { path: "../../sources/roadmap/2025-Q1.md", rev: HEAD }
+    # Backlog provides current sprint work items
+    - { path: "../backlog/backlog.yaml", rev: HEAD }
 derivations:
   - id: brief
     transformer: { ref: report-md, params: { title: "Sprint Brief" } }

@@ -1,0 +1,25 @@
+graft: on-call-runbook
+inputs:
+  materials:
+    # Depends on working agreements for on-call procedures
+    - { path: "../working-agreements/team-handbook.md", rev: HEAD }
+    # Depends on incidents for lessons learned and operational procedures
+    - { path: "../../sources/incidents/2025-*.md", rev: HEAD }
+derivations:
+  - id: runbook
+    # Manual derivation with template guidance
+    # On-call engineers update runbook based on incidents and agreements
+    template:
+      source: file
+      engine: jinja2
+      content_type: text/markdown
+      file: "./template.md"
+      persist: text
+      persist_path: "./.graft/evaluated/guidance.md"
+    outputs:
+      - { path: "./on-call-runbook.md" }
+    policy:
+      deterministic: false  # Manual editing expected
+      attest: required      # Track who updated the runbook
+      direct_edit: true     # Engineers directly edit based on experience
+      # Runbooks should be updated by any team member with fresh incident experience
