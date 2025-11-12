@@ -1,38 +1,111 @@
-# Graft (proposal starter)
+# Graft
 
-**Graft** is a file-first orchestration tool for **auditable data transformations**. A *graft* is both:
-- a **recipe** (configuration describing inputs, transformers, outputs, and policy), and
-- a **directory of files** that **grows** like a branch on a git tree as new source material feeds it.
+Graft binds together material from different origins—code, specifications, research, strategy—into artifacts that grow and adapt as your sources change.
 
-Graft lets people, agents, CI systems, and deterministic tools collaborate on evolving files while maintaining **provenance**, **safety**, and **great PR ergonomics**.
+Graft is a git-backed build tool for file-first data workflows. It uses DVC to track dependencies and orchestrate transformations—containers, templates, or manual edits by humans or agents—producing outputs that live as versioned files in your repository. Every transformation records full provenance: input hashes, who finalized, when, and under what policy. Outputs aren't ephemeral build artifacts—they're files you commit, edit, and evolve.
 
-> Scope: This starter focuses on **pure file workflows** (no network side-effects). External systems are ingested to disk by CI; Graft reads files and writes derived artifacts.
+## Why Graft?
 
-## Quick start (uv + Python 3.14)
+**File-first workflows** — Outputs are living files you edit directly, not disposable build artifacts. Generated, refined, and evolved over time.
 
-```bash
-# Install uv (see https://github.com/astral-sh/uv) then:
-uv install
-uv run graft --help
+**Full provenance** — Every artifact records what materials fed it, what transformation produced it, and who finalized it. Complete audit trails for compliance, research, and collaboration.
 
-# Try the CLI (JSON for agents)
-graft explain examples/agile-ops/artifacts/sprint-brief/ --json
-graft run     examples/agile-ops/artifacts/sprint-brief/
-graft status  examples/agile-ops/artifacts/sprint-brief/ --json
+**Human and agent collaboration** — Transformations can be fully automated (containers, templates) or require manual work. Humans and AI agents are first-class participants with attribution and policy enforcement.
 
-# Tests (black-box)
-uv pip install -e ".[test]"
-pytest -q
+**Composable across boundaries** — Reference materials and workflows from remote repositories. Build workflow supply chains with git as the transport layer.
+
+## Quick Example
+
+An artifact that transforms ticket data into a weekly sprint brief:
+
+```yaml
+# artifacts/sprint-brief/graft.yaml
+graft: sprint-brief
+inputs:
+  materials:
+    - { path: "../../sources/tickets/sprint-2025-11W1.yaml", rev: HEAD }
+derivations:
+  - id: brief
+    transformer: { ref: report-md, params: { title: "Sprint Brief" } }
+    template:
+      source: file
+      engine: jinja2
+      file: "./template.md"
+    outputs:
+      - { path: "./brief.md" }
+    policy:
+      deterministic: true
+      attest: required
+      direct_edit: true
 ```
 
-## Repository map
-- `src/` — Python CLI stubs (outside‑in friendly, agent‑centric `--json`)
-- `docs/` — proposal, architecture, DVC integration, CLI spec, philosophy, testing, implementation strategy, roadmap
-- `schemas/` — JSON Schemas for `graft.yaml`, policy, provenance, CLI outputs
-- `examples/` — agile demo using the graft model (no side effects)
-- `skills/` — Claude Code Skill (`SKILL.md`) for this repo
-- `CLAUDE.md` — best practices & guardrails for agent collaboration
-- `agent-records/` — lightweight logs so agents/humans can pause/resume work
-- `.github/workflows/` — CI with uv on Python 3.14
+Run the transformation:
+```bash
+graft run artifacts/sprint-brief/
+```
 
-See `docs/proposal/overview.md` and `docs/user-journeys.md` for the big picture.
+The template generates `brief.md`. You edit it directly to add context and insights. When done:
+
+```bash
+graft finalize artifacts/sprint-brief/ --agent "Jane Doe"
+```
+
+Next week, when tickets change, Graft detects the drift. You propagate the updates, refine the brief, and finalize again. Full history in git. Full provenance in `.graft/provenance/`.
+
+## Use Cases
+
+**Auditable AI agency** — Deploy AI agents with confidence. Full attribution, policy enforcement, and human oversight.
+
+**Composable workflows** — Build data workflow supply chains. Reference remote grafts, extend them, version them, share them.
+
+**Living team knowledge** — Sprint briefs, retrospectives, runbooks that evolve with your work. Dependencies flow, reviews happen in PRs, nothing goes stale.
+
+**Reproducible research** — Data pipelines with human judgment captured. Show reviewers exactly what ran, who decided what, when.
+
+See [Use Cases](docs/use-cases.md) for detailed narratives.
+
+## Documentation
+
+- **[Concepts](docs/concepts.md)** — Core mental model: artifacts, materials, derivations, provenance, and the finalize transaction
+- **[Tutorial](docs/tutorial.md)** — Hands-on walkthrough building your first graft
+- **[Workflows](docs/workflows.md)** — Patterns for automated, manual, and hybrid workflows
+- **[CLI Reference](docs/cli-reference.md)** — Command documentation
+- **[graft.yaml Reference](docs/graft-yaml-reference.md)** — Configuration schema and examples
+- **[Architecture](docs/architecture.md)** — Technical architecture and design
+- **[Philosophy of Design](docs/philosophy-of-design.md)** — Design principles and rationale
+- **[DVC Integration](docs/dvc-integration.md)** — How Graft uses DVC for orchestration
+- **[FAQ](docs/faq.md)** — Common questions
+
+## Installation
+
+```bash
+# Using pip
+pip install graft
+
+# Using uv
+uv pip install graft
+```
+
+## Quick Start
+
+Initialize a Graft project:
+```bash
+graft init
+```
+
+This creates `graft.config.yaml` with defaults. See the [Tutorial](docs/tutorial.md) for a complete walkthrough.
+
+## Requirements
+
+- Python 3.14+
+- Git
+- DVC (installed with Graft)
+- Docker (for container-based transformers)
+
+## Contributing
+
+See [Implementation Strategy](docs/implementation-strategy.md) and [Testing Strategy](docs/testing-strategy.md) for development practices.
+
+## License
+
+MIT

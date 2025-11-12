@@ -1,245 +1,301 @@
-# DVC Integration — Seamful Autosync
+# DVC Integration
 
-Graft keeps `dvc.yaml` in sync with graft derivations so `dvc repro` works seamlessly, but it does so **seamfully**: always showing the plan, preserving non-Graft stages, and letting users control when writes happen.
+Graft uses DVC (Data Version Control) for orchestration: managing the dependency DAG, running transformations incrementally, and parallelizing independent work.
 
-## Goals
+This document explains how Graft and DVC work together, when to use DVC directly, and how the autosync mechanism keeps everything in sync.
 
-- Minimize manual DVC management while keeping the seam visible
-- Make `dvc repro graft:<artifact>:<derivation>` work out of the box
-- Keep responsibilities clean: Graft enforces policy/provenance; DVC handles orchestration/cache
+## Why DVC?
 
-## Non-goals (this slice)
+DVC is a mature, well-tested tool for data pipeline orchestration. Rather than build our own DAG executor, Graft leverages DVC for:
 
-- Running `dvc repro`, managing remotes/caches, or touching `dvc.lock`
-- Modeling finalize/attestation as DVC stages
+**Dependency tracking** — DVC understands which artifacts depend on which materials.
+
+**Incremental execution** — Only run what changed, skip what's current.
+
+**Parallelization** — Run independent derivations concurrently.
+
+**Caching** — Cache deterministic outputs (though Graft uses git, not DVC cache, for outputs).
+
+**Standard tooling** — Teams already know DVC, documentation exists, community support available.
+
+Graft focuses on what's unique: provenance, policy, attestation. DVC handles execution.
+
+## How It Works
+
+### Graft Generates `dvc.yaml`
+
+Graft scans your repository for `graft.yaml` files and generates a `dvc.yaml` file with DVC stages.
+
+**One stage per derivation:**
+```yaml
+stages:
+  graft:sprint-brief:brief:
+    wdir: artifacts/sprint-brief
+    cmd: graft run artifacts/sprint-brief/ --id brief
+    deps:
+      - ../../sources/tickets.yaml
+      - graft.yaml
+      - template.md
+    outs:
+      - brief.md:
+          cache: false
+```
+
+**Stage naming:** `graft:<artifact-name>:<derivation-id>`
+
+**Dependencies:** All materials, graft.yaml, template files, Dockerfiles (if present).
+
+**Outputs:** Files produced by the derivation.
+
+**Cache: false** — Outputs live in git, not DVC cache.
+
+### DVC Executes the DAG
+
+When materials change:
+1. DVC detects which stages are dirty (dependencies changed)
+2. Runs `graft run` for each dirty derivation
+3. Parallelizes independent stages
+4. Outputs are produced, committed to git
+
+### Provenance is Created by Finalize
+
+`graft run` produces outputs. `graft finalize` creates provenance.
+
+For automated workflows (policy allows auto-finalize), this can happen in the same step.
+
+For manual workflows, human/agent finalizes after reviewing/editing outputs.
+
+## Autosync Mechanism
+
+Graft keeps `dvc.yaml` synchronized with your `graft.yaml` files via **seamful autosync**.
+
+**Seamful means:**
+- You see when sync happens
+- You control when writes happen (via sync policy)
+- Graft shows the plan before applying
+- You can override per-command
+
+### Sync Policies
+
+Configured in `graft.config.yaml`:
+
+```yaml
+orchestrator:
+  type: dvc
+  managed_stage_prefix: "graft:"
+  sync_policy: apply  # Default policy
+```
+
+**Policies:**
+- `off` — Never write dvc.yaml; show plan if drift exists
+- `warn` — Show plan, don't write, exit 0 (default for read-only commands)
+- `apply` — Write dvc.yaml automatically if drift detected (default for write commands)
+- `enforce` — Fail if drift detected; don't write
+
+**Per-command defaults:**
+- `graft run`: `apply` (keep pipeline usable)
+- `graft dvc scaffold`: explicit write or check mode
+- `graft explain`, `graft status`: `warn` (read-only, no side effects)
+
+**Override:**
+```bash
+graft run artifacts/sprint-brief/ --sync enforce  # Fail if drift
+graft explain artifacts/sprint-brief/ --sync apply  # Force sync
+```
+
+### Drift Detection
+
+Drift exists when:
+- **Missing stage:** Derivation exists but no DVC stage
+- **Mismatched spec:** Stage exists but deps/outs/cmd differ
+- **Orphaned stage:** Managed stage for non-existent derivation
+- **Name changed:** Stage name doesn't match canonical
+
+### Autosync Workflow
+
+On each command (that supports `--sync`):
+1. Scan for graft.yaml files
+2. Compare to current dvc.yaml
+3. Compute drift plan: `{create: [...], update: [...], remove: [...]}`
+4. Apply per sync policy:
+   - `off`/`warn`: Don't write, show plan
+   - `apply`: Write dvc.yaml, print summary
+   - `enforce`: Fail if drift exists
+
+**Example output (apply mode):**
+```
+Autosync: create=1, update=0, remove=0
+Writing dvc.yaml... done.
+```
+
+## Using DVC Directly
+
+You can use DVC commands for advanced workflows:
+
+### Run the Full Pipeline
+
+```bash
+dvc repro
+```
+
+Runs all dirty stages in dependency order.
+
+### Run a Specific Stage
+
+```bash
+dvc repro graft:sprint-brief:brief
+```
+
+### Visualize the DAG
+
+```bash
+dvc dag
+```
+
+Shows dependency graph.
+
+### Check Status
+
+```bash
+dvc status
+```
+
+Shows which stages are dirty.
+
+### Manage Remote Storage (Optional)
+
+For large files, configure DVC remote:
+
+```bash
+dvc remote add -d myremote s3://my-bucket/path
+dvc push
+dvc pull
+```
+
+Graft artifacts are typically small (documents, configs), so DVC remotes are optional.
+
+## Non-Managed Stages
+
+Graft only touches stages whose names start with `managed_stage_prefix` (default: `graft:`).
+
+All other stages in `dvc.yaml` are preserved verbatim. This allows:
+- Hand-written DVC stages to coexist
+- External pipelines managed separately
+- Gradual migration to Graft
+
+**Example `dvc.yaml` with mixed stages:**
+```yaml
+stages:
+  # Graft-managed stages
+  graft:sprint-brief:brief:
+    cmd: graft run artifacts/sprint-brief/ --id brief
+    ...
+
+  # Hand-written stage (preserved)
+  preprocess-data:
+    cmd: python scripts/preprocess.py
+    deps: [raw-data.csv]
+    outs: [clean-data.csv]
+```
+
+Graft won't modify `preprocess-data`.
 
 ## Configuration
 
-Add an `orchestrator` section to `graft.config.yaml` (at repo root):
+In `graft.config.yaml`:
 
 ```yaml
 version: 1
 orchestrator:
-  type: dvc                    # only 'dvc' in this slice
-  managed_stage_prefix: "graft:"
-  sync_policy: apply           # off | warn | apply | enforce
-  roots: ["."]                 # optional: directories to scan for artifacts
+  type: dvc                     # Only 'dvc' supported currently
+  managed_stage_prefix: "graft:"  # Prefix for managed stages
+  sync_policy: apply            # Default sync behavior
+  roots: ["."]                  # Directories to scan for artifacts
 ```
 
-### Sync Policies
+**`type`** — Orchestrator type (only `dvc` in current implementation).
 
-- **`off`**: Never write; show plan if drift exists
-- **`warn`**: Never write; show plan; exit 0
-- **`apply`** (default): Write the plan automatically, print concise summary, proceed
-- **`enforce`**: Fail if drift exists (print plan); no write
+**`managed_stage_prefix`** — Graft only modifies stages with this prefix.
 
-### Per-command defaults
+**`sync_policy`** — Default policy for autosync.
 
-| Command | Default sync | Notes |
-|---------|--------------|-------|
-| `graft run` | `apply` | Keep pipeline usable before/after runs |
-| `graft init` | `apply` | New projects get a working dvc.yaml |
-| `graft dvc scaffold` | explicit | Authoritative write/check entrypoint |
-| `graft explain` | `warn` | Read-only; can override with `--sync apply` |
-| `graft status` | `warn` | Read-only; can override with `--sync apply` |
-| `graft impact` | `warn` | Read-only; can override with `--sync apply` |
-| `graft simulate` | `warn` | Read-only; can override with `--sync apply` |
-| `graft finalize` | `warn` | Keep finalize focused on provenance |
-
-Override with `--sync off|warn|apply|enforce` on any command.
-
-## Stage Mapping
-
-**One stage per derivation** with canonical naming: `graft:<artifact-name>:<derivation-id>`
-
-Example for an artifact with two derivations:
-
-```yaml
-stages:
-  graft:sprint-brief:default:
-    wdir: artifacts/sprint-brief
-    cmd: graft run artifacts/sprint-brief --id default
-    deps:
-      - materials/backlog.json
-      - artifacts/sprint-brief/graft.yaml
-      - artifacts/sprint-brief/template.md.j2
-    outs:
-      - artifacts/sprint-brief/sprint-brief.md
-
-  graft:sprint-brief:v2:
-    wdir: artifacts/sprint-brief
-    cmd: graft run artifacts/sprint-brief --id v2
-    deps:
-      - materials/backlog.json
-      - artifacts/sprint-brief/graft.yaml
-      - artifacts/sprint-brief/template-v2.md.j2
-    outs:
-      - artifacts/sprint-brief/sprint-brief-v2.md
-```
-
-### Dependency tracking
-
-For each derivation, the stage includes:
-
-- All `inputs.materials[].path`
-- `<artifact-dir>/graft.yaml`
-- Template file (if `template.source: file`)
-- `<artifact-dir>/Dockerfile` (if `transformer.build` present)
-
-**Note on Docker build context:** Only the Dockerfile itself is tracked as a dependency, not all files in the build context. This is intentional to keep DVC stages performant and avoid spurious reruns. Graft's run records (`.graft/provenance/`) remain the authoritative source of truth for all inputs.
-
-> **TODO (future enhancement):** Revisit Docker build context dependency tracking. Consider:
-> - Hashing build context directories
-> - Parsing Dockerfile COPY/ADD statements
-> - Configurable include/exclude patterns
-> - Balance between precision and performance
-
-### Path normalization
-
-- `dvc.yaml` lives at repo root (detected via `git rev-parse --show-toplevel`)
-- All paths are relative to repo root with POSIX separators (`/`)
-- Works consistently across OSes
-
-## Drift Detection
-
-Drift exists when:
-
-- **Missing managed stage**: Derivation exists but no corresponding DVC stage
-- **Mismatched spec**: Stage exists but `cmd`, `wdir`, `deps`, or `outs` differ from canonical
-- **Orphaned stage**: Managed stage exists for a derivation that no longer exists
-- **Name mismatch**: Stage name differs from canonical (treated as remove + create)
-
-## Autosync Behavior
-
-On each trigger (command execution):
-
-1. **Discover** graft derivations under configured `roots`
-2. **Plan** drift: `{ create: [...], update: [...], remove: [...] }`
-3. **Apply** per `sync_policy`:
-   - `off`/`warn`: Don't write; show plan (included in `--json` output)
-   - `apply`: Write atomically, print concise summary (e.g., "Autosync: create=1, update=0, remove=0")
-   - `enforce`: If drift exists, fail with `E_ORCH_DRIFT_ENFORCED`; show plan; don't proceed
-
-If `dvc.yaml` is invalid/unmergeable → `E_DVC_YAML_INVALID` with guidance to run `graft dvc scaffold --check`.
-
-### Non-managed stages
-
-Graft **only** touches stages whose names start with `managed_stage_prefix` (default: `graft:`). All other stages are preserved verbatim, allowing hand-written DVC stages to coexist.
+**`roots`** — List of directories to scan for `graft.yaml` files.
 
 ## Commands
 
-### `graft dvc scaffold [--check] [--json]`
+### `graft dvc scaffold`
 
-Authoritative entrypoint for managing `dvc.yaml`.
+Authoritative command for managing `dvc.yaml`.
 
-**Write mode** (default):
+**Write mode (default):**
 ```bash
 graft dvc scaffold
-# Writes/refreshes dvc.yaml with all managed stages
-# Idempotent: safe to run repeatedly
 ```
 
-**Check mode**:
+Generates or updates `dvc.yaml` with all managed stages. Idempotent.
+
+**Check mode:**
 ```bash
 graft dvc scaffold --check
-# Read-only: shows drift plan without writing
-# Exit code 1 if drift exists, 0 if none
 ```
 
-**JSON output**:
+Read-only: shows drift without writing. Exit code 1 if drift, 0 if clean.
+
+**JSON output:**
 ```bash
 graft dvc scaffold --json
-# Returns plan and status in machine-readable format
 ```
 
-### Autosync on other commands
+Machine-readable output with drift plan.
+
+### Autosync on Other Commands
 
 Most commands autosync as a side effect:
 
 ```bash
-# Apply policy (write if drift exists)
-graft run artifacts/sprint-brief/
-
-# Warn policy (show drift, don't write)
-graft explain artifacts/sprint-brief/ --json
-
-# Override to enforce (fail if drift)
-graft run artifacts/sprint-brief/ --sync enforce
+graft run artifacts/sprint-brief/     # Default: apply
+graft explain artifacts/sprint-brief/ # Default: warn
 ```
 
-## JSON Output
-
-All autosyncing commands with `--json` include an `orchestrator` block:
-
-```json
-{
-  "artifact": "...",
-  "orchestrator": {
-    "type": "dvc",
-    "sync_policy": "apply",
-    "drift": "none|missing_stages|extra_stages|mixed",
-    "plan": {
-      "create": [...],
-      "update": [...],
-      "remove": [...]
-    },
-    "applied": true
-  }
-}
+Override with `--sync`:
+```bash
+graft run artifacts/sprint-brief/ --sync off     # No sync
+graft explain artifacts/sprint-brief/ --sync apply  # Force sync
 ```
-
-## Error Codes
-
-- **`E_ORCH_DRIFT_ENFORCED`**: Drift present under `enforce` policy
-- **`E_DVC_YAML_INVALID`**: Cannot parse/merge `dvc.yaml`
-- **`E_STAGE_NAME_COLLISION`**: Two derivations resolve to same stage name
-- **`E_WRITE_FAILED`**: Atomic write failed
-
-## Graceful Degradation
-
-DVC is a required dependency and will be installed with Graft. However, if the `.dvc/` directory is missing (i.e., `dvc init` has not been run):
-- Autosync degrades to `warn` behavior
-- Primary command proceeds (e.g., `graft run` still works)
-- Guidance message shown suggesting running `dvc init`
 
 ## Recommended Workflow
 
-### Initial setup
+### Initial Setup
 
 ```bash
-# Install graft (includes DVC)
-pip install graft
-
-# Create graft project
+# Initialize Graft
 graft init
 
-# Configure orchestrator (graft.config.yaml already includes orchestrator section)
-# Edit if you want to change sync_policy or other settings
-
-# Initialize DVC (creates .dvc/ directory and .dvc/config)
+# Initialize DVC
 dvc init
 
-# Configure DVC remotes (optional)
-dvc remote add -d myremote s3://my-bucket/path
-
-# Sync creates dvc.yaml with all graft stages
+# Generate dvc.yaml
 graft dvc scaffold
+
+# Commit
+git add graft.config.yaml .dvc/ dvc.yaml
+git commit -m "Initialize Graft + DVC"
 ```
 
-### Development workflow
+### Development
 
 ```bash
-# Graft automatically keeps dvc.yaml in sync
+# Run Graft commands (autosync keeps dvc.yaml current)
 graft run artifacts/my-artifact/
 
 # Use DVC for orchestration
-dvc repro graft:my-artifact:default
+dvc repro
 
-# Push outputs to remote
+# Push large files to remote (if configured)
 dvc push
 ```
 
-### CI/CD workflow
+### CI/CD
 
 ```bash
 # Check for drift (fail if present)
@@ -249,31 +305,55 @@ graft dvc scaffold --check
 graft run artifacts/my-artifact/ --sync enforce
 ```
 
-## Design Notes
+## Limitations and Future Work
 
-### Why seamful?
+**Docker build context tracking** — Only the Dockerfile itself is tracked as a dependency, not all files in the build context. This keeps DVC stages performant but may miss some changes. Graft's run records remain the source of truth for all inputs.
 
-- **Visibility**: Users see when/why dvc.yaml changes
-- **Control**: Explicit policies and overrides
-- **Coexistence**: Preserves hand-written stages
-- **Auditability**: Plans are shown and logged
+**Comments in dvc.yaml** — Autosync may not preserve comments. Use separate documentation for explaining stages.
 
-### Why DVC-first?
+**Performance with many artifacts** — Large repos with 100+ artifacts may see slow autosync. Future: optimize scanning and diffing.
 
-- DVC is the de facto standard for data pipeline orchestration
-- Proven caching and remote storage
-- Graft focuses on provenance and policy enforcement
-- Clean separation of concerns
+**Multiple orchestrators** — Only DVC supported currently. Architecture supports future backends (Airflow, Dagster).
 
-### Why one stage per derivation?
+## Troubleshooting
 
-- **Granular caching**: Only rerun affected derivations
-- **Parallelism**: DVC can run independent derivations concurrently
-- **Aligns with Graft's design**: Derivations are atomic units
+**"DVC not found"**
+- Ensure DVC is installed: `dvc version`
+- Graft installs DVC as dependency, but check installation
 
-## Limitations & Future Work
+**"dvc.yaml is invalid"**
+- Run `graft dvc scaffold --check` to diagnose
+- Check for manual edits that broke YAML syntax
+- Regenerate: `graft dvc scaffold`
 
-- **Build context tracking**: Only Dockerfile tracked, not all context files (see note above)
-- **Comments in dvc.yaml**: Autosync may not preserve comments; use separate docs
-- **Multiple orchestrators**: Only DVC supported; interface designed for future backends
-- **Performance**: Large repos with many artifacts may need optimization
+**"Stage already exists"**
+- Name collision with non-managed stage
+- Change artifact name or derivation ID
+- Or change `managed_stage_prefix` in config
+
+**"Drift detected in enforce mode"**
+- Run `graft dvc scaffold` to sync
+- Or fix graft.yaml configuration
+- Or change sync policy to `apply`
+
+**"DVC stages not running"**
+- Ensure dvc.yaml exists: `graft dvc scaffold`
+- Check DVC status: `dvc status`
+- Run manually: `dvc repro`
+
+## Advanced: Custom Orchestrators
+
+Graft's architecture supports other orchestrators via the `OrchestratorPort` protocol.
+
+To add Airflow support:
+1. Implement `AirflowAdapter` with `scaffold()`, `detect_drift()` methods
+2. Update `graft.config.yaml` schema to support `type: airflow`
+3. Generate Airflow DAG Python files instead of `dvc.yaml`
+
+This is future work, but the interface is designed for it.
+
+---
+
+**Summary:** DVC handles execution, Graft handles provenance. Autosync keeps them in sync. Use Graft commands for everyday work, DVC commands for advanced orchestration.
+
+Next: See [Testing Strategy](testing-strategy.md) for development practices.
