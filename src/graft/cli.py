@@ -14,6 +14,8 @@ from .services.explain import ExplainService
 from .services.run import RunService, TemplateNotFoundError, TemplateRenderError, OutputMissingError
 from .services.status import StatusService
 from .services.finalize import FinalizeService, AgentInfo
+from .services.impact import ImpactService
+from .services.simulate import SimulateService
 from .services.orchestrator import OrchestratorService, DriftEnforcedError, InvalidDVCYamlError
 from .domain.orchestrator import SyncPolicy
 
@@ -30,6 +32,8 @@ explain_service = ExplainService(config_adapter)
 run_service = RunService(config_adapter, fs, material_loader, container_adapter)
 status_service = StatusService(config_adapter, git_adapter)
 finalize_service = FinalizeService(fs)
+impact_service = ImpactService(config_adapter)
+simulate_service = SimulateService(config_adapter, git_adapter)
 
 
 def _artifact_path(p: str) -> pathlib.Path:
@@ -269,30 +273,60 @@ def impact(
     sync: Optional[str] = typer.Option(None, "--sync", help="Orchestrator sync policy (off|warn|apply|enforce)")
 ):
     """Analyze downstream artifacts affected by changes."""
-    # Perform autosync (default: warn)
-    orch_status = _perform_autosync(SyncPolicy.WARN, sync, quiet=json_out)
+    try:
+        # Perform autosync (default: warn)
+        orch_status = _perform_autosync(SyncPolicy.WARN, sync, quiet=json_out)
 
-    a = _artifact_path(artifact)
-    result = {"artifact": str(a), "downstream": []}
-    if orch_status:
-        result["orchestrator"] = orch_status
-    if json_out:
-        print_json(result)
-    else:
-        typer.echo(json.dumps(result, indent=2))
+        artifact_path = _artifact_path(artifact)
+
+        # Use impact service to analyze dependencies
+        result = impact_service.impact(artifact_path)
+
+        # Convert to dict and add orchestrator status
+        output = result.to_dict()
+        if orch_status:
+            output["orchestrator"] = orch_status
+
+        if json_out:
+            print_json(output)
+        else:
+            typer.echo(json.dumps(output, indent=2))
+    except typer.BadParameter as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except Exception as e:
+        typer.echo(f"System error: {e}", err=True)
+        raise typer.Exit(code=2)
 
 @app.command()
 def simulate(
     artifact: str,
     cascade: bool = typer.Option(False, "--cascade"),
+    json_out: bool = typer.Option(False, "--json"),
     sync: Optional[str] = typer.Option(None, "--sync", help="Orchestrator sync policy (off|warn|apply|enforce)")
 ):
     """Simulate artifact build without modifying the repository."""
-    # Perform autosync (default: warn)
-    _perform_autosync(SyncPolicy.WARN, sync)
+    try:
+        # Perform autosync (default: warn)
+        _perform_autosync(SyncPolicy.WARN, sync, quiet=json_out)
 
-    a = _artifact_path(artifact)
-    typer.echo(f"Simulation complete for {a} (cascade={'enabled' if cascade else 'disabled'})")
+        artifact_path = _artifact_path(artifact)
+
+        # Use simulate service to analyze what would change
+        result = simulate_service.simulate(artifact_path, cascade=cascade)
+
+        if json_out:
+            print_json(result.to_dict())
+        else:
+            # Use the service's formatting for human-readable output
+            output = simulate_service.format_output(result)
+            typer.echo(output)
+    except typer.BadParameter as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except Exception as e:
+        typer.echo(f"System error: {e}", err=True)
+        raise typer.Exit(code=2)
 
 @app.command()
 def init(path: str = typer.Argument(".")):
