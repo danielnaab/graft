@@ -34,6 +34,41 @@ def tmp_repo(tmp_path: Path, examples_dir: Path) -> Path:
 
 
 @pytest.fixture
+def tmp_git_repo(tmp_repo: Path) -> Path:
+    """Create a git-initialized copy of the agile-ops example.
+
+    This extends tmp_repo by initializing it as a git repository with
+    an initial commit. Useful for tests that need to check git-based
+    staleness detection.
+    """
+    # Initialize git repo
+    subprocess.run(["git", "init"], cwd=tmp_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_repo,
+        check=True,
+        capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_repo,
+        check=True,
+        capture_output=True
+    )
+
+    # Add and commit all files
+    subprocess.run(["git", "add", "."], cwd=tmp_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=tmp_repo,
+        check=True,
+        capture_output=True
+    )
+
+    return tmp_repo
+
+
+@pytest.fixture
 def empty_repo(tmp_path: Path) -> Path:
     """Create an empty repository directory for tests that need to start fresh."""
     repo = tmp_path / "test-repo"

@@ -121,6 +121,7 @@ class DVCAdapter:
         wdir = artifact_rel
 
         # Dependencies
+        # NOTE: DVC interprets deps/outs paths as relative to wdir, so we make them relative to artifact_dir
         deps = []
 
         # 1. All materials
@@ -128,32 +129,30 @@ class DVCAdapter:
             # Material path could be absolute or relative to artifact dir
             mat_path = Path(material.path)
             if mat_path.is_absolute():
-                # Make relative to repo root
-                dep_path = mat_path.relative_to(repo_root).as_posix()
+                # Make relative to wdir (artifact dir)
+                abs_path = mat_path.resolve()
+                dep_path = abs_path.relative_to(artifact_dir.resolve()).as_posix()
             else:
-                # Relative to artifact dir
-                dep_path = (artifact_dir / mat_path).relative_to(repo_root).as_posix()
+                # Already relative to artifact dir - just normalize it
+                dep_path = mat_path.as_posix()
             deps.append(dep_path)
 
-        # 2. graft.yaml
-        graft_yaml_path = (artifact_dir / "graft.yaml").relative_to(repo_root).as_posix()
-        deps.append(graft_yaml_path)
+        # 2. graft.yaml (in the artifact dir)
+        deps.append("graft.yaml")
 
         # 3. Template file (if template.source == "file")
         if derivation.template and derivation.template.source == "file" and derivation.template.file:
-            template_path = (artifact_dir / derivation.template.file).relative_to(repo_root).as_posix()
-            deps.append(template_path)
+            deps.append(derivation.template.file)
 
         # 4. Dockerfile (if transformer.build present)
         if derivation.transformer.build:
-            dockerfile_path = (artifact_dir / "Dockerfile").relative_to(repo_root).as_posix()
-            deps.append(dockerfile_path)
+            deps.append("Dockerfile")
 
         # Outputs
         outs = []
         for output in derivation.outputs:
-            out_path = (artifact_dir / output.path).relative_to(repo_root).as_posix()
-            outs.append(out_path)
+            # Output paths are relative to artifact dir
+            outs.append(output.path)
 
         return DVCStage(
             name=stage_name,

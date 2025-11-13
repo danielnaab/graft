@@ -1,0 +1,39 @@
+stages:
+  graft:sprint-brief:brief:
+    wdir: examples/agile-ops/artifacts/sprint-brief
+    cmd: graft run examples/agile-ops/artifacts/sprint-brief --id brief
+    deps:
+    - ../../sources/roadmap/2025-Q1.md
+    - ../backlog/backlog.yaml
+    - ./template.md
+    - graft.yaml
+    outs:
+    - ./brief.md
+  graft:backlog:normalize:
+    wdir: examples/agile-ops/artifacts/backlog
+    cmd: graft run examples/agile-ops/artifacts/backlog --id normalize
+    deps:
+    - ../../sources/external/jira/snapshots/2025-11-07/issues.json
+    - Dockerfile
+    - graft.yaml
+    outs:
+    - ./backlog.yaml
+  graft:on-call-runbook:runbook:
+    wdir: examples/agile-ops/artifacts/runbooks
+    cmd: graft run examples/agile-ops/artifacts/runbooks --id runbook
+    deps:
+    - ../../sources/incidents/2025-*.md
+    - ../working-agreements/team-handbook.md
+    - ./template.md
+    - graft.yaml
+    outs:
+    - ./on-call-runbook.md
+  graft:working-agreements:team-agreements:
+    wdir: examples/agile-ops/artifacts/working-agreements
+    cmd: graft run examples/agile-ops/artifacts/working-agreements --id team-agreements
+    deps:
+    - ../../sources/retrospectives/2025-Q1-*.md
+    - ./template.md
+    - graft.yaml
+    outs:
+    - ./team-handbook.md

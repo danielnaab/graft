@@ -38,4 +38,4 @@ Thumbs.db
 
 # Graft-specific
 .graft/
-notes/
+#notes/

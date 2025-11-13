@@ -9,6 +9,7 @@ from .adapters.config import ConfigAdapter
 from .adapters.docker import DockerAdapter, BuildError, TransformerExecutionError
 from .adapters.materials import LocalMaterialLoader, MaterialNotFoundError
 from .adapters.orchestrator import DVCAdapter
+from .adapters.git import GitAdapter
 from .services.explain import ExplainService
 from .services.run import RunService, TemplateNotFoundError, TemplateRenderError, OutputMissingError
 from .services.status import StatusService
@@ -24,9 +25,10 @@ config_adapter = ConfigAdapter(fs)
 material_loader = LocalMaterialLoader(fs)
 container_adapter = DockerAdapter()
 orchestrator_adapter = DVCAdapter(fs, config_adapter)
+git_adapter = GitAdapter()
 explain_service = ExplainService(config_adapter)
 run_service = RunService(config_adapter, fs, material_loader, container_adapter)
-status_service = StatusService()
+status_service = StatusService(config_adapter, git_adapter)
 finalize_service = FinalizeService(fs)
 
 
