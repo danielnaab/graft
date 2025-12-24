@@ -1,0 +1,3 @@
+apiVersion: graft/v0
+deps:
+  graft-knowledge: "ssh://forgejo@platform-vm:2222/daniel/graft-knowledge.git#main"

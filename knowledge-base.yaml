@@ -1,0 +1,40 @@
+apiVersion: kb/v1
+name: graft
+description: "Implementation knowledge base for Graft - development guides, code structure, and implementation documentation"
+
+entrypoints:
+  human: docs/README.md
+  agent: docs/agents.md
+
+meta:
+  entrypoint: "../meta-knowledge-base/docs/meta.md"
+
+imports:
+  - kind: local
+    path: ../meta-knowledge-base
+    entrypoint: meta.yaml
+  - kind: local
+    path: ../graft-knowledge
+    entrypoint: knowledge-base.yaml
+
+paths:
+  docs: docs
+  notes: notes
+
+sources:
+  canonical:
+    - path: "../graft-knowledge/docs/architecture.md"
+      note: "Architecture decisions come from graft-knowledge (specs)"
+    - path: "../graft-knowledge/docs/decisions/**"
+      note: "ADRs are maintained in graft-knowledge"
+    - path: "docs/structure.md"
+      note: "Code structure documentation is canonical for implementation"
+
+rules:
+  lifecycle:
+    statuses: ["draft", "working", "stable", "deprecated"]
+  provenance:
+    requiredFor: ["factual-claims", "operational-guidance"]
+  writes:
+    allow: ["docs/**", "notes/**"]
+    deny: ["secrets/**", "config/prod/**"]

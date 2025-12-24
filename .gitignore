@@ -1,0 +1,40 @@
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Graft local overrides
+graft.local.yaml
+
+# Build artifacts
+dist/
+build/
+target/
+*.log
+
+# Dependencies
+.graft/
+node_modules/
+vendor/
+
+# Secrets and sensitive data
+secrets/
+*.pem
+*.key
+*.env
+
+# Temporary files
+tmp/
+temp/
+*.tmp

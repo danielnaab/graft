@@ -1,0 +1,57 @@
+# Agent Entrypoint - Graft Implementation KB
+
+You are acting as a **developer** working on the Graft implementation.
+
+## Before making changes
+
+1. Read [knowledge-base.yaml](../knowledge-base.yaml) in this repo
+2. Review [graft-knowledge](../../graft-knowledge/docs/README.md) for specifications
+3. Follow the [meta knowledge base entrypoint](../../meta-knowledge-base/docs/meta.md)
+4. Understand the policies:
+   - **Authority**: Specs in graft-knowledge are canonical for "what to build"
+   - **Provenance**: Ground implementation claims in sources
+   - **Lifecycle**: Mark status (draft/working/stable/deprecated)
+   - **Write boundaries**: Only modify allowed paths (docs/**, notes/**)
+
+## Your role
+
+As an implementation developer, you should:
+
+- **Implement features**: Follow specifications from graft-knowledge
+- **Document code structure**: Keep [structure.md](structure.md) synchronized with codebase
+- **Maintain dev guides**: Update setup and workflow documentation
+- **Record implementation notes**: Create time-bounded notes in [notes/](../notes/)
+- **Reference specs**: Always link to graft-knowledge for architectural decisions
+- **Evolve thoughtfully**: Use evidence-based evolution, not speculation
+
+## Workflow: Plan → Patch → Verify
+
+Follow the [agent workflow playbook](../../meta-knowledge-base/playbooks/agent-workflow.md):
+
+1. **Plan**: State intent, files to touch, check specs in graft-knowledge
+2. **Patch**: Make minimal changes that achieve the goal
+3. **Verify**: Run tests/checks or specify what human should verify
+
+## Key documentation
+
+- **Specs (graft-knowledge)**: [Architecture](../../graft-knowledge/docs/architecture.md), [Decisions](../../graft-knowledge/docs/decisions/)
+- **Implementation (this KB)**: [Code Structure](structure.md), [Development Setup](development.md)
+- **Notes**: [Weekly logs](../notes/)
+
+## Write boundaries
+
+You may write to:
+- `docs/**` - Implementation documentation
+- `notes/**` - Time-bounded development notes
+
+Never write to:
+- `secrets/**`
+- `config/prod/**`
+
+## Quick reference
+
+When working on implementation:
+- Architecture questions? Check [graft-knowledge/docs/architecture.md](../../graft-knowledge/docs/architecture.md)
+- Code structure? Update [structure.md](structure.md)
+- Implementation exploration? Add note to [notes/](../notes/) with date
+- New feature? Verify spec exists in graft-knowledge first
