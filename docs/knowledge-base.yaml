@@ -1,0 +1,40 @@
+apiVersion: kb/v1
+name: python-starter
+description: "Domain-agnostic Python starter template with functional service layer"
+
+entrypoints:
+  human: docs/README.md
+  agent: docs/agents.md
+
+meta:
+  entrypoint: "../meta-knowledge-base/docs/meta.md"
+
+paths:
+  architecture: docs/architecture/
+  guides: docs/guides/
+  reference: docs/reference/
+  decisions: docs/decisions/
+  copier: docs/copier/
+
+sources:
+  canonical:
+    - path: src/
+      note: "Source code is canonical authority"
+    - path: pyproject.toml
+      note: "Project configuration"
+    - path: tests/
+      note: "Tests document expected behavior"
+
+rules:
+  lifecycle:
+    statuses: ["draft", "working", "stable", "deprecated"]
+  provenance:
+    requiredFor: ["factual-claims", "operational-guidance", "architectural-decisions"]
+  writes:
+    allow: ["docs/**", "src/**", "tests/**", "scripts/**"]
+    deny: []
+
+conventions:
+  linking: "Use relative Markdown links [text](path) for navigation"
+  frontmatter: "Required YAML frontmatter in all docs/*.md files"
+  code_references: "Link to files with line numbers: path/file.py:123"

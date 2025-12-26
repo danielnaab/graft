@@ -1,0 +1,13 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: d8b60fe
+_src_path: ../python-starter
+author_email: team@graft.dev
+author_name: Graft Team
+include_dev_scripts: true
+include_example_code: true
+include_github_actions: true
+license: MIT
+package_name: graft
+project_description: Knowledge base tooling with language server support
+project_name: Graft
+python_version: '3.11'
