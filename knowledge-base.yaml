@@ -16,6 +16,9 @@ imports:
   - kind: local
     path: ../graft-knowledge
     entrypoint: knowledge-base.yaml
+  - kind: local
+    path: ../python-starter
+    entrypoint: knowledge-base.yaml
 
 paths:
   docs: docs
