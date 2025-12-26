@@ -29,6 +29,7 @@ dev = [
 ]
 
 [project.scripts]
+graft = "graft.cli.main:app"
 graft-cli = "graft.cli.main:app"
 
 [build-system]

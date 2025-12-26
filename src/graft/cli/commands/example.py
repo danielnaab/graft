@@ -6,7 +6,7 @@ Commands handle I/O and presentation - service functions handle logic.
 
 import typer
 
-from graft.cli.main import get_context
+from graft.cli.context_factory import get_context
 from graft.domain.exceptions import EntityNotFoundError, ValidationError
 from graft.services import example_service
 
