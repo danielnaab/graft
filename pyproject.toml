@@ -19,6 +19,7 @@ classifiers = [
 
 dependencies = [
     "typer>=0.12.0",
+    "pyyaml>=6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -96,3 +97,24 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
 ]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_unimported = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+check_untyped_defs = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "yaml"
+ignore_missing_imports = true

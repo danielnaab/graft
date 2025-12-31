@@ -55,3 +55,13 @@ When working on implementation:
 - Code structure? Update [structure.md](structure.md)
 - Implementation exploration? Add note to [notes/](../notes/) with date
 - New feature? Verify spec exists in graft-knowledge first
+
+## Sources
+
+This agent guidance follows conventions from:
+- [Meta-KB Authority Policy](../../meta-knowledge-base/policies/authority.md) - Distinguishing canonical sources from interpretation
+- [Meta-KB Provenance Policy](../../meta-knowledge-base/policies/provenance.md) - Grounding claims in sources
+- [Meta-KB Lifecycle Policy](../../meta-knowledge-base/policies/lifecycle.md) - Status tracking for knowledge
+- [Meta-KB Write Boundaries Policy](../../meta-knowledge-base/policies/write-boundaries.md) - Safe agent editing zones
+- [Agent Workflow Playbook](../../meta-knowledge-base/playbooks/agent-workflow.md) - Plan → Patch → Verify pattern
+- [Graft-Knowledge Agents.md](../../graft-knowledge/docs/agents.md) - Specifications for implementation KB structure

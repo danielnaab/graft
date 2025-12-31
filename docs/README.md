@@ -7,6 +7,8 @@ status: working
 
 Knowledge base tooling with language server support.
 
+**Documentation Authority**: Specifications and architectural decisions ("what to build" and "why") are maintained in [graft-knowledge](../../graft-knowledge). This KB contains implementation documentation ("how it's built") including code structure, development guides, and implementation notes.
+
 ## Architecture & Patterns
 
 This project uses the [Python Starter Template](../python-starter) patterns and conventions.
@@ -71,9 +73,48 @@ See [Project Structure Reference](../python-starter/docs/reference/project-struc
 - **Development workflow**: See [Development Workflow](../python-starter/docs/guides/development-workflow.md)
 - **CLI usage**: See [CLI Usage Guide](../python-starter/docs/guides/cli-usage.md)
 
+## Graft Commands
+
+### graft resolve
+
+Resolves dependencies specified in `graft.yaml` by cloning or fetching git repositories.
+
+**Usage**:
+```bash
+graft resolve
+```
+
+**graft.yaml format**:
+```yaml
+apiVersion: graft/v0
+deps:
+  dependency-name: "git-url#ref"
+```
+
+**Example**:
+```yaml
+apiVersion: graft/v0
+deps:
+  graft-knowledge: "ssh://git@example.com/user/graft-knowledge.git#main"
+  python-starter: "https://github.com/user/python-starter.git#v1.0.0"
+```
+
+**Error Handling**:
+
+Graft provides clear, actionable error messages:
+
+- **Missing graft.yaml**: Tells you where it was expected and how to create it
+- **Invalid YAML syntax**: Shows the syntax error with suggestions
+- **Authentication errors**: Provides SSH key configuration guidance
+- **Repository not found**: Suggests verifying the URL
+- **Partial failures**: Continues resolving other dependencies
+
+For details, see [Error Handling ADR](decisions/001-error-handling-strategy.md).
+
 ## Graft-Specific Documentation
 
 - **Agent Entrypoint**: [agents.md](agents.md) - For AI agents working on this project
+- **Architecture Decisions**: [decisions/](decisions/) - ADRs for graft-specific decisions
 - **Implementation Notes**: [../notes/](../notes/) - Time-bounded development notes
 - **Knowledge Base Config**: [../knowledge-base.yaml](../knowledge-base.yaml) - Project KB configuration
 - **Specifications**: [../../graft-knowledge](../../graft-knowledge) - Graft specifications and architecture decisions

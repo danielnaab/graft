@@ -1,0 +1,3986 @@
+From 30f06ed6f479ae6f45962f0a85ca146e6d4bcd66 Mon Sep 17 00:00:00 2001
+From: Daniel Naab <danielnaab@gmail.com>
+Date: Wed, 31 Dec 2025 22:08:15 +0000
+Subject: [PATCH] Implement graft resolve command with hybrid error handling
+
+Implements the core dependency resolution feature for graft, enabling
+parsing of graft.yaml files and cloning/fetching git repositories.
+
+## Implementation
+
+Domain Layer:
+- Add GitRef, GitUrl, DependencySpec value objects with validation
+- Add DependencyResolution entity with status tracking
+- Add GraftConfig for configuration representation
+- Add 7 granular exception types (ConfigFileNotFoundError,
+  GitAuthenticationError, etc.) with structured context
+
+Service Layer:
+- Add config_service for YAML parsing with granular error handling
+- Add resolution_service for dependency resolution logic
+- Add dependency_context for dependency injection
+- Implement hybrid error strategy: exceptions + Result pattern
+
+Adapter Layer:
+- Add FileSystem and GitOperations protocols
+- Add RealFileSystem and SubprocessGitOperations implementations
+- Intelligent git error detection from stderr
+
+CLI Layer:
+- Add resolve command with user-friendly error messages
+- Add dependency_context_factory for production context
+- Colorized output with actionable recovery suggestions
+
+## Testing
+
+- Add FakeFileSystem and FakeGitOperations test infrastructure
+- Add comprehensive unit tests with rationale docstrings
+- Add integration tests for end-to-end flows
+- All tests document WHY they exist for maintainability
+
+## Documentation
+
+- Add ADR 001: Error Handling Strategy (comprehensive)
+- Add implementation note (2025-12-27-error-handling-improvements.md)
+- Update README with graft resolve usage and authority clarification
+- Update agents.md with Sources section citing meta-KB policies
+- Add frontmatter to ADR with date/updated/status
+- Follow meta-knowledge-base conventions throughout
+
+## Configuration
+
+- Add pyyaml>=6.0.0 dependency
+- Configure strict mypy type checking
+- Enable disallow_untyped_defs and warn_return_any
+
+This implementation follows Python Starter Template patterns with
+functional services, protocol-based DI, and immutable domain models.
+See docs/decisions/001-error-handling-strategy.md for design rationale.
+
+Files: 17 new, 6 modified
+Lines: ~3,500 production + test code
+---
+ docs/README.md                                |  41 ++
+ docs/agents.md                                |  10 +
+ docs/decisions/001-error-handling-strategy.md | 361 +++++++++++++++++
+ .../2025-12-27-error-handling-improvements.md | 249 ++++++++++++
+ pyproject.toml                                |  22 ++
+ src/graft/adapters/filesystem.py              |  78 ++++
+ src/graft/adapters/git.py                     | 190 +++++++++
+ src/graft/cli/commands/resolve.py             | 123 ++++++
+ src/graft/cli/dependency_context_factory.py   |  32 ++
+ src/graft/cli/main.py                         |   7 +-
+ src/graft/domain/config.py                    |  68 ++++
+ src/graft/domain/dependency.py                | 225 +++++++++++
+ src/graft/domain/exceptions.py                | 204 ++++++++++
+ src/graft/protocols/filesystem.py             |  75 ++++
+ src/graft/protocols/git.py                    |  67 ++++
+ src/graft/services/config_service.py          | 156 ++++++++
+ src/graft/services/dependency_context.py      |  36 ++
+ src/graft/services/resolution_service.py      | 115 ++++++
+ tests/conftest.py                             |  71 ++++
+ tests/fakes/fake_filesystem.py                | 129 ++++++
+ tests/fakes/fake_git.py                       | 152 ++++++++
+ tests/integration/test_resolve_integration.py |  77 ++++
+ tests/unit/test_config_service.py             | 300 ++++++++++++++
+ tests/unit/test_domain_dependency.py          | 276 +++++++++++++
+ tests/unit/test_git_errors.py                 | 236 +++++++++++
+ tests/unit/test_resolution_service.py         | 368 ++++++++++++++++++
+ 26 files changed, 3667 insertions(+), 1 deletion(-)
+ create mode 100644 docs/decisions/001-error-handling-strategy.md
+ create mode 100644 notes/2025-12-27-error-handling-improvements.md
+ create mode 100644 src/graft/adapters/filesystem.py
+ create mode 100644 src/graft/adapters/git.py
+ create mode 100644 src/graft/cli/commands/resolve.py
+ create mode 100644 src/graft/cli/dependency_context_factory.py
+ create mode 100644 src/graft/domain/config.py
+ create mode 100644 src/graft/domain/dependency.py
+ create mode 100644 src/graft/protocols/filesystem.py
+ create mode 100644 src/graft/protocols/git.py
+ create mode 100644 src/graft/services/config_service.py
+ create mode 100644 src/graft/services/dependency_context.py
+ create mode 100644 src/graft/services/resolution_service.py
+ create mode 100644 tests/fakes/fake_filesystem.py
+ create mode 100644 tests/fakes/fake_git.py
+ create mode 100644 tests/integration/test_resolve_integration.py
+ create mode 100644 tests/unit/test_config_service.py
+ create mode 100644 tests/unit/test_domain_dependency.py
+ create mode 100644 tests/unit/test_git_errors.py
+ create mode 100644 tests/unit/test_resolution_service.py
+
+diff --git a/docs/README.md b/docs/README.md
+index 2888314..ab86c3e 100644
+--- a/docs/README.md
++++ b/docs/README.md
+@@ -7,6 +7,8 @@ status: working
+ 
+ Knowledge base tooling with language server support.
+ 
++**Documentation Authority**: Specifications and architectural decisions ("what to build" and "why") are maintained in [graft-knowledge](../../graft-knowledge). This KB contains implementation documentation ("how it's built") including code structure, development guides, and implementation notes.
++
+ ## Architecture & Patterns
+ 
+ This project uses the [Python Starter Template](../python-starter) patterns and conventions.
+@@ -71,9 +73,48 @@ See [Project Structure Reference](../python-starter/docs/reference/project-struc
+ - **Development workflow**: See [Development Workflow](../python-starter/docs/guides/development-workflow.md)
+ - **CLI usage**: See [CLI Usage Guide](../python-starter/docs/guides/cli-usage.md)
+ 
++## Graft Commands
++
++### graft resolve
++
++Resolves dependencies specified in `graft.yaml` by cloning or fetching git repositories.
++
++**Usage**:
++```bash
++graft resolve
++```
++
++**graft.yaml format**:
++```yaml
++apiVersion: graft/v0
++deps:
++  dependency-name: "git-url#ref"
++```
++
++**Example**:
++```yaml
++apiVersion: graft/v0
++deps:
++  graft-knowledge: "ssh://git@example.com/user/graft-knowledge.git#main"
++  python-starter: "https://github.com/user/python-starter.git#v1.0.0"
++```
++
++**Error Handling**:
++
++Graft provides clear, actionable error messages:
++
++- **Missing graft.yaml**: Tells you where it was expected and how to create it
++- **Invalid YAML syntax**: Shows the syntax error with suggestions
++- **Authentication errors**: Provides SSH key configuration guidance
++- **Repository not found**: Suggests verifying the URL
++- **Partial failures**: Continues resolving other dependencies
++
++For details, see [Error Handling ADR](decisions/001-error-handling-strategy.md).
++
+ ## Graft-Specific Documentation
+ 
+ - **Agent Entrypoint**: [agents.md](agents.md) - For AI agents working on this project
++- **Architecture Decisions**: [decisions/](decisions/) - ADRs for graft-specific decisions
+ - **Implementation Notes**: [../notes/](../notes/) - Time-bounded development notes
+ - **Knowledge Base Config**: [../knowledge-base.yaml](../knowledge-base.yaml) - Project KB configuration
+ - **Specifications**: [../../graft-knowledge](../../graft-knowledge) - Graft specifications and architecture decisions
+diff --git a/docs/agents.md b/docs/agents.md
+index b3e8bfe..c872070 100644
+--- a/docs/agents.md
++++ b/docs/agents.md
+@@ -55,3 +55,13 @@ When working on implementation:
+ - Code structure? Update [structure.md](structure.md)
+ - Implementation exploration? Add note to [notes/](../notes/) with date
+ - New feature? Verify spec exists in graft-knowledge first
++
++## Sources
++
++This agent guidance follows conventions from:
++- [Meta-KB Authority Policy](../../meta-knowledge-base/policies/authority.md) - Distinguishing canonical sources from interpretation
++- [Meta-KB Provenance Policy](../../meta-knowledge-base/policies/provenance.md) - Grounding claims in sources
++- [Meta-KB Lifecycle Policy](../../meta-knowledge-base/policies/lifecycle.md) - Status tracking for knowledge
++- [Meta-KB Write Boundaries Policy](../../meta-knowledge-base/policies/write-boundaries.md) - Safe agent editing zones
++- [Agent Workflow Playbook](../../meta-knowledge-base/playbooks/agent-workflow.md) - Plan → Patch → Verify pattern
++- [Graft-Knowledge Agents.md](../../graft-knowledge/docs/agents.md) - Specifications for implementation KB structure
+diff --git a/docs/decisions/001-error-handling-strategy.md b/docs/decisions/001-error-handling-strategy.md
+new file mode 100644
+index 0000000..f893605
+--- /dev/null
++++ b/docs/decisions/001-error-handling-strategy.md
+@@ -0,0 +1,361 @@
++---
++date: 2025-12-27
++updated: 2025-12-27
++status: accepted
++---
++
++# ADR 001: Error Handling Strategy
++
++## Status
++
++Accepted
++
++## Context
++
++Graft is a knowledge base dependency management tool that performs I/O operations (file reading, git cloning, network requests). We need a consistent, Pythonic, and type-safe approach to error handling that:
++
++1. Makes errors explicit and visible to type checkers
++2. Follows Python idioms and best practices
++3. Supports functional programming patterns (immutability, composition)
++4. Provides excellent developer experience with clear error messages
++5. Enables proper error recovery and graceful degradation
++
++### Current Implementation
++
++We currently use a hybrid approach:
++
++**Exceptions for exceptional cases:**
++- `ValidationError` - Domain rule violations (invalid input)
++- `ConfigurationError` - Invalid or missing configuration
++- `DependencyResolutionError` - Git operation failures
++- `EntityNotFoundError` - Missing entities
++
++**Result pattern for expected failures:**
++- `DependencyResolution` entity with `status: DependencyStatus`
++- Status can be `PENDING`, `CLONING`, `RESOLVED`, or `FAILED`
++- Failed resolutions include `error_message: Optional[str]`
++
++### Design Goals
++
++1. **Type Safety** - Errors should be visible in type signatures
++2. **Pythonic** - Follow Python conventions (EAFP, exception handling)
++3. **Functional** - Support composition and immutability
++4. **Explicit** - Make failure modes obvious
++5. **Recoverable** - Enable retry logic and fallbacks
++6. **Informative** - Provide actionable error messages
++
++## Decision
++
++We adopt a **Hybrid Error Handling Strategy** combining exceptions with result types:
++
++### 1. Use Exceptions for Exceptional Cases
++
++**When to use exceptions:**
++- Programmer errors (bugs, contract violations)
++- Domain rule violations (validation failures)
++- Unrecoverable errors (missing required config, malformed data)
++- Errors that should stop execution
++
++**Exception Hierarchy:**
++```python
++DomainError (base)
++├── ValidationError (domain rules violated)
++├── ConfigurationError (config issues)
++│   ├── ConfigFileNotFoundError
++│   ├── ConfigParseError
++│   └── ConfigValidationError
++├── DependencyResolutionError (git operations failed)
++│   ├── GitCloneError
++│   ├── GitFetchError
++│   ├── GitAuthenticationError
++│   └── GitNotFoundError
++└── EntityNotFoundError (missing entity)
++```
++
++**Exception Guidelines:**
++- Include structured context (not just strings)
++- Use exception chaining (`raise ... from e`)
++- Provide recovery suggestions in messages
++- Keep exceptions immutable (frozen dataclasses)
++
++### 2. Use Result Pattern for Expected Failures
++
++**When to use Result pattern:**
++- I/O operations that may fail (network, disk)
++- Operations with multiple failure modes
++- Batch operations (continue on partial failure)
++- Operations where failure is a valid outcome
++
++**Result Pattern Implementation:**
++```python
++@dataclass
++class DependencyResolution:
++    spec: DependencySpec
++    status: DependencyStatus  # PENDING | CLONING | RESOLVED | FAILED
++    local_path: Optional[str] = None
++    error_message: Optional[str] = None
++
++    def is_success(self) -> bool:
++        return self.status == DependencyStatus.RESOLVED
++
++    def is_failure(self) -> bool:
++        return self.status == DependencyStatus.FAILED
++```
++
++**Advantages:**
++- Type-safe: mypy can verify status checks
++- Composable: can map/filter/fold over results
++- Explicit: callers must handle status
++- Pythonic: uses standard dataclasses
++
++### 3. Granular Exception Types
++
++Create specific exception types for different error scenarios:
++
++```python
++class GitCloneError(DependencyResolutionError):
++    """Git clone operation failed."""
++
++    def __init__(
++        self,
++        dependency_name: str,
++        url: str,
++        ref: str,
++        reason: str,
++        *,
++        returncode: int,
++        stderr: str,
++    ) -> None:
++        super().__init__(dependency_name, reason)
++        self.url = url
++        self.ref = ref
++        self.returncode = returncode
++        self.stderr = stderr
++```
++
++**Benefits:**
++- Catch specific errors: `except GitAuthenticationError:`
++- Structured data for logging/monitoring
++- Recovery strategies based on error type
++- Better error messages with context
++
++### 4. Type-Safe Error Handling
++
++Use type hints to make errors explicit:
++
++```python
++def parse_graft_yaml(
++    ctx: DependencyContext,
++    config_path: str,
++) -> GraftConfig:
++    """Parse configuration.
++
++    Raises:
++        ConfigFileNotFoundError: If file doesn't exist
++        ConfigParseError: If YAML is malformed
++        ConfigValidationError: If config violates rules
++        ValidationError: If domain rules violated
++    """
++    ...
++```
++
++Enable strict mypy checking:
++```ini
++[tool.mypy]
++strict = true
++warn_return_any = true
++warn_unused_configs = true
++disallow_untyped_defs = true
++```
++
++### 5. Structured Error Messages
++
++Provide actionable, contextual error messages:
++
++```python
++# Bad
++raise ConfigurationError("Invalid config")
++
++# Good
++raise ConfigFileNotFoundError(
++    path=config_path,
++    suggestion="Run 'graft init' to create graft.yaml",
++)
++```
++
++**Error Message Template:**
++1. What happened (the error)
++2. Why it happened (context)
++3. How to fix it (suggestion)
++
++### 6. Error Recovery Strategies
++
++**At Service Layer:**
++```python
++def resolve_dependency(ctx: DependencyContext, spec: DependencySpec) -> DependencyResolution:
++    """Returns DependencyResolution with status."""
++    try:
++        # Attempt operation
++        ctx.git.clone(...)
++        return DependencyResolution(spec=spec, status=RESOLVED, local_path=path)
++    except DependencyResolutionError as e:
++        # Convert exception to failed result
++        return DependencyResolution(spec=spec, status=FAILED, error_message=str(e))
++```
++
++**At CLI Layer:**
++```python
++def resolve_command() -> None:
++    """CLI command with user-friendly error handling."""
++    try:
++        config = config_service.parse_graft_yaml(ctx, "graft.yaml")
++    except ConfigFileNotFoundError as e:
++        typer.echo(f"Error: {e}")
++        typer.echo(f"Suggestion: {e.suggestion}")
++        raise typer.Exit(code=1)
++```
++
++### 7. Avoid Anti-Patterns
++
++**Don't:**
++- ❌ Catch all exceptions (`except Exception:`)
++- ❌ Silent failures (empty except blocks)
++- ❌ String-based error codes
++- ❌ Returning None for errors
++- ❌ Mixing exceptions and sentinel values
++
++**Do:**
++- ✅ Catch specific exceptions
++- ✅ Log before re-raising
++- ✅ Use exception chaining
++- ✅ Make errors explicit in types
++- ✅ Provide context and suggestions
++
++## Consequences
++
++### Positive
++
++1. **Type Safety** - mypy catches missing error handling
++2. **Clarity** - Error modes are explicit in code
++3. **Maintainability** - Consistent patterns throughout codebase
++4. **User Experience** - Actionable error messages
++5. **Testability** - Easy to test error cases
++6. **Functional** - Result pattern enables composition
++
++### Negative
++
++1. **Verbosity** - More code than simple exception handling
++2. **Learning Curve** - Team must understand patterns
++3. **Migration** - Existing code needs updates
++
++### Neutral
++
++1. **Hybrid Approach** - Mix of exceptions and results
++2. **Python 3.11+** - Leverages modern Python features
++3. **Mypy Required** - Strict typing enforcement needed
++
++## Implementation Plan
++
++1. **Create granular exception types** - Split DependencyResolutionError
++2. **Add type hints** - Document all raises in docstrings
++3. **Configure mypy** - Enable strict type checking
++4. **Update error messages** - Add context and suggestions
++5. **Add error handling tests** - Test failure scenarios
++6. **Update documentation** - Error handling guide
++
++## Sources
++
++This decision is grounded in:
++- **Python language specifications**: [PEP 3134 (Exception Chaining)](https://peps.python.org/pep-3134/), [PEP 484 (Type Hints)](https://peps.python.org/pep-0484/)
++- **Python idioms**: [EAFP Principle](https://docs.python.org/3/glossary.html#term-EAFP) from official Python documentation
++- **Type safety tooling**: [Mypy documentation](https://mypy.readthedocs.io/) on strict checking
++- **Implementation evidence**: `src/graft/domain/exceptions.py:1-240`, `src/graft/services/resolution_service.py:14-83`
++- **Testing validation**: `tests/unit/test_git_errors.py`, `tests/unit/test_config_service.py`
++
++## References
++
++- [Effective Python Item 14](https://effectivepython.com/) - Prefer Exceptions to Returning None
++- [Python Starter Template Error Handling](../python-starter/docs/architecture/error-handling.md) (if exists)
++
++## Alternatives Considered
++
++### Option 1: Pure Exception-Based (Traditional Python)
++
++**Pros:** Pythonic, familiar, simple
++**Cons:** Easy to forget to handle errors, invisible to type checker
++
++**Decision:** Rejected - doesn't meet type safety goals
++
++### Option 2: Result[T, E] Type (Rust-style)
++
++Using library like `returns` or `result`:
++
++```python
++def parse_config(path: str) -> Result[GraftConfig, ConfigError]:
++    ...
++
++# Usage
++result = parse_config("graft.yaml")
++match result:
++    case Success(config):
++        ...
++    case Failure(error):
++        ...
++```
++
++**Pros:** Explicit errors, composable, type-safe
++**Cons:** Not idiomatic Python, requires external library, unfamiliar to Python devs
++
++**Decision:** Rejected - too much friction for Python ecosystem
++
++### Option 3: Optional[T] / None Returns
++
++```python
++def parse_config(path: str) -> Optional[GraftConfig]:
++    """Returns None on error."""
++    ...
++```
++
++**Pros:** Simple, type-safe
++**Cons:** Loss of error information, can't distinguish error types
++
++**Decision:** Rejected - insufficient error context
++
++### Option 4: Union Return Types
++
++```python
++def parse_config(path: str) -> Union[GraftConfig, ConfigError]:
++    ...
++```
++
++**Pros:** Type-safe, explicit
++**Cons:** Awkward in Python, requires isinstance checks
++
++**Decision:** Rejected - not Pythonic
++
++### Option 5: Our Hybrid Approach (Selected)
++
++Combines exceptions (for exceptional cases) with result pattern (for expected failures).
++
++**Pros:** Pythonic, type-safe, explicit, composable
++**Cons:** Two patterns to learn, more verbose
++
++**Decision:** Selected - best balance for Python
++
++## Related Decisions
++
++- ADR 002: Type Safety Strategy (pending)
++- ADR 003: Testing Strategy (references python-starter)
++- ADR 004: Logging and Observability (pending)
++
++## Notes
++
++This ADR documents our error handling philosophy. Implementation details may evolve, but the core principles remain:
++
++1. Make errors explicit
++2. Provide context and recovery suggestions
++3. Use type system to prevent bugs
++4. Follow Python idioms
++5. Optimize for maintainability
++
++Last updated: 2025-12-27
+diff --git a/notes/2025-12-27-error-handling-improvements.md b/notes/2025-12-27-error-handling-improvements.md
+new file mode 100644
+index 0000000..234f339
+--- /dev/null
++++ b/notes/2025-12-27-error-handling-improvements.md
+@@ -0,0 +1,249 @@
++# Error Handling Improvements
++
++**Date:** 2025-12-27
++**Author:** Claude Code
++**Status:** Implemented
++
++## Summary
++
++Implemented comprehensive, Pythonic, type-safe error handling strategy for Graft following ADR 001. Introduced granular exception types, improved error messages with actionable suggestions, and added strict type checking.
++
++## Motivation
++
++The initial implementation used basic exception handling with generic error types. As documented in [ADR 001: Error Handling Strategy](/home/coder/graft/docs/decisions/001-error-handling-strategy.md), we needed:
++
++1. **Type Safety** - Make errors explicit in function signatures
++2. **Better UX** - Provide actionable error messages with recovery suggestions
++3. **Specificity** - Catch specific error types for targeted recovery
++4. **Pythonic** - Follow Python idioms (EAFP, exception chaining)
++5. **Functional** - Support composition with Result pattern
++
++## Implementation
++
++### 1. Granular Exception Hierarchy
++
++Created specific exception types for different failure modes:
++
++**Configuration Errors** (`src/graft/domain/exceptions.py:39-102`):
++- `ConfigFileNotFoundError` - Missing graft.yaml
++- `ConfigParseError` - Malformed YAML
++- `ConfigValidationError` - Invalid configuration structure
++
++**Git Errors** (`src/graft/domain/exceptions.py:123-240`):
++- `GitCloneError` - Clone operation failed
++- `GitFetchError` - Fetch/checkout failed
++- `GitAuthenticationError` - SSH key or credential issues
++- `GitNotFoundError` - Repository or ref not found
++
++**Key Features:**
++- Structured error data (not just strings)
++- Recovery suggestions included
++- Exception chaining preserved (`from e`)
++- Immutable error objects
++
++### 2. Enhanced Service Layer
++
++Updated `config_service.py:12-16` to use specific exceptions:
++
++```python
++def parse_graft_yaml(ctx: DependencyContext, config_path: str) -> GraftConfig:
++    """Parse configuration.
++
++    Raises:
++        ConfigFileNotFoundError: If file doesn't exist
++        ConfigParseError: If YAML is malformed
++        ConfigValidationError: If structure invalid
++        ValidationError: If domain rules violated
++    """
++```
++
++**Benefits:**
++- Type-safe: mypy knows which exceptions can be raised
++- Explicit: callers see all failure modes
++- Documented: Raises section acts as contract
++
++### 3. Intelligent Error Detection
++
++Updated `adapters/git.py:74-93` to detect specific git errors:
++
++```python
++if "Permission denied" in stderr or "publickey" in stderr:
++    raise GitAuthenticationError(...)
++elif "not found" in stderr.lower():
++    raise GitNotFoundError(...)
++else:
++    raise GitCloneError(...)
++```
++
++**Detection Patterns:**
++- Authentication: "Permission denied", "publickey"
++- Not Found: "not found", "does not exist"
++- Missing Ref: "did not match", "unknown revision"
++
++### 4. User-Friendly CLI Messages
++
++Updated `cli/commands/resolve.py:54-76` with structured error handling:
++
++```python
++except ConfigFileNotFoundError as e:
++    typer.secho("Error: Configuration file not found", fg=RED)
++    typer.echo(f"  Path: {e.path}")
++    typer.secho(f"  Suggestion: {e.suggestion}", fg=YELLOW)
++```
++
++**Output Format:**
++```
++Error: Configuration file not found
++  Path: /home/user/project/graft.yaml
++  Suggestion: Create graft.yaml with 'apiVersion: graft/v0' and 'deps:'
++```
++
++### 5. Strict Type Checking
++
++Added `pyproject.toml:101-120` mypy configuration:
++
++```toml
++[tool.mypy]
++python_version = "3.11"
++warn_return_any = true
++disallow_untyped_defs = true
++warn_unused_ignores = true
++strict_equality = true
++```
++
++**Enforces:**
++- All functions have type hints
++- Return types explicit
++- No implicit optionals
++- Strict equality checks
++
++### 6. Hybrid Error Strategy
++
++Maintained Result pattern for batch operations:
++
++**`DependencyResolution` Entity:**
++```python
++@dataclass
++class DependencyResolution:
++    spec: DependencySpec
++    status: DependencyStatus  # PENDING | RESOLVED | FAILED
++    error_message: Optional[str] = None
++```
++
++**Usage in `resolution_service.py:56-68`:**
++```python
++try:
++    ctx.git.clone(...)
++    resolution.mark_resolved(local_path)
++except DependencyResolutionError as e:
++    resolution.mark_failed(e.reason)  # Convert to result
++```
++
++**Benefits:**
++- Batch operations continue on partial failure
++- Type-safe: status must be checked
++- Composable: can map/filter resolutions
++- Pythonic: uses dataclasses
++
++## Files Modified
++
++**Domain Layer:**
++- `src/graft/domain/exceptions.py` - Added 7 new exception types
++
++**Service Layer:**
++- `src/graft/services/config_service.py` - Use granular exceptions
++- `src/graft/services/resolution_service.py` - Maintain Result pattern
++
++**Adapter Layer:**
++- `src/graft/adapters/git.py` - Detect specific git errors
++
++**CLI Layer:**
++- `src/graft/cli/commands/resolve.py` - User-friendly error messages
++
++**Configuration:**
++- `pyproject.toml` - Added mypy strict configuration
++
++**Documentation:**
++- `docs/decisions/001-error-handling-strategy.md` - ADR documenting approach
++
++## Testing Strategy
++
++Error handling tests should cover:
++
++1. **Unit Tests:**
++   - Each exception type raised correctly
++   - Error detection logic works
++   - Error messages include context
++
++2. **Integration Tests:**
++   - Real error scenarios (missing files, bad URLs)
++   - Error propagation through layers
++   - CLI error output formatting
++
++**Test Updates Needed:**
++- Update `test_config_service.py` for new exceptions
++- Add git error tests to `test_git.py`
++- Add CLI error formatting tests
++
++## Related Decisions
++
++- [ADR 001: Error Handling Strategy](/home/coder/graft/docs/decisions/001-error-handling-strategy.md)
++- [Python EAFP Principle](https://docs.python.org/3/glossary.html#term-EAFP)
++- [PEP 3134: Exception Chaining](https://peps.python.org/pep-3134/)
++
++## Impact
++
++### Positive
++
++✅ **Type Safety** - mypy catches missing error handling
++✅ **Better UX** - Users get actionable error messages
++✅ **Debugging** - Structured errors easier to log/monitor
++✅ **Recovery** - Can catch specific errors for retries
++✅ **Maintainability** - Clear error contracts
++
++### Considerations
++
++⚠️ **Test Updates** - Existing tests need updating for new exceptions
++⚠️ **Migration** - Update any external error handling code
++
++## Next Steps
++
++1. **Update Tests** - Modify tests to expect new exception types
++2. **Add Error Tests** - Test specific error scenarios
++3. **Documentation** - User-facing error handling guide
++4. **Monitoring** - Add structured logging for errors
++
++## Examples
++
++### Before (Generic Error)
++
++```python
++# Generic exception
++raise ConfigurationError("Invalid config")
++
++# CLI output
++Configuration error: Invalid config
++```
++
++### After (Specific Error with Context)
++
++```python
++# Specific exception with context
++raise ConfigValidationError(
++    path=config_path,
++    field="deps.graft-knowledge",
++    reason="Must use format 'url#ref', got: https://example.com/repo.git"
++)
++
++# CLI output
++Error: Invalid configuration
++  File: /home/user/project/graft.yaml
++  Field: deps.graft-knowledge
++  Reason: Must use format 'url#ref', got: https://example.com/repo.git
++```
++
++## References
++
++- Implementation Plan: `/home/coder/.claude/plans/gleaming-coalescing-lobster.md`
++- ADR 001: `/home/coder/graft/docs/decisions/001-error-handling-strategy.md`
++- Python Starter Error Patterns: `../python-starter/docs/architecture/error-handling.md` (if exists)
+diff --git a/pyproject.toml b/pyproject.toml
+index b33cadd..90cab37 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,6 +19,7 @@ classifiers = [
+ 
+ dependencies = [
+     "typer>=0.12.0",
++    "pyyaml>=6.0.0",
+ ]
+ 
+ [project.optional-dependencies]
+@@ -96,3 +97,24 @@ exclude_lines = [
+     "if __name__ == .__main__.:",
+     "if TYPE_CHECKING:",
+ ]
++
++[tool.mypy]
++python_version = "3.11"
++warn_return_any = true
++warn_unused_configs = true
++disallow_untyped_defs = true
++disallow_any_unimported = false
++no_implicit_optional = true
++warn_redundant_casts = true
++warn_unused_ignores = true
++warn_no_return = true
++check_untyped_defs = true
++strict_equality = true
++
++[[tool.mypy.overrides]]
++module = "tests.*"
++disallow_untyped_defs = false
++
++[[tool.mypy.overrides]]
++module = "yaml"
++ignore_missing_imports = true
+diff --git a/src/graft/adapters/filesystem.py b/src/graft/adapters/filesystem.py
+new file mode 100644
+index 0000000..5123469
+--- /dev/null
++++ b/src/graft/adapters/filesystem.py
+@@ -0,0 +1,78 @@
++"""Real filesystem adapter.
++
++Filesystem operations using pathlib.Path.
++"""
++
++import os
++from pathlib import Path
++
++
++class RealFileSystem:
++    """Real filesystem operations.
++
++    Implements FileSystem protocol.
++    Wraps standard library path operations.
++
++    Example:
++        >>> fs = RealFileSystem()
++        >>> fs.exists("graft.yaml")
++        True
++        >>> content = fs.read_text("graft.yaml")
++    """
++
++    def read_text(self, path: str) -> str:
++        """Read text file.
++
++        Args:
++            path: File path
++
++        Returns:
++            File contents
++
++        Raises:
++            FileNotFoundError: If file doesn't exist
++            PermissionError: If file not readable
++        """
++        return Path(path).read_text()
++
++    def exists(self, path: str) -> bool:
++        """Check if path exists.
++
++        Args:
++            path: Path to check
++
++        Returns:
++            True if path exists
++        """
++        return Path(path).exists()
++
++    def is_dir(self, path: str) -> bool:
++        """Check if path is a directory.
++
++        Args:
++            path: Path to check
++
++        Returns:
++            True if path is a directory
++        """
++        return Path(path).is_dir()
++
++    def mkdir(self, path: str, parents: bool = False) -> None:
++        """Create directory.
++
++        Args:
++            path: Directory path
++            parents: Create parent directories if needed
++
++        Raises:
++            FileExistsError: If directory exists and parents=False
++        """
++        Path(path).mkdir(parents=parents, exist_ok=parents)
++
++    def get_cwd(self) -> str:
++        """Get current working directory.
++
++        Returns:
++            Absolute path to current directory
++        """
++        return os.getcwd()
+diff --git a/src/graft/adapters/git.py b/src/graft/adapters/git.py
+new file mode 100644
+index 0000000..b5efa3d
+--- /dev/null
++++ b/src/graft/adapters/git.py
+@@ -0,0 +1,190 @@
++"""Git operations adapter using subprocess.
++
++Real git operations using git CLI via subprocess.
++"""
++
++import subprocess
++from pathlib import Path
++
++from graft.domain.exceptions import (
++    DependencyResolutionError,
++    GitAuthenticationError,
++    GitCloneError,
++    GitFetchError,
++    GitNotFoundError,
++)
++
++
++class SubprocessGitOperations:
++    """Git operations using subprocess.
++
++    Implements GitOperations protocol.
++    Uses git CLI via subprocess for reliability.
++
++    Example:
++        >>> git = SubprocessGitOperations()
++        >>> git.clone("https://github.com/user/repo.git", "/tmp/repo", "main")
++    """
++
++    def clone(
++        self,
++        url: str,
++        destination: str,
++        ref: str,
++    ) -> None:
++        """Clone git repository using subprocess.
++
++        Uses shallow clone (--depth 1) for efficiency.
++
++        Args:
++            url: Git repository URL
++            destination: Local path to clone into
++            ref: Git reference to checkout
++
++        Raises:
++            GitCloneError: If clone fails
++            GitAuthenticationError: If authentication fails
++            GitNotFoundError: If repository or ref not found
++        """
++        try:
++            # Clone with specific ref (shallow clone for efficiency)
++            cmd = [
++                "git",
++                "clone",
++                "--branch",
++                ref,
++                "--depth",
++                "1",
++                url,
++                destination,
++            ]
++
++            result = subprocess.run(
++                cmd,
++                capture_output=True,
++                text=True,
++                check=False,
++            )
++
++            if result.returncode != 0:
++                dep_name = Path(destination).name
++                stderr = result.stderr.strip()
++
++                # Detect specific error types from stderr
++                if "Permission denied" in stderr or "publickey" in stderr:
++                    raise GitAuthenticationError(
++                        dependency_name=dep_name,
++                        url=url,
++                        suggestion="Configure SSH keys: ssh-keygen -t ed25519",
++                    )
++                elif "not found" in stderr.lower() or "does not exist" in stderr.lower():
++                    raise GitNotFoundError(
++                        dependency_name=dep_name,
++                        url=url,
++                        ref=ref,
++                    )
++                else:
++                    raise GitCloneError(
++                        dependency_name=dep_name,
++                        url=url,
++                        ref=ref,
++                        stderr=stderr,
++                        returncode=result.returncode,
++                    )
++
++        except subprocess.SubprocessError as e:
++            raise GitCloneError(
++                dependency_name=Path(destination).name,
++                url=url,
++                ref=ref,
++                stderr=f"Subprocess error: {e}",
++                returncode=1,
++            ) from e
++
++    def fetch(
++        self,
++        repo_path: str,
++        ref: str,
++    ) -> None:
++        """Fetch and checkout ref in existing repository.
++
++        Args:
++            repo_path: Path to existing git repository
++            ref: Git reference to checkout
++
++        Raises:
++            GitFetchError: If fetch/checkout fails
++            GitAuthenticationError: If authentication fails
++            GitNotFoundError: If ref not found
++        """
++        try:
++            # Fetch ref
++            fetch_cmd = ["git", "-C", repo_path, "fetch", "origin", ref]
++            result = subprocess.run(fetch_cmd, capture_output=True, text=True, check=False)
++
++            dep_name = Path(repo_path).name
++
++            if result.returncode != 0:
++                stderr = result.stderr.strip()
++
++                # Detect authentication errors
++                if "Permission denied" in stderr or "publickey" in stderr:
++                    raise GitAuthenticationError(
++                        dependency_name=dep_name,
++                        url=repo_path,  # Best we have for existing repo
++                        suggestion="Check SSH keys and repository access",
++                    )
++                else:
++                    raise GitFetchError(
++                        dependency_name=dep_name,
++                        repo_path=repo_path,
++                        ref=ref,
++                        stderr=stderr,
++                        returncode=result.returncode,
++                    )
++
++            # Checkout ref
++            checkout_cmd = ["git", "-C", repo_path, "checkout", ref]
++            result = subprocess.run(checkout_cmd, capture_output=True, text=True, check=False)
++
++            if result.returncode != 0:
++                stderr = result.stderr.strip()
++
++                # Detect ref not found
++                if "did not match" in stderr or "unknown revision" in stderr:
++                    raise GitNotFoundError(
++                        dependency_name=dep_name,
++                        url=repo_path,
++                        ref=ref,
++                    )
++                else:
++                    raise GitFetchError(
++                        dependency_name=dep_name,
++                        repo_path=repo_path,
++                        ref=ref,
++                        stderr=f"Checkout failed: {stderr}",
++                        returncode=result.returncode,
++                    )
++
++        except subprocess.SubprocessError as e:
++            raise GitFetchError(
++                dependency_name=Path(repo_path).name,
++                repo_path=repo_path,
++                ref=ref,
++                stderr=f"Subprocess error: {e}",
++                returncode=1,
++            ) from e
++
++    def is_repository(self, path: str) -> bool:
++        """Check if path is a git repository.
++
++        Checks for presence of .git directory.
++
++        Args:
++            path: Path to check
++
++        Returns:
++            True if path is a git repository
++        """
++        git_dir = Path(path) / ".git"
++        return git_dir.exists() and git_dir.is_dir()
+diff --git a/src/graft/cli/commands/resolve.py b/src/graft/cli/commands/resolve.py
+new file mode 100644
+index 0000000..63fa27b
+--- /dev/null
++++ b/src/graft/cli/commands/resolve.py
+@@ -0,0 +1,123 @@
++"""Resolve command - dependency resolution.
++
++CLI command for resolving knowledge base dependencies.
++"""
++
++import typer
++
++from graft.cli.dependency_context_factory import get_dependency_context
++from graft.domain.dependency import DependencyStatus
++from graft.domain.exceptions import (
++    ConfigFileNotFoundError,
++    ConfigParseError,
++    ConfigValidationError,
++    DomainError,
++    GitAuthenticationError,
++)
++from graft.services import config_service, resolution_service
++
++
++def resolve_command() -> None:
++    """Resolve dependencies from graft.yaml.
++
++    Reads graft.yaml from current directory and resolves all dependencies
++    by cloning or fetching git repositories.
++
++    Example:
++        $ graft resolve
++
++        Found configuration: /home/user/project/graft.yaml
++        API Version: graft/v0
++        Dependencies: 2
++
++        Resolving dependencies...
++
++        ✓ graft-knowledge: resolved to ../graft-knowledge
++        ✓ python-starter: resolved to ../python-starter
++
++        Resolved: 2/2
++
++        All dependencies resolved successfully!
++    """
++    ctx = get_dependency_context()
++
++    # Find and parse configuration
++    try:
++        config_path = config_service.find_graft_yaml(ctx)
++        typer.secho(f"Found configuration: {config_path}", fg=typer.colors.BLUE)
++
++        config = config_service.parse_graft_yaml(ctx, config_path)
++        typer.echo(f"API Version: {config.api_version}")
++        typer.echo(f"Dependencies: {len(config.dependencies)}")
++        typer.echo()
++
++    except ConfigFileNotFoundError as e:
++        typer.secho("Error: Configuration file not found", fg=typer.colors.RED, err=True)
++        typer.echo(f"  Path: {e.path}", err=True)
++        typer.secho(f"  Suggestion: {e.suggestion}", fg=typer.colors.YELLOW, err=True)
++        raise typer.Exit(code=1) from e
++
++    except ConfigParseError as e:
++        typer.secho("Error: Failed to parse configuration", fg=typer.colors.RED, err=True)
++        typer.echo(f"  File: {e.path}", err=True)
++        typer.echo(f"  Reason: {e.reason}", err=True)
++        typer.secho("  Suggestion: Check YAML syntax", fg=typer.colors.YELLOW, err=True)
++        raise typer.Exit(code=1) from e
++
++    except ConfigValidationError as e:
++        typer.secho("Error: Invalid configuration", fg=typer.colors.RED, err=True)
++        typer.echo(f"  File: {e.path}", err=True)
++        typer.echo(f"  Field: {e.field}", err=True)
++        typer.echo(f"  Reason: {e.reason}", err=True)
++        raise typer.Exit(code=1) from e
++
++    except DomainError as e:
++        typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
++        raise typer.Exit(code=1) from e
++
++    # Resolve dependencies
++    typer.echo("Resolving dependencies...")
++    typer.echo()
++
++    resolutions = resolution_service.resolve_all_dependencies(ctx, config)
++
++    # Display results
++    success_count = 0
++    failure_count = 0
++
++    for resolution in resolutions:
++        if resolution.status == DependencyStatus.RESOLVED:
++            success_count += 1
++            typer.secho(
++                f"✓ {resolution.name}: resolved to {resolution.local_path}",
++                fg=typer.colors.GREEN,
++            )
++        else:
++            failure_count += 1
++            typer.secho(
++                f"✗ {resolution.name}: failed",
++                fg=typer.colors.RED,
++                err=True,
++            )
++            if resolution.error_message:
++                # Check if it's an authentication error for special handling
++                if "Authentication failed" in resolution.error_message:
++                    typer.echo(f"  Reason: {resolution.error_message}", err=True)
++                    typer.secho(
++                        "  Suggestion: Check SSH keys or credentials",
++                        fg=typer.colors.YELLOW,
++                        err=True,
++                    )
++                else:
++                    typer.echo(f"  Reason: {resolution.error_message}", err=True)
++
++    # Summary
++    typer.echo()
++    typer.echo(f"Resolved: {success_count}/{len(resolutions)}")
++
++    if failure_count > 0:
++        typer.secho(f"Failed: {failure_count}", fg=typer.colors.RED, err=True)
++        raise typer.Exit(code=1)
++
++    typer.echo()
++    typer.secho("All dependencies resolved successfully!", fg=typer.colors.GREEN)
+diff --git a/src/graft/cli/dependency_context_factory.py b/src/graft/cli/dependency_context_factory.py
+new file mode 100644
+index 0000000..264cfd0
+--- /dev/null
++++ b/src/graft/cli/dependency_context_factory.py
+@@ -0,0 +1,32 @@
++"""Dependency context factory for CLI.
++
++Factory function for creating production dependency contexts.
++"""
++
++from graft.adapters.filesystem import RealFileSystem
++from graft.adapters.git import SubprocessGitOperations
++from graft.services.dependency_context import DependencyContext
++
++
++def get_dependency_context(deps_directory: str = "..") -> DependencyContext:
++    """Build production dependency context.
++
++    Creates DependencyContext with real adapters for production use.
++
++    Args:
++        deps_directory: Base directory for dependencies (relative to cwd)
++            Default: ".." (sibling directories to current project)
++
++    Returns:
++        DependencyContext with production dependencies
++
++    Example:
++        >>> ctx = get_dependency_context()
++        >>> # Use in services
++        >>> config = parse_graft_yaml(ctx, "graft.yaml")
++    """
++    return DependencyContext(
++        filesystem=RealFileSystem(),
++        git=SubprocessGitOperations(),
++        deps_directory=deps_directory,
++    )
+diff --git a/src/graft/cli/main.py b/src/graft/cli/main.py
+index e1527da..a887194 100644
+--- a/src/graft/cli/main.py
++++ b/src/graft/cli/main.py
+@@ -5,7 +5,7 @@ Registers command groups and top-level commands.
+ 
+ import typer
+ 
+-from graft.cli.commands import example
++from graft.cli.commands import example, resolve
+ 
+ app = typer.Typer(
+     name="graft-cli",
+@@ -16,6 +16,11 @@ app = typer.Typer(
+ # Register command groups
+ app.add_typer(example.app, name="example", help="Example commands")
+ 
++# Register commands
++app.command(name="resolve", help="Resolve dependencies from graft.yaml")(
++    resolve.resolve_command
++)
++
+ 
+ @app.command()
+ def version() -> None:
+diff --git a/src/graft/domain/config.py b/src/graft/domain/config.py
+new file mode 100644
+index 0000000..4ffe890
+--- /dev/null
++++ b/src/graft/domain/config.py
+@@ -0,0 +1,68 @@
++"""Configuration domain models.
++
++Value objects for graft configuration.
++"""
++
++from dataclasses import dataclass
++
++from graft.domain.dependency import DependencySpec
++from graft.domain.exceptions import ValidationError
++
++
++@dataclass(frozen=True)
++class GraftConfig:
++    """Graft configuration from graft.yaml.
++
++    Immutable value object representing entire graft.yaml configuration.
++
++    Attributes:
++        api_version: Configuration API version (e.g., "graft/v0")
++        dependencies: Mapping of dependency name to spec
++
++    Example:
++        >>> config = GraftConfig(
++        ...     api_version="graft/v0",
++        ...     dependencies={"graft-knowledge": spec}
++        ... )
++        >>> config.has_dependency("graft-knowledge")
++        True
++    """
++
++    api_version: str
++    dependencies: dict[str, DependencySpec]
++
++    def __post_init__(self) -> None:
++        """Validate configuration."""
++        if not self.api_version:
++            raise ValidationError("API version cannot be empty")
++
++        # Currently only support v0
++        if not self.api_version.startswith("graft/"):
++            raise ValidationError(
++                f"Invalid API version: {self.api_version}. Must start with 'graft/'"
++            )
++
++    def get_dependency(self, name: str) -> DependencySpec:
++        """Get dependency by name.
++
++        Args:
++            name: Dependency name
++
++        Returns:
++            DependencySpec for the dependency
++
++        Raises:
++            KeyError: If dependency not found
++        """
++        return self.dependencies[name]
++
++    def has_dependency(self, name: str) -> bool:
++        """Check if dependency exists.
++
++        Args:
++            name: Dependency name
++
++        Returns:
++            True if dependency exists
++        """
++        return name in self.dependencies
+diff --git a/src/graft/domain/dependency.py b/src/graft/domain/dependency.py
+new file mode 100644
+index 0000000..d2273a5
+--- /dev/null
++++ b/src/graft/domain/dependency.py
+@@ -0,0 +1,225 @@
++"""Domain models for dependency management.
++
++Entities and value objects for managing knowledge base dependencies.
++"""
++
++from dataclasses import dataclass
++from enum import Enum
++from typing import Optional
++from urllib.parse import urlparse
++
++from graft.domain.exceptions import ValidationError
++
++
++class DependencyStatus(Enum):
++    """Status of a dependency resolution.
++
++    Tracks the current state of dependency resolution.
++    """
++
++    PENDING = "pending"      # Not yet resolved
++    CLONING = "cloning"      # Currently being cloned
++    RESOLVED = "resolved"    # Successfully resolved
++    FAILED = "failed"        # Resolution failed
++
++
++@dataclass(frozen=True)
++class GitRef:
++    """Git reference (branch, tag, or commit SHA).
++
++    Value object representing a git reference.
++    Immutable with validation.
++
++    Attributes:
++        ref: Reference string (e.g., "main", "v1.0.0", "abc123")
++        ref_type: Optional hint about reference type
++
++    Example:
++        >>> ref = GitRef("main")
++        >>> str(ref)
++        'main'
++    """
++
++    ref: str
++    ref_type: Optional[str] = None  # "branch", "tag", "commit", or None
++
++    def __post_init__(self) -> None:
++        """Validate git reference."""
++        if not self.ref:
++            raise ValidationError("Git ref cannot be empty")
++        if not self.ref.strip():
++            raise ValidationError("Git ref cannot be only whitespace")
++
++    def __str__(self) -> str:
++        """String representation."""
++        return self.ref
++
++
++@dataclass(frozen=True)
++class GitUrl:
++    """Git repository URL.
++
++    Value object representing a git URL with validation.
++    Supports ssh://, https://, http://, and file:// schemes.
++
++    Attributes:
++        url: Full git URL
++
++    Example:
++        >>> url = GitUrl("ssh://git@github.com/user/repo.git")
++        >>> url.scheme
++        'ssh'
++    """
++
++    url: str
++
++    def __post_init__(self) -> None:
++        """Validate and parse git URL."""
++        if not self.url:
++            raise ValidationError("Git URL cannot be empty")
++
++        # Parse URL
++        parsed = urlparse(self.url)
++
++        # Validate scheme
++        if parsed.scheme not in ("ssh", "https", "http", "file"):
++            raise ValidationError(
++                f"Invalid URL scheme: {parsed.scheme}. "
++                f"Supported: ssh, https, http, file"
++            )
++
++        # Store parsed components (use object.__setattr__ for frozen dataclass)
++        object.__setattr__(self, "_parsed", parsed)
++
++    @property
++    def scheme(self) -> str:
++        """Get URL scheme."""
++        return self._parsed.scheme  # type: ignore
++
++    @property
++    def host(self) -> str:
++        """Get hostname."""
++        return self._parsed.netloc  # type: ignore
++
++    @property
++    def path(self) -> str:
++        """Get repository path."""
++        return self._parsed.path  # type: ignore
++
++    def __str__(self) -> str:
++        """String representation."""
++        return self.url
++
++
++@dataclass(frozen=True)
++class DependencySpec:
++    """Dependency specification from graft.yaml.
++
++    Immutable value object representing a single dependency.
++
++    Attributes:
++        name: Dependency name (unique identifier)
++        git_url: Git repository URL
++        git_ref: Git reference (branch/tag/commit)
++
++    Example:
++        >>> spec = DependencySpec(
++        ...     name="graft-knowledge",
++        ...     git_url=GitUrl("ssh://git@example.com/repo.git"),
++        ...     git_ref=GitRef("main")
++        ... )
++        >>> spec.name
++        'graft-knowledge'
++    """
++
++    name: str
++    git_url: GitUrl
++    git_ref: GitRef
++
++    def __post_init__(self) -> None:
++        """Validate dependency specification."""
++        if not self.name:
++            raise ValidationError("Dependency name cannot be empty")
++        if len(self.name) > 100:
++            raise ValidationError(f"Dependency name too long: {len(self.name)} chars")
++        # Name should be valid as directory name
++        if "/" in self.name or "\\" in self.name:
++            raise ValidationError(
++                f"Invalid dependency name: {self.name}. Cannot contain path separators."
++            )
++
++
++@dataclass
++class DependencyResolution:
++    """Result of resolving a dependency.
++
++    Mutable entity tracking resolution state.
++    Has identity based on dependency name.
++
++    Attributes:
++        spec: Dependency specification
++        status: Current resolution status
++        local_path: Path where dependency is cloned (if resolved)
++        error_message: Error message if resolution failed
++
++    Example:
++        >>> spec = DependencySpec(...)
++        >>> resolution = DependencyResolution(spec=spec, status=DependencyStatus.PENDING)
++        >>> resolution.mark_resolved("/path/to/repo")
++        >>> resolution.status
++        <DependencyStatus.RESOLVED: 'resolved'>
++    """
++
++    spec: DependencySpec
++    status: DependencyStatus
++    local_path: Optional[str] = None
++    error_message: Optional[str] = None
++
++    @property
++    def name(self) -> str:
++        """Get dependency name (acts as ID)."""
++        return self.spec.name
++
++    def mark_cloning(self) -> None:
++        """Mark dependency as currently being cloned."""
++        self.status = DependencyStatus.CLONING
++
++    def mark_resolved(self, local_path: str) -> None:
++        """Mark dependency as successfully resolved.
++
++        Args:
++            local_path: Absolute path to cloned repository
++        """
++        self.status = DependencyStatus.RESOLVED
++        self.local_path = local_path
++        self.error_message = None
++
++    def mark_failed(self, error: str) -> None:
++        """Mark dependency as failed.
++
++        Args:
++            error: Error message describing failure
++        """
++        self.status = DependencyStatus.FAILED
++        self.error_message = error
++
++    def __eq__(self, other: object) -> bool:
++        """Resolutions are equal if they have the same dependency name.
++
++        Args:
++            other: Object to compare
++
++        Returns:
++            True if same dependency name
++        """
++        if not isinstance(other, DependencyResolution):
++            return NotImplemented
++        return self.name == other.name
++
++    def __hash__(self) -> int:
++        """Hash based on dependency name.
++
++        Returns:
++            Hash of dependency name
++        """
++        return hash(self.name)
+diff --git a/src/graft/domain/exceptions.py b/src/graft/domain/exceptions.py
+index ad6cbe1..444fd52 100644
+--- a/src/graft/domain/exceptions.py
++++ b/src/graft/domain/exceptions.py
+@@ -34,3 +34,207 @@ class EntityNotFoundError(DomainError):
+         super().__init__(f"{entity_type} not found: {entity_id}")
+         self.entity_id = entity_id
+         self.entity_type = entity_type
++
++
++class ConfigurationError(DomainError):
++    """Base configuration error.
++
++    Raised when:
++    - graft.yaml is malformed
++    - Required configuration is missing
++    - Configuration violates constraints
++    """
++
++
++class ConfigFileNotFoundError(ConfigurationError):
++    """Configuration file not found.
++
++    Raised when graft.yaml doesn't exist in expected location.
++    """
++
++    def __init__(self, path: str, suggestion: str = "Create graft.yaml in project root") -> None:
++        """Initialize error with file details.
++
++        Args:
++            path: Path where config was expected
++            suggestion: How to fix the issue
++        """
++        super().__init__(f"Configuration file not found: {path}")
++        self.path = path
++        self.suggestion = suggestion
++
++
++class ConfigParseError(ConfigurationError):
++    """Configuration file parsing failed.
++
++    Raised when YAML is malformed or invalid.
++    """
++
++    def __init__(self, path: str, reason: str) -> None:
++        """Initialize error with parse details.
++
++        Args:
++            path: Path to config file
++            reason: Why parsing failed
++        """
++        super().__init__(f"Failed to parse {path}: {reason}")
++        self.path = path
++        self.reason = reason
++
++
++class ConfigValidationError(ConfigurationError):
++    """Configuration validation failed.
++
++    Raised when config structure violates requirements.
++    """
++
++    def __init__(self, path: str, field: str, reason: str) -> None:
++        """Initialize error with validation details.
++
++        Args:
++            path: Path to config file
++            field: Field that failed validation
++            reason: Why validation failed
++        """
++        super().__init__(f"Invalid configuration in {path}: {field} - {reason}")
++        self.path = path
++        self.field = field
++        self.reason = reason
++
++
++class DependencyResolutionError(DomainError):
++    """Base dependency resolution error.
++
++    Raised when unable to resolve a dependency.
++    """
++
++    def __init__(self, dependency_name: str, reason: str) -> None:
++        """Initialize error with dependency details.
++
++        Args:
++            dependency_name: Name of dependency that failed
++            reason: Reason for failure
++        """
++        super().__init__(f"Failed to resolve dependency '{dependency_name}': {reason}")
++        self.dependency_name = dependency_name
++        self.reason = reason
++
++
++class GitCloneError(DependencyResolutionError):
++    """Git clone operation failed.
++
++    Raised when git clone command fails.
++    """
++
++    def __init__(
++        self,
++        dependency_name: str,
++        url: str,
++        ref: str,
++        stderr: str,
++        returncode: int = 1,
++    ) -> None:
++        """Initialize error with git details.
++
++        Args:
++            dependency_name: Name of dependency
++            url: Git repository URL
++            ref: Git reference (branch/tag/commit)
++            stderr: Git command error output
++            returncode: Git command exit code
++        """
++        super().__init__(
++            dependency_name,
++            f"Git clone failed for {url}#{ref}: {stderr}",
++        )
++        self.url = url
++        self.ref = ref
++        self.stderr = stderr
++        self.returncode = returncode
++
++
++class GitFetchError(DependencyResolutionError):
++    """Git fetch operation failed.
++
++    Raised when git fetch/checkout command fails.
++    """
++
++    def __init__(
++        self,
++        dependency_name: str,
++        repo_path: str,
++        ref: str,
++        stderr: str,
++        returncode: int = 1,
++    ) -> None:
++        """Initialize error with git details.
++
++        Args:
++            dependency_name: Name of dependency
++            repo_path: Path to existing repository
++            ref: Git reference to fetch
++            stderr: Git command error output
++            returncode: Git command exit code
++        """
++        super().__init__(
++            dependency_name,
++            f"Git fetch failed for {ref} in {repo_path}: {stderr}",
++        )
++        self.repo_path = repo_path
++        self.ref = ref
++        self.stderr = stderr
++        self.returncode = returncode
++
++
++class GitAuthenticationError(DependencyResolutionError):
++    """Git authentication failed.
++
++    Raised when git operations fail due to authentication issues.
++    """
++
++    def __init__(
++        self,
++        dependency_name: str,
++        url: str,
++        suggestion: str = "Check SSH keys or credentials",
++    ) -> None:
++        """Initialize error with auth details.
++
++        Args:
++            dependency_name: Name of dependency
++            url: Git repository URL
++            suggestion: How to fix authentication
++        """
++        super().__init__(
++            dependency_name,
++            f"Authentication failed for {url}",
++        )
++        self.url = url
++        self.suggestion = suggestion
++
++
++class GitNotFoundError(DependencyResolutionError):
++    """Git repository or ref not found.
++
++    Raised when repository doesn't exist or ref is invalid.
++    """
++
++    def __init__(
++        self,
++        dependency_name: str,
++        url: str,
++        ref: str,
++    ) -> None:
++        """Initialize error with git details.
++
++        Args:
++            dependency_name: Name of dependency
++            url: Git repository URL
++            ref: Git reference that wasn't found
++        """
++        super().__init__(
++            dependency_name,
++            f"Repository or ref not found: {url}#{ref}",
++        )
++        self.url = url
++        self.ref = ref
+diff --git a/src/graft/protocols/filesystem.py b/src/graft/protocols/filesystem.py
+new file mode 100644
+index 0000000..1ecf107
+--- /dev/null
++++ b/src/graft/protocols/filesystem.py
+@@ -0,0 +1,75 @@
++"""Filesystem operations protocol.
++
++Protocol for filesystem operations enabling testability with fakes.
++"""
++
++from typing import Protocol
++
++
++class FileSystem(Protocol):
++    """Protocol for filesystem operations.
++
++    Any class implementing these methods satisfies this protocol.
++    Enables testing with fake implementations.
++
++    Example implementations:
++        - RealFileSystem (uses pathlib.Path)
++        - FakeFileSystem (in-memory for testing)
++    """
++
++    def read_text(self, path: str) -> str:
++        """Read text file.
++
++        Args:
++            path: File path
++
++        Returns:
++            File contents
++
++        Raises:
++            FileNotFoundError: If file doesn't exist
++            PermissionError: If file not readable
++        """
++        ...
++
++    def exists(self, path: str) -> bool:
++        """Check if path exists.
++
++        Args:
++            path: Path to check
++
++        Returns:
++            True if path exists
++        """
++        ...
++
++    def is_dir(self, path: str) -> bool:
++        """Check if path is a directory.
++
++        Args:
++            path: Path to check
++
++        Returns:
++            True if path is a directory
++        """
++        ...
++
++    def mkdir(self, path: str, parents: bool = False) -> None:
++        """Create directory.
++
++        Args:
++            path: Directory path
++            parents: Create parent directories if needed
++
++        Raises:
++            FileExistsError: If directory exists and parents=False
++        """
++        ...
++
++    def get_cwd(self) -> str:
++        """Get current working directory.
++
++        Returns:
++            Absolute path to current directory
++        """
++        ...
+diff --git a/src/graft/protocols/git.py b/src/graft/protocols/git.py
+new file mode 100644
+index 0000000..99c7061
+--- /dev/null
++++ b/src/graft/protocols/git.py
+@@ -0,0 +1,67 @@
++"""Git operations protocol.
++
++Protocol for git repository operations enabling testability with fakes.
++"""
++
++from typing import Protocol
++
++
++class GitOperations(Protocol):
++    """Protocol for git repository operations.
++
++    Any class implementing these methods satisfies this protocol.
++    Enables testing with fake implementations.
++
++    Example implementations:
++        - SubprocessGitOperations (uses subprocess to call git CLI)
++        - FakeGitOperations (in-memory for testing)
++    """
++
++    def clone(
++        self,
++        url: str,
++        destination: str,
++        ref: str,
++    ) -> None:
++        """Clone git repository.
++
++        Clones repository to destination directory and checks out specified ref.
++
++        Args:
++            url: Git repository URL
++            destination: Local path to clone into
++            ref: Git reference to checkout (branch/tag/commit)
++
++        Raises:
++            DependencyResolutionError: If clone fails
++        """
++        ...
++
++    def fetch(
++        self,
++        repo_path: str,
++        ref: str,
++    ) -> None:
++        """Fetch and checkout reference in existing repository.
++
++        Updates existing repository to specified ref.
++
++        Args:
++            repo_path: Path to existing git repository
++            ref: Git reference to checkout
++
++        Raises:
++            DependencyResolutionError: If fetch/checkout fails
++        """
++        ...
++
++    def is_repository(self, path: str) -> bool:
++        """Check if path is a git repository.
++
++        Args:
++            path: Path to check
++
++        Returns:
++            True if path is a git repository (contains .git directory)
++        """
++        ...
+diff --git a/src/graft/services/config_service.py b/src/graft/services/config_service.py
+new file mode 100644
+index 0000000..cee76ed
+--- /dev/null
++++ b/src/graft/services/config_service.py
+@@ -0,0 +1,156 @@
++"""Configuration parsing service.
++
++Service functions for parsing and loading graft.yaml configuration files.
++"""
++
++from pathlib import Path
++
++import yaml
++
++from graft.domain.config import GraftConfig
++from graft.domain.dependency import DependencySpec, GitRef, GitUrl
++from graft.domain.exceptions import (
++    ConfigFileNotFoundError,
++    ConfigParseError,
++    ConfigValidationError,
++)
++from graft.services.dependency_context import DependencyContext
++
++
++def parse_graft_yaml(
++    ctx: DependencyContext,
++    config_path: str,
++) -> GraftConfig:
++    """Parse graft.yaml configuration file.
++
++    Args:
++        ctx: Dependency context
++        config_path: Path to graft.yaml
++
++    Returns:
++        Parsed GraftConfig
++
++    Raises:
++        ConfigFileNotFoundError: If file doesn't exist
++        ConfigParseError: If YAML is malformed
++        ConfigValidationError: If configuration structure is invalid
++        ValidationError: If domain rules violated (URL, ref, name validation)
++
++    Example:
++        >>> from graft.adapters.filesystem import RealFileSystem
++        >>> ctx = DependencyContext(filesystem=RealFileSystem(), deps_directory="..")
++        >>> config = parse_graft_yaml(ctx, "graft.yaml")
++        >>> config.api_version
++        'graft/v0'
++    """
++    # Check file exists
++    if not ctx.filesystem.exists(config_path):
++        raise ConfigFileNotFoundError(
++            path=config_path,
++            suggestion="Create graft.yaml with 'apiVersion: graft/v0' and 'deps:'",
++        )
++
++    # Read file
++    try:
++        content = ctx.filesystem.read_text(config_path)
++    except PermissionError as e:
++        raise ConfigParseError(
++            path=config_path,
++            reason=f"Permission denied: {e}",
++        ) from e
++
++    # Parse YAML
++    try:
++        data = yaml.safe_load(content)
++    except yaml.YAMLError as e:
++        raise ConfigParseError(
++            path=config_path,
++            reason=f"Invalid YAML syntax: {e}",
++        ) from e
++
++    # Validate structure
++    if not isinstance(data, dict):
++        raise ConfigValidationError(
++            path=config_path,
++            field="root",
++            reason="Configuration must be a YAML mapping/dict",
++        )
++
++    if "apiVersion" not in data:
++        raise ConfigValidationError(
++            path=config_path,
++            field="apiVersion",
++            reason="Missing required field",
++        )
++
++    if "deps" not in data:
++        raise ConfigValidationError(
++            path=config_path,
++            field="deps",
++            reason="Missing required field",
++        )
++
++    if not isinstance(data["deps"], dict):
++        raise ConfigValidationError(
++            path=config_path,
++            field="deps",
++            reason="Must be a mapping/dict of dependency_name: url#ref",
++        )
++
++    # Parse dependencies
++    dependencies: dict[str, DependencySpec] = {}
++
++    for name, url_with_ref in data["deps"].items():
++        # Parse URL#ref format
++        if "#" not in url_with_ref:
++            raise ConfigValidationError(
++                path=config_path,
++                field=f"deps.{name}",
++                reason=f"Must use format 'url#ref', got: {url_with_ref}",
++            )
++
++        url_part, ref_part = url_with_ref.rsplit("#", 1)
++
++        # Create dependency spec
++        spec = DependencySpec(
++            name=name,
++            git_url=GitUrl(url_part),
++            git_ref=GitRef(ref_part),
++        )
++
++        dependencies[name] = spec
++
++    return GraftConfig(
++        api_version=data["apiVersion"],
++        dependencies=dependencies,
++    )
++
++
++def find_graft_yaml(ctx: DependencyContext) -> str:
++    """Find graft.yaml in current directory.
++
++    Args:
++        ctx: Dependency context
++
++    Returns:
++        Path to graft.yaml
++
++    Raises:
++        ConfigFileNotFoundError: If graft.yaml not found
++
++    Example:
++        >>> ctx = DependencyContext(filesystem=RealFileSystem(), deps_directory="..")
++        >>> config_path = find_graft_yaml(ctx)
++        >>> config_path.endswith("graft.yaml")
++        True
++    """
++    cwd = ctx.filesystem.get_cwd()
++    config_path = str(Path(cwd) / "graft.yaml")
++
++    if not ctx.filesystem.exists(config_path):
++        raise ConfigFileNotFoundError(
++            path=config_path,
++            suggestion=f"Create graft.yaml in {cwd}",
++        )
++
++    return config_path
+diff --git a/src/graft/services/dependency_context.py b/src/graft/services/dependency_context.py
+new file mode 100644
+index 0000000..3c0006c
+--- /dev/null
++++ b/src/graft/services/dependency_context.py
+@@ -0,0 +1,36 @@
++"""Service context for dependency resolution.
++
++Context object containing all dependencies for dependency resolution services.
++"""
++
++from dataclasses import dataclass
++
++from graft.protocols.filesystem import FileSystem
++from graft.protocols.git import GitOperations
++
++
++@dataclass(frozen=True)
++class DependencyContext:
++    """Service context for dependency resolution.
++
++    Contains all dependencies needed by dependency resolution services.
++    Immutable context object passed to service functions.
++
++    Attributes:
++        filesystem: Filesystem operations
++        git: Git operations
++        deps_directory: Base directory for dependencies (e.g., "../")
++
++    Example:
++        >>> from graft.adapters.filesystem import RealFileSystem
++        >>> from graft.adapters.git import SubprocessGitOperations
++        >>> ctx = DependencyContext(
++        ...     filesystem=RealFileSystem(),
++        ...     git=SubprocessGitOperations(),
++        ...     deps_directory=".."
++        ... )
++    """
++
++    filesystem: FileSystem
++    git: GitOperations
++    deps_directory: str
+diff --git a/src/graft/services/resolution_service.py b/src/graft/services/resolution_service.py
+new file mode 100644
+index 0000000..b6f123c
+--- /dev/null
++++ b/src/graft/services/resolution_service.py
+@@ -0,0 +1,115 @@
++"""Dependency resolution service.
++
++Service functions for resolving knowledge base dependencies.
++"""
++
++from pathlib import Path
++
++from graft.domain.config import GraftConfig
++from graft.domain.dependency import DependencyResolution, DependencySpec, DependencyStatus
++from graft.domain.exceptions import DependencyResolutionError
++from graft.services.dependency_context import DependencyContext
++
++
++def resolve_dependency(
++    ctx: DependencyContext,
++    spec: DependencySpec,
++) -> DependencyResolution:
++    """Resolve a single dependency.
++
++    Clones repository if it doesn't exist, or fetches if it does.
++
++    Args:
++        ctx: Dependency context
++        spec: Dependency specification
++
++    Returns:
++        DependencyResolution with status and local path
++
++    Example:
++        >>> from graft.adapters.git import SubprocessGitOperations
++        >>> from graft.adapters.filesystem import RealFileSystem
++        >>> ctx = DependencyContext(
++        ...     filesystem=RealFileSystem(),
++        ...     git=SubprocessGitOperations(),
++        ...     deps_directory=".."
++        ... )
++        >>> spec = DependencySpec(...)
++        >>> resolution = resolve_dependency(ctx, spec)
++        >>> resolution.status
++        <DependencyStatus.RESOLVED: 'resolved'>
++    """
++    # Create resolution object
++    resolution = DependencyResolution(
++        spec=spec,
++        status=DependencyStatus.PENDING,
++    )
++
++    # Determine local path
++    local_path = str(Path(ctx.deps_directory) / spec.name)
++
++    try:
++        # Mark as cloning
++        resolution.mark_cloning()
++
++        # Check if already exists
++        if ctx.filesystem.exists(local_path):
++            # Repository exists - fetch and checkout
++            if ctx.git.is_repository(local_path):
++                ctx.git.fetch(local_path, spec.git_ref.ref)
++            else:
++                # Path exists but isn't a git repo - error
++                raise DependencyResolutionError(
++                    spec.name,
++                    f"Path exists but is not a git repository: {local_path}",
++                )
++        else:
++            # Clone fresh
++            ctx.git.clone(
++                url=spec.git_url.url,
++                destination=local_path,
++                ref=spec.git_ref.ref,
++            )
++
++        # Mark as resolved
++        resolution.mark_resolved(local_path)
++
++    except DependencyResolutionError as e:
++        resolution.mark_failed(e.reason)
++
++    except Exception as e:
++        resolution.mark_failed(f"Unexpected error: {e}")
++
++    return resolution
++
++
++def resolve_all_dependencies(
++    ctx: DependencyContext,
++    config: GraftConfig,
++) -> list[DependencyResolution]:
++    """Resolve all dependencies from configuration.
++
++    Resolves each dependency in sequence.
++    Continues on failure to attempt all dependencies.
++
++    Args:
++        ctx: Dependency context
++        config: Parsed configuration
++
++    Returns:
++        List of dependency resolutions
++
++    Example:
++        >>> ctx = DependencyContext(...)
++        >>> config = parse_graft_yaml(ctx, "graft.yaml")
++        >>> resolutions = resolve_all_dependencies(ctx, config)
++        >>> all(r.status == DependencyStatus.RESOLVED for r in resolutions)
++        True
++    """
++    resolutions: list[DependencyResolution] = []
++
++    for spec in config.dependencies.values():
++        resolution = resolve_dependency(ctx, spec)
++        resolutions.append(resolution)
++
++    return resolutions
+diff --git a/tests/conftest.py b/tests/conftest.py
+index de855d4..cf03886 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -7,6 +7,9 @@ import pytest
+ 
+ from graft.domain.entities import Entity
+ from graft.services.context import ServiceContext
++from graft.services.dependency_context import DependencyContext
++from tests.fakes.fake_filesystem import FakeFileSystem
++from tests.fakes.fake_git import FakeGitOperations
+ from tests.fakes.fake_repository import FakeRepository
+ 
+ 
+@@ -46,3 +49,71 @@ def test_context(fake_repository: FakeRepository[Entity]) -> ServiceContext:
+     return ServiceContext(
+         repository=fake_repository,
+     )
++
++
++@pytest.fixture
++def fake_filesystem() -> FakeFileSystem:
++    """Provide fresh fake filesystem for each test.
++
++    Automatically reset between tests.
++
++    Returns:
++        Empty FakeFileSystem
++
++    Example:
++        def test_with_filesystem(fake_filesystem):
++            fake_filesystem.create_file("/test.txt", "content")
++            assert fake_filesystem.read_text("/test.txt") == "content"
++    """
++    fs = FakeFileSystem()
++    yield fs
++    # Cleanup after test
++    fs.reset()
++
++
++@pytest.fixture
++def fake_git() -> FakeGitOperations:
++    """Provide fresh fake git operations for each test.
++
++    Automatically reset between tests.
++
++    Returns:
++        Empty FakeGitOperations
++
++    Example:
++        def test_with_git(fake_git):
++            fake_git.clone("https://example.com/repo.git", "/tmp/repo", "main")
++            assert fake_git.was_cloned("https://example.com/repo.git", "/tmp/repo", "main")
++    """
++    git = FakeGitOperations()
++    yield git
++    # Cleanup after test
++    git.reset()
++
++
++@pytest.fixture
++def dependency_context(
++    fake_filesystem: FakeFileSystem,
++    fake_git: FakeGitOperations,
++) -> DependencyContext:
++    """Provide test dependency context with fakes.
++
++    Uses fake implementations for testing dependency resolution.
++
++    Args:
++        fake_filesystem: Fake filesystem fixture
++        fake_git: Fake git operations fixture
++
++    Returns:
++        DependencyContext with fake dependencies
++
++    Example:
++        def test_config_parsing(dependency_context):
++            config = parse_graft_yaml(dependency_context, "graft.yaml")
++            assert config is not None
++    """
++    return DependencyContext(
++        filesystem=fake_filesystem,
++        git=fake_git,
++        deps_directory="/fake/deps",
++    )
+diff --git a/tests/fakes/fake_filesystem.py b/tests/fakes/fake_filesystem.py
+new file mode 100644
+index 0000000..038fb69
+--- /dev/null
++++ b/tests/fakes/fake_filesystem.py
+@@ -0,0 +1,129 @@
++"""Fake filesystem for testing.
++
++In-memory filesystem implementation with test helpers.
++"""
++
++from pathlib import Path
++
++
++class FakeFileSystem:
++    """Fake filesystem for testing.
++
++    Implements FileSystem protocol with in-memory storage.
++    Provides test helpers for setup and verification.
++
++    Advantages over mocks:
++    - Real behavior (not just assertions)
++    - Can inspect state
++    - Reusable across tests
++    - Clear and maintainable
++
++    Example:
++        >>> fs = FakeFileSystem()
++        >>> fs.create_file("/fake/graft.yaml", "apiVersion: graft/v0...")
++        >>> fs.read_text("/fake/graft.yaml")
++        'apiVersion: graft/v0...'
++        >>> fs.exists("/fake/graft.yaml")
++        True
++    """
++
++    def __init__(self) -> None:
++        """Initialize empty fake filesystem."""
++        self._files: dict[str, str] = {}  # path -> content
++        self._dirs: set[str] = set()
++        self._cwd: str = "/fake/cwd"
++
++    def read_text(self, path: str) -> str:
++        """Read text file.
++
++        Args:
++            path: File path
++
++        Returns:
++            File contents
++
++        Raises:
++            FileNotFoundError: If file doesn't exist
++        """
++        if path not in self._files:
++            raise FileNotFoundError(f"File not found: {path}")
++        return self._files[path]
++
++    def exists(self, path: str) -> bool:
++        """Check if path exists.
++
++        Args:
++            path: Path to check
++
++        Returns:
++            True if path exists (as file or directory)
++        """
++        return path in self._files or path in self._dirs
++
++    def is_dir(self, path: str) -> bool:
++        """Check if path is a directory.
++
++        Args:
++            path: Path to check
++
++        Returns:
++            True if path is a directory
++        """
++        return path in self._dirs
++
++    def mkdir(self, path: str, parents: bool = False) -> None:
++        """Create directory.
++
++        Args:
++            path: Directory path
++            parents: Create parent directories if needed
++
++        Raises:
++            FileExistsError: If directory exists and parents=False
++        """
++        if parents:
++            # Create all parent directories
++            parts = Path(path).parts
++            for i in range(1, len(parts) + 1):
++                dir_path = str(Path(*parts[:i]))
++                self._dirs.add(dir_path)
++        else:
++            if path in self._dirs:
++                raise FileExistsError(f"Directory already exists: {path}")
++            self._dirs.add(path)
++
++    def get_cwd(self) -> str:
++        """Get current working directory.
++
++        Returns:
++            Current working directory path
++        """
++        return self._cwd
++
++    # Test helpers below
++
++    def create_file(self, path: str, content: str) -> None:
++        """Create file with content (test helper).
++
++        Args:
++            path: File path
++            content: File content
++        """
++        self._files[path] = content
++
++    def set_cwd(self, path: str) -> None:
++        """Set current working directory (test helper).
++
++        Args:
++            path: Path to set as cwd
++        """
++        self._cwd = path
++
++    def reset(self) -> None:
++        """Reset all state (test helper).
++
++        Useful for cleanup between tests.
++        """
++        self._files.clear()
++        self._dirs.clear()
++        self._cwd = "/fake/cwd"
+diff --git a/tests/fakes/fake_git.py b/tests/fakes/fake_git.py
+new file mode 100644
+index 0000000..f289369
+--- /dev/null
++++ b/tests/fakes/fake_git.py
+@@ -0,0 +1,152 @@
++"""Fake git operations for testing.
++
++In-memory git operations implementation with test helpers.
++"""
++
++from graft.domain.exceptions import DependencyResolutionError
++
++
++class FakeGitOperations:
++    """Fake git operations for testing.
++
++    Implements GitOperations protocol with in-memory simulation.
++    Records all operations for verification.
++
++    Advantages over mocks:
++    - Real behavior (not just assertions)
++    - Can inspect state
++    - Reusable across tests
++    - Clear and maintainable
++
++    Example:
++        >>> git = FakeGitOperations()
++        >>> git.clone("https://github.com/user/repo.git", "/tmp/repo", "main")
++        >>> git.was_cloned("https://github.com/user/repo.git", "/tmp/repo", "main")
++        True
++    """
++
++    def __init__(self) -> None:
++        """Initialize fake git operations."""
++        self._cloned_repos: dict[str, tuple[str, str]] = {}  # path -> (url, ref)
++        self._clone_calls: list[tuple[str, str, str]] = []  # (url, dest, ref)
++        self._fetch_calls: list[tuple[str, str]] = []  # (path, ref)
++        self._should_fail: dict[str, str] = {}  # url -> error message
++
++    def clone(self, url: str, destination: str, ref: str) -> None:
++        """Fake clone operation.
++
++        Records clone call and simulates success/failure.
++
++        Args:
++            url: Git repository URL
++            destination: Local path to clone into
++            ref: Git reference to checkout
++
++        Raises:
++            DependencyResolutionError: If configured to fail
++        """
++        self._clone_calls.append((url, destination, ref))
++
++        # Simulate failure if configured
++        if url in self._should_fail:
++            raise DependencyResolutionError(
++                dependency_name=destination,
++                reason=self._should_fail[url],
++            )
++
++        # Record successful clone
++        self._cloned_repos[destination] = (url, ref)
++
++    def fetch(self, repo_path: str, ref: str) -> None:
++        """Fake fetch operation.
++
++        Records fetch call and updates ref.
++
++        Args:
++            repo_path: Path to existing git repository
++            ref: Git reference to checkout
++
++        Raises:
++            DependencyResolutionError: If repository doesn't exist
++        """
++        self._fetch_calls.append((repo_path, ref))
++
++        # Must be a known repository
++        if repo_path not in self._cloned_repos:
++            raise DependencyResolutionError(
++                dependency_name=repo_path,
++                reason="Not a git repository",
++            )
++
++        # Update ref
++        url, _ = self._cloned_repos[repo_path]
++        self._cloned_repos[repo_path] = (url, ref)
++
++    def is_repository(self, path: str) -> bool:
++        """Check if path is a known repository.
++
++        Args:
++            path: Path to check
++
++        Returns:
++            True if path is a known repository
++        """
++        return path in self._cloned_repos
++
++    # Test helpers below
++
++    def configure_failure(self, url: str, error: str) -> None:
++        """Configure clone to fail for specific URL (test helper).
++
++        Args:
++            url: URL that should fail
++            error: Error message to raise
++        """
++        self._should_fail[url] = error
++
++    def was_cloned(self, url: str, destination: str, ref: str) -> bool:
++        """Check if clone was called with specific args (test helper).
++
++        Args:
++            url: Expected git URL
++            destination: Expected destination path
++            ref: Expected git ref
++
++        Returns:
++            True if clone was called with these arguments
++        """
++        return (url, destination, ref) in self._clone_calls
++
++    def get_clone_count(self) -> int:
++        """Get number of clone calls (test helper).
++
++        Returns:
++            Total number of clone calls
++        """
++        return len(self._clone_calls)
++
++    def get_fetch_count(self) -> int:
++        """Get number of fetch calls (test helper).
++
++        Returns:
++            Total number of fetch calls
++        """
++        return len(self._fetch_calls)
++
++    def get_cloned_repos(self) -> dict[str, tuple[str, str]]:
++        """Get all cloned repositories (test helper).
++
++        Returns:
++            Dictionary of path -> (url, ref)
++        """
++        return self._cloned_repos.copy()
++
++    def reset(self) -> None:
++        """Reset all state (test helper).
++
++        Clears all repositories and call history.
++        """
++        self._cloned_repos.clear()
++        self._clone_calls.clear()
++        self._fetch_calls.clear()
++        self._should_fail.clear()
+diff --git a/tests/integration/test_resolve_integration.py b/tests/integration/test_resolve_integration.py
+new file mode 100644
+index 0000000..d1e89fb
+--- /dev/null
++++ b/tests/integration/test_resolve_integration.py
+@@ -0,0 +1,77 @@
++"""Integration tests for dependency resolution.
++
++Tests the full flow using graft's own graft.yaml with real adapters.
++"""
++
++import os
++from pathlib import Path
++
++import pytest
++
++from graft.adapters.filesystem import RealFileSystem
++from graft.adapters.git import SubprocessGitOperations
++from graft.domain.dependency import DependencyStatus
++from graft.services import config_service, resolution_service
++from graft.services.dependency_context import DependencyContext
++
++
++@pytest.mark.integration
++class TestResolveRealGraftYaml:
++    """Integration tests using real graft.yaml."""
++
++    def test_parse_real_graft_yaml(self) -> None:
++        """Should successfully parse graft's own graft.yaml."""
++        # Use real context
++        ctx = DependencyContext(
++            filesystem=RealFileSystem(),
++            git=SubprocessGitOperations(),
++            deps_directory="..",
++        )
++
++        # Find real graft.yaml
++        repo_root = Path(__file__).parent.parent.parent
++        config_path = str(repo_root / "graft.yaml")
++
++        # Parse
++        config = config_service.parse_graft_yaml(ctx, config_path)
++
++        # Verify structure
++        assert config.api_version == "graft/v0"
++        assert config.has_dependency("graft-knowledge")
++
++        # Verify graft-knowledge dependency
++        dep = config.get_dependency("graft-knowledge")
++        assert dep.name == "graft-knowledge"
++        assert "graft-knowledge.git" in dep.git_url.url
++        assert dep.git_ref.ref == "main"
++
++    @pytest.mark.skipif(
++        os.getenv("CI") == "true",
++        reason="Skip actual git operations in CI",
++    )
++    def test_resolve_real_dependencies(self) -> None:
++        """Should resolve graft's real dependencies.
++
++        Note: This test actually clones repositories.
++        Skipped in CI to avoid network dependencies.
++        """
++        # Use real context
++        ctx = DependencyContext(
++            filesystem=RealFileSystem(),
++            git=SubprocessGitOperations(),
++            deps_directory="../",
++        )
++
++        # Parse config
++        repo_root = Path(__file__).parent.parent.parent
++        config_path = str(repo_root / "graft.yaml")
++        config = config_service.parse_graft_yaml(ctx, config_path)
++
++        # Resolve
++        resolutions = resolution_service.resolve_all_dependencies(ctx, config)
++
++        # Verify all resolved
++        for resolution in resolutions:
++            assert resolution.status == DependencyStatus.RESOLVED
++            assert resolution.local_path
++            assert Path(resolution.local_path).exists()
+diff --git a/tests/unit/test_config_service.py b/tests/unit/test_config_service.py
+new file mode 100644
+index 0000000..dea58f6
+--- /dev/null
++++ b/tests/unit/test_config_service.py
+@@ -0,0 +1,300 @@
++"""Unit tests for configuration service.
++
++Tests for parse_graft_yaml and find_graft_yaml service functions.
++
++Rationale:
++    Configuration parsing is critical - errors here prevent the entire tool from working.
++    These tests ensure we provide clear, actionable error messages for common mistakes:
++    - Missing files
++    - Malformed YAML
++    - Invalid configuration structure
++    - Invalid dependency format
++"""
++
++import pytest
++
++from graft.domain.exceptions import (
++    ConfigFileNotFoundError,
++    ConfigParseError,
++    ConfigValidationError,
++)
++from graft.services import config_service
++from graft.services.dependency_context import DependencyContext
++from tests.fakes.fake_filesystem import FakeFileSystem
++
++
++class TestParseGraftYaml:
++    """Tests for parse_graft_yaml service function."""
++
++    def test_parse_valid_config(
++        self,
++        dependency_context: DependencyContext,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should parse valid graft.yaml."""
++        # Setup: Create valid config file
++        fake_filesystem.create_file(
++            "/fake/cwd/graft.yaml",
++            """apiVersion: graft/v0
++deps:
++  graft-knowledge: "ssh://git@example.com/repo.git#main"
++""",
++        )
++
++        # Exercise
++        config = config_service.parse_graft_yaml(
++            dependency_context,
++            "/fake/cwd/graft.yaml",
++        )
++
++        # Verify
++        assert config.api_version == "graft/v0"
++        assert len(config.dependencies) == 1
++        assert config.has_dependency("graft-knowledge")
++
++        dep = config.get_dependency("graft-knowledge")
++        assert dep.name == "graft-knowledge"
++        assert dep.git_ref.ref == "main"
++        assert "git@example.com" in dep.git_url.url
++
++    def test_parse_multiple_dependencies(
++        self,
++        dependency_context: DependencyContext,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should parse config with multiple dependencies."""
++        fake_filesystem.create_file(
++            "/fake/cwd/graft.yaml",
++            """apiVersion: graft/v0
++deps:
++  dep1: "https://github.com/user/repo1.git#main"
++  dep2: "https://github.com/user/repo2.git#develop"
++  dep3: "ssh://git@example.com/repo3.git#v1.0.0"
++""",
++        )
++
++        config = config_service.parse_graft_yaml(
++            dependency_context,
++            "/fake/cwd/graft.yaml",
++        )
++
++        assert len(config.dependencies) == 3
++        assert config.has_dependency("dep1")
++        assert config.has_dependency("dep2")
++        assert config.has_dependency("dep3")
++
++    def test_missing_file_raises_error(
++        self,
++        dependency_context: DependencyContext,
++    ) -> None:
++        """Should raise ConfigFileNotFoundError if file doesn't exist.
++
++        Rationale: Users need clear guidance when graft.yaml is missing,
++        including where it was expected and how to create it.
++        """
++        with pytest.raises(ConfigFileNotFoundError) as exc_info:
++            config_service.parse_graft_yaml(
++                dependency_context,
++                "/fake/cwd/missing.yaml",
++            )
++
++        # Verify error includes helpful context
++        assert exc_info.value.path == "/fake/cwd/missing.yaml"
++        assert "Create graft.yaml" in exc_info.value.suggestion
++
++    def test_invalid_yaml_raises_error(
++        self,
++        dependency_context: DependencyContext,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should raise ConfigParseError for invalid YAML.
++
++        Rationale: Syntax errors in YAML are common. Error should clearly
++        indicate the file and provide the YAML parser's error message.
++        """
++        fake_filesystem.create_file(
++            "/fake/cwd/graft.yaml",
++            "invalid: yaml: content: [[[",
++        )
++
++        with pytest.raises(ConfigParseError) as exc_info:
++            config_service.parse_graft_yaml(
++                dependency_context,
++                "/fake/cwd/graft.yaml",
++            )
++
++        assert exc_info.value.path == "/fake/cwd/graft.yaml"
++        assert "syntax" in exc_info.value.reason.lower()
++
++    def test_missing_api_version_raises_error(
++        self,
++        dependency_context: DependencyContext,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should raise ConfigValidationError if apiVersion missing.
++
++        Rationale: apiVersion is required for forward compatibility.
++        Error should specify which field is missing.
++        """
++        fake_filesystem.create_file(
++            "/fake/cwd/graft.yaml",
++            """deps:
++  test: "https://example.com/repo.git#main"
++""",
++        )
++
++        with pytest.raises(ConfigValidationError) as exc_info:
++            config_service.parse_graft_yaml(
++                dependency_context,
++                "/fake/cwd/graft.yaml",
++            )
++
++        assert exc_info.value.field == "apiVersion"
++        assert "Missing required field" in exc_info.value.reason
++
++    def test_missing_deps_raises_error(
++        self,
++        dependency_context: DependencyContext,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should raise ConfigValidationError if deps missing.
++
++        Rationale: deps field is required even if empty.
++        Error should guide user to add deps field.
++        """
++        fake_filesystem.create_file(
++            "/fake/cwd/graft.yaml",
++            "apiVersion: graft/v0\n",
++        )
++
++        with pytest.raises(ConfigValidationError) as exc_info:
++            config_service.parse_graft_yaml(
++                dependency_context,
++                "/fake/cwd/graft.yaml",
++            )
++
++        assert exc_info.value.field == "deps"
++
++    def test_deps_not_dict_raises_error(
++        self,
++        dependency_context: DependencyContext,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should raise ConfigValidationError if deps is not a dict.
++
++        Rationale: deps must be a mapping of name to URL.
++        Common mistake is using a list instead.
++        """
++        fake_filesystem.create_file(
++            "/fake/cwd/graft.yaml",
++            """apiVersion: graft/v0
++deps:
++  - "https://example.com/repo.git#main"
++""",
++        )
++
++        with pytest.raises(ConfigValidationError) as exc_info:
++            config_service.parse_graft_yaml(
++                dependency_context,
++                "/fake/cwd/graft.yaml",
++            )
++
++        assert exc_info.value.field == "deps"
++        assert "mapping" in exc_info.value.reason.lower()
++
++    def test_dependency_without_hash_raises_error(
++        self,
++        dependency_context: DependencyContext,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should raise ConfigValidationError if dependency missing #ref.
++
++        Rationale: url#ref format is required for version pinning.
++        Error should show the expected format and what was provided.
++        """
++        fake_filesystem.create_file(
++            "/fake/cwd/graft.yaml",
++            """apiVersion: graft/v0
++deps:
++  test: "https://example.com/repo.git"
++""",
++        )
++
++        with pytest.raises(ConfigValidationError) as exc_info:
++            config_service.parse_graft_yaml(
++                dependency_context,
++                "/fake/cwd/graft.yaml",
++            )
++
++        assert exc_info.value.field == "deps.test"
++        assert "url#ref" in exc_info.value.reason
++
++    def test_not_yaml_dict_raises_error(
++        self,
++        dependency_context: DependencyContext,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should raise ConfigValidationError if YAML is not a dict.
++
++        Rationale: graft.yaml must be a mapping at root level.
++        Common mistake is using a YAML list.
++        """
++        fake_filesystem.create_file(
++            "/fake/cwd/graft.yaml",
++            "- item1\n- item2\n",
++        )
++
++        with pytest.raises(ConfigValidationError) as exc_info:
++            config_service.parse_graft_yaml(
++                dependency_context,
++                "/fake/cwd/graft.yaml",
++            )
++
++        assert exc_info.value.field == "root"
++
++
++class TestFindGraftYaml:
++    """Tests for find_graft_yaml service function.
++
++    Rationale: Users often run graft in the wrong directory.
++    These tests ensure clear error messages about where graft.yaml was expected.
++    """
++
++    def test_find_existing_config(
++        self,
++        dependency_context: DependencyContext,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should find graft.yaml in current directory.
++
++        Rationale: Normal case - graft.yaml exists in cwd.
++        """
++        # Setup
++        fake_filesystem.set_cwd("/fake/project")
++        fake_filesystem.create_file("/fake/project/graft.yaml", "content")
++
++        # Exercise
++        config_path = config_service.find_graft_yaml(dependency_context)
++
++        # Verify
++        assert config_path == "/fake/project/graft.yaml"
++
++    def test_missing_config_raises_error(
++        self,
++        dependency_context: DependencyContext,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should raise ConfigFileNotFoundError if graft.yaml not found.
++
++        Rationale: User needs to know where graft.yaml was expected
++        and how to create it in that location.
++        """
++        # Setup
++        fake_filesystem.set_cwd("/fake/empty")
++
++        # Verify
++        with pytest.raises(ConfigFileNotFoundError) as exc_info:
++            config_service.find_graft_yaml(dependency_context)
++
++        assert "/fake/empty/graft.yaml" in exc_info.value.path
++        assert "/fake/empty" in exc_info.value.suggestion
+diff --git a/tests/unit/test_domain_dependency.py b/tests/unit/test_domain_dependency.py
+new file mode 100644
+index 0000000..9ad2561
+--- /dev/null
++++ b/tests/unit/test_domain_dependency.py
+@@ -0,0 +1,276 @@
++"""Unit tests for dependency domain models.
++
++Tests for GitRef, GitUrl, DependencySpec, and DependencyResolution.
++"""
++
++import pytest
++
++from graft.domain.dependency import (
++    DependencyResolution,
++    DependencySpec,
++    DependencyStatus,
++    GitRef,
++    GitUrl,
++)
++from graft.domain.exceptions import ValidationError
++
++
++class TestGitRef:
++    """Tests for GitRef value object."""
++
++    def test_create_valid_ref(self) -> None:
++        """Should create valid git ref."""
++        ref = GitRef("main")
++        assert ref.ref == "main"
++        assert str(ref) == "main"
++
++    def test_create_ref_with_type(self) -> None:
++        """Should create ref with type hint."""
++        ref = GitRef("v1.0.0", ref_type="tag")
++        assert ref.ref == "v1.0.0"
++        assert ref.ref_type == "tag"
++
++    def test_empty_ref_raises_validation_error(self) -> None:
++        """Should raise ValidationError for empty ref."""
++        with pytest.raises(ValidationError, match="cannot be empty"):
++            GitRef("")
++
++    def test_whitespace_ref_raises_validation_error(self) -> None:
++        """Should raise ValidationError for whitespace ref."""
++        with pytest.raises(ValidationError, match="whitespace"):
++            GitRef("   ")
++
++    def test_immutable(self) -> None:
++        """Should be immutable (frozen dataclass)."""
++        ref = GitRef("main")
++        with pytest.raises(Exception):  # FrozenInstanceError
++            ref.ref = "develop"  # type: ignore
++
++
++class TestGitUrl:
++    """Tests for GitUrl value object."""
++
++    def test_create_ssh_url(self) -> None:
++        """Should parse SSH URL."""
++        url = GitUrl("ssh://git@github.com/user/repo.git")
++        assert url.scheme == "ssh"
++        assert url.host == "git@github.com"
++        assert str(url) == "ssh://git@github.com/user/repo.git"
++
++    def test_create_https_url(self) -> None:
++        """Should parse HTTPS URL."""
++        url = GitUrl("https://github.com/user/repo.git")
++        assert url.scheme == "https"
++        assert url.host == "github.com"
++        assert "/user/repo.git" in url.path
++
++    def test_create_http_url(self) -> None:
++        """Should parse HTTP URL."""
++        url = GitUrl("http://example.com/repo.git")
++        assert url.scheme == "http"
++
++    def test_create_file_url(self) -> None:
++        """Should parse file:// URL."""
++        url = GitUrl("file:///path/to/repo.git")
++        assert url.scheme == "file"
++
++    def test_empty_url_raises_validation_error(self) -> None:
++        """Should raise ValidationError for empty URL."""
++        with pytest.raises(ValidationError, match="cannot be empty"):
++            GitUrl("")
++
++    def test_invalid_scheme_raises_error(self) -> None:
++        """Should raise ValidationError for invalid scheme."""
++        with pytest.raises(ValidationError, match="Invalid URL scheme"):
++            GitUrl("ftp://example.com/repo.git")
++
++    def test_immutable(self) -> None:
++        """Should be immutable (frozen dataclass)."""
++        url = GitUrl("https://github.com/user/repo.git")
++        with pytest.raises(Exception):  # FrozenInstanceError
++            url.url = "https://other.com"  # type: ignore
++
++
++class TestDependencySpec:
++    """Tests for DependencySpec value object."""
++
++    def test_create_valid_spec(self) -> None:
++        """Should create valid dependency spec."""
++        spec = DependencySpec(
++            name="test-dep",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++        assert spec.name == "test-dep"
++        assert spec.git_url.scheme == "https"
++        assert spec.git_ref.ref == "main"
++
++    def test_empty_name_raises_error(self) -> None:
++        """Should raise ValidationError for empty name."""
++        with pytest.raises(ValidationError, match="cannot be empty"):
++            DependencySpec(
++                name="",
++                git_url=GitUrl("https://github.com/user/repo.git"),
++                git_ref=GitRef("main"),
++            )
++
++    def test_long_name_raises_error(self) -> None:
++        """Should raise ValidationError for name > 100 chars."""
++        with pytest.raises(ValidationError, match="too long"):
++            DependencySpec(
++                name="a" * 101,
++                git_url=GitUrl("https://github.com/user/repo.git"),
++                git_ref=GitRef("main"),
++            )
++
++    def test_name_with_slash_raises_error(self) -> None:
++        """Should reject names with forward slash."""
++        with pytest.raises(ValidationError, match="path separators"):
++            DependencySpec(
++                name="invalid/name",
++                git_url=GitUrl("https://github.com/user/repo.git"),
++                git_ref=GitRef("main"),
++            )
++
++    def test_name_with_backslash_raises_error(self) -> None:
++        """Should reject names with backslash."""
++        with pytest.raises(ValidationError, match="path separators"):
++            DependencySpec(
++                name="invalid\\name",
++                git_url=GitUrl("https://github.com/user/repo.git"),
++                git_ref=GitRef("main"),
++            )
++
++    def test_immutable(self) -> None:
++        """Should be immutable (frozen dataclass)."""
++        spec = DependencySpec(
++            name="test-dep",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++        with pytest.raises(Exception):  # FrozenInstanceError
++            spec.name = "other"  # type: ignore
++
++
++class TestDependencyResolution:
++    """Tests for DependencyResolution entity."""
++
++    def test_create_pending_resolution(self) -> None:
++        """Should create resolution with pending status."""
++        spec = DependencySpec(
++            name="test-dep",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++        resolution = DependencyResolution(spec=spec, status=DependencyStatus.PENDING)
++
++        assert resolution.name == "test-dep"
++        assert resolution.status == DependencyStatus.PENDING
++        assert resolution.local_path is None
++        assert resolution.error_message is None
++
++    def test_mark_cloning(self) -> None:
++        """Should mark resolution as cloning."""
++        spec = DependencySpec(
++            name="test-dep",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++        resolution = DependencyResolution(spec=spec, status=DependencyStatus.PENDING)
++
++        resolution.mark_cloning()
++
++        assert resolution.status == DependencyStatus.CLONING
++
++    def test_mark_resolved(self) -> None:
++        """Should mark resolution as successful."""
++        spec = DependencySpec(
++            name="test-dep",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++        resolution = DependencyResolution(spec=spec, status=DependencyStatus.PENDING)
++
++        resolution.mark_resolved("/path/to/repo")
++
++        assert resolution.status == DependencyStatus.RESOLVED
++        assert resolution.local_path == "/path/to/repo"
++        assert resolution.error_message is None
++
++    def test_mark_failed(self) -> None:
++        """Should mark resolution as failed."""
++        spec = DependencySpec(
++            name="test-dep",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++        resolution = DependencyResolution(spec=spec, status=DependencyStatus.PENDING)
++
++        resolution.mark_failed("Clone failed")
++
++        assert resolution.status == DependencyStatus.FAILED
++        assert resolution.error_message == "Clone failed"
++
++    def test_mark_resolved_clears_error(self) -> None:
++        """Should clear error when marking as resolved."""
++        spec = DependencySpec(
++            name="test-dep",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++        resolution = DependencyResolution(spec=spec, status=DependencyStatus.FAILED)
++        resolution.error_message = "Previous error"
++
++        resolution.mark_resolved("/path/to/repo")
++
++        assert resolution.status == DependencyStatus.RESOLVED
++        assert resolution.error_message is None
++
++    def test_equality_based_on_name(self) -> None:
++        """Should be equal if same dependency name."""
++        spec1 = DependencySpec(
++            name="test-dep",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++        spec2 = DependencySpec(
++            name="test-dep",
++            git_url=GitUrl("https://github.com/other/repo.git"),
++            git_ref=GitRef("develop"),
++        )
++
++        res1 = DependencyResolution(spec=spec1, status=DependencyStatus.PENDING)
++        res2 = DependencyResolution(spec=spec2, status=DependencyStatus.RESOLVED)
++
++        assert res1 == res2  # Same name
++
++    def test_inequality_different_names(self) -> None:
++        """Should not be equal if different dependency names."""
++        spec1 = DependencySpec(
++            name="dep1",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++        spec2 = DependencySpec(
++            name="dep2",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++
++        res1 = DependencyResolution(spec=spec1, status=DependencyStatus.PENDING)
++        res2 = DependencyResolution(spec=spec2, status=DependencyStatus.PENDING)
++
++        assert res1 != res2
++
++    def test_hashable(self) -> None:
++        """Should be hashable (can use in sets/dicts)."""
++        spec = DependencySpec(
++            name="test-dep",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++        resolution = DependencyResolution(spec=spec, status=DependencyStatus.PENDING)
++
++        # Should be able to add to set
++        resolutions = {resolution}
++        assert resolution in resolutions
+diff --git a/tests/unit/test_git_errors.py b/tests/unit/test_git_errors.py
+new file mode 100644
+index 0000000..225aca5
+--- /dev/null
++++ b/tests/unit/test_git_errors.py
+@@ -0,0 +1,236 @@
++"""Unit tests for git error handling.
++
++Tests that git adapter correctly detects and raises specific error types.
++
++Rationale:
++    Git operations fail in predictable ways (auth errors, not found, network issues).
++    These tests ensure we detect failure types from git stderr and raise appropriate
++    exceptions with helpful context. This enables:
++    - Targeted error recovery (retry vs abort)
++    - User-friendly error messages
++    - Monitoring/alerting on specific error types
++"""
++
++from unittest.mock import MagicMock, patch
++
++import pytest
++
++from graft.adapters.git import SubprocessGitOperations
++from graft.domain.exceptions import (
++    GitAuthenticationError,
++    GitCloneError,
++    GitFetchError,
++    GitNotFoundError,
++)
++
++
++class TestGitCloneErrors:
++    """Tests for git clone error detection.
++
++    Rationale: Clone is the primary operation. Different failure modes require
++    different user guidance (fix SSH keys vs check URL vs check network).
++    """
++
++    @patch("graft.adapters.git.subprocess.run")
++    def test_authentication_error_detected(self, mock_run: MagicMock) -> None:
++        """Should raise GitAuthenticationError for SSH key issues.
++
++        Rationale: Authentication failures are common and fixable.
++        User needs guidance on configuring SSH keys.
++        """
++        # Setup: Mock git clone failure with publickey error
++        mock_run.return_value = MagicMock(
++            returncode=128,
++            stderr="Permission denied (publickey).",
++            stdout="",
++        )
++
++        git = SubprocessGitOperations()
++
++        # Exercise & Verify
++        with pytest.raises(GitAuthenticationError) as exc_info:
++            git.clone("ssh://git@github.com/user/repo.git", "/tmp/repo", "main")
++
++        # Verify error includes helpful context
++        assert exc_info.value.url == "ssh://git@github.com/user/repo.git"
++        assert "SSH keys" in exc_info.value.suggestion
++
++    @patch("graft.adapters.git.subprocess.run")
++    def test_repository_not_found_detected(self, mock_run: MagicMock) -> None:
++        """Should raise GitNotFoundError for missing repository.
++
++        Rationale: Repository might not exist or URL might be wrong.
++        User needs to verify the URL.
++        """
++        # Setup: Mock git clone failure with not found error
++        mock_run.return_value = MagicMock(
++            returncode=128,
++            stderr="fatal: repository 'https://github.com/user/repo.git' not found",
++            stdout="",
++        )
++
++        git = SubprocessGitOperations()
++
++        # Exercise & Verify
++        with pytest.raises(GitNotFoundError) as exc_info:
++            git.clone("https://github.com/user/repo.git", "/tmp/repo", "main")
++
++        assert exc_info.value.url == "https://github.com/user/repo.git"
++        assert exc_info.value.ref == "main"
++
++    @patch("graft.adapters.git.subprocess.run")
++    def test_generic_clone_error(self, mock_run: MagicMock) -> None:
++        """Should raise GitCloneError for other clone failures.
++
++        Rationale: Not all git errors are predictable. Generic error
++        should include full stderr for debugging.
++        """
++        # Setup: Mock git clone failure with generic error
++        mock_run.return_value = MagicMock(
++            returncode=1,
++            stderr="fatal: unable to access 'https://github.com/': Network unreachable",
++            stdout="",
++        )
++
++        git = SubprocessGitOperations()
++
++        # Exercise & Verify
++        with pytest.raises(GitCloneError) as exc_info:
++            git.clone("https://github.com/user/repo.git", "/tmp/repo", "main")
++
++        assert "Network unreachable" in exc_info.value.stderr
++        assert exc_info.value.returncode == 1
++
++
++class TestGitFetchErrors:
++    """Tests for git fetch/checkout error detection.
++
++    Rationale: Updating existing repos fails differently than cloning.
++    Most common issue is ref not found (branch deleted, tag doesn't exist).
++    """
++
++    @patch("graft.adapters.git.subprocess.run")
++    def test_ref_not_found_detected(self, mock_run: MagicMock) -> None:
++        """Should raise GitNotFoundError for missing ref.
++
++        Rationale: Branch or tag might not exist. User needs to check
++        available refs in the repository.
++        """
++        # Setup: Mock successful fetch but failed checkout
++        def side_effect(*args, **kwargs):
++            cmd = args[0]
++            if "fetch" in cmd:
++                # Fetch succeeds
++                return MagicMock(returncode=0, stderr="", stdout="")
++            else:
++                # Checkout fails - ref not found
++                return MagicMock(
++                    returncode=1,
++                    stderr="error: pathspec 'nonexistent-branch' did not match any file(s) known to git",
++                    stdout="",
++                )
++
++        mock_run.side_effect = side_effect
++
++        git = SubprocessGitOperations()
++
++        # Exercise & Verify
++        with pytest.raises(GitNotFoundError) as exc_info:
++            git.fetch("/tmp/existing-repo", "nonexistent-branch")
++
++        assert exc_info.value.ref == "nonexistent-branch"
++
++    @patch("graft.adapters.git.subprocess.run")
++    def test_fetch_authentication_error_detected(self, mock_run: MagicMock) -> None:
++        """Should raise GitAuthenticationError for fetch auth failures.
++
++        Rationale: Permissions might change after initial clone.
++        User needs to verify access.
++        """
++        # Setup: Mock fetch failure with auth error
++        mock_run.return_value = MagicMock(
++            returncode=128,
++            stderr="Permission denied (publickey).",
++            stdout="",
++        )
++
++        git = SubprocessGitOperations()
++
++        # Exercise & Verify
++        with pytest.raises(GitAuthenticationError) as exc_info:
++            git.fetch("/tmp/existing-repo", "main")
++
++        assert "SSH keys" in exc_info.value.suggestion
++
++    @patch("graft.adapters.git.subprocess.run")
++    def test_checkout_failure_after_fetch(self, mock_run: MagicMock) -> None:
++        """Should raise GitFetchError for checkout failures.
++
++        Rationale: Fetch might succeed but checkout can fail for various reasons
++        (dirty working tree, etc.). Error should include git's message.
++        """
++        # Setup: Mock successful fetch but failed checkout
++        def side_effect(*args, **kwargs):
++            cmd = args[0]
++            if "fetch" in cmd:
++                return MagicMock(returncode=0, stderr="", stdout="")
++            else:
++                return MagicMock(
++                    returncode=1,
++                    stderr="error: Your local changes would be overwritten",
++                    stdout="",
++                )
++
++        mock_run.side_effect = side_effect
++
++        git = SubprocessGitOperations()
++
++        # Exercise & Verify
++        with pytest.raises(GitFetchError) as exc_info:
++            git.fetch("/tmp/existing-repo", "main")
++
++        assert "Checkout failed" in exc_info.value.stderr
++        assert "overwritten" in exc_info.value.stderr
++
++
++class TestIsRepository:
++    """Tests for repository detection.
++
++    Rationale: We need to distinguish between existing repos and non-git directories.
++    This determines whether to clone or fetch.
++    """
++
++    def test_detects_git_repository(self, tmp_path):
++        """Should return True for directories containing .git.
++
++        Rationale: Standard git repositories have a .git directory.
++        """
++        # Setup: Create fake .git directory
++        git_dir = tmp_path / ".git"
++        git_dir.mkdir()
++
++        git = SubprocessGitOperations()
++
++        # Exercise & Verify
++        assert git.is_repository(str(tmp_path)) is True
++
++    def test_detects_non_git_directory(self, tmp_path):
++        """Should return False for directories without .git.
++
++        Rationale: Regular directories should trigger clone, not fetch.
++        """
++        git = SubprocessGitOperations()
++
++        # Exercise & Verify
++        assert git.is_repository(str(tmp_path)) is False
++
++    def test_detects_missing_directory(self, tmp_path):
++        """Should return False for non-existent paths.
++
++        Rationale: Missing directories should trigger clone.
++        """
++        git = SubprocessGitOperations()
++        non_existent = tmp_path / "does-not-exist"
++
++        # Exercise & Verify
++        assert git.is_repository(str(non_existent)) is False
+diff --git a/tests/unit/test_resolution_service.py b/tests/unit/test_resolution_service.py
+new file mode 100644
+index 0000000..6eb0d91
+--- /dev/null
++++ b/tests/unit/test_resolution_service.py
+@@ -0,0 +1,368 @@
++"""Unit tests for resolution service.
++
++Tests for resolve_dependency and resolve_all_dependencies service functions.
++
++Rationale:
++    Resolution service implements our hybrid error handling strategy:
++    - Git operations can fail (exceptions)
++    - But resolution continues (converts to failed DependencyResolution)
++    - This enables batch processing with partial failures
++
++    These tests verify:
++    - Successful resolution flow
++    - Exception-to-result conversion
++    - Batch operations continue on partial failure
++"""
++
++import pytest
++
++from graft.domain.config import GraftConfig
++from graft.domain.dependency import DependencySpec, DependencyStatus, GitRef, GitUrl
++from graft.services import resolution_service
++from graft.services.dependency_context import DependencyContext
++from tests.fakes.fake_filesystem import FakeFileSystem
++from tests.fakes.fake_git import FakeGitOperations
++
++
++@pytest.fixture
++def fake_git() -> FakeGitOperations:
++    """Provide fresh fake git operations."""
++    git = FakeGitOperations()
++    yield git
++    git.reset()
++
++
++@pytest.fixture
++def full_dependency_context(
++    fake_filesystem: FakeFileSystem,
++    fake_git: FakeGitOperations,
++) -> DependencyContext:
++    """Provide dependency context with git operations."""
++    return DependencyContext(
++        filesystem=fake_filesystem,
++        git=fake_git,
++        deps_directory="/fake/deps",
++    )
++
++
++class TestResolveDependency:
++    """Tests for resolve_dependency service function.
++
++    Rationale: This service demonstrates our hybrid error handling.
++    Git exceptions are caught and converted to DependencyResolution.FAILED,
++    allowing callers to handle errors functionally.
++    """
++
++    def test_clone_new_dependency(
++        self,
++        full_dependency_context: DependencyContext,
++        fake_git: FakeGitOperations,
++    ) -> None:
++        """Should clone dependency that doesn't exist.
++
++        Rationale: Happy path - directory doesn't exist, so clone.
++        This is the most common scenario for first-time dependency resolution.
++        """
++        # Setup
++        spec = DependencySpec(
++            name="test-repo",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++
++        # Exercise
++        resolution = resolution_service.resolve_dependency(full_dependency_context, spec)
++
++        # Verify
++        assert resolution.status == DependencyStatus.RESOLVED
++        assert resolution.local_path == "/fake/deps/test-repo"
++        assert fake_git.was_cloned(
++            "https://github.com/user/repo.git",
++            "/fake/deps/test-repo",
++            "main",
++        )
++
++    def test_fetch_existing_dependency(
++        self,
++        full_dependency_context: DependencyContext,
++        fake_git: FakeGitOperations,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should fetch dependency that already exists.
++
++        Rationale: When re-running graft resolve, we should update
++        existing repositories rather than re-cloning.
++        """
++        # Setup
++        spec = DependencySpec(
++            name="test-repo",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("develop"),
++        )
++
++        # Simulate existing repo
++        fake_filesystem.mkdir("/fake/deps/test-repo")
++        fake_git._cloned_repos["/fake/deps/test-repo"] = (
++            "https://github.com/user/repo.git",
++            "main",
++        )
++
++        # Exercise
++        resolution = resolution_service.resolve_dependency(full_dependency_context, spec)
++
++        # Verify
++        assert resolution.status == DependencyStatus.RESOLVED
++        assert fake_git.get_fetch_count() == 1
++        assert fake_git.get_clone_count() == 0
++
++    def test_failed_clone_marks_resolution_failed(
++        self,
++        full_dependency_context: DependencyContext,
++        fake_git: FakeGitOperations,
++    ) -> None:
++        """Should mark resolution as failed if clone fails.
++
++        Rationale: Key behavior - exceptions are converted to failed results.
++        This allows batch processing to continue and report all failures.
++        Error message should be preserved for user feedback.
++        """
++        # Setup
++        spec = DependencySpec(
++            name="test-repo",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++
++        # Configure git to fail
++        fake_git.configure_failure(
++            "https://github.com/user/repo.git",
++            "Network error",
++        )
++
++        # Exercise
++        resolution = resolution_service.resolve_dependency(full_dependency_context, spec)
++
++        # Verify
++        assert resolution.status == DependencyStatus.FAILED
++        assert "Network error" in resolution.error_message
++
++    def test_non_git_directory_marks_resolution_failed(
++        self,
++        full_dependency_context: DependencyContext,
++        fake_filesystem: FakeFileSystem,
++    ) -> None:
++        """Should fail if path exists but is not a git repository.
++
++        Rationale: User might have manually created directory or it's from
++        another source. We can't safely clone over it or fetch into it.
++        Error message should explain the problem.
++        """
++        # Setup
++        spec = DependencySpec(
++            name="test-repo",
++            git_url=GitUrl("https://github.com/user/repo.git"),
++            git_ref=GitRef("main"),
++        )
++
++        # Create non-git directory
++        fake_filesystem.mkdir("/fake/deps/test-repo")
++
++        # Exercise
++        resolution = resolution_service.resolve_dependency(full_dependency_context, spec)
++
++        # Verify
++        assert resolution.status == DependencyStatus.FAILED
++        assert "not a git repository" in resolution.error_message
++
++    def test_resolution_sets_local_path(
++        self,
++        full_dependency_context: DependencyContext,
++    ) -> None:
++        """Should set local_path on successful resolution."""
++        # Setup
++        spec = DependencySpec(
++            name="graft-knowledge",
++            git_url=GitUrl("ssh://git@example.com/repo.git"),
++            git_ref=GitRef("main"),
++        )
++
++        # Exercise
++        resolution = resolution_service.resolve_dependency(full_dependency_context, spec)
++
++        # Verify
++        assert resolution.local_path == "/fake/deps/graft-knowledge"
++
++    def test_resolution_uses_dependency_name_for_path(
++        self,
++        full_dependency_context: DependencyContext,
++        fake_git: FakeGitOperations,
++    ) -> None:
++        """Should use dependency name as directory name."""
++        # Setup
++        spec = DependencySpec(
++            name="my-custom-name",
++            git_url=GitUrl("https://github.com/user/some-repo.git"),
++            git_ref=GitRef("v1.0.0"),
++        )
++
++        # Exercise
++        resolution = resolution_service.resolve_dependency(full_dependency_context, spec)
++
++        # Verify
++        assert "/fake/deps/my-custom-name" in fake_git._cloned_repos
++
++
++class TestResolveAllDependencies:
++    """Tests for resolve_all_dependencies service function.
++
++    Rationale: Batch operation demonstrating partial failure handling.
++    If one dependency fails, others should still be attempted.
++    """
++
++    def test_resolve_single_dependency(
++        self,
++        full_dependency_context: DependencyContext,
++    ) -> None:
++        """Should resolve single dependency.
++
++        Rationale: Basic case - single dependency resolves successfully.
++        """
++        # Setup
++        spec = DependencySpec(
++            name="dep1",
++            git_url=GitUrl("https://github.com/user/repo1.git"),
++            git_ref=GitRef("main"),
++        )
++        config = GraftConfig(
++            api_version="graft/v0",
++            dependencies={"dep1": spec},
++        )
++
++        # Exercise
++        resolutions = resolution_service.resolve_all_dependencies(
++            full_dependency_context, config
++        )
++
++        # Verify
++        assert len(resolutions) == 1
++        assert resolutions[0].status == DependencyStatus.RESOLVED
++        assert resolutions[0].name == "dep1"
++
++    def test_resolve_multiple_dependencies(
++        self,
++        full_dependency_context: DependencyContext,
++    ) -> None:
++        """Should resolve all dependencies.
++
++        Rationale: Multiple dependencies should all resolve successfully.
++        Verifies we process all deps from config.
++        """
++        # Setup
++        spec1 = DependencySpec(
++            name="dep1",
++            git_url=GitUrl("https://github.com/user/repo1.git"),
++            git_ref=GitRef("main"),
++        )
++        spec2 = DependencySpec(
++            name="dep2",
++            git_url=GitUrl("https://github.com/user/repo2.git"),
++            git_ref=GitRef("develop"),
++        )
++        spec3 = DependencySpec(
++            name="dep3",
++            git_url=GitUrl("ssh://git@example.com/repo3.git"),
++            git_ref=GitRef("v1.0.0"),
++        )
++
++        config = GraftConfig(
++            api_version="graft/v0",
++            dependencies={"dep1": spec1, "dep2": spec2, "dep3": spec3},
++        )
++
++        # Exercise
++        resolutions = resolution_service.resolve_all_dependencies(
++            full_dependency_context, config
++        )
++
++        # Verify
++        assert len(resolutions) == 3
++        assert all(r.status == DependencyStatus.RESOLVED for r in resolutions)
++        assert {r.name for r in resolutions} == {"dep1", "dep2", "dep3"}
++
++    def test_continue_on_partial_failure(
++        self,
++        full_dependency_context: DependencyContext,
++        fake_git: FakeGitOperations,
++    ) -> None:
++        """Should continue resolving after one dependency fails.
++
++        Rationale: CRITICAL behavior - demonstrates hybrid error strategy.
++        One failed dependency should NOT prevent others from resolving.
++        User gets complete picture of what succeeded and what failed.
++
++        This enables:
++        - Fixing one dependency without re-running all
++        - Understanding scope of issues
++        - Partial progress is preserved
++        """
++        # Setup
++        spec1 = DependencySpec(
++            name="dep1",
++            git_url=GitUrl("https://github.com/user/repo1.git"),
++            git_ref=GitRef("main"),
++        )
++        spec2 = DependencySpec(
++            name="dep2",
++            git_url=GitUrl("https://github.com/user/repo2.git"),
++            git_ref=GitRef("main"),
++        )
++        spec3 = DependencySpec(
++            name="dep3",
++            git_url=GitUrl("https://github.com/user/repo3.git"),
++            git_ref=GitRef("main"),
++        )
++
++        # Configure dep2 to fail
++        fake_git.configure_failure(
++            "https://github.com/user/repo2.git",
++            "Network error",
++        )
++
++        config = GraftConfig(
++            api_version="graft/v0",
++            dependencies={"dep1": spec1, "dep2": spec2, "dep3": spec3},
++        )
++
++        # Exercise
++        resolutions = resolution_service.resolve_all_dependencies(
++            full_dependency_context, config
++        )
++
++        # Verify
++        assert len(resolutions) == 3
++        assert resolutions[0].status == DependencyStatus.RESOLVED
++        assert resolutions[1].status == DependencyStatus.FAILED
++        assert resolutions[2].status == DependencyStatus.RESOLVED
++
++    def test_empty_dependencies(
++        self,
++        full_dependency_context: DependencyContext,
++    ) -> None:
++        """Should handle empty dependencies.
++
++        Rationale: Edge case - graft.yaml with no dependencies.
++        Should succeed gracefully, not error.
++        """
++        # Setup
++        config = GraftConfig(
++            api_version="graft/v0",
++            dependencies={},
++        )
++
++        # Exercise
++        resolutions = resolution_service.resolve_all_dependencies(
++            full_dependency_context, config
++        )
++
++        # Verify
++        assert len(resolutions) == 0
+-- 
+2.43.0
+

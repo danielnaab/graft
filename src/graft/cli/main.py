@@ -5,7 +5,7 @@ Registers command groups and top-level commands.
 
 import typer
 
-from graft.cli.commands import example
+from graft.cli.commands import example, resolve
 
 app = typer.Typer(
     name="graft-cli",
@@ -15,6 +15,11 @@ app = typer.Typer(
 
 # Register command groups
 app.add_typer(example.app, name="example", help="Example commands")
+
+# Register commands
+app.command(name="resolve", help="Resolve dependencies from graft.yaml")(
+    resolve.resolve_command
+)
 
 
 @app.command()
