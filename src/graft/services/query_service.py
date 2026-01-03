@@ -9,7 +9,6 @@ from datetime import datetime
 from graft.domain.change import Change
 from graft.domain.command import Command
 from graft.domain.config import GraftConfig
-from graft.domain.lock_entry import LockEntry
 from graft.protocols.lock_file import LockFile
 
 

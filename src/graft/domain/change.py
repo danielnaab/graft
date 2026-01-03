@@ -5,7 +5,7 @@ and optionally associated with migration and verification operations.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from graft.domain.exceptions import ValidationError
 
@@ -40,10 +40,10 @@ class Change:
     """
 
     ref: str
-    type: Optional[str] = None
-    description: Optional[str] = None
-    migration: Optional[str] = None
-    verify: Optional[str] = None
+    type: str | None = None
+    description: str | None = None
+    migration: str | None = None
+    verify: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

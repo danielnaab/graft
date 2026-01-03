@@ -3,7 +3,7 @@
 Service functions for working with graft.lock files.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from graft.domain.lock_entry import LockEntry
@@ -57,7 +57,7 @@ def update_dependency_lock(
         source=source,
         ref=ref,
         commit=commit,
-        consumed_at=datetime.now(timezone.utc),
+        consumed_at=datetime.now(UTC),
     )
 
     # If lock file doesn't exist, create it with this entry

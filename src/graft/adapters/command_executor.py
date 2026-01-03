@@ -39,9 +39,9 @@ class SubprocessCommandExecutor:
         if working_dir:
             working_path = Path(working_dir)
             if not working_path.exists():
-                raise IOError(f"Working directory does not exist: {working_dir}")
+                raise OSError(f"Working directory does not exist: {working_dir}")
             if not working_path.is_dir():
-                raise IOError(f"Working directory is not a directory: {working_dir}")
+                raise OSError(f"Working directory is not a directory: {working_dir}")
 
         # Build environment
         command_env = os.environ.copy()
@@ -67,4 +67,4 @@ class SubprocessCommandExecutor:
             )
 
         except Exception as e:
-            raise IOError(f"Failed to execute command: {e}") from e
+            raise OSError(f"Failed to execute command: {e}") from e

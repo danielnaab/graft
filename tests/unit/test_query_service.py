@@ -1,6 +1,6 @@
 """Tests for query service."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -70,13 +70,13 @@ class TestGetAllStatus:
                 source="git@github.com:org/dep1.git",
                 ref="v1.0.0",
                 commit="a" * 40,
-                consumed_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                consumed_at=datetime(2025, 1, 1, tzinfo=UTC),
             ),
             "dep2": LockEntry(
                 source="git@github.com:org/dep2.git",
                 ref="v2.0.0",
                 commit="b" * 40,
-                consumed_at=datetime(2025, 1, 2, tzinfo=timezone.utc),
+                consumed_at=datetime(2025, 1, 2, tzinfo=UTC),
             ),
         }
         fake_lock_file.write_lock_file("/test/graft.lock", entries)
@@ -123,7 +123,7 @@ class TestGetDependencyStatus:
             source="git@github.com:org/dep.git",
             ref="v1.5.0",
             commit="c" * 40,
-            consumed_at=datetime(2025, 1, 3, 10, 30, tzinfo=timezone.utc),
+            consumed_at=datetime(2025, 1, 3, 10, 30, tzinfo=UTC),
         )
         fake_lock_file.write_lock_file("/test/graft.lock", {"my-dep": entry})
 
@@ -137,7 +137,7 @@ class TestGetDependencyStatus:
         assert status.name == "my-dep"
         assert status.current_ref == "v1.5.0"
         assert status.commit == "c" * 40
-        assert status.consumed_at == datetime(2025, 1, 3, 10, 30, tzinfo=timezone.utc)
+        assert status.consumed_at == datetime(2025, 1, 3, 10, 30, tzinfo=UTC)
 
     def test_get_nonexistent_dependency_status(
         self, fake_lock_file: FakeLockFile

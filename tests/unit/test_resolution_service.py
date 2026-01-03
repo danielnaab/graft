@@ -206,7 +206,7 @@ class TestResolveDependency:
         )
 
         # Exercise
-        resolution = resolution_service.resolve_dependency(full_dependency_context, spec)
+        resolution_service.resolve_dependency(full_dependency_context, spec)
 
         # Verify
         assert "/fake/deps/my-custom-name" in fake_git._cloned_repos

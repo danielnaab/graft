@@ -4,7 +4,6 @@ Represents an executable command defined in a dependency's graft.yaml.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from graft.domain.exceptions import ValidationError
 
@@ -38,8 +37,8 @@ class Command:
 
     name: str
     run: str
-    description: Optional[str] = None
-    working_dir: Optional[str] = None
+    description: str | None = None
+    working_dir: str | None = None
     env: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

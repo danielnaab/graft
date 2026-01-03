@@ -119,7 +119,7 @@ class YamlLockFile:
                     allow_unicode=True,
                 )
         except Exception as e:
-            raise IOError(f"Failed to write lock file: {e}") from e
+            raise OSError(f"Failed to write lock file: {e}") from e
 
     def update_lock_entry(
         self, path: str, dep_name: str, entry: LockEntry

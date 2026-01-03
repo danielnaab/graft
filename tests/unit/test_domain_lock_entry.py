@@ -1,6 +1,6 @@
 """Tests for LockEntry domain model."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -13,7 +13,7 @@ class TestLockEntry:
 
     def test_create_valid_lock_entry(self) -> None:
         """Should create lock entry with valid fields."""
-        consumed_at = datetime(2026, 1, 1, 10, 30, 0, tzinfo=timezone.utc)
+        consumed_at = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
         entry = LockEntry(
             source="git@github.com:org/repo.git",
             ref="v1.5.0",
@@ -33,7 +33,7 @@ class TestLockEntry:
                 source="",
                 ref="v1.0.0",
                 commit="a" * 40,
-                consumed_at=datetime.now(timezone.utc),
+                consumed_at=datetime.now(UTC),
             )
 
         assert "source cannot be empty" in str(exc_info.value)
@@ -45,7 +45,7 @@ class TestLockEntry:
                 source="   ",
                 ref="v1.0.0",
                 commit="a" * 40,
-                consumed_at=datetime.now(timezone.utc),
+                consumed_at=datetime.now(UTC),
             )
 
         assert "source cannot be only whitespace" in str(exc_info.value)
@@ -57,7 +57,7 @@ class TestLockEntry:
                 source="git@github.com:org/repo.git",
                 ref="",
                 commit="a" * 40,
-                consumed_at=datetime.now(timezone.utc),
+                consumed_at=datetime.now(UTC),
             )
 
         assert "ref cannot be empty" in str(exc_info.value)
@@ -69,7 +69,7 @@ class TestLockEntry:
                 source="git@github.com:org/repo.git",
                 ref="   ",
                 commit="a" * 40,
-                consumed_at=datetime.now(timezone.utc),
+                consumed_at=datetime.now(UTC),
             )
 
         assert "ref cannot be only whitespace" in str(exc_info.value)
@@ -81,7 +81,7 @@ class TestLockEntry:
                 source="git@github.com:org/repo.git",
                 ref="v1.0.0",
                 commit="",
-                consumed_at=datetime.now(timezone.utc),
+                consumed_at=datetime.now(UTC),
             )
 
         assert "commit cannot be empty" in str(exc_info.value)
@@ -102,7 +102,7 @@ class TestLockEntry:
                     source="git@github.com:org/repo.git",
                     ref="v1.0.0",
                     commit=invalid_hash,
-                    consumed_at=datetime.now(timezone.utc),
+                    consumed_at=datetime.now(UTC),
                 )
 
             assert "Invalid commit hash format" in str(exc_info.value)
@@ -116,7 +116,7 @@ class TestLockEntry:
             source="git@github.com:org/repo.git",
             ref="v1.0.0",
             commit=valid_hash,
-            consumed_at=datetime.now(timezone.utc),
+            consumed_at=datetime.now(UTC),
         )
 
         assert entry.commit == valid_hash
@@ -127,14 +127,14 @@ class TestLockEntry:
             source="git@github.com:org/repo.git",
             ref="v1.0.0",
             commit="abc123def456789012345678901234567890abcd",
-            consumed_at=datetime.now(timezone.utc),
+            consumed_at=datetime.now(UTC),
         )
 
         assert entry.is_valid_commit_hash() is True
 
     def test_to_dict_converts_to_serializable_format(self) -> None:
         """Should convert to dict suitable for YAML serialization."""
-        consumed_at = datetime(2026, 1, 1, 10, 30, 0, tzinfo=timezone.utc)
+        consumed_at = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
         entry = LockEntry(
             source="git@github.com:org/repo.git",
             ref="v1.5.0",
@@ -167,7 +167,7 @@ class TestLockEntry:
         assert entry.source == "git@github.com:org/repo.git"
         assert entry.ref == "v1.0.0"
         assert entry.commit == "a" * 40
-        assert entry.consumed_at == datetime(2026, 1, 1, 10, 30, 0, tzinfo=timezone.utc)
+        assert entry.consumed_at == datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
 
     def test_from_dict_with_missing_field_raises_validation_error(self) -> None:
         """Should raise ValidationError if required field is missing."""
@@ -207,7 +207,7 @@ class TestLockEntry:
             source="git@github.com:org/repo.git",
             ref="v1.5.0",
             commit="abc123def456789012345678901234567890abcd",
-            consumed_at=datetime(2026, 1, 1, 10, 30, 0, tzinfo=timezone.utc),
+            consumed_at=datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC),
         )
 
         data = original.to_dict()
@@ -224,7 +224,7 @@ class TestLockEntry:
             source="git@github.com:org/repo.git",
             ref="v1.0.0",
             commit="a" * 40,
-            consumed_at=datetime.now(timezone.utc),
+            consumed_at=datetime.now(UTC),
         )
 
         with pytest.raises(Exception):  # FrozenInstanceError or AttributeError
@@ -232,7 +232,7 @@ class TestLockEntry:
 
     def test_lock_entries_with_same_fields_are_equal(self) -> None:
         """Should consider lock entries equal if all fields match."""
-        consumed_at = datetime(2026, 1, 1, 10, 30, 0, tzinfo=timezone.utc)
+        consumed_at = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
         entry1 = LockEntry(
             source="git@github.com:org/repo.git",
             ref="v1.0.0",
@@ -250,7 +250,7 @@ class TestLockEntry:
 
     def test_lock_entries_with_different_fields_are_not_equal(self) -> None:
         """Should not be equal if any field differs."""
-        consumed_at = datetime(2026, 1, 1, 10, 30, 0, tzinfo=timezone.utc)
+        consumed_at = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
         base = LockEntry(
             source="git@github.com:org/repo.git",
             ref="v1.0.0",
@@ -288,7 +288,7 @@ class TestLockEntry:
                 source=url,
                 ref="v1.0.0",
                 commit="a" * 40,
-                consumed_at=datetime.now(timezone.utc),
+                consumed_at=datetime.now(UTC),
             )
             assert entry.source == url
 
@@ -307,13 +307,13 @@ class TestLockEntry:
                 source="git@github.com:org/repo.git",
                 ref=ref,
                 commit="a" * 40,
-                consumed_at=datetime.now(timezone.utc),
+                consumed_at=datetime.now(UTC),
             )
             assert entry.ref == ref
 
     def test_timestamp_with_microseconds(self) -> None:
         """Should handle timestamps with microseconds."""
-        consumed_at = datetime(2026, 1, 1, 10, 30, 0, 123456, tzinfo=timezone.utc)
+        consumed_at = datetime(2026, 1, 1, 10, 30, 0, 123456, tzinfo=UTC)
         entry = LockEntry(
             source="git@github.com:org/repo.git",
             ref="v1.0.0",

@@ -48,7 +48,7 @@ class TestExecuteCommand:
         )
 
         # Execute with args
-        result = command_service.execute_command(
+        command_service.execute_command(
             fake_executor, command, args=["--flag", "value"]
         )
 
@@ -149,7 +149,7 @@ class TestExecuteCommand:
         """Should propagate IOError from executor."""
         # Setup
         command = Command(name="test-cmd", run="invalid")
-        fake_executor.set_should_raise(IOError("Command failed"))
+        fake_executor.set_should_raise(OSError("Command failed"))
 
         # Execute and verify error
         with pytest.raises(IOError) as exc_info:

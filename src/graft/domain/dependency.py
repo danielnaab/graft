@@ -5,7 +5,6 @@ Entities and value objects for managing knowledge base dependencies.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 from urllib.parse import urlparse
 
 from graft.domain.exceptions import ValidationError
@@ -41,7 +40,7 @@ class GitRef:
     """
 
     ref: str
-    ref_type: Optional[str] = None  # "branch", "tag", "commit", or None
+    ref_type: str | None = None  # "branch", "tag", "commit", or None
 
     def __post_init__(self) -> None:
         """Validate git reference."""
@@ -174,8 +173,8 @@ class DependencyResolution:
 
     spec: DependencySpec
     status: DependencyStatus
-    local_path: Optional[str] = None
-    error_message: Optional[str] = None
+    local_path: str | None = None
+    error_message: str | None = None
 
     @property
     def name(self) -> str:

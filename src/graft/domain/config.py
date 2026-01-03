@@ -4,7 +4,7 @@ Value objects for graft configuration.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from graft.domain.change import Change
 from graft.domain.command import Command

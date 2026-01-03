@@ -1,6 +1,6 @@
 """Tests for lock file service."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -25,7 +25,7 @@ class TestGetLockEntry:
             source="git@github.com:org/repo.git",
             ref="v1.0.0",
             commit="a" * 40,
-            consumed_at=datetime.now(timezone.utc),
+            consumed_at=datetime.now(UTC),
         )
         fake_lock_file.write_lock_file("/test/graft.lock", {"test-dep": entry})
 
@@ -72,7 +72,7 @@ class TestUpdateDependencyLock:
             source="git@github.com:org/repo.git",
             ref="v1.0.0",
             commit="a" * 40,
-            consumed_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            consumed_at=datetime(2025, 1, 1, tzinfo=UTC),
         )
         fake_lock_file.write_lock_file("/test/graft.lock", {"test-dep": old_entry})
 
@@ -101,7 +101,7 @@ class TestUpdateDependencyLock:
             source="git@github.com:org/repo1.git",
             ref="v1.0.0",
             commit="a" * 40,
-            consumed_at=datetime.now(timezone.utc),
+            consumed_at=datetime.now(UTC),
         )
         fake_lock_file.write_lock_file("/test/graft.lock", {"dep1": existing_entry})
 
@@ -155,13 +155,13 @@ class TestGetAllLockEntries:
                 source="git@github.com:org/repo1.git",
                 ref="v1.0.0",
                 commit="a" * 40,
-                consumed_at=datetime.now(timezone.utc),
+                consumed_at=datetime.now(UTC),
             ),
             "dep2": LockEntry(
                 source="git@github.com:org/repo2.git",
                 ref="v2.0.0",
                 commit="b" * 40,
-                consumed_at=datetime.now(timezone.utc),
+                consumed_at=datetime.now(UTC),
             ),
         }
         fake_lock_file.write_lock_file("/test/graft.lock", entries)

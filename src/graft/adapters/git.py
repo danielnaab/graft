@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 
 from graft.domain.exceptions import (
-    DependencyResolutionError,
     GitAuthenticationError,
     GitCloneError,
     GitFetchError,

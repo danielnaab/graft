@@ -3,7 +3,7 @@
 Tests using real adapter implementations (not fakes).
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -192,13 +192,13 @@ class TestYamlLockFile:
                 source="git@github.com:org/repo1.git",
                 ref="v1.0.0",
                 commit="a" * 40,
-                consumed_at=datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+                consumed_at=datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC),
             ),
             "dep2": LockEntry(
                 source="https://github.com/org/repo2.git",
                 ref="main",
                 commit="b" * 40,
-                consumed_at=datetime(2025, 1, 2, 12, 0, 0, tzinfo=timezone.utc),
+                consumed_at=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
             ),
         }
 
@@ -250,13 +250,13 @@ class TestYamlLockFile:
                 source="git@github.com:org/repo1.git",
                 ref="v1.0.0",
                 commit="a" * 40,
-                consumed_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                consumed_at=datetime(2025, 1, 1, tzinfo=UTC),
             ),
             "dep2": LockEntry(
                 source="git@github.com:org/repo2.git",
                 ref="v1.0.0",
                 commit="b" * 40,
-                consumed_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                consumed_at=datetime(2025, 1, 1, tzinfo=UTC),
             ),
         }
         lock_file.write_lock_file(temp_lock_path, initial_entries)
@@ -266,7 +266,7 @@ class TestYamlLockFile:
             source="git@github.com:org/repo1.git",
             ref="v2.0.0",
             commit="c" * 40,
-            consumed_at=datetime(2025, 1, 2, tzinfo=timezone.utc),
+            consumed_at=datetime(2025, 1, 2, tzinfo=UTC),
         )
         lock_file.update_lock_entry(temp_lock_path, "dep1", updated_entry)
 
@@ -291,7 +291,7 @@ class TestYamlLockFile:
                 source="git@github.com:org/repo1.git",
                 ref="v1.0.0",
                 commit="a" * 40,
-                consumed_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                consumed_at=datetime(2025, 1, 1, tzinfo=UTC),
             ),
         }
         lock_file.write_lock_file(temp_lock_path, initial_entries)
@@ -301,7 +301,7 @@ class TestYamlLockFile:
             source="git@github.com:org/repo2.git",
             ref="v1.0.0",
             commit="b" * 40,
-            consumed_at=datetime(2025, 1, 2, tzinfo=timezone.utc),
+            consumed_at=datetime(2025, 1, 2, tzinfo=UTC),
         )
         lock_file.update_lock_entry(temp_lock_path, "dep2", new_entry)
 
@@ -362,7 +362,7 @@ class TestYamlLockFile:
                 source="git@github.com:org/repo.git",
                 ref="v1.2.3",
                 commit="abc123" + "0" * 34,
-                consumed_at=datetime(2025, 1, 3, 10, 30, 0, tzinfo=timezone.utc),
+                consumed_at=datetime(2025, 1, 3, 10, 30, 0, tzinfo=UTC),
             ),
         }
         lock_file.write_lock_file(temp_lock_path, entries)
