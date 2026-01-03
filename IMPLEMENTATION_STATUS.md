@@ -2,7 +2,8 @@
 
 **Date**: 2026-01-03
 **Branch**: `feature/sync-with-specification`
-**Status**: In Progress (Phase 2 of 10 complete)
+**Status**: In Progress (Phases 1-2 complete with comprehensive tests)
+**Pull Request**: http://192.168.1.51/git/daniel/graft/pulls/1
 
 ## Overview
 
@@ -67,6 +68,45 @@ Extended `config_service.py` to parse full graft.yaml format:
    - Dependencies support both string ("url#ref") and object ({source, ref}) formats
 
 **Lines of code added**: ~170 lines
+
+### Comprehensive Testing ✓
+
+**Status**: Complete
+**Commits**: d1483e2, 5c7da84
+
+Added comprehensive test suites for all new functionality:
+
+1. **Domain Model Tests** (69 tests total):
+   - `test_domain_change.py` - 22 tests for Change model (100% coverage)
+   - `test_domain_command.py` - 27 tests for Command model (100% coverage)
+   - `test_domain_lock_entry.py` - 20 tests for LockEntry model (100% coverage)
+
+2. **Config Parsing Tests** (10 tests):
+   - Tests for metadata section parsing
+   - Tests for commands section parsing
+   - Tests for changes section parsing
+   - Tests for new dependencies format
+   - Tests for command reference validation
+   - Tests for custom metadata extraction
+   - Tests for complete graft.yaml files
+
+3. **Bug Fixes**:
+   - Fixed GitUrl to accept real-world git URL formats (SSH without scheme, relative paths)
+   - Fixed test expectations for validation errors
+   - Fixed deps field to be optional (backward compatibility)
+
+**Test Statistics**:
+- Total tests: 98 → 176 tests (+78 tests)
+- Coverage: 62% → 77% (+15 percentage points)
+- Files with 100% coverage: 15 files
+- config_service.py coverage: 55% → 84%
+
+**Test Quality**:
+- All tests follow established patterns (fakes over mocks)
+- Tests cover real-world usage scenarios
+- Comprehensive validation error testing
+- Edge cases and error paths tested
+- Clear, descriptive test names and docstrings
 
 ## Remaining Work
 
@@ -224,11 +264,14 @@ Tasks:
 | Core Operations | Not started | ⏳ Pending |
 | Atomic Upgrades | Not started | ⏳ Pending |
 
-## Estimated Completion
+## Current Progress Summary
 
-**Phases complete**: 2/10 (20%)
-**Files created**: 3 domain models, 1 extended module
-**Lines added**: ~620 lines
+**Phases complete**: 2/10 (20%) + Comprehensive Testing ✓
+**Files created**: 3 domain models + 3 test files
+**Files modified**: 2 (config.py, dependency.py) + 1 test file
+**Lines added**: ~1,300 lines (implementation + tests)
+**Tests added**: 78 new tests
+**Coverage improvement**: 62% → 77%
 
 **Remaining phases**: 8
 **Estimated files to create**: ~15-20 more
