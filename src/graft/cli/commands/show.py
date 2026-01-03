@@ -124,7 +124,7 @@ def show_command(dep_ref: str) -> None:
 
     except ConfigFileNotFoundError as e:
         typer.secho(
-            f"Error: Dependency configuration not found",
+            "Error: Dependency configuration not found",
             fg=typer.colors.RED,
             err=True,
         )

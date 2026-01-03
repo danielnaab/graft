@@ -3,6 +3,7 @@
 Service layer for atomic dependency upgrades with rollback support.
 """
 
+import contextlib
 from dataclasses import dataclass
 
 from graft.domain.config import GraftConfig
@@ -191,11 +192,9 @@ def upgrade_dependency(
 
     except Exception as e:
         # Catch-all rollback for unexpected errors
-        try:
+        # Suppress errors if rollback fails (snapshot may be corrupted)
+        with contextlib.suppress(ValueError, OSError):
             restore_workspace_snapshot(snapshot, snapshot_id)
-        except (ValueError, OSError):
-            # Rollback failed - snapshot may be corrupted
-            pass
 
         return UpgradeResult(
             success=False,

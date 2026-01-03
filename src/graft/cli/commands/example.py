@@ -32,7 +32,7 @@ def create(
         typer.echo(f"  Value: {entity.value.amount}")
     except ValidationError as e:
         typer.echo(f"Validation error: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 @app.command()
@@ -53,7 +53,7 @@ def get(
         typer.echo(f"  Value: {entity.value.amount}")
     except EntityNotFoundError as e:
         typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 @app.command(name="list")

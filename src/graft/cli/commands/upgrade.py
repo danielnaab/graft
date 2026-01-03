@@ -190,12 +190,12 @@ def upgrade_command(
                     typer.echo(f"  {result.verify_result.stdout.strip()}")
 
             typer.echo()
-            typer.secho(f"✓ Upgrade complete", fg=typer.colors.GREEN, bold=True)
+            typer.secho("✓ Upgrade complete", fg=typer.colors.GREEN, bold=True)
             typer.echo(f"Updated graft.lock: {dep_name}@{to}")
 
         else:
             typer.echo()
-            typer.secho(f"✗ Upgrade failed", fg=typer.colors.RED, bold=True, err=True)
+            typer.secho("✗ Upgrade failed", fg=typer.colors.RED, bold=True, err=True)
             typer.echo(f"  Error: {result.error}", err=True)
             typer.echo()
             typer.secho(

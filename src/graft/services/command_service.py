@@ -35,11 +35,8 @@ def execute_command(
     # Resolve working directory
     working_dir = None
     if command.working_dir:
-        if base_dir:
-            # Resolve relative to base_dir
-            working_dir = str(Path(base_dir) / command.working_dir)
-        else:
-            working_dir = command.working_dir
+        # Resolve relative to base_dir if provided
+        working_dir = str(Path(base_dir) / command.working_dir) if base_dir else command.working_dir
 
     # Execute
     return executor.execute(
