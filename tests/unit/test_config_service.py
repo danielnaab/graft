@@ -152,28 +152,29 @@ deps:
         assert exc_info.value.field == "apiVersion"
         assert "Missing required field" in exc_info.value.reason
 
-    def test_missing_deps_raises_error(
+    def test_missing_deps_is_now_optional(
         self,
         dependency_context: DependencyContext,
         fake_filesystem: FakeFileSystem,
     ) -> None:
-        """Should raise ConfigValidationError if deps missing.
+        """Should allow missing deps field.
 
-        Rationale: deps field is required even if empty.
-        Error should guide user to add deps field.
+        Rationale: deps field is now optional to support new 'dependencies' format.
+        A graft.yaml can define just changes/commands without dependencies.
         """
         fake_filesystem.create_file(
             "/fake/cwd/graft.yaml",
             "apiVersion: graft/v0\n",
         )
 
-        with pytest.raises(ConfigValidationError) as exc_info:
-            config_service.parse_graft_yaml(
-                dependency_context,
-                "/fake/cwd/graft.yaml",
-            )
+        # Should not raise - deps is optional now
+        config = config_service.parse_graft_yaml(
+            dependency_context,
+            "/fake/cwd/graft.yaml",
+        )
 
-        assert exc_info.value.field == "deps"
+        # Should have empty dependencies
+        assert config.dependencies == {}
 
     def test_deps_not_dict_raises_error(
         self,
