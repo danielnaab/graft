@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from graft.adapters.command_executor import SubprocessCommandExecutor
 from graft.adapters.lock_file import YamlLockFile
 from graft.adapters.repository import InMemoryRepository
 from graft.domain.entities import Entity
@@ -389,3 +390,122 @@ class TestYamlLockFile:
 
         # Type checker should accept this without error
         assert protocol_lock_file is not None
+
+
+class TestSubprocessCommandExecutor:
+    """Integration tests for SubprocessCommandExecutor."""
+
+    @pytest.fixture
+    def executor(self) -> SubprocessCommandExecutor:
+        """Provide fresh executor for each test."""
+        return SubprocessCommandExecutor()
+
+    def test_execute_simple_command(
+        self, executor: SubprocessCommandExecutor
+    ) -> None:
+        """Should execute simple shell command."""
+        # Execute
+        result = executor.execute("echo hello")
+
+        # Verify
+        assert result.success
+        assert result.exit_code == 0
+        assert "hello" in result.stdout
+        assert result.stderr == ""
+
+    def test_execute_command_with_exit_code(
+        self, executor: SubprocessCommandExecutor
+    ) -> None:
+        """Should capture non-zero exit codes."""
+        # Execute command that fails
+        result = executor.execute("exit 42")
+
+        # Verify
+        assert not result.success
+        assert result.exit_code == 42
+
+    def test_execute_command_with_stderr(
+        self, executor: SubprocessCommandExecutor
+    ) -> None:
+        """Should capture stderr output."""
+        # Execute command that writes to stderr
+        result = executor.execute("echo error >&2")
+
+        # Verify
+        assert result.success
+        assert "error" in result.stderr
+
+    def test_execute_with_working_dir(
+        self, executor: SubprocessCommandExecutor, tmp_path: Path
+    ) -> None:
+        """Should execute in specified working directory."""
+        # Create test directory
+        test_dir = tmp_path / "testdir"
+        test_dir.mkdir()
+
+        # Execute pwd in test directory
+        result = executor.execute("pwd", working_dir=str(test_dir))
+
+        # Verify we ran in the correct directory
+        assert result.success
+        assert str(test_dir) in result.stdout
+
+    def test_execute_with_nonexistent_working_dir(
+        self, executor: SubprocessCommandExecutor
+    ) -> None:
+        """Should raise IOError for nonexistent working directory."""
+        with pytest.raises(IOError) as exc_info:
+            executor.execute("echo test", working_dir="/nonexistent/path")
+
+        assert "Working directory does not exist" in str(exc_info.value)
+
+    def test_execute_with_working_dir_not_a_directory(
+        self, executor: SubprocessCommandExecutor, tmp_path: Path
+    ) -> None:
+        """Should raise IOError if working_dir is not a directory."""
+        # Create a file (not directory)
+        test_file = tmp_path / "file.txt"
+        test_file.write_text("content")
+
+        # Try to use file as working_dir
+        with pytest.raises(IOError) as exc_info:
+            executor.execute("echo test", working_dir=str(test_file))
+
+        assert "not a directory" in str(exc_info.value)
+
+    def test_execute_with_env_vars(
+        self, executor: SubprocessCommandExecutor
+    ) -> None:
+        """Should pass custom environment variables."""
+        # Execute with custom env var
+        result = executor.execute(
+            "echo $TEST_VAR", env={"TEST_VAR": "custom_value"}
+        )
+
+        # Verify env var was available
+        assert result.success
+        assert "custom_value" in result.stdout
+
+    def test_execute_multiline_output(
+        self, executor: SubprocessCommandExecutor
+    ) -> None:
+        """Should capture multiline output."""
+        # Execute command with multiple lines
+        result = executor.execute("echo line1 && echo line2")
+
+        # Verify both lines captured
+        assert result.success
+        assert "line1" in result.stdout
+        assert "line2" in result.stdout
+
+    def test_satisfies_protocol(
+        self, executor: SubprocessCommandExecutor
+    ) -> None:
+        """SubprocessCommandExecutor should satisfy CommandExecutor protocol."""
+        from graft.protocols.command_executor import CommandExecutor
+
+        # Should be assignable to Protocol type
+        protocol_executor: CommandExecutor = executor
+
+        # Type checker should accept this without error
+        assert protocol_executor is not None
