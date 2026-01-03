@@ -78,14 +78,16 @@ class GitUrl:
         if not self.url:
             raise ValidationError("Git URL cannot be empty")
 
-        # Parse URL
+        # Parse URL - be lenient to support various git URL formats
+        # Git supports: ssh://, https://, http://, file://, git@host:path, relative/absolute paths
         parsed = urlparse(self.url)
 
-        # Validate scheme
-        if parsed.scheme not in ("ssh", "https", "http", "file"):
+        # Only validate scheme if one is provided
+        # Allow empty scheme for: git@host:path format, relative paths, absolute paths
+        if parsed.scheme and parsed.scheme not in ("ssh", "https", "http", "file", "git"):
             raise ValidationError(
                 f"Invalid URL scheme: {parsed.scheme}. "
-                f"Supported: ssh, https, http, file"
+                f"Supported: ssh, https, http, file, git, or no scheme for git@ format/paths"
             )
 
         # Store parsed components (use object.__setattr__ for frozen dataclass)
