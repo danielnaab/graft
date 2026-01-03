@@ -1,22 +1,24 @@
 # Continue Development Here
 
-**Last Session**: 2026-01-03 (Session 2)
+**Last Session**: 2026-01-03 (Session 3)
 **Branch**: `feature/sync-with-specification`
-**Status**: Ready to continue with Phase 5 or 7
+**Status**: Ready for Phase 8 (CLI Integration)
 
 ---
 
 ## 🎯 Quick Context
 
-You've completed **6 of 10 phases** (60%) of the specification sync:
+You've completed **8 of 10 phases** (80%) of the specification sync:
 - ✅ Domain models (Change, Command, LockEntry, GraftConfig)
 - ✅ Config parsing (full graft.yaml support)
 - ✅ Lock file operations (read/write/update graft.lock)
 - ✅ Command execution (run dependency commands)
 - ✅ Query operations (status, changes, show)
-- ✅ Quality improvements (80% coverage, ruff passing)
+- ✅ Quality improvements (81% coverage, ruff passing)
+- ✅ **Snapshot/Rollback system (Phase 5)** - NEW!
+- ✅ **Atomic upgrade operations (Phase 7)** - NEW!
 
-**Next recommended**: Phase 5 (Snapshot/Rollback) → Phase 7 (Upgrade) → Phase 8 (CLI)
+**Next recommended**: Phase 8 (CLI Integration) to expose upgrade functionality to users
 
 ---
 
@@ -29,217 +31,238 @@ git checkout feature/sync-with-specification
 git status
 
 # 2. Verify everything works
-uv run pytest --quiet                    # Should show: 239 passed
-uv run pytest --cov=src/graft --quiet    # Should show: 80% coverage
+uv run pytest --quiet                    # Should show: 278 passed
+uv run pytest --cov=src/graft --quiet    # Should show: 81% coverage
 
 # 3. Check what's built
-ls src/graft/services/                   # See: query, lock, command services
-ls src/graft/protocols/                  # See: lock_file, command_executor
+ls src/graft/services/                   # See: query, lock, command, snapshot, upgrade
+ls src/graft/protocols/                  # See: lock_file, command_executor, snapshot
+ls src/graft/adapters/                   # See: lock_file, command_executor, snapshot
 ls tests/unit/                           # See: comprehensive test suite
 
 # 4. Review status
 cat IMPLEMENTATION_STATUS.md             # Full details of what's done
-cat notes/2026-01-03-specification-sync.md  # Original plan
+git log --oneline -5                     # Recent commits
 ```
 
 ---
 
-## 📋 What You Have to Work With
+## 📋 What Was Just Completed (Session 3)
 
-### Domain Models (100% tested)
-- `Change` - semantic changes with migration/verify
-- `Command` - executable commands with env/working_dir
-- `LockEntry` - lock file entries with timestamps
-- `GraftConfig` - extended with metadata/changes/commands
+### Phase 5: Snapshot/Rollback System ✅
 
-### Services (Well tested)
-- `query_service` - get status, list changes, get details (98% coverage)
-- `lock_service` - read/write/update lock file (100% coverage)
-- `command_service` - execute commands (100% coverage)
-- `config_service` - parse graft.yaml (84% coverage)
+**Files created:**
+- `src/graft/protocols/snapshot.py` - Snapshot protocol interface
+- `src/graft/adapters/snapshot.py` - Filesystem implementation (90% coverage)
+- `src/graft/services/snapshot_service.py` - Service functions (90% coverage)
+- `tests/fakes/fake_snapshot.py` - In-memory fake for testing
+- `tests/unit/test_snapshot_service.py` - 15 unit tests
+- `tests/integration/test_snapshot_integration.py` - 10 integration tests
 
-### Fakes (For testing)
-- `FakeLockFile` - in-memory lock file
-- `FakeCommandExecutor` - records command executions
+**Capabilities:**
+- Create filesystem snapshots by copying files to `.graft/snapshots/`
+- Restore files from snapshots (rollback)
+- Delete snapshots to free space
+- Cleanup old snapshots (keep N most recent)
+- List available snapshots
+
+### Phase 7: Atomic Upgrade Operations ✅
+
+**Files created:**
+- `src/graft/services/upgrade_service.py` - Atomic upgrade orchestration (80% coverage)
+- `tests/unit/test_upgrade_service.py` - 14 comprehensive tests
+
+**Capabilities:**
+- `upgrade_dependency()` - Atomic upgrade with automatic rollback:
+  1. Creates snapshot before modifications
+  2. Runs migration command (if defined)
+  3. Runs verification command (if defined)
+  4. Updates lock file
+  5. **Rolls back ALL changes on any failure**
+  6. Auto-cleanup snapshots on success
+- Options: `skip_migration`, `skip_verify`, `auto_cleanup`
+- Full error handling with detailed error messages
+- `rollback_upgrade()` for manual rollback
+
+**Commit:** `75554a7` - "Implement Phase 5 (Snapshot/Rollback) and Phase 7 (Atomic Upgrades)"
 
 ---
 
-## 🎯 Recommended Next Actions
+## 📊 Current Metrics
 
-### Option A: Complete Atomic Upgrades (High Value)
+| Metric | Value | Change from Session 2 |
+|--------|-------|----------------------|
+| Tests Passing | 278 | +39 tests |
+| Test Coverage | 81% | +1% |
+| Phases Complete | 8/10 | +2 phases |
+| Services | 10 | +2 (snapshot, upgrade) |
+| Protocols | 8 | +1 (snapshot) |
+| Adapters | 7 | +1 (snapshot) |
 
-**Goal**: Enable `graft upgrade` command end-to-end
+---
 
-**Steps**:
-1. **Implement Snapshot/Rollback** (Phase 5) - ~2 hours
-   - Create protocol: `src/graft/protocols/snapshot.py`
-   - Create adapter: `src/graft/adapters/snapshot.py` (filesystem-based)
-   - Create service: `src/graft/services/snapshot_service.py`
-   - Create fake: `tests/fakes/fake_snapshot.py`
-   - Write 15-20 tests
+## 🎯 What's Left to Do
 
-2. **Implement Upgrade Service** (Phase 7) - ~2 hours
-   - Create service: `src/graft/services/upgrade_service.py`
-   - Orchestrates: snapshot → command → lock updates
-   - Full rollback on failure
-   - Write 20-25 tests
+### **Phase 8: CLI Integration** (RECOMMENDED NEXT)
+**Priority**: High - Makes everything usable
 
-3. **Add Basic CLI** (Phase 8 partial) - ~1 hour
-   - Create: `src/graft/cli/commands/upgrade.py`
-   - Wire up to upgrade service
-   - Add to CLI registration
+**Tasks:**
+1. Create `src/graft/cli/commands/upgrade.py`
+   - Wire up to `upgrade_service.upgrade_dependency()`
+   - Handle options: --to, --skip-migration, --skip-verify
+   - Display progress with rich formatting
+   - Show success/failure with helpful messages
+
+2. Create query commands (services already exist):
+   - `status.py` - Show dependency status
+   - `changes.py` - List changes for dependency
+   - `show.py` - Show change details
+
+3. Update CLI registration to include new commands
 
 **Result**: Working `graft upgrade <dep>` command!
 
----
-
-### Option B: Make Current Features Usable (Quick Wins)
-
-**Goal**: Expose query operations via CLI
-
-**Steps**:
-1. **Add CLI Commands** (~2 hours)
-   - `src/graft/cli/commands/status.py` - show dependency status
-   - `src/graft/cli/commands/changes.py` - list changes
-   - `src/graft/cli/commands/show.py` - show change details
-   - Wire up to query_service
-
-2. **Update Documentation** (~1 hour)
-   - Update README.md with new commands
-   - Add usage examples
-   - Document graft.yaml format
-
-**Result**: Users can query dependency state!
+**Estimated**: 2-4 hours
 
 ---
 
-### Option C: Polish Quality (Reduce Debt)
+### **Phase 7 Additions** (Optional)
+Missing from current implementation:
 
-**Goal**: Increase coverage and add type checking
+1. `apply()` function - Update lock file without migrations
+2. `validate()` function - Validate graft.yaml and lock file
 
-**Steps**:
-1. **Add mypy** (~1 hour)
-   - Add to dependencies
-   - Run `mypy --strict src/graft`
-   - Fix any type issues
-
-2. **Increase Coverage** (~2 hours)
-   - Target files with <90% coverage
-   - Add edge case tests
-   - Add integration tests
-
-**Result**: Production-ready code quality!
+**Estimated**: 1-2 hours
 
 ---
 
-## 📝 Implementation Tips
+### **Phase 9: Documentation**
+- Update README.md with new commands
+- Add usage examples
+- Document graft.yaml format
+- Add architectural decision records
 
-### Snapshot/Rollback Pattern (if doing Phase 5)
-```python
-# Protocol
-class Snapshot(Protocol):
-    def create_snapshot(self, paths: list[str]) -> str: ...
-    def restore_snapshot(self, snapshot_id: str) -> None: ...
+**Estimated**: 2-3 hours
 
-# Adapter (filesystem-based)
-class FilesystemSnapshot:
-    def create_snapshot(self, paths):
-        snapshot_id = f"snapshot-{datetime.now().timestamp()}"
-        snapshot_dir = f".graft/snapshots/{snapshot_id}"
-        # Copy files to snapshot_dir
-        return snapshot_id
+---
+
+### **Phase 10: Final Quality**
+- Add mypy strict type checking
+- Increase coverage to >90%
+- Add CLI integration tests
+- Manual end-to-end testing
+
+**Estimated**: 1-2 days
+
+---
+
+## 🔍 Key Files to Reference
+
+### Services (All Working)
+- `src/graft/services/upgrade_service.py` - Atomic upgrades (NEW!)
+- `src/graft/services/snapshot_service.py` - Snapshot/rollback (NEW!)
+- `src/graft/services/query_service.py` - Query operations
+- `src/graft/services/lock_service.py` - Lock file operations
+- `src/graft/services/command_service.py` - Command execution
+
+### Tests (All Passing)
+- `tests/unit/test_upgrade_service.py` - 14 tests (NEW!)
+- `tests/unit/test_snapshot_service.py` - 15 tests (NEW!)
+- `tests/integration/test_snapshot_integration.py` - 10 tests (NEW!)
+
+### Fakes (For Testing)
+- `tests/fakes/fake_snapshot.py` - In-memory snapshot (NEW!)
+- `tests/fakes/fake_lock_file.py` - In-memory lock file
+- `tests/fakes/fake_command_executor.py` - Records executions
+
+### Specifications
+- `/home/coder/graft-knowledge/docs/specification/core-operations.md`
+- `/home/coder/graft-knowledge/docs/specification/change-model.md`
+- `/home/coder/graft-knowledge/docs/specification/graft-yaml-format.md`
+
+---
+
+## 💡 Implementation Tips for Phase 8 (CLI)
+
+### Pattern to Follow
+
+Look at existing CLI commands for patterns:
+```bash
+ls src/graft/cli/commands/
+# See: example.py, resolve.py
 ```
 
-### Upgrade Service Pattern (if doing Phase 7)
+### CLI Command Structure
+
 ```python
-def upgrade(
+# src/graft/cli/commands/upgrade.py
+import click
+from graft.services.upgrade_service import upgrade_dependency
+from graft.adapters.snapshot import FilesystemSnapshot
+from graft.adapters.command_executor import SubprocessCommandExecutor
+from graft.adapters.lock_file import YamlLockFile
+
+@click.command()
+@click.argument('dep_name')
+@click.option('--to', help='Target ref to upgrade to')
+@click.option('--skip-migration', is_flag=True)
+@click.option('--skip-verify', is_flag=True)
+def upgrade(dep_name, to, skip_migration, skip_verify):
+    """Upgrade dependency to new version with atomic rollback."""
+    # Initialize adapters
+    snapshot = FilesystemSnapshot()
+    executor = SubprocessCommandExecutor()
+    lock_file = YamlLockFile()
+
+    # Load config
+    config = load_graft_yaml(dep_name)
+
+    # Call upgrade service
+    result = upgrade_dependency(
+        snapshot=snapshot,
+        executor=executor,
+        lock_file=lock_file,
+        config=config,
+        dep_name=dep_name,
+        to_ref=to,
+        source=config.get_dependency_source(dep_name),
+        commit=resolve_ref_to_commit(dep_name, to),
+        base_dir=".",
+        lock_path="graft.lock",
+        skip_migration=skip_migration,
+        skip_verify=skip_verify,
+    )
+
+    # Display results
+    if result.success:
+        click.secho(f"✓ Upgraded {dep_name} to {to}", fg='green')
+    else:
+        click.secho(f"✗ Upgrade failed: {result.error}", fg='red')
+```
+
+### Service Function Signatures
+
+```python
+# Already implemented - just need to call them
+
+from graft.services.upgrade_service import upgrade_dependency, UpgradeResult
+
+upgrade_dependency(
     snapshot: Snapshot,
     executor: CommandExecutor,
     lock_file: LockFile,
+    config: GraftConfig,
     dep_name: str,
     to_ref: str,
-    config: GraftConfig,
-) -> bool:
-    # 1. Create snapshot
-    snapshot_id = snapshot.create_snapshot([...])
-
-    try:
-        # 2. Get change & run migration
-        change = config.get_change(to_ref)
-        if change.migration:
-            execute_command_by_name(...)
-
-        # 3. Update lock file
-        update_dependency_lock(...)
-
-        return True
-    except Exception:
-        # Rollback
-        snapshot.restore_snapshot(snapshot_id)
-        return False
+    source: str,
+    commit: str,
+    base_dir: str,
+    lock_path: str,
+    skip_migration: bool = False,
+    skip_verify: bool = False,
+    auto_cleanup: bool = True,
+) -> UpgradeResult
 ```
-
----
-
-## 🔍 Useful Exploration Commands
-
-```bash
-# See what services exist
-find src/graft/services -name "*.py" -type f | xargs ls -lh
-
-# Check test coverage for specific file
-uv run pytest --cov=src/graft/services/query_service --cov-report=term-missing
-
-# Run only unit tests (fast)
-uv run pytest tests/unit/ -v
-
-# Run only integration tests
-uv run pytest tests/integration/ -v
-
-# Check for TODO comments
-grep -r "TODO" src/graft/
-
-# View git history
-git log --oneline --graph feature/sync-with-specification
-```
-
----
-
-## 🐛 Known Issues to Be Aware Of
-
-1. **`get_changes_in_range()` is a stub** - Returns all changes, needs git integration to filter by ref range
-2. **CLI not wired up** - Services work but no CLI commands expose them yet
-3. **No snapshot/rollback** - Blocker for atomic upgrades
-4. **Protocol coverage low** - Protocol methods show 64% because they're never executed (just type definitions)
-
----
-
-## 📚 Key Files for Reference
-
-**Services you'll use**:
-- `src/graft/services/lock_service.py` - Lock file operations
-- `src/graft/services/command_service.py` - Command execution
-- `src/graft/services/query_service.py` - Query operations
-
-**Examples to follow**:
-- `tests/unit/test_lock_service.py` - Service testing pattern
-- `tests/fakes/fake_lock_file.py` - Fake implementation pattern
-- `src/graft/adapters/lock_file.py` - Adapter pattern
-
-**Specifications**:
-- `/home/coder/graft-knowledge/docs/specification/core-operations.md`
-- `/home/coder/graft-knowledge/docs/specification/change-model.md`
-
----
-
-## 🎓 Patterns to Follow
-
-1. **Services are functions**: `def operation(dependencies, params) -> result`
-2. **Use protocols for DI**: Accept Protocol types, not concrete classes
-3. **Frozen dataclasses**: All domain models immutable
-4. **Fakes for tests**: Create in-memory fakes, not mocks
-5. **100% service coverage**: Every service function fully tested
-6. **Integration tests**: Test real adapters separately
 
 ---
 
@@ -248,35 +271,39 @@ git log --oneline --graph feature/sync-with-specification
 Run these checks:
 ```bash
 # All tests should pass
-uv run pytest --quiet  # Expect: 239 passed
+uv run pytest --quiet  # Expect: 278 passed
 
-# Coverage should be 80%
+# Coverage should be 81%
 uv run pytest --cov=src/graft --quiet | grep "TOTAL"
 
 # No uncommitted changes
 git status  # Should be clean
+
+# Check latest commit
+git log -1  # Should see Phase 5 & 7 commit
 ```
 
 ---
 
-## 💬 Questions to Ask Yourself
+## 🎓 Established Patterns to Follow
 
-- **What am I building?** → Check IMPLEMENTATION_STATUS.md
-- **How do I test this?** → Look at existing test files for patterns
-- **What's the interface?** → Check specification in graft-knowledge
-- **How do other services work?** → Read existing services as examples
-- **Is this already implemented?** → Search codebase first
-
----
-
-## 📞 Getting Help
-
-If stuck:
-1. Read specification: `/home/coder/graft-knowledge/docs/specification/`
-2. Check existing patterns: Look at lock_service or command_service
-3. Review tests: Tests show how services are meant to be used
-4. Check status: `IMPLEMENTATION_STATUS.md` has full context
+1. **Services are functions**: `def operation(dependencies, params) -> result`
+2. **Protocol-based DI**: Accept Protocol types, not concrete classes
+3. **Frozen dataclasses**: All domain models immutable
+4. **Fakes for tests**: In-memory fakes, not mocks
+5. **100% service coverage**: Every service function fully tested
+6. **Integration tests separate**: Test real adapters in integration/
 
 ---
 
-**Happy coding! You've got a solid foundation to build on.** 🚀
+## 📞 Questions to Ask Yourself
+
+- **What am I building?** → Creating CLI commands to expose upgrade/query services
+- **How do I test this?** → Look at existing CLI commands for patterns (though CLI has 0% coverage currently)
+- **What's the interface?** → Check specification in `/home/coder/graft-knowledge/docs/specification/core-operations.md`
+- **What services exist?** → All needed services are implemented: upgrade, query, lock, command, snapshot
+- **Is this already implemented?** → Services yes, CLI no
+
+---
+
+**Happy coding! The foundation is solid - now make it usable.** 🚀
