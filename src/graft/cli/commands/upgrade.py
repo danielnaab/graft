@@ -32,6 +32,9 @@ def upgrade_command(
     skip_verify: bool = typer.Option(
         False, "--skip-verify", help="Skip verification command (not recommended)"
     ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview upgrade without making changes"
+    ),
 ) -> None:
     """Upgrade dependency to new version.
 
@@ -158,6 +161,94 @@ def upgrade_command(
                 "  Warning: Skipping verification command",
                 fg=typer.colors.YELLOW,
             )
+
+        # Handle dry-run mode
+        if dry_run:
+            typer.secho("DRY RUN MODE - No changes will be made", fg=typer.colors.CYAN, bold=True)
+            typer.echo()
+
+            # Get change details to show what would happen
+            if not dep_config.has_change(to):
+                typer.secho(
+                    f"Error: Change '{to}' not found in dependency configuration",
+                    fg=typer.colors.RED,
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+
+            change = dep_config.get_change(to)
+
+            # Show what would be executed
+            typer.secho("Planned operations:", fg=typer.colors.BLUE)
+            typer.echo()
+
+            # Step 1: Snapshot
+            typer.echo("1. Create snapshot for rollback")
+            typer.echo(f"   Snapshot: graft.lock")
+            typer.echo()
+
+            # Step 2: Migration
+            if change.migration and not skip_migration:
+                typer.echo("2. Run migration command")
+                if change.migration in dep_config.commands:
+                    cmd = dep_config.commands[change.migration]
+                    typer.echo(f"   Name: {change.migration}")
+                    typer.echo(f"   Command: {cmd.run}")
+                    if cmd.description:
+                        typer.echo(f"   Description: {cmd.description}")
+                    if cmd.working_dir:
+                        typer.echo(f"   Working directory: {cmd.working_dir}")
+                else:
+                    typer.secho(
+                        f"   Warning: Migration command '{change.migration}' not found in config",
+                        fg=typer.colors.YELLOW,
+                    )
+                typer.echo()
+            elif change.migration and skip_migration:
+                typer.secho("2. Migration command (SKIPPED)", fg=typer.colors.YELLOW)
+                typer.echo(f"   Name: {change.migration}")
+                typer.echo()
+            else:
+                typer.echo("2. No migration required")
+                typer.echo()
+
+            # Step 3: Verification
+            if change.verify and not skip_verify:
+                typer.echo("3. Run verification command")
+                if change.verify in dep_config.commands:
+                    cmd = dep_config.commands[change.verify]
+                    typer.echo(f"   Name: {change.verify}")
+                    typer.echo(f"   Command: {cmd.run}")
+                    if cmd.description:
+                        typer.echo(f"   Description: {cmd.description}")
+                    if cmd.working_dir:
+                        typer.echo(f"   Working directory: {cmd.working_dir}")
+                else:
+                    typer.secho(
+                        f"   Warning: Verification command '{change.verify}' not found in config",
+                        fg=typer.colors.YELLOW,
+                    )
+                typer.echo()
+            elif change.verify and skip_verify:
+                typer.secho("3. Verification command (SKIPPED)", fg=typer.colors.YELLOW)
+                typer.echo(f"   Name: {change.verify}")
+                typer.echo()
+            else:
+                typer.echo("3. No verification required")
+                typer.echo()
+
+            # Step 4: Lock file update
+            typer.echo("4. Update graft.lock")
+            typer.echo(f"   Dependency: {dep_name}")
+            typer.echo(f"   New ref: {to}")
+            typer.echo(f"   New commit: {commit[:7]}...")
+            typer.echo()
+
+            typer.secho("✓ Dry run complete - no changes made", fg=typer.colors.CYAN, bold=True)
+            typer.echo()
+            typer.echo("To perform the upgrade, run without --dry-run:")
+            typer.echo(f"  graft upgrade {dep_name} --to {to}")
+            return
 
         # Step 5: Call upgrade service
         snapshot = FilesystemSnapshot()

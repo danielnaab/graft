@@ -25,7 +25,7 @@ However, comparing against the **specification** (`/home/coder/graft-knowledge/d
 | Category | Specification Coverage | Notes |
 |----------|----------------------|-------|
 | **Core Operations** | 75% (6/8 commands) | Missing: `fetch`, `validate` |
-| **CLI Options** | 60% (12/20 options) | ✅ JSON output added! Missing: dry-run, etc. |
+| **CLI Options** | 65% (13/20 options) | ✅ JSON output + dry-run added! |
 | **Domain Models** | 100% | All specified models implemented |
 | **Services** | 100% | All core services implemented |
 | **Architecture** | 100% | Protocol-based, atomic, immutable |
@@ -156,6 +156,7 @@ graft fetch [<dep-name>]
 - ✅ Required `--to <ref>` flag
 - ✅ `--skip-migration` option
 - ✅ `--skip-verify` option
+- ✅ `--dry-run` option to preview without executing (implemented 2026-01-04)
 - ✅ Snapshot creation before upgrade
 - ✅ Migration command execution
 - ✅ Verification command execution
@@ -164,17 +165,18 @@ graft fetch [<dep-name>]
 - ✅ Detailed progress output
 
 **Missing from Spec:**
-- ❌ `--dry-run` option to preview without executing
 - ❌ Default to "latest" when `--to` not specified
 
-**Gap Severity**: **Low** - Core atomic upgrade fully working, missing preview mode
+**Gap Severity**: **Very Low** - Core atomic upgrade fully working with preview mode
 
 **Design Decision**: Made `--to` required for safety (prevents accidental upgrades to unknown versions)
 
 **Specification Reference:**
 ```bash
+# Implemented:
+graft upgrade <dep> --to <ref> --dry-run
+
 # Specified but not implemented:
-graft upgrade <dep> --dry-run  # Preview mode
 graft upgrade <dep>            # Default to latest
 ```
 

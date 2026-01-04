@@ -9,17 +9,6 @@
 
 ### High Priority (Enhancement Features)
 
-- [ ] **#004: Add --dry-run mode to upgrade command**
-  - Priority: High
-  - Effort: 4h
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Preview upgrade without executing (show what would happen)
-  - Spec Reference: GAP_ANALYSIS.md line 216-254, core-operations.md line 352, 416-417
-  - Files: `src/graft/cli/commands/upgrade.py`, `src/graft/services/upgrade_service.py`
-  - Acceptance: `graft upgrade <dep> --to <ref> --dry-run` shows preview without changes
-  - Depends: None
-
 ---
 
 ### Medium Priority (Utility Commands)
@@ -195,6 +184,15 @@
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#004: Add --dry-run mode to upgrade command**
+  - Completed: 2026-01-04
+  - Owner: Claude Sonnet 4.5
+  - Result: Added `--dry-run` flag to preview upgrade without execution
+  - Files Modified: `src/graft/cli/commands/upgrade.py`, `README.md`, `GAP_ANALYSIS.md`
+  - Testing: Manual testing with multiple scenarios, all tests pass (278/278)
+  - Features: Shows planned operations, respects --skip flags, clear guidance
+  - Commit: (pending)
 
 - [x] **#003: Add JSON output to show command**
   - Completed: 2026-01-04

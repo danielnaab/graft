@@ -146,12 +146,20 @@ Perform an atomic upgrade with migration execution and automatic rollback on fai
 # Upgrade with migration and verification
 uv run python -m graft upgrade my-knowledge --to v2.0.0
 
+# Preview upgrade without making changes
+uv run python -m graft upgrade my-knowledge --to v2.0.0 --dry-run
+
 # Skip migration (update lock file only)
 uv run python -m graft upgrade my-knowledge --to v2.0.0 --skip-migration
 
 # Skip verification
 uv run python -m graft upgrade my-knowledge --to v2.0.0 --skip-verify
 ```
+
+**Options**:
+- `--dry-run`: Preview upgrade without making any changes
+- `--skip-migration`: Skip migration command execution
+- `--skip-verify`: Skip verification command execution
 
 **Upgrade Process:**
 1. Creates snapshot of current state
@@ -373,10 +381,9 @@ If you see this, it's a bug. Graft should always rollback on failure. Please rep
 
 ### Not Yet Implemented
 
-1. **Dry Run**: Upgrade doesn't support `--dry-run` preview
-2. **Update Checking**: Status doesn't support `--check-updates`
-3. **Fetch Command**: No `graft fetch` to update remote cache
-4. **Validate Command**: No `graft validate` for consistency checking
+1. **Update Checking**: Status doesn't support `--check-updates`
+2. **Fetch Command**: No `graft fetch` to update remote cache
+3. **Validate Command**: No `graft validate` for consistency checking
 
 ### Design Decisions
 
