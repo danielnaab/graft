@@ -168,6 +168,29 @@ uv run python -m graft upgrade my-knowledge --to v2.0.0 --skip-verify
 4. Updates lock file
 5. **Automatically rolls back on any failure**
 
+### `graft <dep-name>:<command>`
+
+Execute a command defined in a dependency's graft.yaml.
+
+```bash
+# Execute migration command from dependency
+uv run python -m graft my-knowledge:migrate-v2
+
+# Execute with additional arguments
+uv run python -m graft my-knowledge:build --production
+```
+
+**Behavior:**
+- Loads command from dependency's graft.yaml
+- Executes in consumer's context (not in .graft/deps/)
+- Streams stdout/stderr in real-time
+- Returns same exit code as command
+
+**Use Cases:**
+- Run migration commands: `graft meta-kb:migrate-v2`
+- Execute verification: `graft meta-kb:verify-v2`
+- Run utility scripts defined by dependencies
+
 ## Configuration
 
 ### graft.yaml Format

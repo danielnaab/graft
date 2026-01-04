@@ -43,20 +43,6 @@
     - Show latest available versions
   - Acceptance: `graft fetch` or `graft fetch <dep>` updates cache without changing lock
 
-- [ ] **#007: Implement graft <dep>:<command> syntax**
-  - Priority: Medium
-  - Effort: 4h
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Execute commands from dependency's graft.yaml
-  - Spec Reference: GAP_ANALYSIS.md line 337-360, core-operations.md line 597-657
-  - Files: `src/graft/cli/main.py`, possibly new command handler
-  - Features:
-    - Parse `<dep>:<command>` syntax
-    - Load command from dep's graft.yaml
-    - Execute in consumer context
-    - Stream stdout/stderr
-  - Acceptance: `graft meta-kb:migrate-v2` executes command and streams output
 
 ---
 
@@ -184,6 +170,16 @@
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#007: Implement graft <dep>:<command> syntax**
+  - Completed: 2026-01-04
+  - Owner: Claude Sonnet 4.5
+  - Result: Added dep:command syntax for executing dependency commands
+  - New Files: `src/graft/cli/commands/exec_command.py`
+  - Modified Files: `src/graft/__main__.py`, `README.md`
+  - Testing: Manual testing with valid/invalid commands, all tests pass (278/278)
+  - Features: Parses syntax, loads from dep graft.yaml, streams output, proper error handling
+  - Commit: (pending)
 
 - [x] **#004: Add --dry-run mode to upgrade command**
   - Completed: 2026-01-04
