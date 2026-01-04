@@ -93,12 +93,12 @@ uv run python -m graft status
 uv run python -m graft status my-knowledge
 
 # JSON output for scripting
-uv run python -m graft status --json
-uv run python -m graft status my-knowledge --json
+uv run python -m graft status --format json
+uv run python -m graft status my-knowledge --format json
 ```
 
 **Options**:
-- `--json`: Output as JSON for machine-readable parsing
+- `--format`: Output format (text or json)
 
 ### `graft changes <dep-name>`
 
@@ -373,11 +373,10 @@ If you see this, it's a bug. Graft should always rollback on failure. Please rep
 
 ### Not Yet Implemented
 
-1. **JSON Output**: Commands don't support `--format json`
-2. **Dry Run**: Upgrade doesn't support `--dry-run` preview
-3. **Update Checking**: Status doesn't support `--check-updates`
-4. **Fetch Command**: No `graft fetch` to update remote cache
-5. **Validate Command**: No `graft validate` for consistency checking
+1. **Dry Run**: Upgrade doesn't support `--dry-run` preview
+2. **Update Checking**: Status doesn't support `--check-updates`
+3. **Fetch Command**: No `graft fetch` to update remote cache
+4. **Validate Command**: No `graft validate` for consistency checking
 
 ### Design Decisions
 

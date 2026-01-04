@@ -25,7 +25,7 @@ However, comparing against the **specification** (`/home/coder/graft-knowledge/d
 | Category | Specification Coverage | Notes |
 |----------|----------------------|-------|
 | **Core Operations** | 75% (6/8 commands) | Missing: `fetch`, `validate` |
-| **CLI Options** | 45% (9/20 options) | Missing: JSON output, dry-run, etc. |
+| **CLI Options** | 60% (12/20 options) | ✅ JSON output added! Missing: dry-run, etc. |
 | **Domain Models** | 100% | All specified models implemented |
 | **Services** | 100% | All core services implemented |
 | **Architecture** | 100% | Protocol-based, atomic, immutable |
@@ -44,19 +44,21 @@ However, comparing against the **specification** (`/home/coder/graft-knowledge/d
 - ✅ Optional dep-name filter
 - ✅ Shows ref, commit, consumed_at timestamp
 - ✅ Color-coded output
+- ✅ `--format json` option for JSON output (implemented 2026-01-04)
 
 **Missing from Spec:**
-- ❌ `--json` option for JSON output
 - ❌ `--check-updates` option to fetch latest and show updates
 - ❌ "available" field showing newer versions
 - ❌ "pending_changes" count
 
-**Gap Severity**: **Medium** - Core query works, but missing convenience features
+**Gap Severity**: **Low** - Core query works with JSON output, missing convenience features
 
 **Specification Reference:**
 ```bash
+# Implemented:
+graft status --format json
+
 # Specified but not implemented:
-graft status --json
 graft status --check-updates
 ```
 
@@ -73,18 +75,20 @@ graft status --check-updates
 - ✅ `--type <type>` filter
 - ✅ `--breaking` filter
 - ✅ Color-coded output (breaking changes in red)
+- ✅ `--format json` option for JSON output (implemented 2026-01-04)
 
 **Missing from Spec:**
-- ❌ `--format json` option for JSON output
 - ❌ `--since <ref>` alias for `--from <ref> --to latest`
 - ⚠️ Options named `--from-ref/--to-ref` instead of `--from/--to` (minor deviation)
 
-**Gap Severity**: **Low** - Core functionality complete, missing output format options
+**Gap Severity**: **Very Low** - Core functionality complete with JSON output
 
 **Specification Reference:**
 ```bash
-# Specified but not implemented:
+# Implemented:
 graft changes <dep> --format json
+
+# Specified but not implemented:
 graft changes <dep> --since v1.0.0  # Alias
 ```
 
@@ -100,17 +104,19 @@ graft changes <dep> --since v1.0.0  # Alias
 - ✅ Display type, description
 - ✅ Display migration and verification commands
 - ✅ Color-coded output
+- ✅ `--format json` option for JSON output (implemented 2026-01-04)
 
 **Missing from Spec:**
-- ❌ `--format json` option for JSON output
 - ❌ `--field <field>` option to show specific field only
 
-**Gap Severity**: **Low** - Core functionality complete, missing output options
+**Gap Severity**: **Very Low** - Core functionality complete with JSON output
 
 **Specification Reference:**
 ```bash
-# Specified but not implemented:
+# Implemented:
 graft show <dep>@<ref> --format json
+
+# Specified but not implemented:
 graft show <dep>@<ref> --field migration
 ```
 

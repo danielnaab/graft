@@ -14,7 +14,9 @@ from graft.services import query_service
 
 def status_command(
     dep_name: str | None = typer.Argument(None, help="Optional dependency name"),
-    output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+    format_option: str = typer.Option(
+        "text", "--format", help="Output format (text or json)"
+    ),
 ) -> None:
     """Show status of dependencies.
 
@@ -49,7 +51,7 @@ def status_command(
             )
 
             if not status:
-                if output_json:
+                if format_option == "json":
                     # JSON error output
                     error_obj = {"error": f"Dependency '{dep_name}' not found in graft.lock"}
                     typer.echo(json.dumps(error_obj, indent=2))
@@ -61,7 +63,7 @@ def status_command(
                     )
                 raise typer.Exit(code=1)
 
-            if output_json:
+            if format_option == "json":
                 # JSON output for single dependency
                 status_obj = {
                     "name": status.name,
@@ -81,7 +83,7 @@ def status_command(
             statuses = query_service.get_all_status(lock_file, lock_path)
 
             if not statuses:
-                if output_json:
+                if format_option == "json":
                     # JSON output for empty case
                     typer.echo(json.dumps({"dependencies": {}}, indent=2))
                 else:
@@ -93,7 +95,7 @@ def status_command(
                     typer.echo("Run 'graft resolve' to resolve dependencies first.")
                 return
 
-            if output_json:
+            if format_option == "json":
                 # JSON output for all dependencies
                 deps_obj = {
                     "dependencies": {
