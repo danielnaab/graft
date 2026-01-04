@@ -3,6 +3,7 @@
 CLI command for viewing detailed information about a specific change/version.
 """
 
+import json
 from pathlib import Path
 
 import typer
@@ -17,7 +18,12 @@ from graft.domain.exceptions import (
 from graft.services import config_service, query_service
 
 
-def show_command(dep_ref: str) -> None:
+def show_command(
+    dep_ref: str,
+    format_option: str = typer.Option(
+        "text", "--format", help="Output format (text or json)"
+    ),
+) -> None:
     """Show details of a specific change.
 
     Displays full details including description, migration command,
@@ -66,61 +72,106 @@ def show_command(dep_ref: str) -> None:
         details = query_service.get_change_details(config, ref)
 
         if not details:
-            typer.secho(
-                f"Error: Change {ref} not found for {dep_name}",
-                fg=typer.colors.RED,
-                err=True,
-            )
-            typer.echo(
-                f"  Run 'graft changes {dep_name}' to see available changes",
-                err=True,
-            )
+            if format_option == "json":
+                # JSON error output
+                error_obj = {
+                    "error": f"Change {ref} not found for {dep_name}",
+                    "suggestion": f"Run 'graft changes {dep_name}' to see available changes"
+                }
+                typer.echo(json.dumps(error_obj, indent=2))
+            else:
+                # Text error output
+                typer.secho(
+                    f"Error: Change {ref} not found for {dep_name}",
+                    fg=typer.colors.RED,
+                    err=True,
+                )
+                typer.echo(
+                    f"  Run 'graft changes {dep_name}' to see available changes",
+                    err=True,
+                )
             raise typer.Exit(code=1)
 
-        # Display header
-        typer.secho(f"Change: {dep_name}@{ref}", fg=typer.colors.BLUE, bold=True)
-        typer.echo()
+        if format_option == "json":
+            # JSON output
+            output = {
+                "dependency": dep_name,
+                "ref": ref,
+                "type": details.change.type,
+                "description": details.change.description,
+            }
 
-        # Display type
-        if details.change.type:
-            type_color = (
-                typer.colors.RED
-                if details.change.is_breaking()
-                else typer.colors.GREEN
-            )
-            typer.secho(f"Type: {details.change.type}", fg=type_color)
+            # Add migration details if present
+            if details.migration_command:
+                cmd = details.migration_command
+                output["migration"] = {
+                    "name": cmd.name,
+                    "command": cmd.run,
+                    "description": cmd.description,
+                    "working_dir": cmd.working_dir,
+                }
+            else:
+                output["migration"] = None
 
-        # Display description
-        if details.change.description:
-            typer.echo(f"Description: {details.change.description}")
+            # Add verification details if present
+            if details.verify_command:
+                cmd = details.verify_command
+                output["verify"] = {
+                    "name": cmd.name,
+                    "command": cmd.run,
+                    "description": cmd.description,
+                    "working_dir": cmd.working_dir,
+                }
+            else:
+                output["verify"] = None
+
+            typer.echo(json.dumps(output, indent=2))
+        else:
+            # Text output
+            # Display header
+            typer.secho(f"Change: {dep_name}@{ref}", fg=typer.colors.BLUE, bold=True)
             typer.echo()
 
-        # Display migration details
-        if details.migration_command:
-            cmd = details.migration_command
-            typer.secho(f"Migration: {cmd.name}", fg=typer.colors.YELLOW)
-            typer.echo(f"  Command: {cmd.run}")
-            if cmd.description:
-                typer.echo(f"  Description: {cmd.description}")
-            if cmd.working_dir:
-                typer.echo(f"  Working directory: {cmd.working_dir}")
-            typer.echo()
+            # Display type
+            if details.change.type:
+                type_color = (
+                    typer.colors.RED
+                    if details.change.is_breaking()
+                    else typer.colors.GREEN
+                )
+                typer.secho(f"Type: {details.change.type}", fg=type_color)
 
-        # Display verification details
-        if details.verify_command:
-            cmd = details.verify_command
-            typer.secho(f"Verification: {cmd.name}", fg=typer.colors.YELLOW)
-            typer.echo(f"  Command: {cmd.run}")
-            if cmd.description:
-                typer.echo(f"  Description: {cmd.description}")
-            if cmd.working_dir:
-                typer.echo(f"  Working directory: {cmd.working_dir}")
-            typer.echo()
+            # Display description
+            if details.change.description:
+                typer.echo(f"Description: {details.change.description}")
+                typer.echo()
 
-        # Show if no migration/verification required
-        if not details.migration_command and not details.verify_command:
-            typer.secho("No migration or verification required", fg=typer.colors.GREEN)
-            typer.echo()
+            # Display migration details
+            if details.migration_command:
+                cmd = details.migration_command
+                typer.secho(f"Migration: {cmd.name}", fg=typer.colors.YELLOW)
+                typer.echo(f"  Command: {cmd.run}")
+                if cmd.description:
+                    typer.echo(f"  Description: {cmd.description}")
+                if cmd.working_dir:
+                    typer.echo(f"  Working directory: {cmd.working_dir}")
+                typer.echo()
+
+            # Display verification details
+            if details.verify_command:
+                cmd = details.verify_command
+                typer.secho(f"Verification: {cmd.name}", fg=typer.colors.YELLOW)
+                typer.echo(f"  Command: {cmd.run}")
+                if cmd.description:
+                    typer.echo(f"  Description: {cmd.description}")
+                if cmd.working_dir:
+                    typer.echo(f"  Working directory: {cmd.working_dir}")
+                typer.echo()
+
+            # Show if no migration/verification required
+            if not details.migration_command and not details.verify_command:
+                typer.secho("No migration or verification required", fg=typer.colors.GREEN)
+                typer.echo()
 
     except ConfigFileNotFoundError as e:
         typer.secho(

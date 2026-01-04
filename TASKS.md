@@ -9,17 +9,6 @@
 
 ### High Priority (Enhancement Features)
 
-- [ ] **#003: Add JSON output to show command**
-  - Priority: High
-  - Effort: 3h
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Add `--format json` option to output JSON
-  - Spec Reference: GAP_ANALYSIS.md line 147-178, core-operations.md line 235-254
-  - Files: `src/graft/cli/commands/show.py`
-  - Acceptance: `graft show <dep@ref> --format json` outputs valid JSON
-  - Depends: None (can be done in parallel with #001, #002)
-
 - [ ] **#004: Add --dry-run mode to upgrade command**
   - Priority: High
   - Effort: 4h
@@ -206,6 +195,14 @@
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#003: Add JSON output to show command**
+  - Completed: 2026-01-04
+  - Owner: Claude Sonnet 4.5
+  - Result: Added `--format json` option to output JSON format
+  - Files Modified: `src/graft/cli/commands/show.py`, `README.md`
+  - Testing: Manual testing with `graft show <dep@ref> --format json`, works correctly
+  - Commit: (pending)
 
 - [x] **#002: Add JSON output to changes command**
   - Completed: 2026-01-04

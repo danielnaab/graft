@@ -128,8 +128,15 @@ uv run python -m graft changes my-knowledge --breaking --format json
 Display detailed information about a specific change.
 
 ```bash
+# Show change details
 uv run python -m graft show my-knowledge@v2.0.0
+
+# JSON output for scripting
+uv run python -m graft show my-knowledge@v2.0.0 --format json
 ```
+
+**Options**:
+- `--format`: Output format (text or json)
 
 ### `graft upgrade <dep-name> --to <ref>`
 
