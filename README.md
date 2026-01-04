@@ -1,50 +1,25 @@
 # Graft
 
-**Semantic dependency management for knowledge bases**
+Semantic dependency management for knowledge bases
 
-Graft is a dependency management tool designed for knowledge bases and structured content repositories. It provides atomic upgrades with automatic rollback, migration execution, and semantic versioning of changes.
+---
 
-## Table of Contents
+## What is Graft?
 
-- [Who Should Use This Guide?](#who-should-use-this-guide)
-- [Features](#features)
-- [Quick Start](#quick-start)
-- [CLI Commands](#cli-commands)
-- [Configuration](#configuration)
-- [Complete Workflow Example](#complete-workflow-example)
-- [Troubleshooting](#troubleshooting)
-- [Development](#development)
-- [Architecture](#architecture)
-- [Testing Status](#testing-status)
-- [Next Steps](#next-steps)
+Graft manages dependencies between knowledge bases and structured content repositories. It provides atomic upgrades with automatic rollback, migration execution, and semantic versioning for content changes.
 
-## Who Should Use This Guide?
+Think of it as a package manager for knowledge: track versions, execute migrations, and safely upgrade between semantic releases.
 
-- **First-time user?** Start with [Quick Start](#quick-start) and [Complete Workflow Example](#complete-workflow-example)
-- **Developer contributing?** Jump to [Development](#development) and read [docs/README.md](docs/README.md)
-- **Debugging an issue?** See [Troubleshooting](#troubleshooting)
-- **AI Agent starting work?** Read [docs/guides/WORKING_WITH_GRAFT.md](docs/guides/WORKING_WITH_GRAFT.md)
-- **Need detailed tutorials?** See [docs/guides/USER_GUIDE.md](docs/guides/USER_GUIDE.md)
+## Key Features
 
-## Features
+- **Atomic Upgrades** - All-or-nothing upgrades with automatic rollback on failure
+- **Semantic Changes** - Explicitly track breaking changes, features, and fixes
+- **Migration Support** - Execute and verify migration commands during upgrades
+- **Lock File Management** - Pin exact versions with commit hashes for reproducibility
+- **Git-Based** - Works with any git repository as a dependency
+- **CLI Interface** - Simple command-line interface with clear output
 
-- **Atomic Upgrades**: All-or-nothing upgrades with automatic rollback on failure
-- **Semantic Changes**: Track breaking changes, features, and fixes separately
-- **Migration Support**: Execute migration and verification commands during upgrades
-- **Lock File Management**: Track exact consumed versions with commit hashes
-- **Git Integration**: Works with any git repository as a dependency
-- **Snapshot/Rollback**: Filesystem-based snapshots for safe rollback
-- **CLI Interface**: User-friendly command-line interface with color-coded output
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.11 or higher
-- [uv](https://docs.astral.sh/uv/) package manager
-- Git
-
-### Installation
+## Installation
 
 ```bash
 # Clone the repository
@@ -58,7 +33,9 @@ uv sync
 uv run python -m graft --help
 ```
 
-### Basic Usage
+**Requirements**: Python 3.11+, [uv](https://docs.astral.sh/uv/), git
+
+## Quick Start
 
 ```bash
 # 1. Create a graft.yaml file
@@ -77,497 +54,68 @@ uv run python -m graft apply my-knowledge --to main
 # 4. Check status
 uv run python -m graft status
 
-# 5. List available changes
-uv run python -m graft changes my-knowledge
-
-# 6. Upgrade to a new version
+# 5. Upgrade to a new version
 uv run python -m graft upgrade my-knowledge --to v2.0.0
 ```
 
-## CLI Commands
-
-### Command Summary
-
-| Command | Purpose | Common Usage |
-|---------|---------|--------------|
-| `resolve` | Clone all dependencies | Initial setup |
-| `fetch` | Update remote cache | Check for updates |
-| `apply` | Update lock file without migrations | Initial lock creation |
-| `status` | Show current versions | Check what's installed |
-| `changes` | List available changes | See what's available |
-| `show` | Display change details | Review specific version |
-| `upgrade` | Atomic upgrade with migrations | Perform upgrades |
-| `<dep>:<cmd>` | Execute dependency command | Run migrations manually |
-| `validate` | Validate configuration | Check for errors |
-
-### Detailed Command Reference
-
-#### `graft resolve`
-
-Clone or fetch all dependencies declared in `graft.yaml`.
-
-```bash
-uv run python -m graft resolve
-```
-
-#### `graft fetch [dep-name]`
-
-Update local cache of dependencies from remote repositories.
-
-```bash
-# Fetch all dependencies
-uv run python -m graft fetch
-
-# Fetch specific dependency
-uv run python -m graft fetch my-knowledge
-```
-
-**Behavior:**
-- Runs `git fetch` to update remote-tracking branches
-- Does NOT modify the lock file or working directory
-- Does NOT checkout any refs
-- Use `graft changes` after fetching to see what's available
-
-**Use Cases:**
-- Update local knowledge of what's available before upgrading
-- Check for new versions without modifying your lock file
-- Refresh repository metadata
-
-#### `graft apply <dep-name> --to <ref>`
-
-Update the lock file to acknowledge a specific version without running migrations. Useful for initial setup or manual migration workflows.
-
-```bash
-uv run python -m graft apply my-knowledge --to main
-uv run python -m graft apply my-knowledge --to v1.0.0
-```
-
-#### `graft status [dep-name]`
-
-Show current consumed versions from the lock file.
-
-```bash
-# Show all dependencies
-uv run python -m graft status
-
-# Show specific dependency
-uv run python -m graft status my-knowledge
-
-# JSON output for scripting
-uv run python -m graft status --format json
-uv run python -m graft status my-knowledge --format json
-
-# Check for available updates
-uv run python -m graft status --check-updates
-uv run python -m graft status my-knowledge --check-updates
-```
-
-**Options**:
-- `--format`: Output format (text or json)
-- `--check-updates`: Fetch latest from remote and check for available updates
-
-**Note**: When using `--check-updates`, graft will run `git fetch` on dependencies to update remote-tracking branches, then show current status. This does not modify the lock file.
-
-#### `graft changes <dep-name>`
-
-List available changes/versions for a dependency.
-
-```bash
-# List all changes
-uv run python -m graft changes my-knowledge
-
-# Filter by type
-uv run python -m graft changes my-knowledge --type feature
-uv run python -m graft changes my-knowledge --breaking
-
-# Filter by ref range
-uv run python -m graft changes my-knowledge --from-ref v1.0.0 --to-ref v2.0.0
-
-# Show changes since a specific ref (convenient alias)
-uv run python -m graft changes my-knowledge --since v1.0.0
-
-# JSON output for scripting
-uv run python -m graft changes my-knowledge --format json
-uv run python -m graft changes my-knowledge --breaking --format json
-```
-
-**Options**:
-- `--since`: Show changes since this ref (alias for `--from-ref`)
-- `--format`: Output format (text or json)
-
-#### `graft show <dep-name@ref>`
-
-Display detailed information about a specific change.
-
-```bash
-# Show change details
-uv run python -m graft show my-knowledge@v2.0.0
-
-# Show only migration details
-uv run python -m graft show my-knowledge@v2.0.0 --field migration
-
-# JSON output for scripting
-uv run python -m graft show my-knowledge@v2.0.0 --format json
-
-# Show specific field as JSON
-uv run python -m graft show my-knowledge@v2.0.0 --field verify --format json
-```
-
-**Options**:
-- `--field`: Show only specific field (type, description, migration, verify)
-- `--format`: Output format (text or json)
-
-#### `graft upgrade <dep-name> --to <ref>`
-
-Perform an atomic upgrade with migration execution and automatic rollback on failure.
-
-```bash
-# Upgrade with migration and verification
-uv run python -m graft upgrade my-knowledge --to v2.0.0
-
-# Preview upgrade without making changes
-uv run python -m graft upgrade my-knowledge --to v2.0.0 --dry-run
-
-# Skip migration (update lock file only)
-uv run python -m graft upgrade my-knowledge --to v2.0.0 --skip-migration
-
-# Skip verification
-uv run python -m graft upgrade my-knowledge --to v2.0.0 --skip-verify
-```
-
-**Options**:
-- `--dry-run`: Preview upgrade without making any changes
-- `--skip-migration`: Skip migration command execution
-- `--skip-verify`: Skip verification command execution
-
-**Upgrade Process:**
-1. Creates snapshot of current state
-2. Runs migration command (if defined)
-3. Runs verification command (if defined)
-4. Updates lock file
-5. **Automatically rolls back on any failure**
-
-#### `graft <dep-name>:<command>`
-
-Execute a command defined in a dependency's graft.yaml.
-
-```bash
-# Execute migration command from dependency
-uv run python -m graft my-knowledge:migrate-v2
-
-# Execute with additional arguments
-uv run python -m graft my-knowledge:build --production
-```
-
-**Behavior:**
-- Loads command from dependency's graft.yaml
-- Executes in consumer's context (not in .graft/deps/)
-- Streams stdout/stderr in real-time
-- Returns same exit code as command
-
-**Use Cases:**
-- Run migration commands: `graft meta-kb:migrate-v2`
-- Execute verification: `graft meta-kb:verify-v2`
-- Run utility scripts defined by dependencies
-
-#### `graft validate`
-
-Validate graft.yaml and graft.lock for correctness.
-
-```bash
-# Validate everything (default)
-uv run python -m graft validate
-
-# Validate only graft.yaml schema
-uv run python -m graft validate --schema
-
-# Validate only graft.lock
-uv run python -m graft validate --lock
-
-# Validate only git refs exist
-uv run python -m graft validate --refs
-```
-
-**Checks:**
-- **Schema validation**: Ensures graft.yaml structure is valid, API version is correct, and at least one dependency exists
-- **Git ref validation**: Verifies that all refs in dependency changes exist in their git repositories
-- **Lock file validation**: Checks lock file consistency and warns if refs have moved
-
-**Exit Codes:**
-- `0`: Validation successful (warnings allowed)
-- `1`: Validation failed (errors found)
-
-**Output:**
-- ✓ Green checkmarks for successful validations
-- ✗ Red X for errors
-- ⚠ Yellow warnings for non-critical issues
-
-**Options**:
-- `--schema`: Validate only graft.yaml schema
-- `--refs`: Validate only git ref existence
-- `--lock`: Validate only graft.lock consistency
-
-**Note:** Command reference validation (migration/verify commands exist) happens automatically during graft.yaml parsing, so invalid command references will be caught immediately.
-
-## Configuration
-
-### graft.yaml Format
-
-```yaml
-apiVersion: graft/v0
-
-# Dependency declarations
-deps:
-  my-knowledge: "https://github.com/user/knowledge.git#main"
-  other-dep: "ssh://git@server/repo.git#develop"
-
-# Optional metadata
-metadata:
-  description: "My project's knowledge dependencies"
-  version: "1.0.0"
-
-# Change declarations
-changes:
-  v1.0.0:
-    type: feature
-    description: "Initial release"
-
-  v2.0.0:
-    type: breaking
-    description: "Major restructuring"
-    migration: migrate-v2
-    verify: verify-v2
-
-# Migration commands
-commands:
-  migrate-v2:
-    run: "./scripts/migrate-to-v2.sh"
-    description: "Migrate to v2 structure"
-
-  verify-v2:
-    run: "./scripts/verify-v2.sh"
-    description: "Verify v2 migration succeeded"
-```
-
-### graft.lock Format
-
-The lock file (generated automatically) tracks exact consumed versions:
-
-```yaml
-version: 1
-dependencies:
-  my-knowledge:
-    source: "https://github.com/user/knowledge.git"
-    ref: "v2.0.0"
-    commit: "abc123def456..."
-    consumed_at: "2026-01-04T00:00:00+00:00"
-```
-
-**Important:** Commit `graft.lock` to version control to ensure reproducible builds.
-
-## Complete Workflow Example
-
-```bash
-# 1. Initial setup
-cd my-project
-cat > graft.yaml <<EOF
-apiVersion: graft/v0
-deps:
-  knowledge-base: "https://github.com/org/knowledge.git#main"
-EOF
-
-# 2. Clone dependencies
-uv run python -m graft resolve
-# ✓ knowledge-base: resolved to .graft/deps/knowledge-base
-
-# 3. Create lock file
-uv run python -m graft apply knowledge-base --to main
-# Applied knowledge-base@main
-# Updated graft.lock
-
-# 4. Check current status
-uv run python -m graft status
-# Dependencies:
-#   knowledge-base: main (commit: abc123..., consumed: 2026-01-04)
-
-# 5. Explore available changes
-uv run python -m graft changes knowledge-base
-# Changes for knowledge-base:
-#   v2.0.0 (feature)
-#     New content structure
-#     Migration: restructure
-#   v1.5.0 (feature)
-#     Additional examples
-
-# 6. View change details
-uv run python -m graft show knowledge-base@v2.0.0
-# Change: knowledge-base@v2.0.0
-# Type: feature
-# Description: New content structure
-# Migration: restructure
-#   Command: ./scripts/migrate.sh
-#   Description: Restructure content
-
-# 7. Perform atomic upgrade
-uv run python -m graft upgrade knowledge-base --to v2.0.0
-# Upgrading knowledge-base → v2.0.0
-# Migration completed:
-#   Restructured 42 files
-# Verification passed:
-#   All files valid
-# ✓ Upgrade complete
-# Updated graft.lock: knowledge-base@v2.0.0
-
-# 8. Verify upgrade
-uv run python -m graft status
-# Dependencies:
-#   knowledge-base: v2.0.0 (commit: def456..., consumed: 2026-01-04)
-```
-
-## Troubleshooting
-
-### "Dependency not found in configuration"
-
-Ensure the dependency is declared in `graft.yaml`:
-```yaml
-deps:
-  my-dep: "https://github.com/user/repo.git#main"
-```
-
-### "Lock file not found"
-
-Run `graft apply <dep> --to <ref>` to create the initial lock file entry.
-
-### "Git fetch failed"
-
-For local-only repositories (no remote), this warning is expected and non-fatal. Graft will fall back to resolving refs from the local repository.
-
-### "Snapshot path not found"
-
-Ensure you have write permissions in the project directory. Snapshots are stored in `.graft/snapshots/`.
-
-### Upgrade fails and doesn't rollback
-
-If you see this, it's a bug. Graft should always rollback on failure. Please report with:
-- The full command you ran
-- The error message
-- Contents of `graft.yaml` and `graft.lock`
-
-## Development
-
-### Running Tests
-
-```bash
-# Run all tests
-uv run pytest
-
-# Run with coverage
-uv run pytest --cov=src/graft --cov-report=html
-
-# Run specific test file
-uv run pytest tests/unit/test_upgrade_service.py -v
-```
-
-### Code Quality
-
-```bash
-# Check linting
-uv run ruff check src/ tests/
-
-# Format code
-uv run ruff format src/ tests/
-
-# Run type checking
-uv run mypy src/
-```
-
-### Project Structure
-
-```
-graft/
-├── src/graft/
-│   ├── domain/          # Domain models (Change, Command, LockEntry, etc.)
-│   ├── services/        # Service functions (upgrade, query, lock, etc.)
-│   ├── protocols/       # Protocol interfaces for DI
-│   ├── adapters/        # Infrastructure implementations
-│   └── cli/             # Command-line interface
-├── tests/
-│   ├── unit/            # Unit tests with fakes
-│   ├── integration/     # Integration tests
-│   └── fakes/           # In-memory test doubles
-└── docs/                # Documentation
-```
-
-## Architecture
-
-Graft follows a clean architecture with:
-
-- **Domain-Driven Design**: Core domain models (Change, Command, LockEntry)
-- **Protocol-Based DI**: Structural typing for flexible dependency injection
-- **Functional Services**: Pure functions accepting protocol dependencies
-- **Immutable Values**: All domain models are frozen dataclasses
-- **Snapshot Pattern**: Filesystem-based snapshots for rollback
-- **Atomic Operations**: All-or-nothing upgrades with automatic cleanup
-
-See [docs/README.md](docs/README.md) for detailed architecture documentation.
-
-## Testing Status
-
-- **Tests**: 322 passing
-- **Coverage**: 45% overall (service layer: 80-100%, CLI: lower due to integration nature)
-- **Type Checking**: mypy strict mode enabled and passing
-- **Linting**: All checks passing (ruff)
-- **Dogfooded**: Yes - graft manages its own dependency (graft-knowledge)
-
-## Contributing
-
-This project follows Python best practices:
-
-- **Type hints** on all functions
-- **Docstrings** on all public APIs
-- **Unit tests** for all service functions
-- **Integration tests** for adapters
-- **Fakes over mocks** for testing
-- **Immutable domain models**
-
-See [docs/README.md](docs/README.md) for architectural details and [TASKS.md](TASKS.md) for current development status.
-
-## Next Steps
-
-**New to graft?**
-- Follow the [Quick Start](#quick-start) above
-- Try the [Complete Workflow Example](#complete-workflow-example)
-- Read detailed tutorials in [docs/guides/USER_GUIDE.md](docs/guides/USER_GUIDE.md)
-
-**Contributing to development?**
-- Read architecture details in [docs/README.md](docs/README.md)
-- Check current status in [TASKS.md](TASKS.md)
-- Review [CONTINUE_HERE.md](CONTINUE_HERE.md) for recent session context
-- For AI agents: See [docs/guides/WORKING_WITH_GRAFT.md](docs/guides/WORKING_WITH_GRAFT.md)
-
-**Need help?**
-- Check [Troubleshooting](#troubleshooting) above
-- Review [status/IMPLEMENTATION_STATUS.md](status/IMPLEMENTATION_STATUS.md) for implementation details
-- See [status/COMPLETE_WORKFLOW.md](status/COMPLETE_WORKFLOW.md) for end-to-end examples
+See [docs/guides/USER_GUIDE.md](docs/guides/USER_GUIDE.md) for detailed tutorials and workflows.
 
 ## Documentation
 
-- [USER_GUIDE.md](docs/guides/USER_GUIDE.md) - Step-by-step tutorials and workflows
-- [docs/README.md](docs/README.md) - Architecture and developer documentation
-- [COMPLETE_WORKFLOW.md](status/COMPLETE_WORKFLOW.md) - End-to-end workflow validation
-- [IMPLEMENTATION_STATUS.md](status/IMPLEMENTATION_STATUS.md) - Implementation details
-- [TASKS.md](TASKS.md) - Current development status
+### For Users
+
+- **[User Guide](docs/guides/USER_GUIDE.md)** - Step-by-step tutorials and common workflows
+- **[CLI Reference](docs/CLI_REFERENCE.md)** - Complete command documentation
+- **[Configuration Guide](docs/CONFIGURATION.md)** - graft.yaml and graft.lock format details
+
+### For Contributors
+
+- **[Architecture Overview](docs/README.md)** - System design and implementation details
+- **[Working with Graft](docs/guides/WORKING_WITH_GRAFT.md)** - Development workflow and patterns
+- **[Current Status](TASKS.md)** - Development status and roadmap
+
+### Quick Links
+
+- **Getting started?** Read the [Quick Start](#quick-start) above, then the [User Guide](docs/guides/USER_GUIDE.md)
+- **Contributing code?** Review [docs/README.md](docs/README.md) and [WORKING_WITH_GRAFT.md](docs/guides/WORKING_WITH_GRAFT.md)
+- **Starting a session?** Check [CONTINUE_HERE.md](CONTINUE_HERE.md) for recent context
+
+## Core Concepts
+
+**Dependencies** - Git repositories that your knowledge base depends on, declared in `graft.yaml`
+
+**Changes** - Semantic versioned modifications (breaking/feature/fix) with optional migration commands
+
+**Lock File** - Records exact consumed versions with commit hashes in `graft.lock`
+
+**Atomic Upgrades** - Upgrades that execute migrations, run verifications, and automatically rollback on any failure
+
+See [docs/guides/USER_GUIDE.md](docs/guides/USER_GUIDE.md#core-concepts) for detailed explanations.
+
+## Project Status
+
+- **Tests**: 322 passing
+- **Coverage**: 45% (service layer: 80-100%)
+- **Type Checking**: mypy strict mode enabled and passing
+- **Linting**: All checks passing (ruff)
+- **Status**: Production ready - All core features complete
+
+## Contributing
+
+This project follows clean architecture principles with protocol-based dependency injection, functional service layers, and immutable domain models.
+
+Read [docs/README.md](docs/README.md) for architectural details and [docs/guides/WORKING_WITH_GRAFT.md](docs/guides/WORKING_WITH_GRAFT.md) for development workflow.
+
+**Code Quality Standards**:
+- Type hints on all functions (mypy strict)
+- Unit tests for all services
+- Fakes over mocks for testing
+- Professional documentation (plain language, no emojis)
 
 ## License
 
 MIT License - see LICENSE file for details.
 
-## Resources
-
-- **Specification**: See `/home/coder/graft-knowledge/docs/specification/`
-- **Issue Tracker**: TBD
-- **Discussions**: TBD
-
 ---
 
-**Status**: Production ready - All core features complete and tested
+**Links**: [Documentation](docs/) | [User Guide](docs/guides/USER_GUIDE.md) | [CLI Reference](docs/CLI_REFERENCE.md) | [Architecture](docs/README.md)
