@@ -1,6 +1,5 @@
 """Fake snapshot implementation for testing."""
 
-import copy
 from datetime import UTC, datetime
 
 

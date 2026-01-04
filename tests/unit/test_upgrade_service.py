@@ -5,7 +5,6 @@ import pytest
 from graft.domain.change import Change
 from graft.domain.command import Command
 from graft.domain.config import GraftConfig
-from graft.protocols.command_executor import CommandResult
 from graft.services.upgrade_service import rollback_upgrade, upgrade_dependency
 from tests.fakes.fake_command_executor import FakeCommandExecutor
 from tests.fakes.fake_lock_file import FakeLockFile
