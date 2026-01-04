@@ -1,5 +1,7 @@
 """Tests for Change domain model."""
 
+import dataclasses
+
 import pytest
 
 from graft.domain.change import Change
@@ -147,7 +149,7 @@ class TestChange:
         """Should not allow modification after creation."""
         change = Change(ref="v1.0.0")
 
-        with pytest.raises(Exception):  # FrozenInstanceError or AttributeError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             change.ref = "v2.0.0"  # type: ignore
 
     def test_changes_with_same_ref_are_equal(self) -> None:

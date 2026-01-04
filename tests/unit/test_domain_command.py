@@ -1,5 +1,7 @@
 """Tests for Command domain model."""
 
+import dataclasses
+
 import pytest
 
 from graft.domain.command import Command
@@ -144,7 +146,7 @@ class TestCommand:
         """Should not allow modification after creation."""
         command = Command(name="test", run="npm test")
 
-        with pytest.raises(Exception):  # FrozenInstanceError or AttributeError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             command.name = "changed"  # type: ignore
 
     def test_commands_with_same_fields_are_equal(self) -> None:

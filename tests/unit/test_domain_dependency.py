@@ -3,6 +3,8 @@
 Tests for GitRef, GitUrl, DependencySpec, and DependencyResolution.
 """
 
+import dataclasses
+
 import pytest
 
 from graft.domain.dependency import (
@@ -43,7 +45,7 @@ class TestGitRef:
     def test_immutable(self) -> None:
         """Should be immutable (frozen dataclass)."""
         ref = GitRef("main")
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             ref.ref = "develop"  # type: ignore
 
 
@@ -87,7 +89,7 @@ class TestGitUrl:
     def test_immutable(self) -> None:
         """Should be immutable (frozen dataclass)."""
         url = GitUrl("https://github.com/user/repo.git")
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             url.url = "https://other.com"  # type: ignore
 
 
@@ -148,7 +150,7 @@ class TestDependencySpec:
             git_url=GitUrl("https://github.com/user/repo.git"),
             git_ref=GitRef("main"),
         )
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             spec.name = "other"  # type: ignore
 
 

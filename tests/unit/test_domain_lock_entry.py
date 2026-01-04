@@ -1,5 +1,6 @@
 """Tests for LockEntry domain model."""
 
+import dataclasses
 from datetime import UTC, datetime
 
 import pytest
@@ -227,7 +228,7 @@ class TestLockEntry:
             consumed_at=datetime.now(UTC),
         )
 
-        with pytest.raises(Exception):  # FrozenInstanceError or AttributeError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             entry.ref = "v2.0.0"  # type: ignore
 
     def test_lock_entries_with_same_fields_are_equal(self) -> None:
