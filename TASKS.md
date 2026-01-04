@@ -5,253 +5,48 @@
 
 ---
 
-## 📋 Next Up (Priority Order)
+## Next Up (Priority Order)
 
-### High Priority (Enhancement Features)
-
----
-
-### Medium Priority (Utility Commands)
-
+(no active tasks)
 
 ---
 
-### Low Priority (Polish & Convenience)
-
-
-
----
-
-### Quality Improvements
-
----
-
-### Documentation & Organization
-
----
-
-## 🔄 In Progress
+## In Progress
 
 (none)
 
 ---
 
-## ✅ Done (Recent)
+## Done (Recent)
 
-- [x] **#014: Create USER_GUIDE.md**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5 (Agent)
-  - Result: Created comprehensive user guide with tutorials and best practices
-  - New File: `docs/guides/USER_GUIDE.md` (500+ lines)
-  - Sections:
-    - Getting Started: Step-by-step first project tutorial
-    - Core Concepts: Dependencies, changes, commands, lock file
-    - Common Workflows: 7 real-world scenarios with examples
-    - Troubleshooting: 6 common problems with solutions
-    - Best Practices: 10 recommended practices for effective use
-    - Advanced Topics: Custom migrations, automation, CI/CD integration
-  - Benefits: New users have clear path from installation to advanced usage
-  - Note: Goes beyond README.md with detailed tutorials and troubleshooting
-
-- [x] **#012: Add mypy strict type checking**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5 (Agent)
-  - Result: Enabled mypy strict mode and fixed all type issues
-  - Modified Files:
-    - `pyproject.toml` (added mypy to dev dependencies, enabled strict=true)
-    - `src/graft/adapters/repository.py` (added HasId protocol for type bounds)
-    - `src/graft/cli/commands/upgrade.py` (added type annotation for result variable, renamed subprocess result)
-    - `src/graft/cli/commands/status.py` (added type annotation for updates_info dict)
-    - `src/graft/cli/commands/show.py` (added type annotations for output dict and _build_command_dict)
-    - `src/graft/cli/commands/changes.py` (added type annotation for output dict)
-    - `src/graft/cli/commands/fetch.py` (renamed unused variable, added from None to raise)
-    - `src/graft/cli/commands/validate.py` (removed unused imports)
-    - `src/graft/services/upgrade_service.py` (added type annotation for snapshot_id, added None checks)
-    - `src/graft/services/validation_service.py` (removed .keys() from dict iteration)
-  - Testing: All 322 tests passing, mypy src/ passes with no errors
-  - Benefits: Full type safety with strict mypy checks, catches more type errors at development time
-  - Note: Configured mypy with strict=true in pyproject.toml, simplified from individual flags
-
-- [x] **#015: Create ADRs for key architectural decisions**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5 (Agent)
-  - Result: Created 5 comprehensive ADRs documenting major design decisions
-  - New Files: docs/decisions/001-*.md through 005-*.md, docs/decisions/README.md
-  - Total: 1064 lines of documentation
-  - ADRs Created:
-    1. Require Explicit Ref in Upgrade - why --to is required
-    2. Filesystem Snapshots for Rollback - why not git-based
-    3. Snapshot Only Lock File - why not full workspace
-    4. Protocol-Based Dependency Injection - why Protocols over inheritance
-    5. Functional Service Layer - why pure functions over classes
-  - Each ADR includes: Context, Decision, Consequences, Alternatives, References
-  - Benefits: Preserves design rationale, documents spec deviations, aids onboarding
-  - All tests passing (322 tests)
-
-- [x] **#013: Migrate status docs to status/ directory**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5 (Agent)
-  - Result: Organized all status documentation into status/ directory
-  - Created: status/ and status/sessions/ directories
-  - Moved: IMPLEMENTATION_STATUS.md, GAP_ANALYSIS.md, PHASE_8_IMPLEMENTATION.md, COMPLETE_WORKFLOW.md, SESSION_LOG_*.md
-  - Created: status/README.md documenting directory structure
-  - Updated: All references in README.md, docs/README.md, CONTINUE_HERE.md
-  - Benefits: Clean root directory, organized status tracking, follows INFO_ARCHITECTURE.md conventions
-  - All tests passing (322 tests)
-
-- [x] **#011: Add CLI integration tests**
-  - Completed: 2026-01-04 (completed across multiple sessions)
-  - Owner: Claude Sonnet 4.5 (Agent)
-  - Result: Comprehensive CLI integration tests for all commands
-  - New Files: `tests/integration/test_cli_commands.py` (815 lines, 65+ tests)
-  - Testing: All 322 tests passing
-  - Coverage: Tests for resolve, fetch, status, changes, show, validate, exec commands
-  - Features: Subprocess-based tests, JSON/text output validation, error scenarios, flag combinations
-  - Achievement: Exceeded goal - comprehensive CLI test coverage achieved
-
-- [x] **#008: Add --check-updates option to status command**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5 (Agent)
-  - Result: Added --check-updates flag to status command
-  - Modified Files: `src/graft/cli/commands/status.py` (added 100+ lines)
-  - Testing: All 322 tests pass (up from 320), added 2 integration tests
-  - Features: Fetches latest from remote, shows current status, supports JSON output
-  - Use Cases: Check for updates before upgrading, see what's available without modifying lock
-  - Note: Runs git fetch but doesn't modify lock file or working directory
-
-- [x] **#006: Implement graft fetch command**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5 (Agent)
-  - Result: Implemented fetch command to update local git cache
-  - New Files: `src/graft/cli/commands/fetch.py` (124 lines)
-  - Modified Files: `src/graft/protocols/git.py`, `src/graft/adapters/git.py`, `tests/fakes/fake_git.py`, `src/graft/cli/main.py`
-  - Testing: All 320 tests pass (up from 316), added 4 integration tests
-  - Features: Fetch all or specific dependency, warns if not cloned, proper error handling
-  - New Protocol Method: `fetch_all()` added to GitOperations protocol
-  - Note: Fetches remote-tracking branches without modifying working directory or lock file
-
-- [x] **#005: Implement graft validate command**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5 (Agent)
-  - Result: Implemented validate command with schema, refs, and lock validation
-  - New Files: `src/graft/cli/commands/validate.py` (228 lines), `src/graft/services/validation_service.py` (131 lines), `tests/unit/test_validation_service.py` (130 lines)
-  - Modified Files: `src/graft/protocols/git.py`, `src/graft/adapters/git.py`, `tests/fakes/fake_git.py`
-  - Testing: All 314 tests pass (up from 307), added 7 integration tests for validate
-  - Features: Schema validation, git ref existence checking, lock file consistency, --schema/--refs/--lock flags
-  - Architectural Improvement: Clarified validation separation - domain validates at construction, service validates runtime state
-  - Note: Command reference validation removed from service (redundant with domain validation)
-
-- [x] **#011: Add CLI integration tests**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5 (Agent)
-  - Result: Added 23 CLI integration tests via subprocess
-  - New Files: `tests/integration/test_cli_commands.py` (670 lines)
-  - Testing: All 314 tests pass (up from 278)
-  - Coverage: Service layer 80-98%, adapters 77-92%, domain 85-99%
-  - Tests Cover: status, changes, show, exec, validate commands with JSON/text output
-  - Note: CLI commands show 0% coverage (expected - thin wrappers tested via subprocess)
-
-- [x] **#010: Add --field option to show command**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5
-  - Result: Added `--field` option to show only specific fields
-  - Files Modified: `src/graft/cli/commands/show.py`, `README.md`
-  - Testing: Manual testing with all fields, all tests pass (278/278)
-  - Features: Supports type, description, migration, verify; works with --format json
-  - Commit: (pending)
-
-- [x] **#009: Add --since alias to changes command**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5
-  - Result: Added `--since` convenience alias for `--from-ref`
-  - Files Modified: `src/graft/cli/commands/changes.py`, `README.md`
-  - Testing: Manual testing with various scenarios, all tests pass (278/278)
-  - Features: Validates conflicts, works with all other options
-  - Commit: (pending)
-
-- [x] **#007: Implement graft <dep>:<command> syntax**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5
-  - Result: Added dep:command syntax for executing dependency commands
-  - New Files: `src/graft/cli/commands/exec_command.py`
-  - Modified Files: `src/graft/__main__.py`, `README.md`
-  - Testing: Manual testing with valid/invalid commands, all tests pass (278/278)
-  - Features: Parses syntax, loads from dep graft.yaml, streams output, proper error handling
-  - Commit: (pending)
-
-- [x] **#004: Add --dry-run mode to upgrade command**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5
-  - Result: Added `--dry-run` flag to preview upgrade without execution
-  - Files Modified: `src/graft/cli/commands/upgrade.py`, `README.md`, `GAP_ANALYSIS.md`
-  - Testing: Manual testing with multiple scenarios, all tests pass (278/278)
-  - Features: Shows planned operations, respects --skip flags, clear guidance
-  - Commit: (pending)
-
-- [x] **#003: Add JSON output to show command**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5
-  - Result: Added `--format json` option to output JSON format
-  - Files Modified: `src/graft/cli/commands/show.py`, `README.md`, `GAP_ANALYSIS.md`
-  - Testing: Manual testing, all tests pass (278/278)
-  - Commits: 68ac4a3 (implementation) + 74ab474 (docs) + 001c290 (validation)
-
-- [x] **#002: Add JSON output to changes command**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5
-  - Result: Added `--format json` option to output JSON format
-  - Files Modified: `src/graft/cli/commands/changes.py`, `README.md`, `GAP_ANALYSIS.md`
-  - Testing: Manual testing, all tests pass (278/278)
-  - Commits: f1717ed (implementation) + 74ab474 (docs) + 001c290 (validation)
-
-- [x] **#001: Add JSON output to status command**
-  - Completed: 2026-01-04 (revised for consistency)
-  - Owner: Claude Sonnet 4.5
-  - Result: Added `--format json` option to output JSON format
-  - Files Modified: `src/graft/cli/commands/status.py`, `README.md`
-  - Testing: Manual testing, all tests pass (278/278)
-  - Note: Initially used --json flag, revised to --format for consistency with #002, #003
-  - Commits: Initial + consistency fix + validation
-
-- [x] **#000: Phase 8 CLI Integration**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5
-  - Result: All 6 CLI commands implemented and working
-  - Commits: 64bd9f6, 4522443, cb0bf12, 0fd5fe1
-  - Notes: Included dogfooding on graft itself, found and fixed 4 bugs
-
-- [x] **Phase 9: Documentation**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5
-  - Result: README.md and docs/README.md completely rewritten
-  - Commits: 902bf6f, b736037
-  - Notes: Comprehensive user and developer documentation
-
-- [x] **Gap Analysis: Compare implementation to specification**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5
-  - Result: GAP_ANALYSIS.md created (567 lines)
-  - Commit: 88cc460
-  - Findings: 85% spec compliance, production ready
-
-- [x] **Information Architecture: Design task tracking system**
-  - Completed: 2026-01-04
-  - Owner: Claude Sonnet 4.5
-  - Result: docs/INFO_ARCHITECTURE.md and TASKS.md created
-  - Commit: (pending)
-  - Notes: Following meta-knowledge-base conventions
+- [x] #014: Create USER_GUIDE.md (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #012: Add mypy strict type checking (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #015: Create ADRs for architectural decisions (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #013: Migrate status docs to status/ directory (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #011: Add CLI integration tests (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #008: Add --check-updates option to status command (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #006: Implement graft fetch command (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #005: Implement graft validate command (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #010: Add --field option to show command (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #009: Add --since alias to changes command (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #007: Implement graft <dep>:<command> syntax (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #004: Add --dry-run mode to upgrade command (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #003: Add JSON output to show command (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #002: Add JSON output to changes command (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #001: Add JSON output to status command (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #000: Phase 8 CLI Integration (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
 
 ---
 
-## 🚫 Blocked
+## Blocked
 
 (none)
 
 ---
 
-## 📦 Backlog (Not Prioritized)
+## Backlog (Not Prioritized)
 
-- [ ] Performance profiling and optimization (if needed)
+- [ ] Performance profiling and optimization
 - [ ] Add progress bars for long operations
 - [ ] Bash completion scripts
 - [ ] Homebrew formula for installation
@@ -261,47 +56,25 @@
 
 ---
 
-## 📊 Task Statistics
+## Project Status
 
-- **Total Tasks**: 0 active + 16 done = 16
-- **High Priority**: 0 tasks (all complete)
-- **Medium Priority**: 0 tasks (all complete)
-- **Low Priority**: 0 tasks (all complete)
-- **In Progress**: 0
-- **Blocked**: 0
-- **Done**: 16
-- **Backlog**: 7 unscheduled items
-
-**Work Completed**:
-- All enhancement features implemented ✅
-- All utility commands implemented ✅
-- All quality improvements complete ✅
-- All documentation complete ✅
-- Project is production-ready with comprehensive test coverage (322 tests passing)
+All planned tasks complete. The graft project is production-ready with:
+- Complete CLI implementation (all 6 commands)
+- Full test coverage (322 tests passing)
+- Strict type checking (mypy strict mode enabled)
+- Comprehensive documentation (README + USER_GUIDE)
+- Architectural decision records (5 ADRs)
+- Clean codebase (ruff linting passing)
 
 ---
 
-## 🎯 Project Status
-
-**All planned tasks complete!** ✅
-
-The graft project is production-ready with:
-- ✅ Complete CLI implementation (all 6 commands)
-- ✅ Full test coverage (322 tests passing)
-- ✅ Strict type checking (mypy strict mode enabled)
-- ✅ Comprehensive documentation (README + USER_GUIDE)
-- ✅ Architectural decision records (5 ADRs)
-- ✅ Clean codebase (ruff linting passing)
-
----
-
-## 📝 Notes for Future Agents
+## Notes for Future Agents
 
 ### Picking Up a Task
 
-1. Find an unassigned task in "Next Up" that matches your capabilities
-2. Move it to "In Progress" with your name and start date
-3. Create a note in `notes/YYYY-MM-DD-task-name.md` for scratch work
+1. Find an unassigned task in "Next Up"
+2. Move to "In Progress" with your name and start date
+3. Create note in `notes/YYYY-MM-DD-task-name.md` for scratch work
 4. Implement the feature following existing patterns
 5. Write tests (unit + integration if applicable)
 6. Update documentation (README.md, docs/README.md if needed)
@@ -335,7 +108,5 @@ When you discover new work:
 - [ ] Follow-up tasks created (if any)
 
 ---
-
-**Questions? Issues with task tracking?**
 
 See [docs/INFO_ARCHITECTURE.md](docs/INFO_ARCHITECTURE.md) for complete task management conventions.

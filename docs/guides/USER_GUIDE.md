@@ -1,6 +1,6 @@
 # Graft User Guide
 
-**Complete guide to using Graft for semantic dependency management**
+Complete guide to using Graft for semantic dependency management.
 
 This guide provides step-by-step tutorials, common workflows, troubleshooting tips, and best practices for using Graft effectively.
 
@@ -37,7 +37,7 @@ uv sync
 uv run python -m graft --help
 ```
 
-**Expected output**: You should see the Graft CLI help text with available commands.
+You should see the Graft CLI help text with available commands.
 
 #### Step 2: Create Your First graft.yaml
 
@@ -56,7 +56,7 @@ deps:
 EOF
 ```
 
-**What this does**: Declares a dependency named `my-knowledge` that tracks the `main` branch of a git repository.
+This declares a dependency named `my-knowledge` that tracks the `main` branch of a git repository.
 
 #### Step 3: Clone Dependencies
 
@@ -64,11 +64,11 @@ EOF
 uv run python -m graft resolve
 ```
 
-**What happens**:
-- Graft clones the repository to `.graft/deps/my-knowledge/`
-- The repository is ready to use but not yet locked
+This command:
+- Clones the repository to `.graft/deps/my-knowledge/`
+- Makes the repository ready to use but does not yet create a lock file
 
-**Expected output**:
+Expected output:
 ```
 Resolving dependencies...
   ✓ my-knowledge: cloned successfully
@@ -80,18 +80,18 @@ Resolving dependencies...
 uv run python -m graft apply my-knowledge --to main
 ```
 
-**What happens**:
-- Graft resolves `main` to a specific commit hash
+This command:
+- Resolves `main` to a specific commit hash
 - Creates `graft.lock` with the consumed version
 - Records the timestamp of consumption
 
-**Expected output**:
+Expected output:
 ```
 Applied my-knowledge@main
 Lock file updated: graft.lock
 ```
 
-**Your graft.lock will look like**:
+The graft.lock file will contain:
 ```yaml
 apiVersion: graft/v0
 dependencies:
@@ -108,7 +108,7 @@ dependencies:
 uv run python -m graft status
 ```
 
-**Expected output**:
+Expected output:
 ```
 Dependencies:
   my-knowledge:
@@ -117,7 +117,7 @@ Dependencies:
     Consumed: 2026-01-04T12:34:56Z
 ```
 
-**Congratulations!** You've successfully set up your first Graft project.
+You have successfully set up your first Graft project.
 
 ---
 
@@ -127,9 +127,9 @@ Dependencies:
 
 Dependencies are git repositories that your project depends on. Each dependency has:
 
-- **Name**: A unique identifier (e.g., `my-knowledge`)
-- **URL**: The git repository URL
-- **Ref**: The branch, tag, or commit to track (e.g., `main`, `v1.0.0`)
+- Name: A unique identifier (e.g., `my-knowledge`)
+- URL: The git repository URL
+- Ref: The branch, tag, or commit to track (e.g., `main`, `v1.0.0`)
 
 ```yaml
 deps:
@@ -141,10 +141,10 @@ deps:
 
 Changes are semantic versioned modifications to dependencies. Each change can define:
 
-- **Type**: `breaking`, `feature`, or `fix`
-- **Description**: Human-readable explanation
-- **Migration**: Optional command to run during upgrade
-- **Verification**: Optional command to verify the upgrade
+- Type: `breaking`, `feature`, or `fix`
+- Description: Human-readable explanation
+- Migration: Optional command to run during upgrade
+- Verification: Optional command to verify the upgrade
 
 ```yaml
 changes:
@@ -169,7 +169,7 @@ commands:
 
 ### Lock File (graft.lock)
 
-The lock file records **exactly** what version you're consuming:
+The lock file records exactly what version you are consuming:
 
 - Commit hash (not just ref name)
 - Timestamp of consumption
@@ -183,7 +183,7 @@ This ensures reproducible builds and auditable upgrades.
 
 ### Workflow 1: Adding a New Dependency
 
-**Scenario**: You want to add a new knowledge base to your project.
+Add a new knowledge base to your project:
 
 ```bash
 # 1. Add dependency to graft.yaml
@@ -201,11 +201,11 @@ uv run python -m graft apply new-kb --to v1.0.0
 uv run python -m graft status new-kb
 ```
 
-**Result**: The new dependency is cloned and locked at `v1.0.0`.
+The new dependency is cloned and locked at `v1.0.0`.
 
 ### Workflow 2: Checking for Updates
 
-**Scenario**: You want to see if there are new versions available without upgrading yet.
+See if there are new versions available without upgrading:
 
 ```bash
 # 1. Fetch latest from remote
@@ -221,18 +221,17 @@ uv run python -m graft changes my-knowledge
 uv run python -m graft show my-knowledge@v2.0.0
 ```
 
-**Result**: You can see what's available without modifying your lock file.
+You can see what is available without modifying your lock file.
 
 ### Workflow 3: Upgrading a Dependency
 
-**Scenario**: You want to upgrade to a new version with migration.
+Upgrade to a new version with migration:
 
 ```bash
 # 1. Preview the upgrade first
 uv run python -m graft upgrade my-knowledge --to v2.0.0 --dry-run
 
 # 2. Review the planned operations
-# (Check migration and verification commands)
 
 # 3. Perform the actual upgrade
 uv run python -m graft upgrade my-knowledge --to v2.0.0
@@ -241,24 +240,24 @@ uv run python -m graft upgrade my-knowledge --to v2.0.0
 uv run python -m graft status my-knowledge
 ```
 
-**What happens during upgrade**:
+During upgrade:
 1. Snapshot created (graft.lock backed up)
 2. Migration command runs
 3. Verification command runs
 4. Lock file updated
-5. **If anything fails**: Automatic rollback to previous state
+5. If anything fails: Automatic rollback to previous state
 
-**Result**: Safe atomic upgrade with automatic rollback on failure.
+Safe atomic upgrade with automatic rollback on failure.
 
 ### Workflow 4: Handling Breaking Changes
 
-**Scenario**: A dependency has a breaking change with a migration command.
+A dependency has a breaking change with a migration command:
 
 ```bash
 # 1. Check what the breaking change involves
 uv run python -m graft show my-knowledge@v2.0.0
 
-# Expected output:
+# Output shows:
 # Type: breaking
 # Description: Renamed getUserData → fetchUserData
 # Migration: migrate-v2
@@ -266,19 +265,15 @@ uv run python -m graft show my-knowledge@v2.0.0
 # Verify: verify-v2
 #   Command: npm test && ! grep -r 'getUserData' src/
 
-# 2. Run the upgrade (migration will execute automatically)
+# 2. Run the upgrade (migration executes automatically)
 uv run python -m graft upgrade my-knowledge --to v2.0.0
-
-# Migration command runs automatically
-# Verification command runs automatically
-# Lock file updated
 ```
 
-**Result**: Breaking change migrated and verified automatically.
+Breaking change migrated and verified automatically.
 
 ### Workflow 5: Manual Migration Workflow
 
-**Scenario**: You want to run migration manually instead of during upgrade.
+Run migration manually instead of during upgrade:
 
 ```bash
 # 1. Apply version without running migration
@@ -294,11 +289,11 @@ uv run python -m graft my-knowledge:verify-v2
 uv run python -m graft status my-knowledge
 ```
 
-**Result**: You have full control over when migration runs.
+You have full control over when migration runs.
 
 ### Workflow 6: Validating Configuration
 
-**Scenario**: You want to validate your graft.yaml before committing.
+Validate your graft.yaml before committing:
 
 ```bash
 # 1. Validate everything
@@ -314,11 +309,11 @@ uv run python -m graft validate --refs
 uv run python -m graft validate --lock
 ```
 
-**Result**: Catch configuration errors before they cause problems.
+Catch configuration errors before they cause problems.
 
 ### Workflow 7: Scripting with JSON Output
 
-**Scenario**: You want to automate graft operations in CI/CD.
+Automate graft operations in CI/CD:
 
 ```bash
 # Get status as JSON
@@ -334,7 +329,7 @@ DETAILS=$(uv run python -m graft show my-knowledge@v2.0.0 --format json)
 echo "$DETAILS" | jq '.migration.command'
 ```
 
-**Result**: Easy integration with automation tools.
+Easy integration with automation tools.
 
 ---
 
@@ -342,9 +337,9 @@ echo "$DETAILS" | jq '.migration.command'
 
 ### Problem: "graft.yaml not found"
 
-**Cause**: You're not in a directory with a graft.yaml file.
+Cause: You are not in a directory with a graft.yaml file.
 
-**Solution**:
+Solution:
 ```bash
 # Check current directory
 pwd
@@ -362,23 +357,19 @@ EOF
 
 ### Problem: "Dependency not cloned"
 
-**Cause**: You haven't run `graft resolve` yet.
+Cause: You have not run `graft resolve` yet.
 
-**Solution**:
+Solution:
 ```bash
 # Clone all dependencies
-uv run python -m graft resolve
-
-# Or clone specific dependency
-# (Edit graft.yaml first to add the dependency)
 uv run python -m graft resolve
 ```
 
 ### Problem: "Ref 'v2.0.0' not found"
 
-**Cause**: The ref doesn't exist in the git repository.
+Cause: The ref does not exist in the git repository.
 
-**Solution**:
+Solution:
 ```bash
 # 1. Fetch latest from remote
 uv run python -m graft fetch my-knowledge
@@ -395,17 +386,16 @@ uv run python -m graft upgrade my-knowledge --to <valid-ref>
 
 ### Problem: "Migration command failed"
 
-**Cause**: The migration command encountered an error.
+Cause: The migration command encountered an error.
 
-**What happens**:
-- Graft **automatically rolls back** to previous state
+What happens:
+- Graft automatically rolls back to previous state
 - Lock file is restored from snapshot
 - Error message shows migration output
 
-**Solution**:
+Solution:
 ```bash
 # 1. Review the error message
-# (Check stderr from migration command)
 
 # 2. Fix the issue (e.g., missing dependency)
 npm install required-package
@@ -414,13 +404,13 @@ npm install required-package
 uv run python -m graft upgrade my-knowledge --to v2.0.0
 ```
 
-**Note**: Graft's automatic rollback ensures you're never left in a broken state.
+Graft's automatic rollback ensures you are never left in a broken state.
 
 ### Problem: "Lock file out of sync"
 
-**Cause**: The dependency in .graft/deps/ doesn't match the lock file.
+Cause: The dependency in .graft/deps/ does not match the lock file.
 
-**Solution**:
+Solution:
 ```bash
 # 1. Validate to see the issue
 uv run python -m graft validate --lock
@@ -434,9 +424,9 @@ uv run python -m graft validate --lock
 
 ### Problem: "Cannot access .graft/deps/"
 
-**Cause**: Permissions issue or directory doesn't exist.
+Cause: Permissions issue or directory does not exist.
 
-**Solution**:
+Solution:
 ```bash
 # Check if directory exists
 ls -ld .graft/
@@ -464,7 +454,7 @@ uv run python -m graft upgrade my-knowledge --to v2.0.0 --dry-run
 uv run python -m graft upgrade my-knowledge --to v2.0.0
 ```
 
-**Why**: Prevents surprises and lets you review migration commands.
+Prevents surprises and lets you review migration commands.
 
 ### 2. Commit Lock File to Version Control
 
@@ -475,7 +465,7 @@ git add graft.lock graft.yaml
 git commit -m "Update dependencies"
 ```
 
-**Why**: Ensures everyone on the team uses the same dependency versions.
+Ensures everyone on the team uses the same dependency versions.
 
 ### 3. Use Semantic Versioning for Refs
 
@@ -491,7 +481,7 @@ deps:
   my-kb: "https://github.com/org/my-kb.git#main"
 ```
 
-**Why**: Semantic versions are stable and predictable.
+Semantic versions are stable and predictable.
 
 ### 4. Define Changes for All Breaking Changes
 
@@ -506,7 +496,7 @@ changes:
     verify: verify-v2
 ```
 
-**Why**: Makes upgrades safe and automatic for consumers.
+Makes upgrades safe and automatic for consumers.
 
 ### 5. Validate Before Committing
 
@@ -521,7 +511,7 @@ git add graft.yaml graft.lock
 git commit -m "Update configuration"
 ```
 
-**Why**: Catches errors early before they reach other developers.
+Catches errors early before they reach other developers.
 
 ### 6. Use JSON Output in CI/CD
 
@@ -535,7 +525,7 @@ if echo "$STATUS" | jq -e '.dependencies."my-kb"' > /dev/null; then
 fi
 ```
 
-**Why**: Reliable parsing and error handling in scripts.
+Reliable parsing and error handling in scripts.
 
 ### 7. Fetch Before Checking for Updates
 
@@ -547,7 +537,7 @@ uv run python -m graft fetch
 uv run python -m graft status --check-updates
 ```
 
-**Why**: Ensures you see the most up-to-date information.
+Ensures you see the most up-to-date information.
 
 ### 8. Use Commands for Reusable Operations
 
@@ -564,7 +554,7 @@ commands:
     description: "Run linter"
 ```
 
-**Why**: Standardizes common operations across the team.
+Standardizes common operations across the team.
 
 ### 9. Document Migration Steps
 
@@ -584,7 +574,7 @@ changes:
     migration: migrate-v2
 ```
 
-**Why**: Helps users understand what will happen during upgrade.
+Helps users understand what will happen during upgrade.
 
 ### 10. Test Migrations in Isolation
 
@@ -603,7 +593,7 @@ uv run python -m graft my-knowledge:migrate-v2
 uv run python -m graft upgrade my-knowledge --to v2.0.0
 ```
 
-**Why**: Catches migration issues before committing to the upgrade.
+Catches migration issues before committing to the upgrade.
 
 ---
 
@@ -611,7 +601,7 @@ uv run python -m graft upgrade my-knowledge --to v2.0.0
 
 ### Custom Migration Workflows
 
-For complex migrations, you can skip automatic migration and do it manually:
+For complex migrations, skip automatic migration and do it manually:
 
 ```bash
 # 1. Apply version without migration
@@ -712,11 +702,11 @@ done
 
 ## Need Help?
 
-- **Documentation**: See [README.md](../../README.md) for command reference
-- **Developer Guide**: See [docs/README.md](../README.md) for architecture details
-- **Issue Tracker**: Report bugs and request features on GitHub
-- **Discussions**: Ask questions in GitHub Discussions
+- Documentation: See [README.md](../../README.md) for command reference
+- Developer Guide: See [docs/README.md](../README.md) for architecture details
+- Issue Tracker: Report bugs and request features on GitHub
+- Discussions: Ask questions in GitHub Discussions
 
 ---
 
-**Last Updated**: 2026-01-04
+Last Updated: 2026-01-04
