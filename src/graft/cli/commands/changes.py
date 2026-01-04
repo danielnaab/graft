@@ -121,7 +121,9 @@ def changes_command(
                 elif change_type:
                     filter_desc = f"{change_type} "
 
-                output = {
+                from typing import Any
+
+                output: dict[str, Any] = {
                     "dependency": dep_name,
                     "from": from_ref,
                     "to": to_ref,

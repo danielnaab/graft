@@ -9,6 +9,7 @@ from pathlib import Path
 import typer
 
 from graft.cli.dependency_context_factory import get_dependency_context
+from graft.domain.command import Command
 from graft.domain.exceptions import (
     ConfigFileNotFoundError,
     ConfigParseError,
@@ -18,7 +19,7 @@ from graft.domain.exceptions import (
 from graft.services import config_service, query_service
 
 
-def _build_command_dict(cmd) -> dict:
+def _build_command_dict(cmd: Command) -> dict[str, str | None]:
     """Build command dictionary for JSON output.
 
     Args:
@@ -133,6 +134,9 @@ def show_command(
 
         if format_option == "json":
             # JSON output
+            from typing import Any
+
+            output: dict[str, Any]
             if field:
                 # Show only requested field
                 if field == "type":

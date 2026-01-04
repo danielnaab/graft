@@ -96,7 +96,7 @@ def upgrade_dependency(
     # Step 1: Create snapshot for rollback
     snapshot_paths = get_snapshot_paths_for_dependency(dep_name)
     try:
-        snapshot_id = create_workspace_snapshot(snapshot, snapshot_paths, base_dir)
+        snapshot_id: str | None = create_workspace_snapshot(snapshot, snapshot_paths, base_dir)
     except (FileNotFoundError, OSError) as e:
         return UpgradeResult(
             success=False,
@@ -120,6 +120,7 @@ def upgrade_dependency(
                     )
             except (KeyError, RuntimeError, OSError) as e:
                 # Rollback on migration failure
+                assert snapshot_id is not None, "snapshot_id should not be None here"
                 restore_workspace_snapshot(snapshot, snapshot_id)
                 return UpgradeResult(
                     success=False,
@@ -144,6 +145,7 @@ def upgrade_dependency(
                     )
             except (KeyError, RuntimeError, OSError) as e:
                 # Rollback on verification failure
+                assert snapshot_id is not None, "snapshot_id should not be None here"
                 restore_workspace_snapshot(snapshot, snapshot_id)
                 return UpgradeResult(
                     success=False,
@@ -165,6 +167,7 @@ def upgrade_dependency(
             )
         except OSError as e:
             # Rollback on lock file update failure
+            assert snapshot_id is not None, "snapshot_id should not be None here"
             restore_workspace_snapshot(snapshot, snapshot_id)
             return UpgradeResult(
                 success=False,
@@ -177,6 +180,7 @@ def upgrade_dependency(
         # Success! Optionally cleanup snapshot
         if auto_cleanup:
             try:
+                assert snapshot_id is not None, "snapshot_id should not be None here"
                 cleanup_snapshot(snapshot, snapshot_id)
                 snapshot_id = None  # Mark as cleaned up
             except ValueError:
@@ -193,8 +197,9 @@ def upgrade_dependency(
     except Exception as e:
         # Catch-all rollback for unexpected errors
         # Suppress errors if rollback fails (snapshot may be corrupted)
-        with contextlib.suppress(ValueError, OSError):
-            restore_workspace_snapshot(snapshot, snapshot_id)
+        if snapshot_id is not None:
+            with contextlib.suppress(ValueError, OSError):
+                restore_workspace_snapshot(snapshot, snapshot_id)
 
         return UpgradeResult(
             success=False,

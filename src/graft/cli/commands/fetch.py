@@ -4,7 +4,6 @@ CLI command for fetching latest from remote repositories.
 """
 
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -14,7 +13,7 @@ from graft.services import config_service
 
 
 def fetch_command(
-    dep_name: Optional[str] = typer.Argument(
+    dep_name: str | None = typer.Argument(
         None,
         help="Dependency name (fetch all if not specified)",
     ),
@@ -65,7 +64,7 @@ def fetch_command(
         success_count = 0
         error_count = 0
 
-        for name, dep_spec in deps_to_fetch.items():
+        for name, _dep_spec in deps_to_fetch.items():
             dep_path = Path(ctx.deps_directory) / name
 
             # Check if dependency is cloned
@@ -121,4 +120,4 @@ def fetch_command(
             fg=typer.colors.RED,
             err=True,
         )
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None

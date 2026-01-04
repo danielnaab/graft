@@ -64,7 +64,7 @@ def validate_refs_exist(
     """
     errors = []
 
-    for ref in config.changes.keys():
+    for ref in config.changes:
         try:
             # Try to resolve ref to commit
             git.resolve_ref(dep_path, ref)

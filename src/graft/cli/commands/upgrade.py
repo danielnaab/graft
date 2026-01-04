@@ -19,6 +19,7 @@ from graft.domain.exceptions import (
     DomainError,
 )
 from graft.services import config_service, upgrade_service
+from graft.services.upgrade_service import UpgradeResult
 
 
 def upgrade_command(
@@ -116,10 +117,10 @@ def upgrade_command(
         # Now try to resolve the ref to a commit hash
         try:
             rev_parse_cmd = ["git", "-C", dep_repo_path, "rev-parse", to]
-            result = subprocess.run(
+            rev_parse_result = subprocess.run(
                 rev_parse_cmd, capture_output=True, text=True, check=True
             )
-            commit = result.stdout.strip()
+            commit = rev_parse_result.stdout.strip()
         except subprocess.CalledProcessError as e:
             # If resolution failed and fetch also failed, show helpful error
             if fetch_result.returncode != 0:
@@ -184,7 +185,7 @@ def upgrade_command(
 
             # Step 1: Snapshot
             typer.echo("1. Create snapshot for rollback")
-            typer.echo(f"   Snapshot: graft.lock")
+            typer.echo("   Snapshot: graft.lock")
             typer.echo()
 
             # Step 2: Migration
@@ -255,7 +256,7 @@ def upgrade_command(
         executor = SubprocessCommandExecutor()
         lock_file = YamlLockFile()
 
-        result = upgrade_service.upgrade_dependency(
+        result: UpgradeResult = upgrade_service.upgrade_dependency(
             snapshot=snapshot,
             executor=executor,
             lock_file=lock_file,

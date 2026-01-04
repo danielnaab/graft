@@ -5,9 +5,19 @@ Useful for development, testing, and prototyping.
 Replace with database implementation for production.
 """
 
-from typing import Generic, TypeVar
+from typing import Generic, Protocol, TypeVar
 
-T = TypeVar("T")
+
+class HasId(Protocol):
+    """Protocol for entities that have an id attribute."""
+
+    @property
+    def id(self) -> str:
+        """Entity identifier."""
+        ...
+
+
+T = TypeVar("T", bound=HasId)
 
 
 class InMemoryRepository(Generic[T]):

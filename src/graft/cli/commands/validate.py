@@ -13,7 +13,6 @@ from graft.domain.exceptions import (
     ConfigFileNotFoundError,
     ConfigParseError,
     ConfigValidationError,
-    DomainError,
 )
 from graft.services import config_service, lock_service, validation_service
 

@@ -24,15 +24,6 @@
 
 ### Quality Improvements
 
-- [ ] **#012: Add mypy strict type checking**
-  - Priority: Low
-  - Effort: 4h
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Enable mypy strict mode and fix any type issues
-  - Files: `pyproject.toml`, potentially many files
-  - Acceptance: `mypy --strict src/` passes with no errors
-
 ---
 
 ### Documentation & Organization
@@ -61,6 +52,25 @@
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#012: Add mypy strict type checking**
+  - Completed: 2026-01-04
+  - Owner: Claude Sonnet 4.5 (Agent)
+  - Result: Enabled mypy strict mode and fixed all type issues
+  - Modified Files:
+    - `pyproject.toml` (added mypy to dev dependencies, enabled strict=true)
+    - `src/graft/adapters/repository.py` (added HasId protocol for type bounds)
+    - `src/graft/cli/commands/upgrade.py` (added type annotation for result variable, renamed subprocess result)
+    - `src/graft/cli/commands/status.py` (added type annotation for updates_info dict)
+    - `src/graft/cli/commands/show.py` (added type annotations for output dict and _build_command_dict)
+    - `src/graft/cli/commands/changes.py` (added type annotation for output dict)
+    - `src/graft/cli/commands/fetch.py` (renamed unused variable, added from None to raise)
+    - `src/graft/cli/commands/validate.py` (removed unused imports)
+    - `src/graft/services/upgrade_service.py` (added type annotation for snapshot_id, added None checks)
+    - `src/graft/services/validation_service.py` (removed .keys() from dict iteration)
+  - Testing: All 322 tests passing, mypy src/ passes with no errors
+  - Benefits: Full type safety with strict mypy checks, catches more type errors at development time
+  - Note: Configured mypy with strict=true in pyproject.toml, simplified from individual flags
 
 - [x] **#015: Create ADRs for key architectural decisions**
   - Completed: 2026-01-04

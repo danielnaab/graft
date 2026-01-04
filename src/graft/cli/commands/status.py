@@ -59,10 +59,10 @@ def _check_for_updates(dep_name: str | None, format_option: str) -> None:
             typer.echo("Checking for updates...")
             typer.echo()
 
-        updates_info = {}
+        updates_info: dict[str, dict[str, str | bool]] = {}
 
         # Check each dependency
-        for name, dep_spec in deps_to_check.items():
+        for name, _dep_spec in deps_to_check.items():
             dep_path = Path(ctx.deps_directory) / name
 
             # Skip if not cloned
@@ -107,10 +107,10 @@ def _check_for_updates(dep_name: str | None, format_option: str) -> None:
                 typer.echo(f"  {name}:")
                 typer.echo(f"    Current: {current_ref}")
                 if has_update:
-                    typer.secho(f"    Status: Update available", fg=typer.colors.YELLOW)
+                    typer.secho("    Status: Update available", fg=typer.colors.YELLOW)
                     typer.echo(f"    Run 'graft changes {name}' to see what's new")
                 else:
-                    typer.echo(f"    Status: Up to date")
+                    typer.echo("    Status: Up to date")
             else:
                 updates_info[name] = {
                     "current_ref": current_ref,
@@ -127,7 +127,7 @@ def _check_for_updates(dep_name: str | None, format_option: str) -> None:
             typer.echo(json.dumps({"error": error_msg}, indent=2))
         else:
             typer.secho(f"Error: {error_msg}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
 
 
 def status_command(

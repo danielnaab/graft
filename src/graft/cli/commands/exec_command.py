@@ -4,7 +4,6 @@ CLI command for executing commands defined in a dependency's configuration.
 """
 
 import subprocess
-import sys
 from pathlib import Path
 
 import typer

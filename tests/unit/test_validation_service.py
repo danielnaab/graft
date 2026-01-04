@@ -3,15 +3,10 @@
 Tests validation logic for graft.yaml and graft.lock files.
 """
 
-from datetime import datetime, timezone
 
-import pytest
 
-from graft.domain.change import Change
-from graft.domain.command import Command
 from graft.domain.config import GraftConfig
 from graft.domain.dependency import DependencySpec, GitRef, GitUrl
-from graft.domain.lock_entry import LockEntry
 from graft.services import validation_service
 
 
