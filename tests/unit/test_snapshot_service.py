@@ -186,14 +186,18 @@ class TestGetSnapshotPathsForDependency:
         """Should return typical paths for dependency upgrade."""
         paths = get_snapshot_paths_for_dependency("my-dep")
 
-        assert ".graft/deps/my-dep" in paths
+        # Currently only snapshots the lock file
+        # Dependency directories are managed by git and not modified by upgrades
         assert "graft.lock" in paths
+        assert len(paths) == 1
 
     def test_includes_dependency_specific_path(self):
-        """Should include dependency-specific path."""
+        """Should return same paths regardless of dependency name."""
         paths = get_snapshot_paths_for_dependency("other-dep")
 
-        assert ".graft/deps/other-dep" in paths
+        # Paths are not currently dependency-specific
+        assert "graft.lock" in paths
+        assert len(paths) == 1
 
     def test_returns_list_of_strings(self):
         """Should return list of string paths."""

@@ -105,20 +105,12 @@ def upgrade_command(
         # Step 3: Resolve ref to commit hash
         dep_repo_path = str(Path(ctx.deps_directory) / dep_name)
 
-        # First fetch the ref to ensure we have it locally
-        try:
-            fetch_cmd = ["git", "-C", dep_repo_path, "fetch", "origin", to]
-            subprocess.run(fetch_cmd, capture_output=True, text=True, check=True)
-        except subprocess.CalledProcessError as e:
-            typer.secho(
-                f"Error: Failed to fetch ref '{to}' from origin",
-                fg=typer.colors.RED,
-                err=True,
-            )
-            typer.echo(f"  Git error: {e.stderr.strip()}", err=True)
-            raise typer.Exit(code=1) from e
+        # Try to fetch the ref to ensure we have it locally
+        # (this may fail for local-only repos, which is OK)
+        fetch_cmd = ["git", "-C", dep_repo_path, "fetch", "origin", to]
+        fetch_result = subprocess.run(fetch_cmd, capture_output=True, text=True, check=False)
 
-        # Now resolve the ref to a commit hash
+        # Now try to resolve the ref to a commit hash
         try:
             rev_parse_cmd = ["git", "-C", dep_repo_path, "rev-parse", to]
             result = subprocess.run(
@@ -126,12 +118,27 @@ def upgrade_command(
             )
             commit = result.stdout.strip()
         except subprocess.CalledProcessError as e:
-            typer.secho(
-                f"Error: Failed to resolve ref '{to}' to commit hash",
-                fg=typer.colors.RED,
-                err=True,
-            )
-            typer.echo(f"  Git error: {e.stderr.strip()}", err=True)
+            # If resolution failed and fetch also failed, show helpful error
+            if fetch_result.returncode != 0:
+                typer.secho(
+                    f"Error: Could not resolve ref '{to}'",
+                    fg=typer.colors.RED,
+                    err=True,
+                )
+                typer.echo(f"  Fetch failed: {fetch_result.stderr.strip()}", err=True)
+                typer.echo(f"  Resolve failed: {e.stderr.strip()}", err=True)
+                typer.secho(
+                    "  Suggestion: Ensure the ref exists locally or can be fetched from origin",
+                    fg=typer.colors.YELLOW,
+                    err=True,
+                )
+            else:
+                typer.secho(
+                    f"Error: Failed to resolve ref '{to}' to commit hash",
+                    fg=typer.colors.RED,
+                    err=True,
+                )
+                typer.echo(f"  Git error: {e.stderr.strip()}", err=True)
             raise typer.Exit(code=1) from e
 
         # Step 4: Display upgrade info

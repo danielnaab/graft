@@ -102,9 +102,15 @@ def get_snapshot_paths_for_dependency(
 
     Returns:
         List of paths that should be snapshotted
+
+    Note:
+        Currently only snapshots the lock file. Migration commands may
+        modify files in the consumer's workspace, but those are command-specific
+        and not predictable. The lock file is the only file we know will be
+        modified by the upgrade process itself.
     """
-    # Standard paths that might be modified during upgrade
+    # The lock file is the main file modified during upgrade
+    # Dependency directories are managed by git and not modified by upgrades
     return [
-        f".graft/deps/{dep_name}",  # Dependency files
         "graft.lock",  # Lock file
     ]

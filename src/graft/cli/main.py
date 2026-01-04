@@ -5,7 +5,7 @@ Registers command groups and top-level commands.
 
 import typer
 
-from graft.cli.commands import changes, example, resolve, show, status, upgrade
+from graft.cli.commands import apply, changes, example, resolve, show, status, upgrade
 
 app = typer.Typer(
     name="graft-cli",
@@ -35,6 +35,10 @@ app.command(name="show", help="Show details of a specific change")(
 
 app.command(name="upgrade", help="Upgrade dependency to new version")(
     upgrade.upgrade_command
+)
+
+app.command(name="apply", help="Update lock file without running migrations")(
+    apply.apply_command
 )
 
 
