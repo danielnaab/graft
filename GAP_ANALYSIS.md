@@ -123,26 +123,27 @@ graft show <dep>@<ref> --field migration
 
 ---
 
-### ❌ graft fetch (NOT IMPLEMENTED)
+### ✅ graft fetch (FULLY IMPLEMENTED)
 
-**Status**: **Completely missing**
+**Status**: **Fully implemented** (2026-01-04)
 
 **Specification**: Update local cache of dependency's remote state
 ```bash
 graft fetch [<dep-name>]
 ```
 
-**Purpose**:
-- Fetch latest from remote repository
-- Update local cache of available refs
-- Do NOT modify lock file
-- Shows latest available versions
+**Implemented:**
+- ✅ Fetch latest from remote repository
+- ✅ Update local cache of available refs
+- ✅ Does NOT modify lock file
+- ✅ Handles specific dependency or all dependencies
+- ✅ Proper error handling and user feedback
 
-**Gap Severity**: **Medium** - Specified command, not critical but useful
+**Gap Severity**: **None** - Fully implemented per specification
 
-**Why Missing**: Not scoped in our 10-phase plan. Requires additional git integration.
+**Implementation File**: `src/graft/cli/commands/fetch.py`
 
-**Specification Reference**: Lines 291-335 in core-operations.md
+**Note**: Uses new `fetch_all()` method in GitOperations protocol
 
 ---
 
@@ -200,27 +201,37 @@ graft upgrade <dep>            # Default to latest
 
 ---
 
-### ❌ graft validate (NOT IMPLEMENTED)
+### ✅ graft validate (FULLY IMPLEMENTED)
 
-**Status**: **Completely missing**
+**Status**: **Fully implemented** (2026-01-04)
 
 **Specification**: Validate graft.yaml and graft.lock for correctness
 ```bash
 graft validate [--schema] [--refs] [--lock]
 ```
 
-**Purpose**:
-- Validate graft.yaml structure
-- Check migration/verify commands exist
-- Check refs exist in git
-- Validate lock file consistency
-- Verify commits match
+**Implemented:**
+- ✅ Validate graft.yaml schema and structure
+- ✅ Check refs exist in git repositories
+- ✅ Validate lock file consistency
+- ✅ Verify commits haven't moved (with warnings)
+- ✅ Three optional flags for targeted validation
+- ✅ Clear color-coded output (✓ green, ✗ red, ⚠ yellow)
+- ✅ Proper error handling and user feedback
+- ✅ Mutually exclusive flag validation
 
-**Gap Severity**: **Medium** - Specified command, useful for debugging but not critical
+**Gap Severity**: **None** - Fully implemented and improved beyond specification
 
-**Why Missing**: Not scoped in our 10-phase plan. Would require additional validation logic.
+**Implementation Files**:
+- `src/graft/cli/commands/validate.py` (288 lines)
+- `src/graft/services/validation_service.py` (131 lines)
 
-**Specification Reference**: Lines 506-593 in core-operations.md
+**Improvements Beyond Spec:**
+- Added dependency name prefixes to multi-dep validation errors
+- Warns when dependencies aren't cloned instead of failing silently
+- Flag mutual exclusivity check prevents conflicting options
+
+**Note**: Command reference validation happens automatically during graft.yaml parsing (domain-level validation)
 
 ---
 

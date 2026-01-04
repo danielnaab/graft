@@ -72,6 +72,29 @@ Clone or fetch all dependencies declared in `graft.yaml`.
 uv run python -m graft resolve
 ```
 
+### `graft fetch [dep-name]`
+
+Update local cache of dependencies from remote repositories.
+
+```bash
+# Fetch all dependencies
+uv run python -m graft fetch
+
+# Fetch specific dependency
+uv run python -m graft fetch my-knowledge
+```
+
+**Behavior:**
+- Runs `git fetch` to update remote-tracking branches
+- Does NOT modify the lock file or working directory
+- Does NOT checkout any refs
+- Use `graft changes` after fetching to see what's available
+
+**Use Cases:**
+- Update local knowledge of what's available before upgrading
+- Check for new versions without modifying your lock file
+- Refresh repository metadata
+
 ### `graft apply <dep-name> --to <ref>`
 
 Update the lock file to acknowledge a specific version without running migrations. Useful for initial setup or manual migration workflows.
@@ -201,6 +224,45 @@ uv run python -m graft my-knowledge:build --production
 - Run migration commands: `graft meta-kb:migrate-v2`
 - Execute verification: `graft meta-kb:verify-v2`
 - Run utility scripts defined by dependencies
+
+### `graft validate`
+
+Validate graft.yaml and graft.lock for correctness.
+
+```bash
+# Validate everything (default)
+uv run python -m graft validate
+
+# Validate only graft.yaml schema
+uv run python -m graft validate --schema
+
+# Validate only graft.lock
+uv run python -m graft validate --lock
+
+# Validate only git refs exist
+uv run python -m graft validate --refs
+```
+
+**Checks:**
+- **Schema validation**: Ensures graft.yaml structure is valid, API version is correct, and at least one dependency exists
+- **Git ref validation**: Verifies that all refs in dependency changes exist in their git repositories
+- **Lock file validation**: Checks lock file consistency and warns if refs have moved
+
+**Exit Codes:**
+- `0`: Validation successful (warnings allowed)
+- `1`: Validation failed (errors found)
+
+**Output:**
+- ✓ Green checkmarks for successful validations
+- ✗ Red X for errors
+- ⚠ Yellow warnings for non-critical issues
+
+**Options**:
+- `--schema`: Validate only graft.yaml schema
+- `--refs`: Validate only git ref existence
+- `--lock`: Validate only graft.lock consistency
+
+**Note:** Command reference validation (migration/verify commands exist) happens automatically during graft.yaml parsing, so invalid command references will be caught immediately.
 
 ## Configuration
 
