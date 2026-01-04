@@ -58,27 +58,27 @@ uv run python -m graft status
 uv run python -m graft upgrade my-knowledge --to v2.0.0
 ```
 
-See [docs/guides/USER_GUIDE.md](docs/guides/USER_GUIDE.md) for detailed tutorials and workflows.
+See [docs/guides/user-guide.md](docs/guides/user-guide.md) for detailed tutorials and workflows.
 
 ## Documentation
 
 ### For Users
 
-- **[User Guide](docs/guides/USER_GUIDE.md)** - Step-by-step tutorials and common workflows
-- **[CLI Reference](docs/CLI_REFERENCE.md)** - Complete command documentation
-- **[Configuration Guide](docs/CONFIGURATION.md)** - graft.yaml and graft.lock format details
+- **[User Guide](docs/guides/user-guide.md)** - Step-by-step tutorials and common workflows
+- **[CLI Reference](docs/cli-reference.md)** - Complete command documentation
+- **[Configuration Guide](docs/configuration.md)** - graft.yaml and graft.lock format details
 
 ### For Contributors
 
 - **[Architecture Overview](docs/README.md)** - System design and implementation details
-- **[Working with Graft](docs/guides/WORKING_WITH_GRAFT.md)** - Development workflow and patterns
-- **[Current Status](TASKS.md)** - Development status and roadmap
+- **[Contributing Guide](docs/guides/contributing.md)** - Development workflow and patterns
+- **[Current Status](tasks.md)** - Development status and roadmap
 
 ### Quick Links
 
-- **Getting started?** Read the [Quick Start](#quick-start) above, then the [User Guide](docs/guides/USER_GUIDE.md)
-- **Contributing code?** Review [docs/README.md](docs/README.md) and [WORKING_WITH_GRAFT.md](docs/guides/WORKING_WITH_GRAFT.md)
-- **Starting a session?** Check [CONTINUE_HERE.md](CONTINUE_HERE.md) for recent context
+- **Getting started?** Read the [Quick Start](#quick-start) above, then the [User Guide](docs/guides/user-guide.md)
+- **Contributing code?** Review [docs/README.md](docs/README.md) and [contributing guide](docs/guides/contributing.md)
+- **Starting a session?** Check [continue-here.md](continue-here.md) for recent context
 
 ## Core Concepts
 
@@ -90,7 +90,7 @@ See [docs/guides/USER_GUIDE.md](docs/guides/USER_GUIDE.md) for detailed tutorial
 
 **Atomic Upgrades** - Upgrades that execute migrations, run verifications, and automatically rollback on any failure
 
-See [docs/guides/USER_GUIDE.md](docs/guides/USER_GUIDE.md#core-concepts) for detailed explanations.
+See [docs/guides/user-guide.md](docs/guides/user-guide.md#core-concepts) for detailed explanations.
 
 ## Project Status
 
@@ -104,7 +104,7 @@ See [docs/guides/USER_GUIDE.md](docs/guides/USER_GUIDE.md#core-concepts) for det
 
 This project follows clean architecture principles with protocol-based dependency injection, functional service layers, and immutable domain models.
 
-Read [docs/README.md](docs/README.md) for architectural details and [docs/guides/WORKING_WITH_GRAFT.md](docs/guides/WORKING_WITH_GRAFT.md) for development workflow.
+Read [docs/README.md](docs/README.md) for architectural details and [docs/guides/contributing.md](docs/guides/contributing.md) for development workflow.
 
 **Code Quality Standards**:
 - Type hints on all functions (mypy strict)
@@ -118,4 +118,4 @@ MIT License - see LICENSE file for details.
 
 ---
 
-**Links**: [Documentation](docs/) | [User Guide](docs/guides/USER_GUIDE.md) | [CLI Reference](docs/CLI_REFERENCE.md) | [Architecture](docs/README.md)
+**Links**: [Documentation](docs/) | [User Guide](docs/guides/user-guide.md) | [CLI Reference](docs/cli-reference.md) | [Architecture](docs/README.md)

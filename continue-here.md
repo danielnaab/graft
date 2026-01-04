@@ -15,7 +15,7 @@ All planned development is complete:
 - Comprehensive documentation
 - Production-ready codebase
 
-See [TASKS.md](TASKS.md) for detailed status.
+See [tasks.md](tasks.md) for detailed status.
 
 ---
 
@@ -46,7 +46,7 @@ uv run python -m graft status
 2. Fix ruff B017 linting errors in test files
 3. Improve documentation professionalism (remove emojis, plain language)
 4. Add mypy strict type checking
-5. Create comprehensive USER_GUIDE.md and ADRs
+5. Create comprehensive user-guide.md and ADRs
 
 Run `git log --oneline -10` for complete history.
 
@@ -55,18 +55,18 @@ Run `git log --oneline -10` for complete history.
 ## Key Files
 
 ### For Development
-- [TASKS.md](TASKS.md) - Development status and completed work
+- [tasks.md](tasks.md) - Development status and completed work
 - [docs/README.md](docs/README.md) - Architecture and implementation details
-- [docs/guides/WORKING_WITH_GRAFT.md](docs/guides/WORKING_WITH_GRAFT.md) - Development workflow
+- [docs/guides/contributing.md](docs/guides/contributing.md) - Development workflow
 
 ### For Users
 - [README.md](README.md) - Project introduction and quick start
-- [docs/guides/USER_GUIDE.md](docs/guides/USER_GUIDE.md) - Detailed tutorials
-- [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) - Complete command reference
+- [docs/guides/user-guide.md](docs/guides/user-guide.md) - Detailed tutorials
+- [docs/cli-reference.md](docs/cli-reference.md) - Complete command reference
 
 ### For Context
-- [status/COMPLETE_WORKFLOW.md](status/COMPLETE_WORKFLOW.md) - End-to-end validation
-- [status/IMPLEMENTATION_STATUS.md](status/IMPLEMENTATION_STATUS.md) - Detailed implementation notes
+- [status/workflow-validation.md](status/workflow-validation.md) - End-to-end validation
+- [status/implementation.md](status/implementation.md) - Detailed implementation notes
 - [docs/decisions/](docs/decisions/) - Architectural decision records
 
 ---
@@ -85,15 +85,15 @@ Run `git log --oneline -10` for complete history.
 | `graft <dep>:<cmd>` | Execute dependency command |
 | `graft validate` | Validate configuration |
 
-See [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) for detailed documentation.
+See [docs/cli-reference.md](docs/cli-reference.md) for detailed documentation.
 
 ---
 
 ## Development Workflow
 
 ### Before Making Changes
-1. Read [docs/guides/WORKING_WITH_GRAFT.md](docs/guides/WORKING_WITH_GRAFT.md) for patterns
-2. Check [TASKS.md](TASKS.md) for current status
+1. Read [docs/guides/contributing.md](docs/guides/contributing.md) for patterns
+2. Check [tasks.md](tasks.md) for current status
 3. Review relevant code in the same area
 
 ### While Developing
@@ -105,7 +105,7 @@ See [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) for detailed documentation.
 1. Run tests: `uv run pytest`
 2. Type check: `uv run mypy src/`
 3. Lint: `uv run ruff check src/ tests/`
-4. Update documentation as needed (see protocol in WORKING_WITH_GRAFT.md)
+4. Update documentation as needed (see protocol in contributing.md)
 
 ---
 
@@ -166,14 +166,14 @@ All core features are complete. Possible future enhancements:
 - Bash completion scripts
 - Homebrew formula for installation
 
-See [TASKS.md](TASKS.md) backlog for details.
+See [tasks.md](tasks.md) backlog for details.
 
 ---
 
 ## Getting Help
 
 **New to the codebase?**
-Start with [README.md](README.md), then [docs/guides/WORKING_WITH_GRAFT.md](docs/guides/WORKING_WITH_GRAFT.md)
+Start with [README.md](README.md), then [docs/guides/contributing.md](docs/guides/contributing.md)
 
 **Need architectural context?**
 Read [docs/README.md](docs/README.md) and ADRs in [docs/decisions/](docs/decisions/)
@@ -183,4 +183,4 @@ Check recent commits with `git log --oneline -10` and review related tests
 
 ---
 
-**Ready to contribute?** Read [docs/guides/WORKING_WITH_GRAFT.md](docs/guides/WORKING_WITH_GRAFT.md) for development workflow.
+**Ready to contribute?** Read [docs/guides/contributing.md](docs/guides/contributing.md) for development workflow.

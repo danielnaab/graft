@@ -312,7 +312,7 @@ uv run python -m graft validate --refs
 uv run python -m graft validate --lock
 ```
 
-See [CLI Reference](CLI_REFERENCE.md#graft-validate) for details.
+See [CLI Reference](cli-reference.md#graft-validate) for details.
 
 ---
 
@@ -435,4 +435,4 @@ commands:
 
 ---
 
-See [User Guide](guides/USER_GUIDE.md) for workflow examples and [CLI Reference](CLI_REFERENCE.md) for command usage.
+See [User Guide](guides/user-guide.md) for workflow examples and [CLI Reference](cli-reference.md) for command usage.

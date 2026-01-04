@@ -11,8 +11,8 @@
 Read these files in order:
 
 1. **[README.md](../../README.md)** - Project overview and CLI commands (5 min)
-2. **[TASKS.md](../../TASKS.md)** - Current development status (2 min)
-3. **[CONTINUE_HERE.md](../../CONTINUE_HERE.md)** - Recent session context (3 min)
+2. **[tasks.md](../../tasks.md)** - Current development status (2 min)
+3. **[continue-here.md](../../continue-here.md)** - Recent session context (3 min)
 4. **[docs/README.md](../README.md)** - Architecture details (10 min)
 
 After reading, you should understand:
@@ -187,7 +187,7 @@ When you modify code, update these docs:
 | Add domain model | docs/README.md (Domain Models section) |
 | Change architecture | docs/README.md, relevant ADR in docs/decisions/ |
 | Fix bug | No doc update unless behavior changes |
-| Add feature | README.md, possibly USER_GUIDE.md |
+| Add feature | README.md, possibly user-guide.md |
 | Update test count | README.md (Testing Status) |
 
 **Rule**: If a user would notice the change, document it in README.md.
@@ -202,7 +202,7 @@ Before writing code:
 - Check if similar code exists
 - Review relevant patterns in docs/README.md
 - Verify tests exist for dependencies
-- Update TASKS.md if starting a new task
+- Update tasks.md if starting a new task
 
 ### 2. Implement
 
@@ -227,7 +227,7 @@ Before committing:
 - Update README.md if user-visible changes
 - Update docs/README.md if architecture changes
 - Add ADR in docs/decisions/ if significant decision
-- Update TASKS.md status
+- Update tasks.md status
 - Update test count in README.md if tests added
 
 ---
@@ -285,7 +285,7 @@ Before committing:
 1. Use `grep` to find similar code: `grep -r "pattern" src/`
 2. Check docs/README.md for architecture overview
 3. Look at recent commits: `git log --oneline -10`
-4. Review CONTINUE_HERE.md for recent context
+4. Review continue-here.md for recent context
 
 ---
 
@@ -312,7 +312,7 @@ Read these to understand "why" behind the architecture.
 
 **Don't understand the domain?**
 - Read graft-knowledge specification: `/home/coder/graft-knowledge/docs/specification/`
-- Review Complete Workflow: [status/COMPLETE_WORKFLOW.md](../../status/COMPLETE_WORKFLOW.md)
+- Review Complete Workflow: [status/workflow-validation.md](../../status/workflow-validation.md)
 
 **Tests are confusing?**
 - Look at fakes in `tests/fakes/`
@@ -356,4 +356,4 @@ uv run pytest && uv run mypy src/ && uv run ruff check src/ tests/
 
 ---
 
-**Next**: Read [CONTINUE_HERE.md](../../CONTINUE_HERE.md) to understand current development state, then start contributing!
+**Next**: Read [continue-here.md](../../continue-here.md) to understand current development state, then start contributing!

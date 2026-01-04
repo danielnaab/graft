@@ -153,4 +153,4 @@ During upgrade, we:
 
 - Implementation: `src/graft/adapters/snapshot.py`
 - Upgrade flow: `src/graft/services/upgrade_service.py`
-- Dogfooding notes: `status/COMPLETE_WORKFLOW.md` (discovered during testing)
+- Dogfooding notes: `status/workflow-validation.md` (discovered during testing)

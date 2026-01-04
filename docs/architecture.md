@@ -23,11 +23,11 @@ Following meta-knowledge-base conventions:
 graft/
 ├── README.md                    # User-facing: Getting started, features, usage
 ├── CHANGELOG.md                 # User-facing: Version history (if published)
-├── TASKS.md                     # Active work tracking (agent-writable)
+├── tasks.md                     # Active work tracking (agent-writable)
 │
 ├── docs/                        # Authoritative documentation
 │   ├── README.md                # Documentation index and architecture
-│   ├── INFO_ARCHITECTURE.md     # This file
+│   ├── architecture.md     # This file
 │   ├── agents.md                # Agent entrypoint and conventions
 │   └── decisions/               # Architectural Decision Records (ADRs)
 │       └── 001-*.md
@@ -37,9 +37,9 @@ graft/
 │   └── archive/                 # Old notes (optional)
 │
 ├── status/                      # Project status snapshots
-│   ├── IMPLEMENTATION_STATUS.md # Detailed implementation status
-│   ├── GAP_ANALYSIS.md          # Analysis vs specifications
-│   ├── CONTINUE_HERE.md         # Quick session continuity
+│   ├── implementation.md # Detailed implementation status
+│   ├── gap-analysis.md          # Analysis vs specifications
+│   ├── continue-here.md         # Quick session continuity
 │   └── sessions/                # Detailed session logs
 │       └── SESSION_LOG_*.md
 │
@@ -52,7 +52,7 @@ graft/
 ```
 Specifications (graft-knowledge)
         ↓
-    Tasks (TASKS.md)
+    Tasks (tasks.md)
         ↓
 Notes (scratch work, exploration)
         ↓
@@ -85,7 +85,7 @@ User Documentation (README.md)
 
 ---
 
-### 2. Task Tracking (`TASKS.md`)
+### 2. Task Tracking (`tasks.md`)
 
 **Purpose**: Active work queue for distributed agents
 
@@ -125,17 +125,17 @@ User Documentation (README.md)
 
 **Key Documents**:
 
-- **CONTINUE_HERE.md**: Quick session continuity
+- **continue-here.md**: Quick session continuity
   - Status: working (updated each session)
   - Use: First file to read when continuing work
   - Contains: Quick context, metrics, what's done, what's next
 
-- **IMPLEMENTATION_STATUS.md**: Detailed implementation tracking
+- **implementation.md**: Detailed implementation tracking
   - Status: working (updated at milestones)
   - Use: Comprehensive phase-by-phase status
   - Contains: All phases, metrics, completion details
 
-- **GAP_ANALYSIS.md**: Comparison to specifications
+- **gap-analysis.md**: Comparison to specifications
   - Status: stable (point-in-time analysis)
   - Use: Understand what's implemented vs specified
   - Contains: Detailed gap analysis, recommendations
@@ -237,7 +237,7 @@ Tasks come from:
 - Technical debt discovered during work
 - Follow-up work from completed tasks
 
-Add tasks to TASKS.md in appropriate priority section.
+Add tasks to tasks.md in appropriate priority section.
 
 ---
 
@@ -247,8 +247,8 @@ Add tasks to TASKS.md in appropriate priority section.
 
 **Always Safe**:
 - ✅ `notes/` - Scratch work, exploration
-- ✅ `TASKS.md` - Task tracking
-- ✅ Status docs in `status/` (CONTINUE_HERE.md, IMPLEMENTATION_STATUS.md)
+- ✅ `tasks.md` - Task tracking
+- ✅ Status docs in `status/` (continue-here.md, implementation.md)
 
 **Edit with Care**:
 - ⚠️ `docs/` - Authoritative documentation (verify changes)
@@ -271,13 +271,13 @@ last_updated: YYYY-MM-DD
 ### When to Update What
 
 **After completing a task**:
-- ✅ Move task in TASKS.md to "Done"
-- ✅ Update CONTINUE_HERE.md metrics if significant
+- ✅ Move task in tasks.md to "Done"
+- ✅ Update continue-here.md metrics if significant
 - ✅ Commit with clear message
 
 **After completing a phase**:
-- ✅ Update IMPLEMENTATION_STATUS.md
-- ✅ Update CONTINUE_HERE.md
+- ✅ Update implementation.md
+- ✅ Update continue-here.md
 - ✅ Create session log in status/sessions/
 - ✅ Consider if README.md needs updates
 
@@ -302,7 +302,7 @@ last_updated: YYYY-MM-DD
 - Example: `001-error-handling-strategy.md`, `002-snapshot-strategy.md`
 
 ### Tasks
-- Single file: `TASKS.md` (avoids merge conflicts)
+- Single file: `tasks.md` (avoids merge conflicts)
 - Task IDs: `#NNN` (sequential: #001, #002, etc.)
 
 ---
@@ -316,9 +316,9 @@ last_updated: YYYY-MM-DD
 **Session Logs**: Keep all (historical record)
 
 **Status Docs**:
-- CONTINUE_HERE.md - Keep current, archive old versions
-- IMPLEMENTATION_STATUS.md - Keep current, track in git history
-- GAP_ANALYSIS.md - Keep as point-in-time snapshot
+- continue-here.md - Keep current, archive old versions
+- implementation.md - Keep current, track in git history
+- gap-analysis.md - Keep as point-in-time snapshot
 
 ### When to Consolidate
 
@@ -337,12 +337,12 @@ If documentation becomes fragmented:
 
 The TodoWrite tool in Claude Code is for **session-local** task tracking:
 - Use for tasks within a single session
-- Different from TASKS.md (persistent across sessions)
+- Different from tasks.md (persistent across sessions)
 - Good for: "Run tests", "Fix linting", "Commit changes"
 
-### TASKS.md
+### tasks.md
 
-The TASKS.md file is for **project-wide** task tracking:
+The tasks.md file is for **project-wide** task tracking:
 - Persists across sessions
 - Shared between agents
 - Good for: "Add JSON output", "Implement fetch command"
@@ -366,12 +366,12 @@ Every significant change should be committed with:
    - Document: Findings and approach
 
 2. **Task Creation**
-   - Add to TASKS.md: "#004: Add JSON output to status command"
+   - Add to tasks.md: "#004: Add JSON output to status command"
    - Set priority: High
    - Estimate effort: 4h
 
 3. **Implementation Phase**
-   - Move task to "In Progress" in TASKS.md
+   - Move task to "In Progress" in tasks.md
    - Implement feature
    - Add tests
    - Update notes with decisions made
@@ -383,8 +383,8 @@ Every significant change should be committed with:
 
 5. **Completion Phase**
    - Commit with message: "Implement #004: Add JSON output to status command"
-   - Move task to "Done" in TASKS.md
-   - Update CONTINUE_HERE.md metrics
+   - Move task to "Done" in tasks.md
+   - Update continue-here.md metrics
    - Archive notes (optional)
 
 ---
@@ -392,18 +392,18 @@ Every significant change should be committed with:
 ## Migration from Current State
 
 Current state has several docs at root:
-- CONTINUE_HERE.md
-- IMPLEMENTATION_STATUS.md
-- PHASE_8_IMPLEMENTATION.md
-- GAP_ANALYSIS.md
+- continue-here.md
+- implementation.md
+- phase-8.md
+- gap-analysis.md
 - SESSION_LOG_2026-01-03.md
-- COMPLETE_WORKFLOW.md
+- workflow-validation.md
 
 **Plan**:
 1. Create `status/` directory
 2. Move status docs to `status/`
 3. Move session logs to `status/sessions/`
-4. Keep CONTINUE_HERE.md at root for visibility (symlink or copy)
+4. Keep continue-here.md at root for visibility (symlink or copy)
 5. Update references in other docs
 6. This migration is itself a task!
 

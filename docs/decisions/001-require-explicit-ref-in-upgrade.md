@@ -70,4 +70,4 @@ graft upgrade my-dep
 
 - Specification: `core-operations.md` lines 336-425
 - Implementation: `src/graft/cli/commands/upgrade.py`
-- Discussion: Session 4 dogfooding (COMPLETE_WORKFLOW.md)
+- Discussion: Session 4 dogfooding (workflow-validation.md)

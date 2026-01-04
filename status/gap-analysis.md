@@ -406,15 +406,15 @@ graft <dep-name>:<command-name> [args...]
 **Completed**:
 - ✅ README.md - Comprehensive user guide (403 lines)
 - ✅ docs/README.md - Architecture documentation (398 lines)
-- ✅ IMPLEMENTATION_STATUS.md - Detailed status
-- ✅ COMPLETE_WORKFLOW.md - End-to-end guide
-- ✅ PHASE_8_IMPLEMENTATION.md - CLI details
-- ✅ CONTINUE_HERE.md - Development notes
+- ✅ implementation.md - Detailed status
+- ✅ workflow-validation.md - End-to-end guide
+- ✅ phase-8.md - CLI details
+- ✅ continue-here.md - Development notes
 
 **Specification Target**: "Documentation updates" (Phase 9)
 
 **Missing from Original Plan**:
-- ⚠️ USER_GUIDE.md (README.md covers this well)
+- ⚠️ user-guide.md (README.md covers this well)
 - ⚠️ Formal ADRs (implicitly documented in code/docs)
 
 **Gap Severity**: **Low** - Core documentation excellent, formal ADRs nice-to-have

@@ -49,7 +49,7 @@ This PR begins the synchronization of the Python implementation with the compreh
 ## Documentation
 
 - Implementation plan: `notes/2026-01-03-specification-sync.md`
-- Status tracking: `IMPLEMENTATION_STATUS.md`
+- Status tracking: `implementation.md`
 - Specification reference: `graft-knowledge` repository
 
 ## Statistics
@@ -72,7 +72,7 @@ This PR is part of a larger effort. Remaining phases:
 - Phase 9: Documentation
 - Phase 10: Quality Assurance & Testing
 
-See `IMPLEMENTATION_STATUS.md` for detailed tracking.
+See `implementation.md` for detailed tracking.
 
 ## Testing
 

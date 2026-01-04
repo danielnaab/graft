@@ -284,7 +284,7 @@ def upgrade_dependency(
   3. Snapshot paths included non-existent directories (fixed to only graft.lock)
   4. Test expectations updated for new behavior
 - ✅ All 6 commands working end-to-end
-- ✅ Documentation created: COMPLETE_WORKFLOW.md
+- ✅ Documentation created: workflow-validation.md
 
 **Impact**: Fully functional CLI ready for production use
 
@@ -357,7 +357,7 @@ tests/
    - **Blocker for**: Full `graft changes` command implementation
 
 2. **Documentation Lag**
-   - IMPLEMENTATION_STATUS.md was outdated (now fixed)
+   - implementation.md was outdated (now fixed)
    - README.md not updated with new features
    - No ADRs documenting key decisions
    - **Impact**: Hard to onboard or remember context
@@ -409,7 +409,7 @@ Tasks:
   - Add usage examples for all CLI commands
   - Document complete workflow: resolve → apply → upgrade
   - Add troubleshooting section
-- [ ] Create USER_GUIDE.md
+- [ ] Create user-guide.md
   - Step-by-step tutorial
   - Real-world examples
   - Best practices
@@ -472,7 +472,7 @@ uv run python -m graft changes graft-knowledge
 
 **Option A: Documentation (Recommended)**
 1. Update README.md with CLI usage examples
-2. Create USER_GUIDE.md with step-by-step tutorials
+2. Create user-guide.md with step-by-step tutorials
 3. Document architectural decisions in ADRs
 4. This makes the project ready for others to use
 
@@ -532,9 +532,9 @@ uv run python -m graft changes graft-knowledge
 - `src/graft/services/command_service.py` - Command execution
 
 **Documentation**:
-- `COMPLETE_WORKFLOW.md` - Full end-to-end workflow guide
-- `PHASE_8_IMPLEMENTATION.md` - CLI implementation details
-- `CONTINUE_HERE.md` - Quick start and session continuity
+- `workflow-validation.md` - Full end-to-end workflow guide
+- `phase-8.md` - CLI implementation details
+- `continue-here.md` - Quick start and session continuity
 
 ### Testing Commands
 ```bash
@@ -577,8 +577,8 @@ uv run ruff check src/ tests/
 - **Pull Request**: http://192.168.1.51/git/daniel/graft/pulls/1
 - **Planning Doc**: `/home/coder/graft-knowledge/notes/2026-01-03-python-implementation-plan.md`
 - **Implementation Note**: `/home/coder/graft/notes/2026-01-03-specification-sync.md`
-- **Workflow Guide**: `/home/coder/graft/COMPLETE_WORKFLOW.md`
-- **Phase 8 Report**: `/home/coder/graft/PHASE_8_IMPLEMENTATION.md`
+- **Workflow Guide**: `/home/coder/graft/workflow-validation.md`
+- **Phase 8 Report**: `/home/coder/graft/phase-8.md`
 - **Specification**: `/home/coder/graft-knowledge/docs/specification/`
 - **Base Branch**: `main`
 - **Feature Branch**: `feature/sync-with-specification`

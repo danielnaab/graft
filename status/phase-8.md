@@ -214,7 +214,7 @@ graft show graft-knowledge@test-v1.0.0     # ✅ Works
 graft upgrade graft-knowledge --to test-v1.0.0  # ✅ Works with migrations!
 ```
 
-See [COMPLETE_WORKFLOW.md](COMPLETE_WORKFLOW.md) for full documentation.
+See [workflow-validation.md](workflow-validation.md) for full documentation.
 
 ## Conclusion
 

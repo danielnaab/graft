@@ -9,13 +9,13 @@ Complete index of all graft documentation.
 | I want to... | Read this |
 |--------------|-----------|
 | **Understand what graft is** | [README.md](../README.md) |
-| **Get started using graft** | [README.md](../README.md#quick-start) → [USER_GUIDE.md](guides/USER_GUIDE.md) |
-| **Look up a CLI command** | [CLI_REFERENCE.md](CLI_REFERENCE.md) |
-| **Understand graft.yaml format** | [CONFIGURATION.md](CONFIGURATION.md) |
-| **Start contributing code** | [WORKING_WITH_GRAFT.md](guides/WORKING_WITH_GRAFT.md) |
+| **Get started using graft** | [README.md](../README.md#quick-start) → [user-guide.md](guides/user-guide.md) |
+| **Look up a CLI command** | [cli-reference.md](cli-reference.md) |
+| **Understand graft.yaml format** | [configuration.md](configuration.md) |
+| **Start contributing code** | [contributing.md](guides/contributing.md) |
 | **Understand the architecture** | [docs/README.md](README.md) |
-| **Continue a development session** | [CONTINUE_HERE.md](../CONTINUE_HERE.md) |
-| **See what's implemented** | [TASKS.md](../TASKS.md) |
+| **Continue a development session** | [continue-here.md](../continue-here.md) |
+| **See what's implemented** | [tasks.md](../tasks.md) |
 | **Understand a design decision** | [decisions/](decisions/) (ADRs) |
 
 ---
@@ -25,16 +25,16 @@ Complete index of all graft documentation.
 ```
 graft/
 ├── README.md                    # Project introduction and index
-├── CONTINUE_HERE.md             # Session handoff document
-├── TASKS.md                     # Development status
+├── continue-here.md             # Session handoff document
+├── tasks.md                     # Development status
 ├── docs/
-│   ├── NAVIGATION.md            # This file - documentation index
+│   ├── index.md            # This file - documentation index
 │   ├── README.md                # Architecture and developer docs
-│   ├── CLI_REFERENCE.md         # Complete command reference
-│   ├── CONFIGURATION.md         # graft.yaml and graft.lock formats
+│   ├── cli-reference.md         # Complete command reference
+│   ├── configuration.md         # graft.yaml and graft.lock formats
 │   ├── guides/
-│   │   ├── USER_GUIDE.md        # Step-by-step tutorials
-│   │   └── WORKING_WITH_GRAFT.md # Development workflow
+│   │   ├── user-guide.md        # Step-by-step tutorials
+│   │   └── contributing.md # Development workflow
 │   ├── decisions/               # Architectural decision records
 │   │   ├── 001-require-explicit-ref-in-upgrade.md
 │   │   ├── 002-filesystem-snapshots-for-rollback.md
@@ -42,8 +42,8 @@ graft/
 │   │   ├── 004-protocol-based-dependency-injection.md
 │   │   └── 005-functional-service-layer.md
 │   └── status/                  # Implementation status tracking
-│       ├── COMPLETE_WORKFLOW.md
-│       ├── IMPLEMENTATION_STATUS.md
+│       ├── workflow-validation.md
+│       ├── implementation.md
 │       └── ...
 └── notes/                       # Time-bounded development notes
 ```
@@ -61,7 +61,7 @@ graft/
    - Quick start
    - Links to detailed docs
 
-2. **[USER_GUIDE.md](guides/USER_GUIDE.md)** - Comprehensive guide
+2. **[user-guide.md](guides/user-guide.md)** - Comprehensive guide
    - Getting started tutorial
    - Core concepts explained
    - 7 common workflows
@@ -69,23 +69,23 @@ graft/
    - Best practices
    - Advanced topics
 
-3. **[CLI_REFERENCE.md](CLI_REFERENCE.md)** - Command reference
+3. **[cli-reference.md](cli-reference.md)** - Command reference
    - All 9 commands documented
    - Options and flags
    - Examples for each command
    - Use cases
 
-4. **[CONFIGURATION.md](CONFIGURATION.md)** - File format reference
+4. **[configuration.md](configuration.md)** - File format reference
    - graft.yaml format and fields
    - graft.lock format
    - Examples and best practices
 
 ### For Regular Users
 
-- **Quick command lookup**: [CLI_REFERENCE.md](CLI_REFERENCE.md)
-- **Configuration questions**: [CONFIGURATION.md](CONFIGURATION.md)
-- **Workflow help**: [USER_GUIDE.md](guides/USER_GUIDE.md#common-workflows)
-- **Troubleshooting**: [USER_GUIDE.md](guides/USER_GUIDE.md#troubleshooting)
+- **Quick command lookup**: [cli-reference.md](cli-reference.md)
+- **Configuration questions**: [configuration.md](configuration.md)
+- **Workflow help**: [user-guide.md](guides/user-guide.md#common-workflows)
+- **Troubleshooting**: [user-guide.md](guides/user-guide.md#troubleshooting)
 
 ---
 
@@ -94,7 +94,7 @@ graft/
 ### For New Contributors
 
 1. **[README.md](../README.md)** - Project overview
-2. **[WORKING_WITH_GRAFT.md](guides/WORKING_WITH_GRAFT.md)** - Development guide
+2. **[contributing.md](guides/contributing.md)** - Development guide
    - Codebase orientation
    - Essential patterns
    - Common tasks
@@ -109,11 +109,11 @@ graft/
 
 ### For Active Contributors
 
-- **Session handoff**: [CONTINUE_HERE.md](../CONTINUE_HERE.md)
-- **Current status**: [TASKS.md](../TASKS.md)
+- **Session handoff**: [continue-here.md](../continue-here.md)
+- **Current status**: [tasks.md](../tasks.md)
 - **Architecture**: [docs/README.md](README.md)
 - **Design decisions**: [decisions/](decisions/)
-- **Implementation notes**: [status/IMPLEMENTATION_STATUS.md](status/IMPLEMENTATION_STATUS.md)
+- **Implementation notes**: [status/implementation.md](status/implementation.md)
 
 ### For Architectural Context
 
@@ -142,28 +142,28 @@ Read the ADRs (Architectural Decision Records):
 
 - **What is graft?** → [README.md](../README.md)
 - **Why use graft?** → [README.md](../README.md#key-features)
-- **Is graft ready?** → [TASKS.md](../TASKS.md), [README.md](../README.md#project-status)
+- **Is graft ready?** → [tasks.md](../tasks.md), [README.md](../README.md#project-status)
 
 ### Learn to Use Graft
 
 - **Installation** → [README.md](../README.md#installation)
 - **First steps** → [README.md](../README.md#quick-start)
-- **Detailed tutorials** → [USER_GUIDE.md](guides/USER_GUIDE.md)
-- **Command reference** → [CLI_REFERENCE.md](CLI_REFERENCE.md)
-- **Configuration** → [CONFIGURATION.md](CONFIGURATION.md)
+- **Detailed tutorials** → [user-guide.md](guides/user-guide.md)
+- **Command reference** → [cli-reference.md](cli-reference.md)
+- **Configuration** → [configuration.md](configuration.md)
 
 ### Contribute Code
 
-- **Get started** → [WORKING_WITH_GRAFT.md](guides/WORKING_WITH_GRAFT.md)
+- **Get started** → [contributing.md](guides/contributing.md)
 - **Architecture** → [docs/README.md](README.md)
-- **Patterns** → [WORKING_WITH_GRAFT.md](guides/WORKING_WITH_GRAFT.md#essential-patterns)
-- **Quality standards** → [WORKING_WITH_GRAFT.md](guides/WORKING_WITH_GRAFT.md#code-quality-standards)
+- **Patterns** → [contributing.md](guides/contributing.md#essential-patterns)
+- **Quality standards** → [contributing.md](guides/contributing.md#code-quality-standards)
 
 ### Continue Development
 
-- **Current state** → [CONTINUE_HERE.md](../CONTINUE_HERE.md)
-- **Recent work** → [TASKS.md](../TASKS.md)
-- **What to do next** → [TASKS.md](../TASKS.md#backlog-not-prioritized)
+- **Current state** → [continue-here.md](../continue-here.md)
+- **Recent work** → [tasks.md](../tasks.md)
+- **What to do next** → [tasks.md](../tasks.md#backlog-not-prioritized)
 
 ### Understand Design Decisions
 
@@ -179,19 +179,19 @@ Read the ADRs (Architectural Decision Records):
 
 ### When to Update Documentation
 
-See the **Documentation Update Protocol** in [WORKING_WITH_GRAFT.md](guides/WORKING_WITH_GRAFT.md#documentation-update-protocol).
+See the **Documentation Update Protocol** in [contributing.md](guides/contributing.md#documentation-update-protocol).
 
 Quick reference:
 
 | Change Type | Update These |
 |-------------|--------------|
-| Add CLI command | README.md, CLI_REFERENCE.md, docs/README.md |
+| Add CLI command | README.md, cli-reference.md, docs/README.md |
 | Add service | docs/README.md |
 | Add domain model | docs/README.md |
 | Change architecture | docs/README.md, new ADR in decisions/ |
 | Fix bug | No doc update (unless behavior changes) |
-| Add feature | README.md, possibly USER_GUIDE.md |
-| Update test count | README.md, CONTINUE_HERE.md |
+| Add feature | README.md, possibly user-guide.md |
+| Update test count | README.md, continue-here.md |
 
 ### Documentation Quality Standards
 
@@ -217,7 +217,7 @@ See [meta-knowledge-base style policy](file:///home/coder/meta-knowledge-base/po
 **Need help finding something?** This index should answer "where is X documented?" If you can't find what you need, consider:
 
 1. Check if it exists: `grep -r "your search term" .`
-2. It may need documentation: See [WORKING_WITH_GRAFT.md](guides/WORKING_WITH_GRAFT.md#documentation-update-protocol)
+2. It may need documentation: See [contributing.md](guides/contributing.md#documentation-update-protocol)
 3. Ask for clarification
 
 ---

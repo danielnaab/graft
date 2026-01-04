@@ -399,4 +399,4 @@ All commands support:
 
 ---
 
-See [User Guide](guides/USER_GUIDE.md) for workflow examples and [Configuration Guide](CONFIGURATION.md) for file format details.
+See [User Guide](guides/user-guide.md) for workflow examples and [Configuration Guide](configuration.md) for file format details.

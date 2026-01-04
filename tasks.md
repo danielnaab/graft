@@ -1,7 +1,7 @@
 # Graft Development Tasks
 
 **Last Updated**: 2026-01-04
-**System**: See [docs/INFO_ARCHITECTURE.md](docs/INFO_ARCHITECTURE.md) for task management conventions
+**System**: See [docs/architecture.md](docs/architecture.md) for task management conventions
 
 ---
 
@@ -19,7 +19,7 @@
 
 ## Done (Recent)
 
-- [x] #014: Create USER_GUIDE.md (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
+- [x] #014: Create user-guide.md (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
 - [x] #012: Add mypy strict type checking (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
 - [x] #015: Create ADRs for architectural decisions (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
 - [x] #013: Migrate status docs to status/ directory (Completed: 2026-01-04, Owner: Claude Sonnet 4.5)
@@ -81,7 +81,7 @@ All planned tasks complete. The graft project is production-ready with:
 7. Run `uv run pytest && uv run ruff check src/ tests/`
 8. Commit with message: "Implement #NNN: Task title"
 9. Move task to "Done" with completion date
-10. Update CONTINUE_HERE.md if significant
+10. Update continue-here.md if significant
 
 ### Creating New Tasks
 
@@ -109,4 +109,4 @@ When you discover new work:
 
 ---
 
-See [docs/INFO_ARCHITECTURE.md](docs/INFO_ARCHITECTURE.md) for complete task management conventions.
+See [docs/architecture.md](docs/architecture.md) for complete task management conventions.

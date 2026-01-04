@@ -6,19 +6,19 @@ This directory contains project status snapshots and implementation tracking doc
 
 ### Implementation Tracking
 
-- **[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)** - Detailed implementation status
+- **[implementation.md](implementation.md)** - Detailed implementation status
   - Architecture overview
   - Implementation completeness by component
   - Test coverage breakdown
   - Design decisions and trade-offs
 
-- **[GAP_ANALYSIS.md](GAP_ANALYSIS.md)** - Implementation vs specification analysis
+- **[gap-analysis.md](gap-analysis.md)** - Implementation vs specification analysis
   - Command completeness tracking
   - Missing features identified
   - Deviation from specifications
   - Priority assessment
 
-- **[PHASE_8_IMPLEMENTATION.md](PHASE_8_IMPLEMENTATION.md)** - CLI implementation details
+- **[phase-8.md](phase-8.md)** - CLI implementation details
   - Command-by-command documentation
   - Implementation approach
   - Testing strategy
@@ -26,7 +26,7 @@ This directory contains project status snapshots and implementation tracking doc
 
 ### Workflow Documentation
 
-- **[COMPLETE_WORKFLOW.md](COMPLETE_WORKFLOW.md)** - End-to-end workflow guide
+- **[workflow-validation.md](workflow-validation.md)** - End-to-end workflow guide
   - Complete usage examples
   - Real-world scenarios
   - Troubleshooting guide
@@ -51,10 +51,10 @@ These documents represent **point-in-time snapshots** of the project state:
 
 ## Navigation
 
-- **For development context**: Start with [CONTINUE_HERE.md](../CONTINUE_HERE.md) at root
-- **For implementation details**: See IMPLEMENTATION_STATUS.md
-- **For specification gaps**: See GAP_ANALYSIS.md
-- **For workflow guidance**: See COMPLETE_WORKFLOW.md
+- **For development context**: Start with [continue-here.md](../continue-here.md) at root
+- **For implementation details**: See implementation.md
+- **For specification gaps**: See gap-analysis.md
+- **For workflow guidance**: See workflow-validation.md
 - **For authoritative docs**: See [docs/](../docs/)
 
 ## Information Flow
@@ -62,7 +62,7 @@ These documents represent **point-in-time snapshots** of the project state:
 ```
 External Specifications
         ↓
-    TASKS.md (root)
+    tasks.md (root)
         ↓
    Implementation
         ↓
