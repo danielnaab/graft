@@ -96,7 +96,7 @@ def upgrade_dependency(
     # Step 1: Create snapshot for rollback
     snapshot_paths = get_snapshot_paths_for_dependency(dep_name)
     try:
-        snapshot_id: str | None = create_workspace_snapshot(snapshot, snapshot_paths, base_dir)
+        snapshot_id = create_workspace_snapshot(snapshot, snapshot_paths, base_dir)
     except (FileNotFoundError, OSError) as e:
         return UpgradeResult(
             success=False,
@@ -120,7 +120,6 @@ def upgrade_dependency(
                     )
             except (KeyError, RuntimeError, OSError) as e:
                 # Rollback on migration failure
-                assert snapshot_id is not None, "snapshot_id should not be None here"
                 restore_workspace_snapshot(snapshot, snapshot_id)
                 return UpgradeResult(
                     success=False,
@@ -145,7 +144,6 @@ def upgrade_dependency(
                     )
             except (KeyError, RuntimeError, OSError) as e:
                 # Rollback on verification failure
-                assert snapshot_id is not None, "snapshot_id should not be None here"
                 restore_workspace_snapshot(snapshot, snapshot_id)
                 return UpgradeResult(
                     success=False,
@@ -167,7 +165,6 @@ def upgrade_dependency(
             )
         except OSError as e:
             # Rollback on lock file update failure
-            assert snapshot_id is not None, "snapshot_id should not be None here"
             restore_workspace_snapshot(snapshot, snapshot_id)
             return UpgradeResult(
                 success=False,
@@ -178,18 +175,18 @@ def upgrade_dependency(
             )
 
         # Success! Optionally cleanup snapshot
+        final_snapshot_id: str | None = snapshot_id
         if auto_cleanup:
             try:
-                assert snapshot_id is not None, "snapshot_id should not be None here"
                 cleanup_snapshot(snapshot, snapshot_id)
-                snapshot_id = None  # Mark as cleaned up
+                final_snapshot_id = None  # Mark as cleaned up
             except ValueError:
                 # Snapshot cleanup failed, but upgrade succeeded
                 pass
 
         return UpgradeResult(
             success=True,
-            snapshot_id=snapshot_id,
+            snapshot_id=final_snapshot_id,
             migration_result=migration_result,
             verify_result=verify_result,
         )
