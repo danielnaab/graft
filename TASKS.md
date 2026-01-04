@@ -60,15 +60,6 @@
   - Acceptance: `graft status --check-updates` shows available newer versions
 
 
-- [ ] **#010: Add --field option to show command**
-  - Priority: Low
-  - Effort: 1h
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Show only specific field (migration, verify, etc.)
-  - Spec Reference: GAP_ANALYSIS.md line 490-497, core-operations.md line 210-211
-  - Files: `src/graft/cli/commands/show.py`
-  - Acceptance: `graft show <dep>@<ref> --field migration` outputs only migration details
 
 ---
 
@@ -161,6 +152,15 @@
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#010: Add --field option to show command**
+  - Completed: 2026-01-04
+  - Owner: Claude Sonnet 4.5
+  - Result: Added `--field` option to show only specific fields
+  - Files Modified: `src/graft/cli/commands/show.py`, `README.md`
+  - Testing: Manual testing with all fields, all tests pass (278/278)
+  - Features: Supports type, description, migration, verify; works with --format json
+  - Commit: (pending)
 
 - [x] **#009: Add --since alias to changes command**
   - Completed: 2026-01-04

@@ -135,11 +135,18 @@ Display detailed information about a specific change.
 # Show change details
 uv run python -m graft show my-knowledge@v2.0.0
 
+# Show only migration details
+uv run python -m graft show my-knowledge@v2.0.0 --field migration
+
 # JSON output for scripting
 uv run python -m graft show my-knowledge@v2.0.0 --format json
+
+# Show specific field as JSON
+uv run python -m graft show my-knowledge@v2.0.0 --field verify --format json
 ```
 
 **Options**:
+- `--field`: Show only specific field (type, description, migration, verify)
 - `--format`: Output format (text or json)
 
 ### `graft upgrade <dep-name> --to <ref>`
