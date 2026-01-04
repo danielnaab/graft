@@ -188,6 +188,32 @@ dependencies:
         assert result.returncode == 1
         assert "not found" in result.stderr.lower() or "not found" in result.stdout.lower()
 
+    def test_status_check_updates_flag(self, temp_project):
+        """Should fetch and check for updates with --check-updates."""
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "graft", "status", "--check-updates"],
+            cwd=temp_project,
+            capture_output=True,
+            text=True,
+        )
+
+        # Should succeed (warns if deps not cloned)
+        assert "Checking for updates" in result.stdout
+
+    def test_status_check_updates_json(self, temp_project):
+        """Should output JSON with --check-updates --format json."""
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "graft", "status", "--check-updates", "--format", "json"],
+            cwd=temp_project,
+            capture_output=True,
+            text=True,
+        )
+
+        # Should output valid JSON
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert "dependencies" in data
+
 
 class TestCLIChanges:
     """Integration tests for 'graft changes' command."""

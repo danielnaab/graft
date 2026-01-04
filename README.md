@@ -118,10 +118,17 @@ uv run python -m graft status my-knowledge
 # JSON output for scripting
 uv run python -m graft status --format json
 uv run python -m graft status my-knowledge --format json
+
+# Check for available updates
+uv run python -m graft status --check-updates
+uv run python -m graft status my-knowledge --check-updates
 ```
 
 **Options**:
 - `--format`: Output format (text or json)
+- `--check-updates`: Fetch latest from remote and check for available updates
+
+**Note**: When using `--check-updates`, graft will run `git fetch` on dependencies to update remote-tracking branches, then show current status. This does not modify the lock file.
 
 ### `graft changes <dep-name>`
 

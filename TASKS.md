@@ -18,17 +18,6 @@
 
 ### Low Priority (Polish & Convenience)
 
-- [ ] **#008: Add --check-updates option to status command**
-  - Priority: Low
-  - Effort: 4h
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Fetch latest and show available updates
-  - Spec Reference: GAP_ANALYSIS.md line 475-483, core-operations.md line 30-31, 83-90
-  - Files: `src/graft/cli/commands/status.py`, `src/graft/services/query_service.py`
-  - Depends: #006 (graft fetch) for fetch logic
-  - Acceptance: `graft status --check-updates` shows available newer versions
-
 
 
 ---
@@ -122,6 +111,16 @@
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#008: Add --check-updates option to status command**
+  - Completed: 2026-01-04
+  - Owner: Claude Sonnet 4.5 (Agent)
+  - Result: Added --check-updates flag to status command
+  - Modified Files: `src/graft/cli/commands/status.py` (added 100+ lines)
+  - Testing: All 322 tests pass (up from 320), added 2 integration tests
+  - Features: Fetches latest from remote, shows current status, supports JSON output
+  - Use Cases: Check for updates before upgrading, see what's available without modifying lock
+  - Note: Runs git fetch but doesn't modify lock file or working directory
 
 - [x] **#006: Implement graft fetch command**
   - Completed: 2026-01-04
