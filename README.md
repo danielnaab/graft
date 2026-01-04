@@ -114,7 +114,14 @@ uv run python -m graft changes my-knowledge --breaking
 
 # Filter by ref range
 uv run python -m graft changes my-knowledge --from-ref v1.0.0 --to-ref v2.0.0
+
+# JSON output for scripting
+uv run python -m graft changes my-knowledge --format json
+uv run python -m graft changes my-knowledge --breaking --format json
 ```
+
+**Options**:
+- `--format`: Output format (text or json)
 
 ### `graft show <dep-name@ref>`
 

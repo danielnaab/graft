@@ -9,17 +9,6 @@
 
 ### High Priority (Enhancement Features)
 
-- [ ] **#002: Add JSON output to changes command**
-  - Priority: High
-  - Effort: 3h
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Add `--format json` option to output JSON
-  - Spec Reference: GAP_ANALYSIS.md line 99-135, core-operations.md line 137-160
-  - Files: `src/graft/cli/commands/changes.py`
-  - Acceptance: `graft changes <dep> --format json` outputs valid JSON
-  - Depends: None (can be done in parallel with #001)
-
 - [ ] **#003: Add JSON output to show command**
   - Priority: High
   - Effort: 3h
@@ -212,11 +201,19 @@
 
 ## 🔄 In Progress
 
-(empty - pick a task from "Next Up" to start working!)
+(none)
 
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#002: Add JSON output to changes command**
+  - Completed: 2026-01-04
+  - Owner: Claude Sonnet 4.5
+  - Result: Added `--format json` option to output JSON format
+  - Files Modified: `src/graft/cli/commands/changes.py`, `README.md`
+  - Testing: Manual testing with `graft changes <dep> --format json`, works with filters
+  - Commit: (pending)
 
 - [x] **#001: Add JSON output to status command**
   - Completed: 2026-01-04

@@ -3,6 +3,7 @@
 CLI command for viewing available changes/updates for a dependency.
 """
 
+import json
 from pathlib import Path
 
 import typer
@@ -26,6 +27,9 @@ def changes_command(
     ),
     breaking_only: bool = typer.Option(
         False, "--breaking", help="Show only breaking changes"
+    ),
+    format_option: str = typer.Option(
+        "text", "--format", help="Output format (text or json)"
     ),
 ) -> None:
     """List changes for a dependency.
@@ -84,52 +88,92 @@ def changes_command(
 
         # Display results
         if not changes:
-            filter_desc = ""
-            if breaking_only:
-                filter_desc = "breaking "
-            elif change_type:
-                filter_desc = f"{change_type} "
+            if format_option == "json":
+                # JSON output for empty case
+                filter_desc = ""
+                if breaking_only:
+                    filter_desc = "breaking "
+                elif change_type:
+                    filter_desc = f"{change_type} "
 
-            typer.secho(
-                f"No {filter_desc}changes found for {dep_name}",
-                fg=typer.colors.YELLOW,
-            )
+                output = {
+                    "dependency": dep_name,
+                    "from": from_ref,
+                    "to": to_ref,
+                    "changes": [],
+                    "message": f"No {filter_desc}changes found"
+                }
+                typer.echo(json.dumps(output, indent=2))
+            else:
+                # Text output
+                filter_desc = ""
+                if breaking_only:
+                    filter_desc = "breaking "
+                elif change_type:
+                    filter_desc = f"{change_type} "
+
+                typer.secho(
+                    f"No {filter_desc}changes found for {dep_name}",
+                    fg=typer.colors.YELLOW,
+                )
             return
 
-        # Header
-        header = f"Changes for {dep_name}:"
-        if from_ref or to_ref:
-            range_str = f"{from_ref or '(start)'} → {to_ref or '(latest)'}"
-            header = f"Changes for {dep_name}: {range_str}"
-        elif breaking_only:
-            header = f"Breaking changes for {dep_name}:"
-        elif change_type:
-            header = f"{change_type.capitalize()} changes for {dep_name}:"
+        if format_option == "json":
+            # JSON output for changes
+            changes_list = []
+            for change in changes:
+                change_obj = {
+                    "ref": change.ref,
+                    "type": change.type,
+                    "description": change.description,
+                    "migration": change.migration,
+                    "verify": change.verify,
+                }
+                changes_list.append(change_obj)
 
-        typer.secho(header, fg=typer.colors.BLUE)
-        typer.echo()
+            output = {
+                "dependency": dep_name,
+                "from": from_ref,
+                "to": to_ref,
+                "changes": changes_list
+            }
+            typer.echo(json.dumps(output, indent=2))
+        else:
+            # Text output
+            # Header
+            header = f"Changes for {dep_name}:"
+            if from_ref or to_ref:
+                range_str = f"{from_ref or '(start)'} → {to_ref or '(latest)'}"
+                header = f"Changes for {dep_name}: {range_str}"
+            elif breaking_only:
+                header = f"Breaking changes for {dep_name}:"
+            elif change_type:
+                header = f"{change_type.capitalize()} changes for {dep_name}:"
 
-        # Display each change
-        for change in changes:
-            # Ref and type
-            type_str = f"({change.type})" if change.type else ""
-            type_color = typer.colors.RED if change.is_breaking() else typer.colors.GREEN
-            typer.secho(f"{change.ref} {type_str}", fg=type_color)
-
-            # Description
-            if change.description:
-                typer.echo(f"  {change.description}")
-
-            # Migration/verification info
-            if change.migration or change.verify:
-                if change.migration:
-                    typer.echo(f"  Migration: {change.migration}")
-                if change.verify:
-                    typer.echo(f"  Verify: {change.verify}")
-            else:
-                typer.echo("  No migration required")
-
+            typer.secho(header, fg=typer.colors.BLUE)
             typer.echo()
+
+            # Display each change
+            for change in changes:
+                # Ref and type
+                type_str = f"({change.type})" if change.type else ""
+                type_color = typer.colors.RED if change.is_breaking() else typer.colors.GREEN
+                typer.secho(f"{change.ref} {type_str}", fg=type_color)
+
+                # Description
+                if change.description:
+                    typer.echo(f"  {change.description}")
+
+                # Migration/verification info
+                if change.migration or change.verify:
+                    if change.migration:
+                        typer.echo(f"  Migration: {change.migration}")
+                    if change.verify:
+                        typer.echo(f"  Verify: {change.verify}")
+                else:
+                    typer.echo("  No migration required")
+
+                typer.echo()
 
     except ConfigFileNotFoundError as e:
         typer.secho(
