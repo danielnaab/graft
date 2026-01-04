@@ -65,3 +65,31 @@ class GitOperations(Protocol):
             True if path is a git repository (contains .git directory)
         """
         ...
+
+    def resolve_ref(self, repo_path: str, ref: str) -> str:
+        """Resolve a git ref to its commit hash.
+
+        Args:
+            repo_path: Path to git repository
+            ref: Git reference (branch, tag, or commit hash)
+
+        Returns:
+            Full 40-character commit hash
+
+        Raises:
+            Exception: If ref doesn't exist or repo is invalid
+        """
+        ...
+
+    def fetch_all(self, repo_path: str) -> None:
+        """Fetch all refs from remote without checking out.
+
+        Updates remote-tracking branches without modifying working directory.
+
+        Args:
+            repo_path: Path to existing git repository
+
+        Raises:
+            Exception: If fetch fails
+        """
+        ...
