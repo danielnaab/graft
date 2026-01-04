@@ -52,22 +52,6 @@
     - Best practices
   - Note: README.md covers basics well, this would be more detailed
 
-- [ ] **#015: Create ADRs for key architectural decisions**
-  - Priority: Low
-  - Effort: 6h
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Document key design decisions in ADR format
-  - Spec Reference: GAP_ANALYSIS.md "Design Decisions That Deviate from Spec"
-  - New Files: docs/decisions/00X-*.md
-  - Decisions to Document:
-    - Why --to is required (vs default to latest)
-    - Why filesystem snapshots (vs git-based)
-    - Why snapshot only graft.lock (vs full workspace)
-    - Protocol-based dependency injection rationale
-    - Functional service layer rationale
-  - Acceptance: 5 ADRs created with Context/Decision/Consequences
-
 ---
 
 ## 🔄 In Progress
@@ -77,6 +61,22 @@
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#015: Create ADRs for key architectural decisions**
+  - Completed: 2026-01-04
+  - Owner: Claude Sonnet 4.5 (Agent)
+  - Result: Created 5 comprehensive ADRs documenting major design decisions
+  - New Files: docs/decisions/001-*.md through 005-*.md, docs/decisions/README.md
+  - Total: 1064 lines of documentation
+  - ADRs Created:
+    1. Require Explicit Ref in Upgrade - why --to is required
+    2. Filesystem Snapshots for Rollback - why not git-based
+    3. Snapshot Only Lock File - why not full workspace
+    4. Protocol-Based Dependency Injection - why Protocols over inheritance
+    5. Functional Service Layer - why pure functions over classes
+  - Each ADR includes: Context, Decision, Consequences, Alternatives, References
+  - Benefits: Preserves design rationale, documents spec deviations, aids onboarding
+  - All tests passing (322 tests)
 
 - [x] **#013: Migrate status docs to status/ directory**
   - Completed: 2026-01-04
