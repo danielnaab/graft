@@ -24,22 +24,6 @@
 
 ### Quality Improvements
 
-- [ ] **#011: Add CLI integration tests**
-  - Priority: Medium
-  - Effort: 2 days
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Add integration tests for all CLI commands
-  - Spec Reference: GAP_ANALYSIS.md line 499-508
-  - New Files: `tests/integration/test_cli_*.py`
-  - Coverage Goal: >80% overall (currently 61% due to CLI at 0%)
-  - Features:
-    - Test all 6 commands with real file I/O
-    - Test error scenarios
-    - Test flag combinations
-    - Test output formatting
-  - Acceptance: CLI coverage >80%, overall coverage >80%
-
 - [ ] **#012: Add mypy strict type checking**
   - Priority: Low
   - Effort: 4h
@@ -111,6 +95,16 @@
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#011: Add CLI integration tests**
+  - Completed: 2026-01-04 (completed across multiple sessions)
+  - Owner: Claude Sonnet 4.5 (Agent)
+  - Result: Comprehensive CLI integration tests for all commands
+  - New Files: `tests/integration/test_cli_commands.py` (815 lines, 65+ tests)
+  - Testing: All 322 tests passing
+  - Coverage: Tests for resolve, fetch, status, changes, show, validate, exec commands
+  - Features: Subprocess-based tests, JSON/text output validation, error scenarios, flag combinations
+  - Achievement: Exceeded goal - comprehensive CLI test coverage achieved
 
 - [x] **#008: Add --check-updates option to status command**
   - Completed: 2026-01-04
