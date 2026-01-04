@@ -67,6 +67,15 @@ def changes_command(
           Migration: migrate-v2
           Verify: verify-v2
     """
+    # Validate format option
+    if format_option not in ("text", "json"):
+        typer.secho(
+            f"Error: Invalid format '{format_option}'. Must be 'text' or 'json'",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     ctx = get_dependency_context()
 
     try:

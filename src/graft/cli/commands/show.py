@@ -48,6 +48,15 @@ def show_command(
           Command: npm test && ! grep -r 'getUserData' src/
           Description: Verify v2 migration: tests pass and no old API usage
     """
+    # Validate format option
+    if format_option not in ("text", "json"):
+        typer.secho(
+            f"Error: Invalid format '{format_option}'. Must be 'text' or 'json'",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     # Parse dep_name@ref format
     if "@" not in dep_ref:
         typer.secho(

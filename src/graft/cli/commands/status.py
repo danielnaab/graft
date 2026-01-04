@@ -40,6 +40,15 @@ def status_command(
           Commit: abc123...
           Consumed: 2026-01-01 10:30:00
     """
+    # Validate format option
+    if format_option not in ("text", "json"):
+        typer.secho(
+            f"Error: Invalid format '{format_option}'. Must be 'text' or 'json'",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     lock_file = YamlLockFile()
     lock_path = "graft.lock"
 
