@@ -91,7 +91,14 @@ uv run python -m graft status
 
 # Show specific dependency
 uv run python -m graft status my-knowledge
+
+# JSON output for scripting
+uv run python -m graft status --json
+uv run python -m graft status my-knowledge --json
 ```
+
+**Options**:
+- `--json`: Output as JSON for machine-readable parsing
 
 ### `graft changes <dep-name>`
 

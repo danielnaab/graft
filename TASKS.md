@@ -9,16 +9,6 @@
 
 ### High Priority (Enhancement Features)
 
-- [ ] **#001: Add JSON output to status command**
-  - Priority: High
-  - Effort: 4h
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Add `--json` flag to output machine-readable JSON
-  - Spec Reference: GAP_ANALYSIS.md line 29-61
-  - Files: `src/graft/cli/commands/status.py`
-  - Acceptance: `graft status --json` outputs valid JSON with all fields
-
 - [ ] **#002: Add JSON output to changes command**
   - Priority: High
   - Effort: 3h
@@ -227,6 +217,14 @@
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#001: Add JSON output to status command**
+  - Completed: 2026-01-04
+  - Owner: Claude Sonnet 4.5
+  - Result: Added `--json` flag to output JSON format
+  - Files Modified: `src/graft/cli/commands/status.py`, `README.md`
+  - Testing: Manual testing with `graft status --json`, all tests pass (278/278)
+  - Commit: (pending)
 
 - [x] **#000: Phase 8 CLI Integration**
   - Completed: 2026-01-04

@@ -3,6 +3,8 @@
 CLI command for viewing the current state of dependencies.
 """
 
+import json
+
 import typer
 
 from graft.adapters.lock_file import YamlLockFile
@@ -10,7 +12,10 @@ from graft.domain.exceptions import DomainError
 from graft.services import query_service
 
 
-def status_command(dep_name: str | None = None) -> None:
+def status_command(
+    dep_name: str | None = typer.Argument(None, help="Optional dependency name"),
+    output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
     """Show status of dependencies.
 
     Displays the current consumed version, commit hash, and timestamp
@@ -44,38 +49,72 @@ def status_command(dep_name: str | None = None) -> None:
             )
 
             if not status:
-                typer.secho(
-                    f"Error: Dependency '{dep_name}' not found in graft.lock",
-                    fg=typer.colors.RED,
-                    err=True,
-                )
+                if output_json:
+                    # JSON error output
+                    error_obj = {"error": f"Dependency '{dep_name}' not found in graft.lock"}
+                    typer.echo(json.dumps(error_obj, indent=2))
+                else:
+                    typer.secho(
+                        f"Error: Dependency '{dep_name}' not found in graft.lock",
+                        fg=typer.colors.RED,
+                        err=True,
+                    )
                 raise typer.Exit(code=1)
 
-            # Display detailed status
-            typer.echo(f"{status.name}: {status.current_ref}")
-            typer.echo(f"  Commit: {status.commit[:7]}...")
-            typer.echo(f"  Consumed: {status.consumed_at}")
+            if output_json:
+                # JSON output for single dependency
+                status_obj = {
+                    "name": status.name,
+                    "current_ref": status.current_ref,
+                    "commit": status.commit,
+                    "consumed_at": status.consumed_at.isoformat(),
+                }
+                typer.echo(json.dumps(status_obj, indent=2))
+            else:
+                # Text output
+                typer.echo(f"{status.name}: {status.current_ref}")
+                typer.echo(f"  Commit: {status.commit[:7]}...")
+                typer.echo(f"  Consumed: {status.consumed_at}")
 
         else:
             # Show status for all dependencies
             statuses = query_service.get_all_status(lock_file, lock_path)
 
             if not statuses:
-                typer.secho(
-                    "No dependencies found in graft.lock",
-                    fg=typer.colors.YELLOW,
-                )
-                typer.echo()
-                typer.echo("Run 'graft resolve' to resolve dependencies first.")
+                if output_json:
+                    # JSON output for empty case
+                    typer.echo(json.dumps({"dependencies": {}}, indent=2))
+                else:
+                    typer.secho(
+                        "No dependencies found in graft.lock",
+                        fg=typer.colors.YELLOW,
+                    )
+                    typer.echo()
+                    typer.echo("Run 'graft resolve' to resolve dependencies first.")
                 return
 
-            typer.echo("Dependencies:")
-            for status in statuses:
-                typer.echo(
-                    f"  {status.name}: {status.current_ref} "
-                    f"(commit: {status.commit[:7]}..., "
-                    f"consumed: {status.consumed_at.strftime('%Y-%m-%d %H:%M:%S')})"
-                )
+            if output_json:
+                # JSON output for all dependencies
+                deps_obj = {
+                    "dependencies": {
+                        status.name: {
+                            "current_ref": status.current_ref,
+                            "commit": status.commit,
+                            "consumed_at": status.consumed_at.isoformat(),
+                        }
+                        for status in statuses
+                    }
+                }
+                typer.echo(json.dumps(deps_obj, indent=2))
+            else:
+                # Text output
+                typer.echo("Dependencies:")
+                for status in statuses:
+                    typer.echo(
+                        f"  {status.name}: {status.current_ref} "
+                        f"(commit: {status.commit[:7]}..., "
+                        f"consumed: {status.consumed_at.strftime('%Y-%m-%d %H:%M:%S')})"
+                    )
 
     except DomainError as e:
         typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
