@@ -200,25 +200,26 @@
   - Completed: 2026-01-04
   - Owner: Claude Sonnet 4.5
   - Result: Added `--format json` option to output JSON format
-  - Files Modified: `src/graft/cli/commands/show.py`, `README.md`
-  - Testing: Manual testing with `graft show <dep@ref> --format json`, works correctly
-  - Commit: (pending)
+  - Files Modified: `src/graft/cli/commands/show.py`, `README.md`, `GAP_ANALYSIS.md`
+  - Testing: Manual testing, all tests pass (278/278)
+  - Commits: 68ac4a3 (implementation) + 74ab474 (docs) + 001c290 (validation)
 
 - [x] **#002: Add JSON output to changes command**
   - Completed: 2026-01-04
   - Owner: Claude Sonnet 4.5
   - Result: Added `--format json` option to output JSON format
-  - Files Modified: `src/graft/cli/commands/changes.py`, `README.md`
-  - Testing: Manual testing with `graft changes <dep> --format json`, works with filters
-  - Commit: (pending)
+  - Files Modified: `src/graft/cli/commands/changes.py`, `README.md`, `GAP_ANALYSIS.md`
+  - Testing: Manual testing, all tests pass (278/278)
+  - Commits: f1717ed (implementation) + 74ab474 (docs) + 001c290 (validation)
 
 - [x] **#001: Add JSON output to status command**
-  - Completed: 2026-01-04
+  - Completed: 2026-01-04 (revised for consistency)
   - Owner: Claude Sonnet 4.5
-  - Result: Added `--json` flag to output JSON format
+  - Result: Added `--format json` option to output JSON format
   - Files Modified: `src/graft/cli/commands/status.py`, `README.md`
-  - Testing: Manual testing with `graft status --json`, all tests pass (278/278)
-  - Commit: (pending)
+  - Testing: Manual testing, all tests pass (278/278)
+  - Note: Initially used --json flag, revised to --format for consistency with #002, #003
+  - Commits: Initial + consistency fix + validation
 
 - [x] **#000: Phase 8 CLI Integration**
   - Completed: 2026-01-04
