@@ -22,6 +22,9 @@ def changes_command(
     dep_name: str,
     from_ref: str | None = None,
     to_ref: str | None = None,
+    since: str | None = typer.Option(
+        None, "--since", help="Show changes since this ref (alias for --from-ref)"
+    ),
     change_type: str | None = typer.Option(
         None, "--type", help="Filter by type (breaking, feature, fix, etc.)"
     ),
@@ -75,6 +78,19 @@ def changes_command(
             err=True,
         )
         raise typer.Exit(code=1)
+
+    # Handle --since alias
+    if since and from_ref:
+        typer.secho(
+            "Error: Cannot specify both --since and --from-ref",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        typer.echo("  Use --since as a shorthand for --from-ref", err=True)
+        raise typer.Exit(code=1)
+
+    if since:
+        from_ref = since
 
     ctx = get_dependency_context()
 

@@ -59,15 +59,6 @@
   - Depends: #006 (graft fetch) for fetch logic
   - Acceptance: `graft status --check-updates` shows available newer versions
 
-- [ ] **#009: Add --since alias to changes command**
-  - Priority: Low
-  - Effort: 1h
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Convenience alias for `--from <ref> --to latest`
-  - Spec Reference: GAP_ANALYSIS.md line 490-497, core-operations.md line 111
-  - Files: `src/graft/cli/commands/changes.py`
-  - Acceptance: `graft changes <dep> --since v1.0.0` same as `--from-ref v1.0.0 --to-ref latest`
 
 - [ ] **#010: Add --field option to show command**
   - Priority: Low
@@ -170,6 +161,15 @@
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#009: Add --since alias to changes command**
+  - Completed: 2026-01-04
+  - Owner: Claude Sonnet 4.5
+  - Result: Added `--since` convenience alias for `--from-ref`
+  - Files Modified: `src/graft/cli/commands/changes.py`, `README.md`
+  - Testing: Manual testing with various scenarios, all tests pass (278/278)
+  - Features: Validates conflicts, works with all other options
+  - Commit: (pending)
 
 - [x] **#007: Implement graft <dep>:<command> syntax**
   - Completed: 2026-01-04
