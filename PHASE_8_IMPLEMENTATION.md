@@ -7,7 +7,24 @@
 
 Phase 8 successfully implements the core CLI commands to expose upgrade and query functionality. All commands work correctly with comprehensive error handling and user-friendly output.
 
+**UPDATE (2026-01-04)**: After dogfooding on graft itself, discovered and fixed several issues. Added missing `graft apply` command and improved git handling for local repositories. Complete workflow now fully functional and tested.
+
 ## Commands Implemented
+
+### ✅ graft apply <dep-name> --to <ref>
+**Purpose**: Update lock file without running migrations
+
+**Implemented:**
+- Update lock file to acknowledge a version
+- Git ref resolution (with local repo support)
+- Helpful error messages
+- Essential for initial setup workflow
+
+**Status**: Fully implemented and tested on graft repository
+
+**Note**: This command was missing from initial Phase 8 implementation and was added during dogfooding.
+
+---
 
 ### ✅ graft status [dep-name]
 **Purpose**: Show current consumed versions from graft.lock
@@ -117,12 +134,13 @@ Phase 8 successfully implements the core CLI commands to expose upgrade and quer
 
 | Metric | Value |
 |--------|-------|
-| Commands Implemented | 4 core commands |
-| Files Created | 4 CLI command files (674 lines) |
-| Files Modified | 4 service files (linting fixes) |
+| Commands Implemented | 5 core commands (added apply) |
+| Files Created | 5 CLI command files (829 lines) |
+| Files Modified | 6 files (CLI + services + tests) |
 | Tests Passing | 278 (100%) |
 | Linting Errors | 0 |
 | Code Quality | High (all ruff checks pass) |
+| **Dogfooding** | ✅ Tested on graft itself |
 
 ## Comparison with Specification
 
@@ -170,15 +188,44 @@ The enhancement features (JSON output, dry-run, etc.) are valuable additions but
 8. Improve CLI code coverage
 9. Add progress bars for long operations
 
+## Dogfooding Results (2026-01-04)
+
+Successfully tested complete workflow on graft repository itself:
+
+**Issues Found and Fixed:**
+1. Missing `graft apply` command (required for initial setup)
+2. Git fetch failures on local-only repos broke workflow
+3. Snapshot service tried to backup non-existent paths
+4. Tests expected old path behavior
+
+**Improvements Made:**
+1. Implemented `graft apply` command (155 lines)
+2. Made git fetch non-fatal (graceful fallback to local resolution)
+3. Fixed snapshot paths to only backup graft.lock
+4. Updated tests to match new behavior
+
+**Complete Workflow Tested:**
+```bash
+graft resolve                              # ✅ Works
+graft apply graft-knowledge --to main     # ✅ Works
+graft status                               # ✅ Works
+graft changes graft-knowledge              # ✅ Works
+graft show graft-knowledge@test-v1.0.0     # ✅ Works
+graft upgrade graft-knowledge --to test-v1.0.0  # ✅ Works with migrations!
+```
+
+See [COMPLETE_WORKFLOW.md](COMPLETE_WORKFLOW.md) for full documentation.
+
 ## Conclusion
 
 Phase 8 (CLI Integration) is **successfully complete** with high quality:
 
-✅ All planned commands implemented
+✅ All core commands implemented and tested
 ✅ All tests pass (278/278)
 ✅ All linting passes (0 errors)
 ✅ Code follows established patterns
 ✅ Services properly exposed via CLI
 ✅ User experience is friendly and helpful
+✅ **Dogfooded on graft itself - works end-to-end!**
 
-The implementation provides a solid, working CLI that users can use today. Enhancement features from the spec can be added incrementally without major refactoring.
+The implementation provides a solid, working CLI that users can use today. The tool successfully manages its own dependency (graft-knowledge) using the commands we built. Enhancement features from the spec can be added incrementally without major refactoring.
