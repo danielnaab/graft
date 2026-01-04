@@ -91,16 +91,30 @@ def _check_for_updates(dep_name: str | None, format_option: str) -> None:
             # Get current version from lock
             current_ref = lock_entries[name].ref if name in lock_entries else "unknown"
 
-            # Get available tags (simplified - just show we fetched)
-            # In a full implementation, we'd parse git tags and compare versions
+            # Check if ref has moved
+            has_update = False
+            try:
+                current_commit = ctx.git.resolve_ref(str(dep_path), current_ref)
+                lock_commit = lock_entries[name].commit if name in lock_entries else None
+
+                if lock_commit and current_commit != lock_commit:
+                    has_update = True
+            except Exception:
+                # If we can't resolve, just show current
+                pass
+
             if format_option != "json":
                 typer.echo(f"  {name}:")
                 typer.echo(f"    Current: {current_ref}")
-                typer.echo(f"    Status: Up to date (remote fetched)")
+                if has_update:
+                    typer.secho(f"    Status: Update available", fg=typer.colors.YELLOW)
+                    typer.echo(f"    Run 'graft changes {name}' to see what's new")
+                else:
+                    typer.echo(f"    Status: Up to date")
             else:
                 updates_info[name] = {
                     "current_ref": current_ref,
-                    "status": "fetched",
+                    "has_update": has_update,
                 }
 
         # JSON output

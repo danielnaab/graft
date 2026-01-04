@@ -52,7 +52,7 @@ ls src/graft/services/                   # See: query, lock, command, snapshot, 
 ls tests/unit/                           # See: comprehensive test suite
 
 # 5. Review status
-cat IMPLEMENTATION_STATUS.md             # Full details of what's done
+cat status/IMPLEMENTATION_STATUS.md      # Full details of what's done
 git log --oneline -5                     # Recent commits
 ```
 

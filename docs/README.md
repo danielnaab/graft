@@ -12,9 +12,10 @@ Graft provides atomic upgrades with automatic rollback, migration execution, and
 ## Quick Links
 
 - **Getting Started**: See main [README.md](../README.md)
-- **Complete Workflow**: See [COMPLETE_WORKFLOW.md](../COMPLETE_WORKFLOW.md)
-- **Implementation Status**: See [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md)
-- **CLI Implementation**: See [PHASE_8_IMPLEMENTATION.md](../PHASE_8_IMPLEMENTATION.md)
+- **Complete Workflow**: See [COMPLETE_WORKFLOW.md](../status/COMPLETE_WORKFLOW.md)
+- **Implementation Status**: See [IMPLEMENTATION_STATUS.md](../status/IMPLEMENTATION_STATUS.md)
+- **CLI Implementation**: See [PHASE_8_IMPLEMENTATION.md](../status/PHASE_8_IMPLEMENTATION.md)
+- **Gap Analysis**: See [GAP_ANALYSIS.md](../status/GAP_ANALYSIS.md)
 - **Development Notes**: See [CONTINUE_HERE.md](../CONTINUE_HERE.md)
 
 ## Architecture
@@ -376,9 +377,10 @@ uv run pytest && uv run ruff check src/ tests/
 ### Documentation
 
 - [README.md](../README.md) - Main documentation
-- [COMPLETE_WORKFLOW.md](../COMPLETE_WORKFLOW.md) - End-to-end workflow
-- [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) - Detailed status
-- [PHASE_8_IMPLEMENTATION.md](../PHASE_8_IMPLEMENTATION.md) - CLI details
+- [COMPLETE_WORKFLOW.md](../status/COMPLETE_WORKFLOW.md) - End-to-end workflow
+- [IMPLEMENTATION_STATUS.md](../status/IMPLEMENTATION_STATUS.md) - Detailed status
+- [PHASE_8_IMPLEMENTATION.md](../status/PHASE_8_IMPLEMENTATION.md) - CLI details
+- [GAP_ANALYSIS.md](../status/GAP_ANALYSIS.md) - Gap analysis
 - [CONTINUE_HERE.md](../CONTINUE_HERE.md) - Development notes
 
 ### Specifications

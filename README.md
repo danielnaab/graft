@@ -383,7 +383,7 @@ Graft follows a clean architecture with:
 - **Snapshot Pattern**: Filesystem-based snapshots for rollback
 - **Atomic Operations**: All-or-nothing upgrades with automatic cleanup
 
-See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for detailed architecture documentation.
+See [IMPLEMENTATION_STATUS.md](status/IMPLEMENTATION_STATUS.md) for detailed architecture documentation.
 
 ## Complete Workflow Example
 
@@ -509,13 +509,14 @@ This project follows Python best practices:
 - **Fakes over mocks** for testing
 - **Immutable domain models**
 
-See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for architectural details.
+See [IMPLEMENTATION_STATUS.md](status/IMPLEMENTATION_STATUS.md) for architectural details.
 
 ## Documentation
 
-- [COMPLETE_WORKFLOW.md](COMPLETE_WORKFLOW.md) - End-to-end workflow guide
-- [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) - Implementation details
-- [PHASE_8_IMPLEMENTATION.md](PHASE_8_IMPLEMENTATION.md) - CLI implementation
+- [COMPLETE_WORKFLOW.md](status/COMPLETE_WORKFLOW.md) - End-to-end workflow guide
+- [IMPLEMENTATION_STATUS.md](status/IMPLEMENTATION_STATUS.md) - Implementation details
+- [PHASE_8_IMPLEMENTATION.md](status/PHASE_8_IMPLEMENTATION.md) - CLI implementation
+- [GAP_ANALYSIS.md](status/GAP_ANALYSIS.md) - Implementation vs specification analysis
 - [CONTINUE_HERE.md](CONTINUE_HERE.md) - Development session notes
 
 ## License
