@@ -25,7 +25,7 @@ However, comparing against the **specification** (`/home/coder/graft-knowledge/d
 | Category | Specification Coverage | Notes |
 |----------|----------------------|-------|
 | **Core Operations** | 75% (6/8 commands) | Missing: `fetch`, `validate` |
-| **CLI Options** | 65% (13/20 options) | ✅ JSON output + dry-run added! |
+| **CLI Options** | 80% (16/20 options) | ✅ JSON, dry-run, --since, --field, dep:cmd! |
 | **Domain Models** | 100% | All specified models implemented |
 | **Services** | 100% | All core services implemented |
 | **Architecture** | 100% | Protocol-based, atomic, immutable |
@@ -78,18 +78,18 @@ graft status --check-updates
 - ✅ `--format json` option for JSON output (implemented 2026-01-04)
 
 **Missing from Spec:**
-- ❌ `--since <ref>` alias for `--from <ref> --to latest`
 - ⚠️ Options named `--from-ref/--to-ref` instead of `--from/--to` (minor deviation)
 
-**Gap Severity**: **Very Low** - Core functionality complete with JSON output
+**Implemented Beyond Spec:**
+- ✅ `--since <ref>` alias for `--from-ref` (implemented 2026-01-04)
+
+**Gap Severity**: **None** - Core functionality complete with all conveniences
 
 **Specification Reference:**
 ```bash
-# Implemented:
+# All specified features implemented:
 graft changes <dep> --format json
-
-# Specified but not implemented:
-graft changes <dep> --since v1.0.0  # Alias
+graft changes <dep> --since v1.0.0
 ```
 
 **Implementation File**: `src/graft/cli/commands/changes.py`
@@ -105,18 +105,17 @@ graft changes <dep> --since v1.0.0  # Alias
 - ✅ Display migration and verification commands
 - ✅ Color-coded output
 - ✅ `--format json` option for JSON output (implemented 2026-01-04)
+- ✅ `--field <field>` option to show specific field only (implemented 2026-01-04)
 
 **Missing from Spec:**
-- ❌ `--field <field>` option to show specific field only
+- (None - all specified features implemented)
 
-**Gap Severity**: **Very Low** - Core functionality complete with JSON output
+**Gap Severity**: **None** - Fully compliant with specification
 
 **Specification Reference:**
 ```bash
-# Implemented:
+# All specified features implemented:
 graft show <dep>@<ref> --format json
-
-# Specified but not implemented:
 graft show <dep>@<ref> --field migration
 ```
 
@@ -225,23 +224,29 @@ graft validate [--schema] [--refs] [--lock]
 
 ---
 
-### ❌ graft <dep>:<command> (NOT IMPLEMENTED)
+### ✅ graft <dep>:<command> (FULLY IMPLEMENTED)
 
-**Status**: **Completely missing**
+**Status**: **Fully Implemented** (2026-01-04)
 
 **Specification**: Execute command from dependency's graft.yaml
 ```bash
 graft <dep-name>:<command-name> [args...]
 ```
 
-**Purpose**:
-- Execute commands defined in dependencies
-- Pass through stdout/stderr
-- Useful for running migrations manually
+**Implemented:**
+- ✅ Parse `dep:command` syntax
+- ✅ Load command from dependency's graft.yaml
+- ✅ Execute in consumer context (not in .graft/deps/)
+- ✅ Stream stdout/stderr in real-time
+- ✅ Return same exit code as command
+- ✅ Pass additional arguments to command
+- ✅ Proper error handling for missing commands/dependencies
 
-**Gap Severity**: **Low** - Useful feature but migrations can be run via upgrade
+**Gap Severity**: **None** - Fully compliant with specification
 
-**Why Missing**: Not in 10-phase plan. CLI syntax parsing not implemented.
+**Implementation Files**:
+- `src/graft/cli/commands/exec_command.py` (new)
+- `src/graft/__main__.py` (modified for syntax detection)
 
 **Specification Reference**: Lines 597-657 in core-operations.md
 

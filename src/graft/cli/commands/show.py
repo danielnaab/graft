@@ -18,6 +18,23 @@ from graft.domain.exceptions import (
 from graft.services import config_service, query_service
 
 
+def _build_command_dict(cmd) -> dict:
+    """Build command dictionary for JSON output.
+
+    Args:
+        cmd: Command object with name, run, description, working_dir attributes
+
+    Returns:
+        Dictionary with command details
+    """
+    return {
+        "name": cmd.name,
+        "command": cmd.run,
+        "description": cmd.description,
+        "working_dir": cmd.working_dir,
+    }
+
+
 def show_command(
     dep_ref: str,
     format_option: str = typer.Option(
@@ -124,28 +141,12 @@ def show_command(
                     output = {"description": details.change.description}
                 elif field == "migration":
                     if details.migration_command:
-                        cmd = details.migration_command
-                        output = {
-                            "migration": {
-                                "name": cmd.name,
-                                "command": cmd.run,
-                                "description": cmd.description,
-                                "working_dir": cmd.working_dir,
-                            }
-                        }
+                        output = {"migration": _build_command_dict(details.migration_command)}
                     else:
                         output = {"migration": None}
                 elif field == "verify":
                     if details.verify_command:
-                        cmd = details.verify_command
-                        output = {
-                            "verify": {
-                                "name": cmd.name,
-                                "command": cmd.run,
-                                "description": cmd.description,
-                                "working_dir": cmd.working_dir,
-                            }
-                        }
+                        output = {"verify": _build_command_dict(details.verify_command)}
                     else:
                         output = {"verify": None}
             else:
@@ -159,25 +160,13 @@ def show_command(
 
                 # Add migration details if present
                 if details.migration_command:
-                    cmd = details.migration_command
-                    output["migration"] = {
-                        "name": cmd.name,
-                        "command": cmd.run,
-                        "description": cmd.description,
-                        "working_dir": cmd.working_dir,
-                    }
+                    output["migration"] = _build_command_dict(details.migration_command)
                 else:
                     output["migration"] = None
 
                 # Add verification details if present
                 if details.verify_command:
-                    cmd = details.verify_command
-                    output["verify"] = {
-                        "name": cmd.name,
-                        "command": cmd.run,
-                        "description": cmd.description,
-                        "working_dir": cmd.working_dir,
-                    }
+                    output["verify"] = _build_command_dict(details.verify_command)
                 else:
                     output["verify"] = None
 
