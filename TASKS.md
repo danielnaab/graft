@@ -37,24 +37,6 @@
 
 ### Documentation & Organization
 
-- [ ] **#013: Migrate status docs to status/ directory**
-  - Priority: Medium
-  - Effort: 2h
-  - Owner: unassigned
-  - Created: 2026-01-04
-  - Description: Organize status docs per INFO_ARCHITECTURE.md
-  - Spec Reference: docs/INFO_ARCHITECTURE.md "Migration from Current State"
-  - Actions:
-    - Create `status/` directory
-    - Move IMPLEMENTATION_STATUS.md → status/
-    - Move GAP_ANALYSIS.md → status/
-    - Move PHASE_8_IMPLEMENTATION.md → status/
-    - Move COMPLETE_WORKFLOW.md → status/
-    - Create status/sessions/ and move SESSION_LOG_*.md
-    - Keep CONTINUE_HERE.md at root (most visible)
-    - Update references in all docs
-  - Acceptance: Clean root directory, status docs organized
-
 - [ ] **#014: Create USER_GUIDE.md**
   - Priority: Low
   - Effort: 4h
@@ -95,6 +77,17 @@
 ---
 
 ## ✅ Done (Recent)
+
+- [x] **#013: Migrate status docs to status/ directory**
+  - Completed: 2026-01-04
+  - Owner: Claude Sonnet 4.5 (Agent)
+  - Result: Organized all status documentation into status/ directory
+  - Created: status/ and status/sessions/ directories
+  - Moved: IMPLEMENTATION_STATUS.md, GAP_ANALYSIS.md, PHASE_8_IMPLEMENTATION.md, COMPLETE_WORKFLOW.md, SESSION_LOG_*.md
+  - Created: status/README.md documenting directory structure
+  - Updated: All references in README.md, docs/README.md, CONTINUE_HERE.md
+  - Benefits: Clean root directory, organized status tracking, follows INFO_ARCHITECTURE.md conventions
+  - All tests passing (322 tests)
 
 - [x] **#011: Add CLI integration tests**
   - Completed: 2026-01-04 (completed across multiple sessions)
