@@ -5,412 +5,203 @@ updated: 2026-01-05
 
 # CLI Reference
 
-Complete reference for all graft commands.
+Command reference for graft.
 
-## Documentation Sources
-
-This reference documents implemented commands with links to specifications and code.
-
-**For each command:**
-- **Specification:** [Core Operations Spec](../../graft-knowledge/docs/specification/core-operations.md)
-- **Implementation:** `src/graft/cli/commands/` (linked per command below)
-- **Tests:** `tests/integration/test_cli_commands.py` (805 lines of CLI tests)
+**Specification:** [Core Operations](../../graft-knowledge/docs/specification/core-operations.md)
+**Implementation:** `src/graft/cli/commands/`
+**Tests:** `tests/integration/test_cli_commands.py`
 
 ---
 
-## Command Overview
+## Commands
 
 | Command | Purpose |
 |---------|---------|
-| [resolve](#graft-resolve) | Clone all dependencies |
-| [fetch](#graft-fetch) | Update remote cache |
-| [apply](#graft-apply) | Update lock file without migrations |
-| [status](#graft-status) | Show current versions |
-| [changes](#graft-changes) | List available changes |
-| [show](#graft-show) | Display change details |
-| [upgrade](#graft-upgrade) | Atomic upgrade with migrations |
-| [dep:command](#graft-depcommand) | Execute dependency command |
-| [validate](#graft-validate) | Validate configuration |
+| resolve | Clone/fetch dependencies |
+| apply | Update lock without migrations |
+| status | Show consumed versions |
+| changes | List available changes |
+| show | Display change details |
+| upgrade | Atomic upgrade with migrations |
+| fetch | Update remote cache |
+| dep:cmd | Execute dependency command |
+| validate | Validate configuration |
 
 ---
 
-## graft resolve
+## resolve
 
-Clone or fetch all dependencies declared in `graft.yaml`.
+Clone or fetch all dependencies from `graft.yaml`.
 
 ```bash
-uv run python -m graft resolve
+graft resolve
 ```
 
-**Behavior**:
-- Clones dependencies to `.graft/deps/<dep-name>/`
-- Fetches latest from remote if already cloned
-- Does NOT create or modify lock file
-- Does NOT checkout any specific ref
-
-**Use Cases**:
-- Initial setup after cloning a project
-- Synchronize dependency repositories
-- Ensure all dependencies are available locally
+Clones to `.graft/deps/<name>/`. Fetches if already cloned. Does not modify lock file.
 
 ---
 
-## graft fetch
+## apply
 
-Update local cache of dependencies from remote repositories.
-
-```bash
-# Fetch all dependencies
-uv run python -m graft fetch
-
-# Fetch specific dependency
-uv run python -m graft fetch my-knowledge
-```
-
-**Behavior**:
-- Runs `git fetch` to update remote-tracking branches
-- Does NOT modify the lock file
-- Does NOT modify working directory
-- Does NOT checkout any refs
-
-**Use Cases**:
-- Check for new versions without modifying lock file
-- Update local knowledge of what's available before upgrading
-- Refresh repository metadata
-
-**Note**: Use `graft changes` after fetching to see what's available.
-
----
-
-## graft apply
-
-Update the lock file to acknowledge a specific version without running migrations.
+Update lock file without running migrations.
 
 ```bash
-uv run python -m graft apply <dep-name> --to <ref>
+graft apply <dep> --to <ref>
 ```
 
-**Examples**:
-```bash
-# Initial lock file creation
-uv run python -m graft apply my-knowledge --to main
-
-# Update to specific version without migration
-uv run python -m graft apply my-knowledge --to v1.0.0
-```
-
-**Arguments**:
-- `dep-name` - Name of dependency (must exist in graft.yaml)
-- `--to <ref>` - Git ref to apply (branch, tag, or commit hash)
-
-**Behavior**:
-- Resolves ref to commit hash
-- Updates `graft.lock` with new version
-- Does NOT run migration commands
-- Does NOT run verification commands
-
-**Use Cases**:
+Use cases:
 - Initial lock file creation
 - Manual migration workflows
-- Acknowledging a version without automated migration
+- Acknowledge manual upgrades
 
-**Difference from upgrade**: `apply` skips migration and verification commands. Use `upgrade` for automated migrations.
-
----
-
-## graft status
-
-Show current consumed versions from the lock file.
-
-```bash
-# Show all dependencies
-uv run python -m graft status
-
-# Show specific dependency
-uv run python -m graft status <dep-name>
-
-# JSON output for scripting
-uv run python -m graft status --format json
-
-# Check for available updates
-uv run python -m graft status --check-updates
-```
-
-**Options**:
-- `--format <text|json>` - Output format (default: text)
-- `--check-updates` - Fetch latest and check for available updates
-
-**Output (text)**:
-```
-Dependencies:
-  my-knowledge: v1.5.0 (commit: abc123..., consumed: 2026-01-04 10:30:00)
-```
-
-**Output (json)**:
-```json
-{
-  "dependencies": {
-    "my-knowledge": {
-      "current_ref": "v1.5.0",
-      "commit": "abc123...",
-      "consumed_at": "2026-01-04T10:30:00+00:00"
-    }
-  }
-}
-```
-
-**With --check-updates**:
-- Runs `git fetch` on dependencies
-- Shows if ref has moved (updates available)
-- Does NOT modify lock file
+Updates `graft.lock` with ref and commit hash.
 
 ---
 
-## graft changes
+## status
 
-List available changes/versions for a dependency.
+Show consumed versions from lock file.
 
 ```bash
-# List all changes
-uv run python -m graft changes <dep-name>
-
-# Filter by type
-uv run python -m graft changes <dep-name> --type feature
-uv run python -m graft changes <dep-name> --breaking
-
-# Filter by ref range
-uv run python -m graft changes <dep-name> --from-ref v1.0.0 --to-ref v2.0.0
-
-# Show changes since a specific ref
-uv run python -m graft changes <dep-name> --since v1.0.0
-
-# JSON output
-uv run python -m graft changes <dep-name> --format json
+graft status [<dep>]
 ```
 
-**Options**:
-- `--type <breaking|feature|fix>` - Filter by change type
-- `--breaking` - Shortcut for `--type breaking`
-- `--from-ref <ref>` - Show changes from this ref (exclusive)
-- `--to-ref <ref>` - Show changes to this ref (inclusive)
-- `--since <ref>` - Alias for `--from-ref`
-- `--format <text|json>` - Output format
-
-**Output (text)**:
-```
-Changes for my-knowledge:
-  v2.0.0 (breaking)
-    Major restructuring
-    Migration: migrate-v2
-
-  v1.5.0 (feature)
-    Additional examples
-```
-
-**Use Cases**:
-- Explore available versions
-- Identify breaking changes before upgrading
-- See what's new in a dependency
+Output:
+- Dependency name
+- Consumed ref
+- Commit hash
+- Consumed timestamp
 
 ---
 
-## graft show
+## changes
 
-Display detailed information about a specific change.
+List available changes for dependency.
 
 ```bash
-# Show change details
-uv run python -m graft show <dep-name@ref>
-
-# Show only specific field
-uv run python -m graft show <dep-name@ref> --field <field>
-
-# JSON output
-uv run python -m graft show <dep-name@ref> --format json
+graft changes <dep> [--type TYPE] [--from-ref REF] [--to-ref REF]
 ```
 
-**Examples**:
-```bash
-uv run python -m graft show my-knowledge@v2.0.0
-uv run python -m graft show my-knowledge@v2.0.0 --field migration
-uv run python -m graft show my-knowledge@v2.0.0 --format json
-```
+Options:
+- `--type`: filter by breaking/feature/fix
+- `--breaking`: show only breaking changes
+- `--from-ref`, `--to-ref`: limit range
 
-**Options**:
-- `--field <type|description|migration|verify>` - Show only specific field
-- `--format <text|json>` - Output format
-
-**Output (text)**:
-```
-Change: my-knowledge@v2.0.0
-Type: breaking
-Description: Major restructuring
-
-Migration: migrate-v2
-  Command: ./scripts/migrate-to-v2.sh
-  Description: Migrate to v2 structure
-
-Verification: verify-v2
-  Command: ./scripts/verify-v2.sh
-  Description: Verify v2 migration succeeded
-```
+Output: ref, type, description, migration, verify.
 
 ---
 
-## graft upgrade
+## show
 
-Perform an atomic upgrade with migration execution and automatic rollback on failure.
+Display details for specific change.
 
 ```bash
-# Upgrade with migration and verification
-uv run python -m graft upgrade <dep-name> --to <ref>
-
-# Preview upgrade without making changes
-uv run python -m graft upgrade <dep-name> --to <ref> --dry-run
-
-# Skip migration
-uv run python -m graft upgrade <dep-name> --to <ref> --skip-migration
-
-# Skip verification
-uv run python -m graft upgrade <dep-name> --to <ref> --skip-verify
+graft show <dep> <ref> [--fields FIELDS]
 ```
 
-**Arguments**:
-- `dep-name` - Name of dependency
-- `--to <ref>` - Target version (required)
+Options:
+- `--fields`: comma-separated fields to display
 
-**Options**:
-- `--dry-run` - Preview upgrade without making any changes
-- `--skip-migration` - Skip migration command execution
-- `--skip-verify` - Skip verification command execution
-
-**Upgrade Process**:
-1. Creates snapshot of current state
-2. Runs migration command (if defined and not skipped)
-3. Runs verification command (if defined and not skipped)
-4. Updates lock file
-5. Automatically rolls back on any failure
-
-**Automatic Rollback**:
-- If migration fails: Restore snapshot, revert lock file
-- If verification fails: Restore snapshot, revert lock file
-- If lock update fails: Restore snapshot
-
-**Use Cases**:
-- Upgrade to new version with automated migration
-- Test upgrade with `--dry-run` before committing
-- Manual migration with `--skip-migration`, then run migration separately
-
-**Difference from apply**: `upgrade` runs migrations and verifications. Use `apply` to skip migrations.
+Output: all change metadata.
 
 ---
 
-## graft dep:command
+## upgrade
 
-Execute a command defined in a dependency's graft.yaml.
+Atomic upgrade with migrations and rollback.
 
 ```bash
-uv run python -m graft <dep-name>:<command> [args...]
+graft upgrade <dep> --to <ref> [--dry-run]
 ```
 
-**Examples**:
-```bash
-# Execute migration command from dependency
-uv run python -m graft my-knowledge:migrate-v2
+Behavior:
+1. Create filesystem snapshot
+2. Check for changes between current and target
+3. Run migration commands in sequence
+4. Update lock file on success
+5. Rollback snapshot on failure
 
-# Execute with additional arguments
-uv run python -m graft my-knowledge:build --production
-```
-
-**Behavior**:
-- Loads command from dependency's graft.yaml
-- Executes in consumer's context (current directory, not `.graft/deps/`)
-- Streams stdout/stderr in real-time
-- Returns same exit code as command
-- Passes additional arguments to the command
-
-**Use Cases**:
-- Run migration commands manually
-- Execute verification commands
-- Run utility scripts defined by dependencies
-
-**Example graft.yaml (in dependency)**:
-```yaml
-commands:
-  migrate-v2:
-    run: "./scripts/migrate-to-v2.sh"
-    description: "Migrate to v2 structure"
-```
+Options:
+- `--dry-run`: show what would happen without executing
 
 ---
 
-## graft validate
+## fetch
 
-Validate graft.yaml and graft.lock for correctness.
+Update remote cache for dependency.
 
 ```bash
-# Validate everything (default)
-uv run python -m graft validate
-
-# Validate only graft.yaml schema
-uv run python -m graft validate --schema
-
-# Validate only graft.lock
-uv run python -m graft validate --lock
-
-# Validate only git refs exist
-uv run python -m graft validate --refs
+graft fetch <dep>
 ```
 
-**Options**:
-- `--schema` - Validate only graft.yaml schema
-- `--lock` - Validate only graft.lock consistency
-- `--refs` - Validate only git ref existence
+Fetches latest from remote. Useful before checking for changes.
 
-**Checks Performed**:
+---
 
-**Schema validation** (`--schema`):
-- graft.yaml structure is valid
-- API version is correct
-- At least one dependency exists
-- Command references are valid
+## dep:command
 
-**Git ref validation** (`--refs`):
-- All refs in dependency changes exist in git repositories
+Execute command defined in dependency.
 
-**Lock file validation** (`--lock`):
-- Lock file format is correct
-- All dependencies in lock file exist in graft.yaml
-- Warns if refs have moved (commit hash changed)
+```bash
+graft <dep>:<command>
+```
 
-**Exit Codes**:
-- `0` - Validation successful (warnings allowed)
-- `1` - Validation failed (errors found)
+Example:
+```bash
+graft meta-kb:build
+```
 
-**Output Symbols**:
-- ✓ Green checkmark - Validation passed
-- ✗ Red X - Error found
-- ⚠ Yellow warning - Non-critical issue
+Executes command in dependency's working directory.
 
-**Use Cases**:
-- Pre-commit validation
-- CI/CD pipeline checks
-- Debugging configuration issues
+---
+
+## validate
+
+Validate `graft.yaml` configuration.
+
+```bash
+graft validate
+```
+
+Checks:
+- YAML syntax
+- Required fields
+- Dependency URL format
+- Command references
 
 ---
 
 ## Global Options
 
 All commands support:
-- Standard input/output redirection
-- Exit codes (0 = success, 1 = error)
-- Color-coded output (can be disabled with `NO_COLOR=1`)
-
-## Environment Variables
-
-- `NO_COLOR=1` - Disable colored output
-- `GRAFT_DEBUG=1` - Enable debug logging (not yet implemented)
+- `--help`: show help
+- `--json`: JSON output
+- `--verbose`: detailed logging
 
 ---
 
-See [User Guide](guides/user-guide.md) for workflow examples and [Configuration Guide](configuration.md) for file format details.
+## Examples
+
+**Initial setup:**
+```bash
+graft resolve
+graft apply my-kb --to main
+```
+
+**Check for updates:**
+```bash
+graft fetch my-kb
+graft changes my-kb
+```
+
+**Upgrade:**
+```bash
+graft upgrade my-kb --to v2.0.0
+```
+
+**Execute dependency command:**
+```bash
+graft meta-kb:build
+```
+
+See [User Guide](guides/user-guide.md) for workflows.
