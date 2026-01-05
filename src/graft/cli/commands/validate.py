@@ -15,6 +15,7 @@ from graft.domain.exceptions import (
     ConfigValidationError,
 )
 from graft.services import config_service, lock_service, validation_service
+from graft.services.validation_service import ErrorType
 
 
 def validate_command(
@@ -251,37 +252,42 @@ def validate_command(
                             all_warnings.append(f"{dep_name}: not a git repository")
                             continue
 
-                        lock_errors = validation_service.validate_lock_entry(
-                            entry, ctx.git, str(dep_path)
-                        )
+                        # Choose validation method based on mode
+                        if validate_integrity:
+                            # Integrity mode: verify actual commit in .graft/ matches lock file
+                            validation_errors = validation_service.verify_integrity(
+                                entry, ctx.git, str(dep_path)
+                            )
+                        else:
+                            # Lock mode: check if refs still exist and haven't moved
+                            validation_errors = validation_service.validate_lock_entry(
+                                entry, ctx.git, str(dep_path)
+                            )
+
+                        # Separate errors and warnings
                         errors, warnings = validation_service.get_validation_summary(
-                            lock_errors
+                            validation_errors
                         )
 
-                        # Print errors/warnings with dep name prefix
+                        # Check for integrity mismatches specifically
+                        has_integrity_error = any(
+                            err.error_type == ErrorType.INTEGRITY_MISMATCH
+                            for err in validation_errors
+                        )
+                        if has_integrity_error:
+                            integrity_mismatch = True
+
+                        # Print errors with dep name prefix
                         for error in errors:
                             typer.secho(f"  ✗ {dep_name}: {error}", fg=typer.colors.RED, err=True)
                             lock_errors_found = True
 
-                        # In integrity mode, commit mismatches are integrity errors (not just warnings)
+                        # Print warnings
                         for warning in warnings:
-                            if "has moved" in warning and validate_integrity:
-                                typer.secho(f"  ✗ {dep_name}: {warning}", fg=typer.colors.RED, err=True)
-                                integrity_mismatch = True
-                            else:
-                                typer.secho(f"  ⚠ {dep_name}: {warning}", fg=typer.colors.YELLOW)
+                            typer.secho(f"  ⚠ {dep_name}: {warning}", fg=typer.colors.YELLOW)
 
                         all_errors.extend([f"{dep_name}: {e}" for e in errors])
-
-                        # Track integrity mismatches separately in integrity mode
-                        if validate_integrity:
-                            integrity_warnings = [w for w in warnings if "has moved" in w]
-                            if integrity_warnings:
-                                all_errors.extend([f"{dep_name}: {w}" for w in integrity_warnings])
-                            normal_warnings = [w for w in warnings if "has moved" not in w]
-                            all_warnings.extend([f"{dep_name}: {w}" for w in normal_warnings])
-                        else:
-                            all_warnings.extend([f"{dep_name}: {w}" for w in warnings])
+                        all_warnings.extend([f"{dep_name}: {w}" for w in warnings])
 
                     # Warn about dependencies not cloned
                     if deps_not_cloned:
