@@ -60,6 +60,31 @@ This directory contains strategic improvement plans for the Graft documentation 
 
 **For agents:** This plan is structured for systematic implementation. Read each phase carefully, follow templates exactly, and verify success criteria before proceeding.
 
+---
+
+### Auto-Create PRs for Graft Dependency Updates
+
+**Plan:** [auto-dependency-update-prs.md](auto-dependency-update-prs.md)
+**Created:** 2026-01-05
+**Status:** Draft (awaiting review)
+**Priority:** High (enables dependency update automation)
+
+**Summary:** CI automation strategy that automatically creates pull requests in downstream repositories when upstream Graft dependencies are updated. Includes Coder workspace links for continuity.
+
+**Key components:**
+- Push-based workflow triggers (upstream notifies downstream)
+- `dependents.yaml` configuration for listing consumers
+- Reusable scripts for PR creation via Forgejo API
+- Coder workspace URL integration for handoff
+
+**Initial scope:**
+- `graft-knowledge` → `graft` (notify on update)
+- `meta-knowledge-base` → `graft-knowledge` (notify on update)
+
+**For agents:** This plan creates the foundation for automated dependency evolution. It serves dual purposes: (1) keep downstream projects current, (2) generate feedback on Graft's upgrade experience.
+
+---
+
 ## Navigation
 
 **Related documentation:**
