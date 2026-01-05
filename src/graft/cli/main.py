@@ -13,6 +13,7 @@ from graft.cli.commands import (
     resolve,
     show,
     status,
+    tree,
     upgrade,
     validate,
 )
@@ -57,6 +58,10 @@ app.command(name="apply", help="Update lock file without running migrations")(
 
 app.command(name="validate", help="Validate graft.yaml and graft.lock")(
     validate.validate_command
+)
+
+app.command(name="tree", help="Show dependency tree visualization")(
+    tree.tree_command
 )
 
 
