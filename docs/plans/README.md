@@ -4,6 +4,35 @@ This directory contains strategic improvement plans for the Graft documentation 
 
 ## Active Plans
 
+### Upgrade to graft-knowledge v2
+
+**Plan:** [upgrade-to-graft-knowledge-v2.md](upgrade-to-graft-knowledge-v2.md)
+**Created:** 2026-01-05
+**Status:** Ready for implementation
+**Priority:** High (enables transitive dependency support)
+
+**Summary:** Upgrade Graft implementation to align with graft-knowledge v2 specifications for extended lock file format, transitive dependency resolution, and flat dependency layout.
+
+**Key changes:**
+- Extend graft.lock format with `direct`, `requires`, `required_by` fields
+- Implement recursive dependency resolution algorithm
+- Migrate from `.graft/deps/` to `.graft/` flat layout
+- Add conflict detection for version mismatches
+- Update all CLI commands to support new features
+
+**Post-implementation:**
+- [upgrade-analysis.md](upgrade-analysis.md) - Evaluation of upgrade process
+- [graft-improvements-recommendations.md](graft-improvements-recommendations.md) - Enhancement proposals
+
+**Implementation approach:**
+- 7 phases over 3 weeks (domain models → resolution → layout → CLI → visualization → docs)
+- Each phase has clear testing strategy and success criteria
+- Maintains backward compatibility during migration
+
+**For agents:** This plan serves dual purposes: (1) implement v2 specifications, (2) evaluate Graft's own dependency upgrade affordances to inform future improvements.
+
+---
+
 ### Meta-Knowledge-Base Compliance Improvements
 
 **Plan:** [meta-kb-compliance-improvements.md](meta-kb-compliance-improvements.md)

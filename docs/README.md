@@ -146,6 +146,11 @@ Architectural decisions documented in `docs/decisions/`:
 - [Architecture](architecture.md) - detailed system design
 - [Index](index.md) - navigation
 
+**Plans:**
+- [Upgrade to graft-knowledge v2](plans/upgrade-to-graft-knowledge-v2.md)
+- [Upgrade Analysis](plans/upgrade-analysis.md) (pending implementation)
+- [Graft Improvements Recommendations](plans/graft-improvements-recommendations.md) (pending implementation)
+
 **Status:**
 - [Implementation Status](../status/implementation.md)
 - [Gap Analysis](../status/gap-analysis.md)
