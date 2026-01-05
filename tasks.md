@@ -29,122 +29,39 @@ archive_policy: "Git history provides task evolution"
 
 ## Next Up (Priority Order)
 
-### #016: Refactor validation command to use modes ✅ COMPLETE
+### #016: Refactor validation command to use modes ✅
+**Status**: Complete (2026-01-05)
 **Priority**: HIGH
-**Effort**: MEDIUM (4-6 hours)
-**Owner**: Claude (2026-01-05)
-**Status**: COMPLETED
 
-**Description**:
-Change validation command from flag-based (`--schema`, `--lock`, `--refs`) to mode-based (`config`, `lock`, `integrity`, `all`) to match specification.
+Mode-based interface implemented with proper integrity verification using git rev-parse HEAD.
+Legacy flags deprecated with backward compatibility maintained.
 
-**Specification**:
-- graft-knowledge/docs/specification/core-operations.md lines 220-371
-
-**Implementation Requirements**:
-1. Add mode argument: `graft validate [config|lock|integrity|all]`
-2. Default to `all` mode when no mode specified
-3. Maintain backward compatibility with flags (show deprecation warning)
-4. Update command help text and examples
-
-**Files Affected**:
-- `src/graft/cli/commands/validate.py` - Command interface refactor ✅
-- `tests/integration/test_cli_commands.py` - Existing tests (all passing) ✅
-- `tests/integration/test_validate_modes.py` - New comprehensive mode tests ✅
-
-**Acceptance Criteria**:
-- [x] `graft validate` runs all validations (default)
-- [x] `graft validate config` validates only graft.yaml
-- [x] `graft validate lock` validates only graft.lock
-- [x] `graft validate integrity` checks .graft/ matches lock file
-- [x] Old flags work with deprecation warning
-- [x] All tests pass (346 tests, coverage 42%)
-- [x] Help text is clear
-- [x] Exit code 2 for integrity mismatches
-
-**Implementation Notes**:
-- Added 11 comprehensive tests in `test_validate_modes.py`
-- Maintained full backward compatibility with legacy flags
-- Integrity mode treats commit mismatches as errors (exit code 2)
-- All existing tests continue to pass
-
-**Depends On**: None
+**Files**: validate.py, validation_service.py, test_validate_modes.py (11 tests)
+**Tests**: 346 passing, 42% coverage
 
 ---
 
-### #017: Implement lock file ordering convention ✅ COMPLETE
+### #017: Implement lock file ordering convention ✅
+**Status**: Complete (2026-01-05)
 **Priority**: HIGH
-**Effort**: LOW (2-3 hours)
-**Owner**: Claude (2026-01-05)
-**Status**: COMPLETED
 
-**Description**:
-Ensure lock files are written with consistent ordering: direct dependencies first (alphabetically), then transitive dependencies (alphabetically).
+Verified existing implementation and added comprehensive tests.
+Direct dependencies before transitive, alphabetical within groups.
 
-**Specification**:
-- graft-knowledge/docs/specification/lock-file-format.md lines 83-114
-
-**Ordering Requirements**:
-1. Direct dependencies (`direct: true`) first
-2. Transitive dependencies (`direct: false`) second
-3. Alphabetical within each group
-
-**Files Affected**:
-- `src/graft/adapters/lock_file.py` - Sorting already implemented ✅
-- `tests/integration/test_lock_file_ordering.py` - New comprehensive tests ✅
-
-**Acceptance Criteria**:
-- [x] Lock files generated with correct order
-- [x] Direct deps always before transitive
-- [x] Alphabetical within groups
-- [x] Parser still accepts any order (robustness principle)
-- [x] All tests pass (5 new tests added)
-- [x] No breakage of existing lock files
-
-**Implementation Notes**:
-- Implementation was already present in lock_file.py:119-132
-- Added 5 comprehensive integration tests to verify specification compliance
-- Tests cover: direct before transitive, alphabetical sorting, robustness principle
-- All tests passing
-
-**Depends On**: None
+**Files**: test_lock_file_ordering.py (5 tests)
+**Tests**: All passing, robustness principle verified
 
 ---
 
-### #018: Standardize validation exit codes ✅ COMPLETE
+### #018: Standardize validation exit codes ✅
+**Status**: Complete (2026-01-05) - implemented with #016
 **Priority**: HIGH
-**Effort**: LOW (1-2 hours)
-**Owner**: Claude (2026-01-05)
-**Status**: COMPLETED (implemented with Task #016)
 
-**Description**:
-Update validation command to use standardized exit codes matching specification.
+Exit codes 0/1/2 implemented based on ErrorType enum.
+Exit 2 for integrity mismatches with actionable error messages.
 
-**Specification**:
-- graft-knowledge/docs/specification/core-operations.md lines 265-269
-
-**Exit Code Requirements**:
-- 0: All validations passed
-- 1: Validation failed (invalid configuration)
-- 2: Integrity mismatch (lock vs .graft/)
-
-**Files Affected**:
-- `src/graft/cli/commands/validate.py` - Exit code logic ✅
-
-**Acceptance Criteria**:
-- [x] Exit 0 on success
-- [x] Exit 1 on validation errors
-- [x] Exit 2 on integrity mismatches
-- [x] All tests verify correct exit codes
-- [x] Documentation included in help text
-
-**Implementation Notes**:
-- Implemented as part of Task #016 refactor (validate.py:315-343)
-- Exit code 2 returned when `integrity_mismatch` flag is True
-- Clear error message shown for integrity failures
-- Suggests running `graft resolve` to fix mismatches
-
-**Depends On**: #016 (validation mode refactor)
+**Files**: validate.py
+**Specification**: core-operations.md lines 265-269
 
 ---
 

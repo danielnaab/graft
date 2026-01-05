@@ -213,17 +213,46 @@ Executes command in dependency's working directory.
 
 ## validate
 
-Validate `graft.yaml` configuration.
+Validate graft.yaml and graft.lock for correctness.
 
 ```bash
-graft validate
+graft validate [MODE]
 ```
 
-Checks:
-- YAML syntax
-- Required fields
-- Dependency URL format
-- Command references
+**Modes:**
+- `all` (default): Run all validations
+- `config`: Validate graft.yaml structure and schema only
+- `lock`: Validate graft.lock file consistency only
+- `integrity`: Verify .graft/ directories match lock file commits
+
+**Examples:**
+```bash
+graft validate              # Validate everything
+graft validate config       # Check graft.yaml only
+graft validate lock         # Check graft.lock only
+graft validate integrity    # Verify .graft/ commits match lock file
+```
+
+**Exit codes:**
+- 0: Success
+- 1: Validation error (invalid configuration)
+- 2: Integrity mismatch (lock file vs .graft/ directory)
+
+**Config mode checks:**
+- YAML schema validity
+- Required fields present
+- Dependency references exist
+- No circular dependencies
+
+**Lock mode checks:**
+- Lock file schema validity
+- All refs exist in repositories
+- Commit hashes valid
+
+**Integrity mode checks:**
+- .graft/ directories exist
+- Actual commits match lock file entries
+- No manual modifications to dependencies
 
 ---
 
