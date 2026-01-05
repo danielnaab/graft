@@ -14,16 +14,21 @@ class YamlLockFile:
     """YAML-based lock file implementation.
 
     Implements lock file operations using YAML format as specified.
-    Lock file format:
-        version: 1
+    Lock file format (v2):
+        apiVersion: graft/v0
         dependencies:
           dep-name:
             source: "..."
             ref: "..."
             commit: "..."
             consumed_at: "..."
+            direct: bool
+            requires: [...]
+            required_by: [...]
     """
 
+    API_VERSION = "graft/v0"
+    # Legacy version field for backward compatibility
     LOCK_FILE_VERSION = 1
 
     def read_lock_file(self, path: str) -> dict[str, LockEntry]:
@@ -52,14 +57,27 @@ class YamlLockFile:
         if not isinstance(data, dict):
             raise ValueError("Lock file must be a YAML mapping")
 
-        # Validate version
-        if "version" not in data:
-            raise ValueError("Lock file missing 'version' field")
+        # Validate version (support both v2 apiVersion and v1 version)
+        api_version = data.get("apiVersion")
+        legacy_version = data.get("version")
 
-        if data["version"] != self.LOCK_FILE_VERSION:
+        if api_version:
+            # V2 format
+            if api_version != self.API_VERSION:
+                raise ValueError(
+                    f"Unsupported API version: {api_version}. "
+                    f"Expected {self.API_VERSION}"
+                )
+        elif legacy_version:
+            # V1 format (backward compatibility)
+            if legacy_version != self.LOCK_FILE_VERSION:
+                raise ValueError(
+                    f"Unsupported lock file version: {legacy_version}. "
+                    f"Expected version {self.LOCK_FILE_VERSION}"
+                )
+        else:
             raise ValueError(
-                f"Unsupported lock file version: {data['version']}. "
-                f"Expected version {self.LOCK_FILE_VERSION}"
+                "Lock file missing version field ('apiVersion' or 'version')"
             )
 
         # Parse dependencies
@@ -88,6 +106,8 @@ class YamlLockFile:
     def write_lock_file(self, path: str, entries: dict[str, LockEntry]) -> None:
         """Write lock file with dependency entries.
 
+        Uses v2 format with apiVersion field.
+
         Args:
             path: Path to graft.lock file
             entries: Dictionary mapping dependency name to LockEntry
@@ -95,12 +115,27 @@ class YamlLockFile:
         Raises:
             IOError: If unable to write file
         """
-        # Build lock file structure
+        # Build lock file structure (v2 format)
+        # Organize dependencies: direct first, then transitive (alphabetically)
+        direct_deps = {
+            name: entry for name, entry in entries.items() if entry.direct
+        }
+        transitive_deps = {
+            name: entry for name, entry in entries.items() if not entry.direct
+        }
+
+        # Combine with direct deps first
+        ordered_entries = {}
+        for name in sorted(direct_deps.keys()):
+            ordered_entries[name] = direct_deps[name]
+        for name in sorted(transitive_deps.keys()):
+            ordered_entries[name] = transitive_deps[name]
+
         lock_data = {
-            "version": self.LOCK_FILE_VERSION,
+            "apiVersion": self.API_VERSION,
             "dependencies": {
                 name: entry.to_dict()
-                for name, entry in entries.items()
+                for name, entry in ordered_entries.items()
             },
         }
 
