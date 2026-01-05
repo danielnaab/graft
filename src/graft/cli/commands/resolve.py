@@ -117,8 +117,8 @@ def resolve_command() -> None:
         # Write lock file
         typer.echo()
         typer.echo("Writing lock file...")
-        lock_file_path = lock_service.find_lock_file(ctx)
         lock_file = YamlLockFile()
+        lock_file_path = lock_service.find_lock_file(lock_file, ".") or "./graft.lock"
         lock_file.write_lock_file(lock_file_path, lock_entries)
         typer.secho(f"  ✓ Updated {lock_file_path}", fg=typer.colors.GREEN)
 

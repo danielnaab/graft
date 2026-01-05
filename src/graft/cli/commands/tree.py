@@ -46,8 +46,10 @@ def tree_command(show_all: bool = False) -> None:
 
     # Find and read lock file
     try:
-        lock_file_path = lock_service.find_lock_file(ctx)
         lock_file = YamlLockFile()
+        lock_file_path = lock_service.find_lock_file(lock_file, ".")
+        if not lock_file_path:
+            raise FileNotFoundError("graft.lock not found")
         entries = lock_file.read_lock_file(lock_file_path)
 
         if not entries:
