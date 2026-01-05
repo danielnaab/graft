@@ -1,3 +1,8 @@
+---
+status: stable
+updated: 2026-01-05
+---
+
 # Working with Graft - Agent Guide
 
 **Audience**: AI agents and developers starting work on the graft codebase

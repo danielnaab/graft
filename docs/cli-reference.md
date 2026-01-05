@@ -1,6 +1,20 @@
+---
+status: stable
+updated: 2026-01-05
+---
+
 # CLI Reference
 
 Complete reference for all graft commands.
+
+## Documentation Sources
+
+This reference documents implemented commands with links to specifications and code.
+
+**For each command:**
+- **Specification:** [Core Operations Spec](../../graft-knowledge/docs/specification/core-operations.md)
+- **Implementation:** `src/graft/cli/commands/` (linked per command below)
+- **Tests:** `tests/integration/test_cli_commands.py` (805 lines of CLI tests)
 
 ---
 

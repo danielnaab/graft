@@ -1,11 +1,14 @@
 ---
 title: Graft Documentation
-status: production-ready
+status: stable
+updated: 2026-01-05
 ---
 
 # Graft Documentation
 
 **Semantic dependency management for knowledge bases**
+
+> **Authority Note:** This document provides a developer-friendly overview of Graft's implementation architecture. For canonical architectural decisions, see [graft-knowledge/docs/architecture.md](../../graft-knowledge/docs/architecture.md) and [ADRs](../../graft-knowledge/docs/decisions/).
 
 Graft provides atomic upgrades with automatic rollback, migration execution, and semantic versioning for git-based dependencies.
 
@@ -393,6 +396,29 @@ Located in `/home/coder/graft-knowledge/docs/specification/`:
 ### For AI Agents
 
 See [agents.md](agents.md) for structured technical reference.
+
+## Sources
+
+This architecture documentation is grounded in:
+
+**Canonical Specifications:**
+- [Graft Architecture Specification](../../graft-knowledge/docs/architecture.md) - System design decisions
+- [ADR 004: Protocol-Based DI](decisions/004-protocol-based-dependency-injection.md) - Dependency injection approach
+- [ADR 005: Functional Service Layer](decisions/005-functional-service-layer.md) - Service design pattern
+- [ADR 002: Filesystem Snapshots](decisions/002-filesystem-snapshots-for-rollback.md) - Rollback mechanism
+- [ADR 001: Explicit Ref in Upgrade](decisions/001-require-explicit-ref-in-upgrade.md) - CLI design
+
+**Implementation Evidence:**
+- Domain models: `src/graft/domain/*.py` (frozen dataclasses)
+- Services: `src/graft/services/*.py` (pure functions)
+- Protocols: `src/graft/protocols/*.py` (structural subtyping)
+- Adapters: `src/graft/adapters/*.py` (infrastructure implementations)
+- CLI commands: `src/graft/cli/commands/*.py` (8 commands)
+
+**Validation:**
+- Tests: `tests/unit/` (12 modules, 150+ tests)
+- Integration tests: `tests/integration/` (4 modules, 800+ lines)
+- Workflow validation: [workflow-validation.md](../status/workflow-validation.md)
 
 ## License
 

@@ -1,3 +1,11 @@
+---
+status: working
+purpose: "End-to-end workflow validation and testing results"
+updated: 2026-01-05
+archive_after: "Feature stable"
+archive_to: "tests/docs/workflow-validation.md"
+---
+
 # Complete Graft Workflow Guide
 
 **Date**: 2026-01-04

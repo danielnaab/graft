@@ -1,3 +1,11 @@
+---
+status: working
+purpose: "Track specification vs implementation gaps"
+updated: 2026-01-05
+archive_after: "All gaps resolved"
+archive_to: "notes/archive/2026-01-gap-analysis.md"
+---
+
 # Gap Analysis: Implementation vs Specification
 
 **Date**: 2026-01-04

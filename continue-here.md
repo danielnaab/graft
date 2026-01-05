@@ -1,3 +1,10 @@
+---
+status: living
+purpose: "Session handoff - always reflects current state"
+updated: 2026-01-05
+archive_policy: "Snapshot before major milestones, keep latest"
+---
+
 # Continue Development Here
 
 **Last Updated**: 2026-01-04

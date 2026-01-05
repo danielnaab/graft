@@ -1,8 +1,30 @@
+---
+status: stable
+updated: 2026-01-05
+---
+
 # Graft User Guide
 
 Complete guide to using Graft for semantic dependency management.
 
 This guide provides step-by-step tutorials, common workflows, troubleshooting tips, and best practices for using Graft effectively.
+
+## About This Guide
+
+> **Authority Note:** This guide interprets canonical specifications from [graft-knowledge](../../../graft-knowledge/) for practical application. When specifications and this guide conflict, specifications are authoritative.
+
+This guide provides practical applications of Graft specifications:
+
+**Canonical Specifications:**
+- [Change Model](../../../graft-knowledge/docs/specification/change-model.md) - Semantic change definitions
+- [graft.yaml Format](../../../graft-knowledge/docs/specification/graft-yaml-format.md) - Configuration schema
+- [Lock File Format](../../../graft-knowledge/docs/specification/lock-file-format.md) - Lock file schema
+- [Core Operations](../../../graft-knowledge/docs/specification/core-operations.md) - Command semantics
+
+**Implementation References:**
+- CLI commands: `src/graft/cli/commands/*.py`
+- Configuration parser: `src/graft/services/config_service.py`
+- Examples tested against: Working implementation (Phase 1-8 complete)
 
 ---
 

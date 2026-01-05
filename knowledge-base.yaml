@@ -30,8 +30,26 @@ sources:
       note: "Architecture decisions come from graft-knowledge (specs)"
     - path: "../graft-knowledge/docs/decisions/**"
       note: "ADRs are maintained in graft-knowledge"
-    - path: "docs/structure.md"
-      note: "Code structure documentation is canonical for implementation"
+    - path: "../graft-knowledge/docs/specification/**"
+      note: "All format and operation specifications are canonical"
+    - path: "src/graft/**/*.py"
+      note: "Source code is canonical for implementation details"
+    - path: "docs/decisions/**"
+      note: "Implementation-specific ADRs (error handling, etc.)"
+
+  interpretation:
+    - path: "docs/README.md"
+      note: "Developer-friendly architecture overview, interprets graft-knowledge specs"
+    - path: "docs/guides/**"
+      note: "User guides - practical application of canonical specifications"
+    - path: "docs/configuration.md"
+      note: "Configuration examples and guidance, interprets format specs"
+
+  tracking:
+    - path: "status/**"
+      note: "Implementation tracking - working documents, not canonical"
+    - path: "notes/**"
+      note: "Time-bounded exploration and session logs"
 
 rules:
   lifecycle:

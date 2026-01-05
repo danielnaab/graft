@@ -1,3 +1,8 @@
+---
+status: stable
+updated: 2026-01-05
+---
+
 # Documentation Navigation
 
 Complete index of all graft documentation.
@@ -203,7 +208,7 @@ All documentation follows these principles:
 - **Accurate** - All examples tested, all links verified
 - **Maintained** - Updated when code changes
 
-See [meta-knowledge-base style policy](file:///home/coder/meta-knowledge-base/policies/style.md) for full standards.
+See [meta-knowledge-base style policy](../../meta-knowledge-base/policies/style.md) for full standards.
 
 ---
 

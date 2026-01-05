@@ -1,6 +1,26 @@
+---
+status: stable
+updated: 2026-01-05
+---
+
 # Configuration Guide
 
 Complete reference for graft.yaml and graft.lock file formats.
+
+## Canonical Format Specifications
+
+This document provides examples and guidance for configuration files.
+
+**Authoritative Sources:**
+- [graft.yaml Format Specification](../../graft-knowledge/docs/specification/graft-yaml-format.md) - Canonical schema and validation rules
+- [Lock File Format Specification](../../graft-knowledge/docs/specification/lock-file-format.md) - graft.lock schema and semantics
+
+**Implementation:**
+- Parser: `src/graft/services/config_service.py` - Configuration parsing and validation
+- Lock file adapter: `src/graft/adapters/lock_file.py` - YAML lock file I/O
+- Domain models: `src/graft/domain/graft_config.py`, `src/graft/domain/lock_entry.py`
+
+**Note:** This is interpretive documentation. When in doubt, refer to canonical specifications above.
 
 ---
 
