@@ -233,8 +233,8 @@ def resolve_all_recursive(
                     ref=spec.git_ref.ref,
                 )
 
-            # Get commit hash
-            commit_hash = ctx.git.get_commit_hash(local_path)
+            # Get commit hash by resolving the ref
+            commit_hash = ctx.git.resolve_ref(local_path, spec.git_ref.ref)
 
             # Read transitive dependencies from this dep's graft.yaml
             dep_config_path = str(Path(local_path) / "graft.yaml")
