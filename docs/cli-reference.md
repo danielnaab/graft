@@ -17,7 +17,8 @@ Command reference for graft.
 
 | Command | Purpose |
 |---------|---------|
-| resolve | Clone/fetch dependencies |
+| resolve | Clone/fetch all dependencies (including transitive) |
+| tree | Visualize dependency graph |
 | apply | Update lock without migrations |
 | status | Show consumed versions |
 | changes | List available changes |
@@ -31,13 +32,68 @@ Command reference for graft.
 
 ## resolve
 
-Clone or fetch all dependencies from `graft.yaml`.
+Recursively resolve all dependencies (direct + transitive) from `graft.yaml`.
 
 ```bash
 graft resolve
 ```
 
-Clones to `.graft/deps/<name>/`. Fetches if already cloned. Does not modify lock file.
+**Behavior (v2):**
+- Clones dependencies to `.graft/<name>/`
+- Recursively resolves transitive dependencies
+- Detects version conflicts and fails with clear error
+- Writes complete lock file with all dependencies
+- Shows direct vs transitive deps in output
+
+**Example output:**
+```
+Resolving dependencies (including transitive)...
+
+Direct dependencies:
+  ✓ meta-kb: v2.0.0 → .graft/meta-kb
+
+Transitive dependencies:
+  ✓ standards-kb: v1.5.0 → .graft/standards-kb (via meta-kb)
+
+Writing lock file...
+  ✓ Updated ./graft.lock
+
+Resolved: 2 dependencies
+  Direct: 1
+  Transitive: 1
+```
+
+---
+
+## tree
+
+Visualize dependency tree from lock file.
+
+```bash
+graft tree              # Tree view
+graft tree --show-all   # Detailed view
+```
+
+**Tree view:**
+```
+Dependencies:
+  meta-kb (v2.0.0) [direct]
+    └── standards-kb (v1.5.0)
+        └── templates-kb (v1.0.0)
+```
+
+**Detailed view:**
+```
+Dependencies:
+
+  meta-kb (v2.0.0) [direct]
+    source: git@github.com:org/meta.git
+    requires: standards-kb
+
+  standards-kb (v1.5.0) [transitive via meta-kb]
+    source: https://github.com/org/standards.git
+    requires: templates-kb
+```
 
 ---
 

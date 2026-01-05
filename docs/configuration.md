@@ -106,22 +106,42 @@ commands:
 
 Auto-generated. Do not edit manually.
 
-**Format:**
+**Format (v2):**
 ```yaml
 apiVersion: graft/v0
 dependencies:
-  my-kb:
-    source: "https://github.com/user/kb.git"
-    ref: "main"
-    commit: "abc123..."
+  # Direct dependency
+  meta-kb:
+    source: "https://github.com/org/meta.git"
+    ref: "v2.0.0"
+    commit: "abc123def456789012345678901234567890abcd"
     consumed_at: "2026-01-05T10:30:00Z"
+    direct: true
+    requires: ["standards-kb"]
+    required_by: []
+
+  # Transitive dependency (pulled in by meta-kb)
+  standards-kb:
+    source: "https://github.com/org/standards.git"
+    ref: "v1.5.0"
+    commit: "def456abc123789012345678901234567890abcd"
+    consumed_at: "2026-01-05T10:30:00Z"
+    direct: false
+    requires: []
+    required_by: ["meta-kb"]
 ```
 
 **Fields:**
 - `source`: git URL
-- `ref`: consumed reference
-- `commit`: full commit hash
+- `ref`: consumed reference (tag, branch, or commit)
+- `commit`: full 40-character commit hash (SHA-1)
 - `consumed_at`: ISO 8601 timestamp
+- `direct`: boolean - true for direct dependencies, false for transitive
+- `requires`: list of dependency names this dep needs
+- `required_by`: list of dependency names that require this dep
+
+The lock file tracks ALL dependencies (direct + transitive) with their
+complete dependency graph relationships.
 
 ---
 
