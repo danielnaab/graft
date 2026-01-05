@@ -19,7 +19,7 @@ class DependencyContext:
     Attributes:
         filesystem: Filesystem operations
         git: Git operations
-        deps_directory: Base directory for dependencies (e.g., "../")
+        deps_directory: Base directory for dependencies (e.g., ".graft")
 
     Example:
         >>> from graft.adapters.filesystem import RealFileSystem
@@ -27,7 +27,7 @@ class DependencyContext:
         >>> ctx = DependencyContext(
         ...     filesystem=RealFileSystem(),
         ...     git=SubprocessGitOperations(),
-        ...     deps_directory=".."
+        ...     deps_directory=".graft"
         ... )
     """
 
