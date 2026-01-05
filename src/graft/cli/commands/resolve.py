@@ -12,7 +12,6 @@ from graft.domain.exceptions import (
     ConfigParseError,
     ConfigValidationError,
     DomainError,
-    GitAuthenticationError,
 )
 from graft.services import config_service, resolution_service
 

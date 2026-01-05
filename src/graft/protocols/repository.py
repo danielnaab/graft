@@ -3,7 +3,7 @@
 Defines interface for entity storage using typing.Protocol for structural typing.
 """
 
-from typing import Generic, Optional, Protocol, TypeVar
+from typing import Generic, Protocol, TypeVar
 
 T = TypeVar("T")
 
@@ -33,7 +33,7 @@ class Repository(Protocol, Generic[T]):
         """
         ...
 
-    def get(self, entity_id: str) -> Optional[T]:
+    def get(self, entity_id: str) -> T | None:
         """Retrieve entity by ID.
 
         Args:

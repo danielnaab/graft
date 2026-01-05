@@ -31,6 +31,7 @@ class FakeGitOperations:
         self._clone_calls: list[tuple[str, str, str]] = []  # (url, dest, ref)
         self._fetch_calls: list[tuple[str, str]] = []  # (path, ref)
         self._should_fail: dict[str, str] = {}  # url -> error message
+        self._refs: dict[tuple[str, str], str] = {}  # (repo_path, ref) -> commit hash
 
     def clone(self, url: str, destination: str, ref: str) -> None:
         """Fake clone operation.
@@ -93,6 +94,35 @@ class FakeGitOperations:
         """
         return path in self._cloned_repos
 
+    def resolve_ref(self, repo_path: str, ref: str) -> str:
+        """Resolve git ref to commit hash.
+
+        Args:
+            repo_path: Path to git repository
+            ref: Git reference
+
+        Returns:
+            40-character commit hash
+
+        Raises:
+            ValueError: If ref not found
+        """
+        # Check if we have a configured ref
+        key = (repo_path, ref)
+        if key in self._refs:
+            return self._refs[key]
+
+        # If repo doesn't exist, error
+        if repo_path not in self._cloned_repos:
+            raise ValueError(f"Not a git repository: {repo_path}")
+
+        # Return a fake but valid commit hash based on ref
+        # Use deterministic hash for consistent testing
+        import hashlib
+        hash_input = f"{repo_path}:{ref}".encode()
+        commit_hash = hashlib.sha1(hash_input).hexdigest()
+        return commit_hash
+
     # Test helpers below
 
     def configure_failure(self, url: str, error: str) -> None:
@@ -141,6 +171,35 @@ class FakeGitOperations:
         """
         return self._cloned_repos.copy()
 
+    def fetch_all(self, repo_path: str) -> None:
+        """Fetch all refs from remote without checking out (fake).
+
+        Args:
+            repo_path: Path to existing git repository
+
+        Raises:
+            DependencyResolutionError: If repository doesn't exist
+        """
+        # Must be a known repository
+        if repo_path not in self._cloned_repos:
+            raise DependencyResolutionError(
+                dependency_name=repo_path,
+                reason="Not a git repository",
+            )
+
+        # Simulate successful fetch (no-op for fake)
+        # In real git, this would update remote-tracking branches
+
+    def configure_ref(self, repo_path: str, ref: str, commit: str) -> None:
+        """Configure a ref to resolve to a specific commit (test helper).
+
+        Args:
+            repo_path: Repository path
+            ref: Git reference
+            commit: Commit hash to return
+        """
+        self._refs[(repo_path, ref)] = commit
+
     def reset(self) -> None:
         """Reset all state (test helper).
 
@@ -150,3 +209,4 @@ class FakeGitOperations:
         self._clone_calls.clear()
         self._fetch_calls.clear()
         self._should_fail.clear()
+        self._refs.clear()
