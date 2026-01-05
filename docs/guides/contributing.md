@@ -239,19 +239,24 @@ Before committing:
 
 ## Code Quality Standards
 
+All code must pass these quality gates before merge. Standards are enforced automatically via pre-commit hooks and CI/CD.
+
 ### Type Checking
 
 - mypy strict mode enabled
 - All functions have type hints
 - All parameters have type hints
 - Return types always specified
+- Run: `uv run mypy src/`
 
 ### Testing
 
-- 322 tests passing (verify with `uv run pytest`)
+- 330 tests passing (verify with `uv run pytest`)
 - Service layer: 80-100% coverage
 - All service functions have unit tests
 - Integration tests for adapters
+- Coverage minimum: 42% overall
+- Run: `uv run pytest --cov=src`
 
 ### Linting
 
@@ -259,6 +264,40 @@ Before committing:
 - All checks must pass
 - No blind exception catches (use specific types)
 - No unused imports or variables
+- Run: `uv run ruff check src/ tests/`
+
+### Pre-Commit Hooks (Recommended)
+
+Install git hooks to catch issues before committing:
+
+```bash
+./scripts/install-hooks.sh
+```
+
+The hook runs automatically before each commit and checks:
+- Tests pass
+- Type checking passes
+- Linting passes
+
+Skip only in emergencies: `git commit --no-verify`
+
+### CI/CD Pipeline (Automatic)
+
+All pull requests are automatically checked by Forgejo Actions:
+- Test suite runs with coverage check
+- Type checking with mypy strict
+- Linting with ruff
+- All must pass before merge
+
+View status: Check "Checks" tab on your pull request
+
+### Quality Documentation
+
+See [docs/quality-standards.md](../quality-standards.md) for detailed information on:
+- Quality gates and requirements
+- Common issues and solutions
+- Development workflow
+- Maintenance procedures
 
 ---
 

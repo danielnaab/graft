@@ -350,7 +350,7 @@ class TestYamlLockFile:
         with pytest.raises(ValueError) as exc_info:
             lock_file.read_lock_file(temp_lock_path)
 
-        assert "missing 'version' field" in str(exc_info.value)
+        assert "missing version field" in str(exc_info.value).lower()
 
     def test_yaml_format_is_readable(
         self, lock_file: YamlLockFile, temp_lock_path: str
@@ -371,7 +371,7 @@ class TestYamlLockFile:
         content = Path(temp_lock_path).read_text()
 
         # Verify key elements are present and readable
-        assert "version: 1" in content
+        assert "apiVersion: graft/v0" in content
         assert "dependencies:" in content
         assert "my-dep:" in content
         assert "source: git@github.com:org/repo.git" in content

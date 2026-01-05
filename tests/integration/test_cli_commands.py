@@ -33,7 +33,7 @@ deps:
 
         # Create graft.lock
         graft_lock = project_dir / "graft.lock"
-        graft_lock.write_text("""version: 1
+        graft_lock.write_text("""apiVersion: graft/v0
 dependencies:
   test-dep:
     source: "https://github.com/test/repo.git"
@@ -92,7 +92,7 @@ deps:
 
             # Create graft.lock
             graft_lock = project_dir / "graft.lock"
-            graft_lock.write_text("""version: 1
+            graft_lock.write_text("""apiVersion: graft/v0
 dependencies:
   test-dep:
     source: "https://github.com/test/repo.git"
@@ -236,8 +236,10 @@ deps:
   test-dep: "https://github.com/test/repo.git#main"
 """)
 
-            # Create dependency as sibling directory (../test-dep from project's perspective)
-            dep_dir = base_dir / "test-dep"
+            # Create .graft directory and dependency inside it
+            graft_dir = project_dir / ".graft"
+            graft_dir.mkdir()
+            dep_dir = graft_dir / "test-dep"
             dep_dir.mkdir()
 
             dep_graft_yaml = dep_dir / "graft.yaml"
@@ -367,8 +369,10 @@ deps:
   test-dep: "https://github.com/test/repo.git#main"
 """)
 
-            # Create dependency as sibling directory (../test-dep from project's perspective)
-            dep_dir = base_dir / "test-dep"
+            # Create .graft directory and dependency inside it
+            graft_dir = project_dir / ".graft"
+            graft_dir.mkdir()
+            dep_dir = graft_dir / "test-dep"
             dep_dir.mkdir()
 
             dep_graft_yaml = dep_dir / "graft.yaml"
@@ -497,8 +501,10 @@ deps:
   test-dep: "https://github.com/test/repo.git#main"
 """)
 
-            # Create dependency as sibling directory (../test-dep from project's perspective)
-            dep_dir = base_dir / "test-dep"
+            # Create .graft directory and dependency inside it
+            graft_dir = project_dir / ".graft"
+            graft_dir.mkdir()
+            dep_dir = graft_dir / "test-dep"
             dep_dir.mkdir()
 
             dep_graft_yaml = dep_dir / "graft.yaml"
@@ -579,7 +585,7 @@ deps:
 
             # Create valid graft.lock
             graft_lock = project_dir / "graft.lock"
-            graft_lock.write_text("""version: 1
+            graft_lock.write_text("""apiVersion: graft/v0
 dependencies:
   test-dep:
     source: "https://github.com/test/repo.git"
