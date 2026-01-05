@@ -18,47 +18,72 @@ from graft.services import config_service, lock_service, validation_service
 
 
 def validate_command(
+    mode: str = typer.Argument(
+        "all",
+        help="Validation mode: config, lock, integrity, or all",
+    ),
+    # Legacy flags (deprecated)
     schema_only: bool = typer.Option(
-        False, "--schema", help="Validate YAML schema only"
+        False, "--schema", help="[DEPRECATED] Use 'graft validate config' instead"
     ),
     refs_only: bool = typer.Option(
-        False, "--refs", help="Validate git refs exist"
+        False, "--refs", help="[DEPRECATED] Use 'graft validate integrity' instead"
     ),
     lock_only: bool = typer.Option(
-        False, "--lock", help="Validate lock file consistency"
+        False, "--lock", help="[DEPRECATED] Use 'graft validate lock' instead"
     ),
 ) -> None:
     """Validate graft.yaml and graft.lock for correctness.
 
-    Checks:
-    - graft.yaml structure and schema
-    - Git refs exist in repositories
-    - Lock file consistency
-    - Commit hashes match refs
+    Modes:
+    - config: Validate graft.yaml structure and schema only
+    - lock: Validate graft.lock file consistency only
+    - integrity: Verify .graft/ matches lock file (checks commits)
+    - all: Run all validations (default)
 
-    Example:
-        $ graft validate
+    Examples:
+        $ graft validate              # Validate everything (default: all)
+        $ graft validate config       # Validate only graft.yaml
+        $ graft validate lock         # Validate only graft.lock
+        $ graft validate integrity    # Verify dependencies match lock file
 
-        Validating graft.yaml...
-          ✓ Schema is valid
-          ✓ All refs exist in git repositories
-
-        Validating graft.lock...
-          ✓ Schema is valid
-          ✓ All commits match
-
-        Validation successful
+    Exit codes:
+    - 0: Success
+    - 1: Validation error
+    - 2: Integrity mismatch
 
     Note: Command reference validation (migration/verify) happens
     automatically during graft.yaml parsing.
     """
     ctx = get_dependency_context()
 
-    # Validate flag combinations
+    # Check for deprecated flag usage
     flags_set = sum([schema_only, refs_only, lock_only])
-    if flags_set > 1:
+    if flags_set > 0:
         typer.secho(
-            "Error: --schema, --refs, and --lock are mutually exclusive",
+            "Warning: --schema, --refs, and --lock flags are deprecated.",
+            fg=typer.colors.YELLOW,
+        )
+        typer.secho(
+            "         Use modes instead: 'graft validate [config|lock|integrity|all]'",
+            fg=typer.colors.YELLOW,
+        )
+        typer.echo()
+
+        # Validate flag combinations
+        if flags_set > 1:
+            typer.secho(
+                "Error: --schema, --refs, and --lock are mutually exclusive",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    # Validate mode argument
+    valid_modes = ["config", "lock", "integrity", "all"]
+    if mode not in valid_modes:
+        typer.secho(
+            f"Error: Invalid mode '{mode}'. Must be one of: {', '.join(valid_modes)}",
             fg=typer.colors.RED,
             err=True,
         )
@@ -66,11 +91,21 @@ def validate_command(
 
     all_errors = []
     all_warnings = []
+    integrity_mismatch = False
 
-    # Determine what to validate based on flags
-    validate_schema = schema_only or not (refs_only or lock_only)
-    validate_refs = refs_only or not (schema_only or lock_only)
-    validate_lock = lock_only or not (schema_only or refs_only)
+    # Determine what to validate based on mode (or legacy flags)
+    if flags_set > 0:
+        # Legacy flag-based validation (maintain exact original behavior)
+        validate_schema = schema_only or not (refs_only or lock_only)
+        validate_refs = refs_only or not (schema_only or lock_only)
+        validate_lock = lock_only or not (schema_only or refs_only)
+        validate_integrity = False  # Legacy flags don't have integrity mode
+    else:
+        # Mode-based validation
+        validate_schema = mode in ["config", "all"]
+        validate_refs = mode in ["config", "all"]
+        validate_lock = mode in ["lock", "all"]
+        validate_integrity = mode in ["integrity", "all"]
 
     # Validate graft.yaml
     if validate_schema or validate_refs:
@@ -173,7 +208,7 @@ def validate_command(
         typer.echo()
 
     # Validate graft.lock
-    if validate_lock:
+    if validate_lock or validate_integrity:
         typer.echo("Validating graft.lock...")
 
         lock_path = "graft.lock"
@@ -227,11 +262,26 @@ def validate_command(
                         for error in errors:
                             typer.secho(f"  ✗ {dep_name}: {error}", fg=typer.colors.RED, err=True)
                             lock_errors_found = True
+
+                        # In integrity mode, commit mismatches are integrity errors (not just warnings)
                         for warning in warnings:
-                            typer.secho(f"  ⚠ {dep_name}: {warning}", fg=typer.colors.YELLOW)
+                            if "has moved" in warning and validate_integrity:
+                                typer.secho(f"  ✗ {dep_name}: {warning}", fg=typer.colors.RED, err=True)
+                                integrity_mismatch = True
+                            else:
+                                typer.secho(f"  ⚠ {dep_name}: {warning}", fg=typer.colors.YELLOW)
 
                         all_errors.extend([f"{dep_name}: {e}" for e in errors])
-                        all_warnings.extend([f"{dep_name}: {w}" for w in warnings])
+
+                        # Track integrity mismatches separately in integrity mode
+                        if validate_integrity:
+                            integrity_warnings = [w for w in warnings if "has moved" in w]
+                            if integrity_warnings:
+                                all_errors.extend([f"{dep_name}: {w}" for w in integrity_warnings])
+                            normal_warnings = [w for w in warnings if "has moved" not in w]
+                            all_warnings.extend([f"{dep_name}: {w}" for w in normal_warnings])
+                        else:
+                            all_warnings.extend([f"{dep_name}: {w}" for w in warnings])
 
                     # Warn about dependencies not cloned
                     if deps_not_cloned:
@@ -257,10 +307,14 @@ def validate_command(
 
         typer.echo()
 
-    # Summary
+    # Summary and exit codes
     if all_errors:
         error_count = len(all_errors)
         warning_count = len(all_warnings)
+
+        # Determine exit code: 2 for integrity mismatch, 1 for validation error
+        exit_code = 2 if integrity_mismatch else 1
+
         if warning_count > 0:
             typer.secho(
                 f"Validation failed with {error_count} error(s) and {warning_count} warning(s)",
@@ -273,7 +327,20 @@ def validate_command(
                 fg=typer.colors.RED,
                 err=True,
             )
-        raise typer.Exit(code=1)
+
+        # Special message for integrity mismatches
+        if integrity_mismatch:
+            typer.secho(
+                "Integrity check failed: Dependencies do not match lock file",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            typer.secho(
+                "Run 'graft resolve' to update dependencies to match lock file",
+                fg=typer.colors.YELLOW,
+            )
+
+        raise typer.Exit(code=exit_code)
 
     elif all_warnings:
         warning_count = len(all_warnings)
