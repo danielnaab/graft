@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 
 from graft.domain.exceptions import (
-    DependencyResolutionError,
     GitAuthenticationError,
     GitCloneError,
     GitFetchError,
@@ -188,3 +187,92 @@ class SubprocessGitOperations:
         """
         git_dir = Path(path) / ".git"
         return git_dir.exists() and git_dir.is_dir()
+
+    def resolve_ref(self, repo_path: str, ref: str) -> str:
+        """Resolve git ref to commit hash.
+
+        Args:
+            repo_path: Path to git repository
+            ref: Git reference (branch, tag, or commit)
+
+        Returns:
+            Full 40-character commit hash
+
+        Raises:
+            ValueError: If ref doesn't exist or repo is invalid
+        """
+        try:
+            # Use git rev-parse to resolve ref to commit hash
+            result = subprocess.run(
+                ["git", "rev-parse", ref],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if result.returncode != 0:
+                raise ValueError(
+                    f"Ref '{ref}' not found in repository {repo_path}: {result.stderr.strip()}"
+                )
+
+            commit = result.stdout.strip()
+
+            # Verify it's a valid 40-char hash
+            if len(commit) != 40 or not all(c in "0123456789abcdef" for c in commit):
+                raise ValueError(
+                    f"Invalid commit hash returned for ref '{ref}': {commit}"
+                )
+
+            return commit
+
+        except subprocess.SubprocessError as e:
+            raise ValueError(
+                f"Failed to resolve ref '{ref}' in {repo_path}: {e}"
+            ) from e
+
+    def fetch_all(self, repo_path: str) -> None:
+        """Fetch all refs from remote without checking out.
+
+        Updates remote-tracking branches without modifying working directory.
+
+        Args:
+            repo_path: Path to existing git repository
+
+        Raises:
+            GitFetchError: If fetch fails
+            GitAuthenticationError: If authentication fails
+        """
+        try:
+            # Fetch all refs from origin
+            fetch_cmd = ["git", "-C", repo_path, "fetch", "origin"]
+            result = subprocess.run(fetch_cmd, capture_output=True, text=True, check=False)
+
+            if result.returncode != 0:
+                dep_name = Path(repo_path).name
+                stderr = result.stderr.strip()
+
+                # Detect authentication errors
+                if "Permission denied" in stderr or "publickey" in stderr:
+                    raise GitAuthenticationError(
+                        dependency_name=dep_name,
+                        url=repo_path,
+                        suggestion="Check SSH keys and repository access",
+                    )
+                else:
+                    raise GitFetchError(
+                        dependency_name=dep_name,
+                        repo_path=repo_path,
+                        ref="(all)",
+                        stderr=stderr,
+                        returncode=result.returncode,
+                    )
+
+        except subprocess.SubprocessError as e:
+            raise GitFetchError(
+                dependency_name=Path(repo_path).name,
+                repo_path=repo_path,
+                ref="(all)",
+                stderr=f"Subprocess error: {e}",
+                returncode=1,
+            ) from e

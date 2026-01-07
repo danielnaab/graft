@@ -1,149 +1,178 @@
 ---
 title: Graft Documentation
-status: working
+status: stable
+updated: 2026-01-05
 ---
 
 # Graft Documentation
 
-Knowledge base tooling with language server support.
+Semantic dependency management for knowledge bases.
 
-**Documentation Authority**: Specifications and architectural decisions ("what to build" and "why") are maintained in [graft-knowledge](../../graft-knowledge). This KB contains implementation documentation ("how it's built") including code structure, development guides, and implementation notes.
+> **Authority Note:** Developer-friendly implementation overview. For canonical architecture, see [graft-knowledge/docs/architecture.md](../../graft-knowledge/docs/architecture.md) and [ADRs](../../graft-knowledge/docs/decisions/).
 
-## Architecture & Patterns
+Graft provides atomic upgrades with automatic rollback, migration execution, and semantic versioning for git-based dependencies.
 
-This project uses the [Python Starter Template](../python-starter) patterns and conventions.
+---
 
-**Core architectural patterns**:
-- [Functional Service Layer](../python-starter/docs/architecture/functional-services.md) - Services as pure functions
-- [Protocol-based DI](../python-starter/docs/architecture/dependency-injection.md) - Structural typing for flexibility
-- [Domain Modeling](../python-starter/docs/architecture/domain-model.md) - Entities and value objects
-- [Testing Strategy](../python-starter/docs/architecture/testing-strategy.md) - Unit tests with fakes, integration tests
+## Architecture
 
-**Template documentation** (comprehensive guides and references):
-- [Architecture](../python-starter/docs/architecture/) - Detailed architectural documentation
-- [Decisions (ADRs)](../python-starter/docs/decisions/) - Architectural decision records
-- [Development Guides](../python-starter/docs/guides/) - How-to guides for common tasks
-- [Technical Reference](../python-starter/docs/reference/) - Reference documentation
+Clean architecture with protocols, immutable domain models, and pure functions.
 
-## Quick Start
+**Domain Models** (`src/graft/domain/`):
+- Change, Command, LockEntry, GraftConfig
+- Frozen dataclasses (immutable)
 
-1. **Install dependencies**:
-   ```bash
-   uv sync
-   ```
+**Services** (`src/graft/services/`):
+- Query: status, changes, details
+- Mutation: upgrade, lock, command execution
+- Infrastructure: snapshot, config parsing
+- Pure functions, protocol-based DI
 
-2. **Run the CLI**:
-   ```bash
-   uv run graft --help
-   uv run graft version
-   ```
+**Protocols** (`src/graft/protocols/`):
+- Snapshot, LockFile, CommandExecutor, Git, Repository, FileSystem
+- Structural subtyping via `typing.Protocol`
 
-3. **Run tests**:
-   ```bash
-   uv run pytest
-   ```
+**Adapters** (`src/graft/adapters/`):
+- FilesystemSnapshot, YamlLockFile, SubprocessCommandExecutor
+- GitAdapter, FileSystemAdapter, RepositoryAdapter
 
-See the [Getting Started Guide](../python-starter/docs/guides/getting-started.md) for more details.
+**CLI** (`src/graft/cli/commands/`):
+- resolve, apply, status, changes, show, upgrade, fetch, exec
+
+---
+
+## Key Patterns
+
+**Protocol-based DI** - structural subtyping, no runtime DI framework:
+```python
+def upgrade(snapshot: Snapshot, lock: LockFile, ...) -> Result:
+    # Pure function, protocols injected
+```
+
+**Functional services** - pure functions, not classes:
+```python
+# Good
+def parse_config(path: str) -> GraftConfig
+
+# Not used
+class ConfigService:
+    def parse(self) -> GraftConfig
+```
+
+**Immutable domain** - frozen dataclasses:
+```python
+@dataclass(frozen=True)
+class Change:
+    ref: str
+    type: ChangeType
+```
+
+**Atomic operations** - snapshot before, rollback on failure:
+```python
+snapshot = create_snapshot()
+try:
+    apply_migrations()
+    update_lock()
+except Exception:
+    restore_snapshot()
+```
+
+---
 
 ## Project Structure
 
-This project follows the standard Python Starter Template layout:
-
 ```
-graft/
-├── src/graft/              # Source code
-│   ├── domain/             # Domain entities and value objects
-│   ├── services/           # Service functions with context
-│   ├── adapters/           # External system implementations
-│   ├── protocols/          # Interface definitions
-│   └── cli/                # CLI commands
-├── tests/                  # Test suite
-│   ├── unit/               # Unit tests
-│   ├── integration/        # Integration tests
-│   └── fakes/              # Fake implementations for testing
-└── docs/                   # Project documentation
+src/graft/
+├── domain/          # Immutable models
+├── services/        # Pure functions
+├── protocols/       # Interfaces
+├── adapters/        # Implementations
+└── cli/             # Commands
+
+tests/
+├── unit/            # 12 modules, 150+ tests
+├── integration/     # 4 modules, 800+ lines
+└── fakes/           # Test doubles
 ```
 
-See [Project Structure Reference](../python-starter/docs/reference/project-structure.md) for complete details.
+---
 
-## Development Workflow
+## Development
 
-- **Adding features**: See [Adding Features Guide](../python-starter/docs/guides/adding-features.md)
-- **Writing tests**: See [Testing Guide](../python-starter/docs/guides/testing-guide.md)
-- **Development workflow**: See [Development Workflow](../python-starter/docs/guides/development-workflow.md)
-- **CLI usage**: See [CLI Usage Guide](../python-starter/docs/guides/cli-usage.md)
-
-## Graft Commands
-
-### graft resolve
-
-Resolves dependencies specified in `graft.yaml` by cloning or fetching git repositories.
-
-**Usage**:
+**Setup:**
 ```bash
-graft resolve
+uv sync
+uv run python -m graft --help
 ```
 
-**graft.yaml format**:
-```yaml
-apiVersion: graft/v0
-deps:
-  dependency-name: "git-url#ref"
-```
-
-**Example**:
-```yaml
-apiVersion: graft/v0
-deps:
-  graft-knowledge: "ssh://git@example.com/user/graft-knowledge.git#main"
-  python-starter: "https://github.com/user/python-starter.git#v1.0.0"
-```
-
-**Error Handling**:
-
-Graft provides clear, actionable error messages:
-
-- **Missing graft.yaml**: Tells you where it was expected and how to create it
-- **Invalid YAML syntax**: Shows the syntax error with suggestions
-- **Authentication errors**: Provides SSH key configuration guidance
-- **Repository not found**: Suggests verifying the URL
-- **Partial failures**: Continues resolving other dependencies
-
-For details, see [Error Handling ADR](decisions/001-error-handling-strategy.md).
-
-## Graft-Specific Documentation
-
-- **Agent Entrypoint**: [agents.md](agents.md) - For AI agents working on this project
-- **Architecture Decisions**: [decisions/](decisions/) - ADRs for graft-specific decisions
-- **Implementation Notes**: [../notes/](../notes/) - Time-bounded development notes
-- **Knowledge Base Config**: [../knowledge-base.yaml](../knowledge-base.yaml) - Project KB configuration
-- **Specifications**: [../../graft-knowledge](../../graft-knowledge) - Graft specifications and architecture decisions
-
-## Tooling
-
-This project uses:
-- **uv** - Fast Python package manager and environment management
-- **ruff** - Lightning-fast linter and formatter
-- **pytest** - Testing framework with coverage reporting
-- **typer** - Modern CLI framework
-
-See [Tooling Reference](../python-starter/docs/reference/tooling.md) for details.
-
-## Template Information
-
-This project uses the Python Starter Template for its development infrastructure.
-
-To update from the template:
+**Testing:**
 ```bash
-copier update --trust
+pytest                      # All tests
+pytest tests/unit           # Unit only
+pytest -k test_upgrade      # Pattern
 ```
 
-See [TEMPLATE_STATUS.md](../TEMPLATE_STATUS.md) for template version information.
+**Type checking:**
+```bash
+mypy src tests              # Strict mode enabled
+```
+
+**Linting:**
+```bash
+ruff check src tests
+```
+
+---
+
+## Key Decisions
+
+Architectural decisions documented in `docs/decisions/`:
+- [Protocol-Based DI](decisions/004-protocol-based-dependency-injection.md)
+- [Functional Service Layer](decisions/005-functional-service-layer.md)
+- [Filesystem Snapshots](decisions/002-filesystem-snapshots-for-rollback.md)
+- [Explicit Ref in Upgrade](decisions/001-require-explicit-ref-in-upgrade.md)
+
+---
+
+## Documentation
+
+**User docs:**
+- [User Guide](guides/user-guide.md) - tutorials and workflows
+- [CLI Reference](cli-reference.md) - command documentation
+- [Configuration](configuration.md) - file formats
+
+**Developer docs:**
+- [Contributing](guides/contributing.md) - development guide
+- [Architecture](architecture.md) - detailed system design
+- [Index](index.md) - navigation
+
+**Plans:**
+- [Upgrade to graft-knowledge v2](plans/upgrade-to-graft-knowledge-v2.md)
+- [Upgrade Analysis](plans/upgrade-analysis.md) (pending implementation)
+- [Graft Improvements Recommendations](plans/graft-improvements-recommendations.md) (pending implementation)
+
+**Status:**
+- [Implementation Status](../status/implementation.md)
+- [Gap Analysis](../status/gap-analysis.md)
+- [Continue Here](../continue-here.md)
+
+---
 
 ## Sources
 
-- [Template Documentation](../python-starter/docs/)
-- [Template Repository](../python-starter)
-- [Graft Specifications](../../graft-knowledge)
-- [Knowledge Base Config](../knowledge-base.yaml)
-- [Meta Knowledge Base](../../meta-knowledge-base)
+**Canonical Specifications:**
+- [Graft Architecture](../../graft-knowledge/docs/architecture.md)
+- [ADR 004: Protocol-Based DI](decisions/004-protocol-based-dependency-injection.md)
+- [ADR 005: Functional Services](decisions/005-functional-service-layer.md)
+- [ADR 002: Filesystem Snapshots](decisions/002-filesystem-snapshots-for-rollback.md)
+
+**Implementation:**
+- Domain: `src/graft/domain/*.py`
+- Services: `src/graft/services/*.py`
+- Protocols: `src/graft/protocols/*.py`
+- Adapters: `src/graft/adapters/*.py`
+- CLI: `src/graft/cli/commands/*.py`
+
+**Validation:**
+- Tests: `tests/unit/` (12 modules), `tests/integration/` (4 modules)
+- Workflow: [workflow-validation.md](../status/workflow-validation.md)

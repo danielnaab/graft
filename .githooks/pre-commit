@@ -1,0 +1,47 @@
+#!/bin/bash
+# Pre-commit hook for graft
+# Runs tests, type checking, and linting before allowing commit
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Ensure PATH includes uv
+export PATH="$HOME/.local/bin:$PATH"
+
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "Error: uv is not installed"
+    echo "Install with: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
+fi
+
+# Run tests
+echo "Running tests..."
+if ! uv run pytest --quiet; then
+    echo ""
+    echo "Tests failed! Fix tests before committing."
+    echo "Run 'uv run pytest' to see detailed output."
+    exit 1
+fi
+
+# Run type checking
+echo "Running type checking..."
+if ! uv run mypy src/; then
+    echo ""
+    echo "Type checking failed! Fix type errors before committing."
+    exit 1
+fi
+
+# Run linting
+echo "Running linting..."
+if ! uv run ruff check src/ tests/; then
+    echo ""
+    echo "Linting failed! Fix linting errors before committing."
+    echo "Run 'uv run ruff check src/ tests/' to see all errors."
+    exit 1
+fi
+
+echo ""
+echo "All pre-commit checks passed!"
+exit 0

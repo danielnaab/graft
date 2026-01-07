@@ -5,9 +5,19 @@ Useful for development, testing, and prototyping.
 Replace with database implementation for production.
 """
 
-from typing import Generic, Optional, TypeVar
+from typing import Generic, Protocol, TypeVar
 
-T = TypeVar("T")
+
+class HasId(Protocol):
+    """Protocol for entities that have an id attribute."""
+
+    @property
+    def id(self) -> str:
+        """Entity identifier."""
+        ...
+
+
+T = TypeVar("T", bound=HasId)
 
 
 class InMemoryRepository(Generic[T]):
@@ -45,10 +55,10 @@ class InMemoryRepository(Generic[T]):
             entity: Entity to save (must have 'id' attribute)
         """
         # Assumes entity has an 'id' attribute
-        entity_id = getattr(entity, "id")
+        entity_id = entity.id
         self._storage[entity_id] = entity
 
-    def get(self, entity_id: str) -> Optional[T]:
+    def get(self, entity_id: str) -> T | None:
         """Retrieve entity by ID.
 
         Args:

@@ -15,7 +15,7 @@ def get_dependency_context(deps_directory: str = ".graft") -> DependencyContext:
 
     Args:
         deps_directory: Base directory for dependencies (relative to cwd)
-            Default: ".graft" (project-local directory)
+            Default: ".graft" (v2 flat layout)
 
     Returns:
         DependencyContext with production dependencies

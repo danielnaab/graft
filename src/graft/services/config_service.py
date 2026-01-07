@@ -4,9 +4,12 @@ Service functions for parsing and loading graft.yaml configuration files.
 """
 
 from pathlib import Path
+from typing import Any
 
 import yaml
 
+from graft.domain.change import Change
+from graft.domain.command import Command
 from graft.domain.config import GraftConfig
 from graft.domain.dependency import DependencySpec, GitRef, GitUrl
 from graft.domain.exceptions import (
@@ -83,46 +86,162 @@ def parse_graft_yaml(
             reason="Missing required field",
         )
 
-    if "deps" not in data:
-        raise ConfigValidationError(
-            path=config_path,
-            field="deps",
-            reason="Missing required field",
-        )
-
-    if not isinstance(data["deps"], dict):
-        raise ConfigValidationError(
-            path=config_path,
-            field="deps",
-            reason="Must be a mapping/dict of dependency_name: url#ref",
-        )
-
-    # Parse dependencies
-    dependencies: dict[str, DependencySpec] = {}
-
-    for name, url_with_ref in data["deps"].items():
-        # Parse URL#ref format
-        if "#" not in url_with_ref:
+    # Parse metadata (optional)
+    metadata: dict[str, Any] = {}
+    if "metadata" in data:
+        if not isinstance(data["metadata"], dict):
             raise ConfigValidationError(
                 path=config_path,
-                field=f"deps.{name}",
-                reason=f"Must use format 'url#ref', got: {url_with_ref}",
+                field="metadata",
+                reason="Must be a mapping/dict",
+            )
+        metadata = data["metadata"]
+
+    # Parse commands (optional)
+    commands: dict[str, Command] = {}
+    if "commands" in data:
+        if not isinstance(data["commands"], dict):
+            raise ConfigValidationError(
+                path=config_path,
+                field="commands",
+                reason="Must be a mapping/dict of command_name: {...}",
             )
 
-        url_part, ref_part = url_with_ref.rsplit("#", 1)
+        for cmd_name, cmd_data in data["commands"].items():
+            if not isinstance(cmd_data, dict):
+                raise ConfigValidationError(
+                    path=config_path,
+                    field=f"commands.{cmd_name}",
+                    reason="Command must be a mapping/dict with 'run' field",
+                )
 
-        # Create dependency spec
-        spec = DependencySpec(
-            name=name,
-            git_url=GitUrl(url_part),
-            git_ref=GitRef(ref_part),
-        )
+            if "run" not in cmd_data:
+                raise ConfigValidationError(
+                    path=config_path,
+                    field=f"commands.{cmd_name}",
+                    reason="Command must have 'run' field",
+                )
 
-        dependencies[name] = spec
+            command = Command(
+                name=cmd_name,
+                run=cmd_data["run"],
+                description=cmd_data.get("description"),
+                working_dir=cmd_data.get("working_dir"),
+                env=cmd_data.get("env", {}),
+            )
+            commands[cmd_name] = command
+
+    # Parse changes (optional)
+    changes: dict[str, Change] = {}
+    if "changes" in data:
+        if not isinstance(data["changes"], dict):
+            raise ConfigValidationError(
+                path=config_path,
+                field="changes",
+                reason="Must be a mapping/dict of ref: {...}",
+            )
+
+        for ref, change_data in data["changes"].items():
+            if not isinstance(change_data, dict):
+                # Allow simple format: changes: { v1.0.0: null }
+                change_data = {}
+
+            # Extract known fields and rest goes to metadata
+            change_metadata = {
+                k: v
+                for k, v in change_data.items()
+                if k not in ("type", "description", "migration", "verify")
+            }
+
+            change = Change(
+                ref=ref,
+                type=change_data.get("type"),
+                description=change_data.get("description"),
+                migration=change_data.get("migration"),
+                verify=change_data.get("verify"),
+                metadata=change_metadata,
+            )
+            changes[ref] = change
+
+    # Parse dependencies (optional now, required for backward compatibility with old format)
+    dependencies: dict[str, DependencySpec] = {}
+    if "deps" in data:
+        if not isinstance(data["deps"], dict):
+            raise ConfigValidationError(
+                path=config_path,
+                field="deps",
+                reason="Must be a mapping/dict of dependency_name: url#ref",
+            )
+
+        for name, url_with_ref in data["deps"].items():
+            # Parse URL#ref format
+            if "#" not in url_with_ref:
+                raise ConfigValidationError(
+                    path=config_path,
+                    field=f"deps.{name}",
+                    reason=f"Must use format 'url#ref', got: {url_with_ref}",
+                )
+
+            url_part, ref_part = url_with_ref.rsplit("#", 1)
+
+            # Create dependency spec
+            spec = DependencySpec(
+                name=name,
+                git_url=GitUrl(url_part),
+                git_ref=GitRef(ref_part),
+            )
+
+            dependencies[name] = spec
+
+    # Also support new 'dependencies' format from spec
+    if "dependencies" in data:
+        if not isinstance(data["dependencies"], dict):
+            raise ConfigValidationError(
+                path=config_path,
+                field="dependencies",
+                reason="Must be a mapping/dict",
+            )
+
+        for name, dep_data in data["dependencies"].items():
+            if isinstance(dep_data, str):
+                # Simple format: "url#ref"
+                if "#" not in dep_data:
+                    raise ConfigValidationError(
+                        path=config_path,
+                        field=f"dependencies.{name}",
+                        reason=f"Must use format 'url#ref', got: {dep_data}",
+                    )
+                url_part, ref_part = dep_data.rsplit("#", 1)
+            elif isinstance(dep_data, dict):
+                # Object format with source and ref
+                if "source" not in dep_data:
+                    raise ConfigValidationError(
+                        path=config_path,
+                        field=f"dependencies.{name}",
+                        reason="Dependency must have 'source' field",
+                    )
+                url_part = dep_data["source"]
+                ref_part = dep_data.get("ref", "main")  # Default to main
+            else:
+                raise ConfigValidationError(
+                    path=config_path,
+                    field=f"dependencies.{name}",
+                    reason="Dependency must be string or object",
+                )
+
+            spec = DependencySpec(
+                name=name,
+                git_url=GitUrl(url_part),
+                git_ref=GitRef(ref_part),
+            )
+            dependencies[name] = spec
 
     return GraftConfig(
         api_version=data["apiVersion"],
         dependencies=dependencies,
+        metadata=metadata,
+        changes=changes,
+        commands=commands,
     )
 
 

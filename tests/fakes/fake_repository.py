@@ -3,7 +3,7 @@
 In-memory implementation with test helpers.
 """
 
-from typing import Generic, Optional, TypeVar
+from typing import Generic, TypeVar
 
 T = TypeVar("T")
 
@@ -43,11 +43,11 @@ class FakeRepository(Generic[T]):
         Args:
             entity: Entity to save (must have 'id' attribute)
         """
-        entity_id = getattr(entity, "id")
+        entity_id = entity.id
         self._storage[entity_id] = entity
         self._save_calls.append(entity)
 
-    def get(self, entity_id: str) -> Optional[T]:
+    def get(self, entity_id: str) -> T | None:
         """Get entity and record the call.
 
         Args:
