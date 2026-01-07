@@ -173,6 +173,7 @@ class DependencyResolution:
     spec: DependencySpec
     status: DependencyStatus
     local_path: Optional[str] = None
+    symlink_path: Optional[str] = None
     error_message: Optional[str] = None
 
     @property

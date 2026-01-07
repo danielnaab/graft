@@ -122,10 +122,10 @@ def resolve_command() -> None:
     for resolution in resolutions:
         if resolution.status == DependencyStatus.RESOLVED:
             success_count += 1
-            typer.secho(
-                f"✓ {resolution.name}: resolved to {resolution.local_path}",
-                fg=typer.colors.GREEN,
-            )
+            msg = f"✓ {resolution.name}: resolved to {resolution.local_path}"
+            if resolution.symlink_path:
+                msg += f" (symlink: {resolution.symlink_path})"
+            typer.secho(msg, fg=typer.colors.GREEN)
         else:
             failure_count += 1
             typer.secho(
