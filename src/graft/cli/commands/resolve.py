@@ -3,11 +3,12 @@
 CLI command for resolving knowledge base dependencies.
 """
 
+from pathlib import Path
+
 import typer
 
 from graft.adapters.lock_file import YamlLockFile
 from graft.cli.dependency_context_factory import get_dependency_context
-from graft.domain.dependency import DependencyStatus
 from graft.domain.exceptions import (
     ConfigFileNotFoundError,
     ConfigParseError,
@@ -16,6 +17,38 @@ from graft.domain.exceptions import (
     DomainError,
 )
 from graft.services import config_service, lock_service, resolution_service
+
+GITIGNORE_ENTRY = ".graft"
+
+
+def _ensure_gitignore_has_graft() -> bool:
+    """Ensure .gitignore contains .graft entry.
+
+    Returns:
+        True if .gitignore was modified, False otherwise.
+    """
+    gitignore_path = Path(".gitignore")
+
+    # Check if .gitignore exists
+    if gitignore_path.exists():
+        content = gitignore_path.read_text()
+        lines = content.splitlines()
+
+        # Check if .graft is already in .gitignore
+        if GITIGNORE_ENTRY in lines:
+            return False
+
+        # Append .graft to existing .gitignore
+        # Ensure there's a newline before adding
+        if content and not content.endswith("\n"):
+            content += "\n"
+        content += f"{GITIGNORE_ENTRY}\n"
+        gitignore_path.write_text(content)
+        return True
+    else:
+        # Create new .gitignore with .graft
+        gitignore_path.write_text(f"{GITIGNORE_ENTRY}\n")
+        return True
 
 
 def resolve_command() -> None:
@@ -132,6 +165,11 @@ def resolve_command() -> None:
         typer.echo(f"  Direct: {direct_count}")
         if transitive_count > 0:
             typer.echo(f"  Transitive: {transitive_count}")
+
+        # Ensure .graft is in .gitignore
+        if _ensure_gitignore_has_graft():
+            typer.echo()
+            typer.secho("Added .graft to .gitignore", fg=typer.colors.BLUE)
 
         typer.echo()
         typer.secho("All dependencies resolved successfully!", fg=typer.colors.GREEN)
