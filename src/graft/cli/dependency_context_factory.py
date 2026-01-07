@@ -8,14 +8,14 @@ from graft.adapters.git import SubprocessGitOperations
 from graft.services.dependency_context import DependencyContext
 
 
-def get_dependency_context(deps_directory: str = "..") -> DependencyContext:
+def get_dependency_context(deps_directory: str = ".graft") -> DependencyContext:
     """Build production dependency context.
 
     Creates DependencyContext with real adapters for production use.
 
     Args:
         deps_directory: Base directory for dependencies (relative to cwd)
-            Default: ".." (sibling directories to current project)
+            Default: ".graft" (project-local directory)
 
     Returns:
         DependencyContext with production dependencies

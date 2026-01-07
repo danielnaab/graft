@@ -45,8 +45,8 @@ def resolve_dependency(
         status=DependencyStatus.PENDING,
     )
 
-    # Determine local path
-    local_path = str(Path(ctx.deps_directory) / spec.name)
+    # Determine local path (resolve to absolute for clarity)
+    local_path = str((Path(ctx.deps_directory) / spec.name).resolve())
 
     try:
         # Mark as cloning
