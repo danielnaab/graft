@@ -376,7 +376,8 @@ dependencies:
 
         assert "meta-kb" in config.dependencies
         assert "shared-utils" in config.dependencies
-        assert str(config.dependencies["meta-kb"].git_url) == "git@github.com:org/meta-kb.git"
+        # SCP-style URLs are normalized to SSH URLs
+        assert str(config.dependencies["meta-kb"].git_url) == "ssh://git@github.com/org/meta-kb.git"
         assert str(config.dependencies["meta-kb"].git_ref) == "v1.5.0"
         # Should default to "main" when ref not specified
         assert str(config.dependencies["shared-utils"].git_ref) == "main"

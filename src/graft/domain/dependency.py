@@ -3,11 +3,19 @@
 Entities and value objects for managing knowledge base dependencies.
 """
 
+import re
 from dataclasses import dataclass
 from enum import Enum
 from urllib.parse import urlparse
 
 from graft.domain.exceptions import ValidationError
+
+# Pre-compiled patterns for URL normalization
+# SCP-style: user@host:path (no scheme), path cannot start with //
+_SCP_PATTERN = re.compile(r"^([^@]+)@([^:]+):(?!//)(.+)$")
+# Mixed format: ssh://user@host:path - scheme with colon-separated path
+# The (?!//|\d) negative lookahead prevents matching URLs with explicit ports
+_MIXED_PATTERN = re.compile(r"^(ssh|git)://([^@]+)@([^:/]+):(?!//|\d)(.+)$")
 
 
 class DependencyStatus(Enum):
@@ -59,7 +67,8 @@ class GitUrl:
     """Git repository URL.
 
     Value object representing a git URL with validation.
-    Supports ssh://, https://, http://, and file:// schemes.
+    Supports ssh://, https://, http://, and file:// schemes,
+    as well as SCP-style URLs (git@host:path).
 
     Attributes:
         url: Full git URL
@@ -67,6 +76,10 @@ class GitUrl:
     Example:
         >>> url = GitUrl("ssh://git@github.com/user/repo.git")
         >>> url.scheme
+        'ssh'
+        >>> # SCP-style URLs are also supported
+        >>> url2 = GitUrl("git@github.com:user/repo.git")
+        >>> url2.scheme
         'ssh'
     """
 
@@ -77,20 +90,63 @@ class GitUrl:
         if not self.url:
             raise ValidationError("Git URL cannot be empty")
 
+        normalized_url = self._normalize_git_url(self.url)
+
+        # Store the normalized URL (use object.__setattr__ for frozen dataclass)
+        object.__setattr__(self, "url", normalized_url)
+
         # Parse URL - be lenient to support various git URL formats
         # Git supports: ssh://, https://, http://, file://, git@host:path, relative/absolute paths
-        parsed = urlparse(self.url)
+        parsed = urlparse(normalized_url)
 
         # Only validate scheme if one is provided
-        # Allow empty scheme for: git@host:path format, relative paths, absolute paths
+        # Allow empty scheme for: relative paths, absolute paths
         if parsed.scheme and parsed.scheme not in ("ssh", "https", "http", "file", "git"):
             raise ValidationError(
                 f"Invalid URL scheme: {parsed.scheme}. "
-                f"Supported: ssh, https, http, file, git, or no scheme for git@ format/paths"
+                f"Supported: ssh, https, http, file, git"
             )
 
         # Store parsed components (use object.__setattr__ for frozen dataclass)
         object.__setattr__(self, "_parsed", parsed)
+
+    @staticmethod
+    def _normalize_git_url(url: str) -> str:
+        """Normalize git URL to a format that git understands.
+
+        Handles:
+        - SCP-style URLs: git@host:path -> ssh://git@host/path
+        - Mixed format (common mistake): ssh://git@host:path -> ssh://git@host/path
+
+        Args:
+            url: Raw URL string
+
+        Returns:
+            Normalized URL string
+
+        Example:
+            >>> GitUrl._normalize_git_url("git@github.com:user/repo.git")
+            'ssh://git@github.com/user/repo.git'
+            >>> GitUrl._normalize_git_url("ssh://git@host:path/repo.git")
+            'ssh://git@host/path/repo.git'
+            >>> GitUrl._normalize_git_url("https://github.com/user/repo.git")
+            'https://github.com/user/repo.git'
+        """
+        # Check if it's an SCP-style URL (no scheme)
+        if "://" not in url:
+            match = _SCP_PATTERN.match(url)
+            if match:
+                user, host, path = match.groups()
+                return f"ssh://{user}@{host}/{path}"
+
+        # Check for mixed format: ssh://user@host:path (scheme with colon-separated path)
+        # This is a common mistake when users mix SCP-style with URL-style
+        match = _MIXED_PATTERN.match(url)
+        if match:
+            scheme, user, host, path = match.groups()
+            return f"{scheme}://{user}@{host}/{path}"
+
+        return url
 
     @property
     def scheme(self) -> str:

@@ -92,6 +92,59 @@ class TestGitUrl:
         with pytest.raises(dataclasses.FrozenInstanceError):
             url.url = "https://other.com"  # type: ignore
 
+    def test_scp_style_url_normalized(self) -> None:
+        """Should normalize SCP-style URL to SSH URL."""
+        url = GitUrl("git@github.com:user/repo.git")
+        assert url.scheme == "ssh"
+        assert url.host == "git@github.com"
+        assert url.url == "ssh://git@github.com/user/repo.git"
+
+    def test_scp_style_url_with_nested_path(self) -> None:
+        """Should handle SCP-style URL with nested path."""
+        url = GitUrl("git@github.com:org/suborg/repo.git")
+        assert url.url == "ssh://git@github.com/org/suborg/repo.git"
+
+    def test_mixed_format_url_normalized(self) -> None:
+        """Should normalize mixed format (ssh:// with colon path separator)."""
+        url = GitUrl("ssh://git@github.com:user/repo.git")
+        assert url.scheme == "ssh"
+        assert url.url == "ssh://git@github.com/user/repo.git"
+
+    def test_git_scheme_mixed_format_normalized(self) -> None:
+        """Should normalize git:// scheme with colon path separator."""
+        url = GitUrl("git://git@github.com:user/repo.git")
+        assert url.url == "git://git@github.com/user/repo.git"
+
+    def test_proper_ssh_url_unchanged(self) -> None:
+        """Should not modify already-correct SSH URLs."""
+        url = GitUrl("ssh://git@github.com/user/repo.git")
+        assert url.url == "ssh://git@github.com/user/repo.git"
+
+    def test_https_url_unchanged(self) -> None:
+        """Should not modify HTTPS URLs."""
+        url = GitUrl("https://github.com/user/repo.git")
+        assert url.url == "https://github.com/user/repo.git"
+
+    def test_ssh_url_with_port_unchanged(self) -> None:
+        """Should not modify SSH URLs with explicit port."""
+        url = GitUrl("ssh://git@github.com:22/user/repo.git")
+        assert url.url == "ssh://git@github.com:22/user/repo.git"
+
+    def test_git_url_with_port_unchanged(self) -> None:
+        """Should not modify git:// URLs with explicit port."""
+        url = GitUrl("git://git@github.com:9418/user/repo.git")
+        assert url.url == "git://git@github.com:9418/user/repo.git"
+
+    def test_relative_path_unchanged(self) -> None:
+        """Should not modify relative paths."""
+        url = GitUrl("../shared-utils")
+        assert url.url == "../shared-utils"
+
+    def test_absolute_path_unchanged(self) -> None:
+        """Should not modify absolute paths."""
+        url = GitUrl("/home/user/repos/my-repo")
+        assert url.url == "/home/user/repos/my-repo"
+
 
 class TestDependencySpec:
     """Tests for DependencySpec value object."""
