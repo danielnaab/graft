@@ -4,7 +4,7 @@ description: "Implementation knowledge base for Graft - development guides, code
 
 entrypoints:
   human: docs/README.md
-  agent: docs/agents.md
+  agent: AGENTS.md
 
 meta:
   entrypoint: "../meta-knowledge-base/docs/meta.md"

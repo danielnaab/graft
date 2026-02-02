@@ -2,36 +2,26 @@
 
 This directory contains strategic improvement plans for the Graft documentation and knowledge base.
 
-## Active Plans
+## Superseded Plans
 
-### Upgrade to graft-knowledge v2
+### ~~Upgrade to graft-knowledge v2~~ (Superseded)
 
 **Plan:** [upgrade-to-graft-knowledge-v2.md](upgrade-to-graft-knowledge-v2.md)
 **Created:** 2026-01-05
-**Status:** Ready for implementation
-**Priority:** High (enables transitive dependency support)
+**Status:** Superseded by Decision 0007 (Flat-Only Dependency Model)
 
-**Summary:** Upgrade Graft implementation to align with graft-knowledge v2 specifications for extended lock file format, transitive dependency resolution, and flat dependency layout.
+> **Note:** This plan was superseded by Decision 0007, which removed transitive dependency
+> resolution entirely in favor of a simpler flat-only model. The v2 lock file format
+> (with `direct`, `requires`, `required_by` fields) was replaced by the simpler v3 format.
+> These documents are preserved for historical reference.
 
-**Key changes:**
-- Extend graft.lock format with `direct`, `requires`, `required_by` fields
-- Implement recursive dependency resolution algorithm
-- Migrate from `.graft/deps/` to `.graft/` flat layout
-- Add conflict detection for version mismatches
-- Update all CLI commands to support new features
-
-**Post-implementation:**
-- [upgrade-analysis.md](upgrade-analysis.md) - Evaluation of upgrade process
-- [graft-improvements-recommendations.md](graft-improvements-recommendations.md) - Enhancement proposals
-
-**Implementation approach:**
-- 7 phases over 3 weeks (domain models → resolution → layout → CLI → visualization → docs)
-- Each phase has clear testing strategy and success criteria
-- Maintains backward compatibility during migration
-
-**For agents:** This plan serves dual purposes: (1) implement v2 specifications, (2) evaluate Graft's own dependency upgrade affordances to inform future improvements.
+**Related historical documents:**
+- [upgrade-analysis.md](upgrade-analysis.md) - Analysis of the v2 upgrade attempt
+- [testing-v2-upgrade.md](testing-v2-upgrade.md) - Testing notes from v2 implementation
 
 ---
+
+## Active Plans
 
 ### Meta-Knowledge-Base Compliance Improvements
 

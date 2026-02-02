@@ -1,11 +1,17 @@
 ---
 title: "Plan: Testing graft-knowledge v2 Upgrade"
 date: 2026-01-05
-status: draft
+status: superseded
 version: 1.0
+superseded_by: "Decision 0007 - Flat-Only Dependency Model"
 ---
 
 # Plan: Testing graft-knowledge v2 Upgrade
+
+> **NOTE**: This testing plan has been **superseded** by Decision 0007 (Flat-Only Dependency Model).
+>
+> The v2 transitive dependency model tested here was replaced by a simpler flat-only
+> model. This document is preserved for historical reference only.
 
 ## Purpose
 

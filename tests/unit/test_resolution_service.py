@@ -1,6 +1,10 @@
 """Unit tests for resolution service.
 
-Tests for resolve_dependency and resolve_all_dependencies service functions.
+Tests for resolve_dependency, resolve_all_dependencies, and resolve_to_lock_entries
+service functions.
+
+Uses flat-only resolution model (Decision 0007): only direct dependencies
+declared in graft.yaml are resolved. There is no transitive resolution.
 
 Rationale:
     Resolution service implements our hybrid error handling strategy:
@@ -12,6 +16,7 @@ Rationale:
     - Successful resolution flow
     - Exception-to-result conversion
     - Batch operations continue on partial failure
+    - Flat-only model (no transitive resolution)
 """
 
 import pytest
@@ -366,3 +371,109 @@ class TestResolveAllDependencies:
 
         # Verify
         assert len(resolutions) == 0
+
+
+class TestResolveToLockEntries:
+    """Tests for resolve_to_lock_entries service function.
+
+    Rationale: This function provides lock entries for the flat-only model.
+    It resolves direct dependencies and returns LockEntry objects for
+    writing to graft.lock.
+    """
+
+    def test_resolve_direct_dependencies_only(
+        self,
+        full_dependency_context: DependencyContext,
+        fake_git: FakeGitOperations,
+    ) -> None:
+        """Should only resolve direct dependencies (flat-only model).
+
+        Rationale: Decision 0007 - flat-only dependency model.
+        There is no transitive resolution.
+        """
+        # Setup
+        spec = DependencySpec(
+            name="my-dep",
+            git_url=GitUrl("https://github.com/user/repo.git"),
+            git_ref=GitRef("v1.0.0"),
+        )
+        config = GraftConfig(
+            api_version="graft/v0",
+            dependencies={"my-dep": spec},
+        )
+
+        # Exercise
+        lock_entries = resolution_service.resolve_to_lock_entries(
+            full_dependency_context, config
+        )
+
+        # Verify
+        assert len(lock_entries) == 1
+        assert "my-dep" in lock_entries
+        entry = lock_entries["my-dep"]
+        assert entry.ref == "v1.0.0"
+        assert entry.source == "https://github.com/user/repo.git"
+
+    def test_lock_entries_without_transitive_fields(
+        self,
+        full_dependency_context: DependencyContext,
+    ) -> None:
+        """Lock entries should not have v2 transitive fields.
+
+        Rationale: Decision 0007 - v3 lock format removes transitive fields.
+        """
+        # Setup
+        spec = DependencySpec(
+            name="dep1",
+            git_url=GitUrl("https://github.com/user/repo.git"),
+            git_ref=GitRef("main"),
+        )
+        config = GraftConfig(
+            api_version="graft/v0",
+            dependencies={"dep1": spec},
+        )
+
+        # Exercise
+        lock_entries = resolution_service.resolve_to_lock_entries(
+            full_dependency_context, config
+        )
+
+        # Verify
+        entry = lock_entries["dep1"]
+        # v3 entries should not have transitive fields
+        assert not hasattr(entry, "direct")
+        assert not hasattr(entry, "requires")
+        assert not hasattr(entry, "required_by")
+
+    def test_resolve_multiple_dependencies(
+        self,
+        full_dependency_context: DependencyContext,
+    ) -> None:
+        """Should resolve multiple direct dependencies."""
+        # Setup
+        spec1 = DependencySpec(
+            name="dep1",
+            git_url=GitUrl("https://github.com/user/repo1.git"),
+            git_ref=GitRef("v1.0.0"),
+        )
+        spec2 = DependencySpec(
+            name="dep2",
+            git_url=GitUrl("https://github.com/user/repo2.git"),
+            git_ref=GitRef("v2.0.0"),
+        )
+        config = GraftConfig(
+            api_version="graft/v0",
+            dependencies={"dep1": spec1, "dep2": spec2},
+        )
+
+        # Exercise
+        lock_entries = resolution_service.resolve_to_lock_entries(
+            full_dependency_context, config
+        )
+
+        # Verify
+        assert len(lock_entries) == 2
+        assert "dep1" in lock_entries
+        assert "dep2" in lock_entries
+        assert lock_entries["dep1"].ref == "v1.0.0"
+        assert lock_entries["dep2"].ref == "v2.0.0"

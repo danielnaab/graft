@@ -6,13 +6,16 @@ Registers command groups and top-level commands.
 import typer
 
 from graft.cli.commands import (
+    add,
     apply,
     changes,
     example,
     fetch,
+    remove,
     resolve,
     show,
     status,
+    sync,
     tree,
     upgrade,
     validate,
@@ -62,6 +65,18 @@ app.command(name="validate", help="Validate graft.yaml and graft.lock")(
 
 app.command(name="tree", help="Show dependency tree visualization")(
     tree.tree_command
+)
+
+app.command(name="sync", help="Sync dependencies to lock file state")(
+    sync.sync_command
+)
+
+app.command(name="add", help="Add a dependency to graft.yaml")(
+    add.add_command
+)
+
+app.command(name="remove", help="Remove a dependency from graft.yaml")(
+    remove.remove_command
 )
 
 

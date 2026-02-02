@@ -3,11 +3,30 @@
 Tests validation logic for graft.yaml and graft.lock files.
 """
 
+from datetime import UTC, datetime
 
+import pytest
 
 from graft.domain.config import GraftConfig
 from graft.domain.dependency import DependencySpec, GitRef, GitUrl
+from graft.domain.lock_entry import LockEntry
 from graft.services import validation_service
+from tests.fakes.fake_filesystem import FakeFileSystem
+from tests.fakes.fake_git import FakeGitOperations
+
+
+@pytest.fixture
+def fake_git() -> FakeGitOperations:
+    """Provide fresh fake git operations."""
+    git = FakeGitOperations()
+    yield git
+    git.reset()
+
+
+@pytest.fixture
+def fake_filesystem() -> FakeFileSystem:
+    """Provide fresh fake filesystem."""
+    return FakeFileSystem()
 
 
 class TestValidateConfigSchema:
@@ -110,3 +129,188 @@ class TestGetValidationSummary:
 
         assert len(errors) == 0
         assert len(warnings) == 2
+
+
+class TestValidateIntegrity:
+    """Tests for validate_integrity function."""
+
+    def test_integrity_pass_when_commits_match(
+        self,
+        fake_filesystem: FakeFileSystem,
+        fake_git: FakeGitOperations,
+    ) -> None:
+        """Should pass when commits match lock file."""
+        commit = "a" * 40
+
+        # Setup repository at correct commit
+        fake_filesystem.mkdir("/deps/my-dep")
+        fake_git._cloned_repos["/deps/my-dep"] = (
+            "https://github.com/user/repo.git",
+            "v1.0.0",
+        )
+        fake_git.configure_current_commit("/deps/my-dep", commit)
+
+        lock_entries = {
+            "my-dep": LockEntry(
+                source="https://github.com/user/repo.git",
+                ref="v1.0.0",
+                commit=commit,
+                consumed_at=datetime.now(UTC),
+            ),
+        }
+
+        results = validation_service.validate_integrity(
+            filesystem=fake_filesystem,
+            git=fake_git,
+            deps_directory="/deps",
+            lock_entries=lock_entries,
+        )
+
+        assert len(results) == 1
+        assert results[0].valid is True
+        assert results[0].name == "my-dep"
+        assert results[0].message == "Commit matches"
+
+    def test_integrity_fail_when_commits_differ(
+        self,
+        fake_filesystem: FakeFileSystem,
+        fake_git: FakeGitOperations,
+    ) -> None:
+        """Should fail when commit differs from lock file."""
+        expected_commit = "a" * 40
+        actual_commit = "b" * 40
+
+        # Setup repository at wrong commit
+        fake_filesystem.mkdir("/deps/my-dep")
+        fake_git._cloned_repos["/deps/my-dep"] = (
+            "https://github.com/user/repo.git",
+            "v1.0.0",
+        )
+        fake_git.configure_current_commit("/deps/my-dep", actual_commit)
+
+        lock_entries = {
+            "my-dep": LockEntry(
+                source="https://github.com/user/repo.git",
+                ref="v1.0.0",
+                commit=expected_commit,
+                consumed_at=datetime.now(UTC),
+            ),
+        }
+
+        results = validation_service.validate_integrity(
+            filesystem=fake_filesystem,
+            git=fake_git,
+            deps_directory="/deps",
+            lock_entries=lock_entries,
+        )
+
+        assert len(results) == 1
+        assert results[0].valid is False
+        assert "mismatch" in results[0].message
+        assert expected_commit[:7] in results[0].message
+        assert actual_commit[:7] in results[0].message
+
+    def test_integrity_fail_when_dependency_missing(
+        self,
+        fake_filesystem: FakeFileSystem,
+        fake_git: FakeGitOperations,
+    ) -> None:
+        """Should fail when dependency is not cloned."""
+        lock_entries = {
+            "my-dep": LockEntry(
+                source="https://github.com/user/repo.git",
+                ref="v1.0.0",
+                commit="a" * 40,
+                consumed_at=datetime.now(UTC),
+            ),
+        }
+
+        results = validation_service.validate_integrity(
+            filesystem=fake_filesystem,
+            git=fake_git,
+            deps_directory="/deps",
+            lock_entries=lock_entries,
+        )
+
+        assert len(results) == 1
+        assert results[0].valid is False
+        assert "not found" in results[0].message
+
+    def test_integrity_fail_when_not_git_repo(
+        self,
+        fake_filesystem: FakeFileSystem,
+        fake_git: FakeGitOperations,
+    ) -> None:
+        """Should fail when path exists but is not a git repository."""
+        # Create directory but don't mark as repo
+        fake_filesystem.mkdir("/deps/my-dep")
+
+        lock_entries = {
+            "my-dep": LockEntry(
+                source="https://github.com/user/repo.git",
+                ref="v1.0.0",
+                commit="a" * 40,
+                consumed_at=datetime.now(UTC),
+            ),
+        }
+
+        results = validation_service.validate_integrity(
+            filesystem=fake_filesystem,
+            git=fake_git,
+            deps_directory="/deps",
+            lock_entries=lock_entries,
+        )
+
+        assert len(results) == 1
+        assert results[0].valid is False
+        assert "not a git repository" in results[0].message
+
+    def test_integrity_multiple_dependencies(
+        self,
+        fake_filesystem: FakeFileSystem,
+        fake_git: FakeGitOperations,
+    ) -> None:
+        """Should validate all dependencies and return results for each."""
+        commit1 = "a" * 40
+        commit2 = "b" * 40
+        wrong_commit = "c" * 40
+
+        # Setup first dep at correct commit
+        fake_filesystem.mkdir("/deps/dep1")
+        fake_git._cloned_repos["/deps/dep1"] = ("url1", "v1.0.0")
+        fake_git.configure_current_commit("/deps/dep1", commit1)
+
+        # Setup second dep at wrong commit
+        fake_filesystem.mkdir("/deps/dep2")
+        fake_git._cloned_repos["/deps/dep2"] = ("url2", "v2.0.0")
+        fake_git.configure_current_commit("/deps/dep2", wrong_commit)
+
+        lock_entries = {
+            "dep1": LockEntry(
+                source="url1",
+                ref="v1.0.0",
+                commit=commit1,
+                consumed_at=datetime.now(UTC),
+            ),
+            "dep2": LockEntry(
+                source="url2",
+                ref="v2.0.0",
+                commit=commit2,
+                consumed_at=datetime.now(UTC),
+            ),
+        }
+
+        results = validation_service.validate_integrity(
+            filesystem=fake_filesystem,
+            git=fake_git,
+            deps_directory="/deps",
+            lock_entries=lock_entries,
+        )
+
+        assert len(results) == 2
+        # First should pass
+        dep1_result = next(r for r in results if r.name == "dep1")
+        assert dep1_result.valid is True
+        # Second should fail
+        dep2_result = next(r for r in results if r.name == "dep2")
+        assert dep2_result.valid is False

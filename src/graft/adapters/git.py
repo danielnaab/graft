@@ -276,3 +276,78 @@ class SubprocessGitOperations:
                 stderr=f"Subprocess error: {e}",
                 returncode=1,
             ) from e
+
+    def checkout(self, repo_path: str, ref: str) -> None:
+        """Checkout a specific ref in a repository.
+
+        Args:
+            repo_path: Path to git repository
+            ref: Git reference to checkout (branch, tag, or commit hash)
+
+        Raises:
+            GitFetchError: If checkout fails
+        """
+        try:
+            checkout_cmd = ["git", "-C", repo_path, "checkout", ref]
+            result = subprocess.run(checkout_cmd, capture_output=True, text=True, check=False)
+
+            if result.returncode != 0:
+                dep_name = Path(repo_path).name
+                stderr = result.stderr.strip()
+                raise GitFetchError(
+                    dependency_name=dep_name,
+                    repo_path=repo_path,
+                    ref=ref,
+                    stderr=f"Checkout failed: {stderr}",
+                    returncode=result.returncode,
+                )
+
+        except subprocess.SubprocessError as e:
+            raise GitFetchError(
+                dependency_name=Path(repo_path).name,
+                repo_path=repo_path,
+                ref=ref,
+                stderr=f"Subprocess error: {e}",
+                returncode=1,
+            ) from e
+
+    def get_current_commit(self, repo_path: str) -> str:
+        """Get the current commit hash of the repository.
+
+        Args:
+            repo_path: Path to git repository
+
+        Returns:
+            Full 40-character commit hash of HEAD
+
+        Raises:
+            ValueError: If unable to get commit hash
+        """
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if result.returncode != 0:
+                raise ValueError(
+                    f"Failed to get current commit in {repo_path}: {result.stderr.strip()}"
+                )
+
+            commit = result.stdout.strip()
+
+            # Verify it's a valid 40-char hash
+            if len(commit) != 40 or not all(c in "0123456789abcdef" for c in commit):
+                raise ValueError(
+                    f"Invalid commit hash returned: {commit}"
+                )
+
+            return commit
+
+        except subprocess.SubprocessError as e:
+            raise ValueError(
+                f"Failed to get current commit in {repo_path}: {e}"
+            ) from e

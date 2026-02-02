@@ -37,12 +37,12 @@ class TestResolveRealGraftYaml:
 
         # Verify structure
         assert config.api_version == "graft/v0"
-        assert config.has_dependency("graft-knowledge")
+        assert config.has_dependency("python-starter")
 
-        # Verify graft-knowledge dependency
-        dep = config.get_dependency("graft-knowledge")
-        assert dep.name == "graft-knowledge"
-        assert "graft-knowledge.git" in dep.git_url.url
+        # Verify python-starter dependency
+        dep = config.get_dependency("python-starter")
+        assert dep.name == "python-starter"
+        assert "python-starter.git" in dep.git_url.url
         assert dep.git_ref.ref == "main"
 
     @pytest.mark.skipif(

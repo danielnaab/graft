@@ -1,15 +1,17 @@
 ---
 status: stable
-updated: 2026-01-05
+updated: 2026-02-02
 ---
 
 # CLI Reference
 
 Command reference for graft.
 
-**Specification:** [Core Operations](../../graft-knowledge/docs/specification/core-operations.md)
 **Implementation:** `src/graft/cli/commands/`
 **Tests:** `tests/integration/test_cli_commands.py`
+
+> **Note:** Graft uses a flat-only dependency model (Decision 0007). All dependencies
+> must be explicitly declared in `graft.yaml`. There is no transitive resolution.
 
 ---
 
@@ -17,8 +19,11 @@ Command reference for graft.
 
 | Command | Purpose |
 |---------|---------|
-| resolve | Clone/fetch all dependencies (including transitive) |
-| tree | Visualize dependency graph |
+| resolve | Clone/fetch all dependencies from graft.yaml |
+| sync | Sync .graft/ to match lock file state |
+| add | Add a dependency to graft.yaml |
+| remove | Remove a dependency from graft.yaml |
+| tree | List dependencies |
 | apply | Update lock without migrations |
 | status | Show consumed versions |
 | changes | List available changes |
@@ -26,73 +31,133 @@ Command reference for graft.
 | upgrade | Atomic upgrade with migrations |
 | fetch | Update remote cache |
 | dep:cmd | Execute dependency command |
-| validate | Validate configuration |
+| validate | Validate configuration and integrity |
 
 ---
 
 ## resolve
 
-Recursively resolve all dependencies (direct + transitive) from `graft.yaml`.
+Resolve all dependencies from `graft.yaml`.
 
 ```bash
 graft resolve
 ```
 
-**Behavior (v2):**
+**Behavior:**
 - Clones dependencies to `.graft/<name>/`
-- Recursively resolves transitive dependencies
-- Detects version conflicts and fails with clear error
-- Writes complete lock file with all dependencies
-- Shows direct vs transitive deps in output
+- Fetches and checks out specified ref for existing repos
+- Writes lock file with commit hashes
 
 **Example output:**
 ```
-Resolving dependencies (including transitive)...
+Resolving dependencies...
 
-Direct dependencies:
-  ✓ meta-kb: v2.0.0 → .graft/meta-kb
-
-Transitive dependencies:
-  ✓ standards-kb: v1.5.0 → .graft/standards-kb (via meta-kb)
+  ✓ meta-knowledge-base: main → .graft/meta-knowledge-base
+  ✓ python-starter: main → .graft/python-starter
 
 Writing lock file...
-  ✓ Updated ./graft.lock
+  ✓ Updated graft.lock
 
 Resolved: 2 dependencies
-  Direct: 1
-  Transitive: 1
+
+All dependencies resolved successfully!
+```
+
+---
+
+## sync
+
+Sync `.graft/` to match lock file state.
+
+```bash
+graft sync
+```
+
+**Behavior:**
+- Reads `graft.lock`
+- Clones missing dependencies
+- Checks out correct commits for existing repos
+
+**Example output:**
+```
+Syncing dependencies to lock file...
+
+  ✓ meta-knowledge-base: Already at dd6ac96
+  ✓ python-starter: Checked out 3eac821
+
+Synced: 2/2 dependencies
+```
+
+---
+
+## add
+
+Add a dependency to graft.yaml.
+
+```bash
+graft add <name> <url>#<ref>
+```
+
+**Example:**
+```bash
+graft add my-kb https://github.com/user/repo.git#main
+```
+
+Does NOT resolve - run `graft resolve` after adding.
+
+---
+
+## remove
+
+Remove a dependency from graft.yaml.
+
+```bash
+graft remove <name> [--keep-files]
+```
+
+**Options:**
+- `--keep-files`: Keep the dependency files in `.graft/`
+
+**Example:**
+```bash
+graft remove my-kb           # Removes from config and deletes files
+graft remove my-kb --keep-files  # Removes from config only
 ```
 
 ---
 
 ## tree
 
-Visualize dependency tree from lock file.
+List dependencies from lock file.
 
 ```bash
-graft tree              # Tree view
-graft tree --show-all   # Detailed view
+graft tree              # Simple list
+graft tree --details    # With source and commit
 ```
 
-**Tree view:**
+**Simple view:**
 ```
 Dependencies:
-  meta-kb (v2.0.0) [direct]
-    └── standards-kb (v1.5.0)
-        └── templates-kb (v1.0.0)
+
+  meta-knowledge-base (main)
+  python-starter (main)
+
+Total: 2 dependencies
 ```
 
 **Detailed view:**
 ```
 Dependencies:
 
-  meta-kb (v2.0.0) [direct]
-    source: git@github.com:org/meta.git
-    requires: standards-kb
+  meta-knowledge-base (main)
+    source: https://github.com/user/meta-kb.git
+    commit: dd6ac96
 
-  standards-kb (v1.5.0) [transitive via meta-kb]
-    source: https://github.com/org/standards.git
-    requires: templates-kb
+  python-starter (main)
+    source: https://github.com/user/python-starter.git
+    commit: 3eac821
+
+Total: 2 dependencies
 ```
 
 ---
@@ -213,17 +278,37 @@ Executes command in dependency's working directory.
 
 ## validate
 
-Validate `graft.yaml` configuration.
+Validate configuration and integrity.
 
 ```bash
-graft validate
+graft validate [--config] [--lock] [--integrity]
 ```
 
-Checks:
-- YAML syntax
-- Required fields
-- Dependency URL format
-- Command references
+**Modes:**
+- `--config`: Validate graft.yaml schema only
+- `--lock`: Validate graft.lock schema only
+- `--integrity`: Validate .graft/ matches lock file
+- (no flags): Run all validations
+
+**Exit codes:**
+- 0: All validations passed
+- 1: Validation errors found
+- 2: Integrity mismatch (with `--integrity`)
+
+**Example:**
+```
+Validating graft.yaml...
+  ✓ Schema is valid
+
+Validating graft.lock...
+  ✓ Schema is valid
+
+Validating integrity...
+  ✓ meta-knowledge-base: Commit matches
+  ✓ python-starter: Commit matches
+
+Validation successful
+```
 
 ---
 
@@ -231,8 +316,6 @@ Checks:
 
 All commands support:
 - `--help`: show help
-- `--json`: JSON output
-- `--verbose`: detailed logging
 
 ---
 
@@ -240,8 +323,8 @@ All commands support:
 
 **Initial setup:**
 ```bash
+graft add my-kb https://github.com/user/repo.git#main
 graft resolve
-graft apply my-kb --to main
 ```
 
 **Check for updates:**
@@ -255,9 +338,17 @@ graft changes my-kb
 graft upgrade my-kb --to v2.0.0
 ```
 
+**Sync to lock file:**
+```bash
+graft sync
+```
+
+**Validate integrity:**
+```bash
+graft validate --integrity
+```
+
 **Execute dependency command:**
 ```bash
 graft meta-kb:build
 ```
-
-See [User Guide](guides/user-guide.md) for workflows.

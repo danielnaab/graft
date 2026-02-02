@@ -1,11 +1,17 @@
 ---
 title: "Analysis: graft-knowledge v2 Upgrade Process"
 date: 2026-01-05
-status: working
+status: superseded
 version: 0.2
+superseded_by: "Decision 0007 - Flat-Only Dependency Model"
 ---
 
 # Analysis: graft-knowledge v2 Upgrade Process
+
+> **NOTE**: This analysis has been **superseded** by Decision 0007 (Flat-Only Dependency Model).
+>
+> The v2 transitive dependency model analyzed here was replaced by a simpler flat-only
+> model. This document is preserved for historical reference only.
 
 ## Purpose
 

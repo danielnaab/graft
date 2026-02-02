@@ -30,8 +30,10 @@ class FakeGitOperations:
         self._cloned_repos: dict[str, tuple[str, str]] = {}  # path -> (url, ref)
         self._clone_calls: list[tuple[str, str, str]] = []  # (url, dest, ref)
         self._fetch_calls: list[tuple[str, str]] = []  # (path, ref)
+        self._checkout_calls: list[tuple[str, str]] = []  # (path, ref)
         self._should_fail: dict[str, str] = {}  # url -> error message
         self._refs: dict[tuple[str, str], str] = {}  # (repo_path, ref) -> commit hash
+        self._current_commits: dict[str, str] = {}  # repo_path -> current commit
 
     def clone(self, url: str, destination: str, ref: str) -> None:
         """Fake clone operation.
@@ -190,6 +192,63 @@ class FakeGitOperations:
         # Simulate successful fetch (no-op for fake)
         # In real git, this would update remote-tracking branches
 
+    def checkout(self, repo_path: str, ref: str) -> None:
+        """Checkout a specific ref in a repository (fake).
+
+        Args:
+            repo_path: Path to git repository
+            ref: Git reference to checkout
+
+        Raises:
+            DependencyResolutionError: If repository doesn't exist
+        """
+        self._checkout_calls.append((repo_path, ref))
+
+        # Must be a known repository
+        if repo_path not in self._cloned_repos:
+            raise DependencyResolutionError(
+                dependency_name=repo_path,
+                reason="Not a git repository",
+            )
+
+        # Update current commit if ref is a known commit
+        # First check if ref is a commit hash directly
+        if len(ref) == 40 and all(c in "0123456789abcdef" for c in ref):
+            self._current_commits[repo_path] = ref
+        else:
+            # Try to resolve ref to commit
+            try:
+                commit = self.resolve_ref(repo_path, ref)
+                self._current_commits[repo_path] = commit
+            except ValueError:
+                pass  # Just update URL/ref
+
+        # Update the stored ref
+        url, _ = self._cloned_repos[repo_path]
+        self._cloned_repos[repo_path] = (url, ref)
+
+    def get_current_commit(self, repo_path: str) -> str:
+        """Get the current commit hash of the repository (fake).
+
+        Args:
+            repo_path: Path to git repository
+
+        Returns:
+            Full 40-character commit hash of HEAD
+
+        Raises:
+            ValueError: If unable to get commit hash
+        """
+        if repo_path not in self._cloned_repos:
+            raise ValueError(f"Not a git repository: {repo_path}")
+
+        if repo_path in self._current_commits:
+            return self._current_commits[repo_path]
+
+        # Return a deterministic fake commit hash
+        url, ref = self._cloned_repos[repo_path]
+        return self.resolve_ref(repo_path, ref)
+
     def configure_ref(self, repo_path: str, ref: str, commit: str) -> None:
         """Configure a ref to resolve to a specific commit (test helper).
 
@@ -200,6 +259,15 @@ class FakeGitOperations:
         """
         self._refs[(repo_path, ref)] = commit
 
+    def configure_current_commit(self, repo_path: str, commit: str) -> None:
+        """Configure the current commit for a repository (test helper).
+
+        Args:
+            repo_path: Repository path
+            commit: Current commit hash
+        """
+        self._current_commits[repo_path] = commit
+
     def reset(self) -> None:
         """Reset all state (test helper).
 
@@ -208,5 +276,7 @@ class FakeGitOperations:
         self._cloned_repos.clear()
         self._clone_calls.clear()
         self._fetch_calls.clear()
+        self._checkout_calls.clear()
         self._should_fail.clear()
         self._refs.clear()
+        self._current_commits.clear()

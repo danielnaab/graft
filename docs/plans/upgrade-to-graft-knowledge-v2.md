@@ -1,11 +1,21 @@
 ---
 title: "Plan: Upgrade to graft-knowledge v2 Specification"
 date: 2026-01-05
-status: draft
+status: superseded
 version: 1.0
+superseded_by: "Decision 0007 - Flat-Only Dependency Model"
 ---
 
 # Plan: Upgrade to graft-knowledge v2 Specification
+
+> **NOTE**: This plan has been **superseded** by Decision 0007 (Flat-Only Dependency Model).
+>
+> Decision 0007 removed transitive dependency resolution entirely, adopting a simpler
+> flat-only model where all dependencies must be explicitly declared in graft.yaml.
+> The v2 lock file format (with `direct`, `requires`, `required_by` fields) was
+> simplified to v3 format which removes these fields.
+>
+> This document is preserved for historical reference only.
 
 ## Overview
 

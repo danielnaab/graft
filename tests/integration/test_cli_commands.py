@@ -596,10 +596,10 @@ dependencies:
 
             yield project_dir
 
-    def test_validate_schema_only(self, temp_project_for_validation):
-        """Should validate schema with --schema flag."""
+    def test_validate_config_only(self, temp_project_for_validation):
+        """Should validate config with --config flag."""
         result = subprocess.run(
-            ["uv", "run", "python", "-m", "graft", "validate", "--schema"],
+            ["uv", "run", "python", "-m", "graft", "validate", "--config"],
             cwd=temp_project_for_validation,
             capture_output=True,
             text=True,
@@ -622,7 +622,7 @@ dependencies:
             assert "graft.yaml not found" in result.stderr
 
     def test_validate_missing_lock_file_warning(self):
-        """Should warn when graft.lock not found."""
+        """Should warn when graft.lock not found (using --lock flag)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir)
 
@@ -634,7 +634,7 @@ deps:
 """)
 
             result = subprocess.run(
-                ["uv", "run", "python", "-m", "graft", "validate"],
+                ["uv", "run", "python", "-m", "graft", "validate", "--lock"],
                 cwd=project_dir,
                 capture_output=True,
                 text=True,
@@ -713,9 +713,9 @@ deps:
   test-dep: "https://github.com/test/repo.git#main"
 """)
 
-            # Try using --schema and --lock together
+            # Try using --config and --lock together
             result = subprocess.run(
-                ["uv", "run", "python", "-m", "graft", "validate", "--schema", "--lock"],
+                ["uv", "run", "python", "-m", "graft", "validate", "--config", "--lock"],
                 cwd=project_dir,
                 capture_output=True,
                 text=True,
@@ -724,18 +724,18 @@ deps:
             assert result.returncode == 1
             assert "mutually exclusive" in result.stderr
 
-    def test_validate_refs_only_flag(self, temp_project_for_validation):
-        """Should validate only refs when --refs flag is used."""
+    def test_validate_integrity_flag(self, temp_project_for_validation):
+        """Should validate integrity when --integrity flag is used."""
         result = subprocess.run(
-            ["uv", "run", "python", "-m", "graft", "validate", "--refs"],
+            ["uv", "run", "python", "-m", "graft", "validate", "--integrity"],
             cwd=temp_project_for_validation,
             capture_output=True,
             text=True,
         )
 
-        # Should succeed (even if deps not cloned, should warn)
-        # Should NOT validate lock file
-        assert "Validating graft.yaml" in result.stdout
+        # Should show integrity validation, but may fail since deps aren't actually cloned
+        assert "Validating integrity" in result.stdout
+        assert "Validating graft.yaml" not in result.stdout
         assert "Validating graft.lock" not in result.stdout
 
 
@@ -809,3 +809,243 @@ deps:
 
             # Should warn but not fail completely
             assert "not cloned" in result.stdout
+
+
+class TestSyncCommand:
+    """Tests for graft sync command."""
+
+    def test_sync_help(self):
+        """Should display sync help message."""
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "graft", "sync", "--help"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "sync" in result.stdout.lower()
+
+    def test_sync_no_lock_file(self):
+        """Should error when graft.lock not found."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                ["uv", "run", "python", "-m", "graft", "sync"],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+            )
+
+            assert result.returncode == 1
+            assert "graft.lock not found" in result.stderr
+
+
+class TestAddCommand:
+    """Tests for graft add command."""
+
+    def test_add_help(self):
+        """Should display add help message."""
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "graft", "add", "--help"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "add" in result.stdout.lower()
+        assert "url" in result.stdout.lower()
+
+    def test_add_no_graft_yaml(self):
+        """Should error when graft.yaml not found."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                ["uv", "run", "python", "-m", "graft", "add", "my-dep", "https://github.com/user/repo.git#main"],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+            )
+
+            assert result.returncode == 1
+            assert "graft.yaml not found" in result.stderr
+
+    def test_add_missing_ref(self):
+        """Should error when URL doesn't include ref."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            graft_yaml = project_dir / "graft.yaml"
+            graft_yaml.write_text("apiVersion: graft/v0\ndeps: {}\n")
+
+            result = subprocess.run(
+                ["uv", "run", "python", "-m", "graft", "add", "my-dep", "https://github.com/user/repo.git"],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+            )
+
+            assert result.returncode == 1
+            assert "ref" in result.stderr.lower()
+
+    def test_add_success(self):
+        """Should add dependency to graft.yaml."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            graft_yaml = project_dir / "graft.yaml"
+            graft_yaml.write_text("apiVersion: graft/v0\ndeps: {}\n")
+
+            result = subprocess.run(
+                ["uv", "run", "python", "-m", "graft", "add", "my-dep", "https://github.com/user/repo.git#main"],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+            )
+
+            assert result.returncode == 0
+            assert "Added my-dep" in result.stdout
+
+            # Verify it's actually in the file
+            content = graft_yaml.read_text()
+            assert "my-dep" in content
+
+    def test_add_duplicate(self):
+        """Should error when dependency already exists."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            graft_yaml = project_dir / "graft.yaml"
+            graft_yaml.write_text("""apiVersion: graft/v0
+deps:
+  my-dep: "https://github.com/user/repo.git#main"
+""")
+
+            result = subprocess.run(
+                ["uv", "run", "python", "-m", "graft", "add", "my-dep", "https://github.com/other/repo.git#v1"],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+            )
+
+            assert result.returncode == 1
+            assert "already exists" in result.stderr
+
+
+class TestRemoveCommand:
+    """Tests for graft remove command."""
+
+    def test_remove_help(self):
+        """Should display remove help message."""
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "graft", "remove", "--help"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "remove" in result.stdout.lower()
+        assert "keep-files" in result.stdout
+
+    def test_remove_no_graft_yaml(self):
+        """Should error when graft.yaml not found."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                ["uv", "run", "python", "-m", "graft", "remove", "my-dep"],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+            )
+
+            assert result.returncode == 1
+            assert "graft.yaml not found" in result.stderr
+
+    def test_remove_not_found(self):
+        """Should error when dependency not found."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            graft_yaml = project_dir / "graft.yaml"
+            graft_yaml.write_text("apiVersion: graft/v0\ndeps: {}\n")
+
+            result = subprocess.run(
+                ["uv", "run", "python", "-m", "graft", "remove", "nonexistent"],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+            )
+
+            assert result.returncode == 1
+            assert "not found" in result.stderr
+
+    def test_remove_success(self):
+        """Should remove dependency from graft.yaml."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            graft_yaml = project_dir / "graft.yaml"
+            graft_yaml.write_text("""apiVersion: graft/v0
+deps:
+  my-dep: "https://github.com/user/repo.git#main"
+""")
+
+            result = subprocess.run(
+                ["uv", "run", "python", "-m", "graft", "remove", "my-dep"],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+            )
+
+            assert result.returncode == 0
+            assert "Removed my-dep" in result.stdout
+
+            # Verify it's removed from the file
+            content = graft_yaml.read_text()
+            assert "my-dep" not in content
+
+
+class TestTreeCommand:
+    """Tests for graft tree command."""
+
+    def test_tree_help(self):
+        """Should display tree help message."""
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "graft", "tree", "--help"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "tree" in result.stdout.lower()
+
+    def test_tree_no_lock_file(self):
+        """Should error when graft.lock not found."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                ["uv", "run", "python", "-m", "graft", "tree"],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+            )
+
+            assert result.returncode == 1
+            assert "Lock file not found" in result.stderr
+
+    def test_tree_success(self, temp_project_base):
+        """Should list dependencies from lock file."""
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "graft", "tree"],
+            cwd=temp_project_base,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "Dependencies:" in result.stdout
+        assert "test-dep" in result.stdout
+        assert "Total:" in result.stdout
+
+    def test_tree_details(self, temp_project_base):
+        """Should show details with --details flag."""
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "graft", "tree", "--details"],
+            cwd=temp_project_base,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "source:" in result.stdout
+        assert "commit:" in result.stdout

@@ -1,6 +1,9 @@
 """Resolve command - dependency resolution.
 
 CLI command for resolving knowledge base dependencies.
+
+Uses flat-only resolution model (Decision 0007): only direct dependencies
+declared in graft.yaml are resolved. There is no transitive resolution.
 """
 
 from pathlib import Path
@@ -109,43 +112,22 @@ def resolve_command() -> None:
         typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from e
 
-    # Resolve dependencies recursively (v2)
-    typer.echo("Resolving dependencies (including transitive)...")
+    # Resolve dependencies (flat-only model)
+    typer.echo("Resolving dependencies...")
     typer.echo()
 
     try:
-        # Use recursive resolution to get all dependencies
-        lock_entries = resolution_service.resolve_all_recursive(ctx, config)
+        # Use flat resolution to get all direct dependencies
+        lock_entries = resolution_service.resolve_to_lock_entries(ctx, config)
 
-        # Separate direct and transitive dependencies
-        direct_deps = {name: entry for name, entry in lock_entries.items() if entry.direct}
-        transitive_deps = {
-            name: entry for name, entry in lock_entries.items() if not entry.direct
-        }
-
-        # Display direct dependencies
-        if direct_deps:
-            typer.echo("Direct dependencies:")
-            for name in sorted(direct_deps.keys()):
-                entry = direct_deps[name]
-                local_path = f"{ctx.deps_directory}/{name}"
-                typer.secho(
-                    f"  ✓ {name}: {entry.ref} → {local_path}",
-                    fg=typer.colors.GREEN,
-                )
-
-        # Display transitive dependencies
-        if transitive_deps:
-            typer.echo()
-            typer.echo("Transitive dependencies:")
-            for name in sorted(transitive_deps.keys()):
-                entry = transitive_deps[name]
-                local_path = f"{ctx.deps_directory}/{name}"
-                parents = ", ".join(entry.required_by)
-                typer.secho(
-                    f"  ✓ {name}: {entry.ref} → {local_path} (via {parents})",
-                    fg=typer.colors.BRIGHT_BLACK,
-                )
+        # Display resolved dependencies
+        for name in sorted(lock_entries.keys()):
+            entry = lock_entries[name]
+            local_path = f"{ctx.deps_directory}/{name}"
+            typer.secho(
+                f"  ✓ {name}: {entry.ref} → {local_path}",
+                fg=typer.colors.GREEN,
+            )
 
         # Write lock file
         typer.echo()
@@ -157,14 +139,7 @@ def resolve_command() -> None:
 
         # Summary
         typer.echo()
-        total_count = len(lock_entries)
-        direct_count = len(direct_deps)
-        transitive_count = len(transitive_deps)
-
-        typer.echo(f"Resolved: {total_count} dependencies")
-        typer.echo(f"  Direct: {direct_count}")
-        if transitive_count > 0:
-            typer.echo(f"  Transitive: {transitive_count}")
+        typer.echo(f"Resolved: {len(lock_entries)} dependencies")
 
         # Ensure .graft is in .gitignore
         if _ensure_gitignore_has_graft():

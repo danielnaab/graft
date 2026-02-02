@@ -141,9 +141,6 @@ class TestLockEntry:
             ref="v1.5.0",
             commit="abc123def456789012345678901234567890abcd",
             consumed_at=consumed_at,
-            direct=True,
-            requires=("dep1", "dep2"),
-            required_by=(),
         )
 
         result = entry.to_dict()
@@ -153,18 +150,29 @@ class TestLockEntry:
             "ref": "v1.5.0",
             "commit": "abc123def456789012345678901234567890abcd",
             "consumed_at": "2026-01-01T10:30:00+00:00",
-            "direct": True,
-            "requires": ["dep1", "dep2"],
-            "required_by": [],
         }
-        # Check types are suitable for YAML
+        # Check types are suitable for YAML (v3 uses only strings)
         assert isinstance(result["source"], str)
         assert isinstance(result["ref"], str)
         assert isinstance(result["commit"], str)
         assert isinstance(result["consumed_at"], str)
-        assert isinstance(result["direct"], bool)
-        assert isinstance(result["requires"], list)
-        assert isinstance(result["required_by"], list)
+
+    def test_to_dict_excludes_transitive_fields(self) -> None:
+        """Should NOT include v2 transitive fields (direct, requires, required_by)."""
+        consumed_at = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
+        entry = LockEntry(
+            source="git@github.com:org/repo.git",
+            ref="v1.0.0",
+            commit="a" * 40,
+            consumed_at=consumed_at,
+        )
+
+        result = entry.to_dict()
+
+        # v3 format excludes transitive fields
+        assert "direct" not in result
+        assert "requires" not in result
+        assert "required_by" not in result
 
     def test_from_dict_creates_lock_entry(self) -> None:
         """Should create LockEntry from dict."""
@@ -361,27 +369,10 @@ class TestLockEntry:
             entry = LockEntry.from_dict(data)
             assert isinstance(entry.consumed_at, datetime)
 
-    # V2 Format Tests
+    # V3 Format Tests (Flat-Only Model)
 
-    def test_create_lock_entry_with_v2_fields(self) -> None:
-        """Should create lock entry with v2 fields."""
-        consumed_at = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
-        entry = LockEntry(
-            source="git@github.com:org/repo.git",
-            ref="v1.5.0",
-            commit="abc123def456789012345678901234567890abcd",
-            consumed_at=consumed_at,
-            direct=False,
-            requires=("dep1", "dep2"),
-            required_by=("parent-dep",),
-        )
-
-        assert entry.direct is False
-        assert entry.requires == ("dep1", "dep2")
-        assert entry.required_by == ("parent-dep",)
-
-    def test_v2_fields_default_values(self) -> None:
-        """Should use default values for v2 fields if not specified."""
+    def test_lock_entry_no_transitive_fields(self) -> None:
+        """LockEntry should not have v2 transitive fields (direct, requires, required_by)."""
         entry = LockEntry(
             source="git@github.com:org/repo.git",
             ref="v1.0.0",
@@ -389,36 +380,24 @@ class TestLockEntry:
             consumed_at=datetime.now(UTC),
         )
 
-        assert entry.direct is True  # Default for direct dep
-        assert entry.requires == ()  # Empty tuple (no deps)
-        assert entry.required_by == ()  # Empty tuple (not required by anyone)
+        # v3 model: LockEntry only has source, ref, commit, consumed_at
+        assert hasattr(entry, "source")
+        assert hasattr(entry, "ref")
+        assert hasattr(entry, "commit")
+        assert hasattr(entry, "consumed_at")
+        # v2 fields should NOT exist
+        assert not hasattr(entry, "direct")
+        assert not hasattr(entry, "requires")
+        assert not hasattr(entry, "required_by")
 
-    def test_from_dict_backward_compatible_with_v1_format(self) -> None:
-        """Should handle v1 format (no v2 fields) with defaults."""
-        data = {
-            "source": "git@github.com:org/repo.git",
-            "ref": "v1.0.0",
-            "commit": "a" * 40,
-            "consumed_at": "2026-01-01T10:30:00+00:00",
-        }
-
-        entry = LockEntry.from_dict(data)
-
-        # V2 fields should have default values
-        assert entry.direct is True
-        assert entry.requires == ()
-        assert entry.required_by == ()
-        # V1 fields should be preserved
-        assert entry.source == "git@github.com:org/repo.git"
-        assert entry.ref == "v1.0.0"
-
-    def test_from_dict_with_v2_fields(self) -> None:
-        """Should parse v2 fields from dict."""
+    def test_from_dict_ignores_v2_fields(self) -> None:
+        """Should silently ignore legacy v2 fields for backward compatibility."""
         data = {
             "source": "git@github.com:org/repo.git",
             "ref": "v1.5.0",
             "commit": "a" * 40,
             "consumed_at": "2026-01-01T10:30:00+00:00",
+            # Legacy v2 fields that should be ignored
             "direct": False,
             "requires": ["dep1", "dep2"],
             "required_by": ["parent-dep"],
@@ -426,77 +405,11 @@ class TestLockEntry:
 
         entry = LockEntry.from_dict(data)
 
-        assert entry.direct is False
-        assert entry.requires == ("dep1", "dep2")
-        assert entry.required_by == ("parent-dep",)
-
-    def test_to_dict_includes_v2_fields(self) -> None:
-        """Should include v2 fields in serialized dict."""
-        entry = LockEntry(
-            source="git@github.com:org/repo.git",
-            ref="v1.0.0",
-            commit="a" * 40,
-            consumed_at=datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC),
-            direct=False,
-            requires=("dep1",),
-            required_by=("parent1", "parent2"),
-        )
-
-        result = entry.to_dict()
-
-        assert result["direct"] is False
-        assert result["requires"] == ["dep1"]
-        assert result["required_by"] == ["parent1", "parent2"]
-
-    def test_v2_roundtrip_preserves_all_fields(self) -> None:
-        """Should preserve v2 fields through to_dict -> from_dict roundtrip."""
-        original = LockEntry(
-            source="git@github.com:org/repo.git",
-            ref="v2.0.0",
-            commit="abc123def456789012345678901234567890abcd",
-            consumed_at=datetime(2026, 1, 5, 14, 20, 0, tzinfo=UTC),
-            direct=False,
-            requires=("standards-kb", "templates-kb"),
-            required_by=("meta-kb",),
-        )
-
-        data = original.to_dict()
-        restored = LockEntry.from_dict(data)
-
-        assert restored.source == original.source
-        assert restored.ref == original.ref
-        assert restored.commit == original.commit
-        assert restored.consumed_at == original.consumed_at
-        assert restored.direct == original.direct
-        assert restored.requires == original.requires
-        assert restored.required_by == original.required_by
-
-    def test_from_dict_validates_requires_is_list(self) -> None:
-        """Should raise ValidationError if requires is not a list."""
-        data = {
-            "source": "git@github.com:org/repo.git",
-            "ref": "v1.0.0",
-            "commit": "a" * 40,
-            "consumed_at": "2026-01-01T10:30:00+00:00",
-            "requires": "not-a-list",  # Invalid
-        }
-
-        with pytest.raises(ValidationError) as exc_info:
-            LockEntry.from_dict(data)
-
-        assert "'requires' must be a list" in str(exc_info.value)
-
-    def test_from_dict_validates_required_by_is_list(self) -> None:
-        """Should raise ValidationError if required_by is not a list."""
-        data = {
-            "source": "git@github.com:org/repo.git",
-            "ref": "v1.0.0",
-            "commit": "a" * 40,
-            "consumed_at": "2026-01-01T10:30:00+00:00",
-            "required_by": "not-a-list",  # Invalid
-        }
-
-        with pytest.raises(ValidationError) as exc_info:
-            LockEntry.from_dict(data)
-
-        assert "'required_by' must be a list" in str(exc_info.value)
+        # Core fields should be parsed
+        assert entry.source == "git@github.com:org/repo.git"
+        assert entry.ref == "v1.5.0"
+        assert entry.commit == "a" * 40
+        # v2 fields should be ignored (not present on entry)
+        assert not hasattr(entry, "direct")
+        assert not hasattr(entry, "requires")
+        assert not hasattr(entry, "required_by")

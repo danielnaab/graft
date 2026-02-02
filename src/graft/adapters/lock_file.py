@@ -14,7 +14,7 @@ class YamlLockFile:
     """YAML-based lock file implementation.
 
     Implements lock file operations using YAML format as specified.
-    Lock file format (v2):
+    Lock file format (v3 - flat-only):
         apiVersion: graft/v0
         dependencies:
           dep-name:
@@ -22,9 +22,6 @@ class YamlLockFile:
             ref: "..."
             commit: "..."
             consumed_at: "..."
-            direct: bool
-            requires: [...]
-            required_by: [...]
     """
 
     API_VERSION = "graft/v0"
@@ -106,7 +103,7 @@ class YamlLockFile:
     def write_lock_file(self, path: str, entries: dict[str, LockEntry]) -> None:
         """Write lock file with dependency entries.
 
-        Uses v2 format with apiVersion field.
+        Uses v3 format with apiVersion field (flat-only model).
 
         Args:
             path: Path to graft.lock file
@@ -115,27 +112,13 @@ class YamlLockFile:
         Raises:
             IOError: If unable to write file
         """
-        # Build lock file structure (v2 format)
-        # Organize dependencies: direct first, then transitive (alphabetically)
-        direct_deps = {
-            name: entry for name, entry in entries.items() if entry.direct
-        }
-        transitive_deps = {
-            name: entry for name, entry in entries.items() if not entry.direct
-        }
-
-        # Combine with direct deps first
-        ordered_entries = {}
-        for name in sorted(direct_deps.keys()):
-            ordered_entries[name] = direct_deps[name]
-        for name in sorted(transitive_deps.keys()):
-            ordered_entries[name] = transitive_deps[name]
-
+        # Build lock file structure (v3 format - flat-only)
+        # Simple alphabetical ordering
         lock_data = {
             "apiVersion": self.API_VERSION,
             "dependencies": {
-                name: entry.to_dict()
-                for name, entry in ordered_entries.items()
+                name: entries[name].to_dict()
+                for name in sorted(entries.keys())
             },
         }
 

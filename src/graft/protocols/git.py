@@ -93,3 +93,29 @@ class GitOperations(Protocol):
             Exception: If fetch fails
         """
         ...
+
+    def checkout(self, repo_path: str, ref: str) -> None:
+        """Checkout a specific ref in a repository.
+
+        Args:
+            repo_path: Path to git repository
+            ref: Git reference to checkout (branch, tag, or commit hash)
+
+        Raises:
+            Exception: If checkout fails
+        """
+        ...
+
+    def get_current_commit(self, repo_path: str) -> str:
+        """Get the current commit hash of the repository.
+
+        Args:
+            repo_path: Path to git repository
+
+        Returns:
+            Full 40-character commit hash of HEAD
+
+        Raises:
+            Exception: If unable to get commit hash
+        """
+        ...

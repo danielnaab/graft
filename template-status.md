@@ -74,7 +74,7 @@ All other files may be updated when you run `copier update`.
 ## Need Help?
 
 - **Template documentation**: `../python-starter/docs/`
-- **Agent guidance**: `docs/agents.md`
+- **Agent guidance**: `AGENTS.md`
 - **Project documentation**: `docs/README.md`
 
 ## Template Source

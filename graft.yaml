@@ -1,3 +1,5 @@
 apiVersion: graft/v0
 deps:
-  graft-knowledge: "git@github.com:danielnaab/graft-knowledge.git#main"
+  #graft-knowledge: "https://github.com/danielnaab/graft-knowledge.git#main"
+  python-starter: "https://github.com/danielnaab/python-starter.git#main"
+  meta-knowledge-base: "https://github.com/danielnaab/meta-knowledge-base.git#main"
