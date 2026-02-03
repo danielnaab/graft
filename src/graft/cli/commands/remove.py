@@ -9,6 +9,8 @@ from pathlib import Path
 import typer
 import yaml
 
+from graft.adapters.git import SubprocessGitOperations
+
 
 def remove_command(
     name: str = typer.Argument(..., help="Dependency name to remove"),
@@ -94,8 +96,26 @@ def remove_command(
 
     typer.secho(f"Removed {name} from graft.yaml", fg=typer.colors.GREEN)
 
-    # Handle files
-    if deps_path.exists():
+    # Handle files and submodule removal
+    git = SubprocessGitOperations()
+    deps_path_str = str(deps_path)
+
+    # Check if it's a submodule
+    if git.is_submodule(deps_path_str):
+        if not keep_files:
+            try:
+                # Remove the submodule properly
+                git.remove_submodule(deps_path_str)
+                typer.echo(f"Removed submodule {deps_path}")
+            except Exception as e:
+                typer.secho(
+                    f"Warning: Failed to remove submodule {deps_path}: {e}",
+                    fg=typer.colors.YELLOW,
+                )
+        else:
+            typer.echo(f"Kept submodule files in {deps_path}")
+    elif deps_path.exists():
+        # Legacy clone - handle as before
         if keep_files:
             typer.echo(f"Kept files in {deps_path}")
         else:

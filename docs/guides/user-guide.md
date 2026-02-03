@@ -48,7 +48,7 @@ uv run python -m graft apply my-kb --to main
 **Dependencies** - Git repositories tracked by graft:
 - Declared in `graft.yaml`
 - Pinned in `graft.lock` with commit hash
-- Cloned to `.graft/deps/`
+- Stored in `.graft/` as git submodules (preferred) or clones
 
 **Changes** - Semantic evolution markers:
 - Types: breaking, feature, fix
@@ -130,6 +130,38 @@ uv run python -m graft show <dep> <ref>
 - Review changes before upgrading: `graft changes <dep>`
 - Test in development environment first
 - Use `--dry-run` to preview (when available)
+
+## Git Submodules
+
+Graft uses git submodules to manage dependencies when the deps directory
+(`.graft/` by default) is inside your git repository. This provides:
+
+- **Easy setup**: New clones can use `git clone --recursive` to get all dependencies
+- **Reproducible state**: Submodule commits are tracked in the parent repo
+- **Standard git workflow**: Works with existing git tools and services
+
+**Starting fresh (if you have legacy clones):**
+```bash
+# Remove existing dependencies
+rm -rf .graft/
+
+# Re-resolve as submodules
+uv run python -m graft resolve
+
+# Stage the changes
+git add .gitmodules .graft/
+git commit -m "Add dependencies as submodules"
+```
+
+**Clone a project with dependencies:**
+```bash
+# Option 1: Clone with submodules
+git clone --recursive <project-url>
+
+# Option 2: Clone then init submodules
+git clone <project-url>
+git submodule update --init
+```
 
 ## Advanced
 

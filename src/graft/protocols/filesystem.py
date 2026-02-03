@@ -73,3 +73,42 @@ class FileSystem(Protocol):
             Absolute path to current directory
         """
         ...
+
+    def list_directory(self, path: str) -> list[str]:
+        """List directory contents.
+
+        Args:
+            path: Directory path
+
+        Returns:
+            List of file/directory names (not full paths)
+
+        Raises:
+            FileNotFoundError: If directory doesn't exist
+            NotADirectoryError: If path is not a directory
+        """
+        ...
+
+    def write_text(self, path: str, content: str) -> None:
+        """Write text to file.
+
+        Args:
+            path: File path
+            content: Text content to write
+
+        Raises:
+            PermissionError: If file not writable
+        """
+        ...
+
+    def remove_directory(self, path: str) -> None:
+        """Remove a directory and all its contents.
+
+        Args:
+            path: Directory path to remove
+
+        Raises:
+            FileNotFoundError: If directory doesn't exist
+            NotADirectoryError: If path is not a directory
+        """
+        ...

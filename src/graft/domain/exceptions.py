@@ -238,3 +238,28 @@ class GitNotFoundError(DependencyResolutionError):
         )
         self.url = url
         self.ref = ref
+
+
+class SubmoduleOperationError(DomainError):
+    """Submodule operation failed.
+
+    Raised when git submodule operations (add, update, remove) fail.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        operation: str,
+        reason: str,
+    ) -> None:
+        """Initialize error with submodule details.
+
+        Args:
+            path: Path to the submodule
+            operation: Operation that failed (add, update, remove)
+            reason: Reason for failure
+        """
+        super().__init__(f"Submodule {operation} failed for '{path}': {reason}")
+        self.path = path
+        self.operation = operation
+        self.reason = reason

@@ -4,10 +4,11 @@ Filesystem operations using pathlib.Path.
 """
 
 import os
+import shutil
 from pathlib import Path
 
 
-class RealFileSystem:
+class RealFilesystem:
     """Real filesystem operations.
 
     Implements FileSystem protocol.
@@ -76,3 +77,56 @@ class RealFileSystem:
             Absolute path to current directory
         """
         return os.getcwd()
+
+    def list_directory(self, path: str) -> list[str]:
+        """List directory contents.
+
+        Args:
+            path: Directory path
+
+        Returns:
+            List of file/directory names (not full paths)
+
+        Raises:
+            FileNotFoundError: If directory doesn't exist
+            NotADirectoryError: If path is not a directory
+        """
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"Directory not found: {path}")
+        if not p.is_dir():
+            raise NotADirectoryError(f"Not a directory: {path}")
+        return [item.name for item in p.iterdir()]
+
+    def write_text(self, path: str, content: str) -> None:
+        """Write text to file.
+
+        Args:
+            path: File path
+            content: Text content to write
+
+        Raises:
+            PermissionError: If file not writable
+        """
+        Path(path).write_text(content)
+
+    def remove_directory(self, path: str) -> None:
+        """Remove a directory and all its contents.
+
+        Args:
+            path: Directory path to remove
+
+        Raises:
+            FileNotFoundError: If directory doesn't exist
+            NotADirectoryError: If path is not a directory
+        """
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"Directory not found: {path}")
+        if not p.is_dir():
+            raise NotADirectoryError(f"Not a directory: {path}")
+        shutil.rmtree(path)
+
+
+# Backwards-compatible alias
+RealFileSystem = RealFilesystem

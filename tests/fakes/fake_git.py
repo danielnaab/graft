@@ -34,6 +34,13 @@ class FakeGitOperations:
         self._should_fail: dict[str, str] = {}  # url -> error message
         self._refs: dict[tuple[str, str], str] = {}  # (repo_path, ref) -> commit hash
         self._current_commits: dict[str, str] = {}  # repo_path -> current commit
+        self._working_directory_clean: dict[str, bool] = {}  # repo_path -> is_clean
+        # Submodule tracking
+        self._submodules: dict[str, dict[str, str]] = {}  # path -> {url, ref, status}
+        self._add_submodule_calls: list[tuple[str, str, str | None]] = []  # (url, path, ref)
+        self._update_submodule_calls: list[tuple[str, bool, bool]] = []  # (path, init, recursive)
+        self._remove_submodule_calls: list[str] = []  # paths
+        self._submodule_branches: dict[str, str] = {}  # path -> branch
 
     def clone(self, url: str, destination: str, ref: str) -> None:
         """Fake clone operation.
@@ -86,15 +93,15 @@ class FakeGitOperations:
         self._cloned_repos[repo_path] = (url, ref)
 
     def is_repository(self, path: str) -> bool:
-        """Check if path is a known repository.
+        """Check if path is a known repository (includes submodules).
 
         Args:
             path: Path to check
 
         Returns:
-            True if path is a known repository
+            True if path is a known repository or submodule
         """
-        return path in self._cloned_repos
+        return path in self._cloned_repos or path in self._submodules
 
     def resolve_ref(self, repo_path: str, ref: str) -> str:
         """Resolve git ref to commit hash.
@@ -114,8 +121,8 @@ class FakeGitOperations:
         if key in self._refs:
             return self._refs[key]
 
-        # If repo doesn't exist, error
-        if repo_path not in self._cloned_repos:
+        # If repo doesn't exist (neither as clone nor submodule), error
+        if repo_path not in self._cloned_repos and repo_path not in self._submodules:
             raise ValueError(f"Not a git repository: {repo_path}")
 
         # Return a fake but valid commit hash based on ref
@@ -182,8 +189,8 @@ class FakeGitOperations:
         Raises:
             DependencyResolutionError: If repository doesn't exist
         """
-        # Must be a known repository
-        if repo_path not in self._cloned_repos:
+        # Must be a known repository or submodule
+        if repo_path not in self._cloned_repos and repo_path not in self._submodules:
             raise DependencyResolutionError(
                 dependency_name=repo_path,
                 reason="Not a git repository",
@@ -191,6 +198,8 @@ class FakeGitOperations:
 
         # Simulate successful fetch (no-op for fake)
         # In real git, this would update remote-tracking branches
+        # Note: For submodules, the configured refs via configure_ref() will be used
+        # when resolving refs like "origin/main"
 
     def checkout(self, repo_path: str, ref: str) -> None:
         """Checkout a specific ref in a repository (fake).
@@ -204,28 +213,39 @@ class FakeGitOperations:
         """
         self._checkout_calls.append((repo_path, ref))
 
-        # Must be a known repository
-        if repo_path not in self._cloned_repos:
+        # Must be a known repository or submodule
+        is_cloned = repo_path in self._cloned_repos
+        is_submodule = repo_path in self._submodules
+
+        if not is_cloned and not is_submodule:
             raise DependencyResolutionError(
                 dependency_name=repo_path,
                 reason="Not a git repository",
             )
 
-        # Update current commit if ref is a known commit
-        # First check if ref is a commit hash directly
+        # Determine the commit hash for this checkout
         if len(ref) == 40 and all(c in "0123456789abcdef" for c in ref):
-            self._current_commits[repo_path] = ref
+            # Direct commit hash
+            commit = ref
         else:
-            # Try to resolve ref to commit
+            # Try to resolve ref to commit (handles configured refs)
             try:
                 commit = self.resolve_ref(repo_path, ref)
-                self._current_commits[repo_path] = commit
             except ValueError:
-                pass  # Just update URL/ref
+                # Generate a deterministic hash if not configured
+                commit = self._generate_commit_hash(f"{repo_path}:{ref}")
 
-        # Update the stored ref
-        url, _ = self._cloned_repos[repo_path]
-        self._cloned_repos[repo_path] = (url, ref)
+        # Update current commit
+        self._current_commits[repo_path] = commit
+
+        # Update the stored ref for cloned repos
+        if is_cloned:
+            url, _ = self._cloned_repos[repo_path]
+            self._cloned_repos[repo_path] = (url, ref)
+
+        # Update submodule commit - always sync with current_commits
+        if is_submodule:
+            self._submodules[repo_path]["commit"] = commit
 
     def get_current_commit(self, repo_path: str) -> str:
         """Get the current commit hash of the repository (fake).
@@ -239,13 +259,18 @@ class FakeGitOperations:
         Raises:
             ValueError: If unable to get commit hash
         """
-        if repo_path not in self._cloned_repos:
+        # Check if it's a known repository or submodule
+        if repo_path not in self._cloned_repos and repo_path not in self._submodules:
             raise ValueError(f"Not a git repository: {repo_path}")
 
         if repo_path in self._current_commits:
             return self._current_commits[repo_path]
 
-        # Return a deterministic fake commit hash
+        # Check if it's a submodule
+        if repo_path in self._submodules:
+            return self._submodules[repo_path]["commit"]
+
+        # Return a deterministic fake commit hash for cloned repos
         url, ref = self._cloned_repos[repo_path]
         return self.resolve_ref(repo_path, ref)
 
@@ -280,3 +305,212 @@ class FakeGitOperations:
         self._should_fail.clear()
         self._refs.clear()
         self._current_commits.clear()
+        self._working_directory_clean.clear()
+        self._submodules.clear()
+        self._add_submodule_calls.clear()
+        self._update_submodule_calls.clear()
+        self._remove_submodule_calls.clear()
+        self._submodule_branches.clear()
+
+    def configure_working_directory_clean(self, repo_path: str, is_clean: bool) -> None:
+        """Configure whether a working directory should appear clean (test helper).
+
+        Args:
+            repo_path: Repository path
+            is_clean: True if directory should appear clean
+        """
+        self._working_directory_clean[repo_path] = is_clean
+
+    # Submodule operations
+
+    def add_submodule(self, url: str, path: str, ref: str | None = None) -> None:
+        """Add a git submodule (fake).
+
+        Args:
+            url: Git repository URL for the submodule
+            path: Local path where submodule should be added
+            ref: Optional branch/tag to track
+
+        Raises:
+            DependencyResolutionError: If configured to fail
+        """
+        self._add_submodule_calls.append((url, path, ref))
+
+        # Simulate failure if configured
+        if url in self._should_fail:
+            raise DependencyResolutionError(
+                dependency_name=path,
+                reason=self._should_fail[url],
+            )
+
+        self._submodules[path] = {
+            "url": url,
+            "ref": ref or "HEAD",
+            "status": " ",  # Normal status
+            "commit": self._generate_commit_hash(f"{url}:{ref or 'HEAD'}"),
+        }
+        if ref:
+            self._submodule_branches[path] = ref
+
+    def update_submodule(self, path: str, init: bool = True, recursive: bool = False) -> None:
+        """Update submodule (fake).
+
+        Args:
+            path: Path to the submodule
+            init: Whether to initialize the submodule
+            recursive: Whether to update nested submodules
+        """
+        self._update_submodule_calls.append((path, init, recursive))
+
+        if init and path not in self._submodules:
+            # Initialize with default values
+            self._submodules[path] = {
+                "url": f"https://example.com/{path}.git",
+                "ref": "HEAD",
+                "status": " ",
+                "commit": self._generate_commit_hash(f"{path}:HEAD"),
+            }
+
+    def remove_submodule(self, path: str) -> None:
+        """Remove a submodule (fake).
+
+        Args:
+            path: Path to the submodule to remove
+        """
+        self._remove_submodule_calls.append(path)
+        if path in self._submodules:
+            del self._submodules[path]
+        if path in self._submodule_branches:
+            del self._submodule_branches[path]
+
+    def get_submodule_status(self, path: str) -> dict[str, str]:
+        """Get status info for a submodule (fake).
+
+        Args:
+            path: Path to the submodule
+
+        Returns:
+            Dictionary with status information
+        """
+        if path not in self._submodules:
+            raise ValueError(f"No submodule at {path}")
+
+        info = self._submodules[path]
+        return {
+            "commit": info["commit"],
+            "branch": self._submodule_branches.get(path, ""),
+            "status": info["status"],
+        }
+
+    def sync_submodule(self, path: str) -> None:
+        """Sync submodule URL (fake no-op).
+
+        Args:
+            path: Path to the submodule
+        """
+        if path not in self._submodules:
+            raise ValueError(f"No submodule at {path}")
+        # No-op for fake
+
+    def set_submodule_branch(self, path: str, branch: str) -> None:
+        """Set the branch for a submodule (fake).
+
+        Args:
+            path: Path to the submodule
+            branch: Branch name to track
+        """
+        if path not in self._submodules:
+            raise ValueError(f"No submodule at {path}")
+        self._submodule_branches[path] = branch
+
+    def deinit_submodule(self, path: str, force: bool = False) -> None:
+        """Deinitialize a submodule (fake).
+
+        Args:
+            path: Path to the submodule
+            force: Force deinit even with changes
+        """
+        if path in self._submodules:
+            self._submodules[path]["status"] = "-"  # Uninitialized
+
+    def is_submodule(self, path: str) -> bool:
+        """Check if a path is a registered git submodule (fake).
+
+        Args:
+            path: Path to check
+
+        Returns:
+            True if path is a registered submodule
+        """
+        return path in self._submodules
+
+    def is_working_directory_clean(self, repo_path: str) -> bool:
+        """Check if the working directory has uncommitted changes (fake).
+
+        Args:
+            repo_path: Path to git repository
+
+        Returns:
+            True if working directory is clean (configured via test helper)
+        """
+        # By default, assume clean unless configured otherwise
+        return self._working_directory_clean.get(repo_path, True)
+
+    # Submodule test helpers
+
+    def was_submodule_added(self, url: str, path: str, ref: str | None = None) -> bool:
+        """Check if add_submodule was called with specific args.
+
+        Args:
+            url: Expected URL
+            path: Expected path
+            ref: Expected ref (optional)
+
+        Returns:
+            True if add_submodule was called with these arguments
+        """
+        return (url, path, ref) in self._add_submodule_calls
+
+    def get_submodule_count(self) -> int:
+        """Get number of registered submodules.
+
+        Returns:
+            Number of submodules
+        """
+        return len(self._submodules)
+
+    def get_add_submodule_calls(self) -> list[tuple[str, str, str | None]]:
+        """Get all add_submodule calls.
+
+        Returns:
+            List of (url, path, ref) tuples
+        """
+        return self._add_submodule_calls.copy()
+
+    def get_update_submodule_calls(self) -> list[tuple[str, bool, bool]]:
+        """Get all update_submodule calls.
+
+        Returns:
+            List of (path, init, recursive) tuples
+        """
+        return self._update_submodule_calls.copy()
+
+    def get_remove_submodule_calls(self) -> list[str]:
+        """Get all remove_submodule calls.
+
+        Returns:
+            List of removed paths
+        """
+        return self._remove_submodule_calls.copy()
+
+    def _generate_commit_hash(self, seed: str) -> str:
+        """Generate a deterministic fake commit hash.
+
+        Args:
+            seed: Seed string for hash generation
+
+        Returns:
+            40-character hex string
+        """
+        import hashlib
+        return hashlib.sha1(seed.encode()).hexdigest()

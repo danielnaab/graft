@@ -37,7 +37,8 @@ def sync_dependency(
 ) -> SyncResult:
     """Sync a single dependency to match lock file state.
 
-    Clones if missing, or checks out the locked commit if present.
+    Ensures submodule exists and is at the locked commit.
+    Handles both submodules and legacy clones (with warning).
 
     Args:
         filesystem: Filesystem operations
@@ -49,14 +50,86 @@ def sync_dependency(
     Returns:
         SyncResult indicating outcome
     """
-    local_path = str(Path(deps_directory) / name)
+    local_path = f"{deps_directory}/{name}"
 
     try:
-        if not filesystem.exists(local_path):
-            # Clone the repository
-            git.clone(
+        # Check if it's a submodule
+        if git.is_submodule(local_path):
+            # Update submodule
+            git.update_submodule(local_path, init=True)
+
+            # Get current commit - fail if we can't read it (indicates corruption)
+            try:
+                current_commit = git.get_current_commit(local_path)
+            except Exception as e:
+                return SyncResult(
+                    name=name,
+                    success=False,
+                    action="failed",
+                    message=f"Failed to read submodule commit: {e}",
+                )
+
+            if current_commit == entry.commit:
+                return SyncResult(
+                    name=name,
+                    success=True,
+                    action="up_to_date",
+                    message=f"Submodule already at {entry.commit[:7]}",
+                )
+
+            # Checkout the exact commit
+            git.checkout(local_path, entry.commit)
+            return SyncResult(
+                name=name,
+                success=True,
+                action="checked_out",
+                message=f"Submodule checked out to {entry.commit[:7]}",
+            )
+
+        elif filesystem.exists(local_path):
+            # Legacy clone exists - sync it but warn
+            if not git.is_repository(local_path):
+                return SyncResult(
+                    name=name,
+                    success=False,
+                    action="failed",
+                    message=f"Path exists but is not a git repository: {local_path}",
+                )
+
+            # Get current commit - fail if we can't read it (indicates corruption)
+            try:
+                current_commit = git.get_current_commit(local_path)
+            except Exception as e:
+                return SyncResult(
+                    name=name,
+                    success=False,
+                    action="failed",
+                    message=f"Failed to read repository commit: {e}",
+                )
+
+            if current_commit == entry.commit:
+                return SyncResult(
+                    name=name,
+                    success=True,
+                    action="up_to_date",
+                    message=f"Already at {entry.commit[:7]} (legacy clone - delete and re-resolve)",
+                )
+
+            # Fetch and checkout
+            git.fetch(local_path, entry.ref)
+            git.checkout(local_path, entry.commit)
+            return SyncResult(
+                name=name,
+                success=True,
+                action="checked_out",
+                message=f"Checked out {entry.commit[:7]} (legacy clone - delete and re-resolve)",
+            )
+
+        else:
+            # Dependency doesn't exist - add as submodule
+            git.add_submodule(
                 url=entry.source,
-                destination=local_path,
+                path=local_path,
                 ref=entry.ref,
             )
             # Checkout the exact commit
@@ -65,41 +138,8 @@ def sync_dependency(
                 name=name,
                 success=True,
                 action="cloned",
-                message=f"Cloned and checked out {entry.commit[:7]}",
+                message=f"Added submodule and checked out {entry.commit[:7]}",
             )
-
-        # Path exists - check if it's a git repo
-        if not git.is_repository(local_path):
-            return SyncResult(
-                name=name,
-                success=False,
-                action="failed",
-                message=f"Path exists but is not a git repository: {local_path}",
-            )
-
-        # Get current commit
-        try:
-            current_commit = git.get_current_commit(local_path)
-        except Exception:
-            current_commit = None
-
-        if current_commit == entry.commit:
-            return SyncResult(
-                name=name,
-                success=True,
-                action="up_to_date",
-                message=f"Already at {entry.commit[:7]}",
-            )
-
-        # Need to fetch and checkout
-        git.fetch(local_path, entry.ref)
-        git.checkout(local_path, entry.commit)
-        return SyncResult(
-            name=name,
-            success=True,
-            action="checked_out",
-            message=f"Checked out {entry.commit[:7]}",
-        )
 
     except Exception as e:
         return SyncResult(

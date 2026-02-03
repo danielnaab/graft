@@ -111,6 +111,86 @@ class FakeFileSystem:
         """
         self._files[path] = content
 
+    def write_text(self, path: str, content: str) -> None:
+        """Write text to file (protocol method).
+
+        Args:
+            path: File path
+            content: File content
+        """
+        self._files[path] = content
+
+    def list_directory(self, path: str) -> list[str]:
+        """List directory contents.
+
+        Args:
+            path: Directory path
+
+        Returns:
+            List of file/directory names (not full paths)
+
+        Raises:
+            FileNotFoundError: If directory doesn't exist
+            NotADirectoryError: If path is not a directory
+        """
+        if not self.exists(path):
+            raise FileNotFoundError(f"Directory not found: {path}")
+        if not self.is_dir(path):
+            raise NotADirectoryError(f"Not a directory: {path}")
+
+        # Find all items that are direct children of this path
+        items = []
+        path_with_slash = path.rstrip("/") + "/"
+
+        # Check files
+        for file_path in self._files:
+            if file_path.startswith(path_with_slash):
+                # Get relative path from directory
+                relative = file_path[len(path_with_slash):]
+                # Only include direct children (no slashes in relative path)
+                if "/" not in relative:
+                    items.append(relative)
+
+        # Check directories
+        for dir_path in self._dirs:
+            if dir_path.startswith(path_with_slash):
+                # Get relative path from directory
+                relative = dir_path[len(path_with_slash):]
+                # Only include direct children
+                if relative and "/" not in relative:
+                    items.append(relative)
+
+        return sorted(set(items))
+
+    def remove_directory(self, path: str) -> None:
+        """Remove a directory and all its contents.
+
+        Args:
+            path: Directory path to remove
+
+        Raises:
+            FileNotFoundError: If directory doesn't exist
+            NotADirectoryError: If path is not a directory
+        """
+        if not self.exists(path):
+            raise FileNotFoundError(f"Directory not found: {path}")
+        if not self.is_dir(path):
+            raise NotADirectoryError(f"Not a directory: {path}")
+
+        # Remove the directory
+        self._dirs.discard(path)
+
+        # Remove all files in the directory
+        path_with_slash = path.rstrip("/") + "/"
+        files_to_remove = [f for f in self._files if f.startswith(path_with_slash)]
+        for f in files_to_remove:
+            del self._files[f]
+
+        # Remove all subdirectories
+        dirs_to_remove = [d for d in self._dirs if d.startswith(path_with_slash)]
+        for d in dirs_to_remove:
+            self._dirs.discard(d)
+
     def set_cwd(self, path: str) -> None:
         """Set current working directory (test helper).
 

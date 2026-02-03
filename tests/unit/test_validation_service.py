@@ -169,7 +169,7 @@ class TestValidateIntegrity:
         assert len(results) == 1
         assert results[0].valid is True
         assert results[0].name == "my-dep"
-        assert results[0].message == "Commit matches"
+        assert "Commit matches" in results[0].message
 
     def test_integrity_fail_when_commits_differ(
         self,

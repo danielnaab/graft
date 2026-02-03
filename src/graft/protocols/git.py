@@ -119,3 +119,125 @@ class GitOperations(Protocol):
             Exception: If unable to get commit hash
         """
         ...
+
+    def add_submodule(self, url: str, path: str, ref: str | None = None) -> None:
+        """Add a git submodule at the specified path.
+
+        Args:
+            url: Git repository URL for the submodule
+            path: Local path where submodule should be added
+            ref: Optional branch/tag to track (defaults to remote HEAD)
+
+        Raises:
+            Exception: If submodule addition fails
+        """
+        ...
+
+    def update_submodule(self, path: str, init: bool = True, recursive: bool = False) -> None:
+        """Update submodule to match .gitmodules configuration.
+
+        Args:
+            path: Path to the submodule
+            init: Whether to initialize the submodule if not already
+            recursive: Whether to update nested submodules
+
+        Raises:
+            Exception: If submodule update fails
+        """
+        ...
+
+    def remove_submodule(self, path: str) -> None:
+        """Remove a submodule and clean up .gitmodules.
+
+        Performs complete submodule removal:
+        - Removes from .gitmodules
+        - Deinitializes submodule
+        - Removes submodule directory
+        - Removes from .git/modules
+
+        Args:
+            path: Path to the submodule to remove
+
+        Raises:
+            Exception: If submodule removal fails
+        """
+        ...
+
+    def get_submodule_status(self, path: str) -> dict[str, str]:
+        """Get status info for a submodule.
+
+        Args:
+            path: Path to the submodule
+
+        Returns:
+            Dictionary with status information:
+            - 'commit': Current commit hash
+            - 'branch': Tracking branch (if any)
+            - 'status': Status indicator (+modified, -uninitialized, etc.)
+
+        Raises:
+            Exception: If unable to get submodule status
+        """
+        ...
+
+    def sync_submodule(self, path: str) -> None:
+        """Sync submodule URL with .gitmodules.
+
+        Updates the submodule's remote URL to match what's in .gitmodules.
+        Useful after .gitmodules has been modified.
+
+        Args:
+            path: Path to the submodule
+
+        Raises:
+            Exception: If sync fails
+        """
+        ...
+
+    def set_submodule_branch(self, path: str, branch: str) -> None:
+        """Set the branch for a submodule in .gitmodules.
+
+        Args:
+            path: Path to the submodule
+            branch: Branch name to track
+
+        Raises:
+            Exception: If unable to set branch
+        """
+        ...
+
+    def deinit_submodule(self, path: str, force: bool = False) -> None:
+        """Deinitialize a submodule without removing it.
+
+        Removes submodule working tree but keeps .gitmodules entry.
+
+        Args:
+            path: Path to the submodule
+            force: Force deinit even if submodule has local changes
+
+        Raises:
+            Exception: If deinit fails
+        """
+        ...
+
+    def is_submodule(self, path: str) -> bool:
+        """Check if a path is a registered git submodule.
+
+        Args:
+            path: Path to check
+
+        Returns:
+            True if path is a registered submodule in .gitmodules
+        """
+        ...
+
+    def is_working_directory_clean(self, repo_path: str) -> bool:
+        """Check if the working directory has uncommitted changes.
+
+        Args:
+            repo_path: Path to git repository
+
+        Returns:
+            True if working directory is clean (no uncommitted changes)
+        """
+        ...
