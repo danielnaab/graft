@@ -1,0 +1,9 @@
+[submodule ".graft/python-starter"]
+	path = .graft/python-starter
+	url = https://github.com/danielnaab/python-starter.git
+[submodule ".graft/meta-knowledge-base"]
+	path = .graft/meta-knowledge-base
+	url = https://github.com/danielnaab/meta-knowledge-base.git
+[submodule ".graft/graft-knowledge"]
+	path = .graft/graft-knowledge
+	url = https://github.com/danielnaab/graft-knowledge

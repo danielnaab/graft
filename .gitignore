@@ -47,5 +47,3 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
-graft.lock
-.graft
