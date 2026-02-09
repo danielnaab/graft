@@ -4,3 +4,6 @@
 [submodule ".graft/meta-knowledge-base"]
 	path = .graft/meta-knowledge-base
 	url = https://github.com/danielnaab/meta-knowledge-base.git
+[submodule ".graft/rust-starter"]
+	path = .graft/rust-starter
+	url = https://github.com/danielnaab/rust-starter.git
