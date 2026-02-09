@@ -4,7 +4,7 @@ status: working
 purpose: "Deep analysis of Graft documentation compliance with meta-knowledge-base best practices"
 related:
   - ../docs/architecture.md
-  - ../../graft-knowledge/knowledge-base.yaml
+  - ../knowledge-base.yaml
   - ../../meta-knowledge-base/docs/meta.md
 ---
 
@@ -255,7 +255,7 @@ Add file:line references for grounding:
 
 Represents a semantic change (`src/graft/domain/change.py:15-45`).
 
-**Specification:** [Change model spec](../../graft-knowledge/docs/specification/change-model.md)
+**Specification:** [Change model spec](../docs/specifications/graft/change-model.md)
 
 **Tests:** `tests/unit/test_domain_change.py:1-92`
 ```
@@ -401,7 +401,7 @@ This analysis is grounded in:
 - [Improvement Plan](../docs/plans/meta-kb-compliance-improvements.md) - actionable plan based on this analysis
 - [Architecture](../docs/architecture.md) - current information architecture
 - [Agents Entrypoint](../docs/agents.md) - agent workflow and conventions
-- [Graft Knowledge Specs](../../graft-knowledge/docs/README.md) - canonical specifications
+- [Graft Knowledge Specs](../docs/specifications/README.md) - canonical specifications
 
 ---
 

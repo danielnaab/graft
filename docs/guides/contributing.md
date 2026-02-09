@@ -355,7 +355,7 @@ Read these to understand "why" behind the architecture.
 - Read ADRs for architectural context
 
 **Don't understand the domain?**
-- Read graft-knowledge specification: `/home/coder/graft-knowledge/docs/specification/`
+- Read graft specification: `docs/specifications/graft/`
 - Review Complete Workflow: [status/workflow-validation.md](../../status/workflow-validation.md)
 
 **Tests are confusing?**

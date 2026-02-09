@@ -11,7 +11,7 @@ This document describes how information is organized in the graft repository to 
 
 Following meta-knowledge-base conventions:
 
-1. **Authority**: Specifications in `/home/coder/graft-knowledge/` are canonical
+1. **Authority**: Specifications in `docs/specifications/` are canonical
 2. **Provenance**: Ground implementation claims in sources
 3. **Lifecycle**: Mark document status (draft/working/stable/deprecated)
 4. **Write Boundaries**: Clear zones for safe agent editing
@@ -50,7 +50,7 @@ graft/
 ## Information Flow
 
 ```
-Specifications (graft-knowledge)
+Specifications (docs/specifications/)
         ↓
     Tasks (tasks.md)
         ↓
@@ -256,7 +256,7 @@ Add tasks to tasks.md in appropriate priority section.
 - ⚠️ ADRs - Immutable once stable (create new instead of editing)
 
 **Read-Only**:
-- ❌ `/home/coder/graft-knowledge/` - Specifications (external authority)
+- ❌ `docs/specifications/` - Specifications (canonical, modify via spec process)
 
 ### Document Status Tags
 
@@ -414,7 +414,7 @@ Current state has several docs at root:
 - Meta-KB Authority Policy: `/home/coder/meta-knowledge-base/policies/authority.md`
 - Meta-KB Provenance Policy: `/home/coder/meta-knowledge-base/policies/provenance.md`
 - Meta-KB Lifecycle Policy: `/home/coder/meta-knowledge-base/policies/lifecycle.md`
-- Graft Specifications: `/home/coder/graft-knowledge/docs/specification/`
+- Graft Specifications: `docs/specifications/graft/`
 
 ---
 

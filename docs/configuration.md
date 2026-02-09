@@ -8,8 +8,8 @@ updated: 2026-01-05
 Reference for graft.yaml and graft.lock formats.
 
 **Canonical Specifications:**
-- [graft.yaml Format](../../graft-knowledge/docs/specification/graft-yaml-format.md)
-- [Lock File Format](../../graft-knowledge/docs/specification/lock-file-format.md)
+- [graft.yaml Format](specifications/graft/graft-yaml-format.md)
+- [Lock File Format](specifications/graft/lock-file-format.md)
 
 **Implementation:**
 - Parser: `src/graft/services/config_service.py`

@@ -214,7 +214,7 @@ See [meta-knowledge-base style policy](../../meta-knowledge-base/policies/style.
 
 ## External References
 
-- **Specification**: `/home/coder/graft-knowledge/docs/specification/`
+- **Specification**: `docs/specifications/graft/`
 - **Meta-Knowledge-Base**: `/home/coder/meta-knowledge-base/docs/meta.md`
 
 ---

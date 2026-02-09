@@ -7,13 +7,13 @@ updated: 2026-01-05
 
 Practical guide for using Graft semantic dependency management.
 
-> **Authority Note:** Interprets canonical specifications from [graft-knowledge](../../../graft-knowledge/). When in conflict, specifications are authoritative.
+> **Authority Note:** Interprets canonical specifications from [docs/specifications/](../specifications/). When in conflict, specifications are authoritative.
 
 **Specifications:**
-- [Change Model](../../../graft-knowledge/docs/specification/change-model.md)
-- [graft.yaml Format](../../../graft-knowledge/docs/specification/graft-yaml-format.md)
-- [Lock File Format](../../../graft-knowledge/docs/specification/lock-file-format.md)
-- [Core Operations](../../../graft-knowledge/docs/specification/core-operations.md)
+- [Change Model](../specifications/graft/change-model.md)
+- [graft.yaml Format](../specifications/graft/graft-yaml-format.md)
+- [Lock File Format](../specifications/graft/lock-file-format.md)
+- [Core Operations](../specifications/graft/core-operations.md)
 
 ---
 
