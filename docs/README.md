@@ -8,7 +8,7 @@ updated: 2026-01-05
 
 Semantic dependency management for knowledge bases.
 
-> **Authority Note:** Developer-friendly implementation overview. For canonical architecture, see [graft-knowledge/docs/architecture.md](../../graft-knowledge/docs/architecture.md) and [ADRs](../../graft-knowledge/docs/decisions/).
+> **Authority Note:** Developer-friendly implementation overview. For canonical architecture, see [specifications/architecture.md](specifications/architecture.md) and [specification ADRs](specifications/decisions/).
 
 Graft provides atomic upgrades with automatic rollback, migration execution, and semantic versioning for git-based dependencies.
 
@@ -134,6 +134,18 @@ Architectural decisions documented in `docs/decisions/`:
 
 ---
 
+## Specifications
+
+Canonical specifications for the Graft ecosystem live in [`specifications/`](specifications/):
+
+- **[Graft Specifications](specifications/graft/)** - Formal specs for graft.yaml, lock file, core operations, change model, dependency layout
+- **[Grove Specifications](specifications/grove/)** - Living specs for workspace management (architecture, workspace config)
+- **[Specification Decisions](specifications/decisions/)** - ADRs 0001-0007 (scope, git refs, change model, atomicity, flat-only deps)
+- **[Architecture Overview](specifications/architecture.md)** - System design and core concepts
+- **[Use Cases](specifications/use-cases.md)** - What Graft enables and why
+
+---
+
 ## Documentation
 
 **User docs:**
@@ -161,7 +173,7 @@ Architectural decisions documented in `docs/decisions/`:
 ## Sources
 
 **Canonical Specifications:**
-- [Graft Architecture](../../graft-knowledge/docs/architecture.md)
+- [Graft Architecture](specifications/architecture.md)
 - [ADR 004: Protocol-Based DI](decisions/004-protocol-based-dependency-injection.md)
 - [ADR 005: Functional Services](decisions/005-functional-service-layer.md)
 - [ADR 002: Filesystem Snapshots](decisions/002-filesystem-snapshots-for-rollback.md)
