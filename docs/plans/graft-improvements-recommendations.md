@@ -669,7 +669,7 @@ Corporate environments might need dependency caching or mirrors for reliability/
 - [Implementation Plan](./upgrade-to-graft-knowledge-v2.md)
 - [Upgrade Analysis](./upgrade-analysis.md)
 - [graft: Architecture Overview](../README.md)
-- [graft-knowledge: Architecture Decisions](../../../graft-knowledge/docs/decisions/)
+- [graft-knowledge: Architecture Decisions](../specifications/decisions/)
 
 ## Changelog
 

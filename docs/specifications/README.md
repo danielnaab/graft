@@ -1,44 +1,61 @@
-# Graft Project Knowledge Base
+# Specifications
 
-This KB follows the [meta knowledge base](../../.graft/meta-knowledge-base/docs/meta.md) system.
+This directory contains all specifications for the graft ecosystem, organized by tool.
 
-## Overview
+## About Specification Formats
 
-Graft is a task runner and git-centered package manager that aims to simplify:
-- Configurable task execution
-- Git-based dependency management
-- Reproducible development workflows
+Different tools use different specification formats based on their maturity and purpose:
 
-## Documentation Structure
+### Graft Specifications (Formal)
 
-- **Specifications** - All specifications (graft and grove)
-  - **[Graft Specifications](graft/)** - Formal specifications for the graft dependency management system
-    - [graft.yaml Format](graft/graft-yaml-format.md) - Configuration file format
-    - [Lock File Format](graft/lock-file-format.md) - State tracking format
-    - [Core Operations](graft/core-operations.md) - Operation semantics and behavior
-    - [Change Model](graft/change-model.md) - Data model for changes
-    - [Dependency Layout](graft/dependency-layout.md) - How dependencies are organized
-    - [Dependency Update Notification](graft/dependency-update-notification.md) - Automated update propagation
+Located in [`graft/`](./graft/), these are detailed, implementer-focused specifications for the graft dependency management system. They follow a formal structure with:
 
-  - **[Grove Specifications](grove/)** - Living specifications for the Grove workspace management tool
-    - [Architecture](grove/architecture.md) - System design and three-layer architecture
-    - [Workspace Configuration](grove/workspace-config.md) - workspace.yaml format
+- Complete schemas and field definitions
+- Validation pseudocode
+- Extensive examples
+- Precise implementation guidance
 
-- **[Decisions](decisions/)** - Architecture Decision Records (ADRs)
-  - Documents key architectural choices with rationale
-  - Captures alternatives considered and trade-offs
+**Format**: Markdown with YAML frontmatter
+**Status**: Draft (v3 - flat-only dependency model)
+**Best for**: Stable APIs, data formats, protocols that need precise implementation
 
-- **[Architecture](architecture.md)** - Graft system design and core concepts overview
+### Grove Specifications (Living)
 
-- **[Use Cases](use-cases.md)** - What Graft enables and why
+Located in [`grove/`](./grove/), these are behavior-focused, evolving specifications for the Grove workspace management tool. They follow the [living-specifications](../../.graft/living-specifications/) methodology with:
 
-- **[CHANGELOG](CHANGELOG.md)** - Track specification changes and additions
+- Intent and non-goals sections
+- Gherkin-style behavior scenarios
+- Open questions and decisions log
+- Lightweight, easy to update
 
-- **[Notes](../../notes/)** - Working notes, brainstorming, and design exploration
+**Format**: Living specifications (markdown with status frontmatter)
+**Status**: Draft/Working (active development)
+**Best for**: User-facing behaviors, workflows, UX that evolves with implementation
 
-## For Implementers
+## Directory Structure
 
-See [CHANGELOG](CHANGELOG.md) for recent specification changes.
+```
+specifications/
+├── README.md           # This file
+├── graft/              # Graft formal specifications
+│   ├── README.md       # Graft specs index
+│   └── *.md            # Individual specifications
+└── grove/              # Grove living specifications
+    ├── README.md       # Grove specs index and reading guide
+    └── *.md            # Individual specifications
+```
 
-Implement against a specific version by referencing the git commit or tag.
-See CHANGELOG for guidance on pinning implementations to specifications.
+## Why Two Formats?
+
+The different formats reflect different stages of maturity and different needs:
+
+- **Graft** has stable data formats and operations that need precise specification for implementation
+- **Grove** is actively being designed through vertical slices and benefits from lightweight, scenario-based specs that can evolve quickly
+
+Both formats are version-controlled in git, reviewable via PRs, and structured for both human reading and AI consumption. The format choice is intentional, not arbitrary.
+
+## Related Documentation
+
+- [Graft Architecture](architecture.md) - High-level graft system design
+- [Grove Design Notes](../../notes/) - Exploration notes that inform Grove specs
+- [Living Specifications Methodology](../../.graft/living-specifications/) - Details on the living-spec format

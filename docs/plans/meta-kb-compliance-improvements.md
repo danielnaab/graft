@@ -184,7 +184,7 @@ Add `## Sources` sections to documents making operational or architectural claim
 This architecture documentation is grounded in:
 
 **Canonical Specifications:**
-- [Graft Architecture Specification](../../graft-knowledge/docs/architecture.md) - System design decisions
+- [Graft Architecture Specification](../specifications/architecture.md) - System design decisions
 - [ADR 004: Protocol-Based DI](decisions/004-protocol-based-dependency-injection.md) - Dependency injection approach
 - [ADR 005: Functional Service Layer](decisions/005-functional-service-layer.md) - Service design pattern
 - [ADR 002: Filesystem Snapshots](decisions/002-filesystem-snapshots-for-rollback.md) - Rollback mechanism
@@ -216,10 +216,10 @@ This architecture documentation is grounded in:
 This guide provides practical applications of Graft specifications:
 
 **Canonical Specifications:**
-- [Change Model](../../../graft-knowledge/docs/specification/change-model.md) - Semantic change definitions
-- [graft.yaml Format](../../../graft-knowledge/docs/specification/graft-yaml-format.md) - Configuration schema
-- [Lock File Format](../../../graft-knowledge/docs/specification/lock-file-format.md) - Lock file schema
-- [Core Operations](../../../graft-knowledge/docs/specification/core-operations.md) - Command semantics
+- [Change Model](../specifications/graft/change-model.md) - Semantic change definitions
+- [graft.yaml Format](../specifications/graft/graft-yaml-format.md) - Configuration schema
+- [Lock File Format](../specifications/graft/lock-file-format.md) - Lock file schema
+- [Core Operations](../specifications/graft/core-operations.md) - Command semantics
 
 **Implementation References:**
 - CLI commands: `src/graft/cli/commands/*.py`
@@ -242,7 +242,7 @@ This guide provides practical applications of Graft specifications:
 This reference documents implemented commands with links to specifications and code.
 
 **For each command:**
-- **Specification:** [Core Operations Spec](../../graft-knowledge/docs/specification/core-operations.md)
+- **Specification:** [Core Operations Spec](../specifications/graft/core-operations.md)
 - **Implementation:** `src/graft/cli/commands/` (linked per command below)
 - **Tests:** `tests/integration/test_cli_commands.py` (805 lines of CLI tests)
 
@@ -258,7 +258,7 @@ Example for `graft resolve`:
 Clone or fetch all dependencies from `graft.yaml`.
 
 **Implementation:** `src/graft/cli/commands/resolve.py`
-**Specification:** [Core Operations: Resolve](../../graft-knowledge/docs/specification/core-operations.md#resolve)
+**Specification:** [Core Operations: Resolve](../specifications/graft/core-operations.md#resolve)
 
 ```
 
@@ -285,8 +285,8 @@ Clone or fetch all dependencies from `graft.yaml`.
 This document provides examples and guidance for configuration files.
 
 **Authoritative Sources:**
-- [graft.yaml Format Specification](../../graft-knowledge/docs/specification/graft-yaml-format.md) - Canonical schema and validation rules
-- [Lock File Format Specification](../../graft-knowledge/docs/specification/lock-file-format.md) - graft.lock schema and semantics
+- [graft.yaml Format Specification](../specifications/graft/graft-yaml-format.md) - Canonical schema and validation rules
+- [Lock File Format Specification](../specifications/graft/lock-file-format.md) - graft.lock schema and semantics
 
 **Implementation:**
 - Parser: `src/graft/services/config_service.py` - Configuration parsing and validation
@@ -344,14 +344,14 @@ Add authority boundary markers to documents that interpret graft-knowledge specs
 
 Add after title and frontmatter:
 ```markdown
-> **Authority Note:** This document provides a developer-friendly overview of Graft's implementation architecture. For canonical architectural decisions, see [graft-knowledge/docs/architecture.md](../../graft-knowledge/docs/architecture.md) and [ADRs](../../graft-knowledge/docs/decisions/).
+> **Authority Note:** This document provides a developer-friendly overview of Graft's implementation architecture. For canonical architectural decisions, see [architecture.md](../specifications/architecture.md) and [ADRs](../specifications/decisions/).
 ```
 
 2. **docs/guides/user-guide.md**
 
 Add to "About This Guide" section (from Phase 2):
 ```markdown
-> **Authority Note:** This guide interprets canonical specifications from [graft-knowledge](../../graft-knowledge/) for practical application. When specifications and this guide conflict, specifications are authoritative.
+> **Authority Note:** This guide interprets canonical specifications from [docs/specifications/](../specifications/) for practical application. When specifications and this guide conflict, specifications are authoritative.
 ```
 
 3. **docs/configuration.md**
@@ -368,10 +368,10 @@ Enhance the canonical sources declaration to distinguish interpretation from can
 ```yaml
 sources:
   canonical:
-    - path: "../graft-knowledge/docs/architecture.md"
-      note: "Architecture decisions come from graft-knowledge (specs)"
-    - path: "../graft-knowledge/docs/decisions/**"
-      note: "ADRs are maintained in graft-knowledge"
+    - path: "docs/specifications/architecture.md"
+      note: "Architecture decisions come from specifications"
+    - path: "docs/specifications/decisions/**"
+      note: "ADRs are maintained in specifications"
     - path: "docs/structure.md"
       note: "Code structure documentation is canonical for implementation"
 ```
@@ -380,11 +380,11 @@ sources:
 ```yaml
 sources:
   canonical:
-    - path: "../graft-knowledge/docs/architecture.md"
-      note: "Architecture decisions come from graft-knowledge (specs)"
-    - path: "../graft-knowledge/docs/decisions/**"
-      note: "ADRs are maintained in graft-knowledge"
-    - path: "../graft-knowledge/docs/specification/**"
+    - path: "docs/specifications/architecture.md"
+      note: "Architecture decisions come from specifications"
+    - path: "docs/specifications/decisions/**"
+      note: "ADRs are maintained in specifications"
+    - path: "docs/specifications/graft/**"
       note: "All format and operation specifications are canonical"
     - path: "src/graft/**/*.py"
       note: "Source code is canonical for implementation details"
@@ -430,7 +430,7 @@ After:
 ```markdown
 ### Change Model
 
-Implements the [Change Model specification](../../graft-knowledge/docs/specification/change-model.md) using frozen dataclasses (`src/graft/domain/change.py:15-45`).
+Implements the [Change Model specification](../specifications/graft/change-model.md) using frozen dataclasses (`src/graft/domain/change.py:15-45`).
 
 **Implementation approach:** Immutable value objects with full type safety and validation.
 ```
@@ -713,7 +713,7 @@ Located in `src/graft/domain/`:
 
 **Change** (`src/graft/domain/change.py:15-45`)
 - Semantic change representation (breaking, feature, fix)
-- Specification: [Change Model](../../graft-knowledge/docs/specification/change-model.md)
+- Specification: [Change Model](../specifications/graft/change-model.md)
 - Tests: `tests/unit/test_domain_change.py:1-92` (22 tests)
 ```
 
@@ -854,7 +854,7 @@ This plan is based on:
 **Project Context:**
 - [Graft Architecture](../architecture.md)
 - [Graft knowledge-base.yaml](../../knowledge-base.yaml)
-- [Graft-Knowledge Specifications](../../graft-knowledge/docs/specification/)
+- [Graft Specifications](../specifications/graft/)
 
 ---
 

@@ -435,8 +435,8 @@ See [testing-v2-upgrade.md](./testing-v2-upgrade.md) for detailed test results.
 
 - [Implementation Plan](./upgrade-to-graft-knowledge-v2.md)
 - [Recommendations for Graft Improvements](./graft-improvements-recommendations.md)
-- [graft-knowledge: Lock File Format v2.0](../../../graft-knowledge/docs/specification/lock-file-format.md)
-- [graft-knowledge: Dependency Layout v2](../../../graft-knowledge/docs/specification/dependency-layout.md)
+- [graft-knowledge: Lock File Format v2.0](../specifications/graft/lock-file-format.md)
+- [graft-knowledge: Dependency Layout v2](../specifications/graft/dependency-layout.md)
 
 ## Changelog
 

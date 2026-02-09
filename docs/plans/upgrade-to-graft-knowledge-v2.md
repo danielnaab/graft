@@ -435,8 +435,8 @@ Dependencies:
 
 ## Related Documents
 
-- [graft-knowledge: Lock File Format v2.0](../../../graft-knowledge/docs/specification/lock-file-format.md)
-- [graft-knowledge: Dependency Layout v2](../../../graft-knowledge/docs/specification/dependency-layout.md)
+- [graft-knowledge: Lock File Format v2.0](../specifications/graft/lock-file-format.md)
+- [graft-knowledge: Dependency Layout v2](../specifications/graft/dependency-layout.md)
 - [graft: Architecture Overview](../README.md)
 - [graft: Configuration Reference](../configuration.md)
 

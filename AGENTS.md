@@ -26,7 +26,7 @@ As an implementation developer, you should:
 
 ## Workflow: Plan -> Patch -> Verify
 
-Follow the [agent workflow playbook](.graft/meta-knowledge-base/playbooks/agent-workflow.md):
+Follow the [agent workflow playbook](.graft/meta-knowledge-base/docs/playbooks/agent-workflow.md):
 
 1. **Plan**: State intent, files to touch, check specs in docs/specifications/
 2. **Patch**: Make minimal changes that achieve the goal
@@ -70,9 +70,9 @@ Run `graft resolve` to clone dependencies into the `.graft/` directory.
 ## Sources
 
 This agent guidance follows conventions from:
-- [Meta-KB Authority Policy](.graft/meta-knowledge-base/policies/authority.md) - Distinguishing canonical sources from interpretation
-- [Meta-KB Provenance Policy](.graft/meta-knowledge-base/policies/provenance.md) - Grounding claims in sources
-- [Meta-KB Lifecycle Policy](.graft/meta-knowledge-base/policies/lifecycle.md) - Status tracking for knowledge
-- [Meta-KB Write Boundaries Policy](.graft/meta-knowledge-base/policies/write-boundaries.md) - Safe agent editing zones
-- [Agent Workflow Playbook](.graft/meta-knowledge-base/playbooks/agent-workflow.md) - Plan -> Patch -> Verify pattern
+- [Meta-KB Authority Policy](.graft/meta-knowledge-base/docs/policies/authority.md) - Distinguishing canonical sources from interpretation
+- [Meta-KB Provenance Policy](.graft/meta-knowledge-base/docs/policies/provenance.md) - Grounding claims in sources
+- [Meta-KB Lifecycle Policy](.graft/meta-knowledge-base/docs/policies/lifecycle.md) - Status tracking for knowledge
+- [Meta-KB Write Boundaries Policy](.graft/meta-knowledge-base/docs/policies/writes.md) - Safe agent editing zones
+- [Agent Workflow Playbook](.graft/meta-knowledge-base/docs/playbooks/agent-workflow.md) - Plan -> Patch -> Verify pattern
 - [Specifications](docs/specifications/README.md) - Canonical specifications (merged from graft-knowledge)

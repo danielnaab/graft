@@ -53,7 +53,7 @@ This directory contains strategic improvement plans for the Graft documentation 
 ## Navigation
 
 **Related documentation:**
-- [Meta-knowledge-base policies](../../../meta-knowledge-base/policies/) - Upstream policies we're aligning to
+- [Meta-knowledge-base policies](../../.graft/meta-knowledge-base/docs/policies/) - Upstream policies we're aligning to
 - [Graft architecture](../architecture.md) - Current information architecture
 - [Graft agents entrypoint](../agents.md) - Agent workflow and conventions
 
