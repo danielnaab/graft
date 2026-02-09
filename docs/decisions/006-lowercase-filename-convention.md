@@ -19,7 +19,7 @@ The project initially used ALL_CAPS filenames for documentation files (tasks.md,
 
 ### Meta-Knowledge-Base Conventions
 
-Examining `/home/coder/meta-knowledge-base`, we found:
+Examining `.graft/meta-knowledge-base`, we found:
 - All documentation uses lowercase-with-hyphens
 - Examples: `atomic-notes.md`, `planning-procedure.md`, `decision-0001-scope.md`
 - Only exception: `README.md` (universal standard)
@@ -112,7 +112,7 @@ status/phase-8.md → status/phase-8.md
 ## Compliance
 
 This decision ensures compliance with:
-- **Meta-knowledge-base**: Follows example projects in `/home/coder/meta-knowledge-base/examples/`
+- **Meta-knowledge-base**: Follows example projects in `.graft/meta-knowledge-base/examples/`
 - **Style policy**: Professional, friendly, not aggressive
 - **Linking policy**: Consistent, predictable file references
 
@@ -125,8 +125,8 @@ This decision ensures compliance with:
 
 ## References
 
-- Meta-knowledge-base examples: `/home/coder/meta-knowledge-base/examples/`
-- Meta-KB style policy: `/home/coder/meta-knowledge-base/policies/style.md`
+- Meta-knowledge-base examples: `.graft/meta-knowledge-base/examples/`
+- Meta-KB style policy: `.graft/meta-knowledge-base/policies/style.md`
 - Industry examples: Next.js, Tailwind CSS, Vite, Rust documentation
 
 ---

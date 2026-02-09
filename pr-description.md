@@ -87,8 +87,8 @@ See `implementation.md` for detailed tracking.
 
 ## References
 
-- Planning: `/graft-knowledge/notes/2026-01-03-python-implementation-plan.md`
-- Specification: `/graft-knowledge/docs/architecture.md`
+- Planning: `notes/2026-01-03-python-implementation-plan.md`
+- Specification: `docs/specifications/graft/architecture.md`
 - Related specs: Change Model, graft.yaml Format, Lock File Format
 
 ---

@@ -8,7 +8,7 @@ status: working
 
 ## Overview
 
-This note documents the plan to sync the Python implementation in `/home/coder/graft` with the full specification defined in this knowledge base (graft-knowledge).
+This note documents the plan to sync the Python implementation in this repository with the full specification defined in this knowledge base (graft-knowledge).
 
 ## Current State Analysis
 
@@ -274,7 +274,7 @@ Tasks:
 **Goal**: Document the implementation
 
 Tasks:
-1. Update `/home/coder/graft/docs/README.md`:
+1. Update `docs/README.md`:
    - Add links to graft-knowledge specs
    - Document implemented features
    - Usage examples

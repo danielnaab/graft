@@ -54,5 +54,5 @@ Each repository has:
 
 ## Sources
 
-- Meta-KB methodology: [../../meta-knowledge-base/docs/meta.md](../../meta-knowledge-base/docs/meta.md)
+- Meta-KB methodology: [../.graft/meta-knowledge-base/docs/meta.md](../.graft/meta-knowledge-base/docs/meta.md)
 - Graft specifications: [../docs/specifications/README.md](../docs/specifications/README.md)

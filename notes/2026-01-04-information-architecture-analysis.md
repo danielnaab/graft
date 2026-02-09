@@ -64,7 +64,7 @@ graft/
 
 ## Learnings from Meta-Knowledge-Base
 
-### Key Principles (from /home/coder/meta-knowledge-base)
+### Key Principles (from meta-knowledge-base)
 
 1. **Stable entrypoint**: meta.md is the only stable reference point
 2. **Authority policy**: Distinguish canonical sources from interpretation
@@ -249,9 +249,9 @@ Add:
 
 ## Sources
 
-- [Meta-Knowledge-Base](file:///home/coder/meta-knowledge-base/docs/meta.md) - Entrypoint patterns
-- [Meta-KB Style Policy](file:///home/coder/meta-knowledge-base/policies/style.md) - Documentation standards
-- [Meta-KB Agent Workflow](file:///home/coder/meta-knowledge-base/playbooks/agent-workflow.md) - Plan → Patch → Verify
+- [Meta-Knowledge-Base](../.graft/meta-knowledge-base/docs/meta.md) - Entrypoint patterns
+- [Meta-KB Style Policy](../.graft/meta-knowledge-base/policies/style.md) - Documentation standards
+- [Meta-KB Agent Workflow](../.graft/meta-knowledge-base/playbooks/agent-workflow.md) - Plan → Patch → Verify
 - [Superpowers](https://github.com/obra/superpowers) - Modular skill architecture
 - [Superpowers Codex Docs](https://github.com/obra/superpowers/blob/main/docs/README.codex.md) - Agent-oriented patterns
 

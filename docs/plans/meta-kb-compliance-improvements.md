@@ -7,7 +7,7 @@ target_completion: "Before feature/sync-with-specification merge"
 related:
   - ../../notes/2026-01-05-meta-knowledge-base-compliance-analysis.md
   - ../architecture.md
-  - ../../meta-knowledge-base/docs/meta.md
+  - ../../.graft/meta-knowledge-base/docs/meta.md
 ---
 
 # Meta-Knowledge-Base Compliance Improvement Plan
@@ -38,7 +38,7 @@ Tasks are organized by priority and risk level for systematic implementation.
 
 ### Objective
 
-Add lifecycle status markers to all documentation files following [meta-KB lifecycle policy](../../meta-knowledge-base/policies/lifecycle.md).
+Add lifecycle status markers to all documentation files following [meta-KB lifecycle policy](../../.graft/meta-knowledge-base/policies/lifecycle.md).
 
 ### Tasks
 
@@ -56,27 +56,27 @@ updated: 2026-01-05
 
 **Files to Update:**
 
-1. `/home/coder/graft/docs/README.md`
+1. `docs/README.md`
    - Add frontmatter at line 1
    - Status: stable (production-ready architecture doc)
 
-2. `/home/coder/graft/docs/guides/user-guide.md`
+2. `docs/guides/user-guide.md`
    - Add frontmatter at line 1
    - Status: stable (comprehensive user guide, well-tested)
 
-3. `/home/coder/graft/docs/guides/contributing.md`
+3. `docs/guides/contributing.md`
    - Add frontmatter at line 1
    - Status: stable (established development patterns)
 
-4. `/home/coder/graft/docs/cli-reference.md`
+4. `docs/cli-reference.md`
    - Add frontmatter at line 1
    - Status: stable (documents all implemented commands)
 
-5. `/home/coder/graft/docs/configuration.md`
+5. `docs/configuration.md`
    - Add frontmatter at line 1
    - Status: stable (documents current config formats)
 
-6. `/home/coder/graft/docs/index.md`
+6. `docs/index.md`
    - Add frontmatter at line 1
    - Status: stable (navigation index)
 
@@ -97,16 +97,16 @@ archive_to: "notes/archive/2026-01-implementation-tracking.md"
 
 **Files to Update:**
 
-1. `/home/coder/graft/status/implementation.md`
+1. `status/implementation.md`
    - Add frontmatter with archive trigger: "Phase 10 completion"
 
-2. `/home/coder/graft/status/gap-analysis.md`
+2. `status/gap-analysis.md`
    - Add frontmatter with archive trigger: "All gaps resolved"
 
-3. `/home/coder/graft/status/workflow-validation.md`
+3. `status/workflow-validation.md`
    - Add frontmatter with archive trigger: "Migrate to tests/docs/"
 
-4. `/home/coder/graft/status/phase-8.md`
+4. `status/phase-8.md`
    - Add frontmatter with archive trigger: "Phase 8 completion"
 
 #### Task 1.3: Mark Living Documents
@@ -125,11 +125,11 @@ archive_policy: "Snapshot before major milestones, keep latest"
 
 **Files to Update:**
 
-1. `/home/coder/graft/continue-here.md`
+1. `continue-here.md`
    - Add frontmatter marking as living document
    - Document snapshot policy
 
-2. `/home/coder/graft/tasks.md`
+2. `tasks.md`
    - Add frontmatter marking as living document
    - Clarify it tracks current work only
 
@@ -167,13 +167,13 @@ grep "^status:" docs/*.md docs/guides/*.md docs/plans/*.md status/*.md continue-
 
 ### Objective
 
-Add `## Sources` sections to documents making operational or architectural claims, following [meta-KB provenance policy](../../meta-knowledge-base/policies/provenance.md).
+Add `## Sources` sections to documents making operational or architectural claims, following [meta-KB provenance policy](../../.graft/meta-knowledge-base/policies/provenance.md).
 
 ### Tasks
 
 #### Task 2.1: Add Sources to Architecture Documentation
 
-**File:** `/home/coder/graft/docs/README.md`
+**File:** `docs/README.md`
 
 **Location:** Add new section after existing content (end of file)
 
@@ -205,7 +205,7 @@ This architecture documentation is grounded in:
 
 #### Task 2.2: Add Sources to User Guide
 
-**File:** `/home/coder/graft/docs/guides/user-guide.md`
+**File:** `docs/guides/user-guide.md`
 
 **Location:** Add new section before "Table of Contents" (after frontmatter)
 
@@ -231,7 +231,7 @@ This guide provides practical applications of Graft specifications:
 
 #### Task 2.3: Add Sources to CLI Reference
 
-**File:** `/home/coder/graft/docs/cli-reference.md`
+**File:** `docs/cli-reference.md`
 
 **Location:** Add after title, before first command section
 
@@ -274,7 +274,7 @@ Clone or fetch all dependencies from `graft.yaml`.
 
 #### Task 2.4: Add Sources to Configuration Documentation
 
-**File:** `/home/coder/graft/docs/configuration.md`
+**File:** `docs/configuration.md`
 
 **Location:** Add after title, before first section
 
@@ -330,7 +330,7 @@ grep -r "graft-knowledge" docs/*.md docs/guides/*.md | wc -l
 
 ### Objective
 
-Make explicit which documents are interpretations of canonical specifications vs. canonical themselves, following [meta-KB authority policy](../../meta-knowledge-base/policies/authority.md).
+Make explicit which documents are interpretations of canonical specifications vs. canonical themselves, following [meta-KB authority policy](../../.graft/meta-knowledge-base/policies/authority.md).
 
 ### Tasks
 
@@ -362,7 +362,7 @@ Already has note in Phase 2.4. Verify it's clear.
 
 Enhance the canonical sources declaration to distinguish interpretation from canonical.
 
-**File:** `/home/coder/graft/knowledge-base.yaml`
+**File:** `knowledge-base.yaml`
 
 **Current (lines 27-34):**
 ```yaml
@@ -475,7 +475,7 @@ Document explicit lifecycle management for status/ tracking documents and establ
 
 Add lifecycle guidance to architecture documentation.
 
-**File:** `/home/coder/graft/docs/architecture.md`
+**File:** `docs/architecture.md`
 
 **Location:** Add new section before "Sources"
 
@@ -485,7 +485,7 @@ Add lifecycle guidance to architecture documentation.
 
 ### Temporal Layers
 
-Graft uses three temporal layers following [meta-KB temporal stratification](../../meta-knowledge-base/policies/temporal-layers.md):
+Graft uses three temporal layers following [meta-KB temporal stratification](../../.graft/meta-knowledge-base/policies/temporal-layers.md):
 
 **Ephemeral (notes/):**
 - Purpose: Session logs, exploration, learning
@@ -575,7 +575,7 @@ These documents are kept for context but are not actively maintained.
 Set up the archive infrastructure.
 
 ```bash
-mkdir -p /home/coder/graft/notes/archive
+mkdir -p notes/archive
 ```
 
 Create README as specified in Task 4.1.
@@ -610,24 +610,24 @@ ls -la notes/archive/
 
 ### Objective
 
-Ensure all links follow [meta-KB linking policy](../../meta-knowledge-base/policies/linking.md): real markdown links for navigation, backticks only for literal paths.
+Ensure all links follow [meta-KB linking policy](../../.graft/meta-knowledge-base/policies/linking.md): real markdown links for navigation, backticks only for literal paths.
 
 ### Tasks
 
 #### Task 5.1: Fix Absolute Path in index.md
 
-**File:** `/home/coder/graft/docs/index.md`
+**File:** `docs/index.md`
 
 **Line 206:**
 
 Current:
 ```markdown
-See [meta-knowledge-base style policy](file:///home/coder/meta-knowledge-base/policies/style.md) for full standards.
+See [meta-knowledge-base style policy](../../.graft/meta-knowledge-base/policies/style.md) for full standards.
 ```
 
 Fixed:
 ```markdown
-See [meta-knowledge-base style policy](../../meta-knowledge-base/policies/style.md) for full standards.
+See [meta-knowledge-base style policy](../../.graft/meta-knowledge-base/policies/style.md) for full standards.
 ```
 
 #### Task 5.2: Audit for Other Linking Issues
@@ -682,7 +682,7 @@ Enhance documentation with specific file:line references for stronger grounding 
 
 #### Task 6.1: Add Code References to Architecture Doc
 
-**File:** `/home/coder/graft/docs/README.md`
+**File:** `docs/README.md`
 
 Enhance each subsection with implementation references.
 
@@ -846,10 +846,10 @@ This plan is based on:
 - [Meta-KB Compliance Analysis](../../notes/2026-01-05-meta-knowledge-base-compliance-analysis.md)
 
 **Policies:**
-- [Meta-KB Lifecycle Policy](../../meta-knowledge-base/policies/lifecycle.md)
-- [Meta-KB Provenance Policy](../../meta-knowledge-base/policies/provenance.md)
-- [Meta-KB Authority Policy](../../meta-knowledge-base/policies/authority.md)
-- [Meta-KB Linking Policy](../../meta-knowledge-base/policies/linking.md)
+- [Meta-KB Lifecycle Policy](../../.graft/meta-knowledge-base/policies/lifecycle.md)
+- [Meta-KB Provenance Policy](../../.graft/meta-knowledge-base/policies/provenance.md)
+- [Meta-KB Authority Policy](../../.graft/meta-knowledge-base/policies/authority.md)
+- [Meta-KB Linking Policy](../../.graft/meta-knowledge-base/policies/linking.md)
 
 **Project Context:**
 - [Graft Architecture](../architecture.md)

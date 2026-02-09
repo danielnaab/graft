@@ -26,7 +26,7 @@ The graft implementation successfully delivers **all core functionality** with h
 - ✅ Comprehensive testing (278 tests, 61% coverage)
 - ✅ Production-ready and dogfooded
 
-However, comparing against the **specification** (`/home/coder/graft-knowledge/docs/specification/core-operations.md`), we have **several missing features** that were specified but not implemented. These are primarily **enhancement features** rather than core functionality blockers.
+However, comparing against the **specification** (`docs/specifications/graft/core-operations.md`), we have **several missing features** that were specified but not implemented. These are primarily **enhancement features** rather than core functionality blockers.
 
 ### Score Card
 

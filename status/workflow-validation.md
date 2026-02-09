@@ -264,10 +264,10 @@ All commands tested on real repository (graft itself):
 ## Example Session Transcript
 
 ```bash
-$ cd /home/coder/graft
+$ cd graft
 
 $ graft resolve
-Found configuration: /home/coder/graft/graft.yaml
+Found configuration: graft.yaml
 ✓ graft-knowledge: resolved to ../graft-knowledge
 
 $ graft apply graft-knowledge --to main

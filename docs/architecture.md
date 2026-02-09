@@ -411,9 +411,9 @@ Current state has several docs at root:
 
 ## References
 
-- Meta-KB Authority Policy: `/home/coder/meta-knowledge-base/policies/authority.md`
-- Meta-KB Provenance Policy: `/home/coder/meta-knowledge-base/policies/provenance.md`
-- Meta-KB Lifecycle Policy: `/home/coder/meta-knowledge-base/policies/lifecycle.md`
+- Meta-KB Authority Policy: `.graft/meta-knowledge-base/policies/authority.md`
+- Meta-KB Provenance Policy: `.graft/meta-knowledge-base/policies/provenance.md`
+- Meta-KB Lifecycle Policy: `.graft/meta-knowledge-base/policies/lifecycle.md`
 - Graft Specifications: `docs/specifications/graft/`
 
 ---

@@ -5,7 +5,7 @@ purpose: "Deep analysis of Graft documentation compliance with meta-knowledge-ba
 related:
   - ../docs/architecture.md
   - ../knowledge-base.yaml
-  - ../../meta-knowledge-base/docs/meta.md
+  - ../.graft/meta-knowledge-base/docs/meta.md
 ---
 
 # Meta-Knowledge-Base Compliance Analysis
@@ -25,11 +25,11 @@ The Graft documentation demonstrates **80% compliance** with meta-knowledge-base
 ### 1. Clear Entrypoints ✅
 
 **Evidence:**
-- Human entrypoint: `/home/coder/graft/README.md` (well-structured, clear navigation)
-- Agent entrypoint: `/home/coder/graft/docs/agents.md` (excellent role definition and workflow guidance)
+- Human entrypoint: `README.md` (well-structured, clear navigation)
+- Agent entrypoint: `docs/agents.md` (excellent role definition and workflow guidance)
 - Both declared in `knowledge-base.yaml:5-7`
 
-**Compliance:** Full compliance with [meta-KB entrypoints](../../meta-knowledge-base/docs/meta.md#what-this-system-standardizes)
+**Compliance:** Full compliance with [meta-KB entrypoints](../.graft/meta-knowledge-base/docs/meta.md#what-this-system-standardizes)
 
 ### 2. Good Separation of Concerns ✅
 
@@ -54,7 +54,7 @@ rules:
     deny: ["secrets/**", "config/prod/**"]
 ```
 
-**Compliance:** Full compliance with [write boundaries policy](../../meta-knowledge-base/policies/writes.md)
+**Compliance:** Full compliance with [write boundaries policy](../.graft/meta-knowledge-base/policies/writes.md)
 
 ### 4. Strong Provenance in Agent Entrypoint ✅
 
@@ -63,7 +63,7 @@ rules:
 - Graft-knowledge specifications
 - Agent workflow playbook
 
-**Compliance:** Excellent example of [provenance policy](../../meta-knowledge-base/policies/provenance.md) application
+**Compliance:** Excellent example of [provenance policy](../.graft/meta-knowledge-base/policies/provenance.md) application
 
 ### 5. Good ADR Practice ✅
 
@@ -78,7 +78,7 @@ rules:
 
 ### Gap 1: Inconsistent Lifecycle Markers ⚠️
 
-**Policy:** [Meta-KB Lifecycle Policy](../../meta-knowledge-base/policies/lifecycle.md)
+**Policy:** [Meta-KB Lifecycle Policy](../.graft/meta-knowledge-base/policies/lifecycle.md)
 
 **Current State:**
 - Only 3 document categories have status markers:
@@ -105,7 +105,7 @@ continue-here.md             # No status (should be "living")
 
 ### Gap 2: Missing Provenance on Key Documents ⚠️
 
-**Policy:** [Meta-KB Provenance Policy](../../meta-knowledge-base/policies/provenance.md)
+**Policy:** [Meta-KB Provenance Policy](../.graft/meta-knowledge-base/policies/provenance.md)
 
 **Requirement:** Provenance required for:
 - Operational guidance
@@ -144,7 +144,7 @@ continue-here.md             # No status (should be "living")
 
 ### Gap 3: Unclear Authority Boundaries ⚠️
 
-**Policy:** [Meta-KB Authority Policy](../../meta-knowledge-base/policies/authority.md)
+**Policy:** [Meta-KB Authority Policy](../.graft/meta-knowledge-base/policies/authority.md)
 
 **Requirement:** Clear distinction between:
 - Canonical truth (specs, code, data)
@@ -208,7 +208,7 @@ continue-here.md             # No status (should be "living")
 
 ### Gap 5: Linking Policy Inconsistencies ⚠️
 
-**Policy:** [Meta-KB Linking Policy](../../meta-knowledge-base/policies/linking.md)
+**Policy:** [Meta-KB Linking Policy](../.graft/meta-knowledge-base/policies/linking.md)
 
 **Requirement:**
 - Real markdown links for navigation
@@ -219,14 +219,14 @@ continue-here.md             # No status (should be "living")
 
 **docs/index.md:206:**
 ```markdown
-See [meta-knowledge-base style policy](file:///home/coder/meta-knowledge-base/policies/style.md)
+See [meta-knowledge-base style policy](../.graft/meta-knowledge-base/policies/style.md)
 ```
 
 **Problem:** Absolute file:// path instead of relative markdown link
 
 **Should be:**
 ```markdown
-See [meta-knowledge-base style policy](../../meta-knowledge-base/policies/style.md)
+See [meta-knowledge-base style policy](../.graft/meta-knowledge-base/policies/style.md)
 ```
 
 **Other Issues:**
@@ -368,16 +368,16 @@ This analysis should inform:
 This analysis is grounded in:
 
 **Meta-Knowledge-Base Policies:**
-- [Authority Policy](../../meta-knowledge-base/policies/authority.md)
-- [Provenance Policy](../../meta-knowledge-base/policies/provenance.md)
-- [Lifecycle Policy](../../meta-knowledge-base/policies/lifecycle.md)
-- [Linking Policy](../../meta-knowledge-base/policies/linking.md)
-- [Write Boundaries Policy](../../meta-knowledge-base/policies/writes.md)
-- [Style Policy](../../meta-knowledge-base/policies/style.md)
+- [Authority Policy](../.graft/meta-knowledge-base/policies/authority.md)
+- [Provenance Policy](../.graft/meta-knowledge-base/policies/provenance.md)
+- [Lifecycle Policy](../.graft/meta-knowledge-base/policies/lifecycle.md)
+- [Linking Policy](../.graft/meta-knowledge-base/policies/linking.md)
+- [Write Boundaries Policy](../.graft/meta-knowledge-base/policies/writes.md)
+- [Style Policy](../.graft/meta-knowledge-base/policies/style.md)
 
 **Meta-Knowledge-Base Playbooks:**
-- [Evolve KB Playbook](../../meta-knowledge-base/playbooks/evolve-kb.md)
-- [Agent Workflow](../../meta-knowledge-base/playbooks/agent-workflow.md)
+- [Evolve KB Playbook](../.graft/meta-knowledge-base/playbooks/evolve-kb.md)
+- [Agent Workflow](../.graft/meta-knowledge-base/playbooks/agent-workflow.md)
 
 **Graft Configuration:**
 - [knowledge-base.yaml](../knowledge-base.yaml)

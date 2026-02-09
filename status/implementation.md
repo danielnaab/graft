@@ -460,7 +460,7 @@ Remaining (optional enhancements):
 ### Quick Start
 ```bash
 # Navigate to repository
-cd /home/coder/graft
+cd graft
 
 # Ensure on correct branch
 git checkout feature/sync-with-specification
@@ -583,11 +583,11 @@ uv run ruff check src/ tests/
 ## References
 
 - **Pull Request**: http://192.168.1.51/git/daniel/graft/pulls/1
-- **Planning Doc**: `/home/coder/graft-knowledge/notes/2026-01-03-python-implementation-plan.md`
-- **Implementation Note**: `/home/coder/graft/notes/2026-01-03-specification-sync.md`
-- **Workflow Guide**: `/home/coder/graft/workflow-validation.md`
-- **Phase 8 Report**: `/home/coder/graft/phase-8.md`
-- **Specification**: `/home/coder/graft-knowledge/docs/specification/`
+- **Planning Doc**: `notes/2026-01-03-python-implementation-plan.md`
+- **Implementation Note**: `notes/2026-01-03-specification-sync.md`
+- **Workflow Guide**: `status/workflow-validation.md`
+- **Phase 8 Report**: `status/phase-8.md`
+- **Specification**: `docs/specifications/graft/`
 - **Base Branch**: `main`
 - **Feature Branch**: `feature/sync-with-specification`
 

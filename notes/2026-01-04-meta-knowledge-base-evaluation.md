@@ -18,7 +18,7 @@ Meta-knowledge-base provided valuable high-level principles but lacked concrete 
 
 ### 1. Style Policy
 
-**Location**: `/home/coder/meta-knowledge-base/policies/style.md`
+**Location**: `.graft/meta-knowledge-base/policies/style.md`
 
 **What it provides**:
 - Plain language principle
@@ -34,7 +34,7 @@ Meta-knowledge-base provided valuable high-level principles but lacked concrete 
 
 ### 2. Example Projects
 
-**Location**: `/home/coder/meta-knowledge-base/examples/`
+**Location**: `.graft/meta-knowledge-base/examples/`
 
 **What it provides**:
 - Filename conventions (lowercase-with-hyphens)
@@ -50,7 +50,7 @@ Meta-knowledge-base provided valuable high-level principles but lacked concrete 
 
 ### 3. Agent Workflow Playbook
 
-**Location**: `/home/coder/meta-knowledge-base/playbooks/agent-workflow.md`
+**Location**: `.graft/meta-knowledge-base/playbooks/agent-workflow.md`
 
 **What it provides**:
 - Plan → Patch → Verify pattern
@@ -402,6 +402,6 @@ Meta-knowledge-base provided a valuable foundation but needs more "how-to" guida
 ---
 
 **Sources**:
-- Meta-knowledge-base: `/home/coder/meta-knowledge-base/`
+- Meta-knowledge-base: `.graft/meta-knowledge-base/`
 - Graft experience: This project (2026-01-04)
 - Industry patterns: Rust, Django, FastAPI, pytest, Next.js

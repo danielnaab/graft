@@ -181,7 +181,7 @@ None identified. All tests pass.
 4. Manual end-to-end testing
 
 ## References
-- Specification: `/home/coder/graft-knowledge/docs/specification/core-operations.md`
+- Specification: `docs/specifications/graft/core-operations.md`
 - Original plan: `notes/2026-01-03-specification-sync.md`
 - PR: http://192.168.1.51/git/daniel/graft/pulls/1
 - Branch: `feature/sync-with-specification`

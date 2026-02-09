@@ -10,7 +10,7 @@ Implemented comprehensive, Pythonic, type-safe error handling strategy for Graft
 
 ## Motivation
 
-The initial implementation used basic exception handling with generic error types. As documented in [ADR 001: Error Handling Strategy](/home/coder/graft/docs/decisions/001-error-handling-strategy.md), we needed:
+The initial implementation used basic exception handling with generic error types. As documented in [ADR 001: Error Handling Strategy](../docs/decisions/001-error-handling-strategy.md), we needed:
 
 1. **Type Safety** - Make errors explicit in function signatures
 2. **Better UX** - Provide actionable error messages with recovery suggestions
@@ -187,7 +187,7 @@ Error handling tests should cover:
 
 ## Related Decisions
 
-- [ADR 001: Error Handling Strategy](/home/coder/graft/docs/decisions/001-error-handling-strategy.md)
+- [ADR 001: Error Handling Strategy](../docs/decisions/001-error-handling-strategy.md)
 - [Python EAFP Principle](https://docs.python.org/3/glossary.html#term-EAFP)
 - [PEP 3134: Exception Chaining](https://peps.python.org/pep-3134/)
 
@@ -245,5 +245,5 @@ Error: Invalid configuration
 ## References
 
 - Implementation Plan: `/home/coder/.claude/plans/gleaming-coalescing-lobster.md`
-- ADR 001: `/home/coder/graft/docs/decisions/001-error-handling-strategy.md`
+- ADR 001: `docs/decisions/001-error-handling-strategy.md`
 - Python Starter Error Patterns: `../python-starter/docs/architecture/error-handling.md` (if exists)

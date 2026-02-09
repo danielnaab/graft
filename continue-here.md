@@ -30,7 +30,7 @@ See [tasks.md](tasks.md) for detailed status.
 
 ```bash
 # Get oriented
-cd /home/coder/graft
+cd graft
 git checkout feature/sync-with-specification
 git status
 

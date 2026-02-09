@@ -74,7 +74,7 @@ The graft-knowledge repository contains a comprehensive specification for Graft'
 
 ## Implementation Phases
 
-See `/home/coder/graft-knowledge/notes/2026-01-03-python-implementation-plan.md` for detailed plan.
+See `notes/2026-01-03-python-implementation-plan.md` for detailed plan.
 
 Summary of phases:
 
@@ -230,7 +230,7 @@ Implementation is complete when:
 
 ## Authority
 
-**Canonical specification**: `/home/coder/graft-knowledge/`
+**Canonical specification**: `docs/specifications/`
 
 All implementation decisions should be grounded in the specification. Any deviations require:
 1. Clear rationale

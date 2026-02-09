@@ -208,14 +208,14 @@ All documentation follows these principles:
 - **Accurate** - All examples tested, all links verified
 - **Maintained** - Updated when code changes
 
-See [meta-knowledge-base style policy](../../meta-knowledge-base/policies/style.md) for full standards.
+See [meta-knowledge-base style policy](../.graft/meta-knowledge-base/policies/style.md) for full standards.
 
 ---
 
 ## External References
 
 - **Specification**: `docs/specifications/graft/`
-- **Meta-Knowledge-Base**: `/home/coder/meta-knowledge-base/docs/meta.md`
+- **Meta-Knowledge-Base**: `.graft/meta-knowledge-base/docs/meta.md`
 
 ---
 

@@ -89,8 +89,8 @@ Future work should:
 
 ## Sources
 
-- Template: /home/coder/python-starter
-- Template documentation: /home/coder/python-starter/docs/
+- Template: .graft/python-starter
+- Template documentation: .graft/python-starter/docs/
 - Copier configuration: .copier-answers.yml
 - Git commits: 05de131, 1c0f4de
-- Meta-knowledge-base policies: /home/coder/meta-knowledge-base/docs/meta.md
+- Meta-knowledge-base policies: .graft/meta-knowledge-base/docs/meta.md

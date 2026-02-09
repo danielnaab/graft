@@ -304,8 +304,8 @@ Porting 8,700 lines of Python with 55 test files is real work. Even with Claude 
 
 ## Sources
 
-- Current graft implementation: `/home/coder/src/graft/` (~8,700 lines Python)
-- Current specs: `/home/coder/src/graft-knowledge/` (~108 markdown files)
+- Current graft implementation: `src/graft/` (~8,700 lines Python)
+- Current specs: `docs/specifications/` (~108 markdown files)
 - [Grove Architecture](../docs/specifications/grove/architecture.md)
 - [Grove Vertical Slices](./2026-02-06-grove-vertical-slices.md)
 - [Binary Architecture and Composition](./2026-02-08-binary-architecture-and-composition.md)

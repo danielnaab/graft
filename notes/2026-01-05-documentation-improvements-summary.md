@@ -5,7 +5,7 @@ purpose: "Summary of documentation improvement analysis and planning session"
 related:
   - 2026-01-05-meta-knowledge-base-compliance-analysis.md
   - ../docs/plans/meta-kb-compliance-improvements.md
-  - ../../meta-knowledge-base/CHANGELOG.md
+  - ../.graft/meta-knowledge-base/CHANGELOG.md
 ---
 
 # Documentation Improvements Session - 2026-01-05
@@ -65,13 +65,13 @@ Based on deep analysis of what evolving knowledge bases like Graft need, enhance
 
 #### New Policies Added
 
-**[policies/temporal-layers.md](../../meta-knowledge-base/policies/temporal-layers.md)**
+**[policies/temporal-layers.md](../.graft/meta-knowledge-base/policies/temporal-layers.md)**
 - Three temporal layers: ephemeral (notes/), tracking (status/), durable (docs/)
 - Living documents concept for always-current state tracking
 - Migration paths between layers
 - Addresses Graft's need for status/ directory guidance
 
-**[policies/generated-content.md](../../meta-knowledge-base/policies/generated-content.md)**
+**[policies/generated-content.md](../.graft/meta-knowledge-base/policies/generated-content.md)**
 - When to generate vs. handwrite documentation
 - Three generation levels: indexes, summaries, fully generated
 - Pain triggers: synchronization, scale, consistency
@@ -79,19 +79,19 @@ Based on deep analysis of what evolving knowledge bases like Graft need, enhance
 
 #### New/Enhanced Playbooks
 
-**[playbooks/evolve-kb.md](../../meta-knowledge-base/playbooks/evolve-kb.md)** - ENHANCED
+**[playbooks/evolve-kb.md](../.graft/meta-knowledge-base/playbooks/evolve-kb.md)** - ENHANCED
 - Evidence-based evolution triggers framework
 - Five pain types with concrete thresholds and interventions
 - Decision framework: name → count → intervene → observe → iterate
 - Anti-patterns: premature infrastructure, speculative evolution
 
-**[playbooks/manage-kb-dependencies.md](../../meta-knowledge-base/playbooks/manage-kb-dependencies.md)** - NEW
+**[playbooks/manage-kb-dependencies.md](../.graft/meta-knowledge-base/playbooks/manage-kb-dependencies.md)** - NEW
 - Cross-repository knowledge coordination patterns
 - Relationship types: foundational, canonical-source, peer, generated-from
 - Sync policies: interpret, extend, reference
 - Addresses graft ↔ graft-knowledge coordination
 
-**[playbooks/multi-agent-coordination.md](../../meta-knowledge-base/playbooks/multi-agent-coordination.md)** - NEW (Experimental)
+**[playbooks/multi-agent-coordination.md](../.graft/meta-knowledge-base/playbooks/multi-agent-coordination.md)** - NEW (Experimental)
 - Patterns for multiple specialized agents collaborating
 - Coordination patterns: sequential, concurrent, collaborative
 - Communication protocols and status signaling
@@ -99,14 +99,14 @@ Based on deep analysis of what evolving knowledge bases like Graft need, enhance
 
 #### Core Documentation Updated
 
-**[docs/meta.md](../../meta-knowledge-base/docs/meta.md)** - UPDATED
+**[docs/meta.md](../.graft/meta-knowledge-base/docs/meta.md)** - UPDATED
 - Added "New dimensions (2026)" section
 - Organized policies into Core vs. Extended
 - Added Quick Start Paths for different scenarios
 - Enhanced Philosophy section
 - Preserved stable entrypoint guarantee
 
-**[CHANGELOG.md](../../meta-knowledge-base/CHANGELOG.md)** - CREATED
+**[CHANGELOG.md](../.graft/meta-knowledge-base/CHANGELOG.md)** - CREATED
 - Documents 2026-01-05 enhancements
 - Explains evidence base (Graft analysis)
 - Maintains philosophy transparency
@@ -170,12 +170,12 @@ Based on deep analysis of what evolving knowledge bases like Graft need, enhance
 **Quick review:**
 - Read this summary
 - Skim [docs/plans/meta-kb-compliance-improvements.md](../docs/plans/meta-kb-compliance-improvements.md) Phase summaries
-- Review [meta-KB CHANGELOG](../../meta-knowledge-base/CHANGELOG.md)
+- Review [meta-KB CHANGELOG](../.graft/meta-knowledge-base/CHANGELOG.md)
 
 **Deep review:**
 - Full [compliance analysis](2026-01-05-meta-knowledge-base-compliance-analysis.md)
-- New [temporal layers policy](../../meta-knowledge-base/policies/temporal-layers.md)
-- Enhanced [evolution playbook](../../meta-knowledge-base/playbooks/evolve-kb.md)
+- New [temporal layers policy](../.graft/meta-knowledge-base/policies/temporal-layers.md)
+- Enhanced [evolution playbook](../.graft/meta-knowledge-base/playbooks/evolve-kb.md)
 
 **Feedback priorities:**
 1. Are the identified gaps accurate?
