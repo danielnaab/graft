@@ -218,6 +218,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
             let detail_lines = self.build_detail_lines();
 
+            // Clamp scroll to content height (account for border: 2 lines top+bottom)
+            let inner_height = chunks[1].height.saturating_sub(2) as usize;
+            let max_scroll = detail_lines.len().saturating_sub(inner_height);
+            self.detail_scroll = self.detail_scroll.min(max_scroll);
+
             let detail_widget = Paragraph::new(detail_lines)
                 .block(
                     Block::default()
@@ -242,14 +247,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             ))];
         };
 
+        let mut lines: Vec<Line<'static>> = Vec::new();
+
+        // Show error as warning if present (but continue rendering partial data)
         if let Some(error) = &detail.error {
-            return vec![Line::from(Span::styled(
+            lines.push(Line::from(Span::styled(
                 format!("Error: {error}"),
                 Style::default().fg(Color::Red),
-            ))];
+            )));
+            lines.push(Line::from(""));
         }
-
-        let mut lines: Vec<Line<'static>> = Vec::new();
 
         // Branch/status header from registry
         if let Some(index) = self.cached_detail_index {
