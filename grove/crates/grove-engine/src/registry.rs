@@ -71,11 +71,7 @@ impl<G: GitStatus> RepoRegistry for WorkspaceRegistry<G> {
             self.status_cache.insert(repo_decl.path.clone(), status);
         }
 
-        log::debug!(
-            "Refresh complete: {} successful, {} failed",
-            successful,
-            failed
-        );
+        log::debug!("Refresh complete: {successful} successful, {failed} failed");
 
         Ok(RefreshStats { successful, failed })
     }

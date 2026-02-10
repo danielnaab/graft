@@ -5,7 +5,7 @@
 
 mod common;
 
-use grove_core::{ConfigLoader, RepoRegistry};
+use grove_core::{ConfigLoader, RepoDetailProvider, RepoRegistry};
 use grove_engine::{GitoxideStatus, WorkspaceRegistry, YamlConfigLoader};
 use std::fs;
 use std::io::Write;
@@ -237,6 +237,57 @@ repositories:
         status2.error.is_some(),
         "Invalid repo should have error: {status2:?}"
     );
+}
+
+/// Test `RepoDetailProvider` end-to-end with real git repo
+#[test]
+fn get_detail_end_to_end_with_real_repo() {
+    let temp_dir = TempDir::new().unwrap();
+    let repo_path = temp_dir.path().join("detail-repo");
+    fs::create_dir(&repo_path).unwrap();
+
+    // First commit via helper (clean)
+    init_git_repo(&repo_path, "initial content", false);
+
+    // Add a second commit
+    fs::write(repo_path.join("file2.txt"), "content2").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo_path)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "Second commit"])
+        .current_dir(&repo_path)
+        .output()
+        .unwrap();
+
+    // Make working tree dirty
+    fs::write(repo_path.join("README.md"), "modified").unwrap();
+    fs::write(repo_path.join("new_untracked.txt"), "new").unwrap();
+
+    // Query detail
+    let provider = GitoxideStatus::new();
+    let path = grove_core::RepoPath::new(repo_path.to_str().unwrap()).unwrap();
+    let detail = provider.get_detail(&path, 10).unwrap();
+
+    // Verify commits
+    assert_eq!(detail.commits.len(), 2, "Should have 2 commits");
+    assert_eq!(detail.commits[0].subject, "Second commit");
+    assert_eq!(detail.commits[1].subject, "Initial commit");
+    assert!(
+        !detail.commits[0].author.is_empty(),
+        "Author should not be empty"
+    );
+
+    // Verify changed files
+    assert!(
+        detail.changed_files.len() >= 2,
+        "Should have at least 2 changed files, got: {}",
+        detail.changed_files.len()
+    );
+
+    assert!(detail.error.is_none(), "Should not have an error");
 }
 
 // Helper functions

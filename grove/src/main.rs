@@ -13,7 +13,12 @@ use grove_engine::{GitoxideStatus, WorkspaceRegistry, YamlConfigLoader};
 #[command(version)]
 struct Cli {
     /// Path to workspace configuration file
-    #[arg(short, long, env = "GROVE_WORKSPACE", default_value = "~/.config/grove/workspace.yaml")]
+    #[arg(
+        short,
+        long,
+        env = "GROVE_WORKSPACE",
+        default_value = "~/.config/grove/workspace.yaml"
+    )]
     workspace: String,
 }
 
@@ -31,18 +36,16 @@ fn main() -> Result<()> {
         .context("Failed to expand workspace path")?
         .to_string();
 
-    log::debug!("Loading workspace config from: {}", config_path);
+    log::debug!("Loading workspace config from: {config_path}");
 
     // Load workspace configuration
     let loader = YamlConfigLoader::new();
     let config = loader
         .load_workspace(&config_path)
-        .or_else(|e| {
+        .inspect_err(|e| {
             // Provide helpful error message for missing config file
-            if e.to_string().contains("No such file")
-                || e.to_string().contains("not found")
-            {
-                eprintln!("Error: Workspace config not found: {}\n", config_path);
+            if e.to_string().contains("No such file") || e.to_string().contains("not found") {
+                eprintln!("Error: Workspace config not found: {config_path}\n");
                 eprintln!("Suggestions:");
                 eprintln!("  • Create the config directory:");
                 eprintln!("      mkdir -p ~/.config/grove");
@@ -64,7 +67,6 @@ fn main() -> Result<()> {
                 eprintln!();
                 eprintln!("Documentation: https://github.com/.../docs/user-guide.md");
             }
-            Err(e)
         })
         .with_context(|| format!("Failed to load workspace from '{config_path}'"))?;
 
@@ -83,10 +85,7 @@ fn main() -> Result<()> {
 
     // Log refresh statistics
     if stats.all_successful() {
-        log::info!(
-            "Successfully refreshed {} repositories",
-            stats.successful
-        );
+        log::info!("Successfully refreshed {} repositories", stats.successful);
     } else {
         log::warn!(
             "Refreshed {}/{} repositories ({} errors)",
@@ -96,9 +95,12 @@ fn main() -> Result<()> {
         );
     }
 
+    // Create detail provider (stateless, separate instance for single-responsibility)
+    let detail_provider = GitoxideStatus::new();
+
     // Launch TUI
     log::debug!("Launching TUI...");
-    tui::run(registry).context("TUI error")?;
+    tui::run(registry, detail_provider).context("TUI error")?;
 
     log::info!("Grove exiting normally");
     Ok(())

@@ -141,6 +141,61 @@ impl RepoStatus {
     }
 }
 
+/// Status of a changed file in the working tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileChangeStatus {
+    Modified,
+    Added,
+    Deleted,
+    Renamed,
+    Copied,
+    Unknown,
+}
+
+/// A changed file with its path and status.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileChange {
+    pub path: String,
+    pub status: FileChangeStatus,
+}
+
+/// Summary information for a single commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitInfo {
+    pub hash: String,
+    pub subject: String,
+    pub author: String,
+    pub relative_date: String,
+}
+
+/// Detail information for a single repository (commits + changed files).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoDetail {
+    pub commits: Vec<CommitInfo>,
+    pub changed_files: Vec<FileChange>,
+    pub error: Option<String>,
+}
+
+impl RepoDetail {
+    /// Create an empty detail with no commits, no changes, and no error.
+    pub fn empty() -> Self {
+        Self {
+            commits: Vec::new(),
+            changed_files: Vec::new(),
+            error: None,
+        }
+    }
+
+    /// Create a detail representing an error state.
+    pub fn with_error(error: String) -> Self {
+        Self {
+            commits: Vec::new(),
+            changed_files: Vec::new(),
+            error: Some(error),
+        }
+    }
+}
+
 /// Statistics from repository status refresh operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RefreshStats {
@@ -195,5 +250,21 @@ mod tests {
         // Note: This test might behave differently depending on environment
         let path = RepoPath::new("~/repos/grove");
         assert!(path.is_ok());
+    }
+
+    #[test]
+    fn repo_detail_empty_has_no_data() {
+        let detail = RepoDetail::empty();
+        assert!(detail.commits.is_empty());
+        assert!(detail.changed_files.is_empty());
+        assert!(detail.error.is_none());
+    }
+
+    #[test]
+    fn repo_detail_with_error_stores_message() {
+        let detail = RepoDetail::with_error("something went wrong".to_string());
+        assert!(detail.commits.is_empty());
+        assert!(detail.changed_files.is_empty());
+        assert_eq!(detail.error, Some("something went wrong".to_string()));
     }
 }

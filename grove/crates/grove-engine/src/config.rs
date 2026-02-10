@@ -162,7 +162,10 @@ repositories:
 
         let repo_path = &config.repositories[0].path;
         assert!(
-            repo_path.as_path().to_string_lossy().contains("path with spaces"),
+            repo_path
+                .as_path()
+                .to_string_lossy()
+                .contains("path with spaces"),
             "Path should preserve spaces"
         );
     }

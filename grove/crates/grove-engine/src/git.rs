@@ -1,6 +1,9 @@
 //! Git status adapter using gitoxide and git command.
 
-use grove_core::{CoreError, GitStatus as GitStatusTrait, RepoPath, RepoStatus, Result};
+use grove_core::{
+    CommitInfo, CoreError, FileChange, FileChangeStatus, GitStatus as GitStatusTrait, RepoDetail,
+    RepoDetailProvider, RepoPath, RepoStatus, Result,
+};
 use std::path::Path;
 use std::process::{Command, Output};
 use std::time::Duration;
@@ -159,6 +162,103 @@ impl GitoxideStatus {
 
         (ahead, behind)
     }
+
+    /// Query recent commits from a git repository.
+    ///
+    /// Runs `git log --format="%h%x00%s%x00%an%x00%ar" -n {limit}` and parses the output.
+    fn query_commits(path: &Path, limit: usize) -> Result<Vec<CommitInfo>> {
+        let mut cmd = Command::new("git");
+        cmd.args([
+            "log",
+            "--format=%h%x00%s%x00%an%x00%ar",
+            "-n",
+            &limit.to_string(),
+        ])
+        .current_dir(path);
+
+        let output = run_git_with_timeout(cmd, "log")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(CoreError::GitError {
+                details: format!("git log failed: {stderr}"),
+            });
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let commits = stdout
+            .lines()
+            .filter(|line| !line.is_empty())
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.splitn(4, '\0').collect();
+                if parts.len() == 4 {
+                    Some(CommitInfo {
+                        hash: parts[0].to_string(),
+                        subject: parts[1].to_string(),
+                        author: parts[2].to_string(),
+                        relative_date: parts[3].to_string(),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(commits)
+    }
+
+    /// Parse a git status porcelain XY code into a `FileChangeStatus`.
+    fn parse_file_change_status(xy: &str) -> FileChangeStatus {
+        // git status --porcelain uses XY codes in first two columns
+        // We check both X (index) and Y (working tree) columns
+        let bytes = xy.as_bytes();
+        let x = if bytes.is_empty() { b' ' } else { bytes[0] };
+        let y = if bytes.len() < 2 { b' ' } else { bytes[1] };
+
+        // Prefer working tree status (Y), fall back to index status (X)
+        match (x, y) {
+            (_, b'M') | (b'M', _) => FileChangeStatus::Modified,
+            // Untracked files (b'?', b'?') shown as Added
+            (_, b'A') | (b'A', _) | (b'?', b'?') => FileChangeStatus::Added,
+            (_, b'D') | (b'D', _) => FileChangeStatus::Deleted,
+            (b'R', _) => FileChangeStatus::Renamed,
+            (b'C', _) => FileChangeStatus::Copied,
+            _ => FileChangeStatus::Unknown,
+        }
+    }
+
+    /// Query changed files from a git repository.
+    ///
+    /// Runs `git status --porcelain` and parses the XY status codes.
+    fn query_changed_files(path: &Path) -> Result<Vec<FileChange>> {
+        let mut cmd = Command::new("git");
+        cmd.args(["status", "--porcelain"]).current_dir(path);
+
+        let output = run_git_with_timeout(cmd, "status --porcelain (detail)")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(CoreError::GitError {
+                details: format!("git status failed: {stderr}"),
+            });
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let changes = stdout
+            .lines()
+            .filter(|line| line.len() >= 4) // "XY filename" minimum
+            .map(|line| {
+                let xy = &line[..2];
+                let file_path = line[3..].to_string();
+                FileChange {
+                    path: file_path,
+                    status: Self::parse_file_change_status(xy),
+                }
+            })
+            .collect();
+
+        Ok(changes)
+    }
 }
 
 impl Default for GitoxideStatus {
@@ -170,6 +270,50 @@ impl Default for GitoxideStatus {
 impl GitStatusTrait for GitoxideStatus {
     fn get_status(&self, repo_path: &RepoPath) -> Result<RepoStatus> {
         Self::query_status(repo_path.as_path())
+    }
+}
+
+impl RepoDetailProvider for GitoxideStatus {
+    fn get_detail(&self, path: &RepoPath, max_commits: usize) -> Result<RepoDetail> {
+        // Verify it's a git repo first
+        gix::discover(path.as_path()).map_err(|e| CoreError::GitError {
+            details: format!(
+                "Failed to open repository at {}: {e}",
+                path.as_path().display()
+            ),
+        })?;
+
+        let mut errors: Vec<String> = Vec::new();
+
+        let commits = match Self::query_commits(path.as_path(), max_commits) {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("Failed to query commits for {path}: {e}");
+                errors.push(format!("commits: {e}"));
+                Vec::new()
+            }
+        };
+
+        let changed_files = match Self::query_changed_files(path.as_path()) {
+            Ok(f) => f,
+            Err(e) => {
+                log::warn!("Failed to query changed files for {path}: {e}");
+                errors.push(format!("changed files: {e}"));
+                Vec::new()
+            }
+        };
+
+        let error = if errors.is_empty() {
+            None
+        } else {
+            Some(errors.join("; "))
+        };
+
+        Ok(RepoDetail {
+            commits,
+            changed_files,
+            error,
+        })
     }
 }
 
@@ -491,6 +635,204 @@ mod tests {
     }
 
     #[test]
+    fn query_commits_returns_ordered_commits() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+
+        // Initialize repo with multiple commits
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        std::fs::write(repo_path.join("file1.txt"), "first").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "First commit"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        std::fs::write(repo_path.join("file2.txt"), "second").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Second commit"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        let commits = GitoxideStatus::query_commits(repo_path, 10).unwrap();
+        assert_eq!(commits.len(), 2);
+        // Most recent first
+        assert_eq!(commits[0].subject, "Second commit");
+        assert_eq!(commits[1].subject, "First commit");
+        assert!(!commits[0].author.is_empty(), "Author should not be empty");
+        assert!(!commits[0].hash.is_empty());
+    }
+
+    #[test]
+    fn query_commits_respects_limit() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        for i in 0..5 {
+            std::fs::write(
+                repo_path.join(format!("file{i}.txt")),
+                format!("content{i}"),
+            )
+            .unwrap();
+            Command::new("git")
+                .args(["add", "."])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            Command::new("git")
+                .args(["commit", "-m", &format!("Commit {i}")])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+        }
+
+        let commits = GitoxideStatus::query_commits(repo_path, 3).unwrap();
+        assert_eq!(commits.len(), 3, "Should limit to 3 commits");
+    }
+
+    #[test]
+    fn query_changed_files_detects_modifications() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        std::fs::write(repo_path.join("tracked.txt"), "original").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Initial"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        // Modify tracked file and add untracked file
+        std::fs::write(repo_path.join("tracked.txt"), "modified").unwrap();
+        std::fs::write(repo_path.join("untracked.txt"), "new").unwrap();
+
+        let changes = GitoxideStatus::query_changed_files(repo_path).unwrap();
+        assert_eq!(changes.len(), 2);
+
+        let modified = changes.iter().find(|c| c.path == "tracked.txt").unwrap();
+        assert_eq!(modified.status, FileChangeStatus::Modified);
+
+        let untracked = changes.iter().find(|c| c.path == "untracked.txt").unwrap();
+        assert_eq!(untracked.status, FileChangeStatus::Added);
+    }
+
+    #[test]
+    fn query_changed_files_empty_for_clean_repo() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        std::fs::write(repo_path.join("file.txt"), "content").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Initial"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        let changes = GitoxideStatus::query_changed_files(repo_path).unwrap();
+        assert!(changes.is_empty(), "Clean repo should have no changes");
+    }
+
+    #[test]
+    fn get_detail_fails_for_non_git_directory() {
+        let provider = GitoxideStatus::new();
+        let path = RepoPath::new("/tmp").unwrap();
+        let result = provider.get_detail(&path, 10);
+        assert!(result.is_err(), "Non-git dir should error");
+    }
+
+    #[test]
     fn detects_ahead_commits() {
         use tempfile::TempDir;
 
@@ -572,5 +914,183 @@ mod tests {
 
         assert_eq!(ahead, Some(1), "Should be 1 commit ahead of remote");
         assert_eq!(behind, None, "Should not be behind remote");
+    }
+
+    // --- parse_file_change_status unit tests ---
+
+    #[test]
+    fn parse_status_modified_in_working_tree() {
+        // " M" = not staged, modified in working tree
+        assert_eq!(
+            GitoxideStatus::parse_file_change_status(" M"),
+            FileChangeStatus::Modified
+        );
+    }
+
+    #[test]
+    fn parse_status_modified_in_index() {
+        // "M " = staged modification, clean working tree
+        assert_eq!(
+            GitoxideStatus::parse_file_change_status("M "),
+            FileChangeStatus::Modified
+        );
+    }
+
+    #[test]
+    fn parse_status_staged_and_modified() {
+        // "MM" = staged modification + further working tree changes
+        assert_eq!(
+            GitoxideStatus::parse_file_change_status("MM"),
+            FileChangeStatus::Modified
+        );
+    }
+
+    #[test]
+    fn parse_status_added_in_index() {
+        // "A " = new file staged
+        assert_eq!(
+            GitoxideStatus::parse_file_change_status("A "),
+            FileChangeStatus::Added
+        );
+    }
+
+    #[test]
+    fn parse_status_added_then_modified() {
+        // "AM" = staged as new, then modified in working tree
+        // Modified takes precedence (first match arm)
+        assert_eq!(
+            GitoxideStatus::parse_file_change_status("AM"),
+            FileChangeStatus::Modified
+        );
+    }
+
+    #[test]
+    fn parse_status_untracked() {
+        // "??" = untracked file
+        assert_eq!(
+            GitoxideStatus::parse_file_change_status("??"),
+            FileChangeStatus::Added
+        );
+    }
+
+    #[test]
+    fn parse_status_deleted_in_working_tree() {
+        // " D" = deleted from working tree but not staged
+        assert_eq!(
+            GitoxideStatus::parse_file_change_status(" D"),
+            FileChangeStatus::Deleted
+        );
+    }
+
+    #[test]
+    fn parse_status_deleted_in_index() {
+        // "D " = staged deletion
+        assert_eq!(
+            GitoxideStatus::parse_file_change_status("D "),
+            FileChangeStatus::Deleted
+        );
+    }
+
+    #[test]
+    fn parse_status_renamed() {
+        // "R " = renamed in index
+        assert_eq!(
+            GitoxideStatus::parse_file_change_status("R "),
+            FileChangeStatus::Renamed
+        );
+    }
+
+    #[test]
+    fn parse_status_copied() {
+        // "C " = copied in index
+        assert_eq!(
+            GitoxideStatus::parse_file_change_status("C "),
+            FileChangeStatus::Copied
+        );
+    }
+
+    #[test]
+    fn parse_status_unknown() {
+        // "!!" = ignored (or other unknown)
+        assert_eq!(
+            GitoxideStatus::parse_file_change_status("!!"),
+            FileChangeStatus::Unknown
+        );
+    }
+
+    // --- empty repo / deleted file tests ---
+
+    #[test]
+    fn get_detail_on_empty_repo_no_commits() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+
+        // Init repo but make no commits
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        let provider = GitoxideStatus::new();
+        let path = RepoPath::new(repo_path.to_str().unwrap()).unwrap();
+        let detail = provider.get_detail(&path, 10).unwrap();
+
+        // Should succeed but with empty commits and a partial error
+        assert!(
+            detail.commits.is_empty(),
+            "Empty repo should have no commits"
+        );
+        // git log on an empty repo fails, so error should be reported
+        assert!(
+            detail.error.is_some(),
+            "Should report error from git log on empty repo"
+        );
+    }
+
+    #[test]
+    fn query_changed_files_detects_deletion() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        // Create and commit a file, then delete it
+        std::fs::write(repo_path.join("to_delete.txt"), "content").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Add file"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        std::fs::remove_file(repo_path.join("to_delete.txt")).unwrap();
+
+        let changes = GitoxideStatus::query_changed_files(repo_path).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].path, "to_delete.txt");
+        assert_eq!(changes[0].status, FileChangeStatus::Deleted);
     }
 }
