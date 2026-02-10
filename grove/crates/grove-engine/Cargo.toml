@@ -1,0 +1,23 @@
+[package]
+name = "grove-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Business logic for Grove"
+license = "MIT"
+authors = ["Your Name <you@example.com>"]
+
+[dependencies]
+grove-core = { path = "../grove-core" }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_yml = { workspace = true }
+gix = { workspace = true }
+wait-timeout = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

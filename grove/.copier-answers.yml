@@ -1,0 +1,10 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_src_path: .graft/rust-starter
+author_email: you@example.com
+author_name: Your Name
+crate_name: grove
+include_example_code: false
+include_github_actions: true
+license: MIT
+project_description: Multi-repo workspace manager with graft awareness
+project_name: Grove

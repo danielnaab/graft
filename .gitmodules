@@ -7,6 +7,3 @@
 [submodule ".graft/rust-starter"]
 	path = .graft/rust-starter
 	url = https://github.com/danielnaab/rust-starter.git
-[submodule "grove"]
-	path = grove
-	url = ./grove

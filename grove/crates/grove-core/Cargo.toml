@@ -1,0 +1,15 @@
+[package]
+name = "grove-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core types, traits, and errors for Grove"
+license = "MIT"
+authors = ["Your Name <you@example.com>"]
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+shellexpand = { workspace = true }
+
+[lints]
+workspace = true

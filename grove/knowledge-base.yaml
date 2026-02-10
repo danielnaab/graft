@@ -1,0 +1,51 @@
+name: grove
+description: "Multi-repo workspace manager with graft awareness"
+
+entrypoints:
+  human: docs/README.md
+  agent: docs/agents.md
+
+imports:
+  - path: .graft/rust-starter
+    relationship: foundational
+    note: "Architectural patterns and Rust idioms"
+  - path: ../.graft/meta-knowledge-base
+    relationship: foundational
+    note: "Knowledge organization strategies"
+
+paths:
+  specs: ../docs/specifications/grove/
+  planning: docs/grove/planning/
+  implementation: docs/grove/implementation/
+  source: src/
+  crates: crates/
+  tests: tests/
+
+sources:
+  canonical:
+    - path: "../docs/specifications/grove/"
+      note: "Requirements specifications (BDD scenarios)"
+    - path: src/
+      note: "Binary entry point"
+    - path: crates/
+      note: "Library crates — domain types, traits, business logic"
+    - path: Cargo.toml
+      note: "Workspace and binary configuration"
+    - path: tests/
+      note: "Integration tests document expected behavior"
+  tracking:
+    - path: "docs/grove/planning/"
+      note: "Implementation roadmap and slice status"
+
+rules:
+  lifecycle:
+    statuses: ["draft", "working", "stable", "deprecated"]
+  provenance:
+    requiredFor: ["factual-claims", "operational-guidance", "architectural-decisions"]
+  writes:
+    allow: ["docs/grove/**", "src/**", "crates/**", "tests/**"]
+    deny: ["knowledge-base.yaml", ".graft/**"]
+
+conventions:
+  linking: "Use relative Markdown links [text](path) for navigation"
+  code_references: "Link to files with line numbers: path/file.rs:123"
