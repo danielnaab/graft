@@ -25,22 +25,43 @@ Complete index of all graft documentation.
 
 ---
 
+## Components
+
+This project contains two components:
+
+| Component | Language | Path | Agent Entrypoint |
+|-----------|----------|------|-----------------|
+| **Graft** (CLI) | Python | `src/graft/` | [AGENTS.md](../AGENTS.md) |
+| **Grove** (workspace tool) | Rust | `grove/` | [grove/docs/agents.md](../grove/docs/agents.md) |
+
+Grove specifications live in [`docs/specifications/grove/`](specifications/grove/).
+
+---
+
 ## Documentation Structure
 
 ```
 graft/
 ├── README.md                    # Project introduction and index
+├── AGENTS.md                    # Agent entrypoint (full project context)
+├── CLAUDE.md                    # Claude Code entrypoint (thin pointer)
 ├── continue-here.md             # Session handoff document
 ├── tasks.md                     # Development status
+├── grove/                       # Rust workspace tool (submodule)
+│   └── docs/agents.md          # Grove agent entrypoint
 ├── docs/
 │   ├── index.md            # This file - documentation index
 │   ├── README.md                # Architecture and developer docs
 │   ├── cli-reference.md         # Complete command reference
 │   ├── configuration.md         # graft.yaml and graft.lock formats
+│   ├── specifications/          # Canonical specs
+│   │   ├── graft/              # Graft format and operation specs
+│   │   ├── grove/              # Grove workspace specs
+│   │   └── decisions/          # Specification-level ADRs
 │   ├── guides/
 │   │   ├── user-guide.md        # Step-by-step tutorials
 │   │   └── contributing.md # Development workflow
-│   ├── decisions/               # Architectural decision records
+│   ├── decisions/               # Implementation ADRs
 │   │   ├── 001-require-explicit-ref-in-upgrade.md
 │   │   ├── 002-filesystem-snapshots-for-rollback.md
 │   │   ├── 003-snapshot-only-lock-file.md
@@ -208,14 +229,15 @@ All documentation follows these principles:
 - **Accurate** - All examples tested, all links verified
 - **Maintained** - Updated when code changes
 
-See [meta-knowledge-base style policy](../.graft/meta-knowledge-base/policies/style.md) for full standards.
+See [meta-knowledge-base style policy](../.graft/meta-knowledge-base/docs/policies/style.md) for full standards.
 
 ---
 
 ## External References
 
-- **Specification**: `docs/specifications/graft/`
-- **Meta-Knowledge-Base**: `.graft/meta-knowledge-base/docs/meta.md`
+- **Specifications**: `docs/specifications/` (graft, grove, decisions)
+- **Meta-Knowledge-Base**: [`.graft/meta-knowledge-base/AGENTS.md`](../.graft/meta-knowledge-base/AGENTS.md)
+- **Grove**: [`grove/docs/agents.md`](../grove/docs/agents.md)
 
 ---
 
@@ -227,4 +249,4 @@ See [meta-knowledge-base style policy](../.graft/meta-knowledge-base/policies/st
 
 ---
 
-Last Updated: 2026-01-04
+Last Updated: 2026-02-10

@@ -1,78 +1,117 @@
-# Agent Entrypoint - Graft Implementation KB
+# Agent Entrypoint - Graft Project
 
-You are acting as a **developer** working on the Graft implementation.
+You are working on the **Graft** project: semantic dependency management for knowledge bases.
 
-## Before making changes
+This repo contains two components:
+- **Graft** (Python CLI) - `src/graft/` - the dependency manager
+- **Grove** (Rust workspace tool) - `grove/` - workspace management for multi-repo development
 
-1. Read [knowledge-base.yaml](knowledge-base.yaml) in this repo
-2. Review [specifications](docs/specifications/README.md) for canonical specs
-3. Follow the [meta knowledge base entrypoint](.graft/meta-knowledge-base/docs/meta.md)
-4. Understand the policies:
-   - **Authority**: Specs in docs/specifications/ are canonical for "what to build"
-   - **Provenance**: Ground implementation claims in sources
-   - **Lifecycle**: Mark status (draft/working/stable/deprecated)
-   - **Write boundaries**: Only modify allowed paths (docs/**, notes/**)
+## Orientation
 
-## Your role
+| Path | Purpose |
+|------|---------|
+| `src/graft/` | Python source (domain/services/protocols/adapters/cli) |
+| `grove/` | Rust workspace tool (submodule, has its own [agent entrypoint](grove/docs/agents.md)) |
+| `docs/specifications/` | Canonical specs (architecture, graft format, grove specs, decision ADRs) |
+| `docs/` | Implementation documentation (architecture overview, guides, ADRs) |
+| `notes/` | Time-bounded exploration notes ([index](notes/index.md)) |
+| `.graft/` | Dependencies managed via `graft resolve` |
+| `knowledge-base.yaml` | KB structure declaration |
 
-As an implementation developer, you should:
+## Verification commands
 
-- **Implement features**: Follow specifications from docs/specifications/
-- **Document code structure**: Keep [structure.md](docs/structure.md) synchronized with codebase
-- **Maintain dev guides**: Update setup and workflow documentation
-- **Record implementation notes**: Create time-bounded notes in [notes/](notes/)
-- **Reference specs**: Always link to docs/specifications/ for architectural decisions
-- **Evolve thoughtfully**: Use evidence-based evolution, not speculation
+Always run before committing:
+
+```bash
+uv run pytest                    # 405 tests, ~46% coverage
+uv run mypy src/                 # Strict mode type checking
+uv run ruff check src/ tests/   # Linting
+```
+
+## Architectural principles
+
+The Python codebase follows patterns from [python-starter](.graft/python-starter/):
+
+- **Protocol-based DI**: Services accept `typing.Protocol` interfaces, not concrete types. See `src/graft/protocols/` for all protocol definitions.
+- **Frozen dataclasses**: All domain models in `src/graft/domain/` are `@dataclass(frozen=True)` — immutable by design.
+- **Functional service layer**: Business logic lives in pure functions in `src/graft/services/`, not in classes. Functions take a protocol-typed context parameter.
+- **Fakes, not mocks**: Tests use in-memory fakes (`tests/fakes/`) that implement protocols. No unittest.mock.
+
+The Rust codebase (Grove) follows patterns from [rust-starter](.graft/rust-starter/):
+
+- **Library-first architecture**: Core logic in library crates, thin binary wrappers.
+- **Trait-based boundaries**: Rust equivalent of Protocol-based DI.
+- **Error handling as values**: `thiserror` for library errors, `anyhow` for binary errors.
+- **Newtype pattern**: Domain identity types wrap primitives for type safety.
 
 ## Workflow: Plan -> Patch -> Verify
 
-Follow the [agent workflow playbook](.graft/meta-knowledge-base/docs/playbooks/agent-workflow.md):
+From the [agent workflow playbook](.graft/meta-knowledge-base/docs/playbooks/agent-workflow.md):
 
-1. **Plan**: State intent, files to touch, check specs in docs/specifications/
+1. **Plan**: State intent, identify files to touch, check specs in `docs/specifications/`
 2. **Patch**: Make minimal changes that achieve the goal
-3. **Verify**: Run tests/checks or specify what human should verify
+3. **Verify**: Run the verification commands above
 
-## Key documentation
+## Authority rules
 
-- **Specs**: [Architecture](docs/specifications/architecture.md), [Decisions](docs/specifications/decisions/)
-- **Implementation (this KB)**: [Code Structure](docs/structure.md), [Development Setup](docs/development.md)
-- **Notes**: [Weekly logs](notes/)
+When sources disagree, follow this precedence:
+
+1. **Source code** (`src/`, `grove/`) — canonical for how things actually work
+2. **Specifications** (`docs/specifications/`) — canonical for what to build
+3. **Implementation docs** (`docs/`) — interpretation of specs, may lag behind code
+4. **Notes** (`notes/`) — ephemeral exploration, may contain outdated thinking
+
+When docs and code disagree, **code is canonical** for implementation details. When code and specs disagree, **specs are canonical** for intended behavior (the code has a bug).
 
 ## Write boundaries
 
 You may write to:
+- `src/**` - Source code
+- `tests/**` - Test code
 - `docs/**` - Implementation documentation
 - `notes/**` - Time-bounded development notes
 
 Never write to:
-- `secrets/**`
-- `config/prod/**`
+- `docs/specifications/**` - Canonical specs (requires explicit spec-change workflow)
+- `secrets/**`, `config/prod/**` - Sensitive configuration
 
-## Quick reference
+## Working with Grove
 
-When working on implementation:
-- Architecture questions? Check [docs/specifications/architecture.md](docs/specifications/architecture.md)
-- Code structure? Update [docs/structure.md](docs/structure.md)
-- Implementation exploration? Add note to [notes/](notes/) with date
-- New feature? Verify spec exists in docs/specifications/ first
+Grove is a Rust workspace tool in the `grove/` submodule. It has its own:
+- Agent entrypoint: [`grove/docs/agents.md`](grove/docs/agents.md)
+- Specifications: [`docs/specifications/grove/`](docs/specifications/grove/)
 
-## .graft Dependencies
+When working on Grove, read its agent entrypoint first. The root project's Rust patterns (from `rust-starter`) apply.
 
-This project uses the following dependencies managed via `graft resolve`:
+## .graft dependencies
 
-- **python-starter** - Python CLI architecture patterns and project template
-- **meta-knowledge-base** - Knowledge base organization framework and policies
+Declared in [`graft.yaml`](graft.yaml), cloned to `.graft/` via `graft resolve`:
 
-Specifications from graft-knowledge have been merged into `docs/specifications/`.
+| Dependency | Purpose | Entrypoint |
+|-----------|---------|------------|
+| [meta-knowledge-base](.graft/meta-knowledge-base/) | KB organization framework, policies, playbooks | [AGENTS.md](.graft/meta-knowledge-base/AGENTS.md) |
+| [python-starter](.graft/python-starter/) | Python clean architecture patterns and template | [knowledge-base.yaml](.graft/python-starter/knowledge-base.yaml) |
+| [rust-starter](.graft/rust-starter/) | Rust architecture patterns and template | [knowledge-base.yaml](.graft/rust-starter/knowledge-base.yaml) |
 
-Run `graft resolve` to clone dependencies into the `.graft/` directory.
+## Meta-KB policies
 
-## Sources
+The [meta-knowledge-base](.graft/meta-knowledge-base/) defines these policies. This project follows all of them:
 
-This agent guidance follows conventions from:
-- [Meta-KB Authority Policy](.graft/meta-knowledge-base/docs/policies/authority.md) - Distinguishing canonical sources from interpretation
-- [Meta-KB Provenance Policy](.graft/meta-knowledge-base/docs/policies/provenance.md) - Grounding claims in sources
-- [Meta-KB Lifecycle Policy](.graft/meta-knowledge-base/docs/policies/lifecycle.md) - Status tracking for knowledge
-- [Meta-KB Write Boundaries Policy](.graft/meta-knowledge-base/docs/policies/writes.md) - Safe agent editing zones
-- [Agent Workflow Playbook](.graft/meta-knowledge-base/docs/playbooks/agent-workflow.md) - Plan -> Patch -> Verify pattern
-- [Specifications](docs/specifications/README.md) - Canonical specifications (merged from graft-knowledge)
+| Policy | Action rule |
+|--------|-------------|
+| [Authority](.graft/meta-knowledge-base/docs/policies/authority.md) | Distinguish canonical sources from interpretation; follow precedence above |
+| [Provenance](.graft/meta-knowledge-base/docs/policies/provenance.md) | Ground factual claims in sources; link to evidence |
+| [Lifecycle](.graft/meta-knowledge-base/docs/policies/lifecycle.md) | Mark document status (draft/working/stable/deprecated); living docs must reflect current state |
+| [Write Boundaries](.graft/meta-knowledge-base/docs/policies/writes.md) | Only modify allowed paths; respect role boundaries |
+| [Temporal Layers](.graft/meta-knowledge-base/docs/policies/temporal-layers.md) | Specs are stable, docs interpret, notes are ephemeral |
+| [Intent-Revealing Structure](.graft/meta-knowledge-base/docs/policies/intent-revealing-structure.md) | File organization should reveal purpose; names should be self-documenting |
+| [Linking](.graft/meta-knowledge-base/docs/policies/linking.md) | Link to sources rather than duplicating; maintain link health |
+| [Style](.graft/meta-knowledge-base/docs/policies/style.md) | Plain language, no emojis, professional tone |
+| [Generated Content](.graft/meta-knowledge-base/docs/policies/generated-content.md) | Mark AI-generated content; track provenance of generated artifacts |
+
+## Key documentation
+
+- **Specifications**: [Architecture](docs/specifications/architecture.md), [Graft specs](docs/specifications/graft/), [Grove specs](docs/specifications/grove/), [Decision ADRs](docs/specifications/decisions/)
+- **Implementation**: [Architecture overview](docs/README.md), [Contributing guide](docs/guides/contributing.md), [Implementation ADRs](docs/decisions/)
+- **Session context**: [continue-here.md](continue-here.md), [tasks.md](tasks.md)
+- **Notes**: [Index](notes/index.md)

@@ -20,8 +20,8 @@ Graft maintains high quality standards enforced through automated checks. All co
 uv run pytest
 ```
 
-**Current Status**: 330 tests passing
-**Minimum Coverage**: 42% overall, 80% for service layer
+**Current Status**: 405 tests passing
+**Minimum Coverage**: 46% overall, 80% for service layer
 
 **What We Test**:
 - Unit tests: Individual functions and services
@@ -189,17 +189,17 @@ git commit -m "Your message"
 
 ## Quality Metrics
 
-### Current Metrics (2026-01-05)
+### Current Metrics (2026-02-10)
 
-- **Tests**: 330 passing, 0 failing
-- **Coverage**: 42% overall, 80%+ service layer
+- **Tests**: 405 passing, 0 failing
+- **Coverage**: ~46% overall, 80%+ service layer
 - **Type Checking**: mypy strict, 0 errors
 - **Linting**: ruff, 0 errors
 
 ### Target Metrics
 
 - **Tests**: 100% passing (always)
-- **Coverage**: Maintain >= 42% overall, >= 80% service layer
+- **Coverage**: Maintain >= 46% overall, >= 80% service layer
 - **Type Checking**: 0 errors (always)
 - **Linting**: 0 errors (always)
 
@@ -302,6 +302,6 @@ Adjust thresholds as project matures.
 
 ---
 
-**Last Updated**: 2026-01-05
+**Last Updated**: 2026-02-10
 **Status**: Active
 **Enforcement**: Automated via pre-commit hooks and CI/CD

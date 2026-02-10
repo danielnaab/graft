@@ -16,6 +16,10 @@ Insights should graduate to [docs/](../docs/) when they stabilize.
 
 ## Grove (Workspace Tool)
 
+- [Grove Slice 1 Review Phase 2 (2026-02-10)](./2026-02-10-grove-slice-1-review-phase-2.md) - Comprehensive second-phase review of Grove Slice 1
+- [Grove Slice 1 Improvement Plan (2026-02-10)](./2026-02-10-grove-slice-1-improvement-plan.md) - Improvement plan for Grove Slice 1
+- [Grove Slice 1 Implementation (2026-02-10)](./2026-02-10-grove-slice-1-implementation.md) - Implementation notes for Grove Slice 1
+- [Grove Slice 1 Review (2026-02-10)](./2026-02-10-grove-slice-1-review.md) - Initial review of Grove Slice 1
 - [Status Check Syntax Exploration (2026-02-08)](./2026-02-08-status-check-syntax-exploration.md) - Deep exploration of status check syntax alternatives; concludes that simple scripts are clearest
 - [Grove as Workflow Hub: Design Primitives (2026-02-07)](./2026-02-07-grove-workflow-hub-primitives.md) - Six simple primitives for Grove as workflow hub
 - [Grove Vertical Slices (2026-02-06)](./2026-02-06-grove-vertical-slices.md) - Seven narrow end-to-end slices for building Grove incrementally
@@ -39,6 +43,7 @@ Insights should graduate to [docs/](../docs/) when they stabilize.
 
 ## Implementation
 
+- [Rust Starter Exploration (2026-02-09)](./2026-02-09-rust-starter-exploration.md) - Exploration of rust-starter template patterns
 - [Documentation Improvements Summary (2026-01-05)](./2026-01-05-documentation-improvements-summary.md) - Summary of documentation improvements
 - [CI/CD Design (2026-01-05)](./2026-01-05-ci-cd-design.md) - CI/CD pipeline design
 - [Meta Knowledge Base Compliance Analysis (2026-01-05)](./2026-01-05-meta-knowledge-base-compliance-analysis.md) - Meta KB compliance analysis

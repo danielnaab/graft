@@ -1,26 +1,25 @@
 ---
 status: living
 purpose: "Track current work only - completed tasks removed"
-updated: 2026-01-05
+updated: 2026-02-10
 archive_policy: "Git history provides task evolution"
 ---
 
 # Graft Development Tasks
 
-**Last Updated**: 2026-01-04
-**System**: See [docs/architecture.md](docs/architecture.md) for task management conventions
+**Last Updated**: 2026-02-10
 
 ---
 
 ## Next Up (Priority Order)
 
-(no active tasks)
+- [ ] #016: Grove Slice 2+ development (continuing vertical slice implementation)
 
 ---
 
 ## In Progress
 
-(none)
+- [ ] #017: Grove workspace tool development (active in `grove/` submodule, Slice 1 complete)
 
 ---
 
@@ -65,13 +64,15 @@ archive_policy: "Git history provides task evolution"
 
 ## Project Status
 
-All planned tasks complete. The graft project is production-ready with:
+Graft CLI is production-ready. Grove is under active development.
+
 - Complete CLI implementation (all 6 commands)
-- Full test coverage (322 tests passing)
+- 405 tests passing, ~46% coverage
 - Strict type checking (mypy strict mode enabled)
 - Comprehensive documentation (README + USER_GUIDE)
 - Architectural decision records (5 ADRs)
 - Clean codebase (ruff linting passing)
+- Grove Slice 1 implemented and reviewed (workspace discovery, manifest parsing, status display)
 
 ---
 

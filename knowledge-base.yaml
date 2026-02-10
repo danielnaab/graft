@@ -7,7 +7,7 @@ entrypoints:
   agent: AGENTS.md
 
 meta:
-  entrypoint: "../meta-knowledge-base/docs/meta.md"
+  entrypoint: ".graft/meta-knowledge-base/AGENTS.md"
 
 imports:
   - kind: local
@@ -16,10 +16,26 @@ imports:
   - kind: local
     path: ../python-starter
     entrypoint: knowledge-base.yaml
+  - kind: local
+    path: ../rust-starter
+    entrypoint: knowledge-base.yaml
+
+components:
+  - name: grove
+    path: grove
+    entrypoint: grove/docs/agents.md
+    note: "Rust workspace management tool (git submodule)"
 
 paths:
   docs: docs
   notes: notes
+  specifications: docs/specifications
+
+conventions:
+  architecture: "Clean architecture with Protocol-based DI (Python), trait-based boundaries (Rust)"
+  testing: "Fakes over mocks; unit tests for services, integration tests for workflows"
+  documentation: "Plain language, no emojis, professional tone per meta-KB style policy"
+  domain-models: "Frozen dataclasses (Python), newtype pattern (Rust)"
 
 sources:
   canonical:
@@ -33,6 +49,8 @@ sources:
       note: "Grove workspace management specifications"
     - path: "src/graft/**/*.py"
       note: "Source code is canonical for implementation details"
+    - path: "grove/crates/**/*.rs"
+      note: "Grove source code is canonical for its implementation"
     - path: "docs/decisions/**"
       note: "Implementation-specific ADRs (error handling, etc.)"
 
@@ -56,5 +74,5 @@ rules:
   provenance:
     requiredFor: ["factual-claims", "operational-guidance"]
   writes:
-    allow: ["docs/**", "notes/**"]
-    deny: ["secrets/**", "config/prod/**"]
+    allow: ["src/**", "tests/**", "docs/**", "notes/**"]
+    deny: ["docs/specifications/**", "secrets/**", "config/prod/**"]

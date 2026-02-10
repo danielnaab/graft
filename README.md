@@ -92,13 +92,18 @@ See [docs/guides/user-guide.md](docs/guides/user-guide.md) for detailed tutorial
 
 See [docs/guides/user-guide.md](docs/guides/user-guide.md#core-concepts) for detailed explanations.
 
+## Components
+
+- **Graft** (Python CLI) - Semantic dependency manager in `src/graft/`
+- **Grove** (Rust workspace tool) - Multi-repo workspace management in `grove/` ([docs](grove/docs/agents.md))
+
 ## Project Status
 
-- **Tests**: 322 passing
-- **Coverage**: 45% (service layer: 80-100%)
+- **Tests**: 405 passing
+- **Coverage**: ~46% (service layer: 80-100%)
 - **Type Checking**: mypy strict mode enabled and passing
 - **Linting**: All checks passing (ruff)
-- **Status**: Production ready - All core features complete
+- **Status**: Production ready (Graft CLI). Grove actively under development.
 
 ## Contributing
 
