@@ -320,117 +320,118 @@ impl RepoDetailProvider for GitoxideStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+
+    /// Initialize a git repo with user config. If `initial_commit` is true,
+    /// creates a file and commits it.
+    fn init_test_repo(path: &std::path::Path, initial_commit: bool) {
+        Command::new("git")
+            .args(["init"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        if initial_commit {
+            std::fs::write(path.join("README.md"), "test").unwrap();
+            Command::new("git")
+                .args(["add", "."])
+                .current_dir(path)
+                .output()
+                .unwrap();
+            Command::new("git")
+                .args(["commit", "-m", "Initial commit"])
+                .current_dir(path)
+                .output()
+                .unwrap();
+        }
+    }
+
+    /// Add a file and commit in an existing repo.
+    fn add_commit(path: &std::path::Path, filename: &str, content: &str, message: &str) {
+        std::fs::write(path.join(filename), content).unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", message])
+            .current_dir(path)
+            .output()
+            .unwrap();
+    }
+
+    /// Set up a bare remote and push the local repo to it.
+    fn push_to_bare_remote(repo_path: &std::path::Path) -> TempDir {
+        let remote_dir = TempDir::new().unwrap();
+        Command::new("git")
+            .args(["init", "--bare"])
+            .current_dir(remote_dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args([
+                "remote",
+                "add",
+                "origin",
+                remote_dir.path().to_str().unwrap(),
+            ])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["branch", "-M", "main"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["push", "-u", "origin", "main"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        remote_dir
+    }
 
     #[test]
     fn fails_on_non_git_directory() {
         let status = GitoxideStatus::new();
         let path = RepoPath::new("/tmp").unwrap();
         let result = status.get_status(&path);
-        // This should fail since /tmp is typically not a git repo
         assert!(result.is_err() || result.unwrap().error.is_some());
     }
 
     #[test]
     fn detects_clean_working_tree() {
-        // This test requires a clean git repo to exist
-        // Create a temporary git repo for testing
-        use std::fs;
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
+        init_test_repo(temp_dir.path(), true);
 
-        // Initialize git repo
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Configure user (required for commits)
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Create and commit a file
-        fs::write(repo_path.join("README.md"), "test").unwrap();
-        Command::new("git")
-            .args(["add", "README.md"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "Initial commit"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Check status
         let status = GitoxideStatus::new();
-        let path = RepoPath::new(repo_path.to_str().unwrap()).unwrap();
+        let path = RepoPath::new(temp_dir.path().to_str().unwrap()).unwrap();
         let result = status.get_status(&path).unwrap();
 
         assert!(!result.is_dirty, "Clean repo should not be dirty");
-        assert_eq!(
-            result.branch,
-            Some("main".to_string()),
-            "Should be on main branch"
-        );
+        assert_eq!(result.branch, Some("main".to_string()));
     }
 
     #[test]
     fn detects_dirty_working_tree() {
-        use std::fs;
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
+        init_test_repo(temp_dir.path(), true);
 
-        // Initialize git repo
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
+        std::fs::write(temp_dir.path().join("README.md"), "modified").unwrap();
 
-        // Configure user
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Create and commit a file
-        fs::write(repo_path.join("README.md"), "test").unwrap();
-        Command::new("git")
-            .args(["add", "README.md"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "Initial commit"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Modify the file (make it dirty)
-        fs::write(repo_path.join("README.md"), "modified").unwrap();
-
-        // Check status
         let status = GitoxideStatus::new();
-        let path = RepoPath::new(repo_path.to_str().unwrap()).unwrap();
+        let path = RepoPath::new(temp_dir.path().to_str().unwrap()).unwrap();
         let result = status.get_status(&path).unwrap();
 
         assert!(result.is_dirty, "Modified repo should be dirty");
@@ -438,47 +439,12 @@ mod tests {
 
     #[test]
     fn handles_detached_head_state() {
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
+        init_test_repo(temp_dir.path(), true);
 
-        // Initialize repo with a commit
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Configure user
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Create initial commit
-        std::fs::write(repo_path.join("file.txt"), "content").unwrap();
-        Command::new("git")
-            .args(["add", "."])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "Initial commit"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Get the commit SHA
         let sha_output = Command::new("git")
             .args(["rev-parse", "HEAD"])
-            .current_dir(repo_path)
+            .current_dir(temp_dir.path())
             .output()
             .unwrap();
         let sha = String::from_utf8(sha_output.stdout)
@@ -486,19 +452,16 @@ mod tests {
             .trim()
             .to_string();
 
-        // Detach HEAD by checking out the commit SHA
         Command::new("git")
             .args(["checkout", &sha])
-            .current_dir(repo_path)
+            .current_dir(temp_dir.path())
             .output()
             .unwrap();
 
-        // Check status
         let status = GitoxideStatus::new();
-        let path = RepoPath::new(repo_path.to_str().unwrap()).unwrap();
+        let path = RepoPath::new(temp_dir.path().to_str().unwrap()).unwrap();
         let result = status.get_status(&path).unwrap();
 
-        // In detached HEAD state, branch should be None
         assert!(
             result.branch.is_none(),
             "Detached HEAD should have no branch name, got: {:?}",
@@ -508,45 +471,10 @@ mod tests {
 
     #[test]
     fn handles_repository_without_upstream() {
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
+        init_test_repo(temp_dir.path(), true);
 
-        // Initialize repo without remote
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Configure user
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Create initial commit
-        std::fs::write(repo_path.join("file.txt"), "content").unwrap();
-        Command::new("git")
-            .args(["add", "."])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "Initial commit"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Check ahead/behind - should return (None, None) since no upstream
-        let (ahead, behind) = GitoxideStatus::check_ahead_behind(repo_path);
+        let (ahead, behind) = GitoxideStatus::check_ahead_behind(temp_dir.path());
 
         assert_eq!(ahead, None, "No upstream means no ahead count");
         assert_eq!(behind, None, "No upstream means no behind count");
@@ -554,76 +482,12 @@ mod tests {
 
     #[test]
     fn handles_repository_with_upstream_no_divergence() {
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
+        init_test_repo(temp_dir.path(), true);
+        let _remote_dir = push_to_bare_remote(temp_dir.path());
 
-        // Initialize bare remote repo
-        let remote_dir = TempDir::new().unwrap();
-        let remote_path = remote_dir.path();
-        Command::new("git")
-            .args(["init", "--bare"])
-            .current_dir(remote_path)
-            .output()
-            .unwrap();
+        let (ahead, behind) = GitoxideStatus::check_ahead_behind(temp_dir.path());
 
-        // Initialize local repo
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Configure user
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Create initial commit
-        std::fs::write(repo_path.join("file.txt"), "content").unwrap();
-        Command::new("git")
-            .args(["add", "."])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "Initial commit"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Add remote and push
-        Command::new("git")
-            .args(["remote", "add", "origin", remote_path.to_str().unwrap()])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Set branch name to main (git init might use master or main)
-        Command::new("git")
-            .args(["branch", "-M", "main"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        Command::new("git")
-            .args(["push", "-u", "origin", "main"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Check ahead/behind - should be (None, None) or (Some(0), Some(0)) when in sync
-        let (ahead, behind) = GitoxideStatus::check_ahead_behind(repo_path);
-
-        // The implementation filters out 0 values, so we expect None for both
         assert_eq!(
             ahead, None,
             "In sync with upstream means no ahead commits (0 filtered to None)"
@@ -636,55 +500,14 @@ mod tests {
 
     #[test]
     fn query_commits_returns_ordered_commits() {
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
+        init_test_repo(temp_dir.path(), false);
 
-        // Initialize repo with multiple commits
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
+        add_commit(temp_dir.path(), "file1.txt", "first", "First commit");
+        add_commit(temp_dir.path(), "file2.txt", "second", "Second commit");
 
-        std::fs::write(repo_path.join("file1.txt"), "first").unwrap();
-        Command::new("git")
-            .args(["add", "."])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "First commit"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        std::fs::write(repo_path.join("file2.txt"), "second").unwrap();
-        Command::new("git")
-            .args(["add", "."])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "Second commit"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        let commits = GitoxideStatus::query_commits(repo_path, 10).unwrap();
+        let commits = GitoxideStatus::query_commits(temp_dir.path(), 10).unwrap();
         assert_eq!(commits.len(), 2);
-        // Most recent first
         assert_eq!(commits[0].subject, "Second commit");
         assert_eq!(commits[1].subject, "First commit");
         assert!(!commits[0].author.is_empty(), "Author should not be empty");
@@ -693,89 +516,32 @@ mod tests {
 
     #[test]
     fn query_commits_respects_limit() {
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
-
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
+        init_test_repo(temp_dir.path(), false);
 
         for i in 0..5 {
-            std::fs::write(
-                repo_path.join(format!("file{i}.txt")),
-                format!("content{i}"),
-            )
-            .unwrap();
-            Command::new("git")
-                .args(["add", "."])
-                .current_dir(repo_path)
-                .output()
-                .unwrap();
-            Command::new("git")
-                .args(["commit", "-m", &format!("Commit {i}")])
-                .current_dir(repo_path)
-                .output()
-                .unwrap();
+            add_commit(
+                temp_dir.path(),
+                &format!("file{i}.txt"),
+                &format!("content{i}"),
+                &format!("Commit {i}"),
+            );
         }
 
-        let commits = GitoxideStatus::query_commits(repo_path, 3).unwrap();
+        let commits = GitoxideStatus::query_commits(temp_dir.path(), 3).unwrap();
         assert_eq!(commits.len(), 3, "Should limit to 3 commits");
     }
 
     #[test]
     fn query_changed_files_detects_modifications() {
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
+        init_test_repo(temp_dir.path(), false);
+        add_commit(temp_dir.path(), "tracked.txt", "original", "Initial");
 
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
+        std::fs::write(temp_dir.path().join("tracked.txt"), "modified").unwrap();
+        std::fs::write(temp_dir.path().join("untracked.txt"), "new").unwrap();
 
-        std::fs::write(repo_path.join("tracked.txt"), "original").unwrap();
-        Command::new("git")
-            .args(["add", "."])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "Initial"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Modify tracked file and add untracked file
-        std::fs::write(repo_path.join("tracked.txt"), "modified").unwrap();
-        std::fs::write(repo_path.join("untracked.txt"), "new").unwrap();
-
-        let changes = GitoxideStatus::query_changed_files(repo_path).unwrap();
+        let changes = GitoxideStatus::query_changed_files(temp_dir.path()).unwrap();
         assert_eq!(changes.len(), 2);
 
         let modified = changes.iter().find(|c| c.path == "tracked.txt").unwrap();
@@ -787,40 +553,10 @@ mod tests {
 
     #[test]
     fn query_changed_files_empty_for_clean_repo() {
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
+        init_test_repo(temp_dir.path(), true);
 
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        std::fs::write(repo_path.join("file.txt"), "content").unwrap();
-        Command::new("git")
-            .args(["add", "."])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "Initial"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        let changes = GitoxideStatus::query_changed_files(repo_path).unwrap();
+        let changes = GitoxideStatus::query_changed_files(temp_dir.path()).unwrap();
         assert!(changes.is_empty(), "Clean repo should have no changes");
     }
 
@@ -834,83 +570,18 @@ mod tests {
 
     #[test]
     fn detects_ahead_commits() {
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
+        init_test_repo(temp_dir.path(), true);
+        let _remote_dir = push_to_bare_remote(temp_dir.path());
 
-        // Initialize bare remote repo
-        let remote_dir = TempDir::new().unwrap();
-        let remote_path = remote_dir.path();
-        Command::new("git")
-            .args(["init", "--bare"])
-            .current_dir(remote_path)
-            .output()
-            .unwrap();
+        add_commit(
+            temp_dir.path(),
+            "file2.txt",
+            "content2",
+            "Second commit (local)",
+        );
 
-        // Initialize local repo
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Configure user
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Create and push initial commit
-        std::fs::write(repo_path.join("file1.txt"), "content1").unwrap();
-        Command::new("git")
-            .args(["add", "."])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "First commit"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        Command::new("git")
-            .args(["remote", "add", "origin", remote_path.to_str().unwrap()])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["branch", "-M", "main"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["push", "-u", "origin", "main"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Create local commit (ahead of remote)
-        std::fs::write(repo_path.join("file2.txt"), "content2").unwrap();
-        Command::new("git")
-            .args(["add", "."])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "Second commit (local)"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        // Check ahead/behind
-        let (ahead, behind) = GitoxideStatus::check_ahead_behind(repo_path);
+        let (ahead, behind) = GitoxideStatus::check_ahead_behind(temp_dir.path());
 
         assert_eq!(ahead, Some(1), "Should be 1 commit ahead of remote");
         assert_eq!(behind, None, "Should not be behind remote");
@@ -920,7 +591,6 @@ mod tests {
 
     #[test]
     fn parse_status_modified_in_working_tree() {
-        // " M" = not staged, modified in working tree
         assert_eq!(
             GitoxideStatus::parse_file_change_status(" M"),
             FileChangeStatus::Modified
@@ -929,7 +599,6 @@ mod tests {
 
     #[test]
     fn parse_status_modified_in_index() {
-        // "M " = staged modification, clean working tree
         assert_eq!(
             GitoxideStatus::parse_file_change_status("M "),
             FileChangeStatus::Modified
@@ -938,7 +607,6 @@ mod tests {
 
     #[test]
     fn parse_status_staged_and_modified() {
-        // "MM" = staged modification + further working tree changes
         assert_eq!(
             GitoxideStatus::parse_file_change_status("MM"),
             FileChangeStatus::Modified
@@ -947,7 +615,6 @@ mod tests {
 
     #[test]
     fn parse_status_added_in_index() {
-        // "A " = new file staged
         assert_eq!(
             GitoxideStatus::parse_file_change_status("A "),
             FileChangeStatus::Added
@@ -956,8 +623,6 @@ mod tests {
 
     #[test]
     fn parse_status_added_then_modified() {
-        // "AM" = staged as new, then modified in working tree
-        // Modified takes precedence (first match arm)
         assert_eq!(
             GitoxideStatus::parse_file_change_status("AM"),
             FileChangeStatus::Modified
@@ -966,7 +631,6 @@ mod tests {
 
     #[test]
     fn parse_status_untracked() {
-        // "??" = untracked file
         assert_eq!(
             GitoxideStatus::parse_file_change_status("??"),
             FileChangeStatus::Added
@@ -975,7 +639,6 @@ mod tests {
 
     #[test]
     fn parse_status_deleted_in_working_tree() {
-        // " D" = deleted from working tree but not staged
         assert_eq!(
             GitoxideStatus::parse_file_change_status(" D"),
             FileChangeStatus::Deleted
@@ -984,7 +647,6 @@ mod tests {
 
     #[test]
     fn parse_status_deleted_in_index() {
-        // "D " = staged deletion
         assert_eq!(
             GitoxideStatus::parse_file_change_status("D "),
             FileChangeStatus::Deleted
@@ -993,7 +655,6 @@ mod tests {
 
     #[test]
     fn parse_status_renamed() {
-        // "R " = renamed in index
         assert_eq!(
             GitoxideStatus::parse_file_change_status("R "),
             FileChangeStatus::Renamed
@@ -1002,7 +663,6 @@ mod tests {
 
     #[test]
     fn parse_status_copied() {
-        // "C " = copied in index
         assert_eq!(
             GitoxideStatus::parse_file_change_status("C "),
             FileChangeStatus::Copied
@@ -1011,7 +671,6 @@ mod tests {
 
     #[test]
     fn parse_status_unknown() {
-        // "!!" = ignored (or other unknown)
         assert_eq!(
             GitoxideStatus::parse_file_change_status("!!"),
             FileChangeStatus::Unknown
@@ -1022,28 +681,17 @@ mod tests {
 
     #[test]
     fn get_detail_on_empty_repo_no_commits() {
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
-
-        // Init repo but make no commits
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
+        init_test_repo(temp_dir.path(), false);
 
         let provider = GitoxideStatus::new();
-        let path = RepoPath::new(repo_path.to_str().unwrap()).unwrap();
+        let path = RepoPath::new(temp_dir.path().to_str().unwrap()).unwrap();
         let detail = provider.get_detail(&path, 10).unwrap();
 
-        // Should succeed but with empty commits and a partial error
         assert!(
             detail.commits.is_empty(),
             "Empty repo should have no commits"
         );
-        // git log on an empty repo fails, so error should be reported
         assert!(
             detail.error.is_some(),
             "Should report error from git log on empty repo"
@@ -1052,43 +700,13 @@ mod tests {
 
     #[test]
     fn query_changed_files_detects_deletion() {
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
+        init_test_repo(temp_dir.path(), false);
+        add_commit(temp_dir.path(), "to_delete.txt", "content", "Add file");
 
-        Command::new("git")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
+        std::fs::remove_file(temp_dir.path().join("to_delete.txt")).unwrap();
 
-        // Create and commit a file, then delete it
-        std::fs::write(repo_path.join("to_delete.txt"), "content").unwrap();
-        Command::new("git")
-            .args(["add", "."])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "Add file"])
-            .current_dir(repo_path)
-            .output()
-            .unwrap();
-
-        std::fs::remove_file(repo_path.join("to_delete.txt")).unwrap();
-
-        let changes = GitoxideStatus::query_changed_files(repo_path).unwrap();
+        let changes = GitoxideStatus::query_changed_files(temp_dir.path()).unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].path, "to_delete.txt");
         assert_eq!(changes[0].status, FileChangeStatus::Deleted);

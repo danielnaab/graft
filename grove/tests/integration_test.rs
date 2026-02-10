@@ -5,6 +5,7 @@
 
 mod common;
 
+use common::init_git_repo;
 use grove_core::{ConfigLoader, RepoDetailProvider, RepoRegistry};
 use grove_engine::{GitoxideStatus, WorkspaceRegistry, YamlConfigLoader};
 use std::fs;
@@ -288,46 +289,4 @@ fn get_detail_end_to_end_with_real_repo() {
     );
 
     assert!(detail.error.is_none(), "Should not have an error");
-}
-
-// Helper functions
-
-/// Initialize a git repository with a commit, optionally make it dirty
-fn init_git_repo(path: &std::path::Path, content: &str, make_dirty: bool) {
-    // Initialize
-    Command::new("git")
-        .args(["init"])
-        .current_dir(path)
-        .output()
-        .unwrap();
-
-    // Configure user
-    Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(path)
-        .output()
-        .unwrap();
-    Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(path)
-        .output()
-        .unwrap();
-
-    // Create and commit file
-    fs::write(path.join("README.md"), content).unwrap();
-    Command::new("git")
-        .args(["add", "README.md"])
-        .current_dir(path)
-        .output()
-        .unwrap();
-    Command::new("git")
-        .args(["commit", "-m", "Initial commit"])
-        .current_dir(path)
-        .output()
-        .unwrap();
-
-    // Optionally make dirty
-    if make_dirty {
-        fs::write(path.join("README.md"), format!("{content} modified")).unwrap();
-    }
 }
