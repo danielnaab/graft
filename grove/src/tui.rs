@@ -366,6 +366,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     }
 }
 
+/// Extract the basename (final component) from a path.
+///
+/// # Examples
+/// - `/home/user/src/graft` → `graft`
+/// - `~/projects/repo` → `repo`
+/// - `/tmp` → `tmp`
+fn extract_basename(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
 /// Compact a path to fit within a maximum width using abbreviation strategies.
 ///
 /// Applies transformations in order:
@@ -492,7 +502,11 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
             if let Some(error_msg) = &status.error {
                 // For errors, calculate error message width and compact path accordingly
                 let error_text = format!("[error: {error_msg}]");
-                // Account for: highlight "▶ " (2), space (1), error text, margins (~3)
+                // Overhead components:
+                //   2: List widget highlight symbol "▶ " (added by ratatui when selected)
+                //   1: Space after path
+                //   error_text.width(): The error message itself
+                //   3: Safety margin (prevents text from touching right border, List padding)
                 let overhead = 2 + 1 + error_text.width() + 3;
                 let max_path_width = (pane_width as usize).saturating_sub(overhead);
                 let compacted_path = compact_path(&path, max_path_width);
@@ -534,7 +548,7 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
                     .map(|n| format!("↓{n}"))
                     .unwrap_or_default();
 
-                // Calculate status width WITHOUT branch first (for tight space fallback)
+                // Calculate status width WITHOUT branch (for tight space fallback)
                 let mut minimal_status_width = 1 + 1; // space + dirty
                 if !ahead_text.is_empty() {
                     minimal_status_width += 1 + ahead_text.width(); // space + ahead
@@ -543,24 +557,28 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
                     minimal_status_width += 1 + behind_text.width(); // space + behind
                 }
 
-                // Calculate status width WITH branch
-                let full_status_width = 1 + branch.width() + minimal_status_width;
+                // Tiered display strategy based on available width:
+                // - Very tight (< 15): basename only
+                // - Tight (15-25): compacted path without branch
+                // - Normal (>= 25): try to show with branch
 
-                // Try with branch first
-                let overhead_with_branch = 2 + full_status_width + 3;
-                let max_path_width_with_branch = (pane_width as usize).saturating_sub(overhead_with_branch);
-                let compacted_path_with_branch = compact_path(&path, max_path_width_with_branch);
+                if pane_width < 15 {
+                    // Very tight: show just basename
+                    // Format: basename ● [↑n] [↓n]
+                    let basename = extract_basename(&path);
+                    // Overhead: highlight (2) + minimal_status_width + safety margin (3)
+                    let overhead = 2 + minimal_status_width + 3;
+                    let max_basename_width = (pane_width as usize).saturating_sub(overhead);
 
-                // If path is severely compacted (uses [..] prefix or is very short), drop branch
-                let use_branch = !compacted_path_with_branch.starts_with("[..]")
-                    && compacted_path_with_branch.len() >= 8;
+                    // Truncate basename if needed (shouldn't happen often)
+                    let display_name = if basename.width() > max_basename_width {
+                        &basename[..max_basename_width.min(basename.len())]
+                    } else {
+                        basename
+                    };
 
-                if use_branch {
-                    // Show with branch: path [branch] ● [↑n] [↓n]
                     let mut spans = vec![
-                        Span::styled(compacted_path_with_branch, Style::default().fg(Color::White)),
-                        Span::raw(" "),
-                        Span::styled(branch, Style::default().fg(Color::Cyan)),
+                        Span::styled(display_name.to_string(), Style::default().fg(Color::White)),
                         Span::raw(" "),
                         Span::styled(dirty_indicator, Style::default().fg(dirty_color)),
                     ];
@@ -577,35 +595,74 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
 
                     Line::from(spans)
                 } else {
-                    // Tight space: drop branch, show more of path
-                    // Format: path ● [↑n] [↓n]
-                    let overhead_without_branch = 2 + minimal_status_width + 3;
-                    let max_path_width = (pane_width as usize).saturating_sub(overhead_without_branch);
-                    let compacted_path = compact_path(&path, max_path_width);
+                    // Calculate status width WITH branch
+                    let full_status_width = 1 + branch.width() + minimal_status_width;
 
-                    let mut spans = vec![
-                        Span::styled(compacted_path, Style::default().fg(Color::White)),
-                        Span::raw(" "),
-                        Span::styled(dirty_indicator, Style::default().fg(dirty_color)),
-                    ];
+                    // Try with branch first
+                    // Overhead: highlight (2) + full_status_width + safety margin (3)
+                    let overhead_with_branch = 2 + full_status_width + 3;
+                    let max_path_width_with_branch = (pane_width as usize).saturating_sub(overhead_with_branch);
+                    let compacted_path_with_branch = compact_path(&path, max_path_width_with_branch);
 
-                    if !ahead_text.is_empty() {
-                        spans.push(Span::raw(" "));
-                        spans.push(Span::styled(ahead_text, Style::default().fg(Color::Green)));
+                    // If path is severely compacted (uses [..] prefix or display width < 8), drop branch
+                    let use_branch = !compacted_path_with_branch.starts_with("[..]")
+                        && compacted_path_with_branch.width() >= 8;
+
+                    if use_branch {
+                        // Normal: show with branch
+                        // Format: path [branch] ● [↑n] [↓n]
+                        let mut spans = vec![
+                            Span::styled(compacted_path_with_branch, Style::default().fg(Color::White)),
+                            Span::raw(" "),
+                            Span::styled(branch, Style::default().fg(Color::Cyan)),
+                            Span::raw(" "),
+                            Span::styled(dirty_indicator, Style::default().fg(dirty_color)),
+                        ];
+
+                        if !ahead_text.is_empty() {
+                            spans.push(Span::raw(" "));
+                            spans.push(Span::styled(ahead_text, Style::default().fg(Color::Green)));
+                        }
+
+                        if !behind_text.is_empty() {
+                            spans.push(Span::raw(" "));
+                            spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
+                        }
+
+                        Line::from(spans)
+                    } else {
+                        // Tight: drop branch, show more of path
+                        // Format: path ● [↑n] [↓n]
+                        // Overhead: highlight (2) + minimal_status_width + safety margin (3)
+                        let overhead_without_branch = 2 + minimal_status_width + 3;
+                        let max_path_width = (pane_width as usize).saturating_sub(overhead_without_branch);
+                        let compacted_path = compact_path(&path, max_path_width);
+
+                        let mut spans = vec![
+                            Span::styled(compacted_path, Style::default().fg(Color::White)),
+                            Span::raw(" "),
+                            Span::styled(dirty_indicator, Style::default().fg(dirty_color)),
+                        ];
+
+                        if !ahead_text.is_empty() {
+                            spans.push(Span::raw(" "));
+                            spans.push(Span::styled(ahead_text, Style::default().fg(Color::Green)));
+                        }
+
+                        if !behind_text.is_empty() {
+                            spans.push(Span::raw(" "));
+                            spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
+                        }
+
+                        Line::from(spans)
                     }
-
-                    if !behind_text.is_empty() {
-                        spans.push(Span::raw(" "));
-                        spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
-                    }
-
-                    Line::from(spans)
                 }
             }
         }
         None => {
             // For loading state, calculate overhead and compact path
             let loading_text = "[loading...]";
+            // Overhead: highlight (2) + space (1) + loading text + safety margin (3)
             let overhead = 2 + 1 + loading_text.width() + 3;
             let max_path_width = (pane_width as usize).saturating_sub(overhead);
             let compacted_path = compact_path(&path, max_path_width);

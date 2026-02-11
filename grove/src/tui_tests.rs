@@ -904,3 +904,176 @@ fn compact_path_abbreviates_fish_style() {
     // (allowing for variation based on actual compaction strategy)
     assert!(result.len() < path.len());
 }
+
+// --- Adaptive branch display tests ---
+
+#[test]
+fn format_repo_line_shows_branch_when_space_allows() {
+    let path = "/tmp/repo".to_string();
+    let mut status = RepoStatus::new(RepoPath::new("/tmp/repo").unwrap());
+    status.branch = Some("main".to_string());
+    status.is_dirty = true;
+
+    // Wide pane: 80 cols should have plenty of room
+    let line = format_repo_line(path, Some(&status), 80);
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    assert!(
+        text.contains("[main]"),
+        "Should show branch when space allows, got: {text}"
+    );
+}
+
+#[test]
+fn format_repo_line_drops_branch_when_path_would_be_too_short() {
+    let path = "/home/user/very/long/path/to/repository".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("feature-branch-with-long-name".to_string());
+    status.is_dirty = true;
+
+    // Narrow pane: 20 cols means path would be severely compacted with branch
+    let line = format_repo_line(path, Some(&status), 20);
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    // Should NOT show branch (dropped to make room for path)
+    assert!(
+        !text.contains("[feature-branch-with-long-name]"),
+        "Should drop branch when path would be too short, got: {text}"
+    );
+    // Should still show status
+    assert!(text.contains("●"), "Should still show dirty indicator");
+}
+
+#[test]
+fn format_repo_line_drops_branch_when_path_uses_prefix_truncation() {
+    let path = "/extremely/long/nested/directory/structure/repository-name".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("main".to_string());
+    status.is_dirty = false;
+
+    // Very narrow pane where path would need [..] prefix even with abbreviation
+    let line = format_repo_line(path, Some(&status), 18);
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    // Should NOT show branch when path needs [..] prefix
+    assert!(
+        !text.contains("[main]"),
+        "Should drop branch when path uses [..] prefix, got: {text}"
+    );
+}
+
+#[test]
+fn format_repo_line_unicode_path_uses_width_not_len() {
+    // Unicode path where byte length != display width
+    let path = "/home/用户/项目/repository".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("main".to_string());
+    status.is_dirty = true;
+
+    // Medium pane width
+    let line = format_repo_line(path, Some(&status), 40);
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    // Should handle unicode correctly (width-based, not byte-based decision)
+    // The important thing is it doesn't panic and produces reasonable output
+    assert!(
+        text.contains("●"),
+        "Should show status indicator for unicode path"
+    );
+}
+
+#[test]
+fn format_repo_line_preserves_ahead_behind_when_dropping_branch() {
+    let path = "/home/user/very/long/path/to/repo".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("main".to_string());
+    status.is_dirty = true;
+    status.ahead = Some(4);
+    status.behind = Some(2);
+
+    // Narrow pane: branch will be dropped
+    let line = format_repo_line(path, Some(&status), 22);
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    // Should drop branch but keep ahead/behind
+    assert!(
+        !text.contains("[main]"),
+        "Should drop branch in tight space"
+    );
+    assert!(text.contains("↑4"), "Should preserve ahead indicator");
+    assert!(text.contains("↓2"), "Should preserve behind indicator");
+    assert!(text.contains("●"), "Should preserve dirty indicator");
+}
+
+#[test]
+fn format_repo_line_shows_basename_only_in_very_tight_space() {
+    let path = "/home/user/src/graft".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("main".to_string());
+    status.is_dirty = true;
+
+    // Very narrow pane: < 15 cols
+    let line = format_repo_line(path, Some(&status), 12);
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    // Should show basename only, no branch, no path
+    assert!(
+        text.contains("graft"),
+        "Should show basename in very tight space, got: {text}"
+    );
+    assert!(
+        !text.contains("[main]"),
+        "Should not show branch in very tight space"
+    );
+    assert!(
+        !text.contains("src"),
+        "Should not show parent dirs in very tight space"
+    );
+    assert!(text.contains("●"), "Should still show status");
+}
+
+#[test]
+fn extract_basename_works_correctly() {
+    assert_eq!(extract_basename("/home/user/src/graft"), "graft");
+    assert_eq!(extract_basename("~/projects/repo"), "repo");
+    assert_eq!(extract_basename("/tmp"), "tmp");
+    assert_eq!(extract_basename("single"), "single");
+}
+
+// --- Overhead calculation verification ---
+
+#[test]
+fn verify_overhead_calculation_is_accurate() {
+    // Test that our overhead calculation leaves appropriate space
+    let path = "/home/user/repo".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("main".to_string());
+    status.is_dirty = true;
+    status.ahead = Some(4);
+    status.behind = Some(2);
+
+    // Format with known pane width
+    let pane_width = 50;
+    let line = format_repo_line(path, Some(&status), pane_width);
+
+    // Calculate actual rendered width (excluding highlight symbol which is separate)
+    let actual_width: usize = line.spans.iter().map(|s| s.content.width()).sum();
+
+    // The line should fit comfortably within the pane
+    // Overhead accounts for: highlight (2) + margins (~3) = 5
+    // So actual content should be <= pane_width - 5
+    assert!(
+        actual_width <= pane_width as usize - 2, // At minimum, leave room for highlight
+        "Line width {} should fit in pane {} with overhead, got spans: {:?}",
+        actual_width,
+        pane_width,
+        line.spans.iter().map(|s| s.content.as_ref()).collect::<Vec<_>>()
+    );
+
+    // Verify all expected components are present
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    assert!(text.contains("[main]"), "Should contain branch");
+    assert!(text.contains("●"), "Should contain dirty");
+    assert!(text.contains("↑4"), "Should contain ahead");
+    assert!(text.contains("↓2"), "Should contain behind");
+}

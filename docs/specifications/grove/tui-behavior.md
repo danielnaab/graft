@@ -82,9 +82,17 @@ And the final path components are preserved
 
 ```gherkin
 Given available space is very limited (narrow terminal or long status indicators)
-When the TUI would severely compact the path (to <8 chars or using "[..]" prefix)
+When the TUI would severely compact the path (using "[..]" prefix or very short display)
 Then the branch name is dropped from the display
 And more space is allocated to show the repository path
+And status indicators (dirty, ahead, behind) are still shown
+```
+
+```gherkin
+Given available space is extremely limited (pane width < 15 columns)
+When the TUI renders a repository line
+Then only the repository basename is shown (e.g., "graft" not "~/src/graft")
+And branch name is omitted
 And status indicators (dirty, ahead, behind) are still shown
 ```
 
@@ -354,11 +362,14 @@ And navigation between repos still works
   - Example: `/home/user/very/long/nested/project-name` → `~/v/l/n/project-name`
 
 - **2026-02-11**: Adaptive display prioritizes repository name over branch in tight spaces
-  - Overhead calculated dynamically based on actual status width
-  - If path would be severely compacted (<8 chars or using `[..]`), branch is dropped
+  - Overhead calculated dynamically based on actual status width (not fixed)
+  - Tiered display strategy based on available width:
+    - Very tight (< 15 cols): basename only (e.g., `graft ●`)
+    - Tight: compacted path without branch (e.g., `~/src/graft ●`)
+    - Normal: full path with branch (e.g., `~/src/graft [main] ●`)
   - Repository name takes priority over branch name (branch visible in detail pane)
-  - Example in narrow terminal: `~/src/graft ●` instead of `~/s [main] ●`
-  - Ensures users can identify repos even in constrained layouts
+  - Ensures users can identify repos even in extremely constrained layouts
+  - Uses unicode-aware width calculation (not byte count) for threshold checks
 
 ## Sources
 
