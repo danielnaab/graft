@@ -487,8 +487,10 @@ fn format_file_change_indicator(status: &FileChangeStatus) -> (&'static str, Col
 /// - `pane_width`: Available width for the pane (used to compact long paths)
 fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) -> Line<'static> {
     // Calculate available width for path
-    // Account for: borders (2), highlight symbol "▶ " (2), spacing and status indicators (~25)
-    const OVERHEAD: usize = 30;
+    // Account for: highlight symbol "▶ " (2), space (1), branch "[name]" (~8),
+    //              space (1), dirty "●" (1), space (1), ahead "↑4" (~3), space (1), behind "↓2" (~3)
+    // Total: ~21 chars, using 18 to allow for longer branch names
+    const OVERHEAD: usize = 18;
     let max_path_width = (pane_width as usize).saturating_sub(OVERHEAD);
     let compacted_path = compact_path(&path, max_path_width);
 
