@@ -486,19 +486,17 @@ fn format_file_change_indicator(status: &FileChangeStatus) -> (&'static str, Col
 /// - `status`: Optional repository status information
 /// - `pane_width`: Available width for the pane (used to compact long paths)
 fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) -> Line<'static> {
-    // Calculate available width for path
-    // Account for: highlight symbol "▶ " (2), space (1), branch "[name]" (~8),
-    //              space (1), dirty "●" (1), space (1), ahead "↑4" (~3), space (1), behind "↓2" (~3)
-    // Total: ~21 chars, using 18 to allow for longer branch names
-    const OVERHEAD: usize = 18;
-    let max_path_width = (pane_width as usize).saturating_sub(OVERHEAD);
-    let compacted_path = compact_path(&path, max_path_width);
-
     match status {
         Some(status) => {
             // Check for error first - safe pattern matching without unwrap
             if let Some(error_msg) = &status.error {
-                // Use yellow for timeout errors, red for other errors
+                // For errors, calculate error message width and compact path accordingly
+                let error_text = format!("[error: {error_msg}]");
+                // Account for: highlight "▶ " (2), space (1), error text, margins (~3)
+                let overhead = 2 + 1 + error_text.width() + 3;
+                let max_path_width = (pane_width as usize).saturating_sub(overhead);
+                let compacted_path = compact_path(&path, max_path_width);
+
                 let error_color = if error_msg.contains("timed out") {
                     Color::Yellow
                 } else {
@@ -508,19 +506,43 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
                 Line::from(vec![
                     Span::styled(compacted_path, Style::default().fg(Color::White)),
                     Span::raw(" "),
-                    Span::styled(
-                        format!("[error: {error_msg}]"),
-                        Style::default().fg(error_color),
-                    ),
+                    Span::styled(error_text, Style::default().fg(error_color)),
                 ])
             } else {
-                // Normal status rendering
+                // Build status indicators first to calculate their width
                 let branch = status
                     .branch
                     .as_ref()
                     .map_or_else(|| "[detached]".to_string(), |b| format!("[{b}]"));
 
                 let dirty_indicator = if status.is_dirty { "●" } else { "○" };
+
+                let ahead_text = status
+                    .ahead
+                    .filter(|&n| n > 0)
+                    .map(|n| format!("↑{n}"))
+                    .unwrap_or_default();
+
+                let behind_text = status
+                    .behind
+                    .filter(|&n| n > 0)
+                    .map(|n| format!("↓{n}"))
+                    .unwrap_or_default();
+
+                // Calculate actual status width: space + branch + space + dirty + [space + ahead] + [space + behind]
+                let mut status_width = 1 + branch.width() + 1 + 1; // space + branch + space + dirty
+                if !ahead_text.is_empty() {
+                    status_width += 1 + ahead_text.width(); // space + ahead
+                }
+                if !behind_text.is_empty() {
+                    status_width += 1 + behind_text.width(); // space + behind
+                }
+
+                // Account for: highlight "▶ " (2), status indicators, margins (~3)
+                let overhead = 2 + status_width + 3;
+                let max_path_width = (pane_width as usize).saturating_sub(overhead);
+                let compacted_path = compact_path(&path, max_path_width);
+
                 let dirty_color = if status.is_dirty {
                     Color::Yellow
                 } else {
@@ -535,34 +557,32 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
                     Span::styled(dirty_indicator, Style::default().fg(dirty_color)),
                 ];
 
-                if let Some(ahead) = status.ahead {
-                    if ahead > 0 {
-                        spans.push(Span::raw(" "));
-                        spans.push(Span::styled(
-                            format!("↑{ahead}"),
-                            Style::default().fg(Color::Green),
-                        ));
-                    }
+                if !ahead_text.is_empty() {
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(ahead_text, Style::default().fg(Color::Green)));
                 }
 
-                if let Some(behind) = status.behind {
-                    if behind > 0 {
-                        spans.push(Span::raw(" "));
-                        spans.push(Span::styled(
-                            format!("↓{behind}"),
-                            Style::default().fg(Color::Red),
-                        ));
-                    }
+                if !behind_text.is_empty() {
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
                 }
 
                 Line::from(spans)
             }
         }
-        None => Line::from(vec![
-            Span::styled(compacted_path, Style::default().fg(Color::White)),
-            Span::raw(" "),
-            Span::styled("[loading...]", Style::default().fg(Color::Gray)),
-        ]),
+        None => {
+            // For loading state, calculate overhead and compact path
+            let loading_text = "[loading...]";
+            let overhead = 2 + 1 + loading_text.width() + 3;
+            let max_path_width = (pane_width as usize).saturating_sub(overhead);
+            let compacted_path = compact_path(&path, max_path_width);
+
+            Line::from(vec![
+                Span::styled(compacted_path, Style::default().fg(Color::White)),
+                Span::raw(" "),
+                Span::styled(loading_text, Style::default().fg(Color::Gray)),
+            ])
+        }
     }
 }
 
