@@ -202,7 +202,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 )
                 .highlight_style(
                     Style::default()
-                        .bg(Color::DarkGray)
+                        .bg(Color::Rgb(40, 40, 50))
                         .add_modifier(Modifier::BOLD),
                 )
                 .highlight_symbol("▶ ");

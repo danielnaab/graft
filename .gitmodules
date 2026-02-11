@@ -7,3 +7,6 @@
 [submodule ".graft/rust-starter"]
 	path = .graft/rust-starter
 	url = https://github.com/danielnaab/rust-starter.git
+[submodule ".graft/living-specifications"]
+	path = .graft/living-specifications
+	url = https://github.com/danielnaab/living-specifications.git

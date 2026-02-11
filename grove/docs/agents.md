@@ -12,6 +12,7 @@ You are working on **Grove**: Multi-repo workspace manager with graft awareness
 1. **Read project configuration**: [../knowledge-base.yaml](../knowledge-base.yaml)
 2. **Follow meta-KB policies**: [../.graft/meta-knowledge-base/AGENTS.md](../.graft/meta-knowledge-base/AGENTS.md)
 3. **Understand template patterns**: [../.graft/rust-starter/docs/agents.md](../.graft/rust-starter/docs/agents.md)
+4. **Follow living-specifications format**: [../.graft/living-specifications/docs/format.md](../.graft/living-specifications/docs/format.md)
 
 ## Core Pattern
 

@@ -92,6 +92,7 @@ Declared in [`graft.yaml`](graft.yaml), cloned to `.graft/` via `graft resolve`:
 | [meta-knowledge-base](.graft/meta-knowledge-base/) | KB organization framework, policies, playbooks | [AGENTS.md](.graft/meta-knowledge-base/AGENTS.md) |
 | [python-starter](.graft/python-starter/) | Python clean architecture patterns and template | [knowledge-base.yaml](.graft/python-starter/knowledge-base.yaml) |
 | [rust-starter](.graft/rust-starter/) | Rust architecture patterns and template | [knowledge-base.yaml](.graft/rust-starter/knowledge-base.yaml) |
+| [living-specifications](.graft/living-specifications/) | Living spec methodology: format, principles, writing guide | [knowledge-base.yaml](.graft/living-specifications/knowledge-base.yaml) |
 
 ## Meta-KB policies
 

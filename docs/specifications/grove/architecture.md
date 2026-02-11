@@ -1,6 +1,8 @@
 ---
 title: "Grove Architecture"
-status: draft
+status: working
+last-verified: 2026-02-10
+owners: [human, agent]
 date: 2026-02-08
 ---
 

@@ -19,6 +19,9 @@ imports:
   - kind: local
     path: ../rust-starter
     entrypoint: knowledge-base.yaml
+  - kind: local
+    path: ../living-specifications
+    entrypoint: knowledge-base.yaml
 
 components:
   - name: grove

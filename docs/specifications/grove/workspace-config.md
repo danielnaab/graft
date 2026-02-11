@@ -1,6 +1,6 @@
 ---
-status: draft
-last-verified: 2026-02-08
+status: working
+last-verified: 2026-02-10
 owners: [human, agent]
 ---
 
@@ -34,7 +34,7 @@ Then it loads both repositories into the workspace registry
 And displays their names and status
 ```
 
-### Repository with Tags [Slice 1]
+### Repository with Tags [Unimplemented]
 
 ```gherkin
 Given a repository declaration with tags:
