@@ -204,7 +204,7 @@ fn formats_error_status_correctly() {
     let mut status = RepoStatus::new(RepoPath::new("/tmp/broken-repo").unwrap());
     status.error = Some("Failed to open repository".to_string());
 
-    let line = format_repo_line(path.clone(), Some(&status));
+    let line = format_repo_line(path.clone(), Some(&status), 80);
 
     // Verify line contains error text
     assert_eq!(
@@ -232,7 +232,7 @@ fn formats_complete_status_with_all_fields() {
     status.ahead = Some(3);
     status.behind = Some(2);
 
-    let line = format_repo_line(path.clone(), Some(&status));
+    let line = format_repo_line(path.clone(), Some(&status), 80);
 
     // Verify spans include all status components
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -253,7 +253,7 @@ fn formats_clean_status_correctly() {
     status.ahead = None;
     status.behind = None;
 
-    let line = format_repo_line(path, Some(&status));
+    let line = format_repo_line(path, Some(&status), 80);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(text.contains("[develop]"), "Should contain branch name");
@@ -279,7 +279,7 @@ fn formats_detached_head_state() {
     status.branch = None; // Detached HEAD
     status.is_dirty = false;
 
-    let line = format_repo_line(path, Some(&status));
+    let line = format_repo_line(path, Some(&status), 80);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(
@@ -292,7 +292,7 @@ fn formats_detached_head_state() {
 #[test]
 fn formats_loading_state() {
     let path = "/tmp/loading-repo".to_string();
-    let line = format_repo_line(path.clone(), None);
+    let line = format_repo_line(path.clone(), None, 80);
 
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
@@ -369,7 +369,7 @@ fn hides_zero_ahead_behind_counts() {
     status.ahead = Some(0);
     status.behind = Some(0);
 
-    let line = format_repo_line(path, Some(&status));
+    let line = format_repo_line(path, Some(&status), 80);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     // Zero counts should be filtered out (check the actual implementation)
@@ -392,7 +392,7 @@ fn shows_nonzero_ahead_behind_counts() {
     status.ahead = Some(5);
     status.behind = Some(3);
 
-    let line = format_repo_line(path, Some(&status));
+    let line = format_repo_line(path, Some(&status), 80);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(text.contains("↑5"), "Should show ahead count of 5");
@@ -793,4 +793,114 @@ fn detail_scroll_clamps_to_content_length() {
         app.detail_scroll > max_scroll,
         "Pre-condition: scroll should exceed content before clamping"
     );
+}
+
+// --- Path compaction tests ---
+
+#[test]
+fn compact_path_returns_unchanged_if_fits() {
+    let path = "/tmp/short";
+    let result = compact_path(path, 50);
+    assert_eq!(result, path);
+}
+
+#[test]
+fn compact_path_applies_tilde_expansion() {
+    // Note: shellexpand::tilde only works if HOME is set and matches the path
+    let path = format!("{}/projects/graft", std::env::var("HOME").unwrap_or_default());
+    let result = compact_path(&path, 100);
+    assert!(
+        result.starts_with("~/"),
+        "Should start with tilde, got: {result}"
+    );
+}
+
+#[test]
+fn compact_path_abbreviates_parent_components() {
+    let path = "/home/user/very/long/nested/project-name/submodule";
+    let result = compact_path(path, 35);
+
+    // Should preserve last 2 components, abbreviate the rest
+    assert!(
+        result.contains("project-name/submodule"),
+        "Should preserve final 2 components, got: {result}"
+    );
+    // Should have abbreviated middle parts
+    assert!(
+        result.len() < path.len(),
+        "Should be shorter than original, got: {result}"
+    );
+}
+
+#[test]
+fn compact_path_preserves_final_components() {
+    let path = "/a/b/c/d/project/repo";
+    let result = compact_path(path, 25);
+
+    // Last 2 components should be intact
+    assert!(
+        result.ends_with("project/repo"),
+        "Should end with last 2 components, got: {result}"
+    );
+}
+
+#[test]
+fn compact_path_falls_back_to_prefix_truncation() {
+    let path = "/extremely/long/path/that/will/not/fit/even/with/abbreviation/project-name";
+    let result = compact_path(path, 20);
+
+    // When even abbreviation doesn't help, should use prefix truncation
+    assert!(
+        result.starts_with("[..]"),
+        "Should use prefix truncation, got: {result}"
+    );
+    assert!(
+        result.len() <= 20,
+        "Should not exceed max width, got: {} (len {})",
+        result,
+        result.len()
+    );
+}
+
+#[test]
+fn compact_path_handles_unicode_correctly() {
+    let path = "/home/user/プロジェクト/ファイル";
+    let result = compact_path(path, 50);
+
+    // Should handle unicode characters without panicking
+    // Width should be calculated correctly
+    assert!(
+        result.width() <= 50,
+        "Unicode path should respect width limit, got width: {} for: {}",
+        result.width(),
+        result
+    );
+}
+
+#[test]
+fn compact_path_handles_very_short_max_width() {
+    let path = "/home/user/project";
+    let result = compact_path(path, 5);
+
+    // Should not panic with very short width
+    assert!(
+        result.width() <= 5,
+        "Should respect very short width, got: {} (width {})",
+        result,
+        result.width()
+    );
+}
+
+#[test]
+fn compact_path_abbreviates_fish_style() {
+    let path = "/var/log/nginx/access/archive";
+    let result = compact_path(path, 25);
+
+    // Should abbreviate like fish: /v/l/n/access/archive
+    // Last 2 components preserved
+    assert!(result.ends_with("access/archive"));
+
+    // Should have single-char abbreviations for parent components
+    // (allowing for variation based on actual compaction strategy)
+    assert!(result.len() < path.len());
 }

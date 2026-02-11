@@ -12,6 +12,7 @@ gix = "0.66"
 ratatui = "0.29"
 crossterm = "0.28"
 shellexpand = "3"
+unicode-width = "0.1"
 wait-timeout = "0.2"
 log = "0.4"
 env_logger = "0.11"
@@ -42,6 +43,7 @@ clap = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 shellexpand = { workspace = true }
+unicode-width = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 

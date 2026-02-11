@@ -16,6 +16,7 @@ use ratatui::{
     Terminal,
 };
 use std::io;
+use unicode_width::UnicodeWidthStr;
 
 /// Default number of recent commits to show in the detail pane.
 const DEFAULT_MAX_COMMITS: usize = 10;
@@ -178,11 +179,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
             // --- Left pane: repo list ---
             let repos = self.registry.list_repos();
+            let pane_width = chunks[0].width;
             let items: Vec<ListItem> = repos
                 .iter()
                 .map(|repo_path| {
                     let status = self.registry.get_status(repo_path);
-                    let line = format_repo_line(repo_path.as_path().display().to_string(), status);
+                    let line = format_repo_line(
+                        repo_path.as_path().display().to_string(),
+                        status,
+                        pane_width,
+                    );
                     ListItem::new(line)
                 })
                 .collect();
@@ -360,6 +366,104 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     }
 }
 
+/// Compact a path to fit within a maximum width using abbreviation strategies.
+///
+/// Applies transformations in order:
+/// 1. Home directory shown as "~" (e.g., `/home/user` → `~`)
+/// 2. Parent directory components abbreviated to first character (preserves last 2 components)
+/// 3. Fallback to prefix truncation with "[..]" if still too wide
+///
+/// # Examples
+/// - `/home/user/projects/graft` → `~/projects/graft` (if width allows)
+/// - `/home/user/very/long/nested/project-name` → `~/v/l/n/project-name` (fish-style)
+/// - Very long path that exceeds max_width → `[..]project-name`
+fn compact_path(path: &str, max_width: usize) -> String {
+    // First, collapse home directory to tilde
+    let tilde_path = if let Ok(home) = std::env::var("HOME") {
+        if path.starts_with(&home) {
+            path.replacen(&home, "~", 1)
+        } else {
+            path.to_string()
+        }
+    } else {
+        path.to_string()
+    };
+
+    let current_width = tilde_path.width();
+
+    // If it fits already, we're done
+    if current_width <= max_width {
+        return tilde_path.to_string();
+    }
+
+    // Split into components
+    let parts: Vec<&str> = tilde_path.split('/').collect();
+
+    // If we have fewer than 3 components, just truncate with prefix
+    if parts.len() < 3 {
+        return prefix_truncate(&tilde_path, max_width);
+    }
+
+    // Fish-style abbreviation: abbreviate all but last 2 components
+    let preserve_count = 2;
+    let mut abbreviated = String::new();
+
+    for (i, part) in parts.iter().enumerate() {
+        if i > 0 {
+            abbreviated.push('/');
+        }
+
+        // Preserve last N components and empty parts (for leading /)
+        if i >= parts.len() - preserve_count || part.is_empty() {
+            abbreviated.push_str(part);
+        } else {
+            // Abbreviate to first character (or empty if component is empty)
+            if let Some(first_char) = part.chars().next() {
+                abbreviated.push(first_char);
+            }
+        }
+    }
+
+    // Check if abbreviated version fits
+    if abbreviated.width() <= max_width {
+        return abbreviated;
+    }
+
+    // Last resort: prefix truncation
+    prefix_truncate(&abbreviated, max_width)
+}
+
+/// Truncate a string from the start with "[..]" prefix.
+fn prefix_truncate(s: &str, max_width: usize) -> String {
+    const PREFIX: &str = "[..]";
+    const PREFIX_WIDTH: usize = 4; // "[..]".width()
+
+    if s.width() <= max_width {
+        return s.to_string();
+    }
+
+    if max_width <= PREFIX_WIDTH {
+        // Not enough room for prefix, just take what we can
+        return s.chars().take(max_width).collect();
+    }
+
+    let target_width = max_width - PREFIX_WIDTH;
+    let mut truncated = String::from(PREFIX);
+    let mut current_width = 0;
+
+    // Take characters from the end that fit within target_width
+    for ch in s.chars().rev() {
+        let ch_width = UnicodeWidthStr::width(ch.to_string().as_str());
+        if current_width + ch_width > target_width {
+            break;
+        }
+        current_width += ch_width;
+        truncated.insert(PREFIX_WIDTH, ch);
+    }
+
+    truncated
+}
+
 /// Map a `FileChangeStatus` to an indicator character and color.
 fn format_file_change_indicator(status: &FileChangeStatus) -> (&'static str, Color) {
     match status {
@@ -376,7 +480,18 @@ fn format_file_change_indicator(status: &FileChangeStatus) -> (&'static str, Col
 ///
 /// Returns `Line<'static>` because all data is owned (no borrowing from input parameters).
 /// The 'static lifetime indicates the Line owns its data, not that it's statically allocated.
-fn format_repo_line(path: String, status: Option<&RepoStatus>) -> Line<'static> {
+///
+/// # Arguments
+/// - `path`: Full path to the repository
+/// - `status`: Optional repository status information
+/// - `pane_width`: Available width for the pane (used to compact long paths)
+fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) -> Line<'static> {
+    // Calculate available width for path
+    // Account for: borders (2), highlight symbol "▶ " (2), spacing and status indicators (~25)
+    const OVERHEAD: usize = 30;
+    let max_path_width = (pane_width as usize).saturating_sub(OVERHEAD);
+    let compacted_path = compact_path(&path, max_path_width);
+
     match status {
         Some(status) => {
             // Check for error first - safe pattern matching without unwrap
@@ -389,7 +504,7 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>) -> Line<'static> 
                 };
 
                 Line::from(vec![
-                    Span::styled(path, Style::default().fg(Color::White)),
+                    Span::styled(compacted_path, Style::default().fg(Color::White)),
                     Span::raw(" "),
                     Span::styled(
                         format!("[error: {error_msg}]"),
@@ -411,7 +526,7 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>) -> Line<'static> 
                 };
 
                 let mut spans = vec![
-                    Span::styled(path, Style::default().fg(Color::White)),
+                    Span::styled(compacted_path, Style::default().fg(Color::White)),
                     Span::raw(" "),
                     Span::styled(branch, Style::default().fg(Color::Cyan)),
                     Span::raw(" "),
@@ -442,7 +557,7 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>) -> Line<'static> 
             }
         }
         None => Line::from(vec![
-            Span::styled(path, Style::default().fg(Color::White)),
+            Span::styled(compacted_path, Style::default().fg(Color::White)),
             Span::raw(" "),
             Span::styled("[loading...]", Style::default().fg(Color::Gray)),
         ]),

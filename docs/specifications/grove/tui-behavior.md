@@ -71,6 +71,15 @@ When the TUI renders that repo's line
 Then it shows "[loading...]" as a pending state
 ```
 
+```gherkin
+Given a repository with a path that exceeds the available pane width
+When the TUI renders that repo's line
+Then the path is abbreviated to fit within the pane
+And home directory is shown as "~"
+And parent directory components are abbreviated
+And the final path components are preserved
+```
+
 ### List Navigation [Slice 1]
 
 ```gherkin
@@ -301,8 +310,8 @@ And navigation between repos still works
 
 **Medium Priority (Feature requests):**
 - [ ] Should the repo list display tags from workspace.yaml config?
-- [ ] Should the 40/60 split ratio be configurable or adapt to terminal width?
 - [ ] Should there be visual indication when detail is loading/refreshing?
+- [ ] Should path abbreviation be configurable (number of full components, abbreviation length)?
 
 **Low Priority (Nice to have):**
 - [ ] Should the detail pane header show the repository path in addition to branch?
@@ -327,6 +336,14 @@ And navigation between repos still works
   - Decouples detail fetching from registry (single responsibility)
   - Enables testing with mock providers
   - Allows different timeout and error handling strategies
+
+- **2026-02-11**: Path compaction for long repository paths
+  - Home directory shown as `~` (e.g., `/home/user` → `~`)
+  - Parent directory components abbreviated to first character (fish-style)
+  - Final 2 components shown in full (preserves project/submodule names)
+  - Fallback to prefix truncation with `[..]` if still too wide
+  - Uses unicode-aware width calculation for international characters
+  - Example: `/home/user/very/long/nested/project-name` → `~/v/l/n/project-name`
 
 ## Sources
 
