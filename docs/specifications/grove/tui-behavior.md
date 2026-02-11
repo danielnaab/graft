@@ -80,6 +80,14 @@ And parent directory components are abbreviated
 And the final path components are preserved
 ```
 
+```gherkin
+Given available space is very limited (narrow terminal or long status indicators)
+When the TUI would severely compact the path (to <8 chars or using "[..]" prefix)
+Then the branch name is dropped from the display
+And more space is allocated to show the repository path
+And status indicators (dirty, ahead, behind) are still shown
+```
+
 ### List Navigation [Slice 1]
 
 ```gherkin
@@ -344,6 +352,13 @@ And navigation between repos still works
   - Fallback to prefix truncation with `[..]` if still too wide
   - Uses unicode-aware width calculation for international characters
   - Example: `/home/user/very/long/nested/project-name` → `~/v/l/n/project-name`
+
+- **2026-02-11**: Adaptive display prioritizes repository name over branch in tight spaces
+  - Overhead calculated dynamically based on actual status width
+  - If path would be severely compacted (<8 chars or using `[..]`), branch is dropped
+  - Repository name takes priority over branch name (branch visible in detail pane)
+  - Example in narrow terminal: `~/src/graft ●` instead of `~/s [main] ●`
+  - Ensures users can identify repos even in constrained layouts
 
 ## Sources
 

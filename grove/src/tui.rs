@@ -516,6 +516,11 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
                     .map_or_else(|| "[detached]".to_string(), |b| format!("[{b}]"));
 
                 let dirty_indicator = if status.is_dirty { "●" } else { "○" };
+                let dirty_color = if status.is_dirty {
+                    Color::Yellow
+                } else {
+                    Color::Green
+                };
 
                 let ahead_text = status
                     .ahead
@@ -529,45 +534,73 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
                     .map(|n| format!("↓{n}"))
                     .unwrap_or_default();
 
-                // Calculate actual status width: space + branch + space + dirty + [space + ahead] + [space + behind]
-                let mut status_width = 1 + branch.width() + 1 + 1; // space + branch + space + dirty
+                // Calculate status width WITHOUT branch first (for tight space fallback)
+                let mut minimal_status_width = 1 + 1; // space + dirty
                 if !ahead_text.is_empty() {
-                    status_width += 1 + ahead_text.width(); // space + ahead
+                    minimal_status_width += 1 + ahead_text.width(); // space + ahead
                 }
                 if !behind_text.is_empty() {
-                    status_width += 1 + behind_text.width(); // space + behind
+                    minimal_status_width += 1 + behind_text.width(); // space + behind
                 }
 
-                // Account for: highlight "▶ " (2), status indicators, margins (~3)
-                let overhead = 2 + status_width + 3;
-                let max_path_width = (pane_width as usize).saturating_sub(overhead);
-                let compacted_path = compact_path(&path, max_path_width);
+                // Calculate status width WITH branch
+                let full_status_width = 1 + branch.width() + minimal_status_width;
 
-                let dirty_color = if status.is_dirty {
-                    Color::Yellow
+                // Try with branch first
+                let overhead_with_branch = 2 + full_status_width + 3;
+                let max_path_width_with_branch = (pane_width as usize).saturating_sub(overhead_with_branch);
+                let compacted_path_with_branch = compact_path(&path, max_path_width_with_branch);
+
+                // If path is severely compacted (uses [..] prefix or is very short), drop branch
+                let use_branch = !compacted_path_with_branch.starts_with("[..]")
+                    && compacted_path_with_branch.len() >= 8;
+
+                if use_branch {
+                    // Show with branch: path [branch] ● [↑n] [↓n]
+                    let mut spans = vec![
+                        Span::styled(compacted_path_with_branch, Style::default().fg(Color::White)),
+                        Span::raw(" "),
+                        Span::styled(branch, Style::default().fg(Color::Cyan)),
+                        Span::raw(" "),
+                        Span::styled(dirty_indicator, Style::default().fg(dirty_color)),
+                    ];
+
+                    if !ahead_text.is_empty() {
+                        spans.push(Span::raw(" "));
+                        spans.push(Span::styled(ahead_text, Style::default().fg(Color::Green)));
+                    }
+
+                    if !behind_text.is_empty() {
+                        spans.push(Span::raw(" "));
+                        spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
+                    }
+
+                    Line::from(spans)
                 } else {
-                    Color::Green
-                };
+                    // Tight space: drop branch, show more of path
+                    // Format: path ● [↑n] [↓n]
+                    let overhead_without_branch = 2 + minimal_status_width + 3;
+                    let max_path_width = (pane_width as usize).saturating_sub(overhead_without_branch);
+                    let compacted_path = compact_path(&path, max_path_width);
 
-                let mut spans = vec![
-                    Span::styled(compacted_path, Style::default().fg(Color::White)),
-                    Span::raw(" "),
-                    Span::styled(branch, Style::default().fg(Color::Cyan)),
-                    Span::raw(" "),
-                    Span::styled(dirty_indicator, Style::default().fg(dirty_color)),
-                ];
+                    let mut spans = vec![
+                        Span::styled(compacted_path, Style::default().fg(Color::White)),
+                        Span::raw(" "),
+                        Span::styled(dirty_indicator, Style::default().fg(dirty_color)),
+                    ];
 
-                if !ahead_text.is_empty() {
-                    spans.push(Span::raw(" "));
-                    spans.push(Span::styled(ahead_text, Style::default().fg(Color::Green)));
+                    if !ahead_text.is_empty() {
+                        spans.push(Span::raw(" "));
+                        spans.push(Span::styled(ahead_text, Style::default().fg(Color::Green)));
+                    }
+
+                    if !behind_text.is_empty() {
+                        spans.push(Span::raw(" "));
+                        spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
+                    }
+
+                    Line::from(spans)
                 }
-
-                if !behind_text.is_empty() {
-                    spans.push(Span::raw(" "));
-                    spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
-                }
-
-                Line::from(spans)
             }
         }
         None => {
