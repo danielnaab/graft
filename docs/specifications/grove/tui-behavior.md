@@ -24,6 +24,13 @@ Define the interactive terminal interface for Grove — how users navigate repos
 Each repository in the workspace is displayed as a single line in the list.
 
 ```gherkin
+Given a workspace config with name "my-project"
+When the TUI renders
+Then the title bar shows "Grove: my-project"
+And includes navigation hints
+```
+
+```gherkin
 Given a workspace with repositories that have been status-checked
 When the TUI renders the repo list
 Then each repo shows: path, branch name (in brackets), dirty indicator, and ahead/behind arrows
@@ -96,6 +103,14 @@ And branch name is omitted
 And status indicators (dirty, ahead, behind) are still shown
 ```
 
+```gherkin
+Given a workspace with no repositories configured
+When the TUI launches
+Then the repository list shows "No repositories configured"
+And displays helpful instructions to edit workspace.yaml
+And shows an example configuration
+```
+
 ### List Navigation [Slice 1]
 
 ```gherkin
@@ -129,6 +144,35 @@ Then the first repository in the list is selected
 ```
 
 The selected item is highlighted with a "▶" prefix.
+
+### Help Overlay [Slice 1]
+
+```gherkin
+Given the repo list is focused
+When the user presses "?"
+Then a help overlay appears centered on screen
+And shows all keybindings with descriptions
+And shows status indicator legend
+And shows Grove version
+```
+
+```gherkin
+Given the help overlay is displayed
+When the user presses any key
+Then the help overlay closes
+And focus returns to the repo list
+```
+
+### Manual Refresh [Slice 1]
+
+```gherkin
+Given the repo list is focused
+When the user presses "r"
+Then a "Refreshing..." message appears in the title
+And all repository statuses are re-queried
+And the display updates with fresh status
+And the status message clears
+```
 
 ### Split-Pane Layout [Slice 2]
 
@@ -313,10 +357,13 @@ And navigation between repos still works
 | j, Down | Repo list focused | Move selection down |
 | k, Up | Repo list focused | Move selection up |
 | Enter, Tab | Repo list focused | Switch focus to detail pane |
+| r | Repo list focused | Manually refresh repository status |
+| ? | Repo list focused | Show help overlay |
 | q, Esc | Repo list focused | Quit application |
 | j, Down | Detail pane focused | Scroll detail down |
 | k, Up | Detail pane focused | Scroll detail up |
 | q, Esc, Enter, Tab | Detail pane focused | Return focus to repo list |
+| Any key | Help overlay active | Close help and return to repo list |
 
 ## Open Questions
 
@@ -333,6 +380,28 @@ And navigation between repos still works
 - [ ] Should the detail pane header show the repository path in addition to branch?
 
 ## Decisions
+
+- **2026-02-11**: Workspace name shown in title bar
+  - Helps users distinguish which workspace config they're viewing
+  - Format: "Grove: {workspace-name} (↑↓/jk navigate, ?help)"
+  - Status messages temporarily replace hint text (e.g., "Refreshing...")
+
+- **2026-02-11**: `?` key shows help overlay
+  - Centered modal overlay with all keybindings and status legend
+  - Shows Grove version for bug reports
+  - Any key dismisses (not just Esc/q) for quick access
+  - Preferred over footer hints (which get cut off in narrow terminals)
+
+- **2026-02-11**: `r` key for manual refresh
+  - Users can update status without restarting Grove
+  - Shows "Refreshing..." message during update
+  - Clears detail cache to force re-query on next selection
+  - Preferred over auto-refresh timer (explicit control, no background work)
+
+- **2026-02-11**: Empty workspace shows helpful message
+  - Displays "No repositories configured" with setup instructions
+  - Includes example workspace.yaml snippet
+  - Prevents confusing blank screen on first run
 
 - **2026-02-10**: q/Esc in detail pane returns to list, does not quit
   - Prevents accidental quit when exploring detail

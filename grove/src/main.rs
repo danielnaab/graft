@@ -73,6 +73,9 @@ fn main() -> Result<()> {
     log::info!("Loaded workspace: {}", config.name);
     log::debug!("Repositories: {}", config.repositories.len());
 
+    // Extract workspace name before moving config
+    let workspace_name = config.name.to_string();
+
     // Create registry with git status adapter
     let git_status = GitoxideStatus::new();
     let mut registry = WorkspaceRegistry::new(config, git_status);
@@ -100,7 +103,7 @@ fn main() -> Result<()> {
 
     // Launch TUI
     log::debug!("Launching TUI...");
-    tui::run(registry, detail_provider).context("TUI error")?;
+    tui::run(registry, detail_provider, workspace_name).context("TUI error")?;
 
     log::info!("Grove exiting normally");
     Ok(())

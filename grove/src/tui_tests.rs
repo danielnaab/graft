@@ -108,7 +108,7 @@ impl RepoDetailProvider for MockDetailProvider {
 // Test 1: Keybinding handling - quit keys
 #[test]
 fn handles_quit_with_q_key() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test-workspace".to_string());
     assert!(!app.should_quit, "Should not quit initially");
 
     app.handle_key(KeyCode::Char('q'));
@@ -117,7 +117,7 @@ fn handles_quit_with_q_key() {
 
 #[test]
 fn handles_quit_with_esc_key() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test-workspace".to_string());
     assert!(!app.should_quit, "Should not quit initially");
 
     app.handle_key(KeyCode::Esc);
@@ -127,7 +127,7 @@ fn handles_quit_with_esc_key() {
 // Test 2: Navigation with empty list doesn't panic
 #[test]
 fn navigation_with_empty_list_does_not_panic() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test-workspace".to_string());
 
     // These should not panic even with empty list
     app.next();
@@ -143,7 +143,7 @@ fn navigation_with_empty_list_does_not_panic() {
 // Test 3: Navigation wraps at boundaries
 #[test]
 fn navigation_wraps_from_last_to_first() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
 
     // Start at last item (index 2)
     app.list_state.select(Some(2));
@@ -159,7 +159,7 @@ fn navigation_wraps_from_last_to_first() {
 
 #[test]
 fn navigation_wraps_from_first_to_last() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
 
     // Start at first item (index 0)
     app.list_state.select(Some(0));
@@ -175,7 +175,7 @@ fn navigation_wraps_from_first_to_last() {
 
 #[test]
 fn navigation_moves_down_normally() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
 
     app.list_state.select(Some(0));
     app.next();
@@ -187,7 +187,7 @@ fn navigation_moves_down_normally() {
 
 #[test]
 fn navigation_moves_up_normally() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
 
     app.list_state.select(Some(2));
     app.previous();
@@ -306,7 +306,7 @@ fn formats_loading_state() {
 // Test 8: Keybinding ignores unknown keys
 #[test]
 fn ignores_unknown_keybindings() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     app.list_state.select(Some(1));
 
     // Press unknown keys
@@ -326,7 +326,7 @@ fn ignores_unknown_keybindings() {
 // Test 9: j/k vim-style navigation
 #[test]
 fn handles_vim_style_navigation() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     app.list_state.select(Some(0));
 
     // Press j (vim down)
@@ -340,7 +340,7 @@ fn handles_vim_style_navigation() {
 
 #[test]
 fn handles_arrow_key_navigation() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     app.list_state.select(Some(0));
 
     // Press Down arrow
@@ -404,27 +404,27 @@ fn shows_nonzero_ahead_behind_counts() {
 // Focus management tests
 #[test]
 fn starts_with_repo_list_focused() {
-    let app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     assert_eq!(app.active_pane, ActivePane::RepoList);
 }
 
 #[test]
 fn enter_switches_to_detail_pane() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     app.handle_key(KeyCode::Enter);
     assert_eq!(app.active_pane, ActivePane::Detail);
 }
 
 #[test]
 fn tab_switches_to_detail_pane() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     app.handle_key(KeyCode::Tab);
     assert_eq!(app.active_pane, ActivePane::Detail);
 }
 
 #[test]
 fn q_in_detail_returns_to_list() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     app.active_pane = ActivePane::Detail;
 
     app.handle_key(KeyCode::Char('q'));
@@ -434,7 +434,7 @@ fn q_in_detail_returns_to_list() {
 
 #[test]
 fn esc_in_detail_returns_to_list() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     app.active_pane = ActivePane::Detail;
 
     app.handle_key(KeyCode::Esc);
@@ -444,7 +444,7 @@ fn esc_in_detail_returns_to_list() {
 
 #[test]
 fn enter_in_detail_returns_to_list() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     app.active_pane = ActivePane::Detail;
 
     app.handle_key(KeyCode::Enter);
@@ -453,7 +453,7 @@ fn enter_in_detail_returns_to_list() {
 
 #[test]
 fn tab_in_detail_returns_to_list() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     app.active_pane = ActivePane::Detail;
 
     app.handle_key(KeyCode::Tab);
@@ -463,7 +463,7 @@ fn tab_in_detail_returns_to_list() {
 // Detail scroll tests
 #[test]
 fn j_in_detail_scrolls_down() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     app.active_pane = ActivePane::Detail;
 
     assert_eq!(app.detail_scroll, 0);
@@ -475,7 +475,7 @@ fn j_in_detail_scrolls_down() {
 
 #[test]
 fn k_in_detail_does_not_go_below_zero() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
     app.active_pane = ActivePane::Detail;
 
     assert_eq!(app.detail_scroll, 0);
@@ -486,7 +486,7 @@ fn k_in_detail_does_not_go_below_zero() {
 // Cache invalidation tests
 #[test]
 fn navigation_invalidates_detail_cache() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
 
     // Simulate having a cached detail for index 0
     app.cached_detail = Some(RepoDetail::empty());
@@ -504,7 +504,7 @@ fn navigation_invalidates_detail_cache() {
 // Detail rendering tests
 #[test]
 fn build_detail_lines_no_selection() {
-    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty());
+    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test-workspace".to_string());
     // No cached detail
     let lines = app.build_detail_lines();
     let text: String = lines
@@ -516,7 +516,7 @@ fn build_detail_lines_no_selection() {
 
 #[test]
 fn build_detail_lines_with_error() {
-    let mut app = App::new(MockRegistry::with_repos(1), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(1), MockDetailProvider::empty(), "test-workspace".to_string());
     app.cached_detail = Some(RepoDetail::with_error("git failed".to_string()));
     app.cached_detail_index = Some(0);
 
@@ -561,6 +561,7 @@ fn build_detail_lines_with_commits_and_files() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::with_detail(detail),
+        "test-workspace".to_string(),
     );
     app.cached_detail_index = Some(0);
     app.ensure_detail_loaded();
@@ -593,6 +594,7 @@ fn build_detail_lines_empty_repo() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
     );
     app.cached_detail_index = Some(0);
     app.ensure_detail_loaded();
@@ -643,6 +645,7 @@ fn ensure_detail_loaded_converts_provider_error_to_detail_error() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::failing("git timed out"),
+        "test-workspace".to_string(),
     );
     app.list_state.select(Some(0));
 
@@ -681,6 +684,7 @@ fn build_detail_lines_shows_branch_header() {
     let mut app = App::new(
         MockRegistry::with_statuses(vec![status]),
         MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
     );
     app.cached_detail_index = Some(0);
     app.ensure_detail_loaded();
@@ -706,6 +710,7 @@ fn build_detail_lines_clean_repo_shows_clean_indicator() {
     let mut app = App::new(
         MockRegistry::with_statuses(vec![status]),
         MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
     );
     app.cached_detail_index = Some(0);
     app.ensure_detail_loaded();
@@ -740,6 +745,7 @@ fn build_detail_lines_shows_error_and_partial_data() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::with_detail(detail.clone()),
+        "test-workspace".to_string(),
     );
     app.cached_detail = Some(detail);
     app.cached_detail_index = Some(0);
@@ -773,7 +779,7 @@ fn build_detail_lines_shows_error_and_partial_data() {
 
 #[test]
 fn detail_scroll_clamps_to_content_length() {
-    let mut app = App::new(MockRegistry::with_repos(1), MockDetailProvider::empty());
+    let mut app = App::new(MockRegistry::with_repos(1), MockDetailProvider::empty(), "test-workspace".to_string());
     app.active_pane = ActivePane::Detail;
 
     // Load detail (will be a short empty detail)

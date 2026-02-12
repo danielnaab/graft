@@ -9,7 +9,7 @@ use crossterm::{
 use grove_core::{FileChangeStatus, RepoDetail, RepoDetailProvider, RepoRegistry, RepoStatus};
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
@@ -26,6 +26,7 @@ const DEFAULT_MAX_COMMITS: usize = 10;
 pub enum ActivePane {
     RepoList,
     Detail,
+    Help,
 }
 
 /// Main TUI application state.
@@ -38,10 +39,13 @@ pub struct App<R, D> {
     detail_scroll: usize,
     cached_detail: Option<RepoDetail>,
     cached_detail_index: Option<usize>,
+    workspace_name: String,
+    status_message: Option<String>,
+    needs_refresh: bool,
 }
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
-    fn new(registry: R, detail_provider: D) -> Self {
+    fn new(registry: R, detail_provider: D, workspace_name: String) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
 
@@ -54,6 +58,25 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             detail_scroll: 0,
             cached_detail: None,
             cached_detail_index: None,
+            workspace_name,
+            status_message: None,
+            needs_refresh: false,
+        }
+    }
+
+    /// Perform status refresh if needed and clear the refresh flag
+    fn handle_refresh_if_needed(&mut self) {
+        if self.needs_refresh {
+            // Refresh all repositories
+            let _ = self.registry.refresh_all();
+
+            // Clear cached detail to force re-query on next selection
+            self.cached_detail = None;
+            self.cached_detail_index = None;
+
+            // Clear refresh flag and status message
+            self.needs_refresh = false;
+            self.status_message = None;
         }
     }
 
@@ -61,6 +84,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         match self.active_pane {
             ActivePane::RepoList => self.handle_key_repo_list(code),
             ActivePane::Detail => self.handle_key_detail(code),
+            ActivePane::Help => self.handle_key_help(code),
         }
     }
 
@@ -78,6 +102,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             KeyCode::Enter | KeyCode::Tab => {
                 self.active_pane = ActivePane::Detail;
             }
+            KeyCode::Char('r') => {
+                // Manual refresh - set flag to trigger refresh in event loop
+                self.needs_refresh = true;
+                self.status_message = Some("Refreshing...".to_string());
+            }
+            KeyCode::Char('?') => {
+                self.active_pane = ActivePane::Help;
+            }
             _ => {}
         }
     }
@@ -94,6 +126,18 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.detail_scroll = self.detail_scroll.saturating_sub(1);
             }
             _ => {}
+        }
+    }
+
+    fn handle_key_help(&mut self, code: KeyCode) {
+        // Any key dismisses help overlay
+        match code {
+            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('?') => {
+                self.active_pane = ActivePane::RepoList;
+            }
+            _ => {
+                self.active_pane = ActivePane::RepoList;
+            }
         }
     }
 
@@ -180,18 +224,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             // --- Left pane: repo list ---
             let repos = self.registry.list_repos();
             let pane_width = chunks[0].width;
-            let items: Vec<ListItem> = repos
-                .iter()
-                .map(|repo_path| {
-                    let status = self.registry.get_status(repo_path);
-                    let line = format_repo_line(
-                        repo_path.as_path().display().to_string(),
-                        status,
-                        pane_width,
-                    );
-                    ListItem::new(line)
-                })
-                .collect();
 
             let list_border_color = if self.active_pane == ActivePane::RepoList {
                 Color::Cyan
@@ -199,21 +231,86 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 Color::DarkGray
             };
 
-            let list = List::new(items)
-                .block(
-                    Block::default()
-                        .title("Repositories (j/k navigate, Enter/Tab detail)")
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(list_border_color)),
-                )
-                .highlight_style(
-                    Style::default()
-                        .bg(Color::Rgb(40, 40, 50))
-                        .add_modifier(Modifier::BOLD),
-                )
-                .highlight_symbol("▶ ");
+            // Build title with workspace name and optional status message
+            let title = if let Some(msg) = &self.status_message {
+                format!("Grove: {} - {}", self.workspace_name, msg)
+            } else {
+                format!("Grove: {} (↑↓/jk navigate, ?help)", self.workspace_name)
+            };
 
-            frame.render_stateful_widget(list, chunks[0], &mut self.list_state);
+            // Handle empty workspace case
+            if repos.is_empty() {
+                let empty_message = vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "No repositories configured",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Edit your workspace config to add repositories:",
+                        Style::default().fg(Color::Gray),
+                    )),
+                    Line::from(Span::styled(
+                        "  ~/.config/grove/workspace.yaml",
+                        Style::default().fg(Color::Cyan),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Example:",
+                        Style::default().fg(Color::Gray),
+                    )),
+                    Line::from(Span::styled(
+                        "  repositories:",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                    Line::from(Span::styled(
+                        "    - path: ~/src/my-project",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ];
+
+                let empty_widget = Paragraph::new(empty_message)
+                    .block(
+                        Block::default()
+                            .title(title)
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(list_border_color)),
+                    )
+                    .alignment(ratatui::layout::Alignment::Center);
+
+                frame.render_widget(empty_widget, chunks[0]);
+            } else {
+                // Normal repo list display
+                let items: Vec<ListItem> = repos
+                    .iter()
+                    .map(|repo_path| {
+                        let status = self.registry.get_status(repo_path);
+                        let line = format_repo_line(
+                            repo_path.as_path().display().to_string(),
+                            status,
+                            pane_width,
+                        );
+                        ListItem::new(line)
+                    })
+                    .collect();
+
+                let list = List::new(items)
+                    .block(
+                        Block::default()
+                            .title(title)
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(list_border_color)),
+                    )
+                    .highlight_style(
+                        Style::default()
+                            .bg(Color::Rgb(40, 40, 50))
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("▶ ");
+
+                frame.render_stateful_widget(list, chunks[0], &mut self.list_state);
+            }
 
             // --- Right pane: detail ---
             let detail_border_color = if self.active_pane == ActivePane::Detail {
@@ -239,9 +336,100 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 .scroll((u16::try_from(self.detail_scroll).unwrap_or(u16::MAX), 0));
 
             frame.render_widget(detail_widget, chunks[1]);
+
+            // --- Help overlay (rendered on top if active) ---
+            if self.active_pane == ActivePane::Help {
+                self.render_help_overlay(frame);
+            }
         })?;
 
         Ok(())
+    }
+
+    /// Render the help overlay as a centered popup
+    fn render_help_overlay(&self, frame: &mut ratatui::Frame) {
+        let version = env!("CARGO_PKG_VERSION");
+
+        let help_text = vec![
+            Line::from(Span::styled(
+                format!("Grove v{} - Help", version),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled("Navigation", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from("  j, ↓         Move selection down"),
+            Line::from("  k, ↑         Move selection up"),
+            Line::from("  Enter, Tab   View repository details"),
+            Line::from("  q, Esc       Quit (or return from detail pane)"),
+            Line::from(""),
+            Line::from(Span::styled("Actions", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from("  r            Refresh repository status"),
+            Line::from("  ?            Show this help"),
+            Line::from(""),
+            Line::from(Span::styled("Detail Pane", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from("  j, ↓         Scroll down"),
+            Line::from("  k, ↑         Scroll up"),
+            Line::from("  q, Esc       Return to repository list"),
+            Line::from(""),
+            Line::from(Span::styled("Status Indicators", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("●", Style::default().fg(Color::Yellow)),
+                Span::raw("  Uncommitted changes (dirty)"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("○", Style::default().fg(Color::Green)),
+                Span::raw("  Clean working tree"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("↑n", Style::default().fg(Color::Green)),
+                Span::raw("  Commits ahead of remote"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("↓n", Style::default().fg(Color::Red)),
+                Span::raw("  Commits behind remote"),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Press any key to close",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        // Calculate popup size and position (centered)
+        let area = frame.area();
+        let popup_width = 60.min(area.width.saturating_sub(4));
+        let popup_height = (help_text.len() as u16 + 2).min(area.height.saturating_sub(4));
+
+        let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+        let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+
+        let popup_area = ratatui::layout::Rect {
+            x: popup_x,
+            y: popup_y,
+            width: popup_width,
+            height: popup_height,
+        };
+
+        // Clear background with a semi-transparent effect (render blank block first)
+        let clear = Block::default()
+            .style(Style::default().bg(Color::Black));
+        frame.render_widget(clear, popup_area);
+
+        // Render help content
+        let help_widget = Paragraph::new(help_text)
+            .block(
+                Block::default()
+                    .title("Help")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            )
+            .alignment(Alignment::Left);
+
+        frame.render_widget(help_widget, popup_area);
     }
 
     /// Build the lines for the detail pane based on cached detail.
@@ -676,7 +864,11 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
     }
 }
 
-pub fn run<R: RepoRegistry, D: RepoDetailProvider>(registry: R, detail_provider: D) -> Result<()> {
+pub fn run<R: RepoRegistry, D: RepoDetailProvider>(
+    registry: R,
+    detail_provider: D,
+    workspace_name: String,
+) -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -685,10 +877,13 @@ pub fn run<R: RepoRegistry, D: RepoDetailProvider>(registry: R, detail_provider:
     let mut terminal = Terminal::new(backend)?;
 
     // Create app state
-    let mut app = App::new(registry, detail_provider);
+    let mut app = App::new(registry, detail_provider, workspace_name);
 
     // Main event loop
     let result = loop {
+        // Handle refresh if requested (before render to show updated state)
+        app.handle_refresh_if_needed();
+
         app.render(&mut terminal)?;
 
         if app.should_quit {
