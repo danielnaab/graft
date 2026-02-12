@@ -3,6 +3,7 @@
 Represents an executable command defined in a dependency's graft.yaml.
 """
 
+import shlex
 from dataclasses import dataclass, field
 
 from graft.domain.exceptions import ValidationError
@@ -98,23 +99,24 @@ class Command:
     def get_full_command(self, args: list[str] | None = None) -> str:
         """Get the full command string with optional arguments appended.
 
-        SECURITY NOTE: Arguments are appended without shell escaping.
-        This is safe when args come from trusted sources (CLI user input),
-        but would be unsafe if args came from untrusted sources.
-        The command is executed with shell=True, so shell metacharacters
-        in args will be interpreted.
+        Arguments are properly shell-escaped using shlex.quote() to ensure
+        multi-word arguments and special characters are handled correctly.
 
         Args:
-            args: Optional additional arguments from trusted source (CLI)
+            args: Optional additional arguments from CLI
 
         Returns:
-            Complete command string
+            Complete command string with properly escaped arguments
 
         Example:
             >>> cmd = Command(name="test", run="npm test")
             >>> cmd.get_full_command(["--verbose"])
             'npm test --verbose'
+            >>> cmd.get_full_command(["arg with spaces"])
+            "npm test 'arg with spaces'"
         """
         if args:
-            return f"{self.run} {' '.join(args)}"
+            # Use shlex.quote() to properly escape each argument for shell execution
+            escaped_args = [shlex.quote(arg) for arg in args]
+            return f"{self.run} {' '.join(escaped_args)}"
         return self.run
