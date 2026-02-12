@@ -467,12 +467,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             height: popup_height,
         };
 
-        // Clear background with a semi-transparent effect (render blank block first)
-        let clear = Block::default()
-            .style(Style::default().bg(Color::Black));
-        frame.render_widget(clear, popup_area);
-
-        // Render help content
+        // Render help content with solid background
         let help_widget = Paragraph::new(help_text)
             .block(
                 Block::default()
@@ -480,6 +475,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan)),
             )
+            .style(Style::default().bg(Color::Black))
             .alignment(Alignment::Left);
 
         frame.render_widget(help_widget, popup_area);
