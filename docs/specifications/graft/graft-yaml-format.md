@@ -186,6 +186,21 @@ commands:
       KEY: value
 ```
 
+**Command Name Constraints**:
+- Command names MUST NOT contain `:` (colon character)
+- Rationale: Colon is reserved as separator for dependency command syntax (`graft run dep:cmd`)
+- Recommended naming: Use kebab-case (`test-unit`), snake_case (`test_unit`), or camelCase (`testUnit`)
+- Invalid examples: `test:unit`, `build:prod`, `db:migrate`
+- Valid examples: `test-unit`, `build-prod`, `db-migrate`
+
+**Validation Error Example**:
+```
+Error: Invalid command name in graft.yaml
+  Line 15: Command 'test:unit'
+  Reason: Command names cannot contain ':' (reserved separator)
+  Suggestion: Rename to 'test-unit' or 'test_unit'
+```
+
 ### Fields
 
 #### run (required)

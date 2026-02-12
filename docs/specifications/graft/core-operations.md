@@ -889,6 +889,108 @@ Processing 15 files...
 ✓ Completed
 ```
 
+### graft run <command>
+
+**Purpose**: Execute a command defined in current repository's graft.yaml.
+
+**Syntax**:
+```bash
+graft run <command-name> [args...]
+graft run                           # List available commands
+```
+
+**Behavior**:
+1. Search for graft.yaml in current directory, then parent directories (like git)
+2. Parse `commands` section from graft.yaml
+3. If no arguments provided, list available commands and exit
+4. If command name provided, find command definition
+5. Execute in current directory context
+6. Pass through stdout/stderr in real-time
+7. Exit with command's exit code
+
+**Command Resolution**:
+- If `<command-name>` contains `:`, parse as `<dep>:<cmd>` and execute dependency command
+- Otherwise, look up command in current repo's graft.yaml
+- If command not found, display error and list available commands
+
+**Example** (execute command):
+```bash
+$ graft run test
+
+Executing: test
+  Command: pytest tests/
+
+Running tests...
+.............................
+✓ Command completed successfully
+
+$ echo $?
+0
+```
+
+**Example** (list commands):
+```bash
+$ graft run
+
+Available commands in ./graft.yaml:
+
+  test          Run test suite
+  migrate       Run database migrations
+  build         Build documentation
+
+Use: graft run <command-name>
+```
+
+**Example** (command not found):
+```bash
+$ graft run invalid
+
+Error: Command 'invalid' not found in graft.yaml
+
+Available commands:
+  test          Run test suite
+  migrate       Run database migrations
+  build         Build documentation
+```
+
+**Example** (no graft.yaml found):
+```bash
+$ graft run test
+
+Error: No graft.yaml found in current directory or parent directories
+```
+
+**Example** (with arguments):
+```bash
+$ graft run test --verbose --filter=unit
+
+Executing: test
+  Command: pytest tests/
+  Arguments: --verbose --filter=unit
+
+pytest tests/ --verbose --filter=unit
+...
+```
+
+**Example** (dependency command via run):
+```bash
+$ graft run meta-kb:migrate-v2
+
+Executing: meta-kb:migrate-v2
+  Command: npx jscodeshift -t codemods/v2.js src/
+...
+```
+
+**Error Cases**:
+- No graft.yaml found: Exit with code 1, display helpful message
+- Command not found: Exit with code 1, list available commands
+- Command execution fails: Exit with command's exit code
+- graft.yaml parse error: Exit with code 1, display parse error
+
+**Related**:
+- For dependency commands: `graft run <dep>:<command>` or legacy `graft <dep>:<command>`
+- For current repo commands: `graft run <command>`
+
 
 ---
 
@@ -929,6 +1031,10 @@ Processing 15 files...
 ┌─────────────────┐
 │ graft validate  │ → Validate YAML → Check refs → Verify integrity
 └─────────────────┘
+
+┌─────────────┐
+│ graft run   │ → Find graft.yaml → Execute command → Stream output
+└─────────────┘
 ```
 
 ## Related
