@@ -1083,3 +1083,97 @@ fn verify_overhead_calculation_is_accurate() {
     assert!(text.contains("↑4"), "Should contain ahead");
     assert!(text.contains("↓2"), "Should contain behind");
 }
+
+#[test]
+fn empty_workspace_has_no_selection() {
+    let app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    assert_eq!(
+        app.list_state.selected(),
+        None,
+        "Empty workspace should have no selected item"
+    );
+}
+
+#[test]
+fn help_overlay_activates_on_question_mark() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Initially should be on repo list
+    assert_eq!(app.active_pane, ActivePane::RepoList);
+
+    // Press '?' to show help
+    app.handle_key(KeyCode::Char('?'));
+
+    assert_eq!(
+        app.active_pane,
+        ActivePane::Help,
+        "Pressing '?' should activate help overlay"
+    );
+}
+
+#[test]
+fn help_overlay_dismisses_on_printable_key() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Activate help
+    app.handle_key(KeyCode::Char('?'));
+    assert_eq!(app.active_pane, ActivePane::Help);
+
+    // Dismiss with any printable key
+    app.handle_key(KeyCode::Char('q'));
+    assert_eq!(
+        app.active_pane,
+        ActivePane::RepoList,
+        "Printable key should dismiss help"
+    );
+}
+
+#[test]
+fn help_overlay_dismisses_on_esc() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Activate help
+    app.handle_key(KeyCode::Char('?'));
+    assert_eq!(app.active_pane, ActivePane::Help);
+
+    // Dismiss with Esc
+    app.handle_key(KeyCode::Esc);
+    assert_eq!(
+        app.active_pane,
+        ActivePane::RepoList,
+        "Esc should dismiss help"
+    );
+}
+
+#[test]
+fn empty_workspace_navigation_does_not_panic() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Navigate down - should not panic
+    app.handle_key(KeyCode::Char('j'));
+    assert_eq!(app.list_state.selected(), None);
+
+    // Navigate up - should not panic
+    app.handle_key(KeyCode::Char('k'));
+    assert_eq!(app.list_state.selected(), None);
+}

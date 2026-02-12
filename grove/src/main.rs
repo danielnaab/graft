@@ -75,13 +75,16 @@ fn main() -> Result<()> {
 
     // Extract workspace name before moving config
     let workspace_name = config.name.to_string();
+    let repo_count = config.repositories.len();
 
     // Create registry with git status adapter
     let git_status = GitoxideStatus::new();
     let mut registry = WorkspaceRegistry::new(config, git_status);
 
-    // Refresh status for all repositories
+    // Show loading indicator while refreshing status
     log::debug!("Refreshing repository status...");
+    eprintln!("Loading {} repositories...", repo_count);
+
     let stats = registry
         .refresh_all()
         .context("Failed to refresh repository status")?;
@@ -89,9 +92,16 @@ fn main() -> Result<()> {
     // Log refresh statistics
     if stats.all_successful() {
         log::info!("Successfully refreshed {} repositories", stats.successful);
+        eprintln!("✓ Loaded {} repositories", stats.successful);
     } else {
         log::warn!(
             "Refreshed {}/{} repositories ({} errors)",
+            stats.successful,
+            stats.total(),
+            stats.failed
+        );
+        eprintln!(
+            "⚠ Loaded {}/{} repositories ({} errors)",
             stats.successful,
             stats.total(),
             stats.failed

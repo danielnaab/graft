@@ -16,6 +16,7 @@ use ratatui::{
     Terminal,
 };
 use std::io;
+use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthStr;
 
 /// Default number of recent commits to show in the detail pane.
@@ -40,14 +41,19 @@ pub struct App<R, D> {
     cached_detail: Option<RepoDetail>,
     cached_detail_index: Option<usize>,
     workspace_name: String,
-    status_message: Option<String>,
+    status_message: Option<(String, Instant)>,
     needs_refresh: bool,
 }
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     fn new(registry: R, detail_provider: D, workspace_name: String) -> Self {
         let mut list_state = ListState::default();
-        list_state.select(Some(0));
+
+        // Only select first item if repos exist
+        let repos = registry.list_repos();
+        if !repos.is_empty() {
+            list_state.select(Some(0));
+        }
 
         Self {
             registry,
@@ -64,19 +70,45 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
-    /// Perform status refresh if needed and clear the refresh flag
+    /// Perform status refresh if needed
     fn handle_refresh_if_needed(&mut self) {
         if self.needs_refresh {
             // Refresh all repositories
-            let _ = self.registry.refresh_all();
+            match self.registry.refresh_all() {
+                Ok(stats) => {
+                    // Show success message with stats (auto-clears after 3 seconds)
+                    let msg = if stats.all_successful() {
+                        format!("Refreshed {} repositories", stats.successful)
+                    } else {
+                        format!(
+                            "Refreshed {}/{} repositories ({} errors)",
+                            stats.successful,
+                            stats.total(),
+                            stats.failed
+                        )
+                    };
+                    self.status_message = Some((msg, Instant::now()));
+                }
+                Err(e) => {
+                    self.status_message = Some((format!("Refresh failed: {}", e), Instant::now()));
+                }
+            }
 
             // Clear cached detail to force re-query on next selection
             self.cached_detail = None;
             self.cached_detail_index = None;
 
-            // Clear refresh flag and status message
+            // Clear refresh flag
             self.needs_refresh = false;
-            self.status_message = None;
+        }
+    }
+
+    /// Clear expired status messages (older than 3 seconds)
+    fn clear_expired_status_message(&mut self) {
+        if let Some((_, set_at)) = &self.status_message {
+            if set_at.elapsed() > Duration::from_secs(3) {
+                self.status_message = None;
+            }
         }
     }
 
@@ -105,7 +137,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             KeyCode::Char('r') => {
                 // Manual refresh - set flag to trigger refresh in event loop
                 self.needs_refresh = true;
-                self.status_message = Some("Refreshing...".to_string());
+                self.status_message = Some(("Refreshing...".to_string(), Instant::now()));
             }
             KeyCode::Char('?') => {
                 self.active_pane = ActivePane::Help;
@@ -130,20 +162,20 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     }
 
     fn handle_key_help(&mut self, code: KeyCode) {
-        // Any key dismisses help overlay
+        // Printable keys and standard navigation dismiss help overlay
+        // Control keys (Ctrl+C, Ctrl+Z, etc.) are ignored to avoid accidental dismissal
         match code {
-            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('?') => {
+            KeyCode::Char(_) | KeyCode::Esc | KeyCode::Enter | KeyCode::Backspace => {
                 self.active_pane = ActivePane::RepoList;
             }
-            _ => {
-                self.active_pane = ActivePane::RepoList;
-            }
+            _ => {} // Ignore control keys and other special keys
         }
     }
 
     fn next(&mut self) {
         let repos = self.registry.list_repos();
         if repos.is_empty() {
+            self.list_state.select(None);
             return;
         }
 
@@ -163,6 +195,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     fn previous(&mut self) {
         let repos = self.registry.list_repos();
         if repos.is_empty() {
+            self.list_state.select(None);
             return;
         }
 
@@ -213,6 +246,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     }
 
     fn render(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+        // Clear expired status messages
+        self.clear_expired_status_message();
+
         self.ensure_detail_loaded();
 
         terminal.draw(|frame| {
@@ -232,7 +268,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             };
 
             // Build title with workspace name and optional status message
-            let title = if let Some(msg) = &self.status_message {
+            let title = if let Some((msg, _)) = &self.status_message {
                 format!("Grove: {} - {}", self.workspace_name, msg)
             } else {
                 format!("Grove: {} (↑↓/jk navigate, ?help)", self.workspace_name)
@@ -277,7 +313,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                             .borders(Borders::ALL)
                             .border_style(Style::default().fg(list_border_color)),
                     )
-                    .alignment(ratatui::layout::Alignment::Center);
+                    .alignment(Alignment::Center);
 
                 frame.render_widget(empty_widget, chunks[0]);
             } else {
@@ -348,6 +384,23 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Render the help overlay as a centered popup
     fn render_help_overlay(&self, frame: &mut ratatui::Frame) {
+        let area = frame.area();
+
+        // Validate terminal size - need minimum space for help
+        if area.width < 44 || area.height < 20 {
+            // Terminal too small, show simplified message
+            let msg = "Terminal too small for help. Resize or press any key.";
+            let warning = Paragraph::new(msg)
+                .alignment(Alignment::Center)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Yellow)),
+                );
+            frame.render_widget(warning, area);
+            return;
+        }
+
         let version = env!("CARGO_PKG_VERSION");
 
         let help_text = vec![
@@ -400,9 +453,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         ];
 
         // Calculate popup size and position (centered)
-        let area = frame.area();
-        let popup_width = 60.min(area.width.saturating_sub(4));
-        let popup_height = (help_text.len() as u16 + 2).min(area.height.saturating_sub(4));
+        // Ensure minimum viable size
+        let popup_width = 60.min(area.width.saturating_sub(4)).max(40);
+        let popup_height = (help_text.len() as u16 + 2).min(area.height.saturating_sub(4)).max(20);
 
         let popup_x = (area.width.saturating_sub(popup_width)) / 2;
         let popup_y = (area.height.saturating_sub(popup_height)) / 2;
@@ -881,8 +934,11 @@ pub fn run<R: RepoRegistry, D: RepoDetailProvider>(
 
     // Main event loop
     let result = loop {
-        // Handle refresh if requested (before render to show updated state)
-        app.handle_refresh_if_needed();
+        // If refresh requested, render "Refreshing..." first, then refresh
+        if app.needs_refresh {
+            app.render(&mut terminal)?;  // Show "Refreshing..." message
+            app.handle_refresh_if_needed();  // Do the refresh
+        }
 
         app.render(&mut terminal)?;
 
