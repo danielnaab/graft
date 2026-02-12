@@ -144,7 +144,7 @@ pub enum ActivePane {
 
 /// Events from async command execution.
 #[derive(Debug)]
-enum CommandEvent {
+pub enum CommandEvent {
     OutputLine(String),
     Completed(i32),
     Failed(String),
@@ -1513,7 +1513,9 @@ fn find_graft_command() -> Result<String> {
 }
 
 /// Spawn a graft command in the background and send output via channel.
-fn spawn_command(command_name: String, repo_path: String, tx: Sender<CommandEvent>) {
+///
+/// Made public to allow integration testing.
+pub fn spawn_command(command_name: String, repo_path: String, tx: Sender<CommandEvent>) {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
 
