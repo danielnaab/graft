@@ -1,17 +1,22 @@
 apiVersion: graft/v0
 dependencies:
+  living-specifications:
+    source: https://github.com/danielnaab/living-specifications.git
+    ref: main
+    commit: 2171e414a012852e389a895f25f8869af7cd91b1
+    consumed_at: '2026-02-10T15:33:34.244074+00:00'
   meta-knowledge-base:
     source: https://github.com/danielnaab/meta-knowledge-base.git
     ref: main
     commit: dd6ac969a5eccfbec5d498d716764c8c9f2be056
-    consumed_at: '2026-02-09T17:39:56.663040+00:00'
+    consumed_at: '2026-02-10T15:33:34.244074+00:00'
   python-starter:
     source: https://github.com/danielnaab/python-starter.git
     ref: main
     commit: b4173e4d2bb1b477344cdfee07b5839b5ef44084
-    consumed_at: '2026-02-09T17:39:56.663040+00:00'
+    consumed_at: '2026-02-10T15:33:34.244074+00:00'
   rust-starter:
     source: https://github.com/danielnaab/rust-starter.git
     ref: main
-    commit: 4d76c07307407bd8d698c0ad16427359968284db
-    consumed_at: '2026-02-09T17:39:56.663040+00:00'
+    commit: 0fedac88280f28f3fa3645f3aa38875952deae18
+    consumed_at: '2026-02-10T15:33:34.244074+00:00'
