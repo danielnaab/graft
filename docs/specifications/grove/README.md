@@ -21,6 +21,7 @@ Specifications follow the [living-specifications](../../../.graft/living-specifi
 
 - [**Workspace Configuration**](./workspace-config.md) — workspace.yaml format, repo declarations, tags, capture routing, status scripts
 - [**TUI Behavior**](./tui-behavior.md) — Repo list display, navigation, split-pane layout, detail pane, focus management
+- [**Command Execution**](./command-execution.md) — Discovering and running commands from graft.yaml
 
 ## Design Documents
 
