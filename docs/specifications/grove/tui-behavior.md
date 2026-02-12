@@ -109,6 +109,7 @@ When the TUI launches
 Then the repository list shows "No repositories configured"
 And displays helpful instructions to edit workspace.yaml
 And shows an example configuration
+And no list item is selected (selection is None)
 ```
 
 ### List Navigation [Slice 1]
@@ -158,9 +159,22 @@ And shows Grove version
 
 ```gherkin
 Given the help overlay is displayed
-When the user presses any key
+When the user presses a printable key (letter, number, etc.) or Esc or Enter
 Then the help overlay closes
 And focus returns to the repo list
+```
+
+```gherkin
+Given the help overlay is displayed
+When the user presses a control key (Ctrl+C, Ctrl+Z, etc.)
+Then the help overlay remains open (control keys are ignored)
+```
+
+```gherkin
+Given the terminal size is smaller than 44 columns or 20 rows
+When the help overlay would be rendered
+Then the help overlay adjusts to minimum viable dimensions
+And content remains readable
 ```
 
 ### Manual Refresh [Slice 1]
@@ -169,9 +183,27 @@ And focus returns to the repo list
 Given the repo list is focused
 When the user presses "r"
 Then a "Refreshing..." message appears in the title
+And the UI renders to show the message immediately
 And all repository statuses are re-queried
 And the display updates with fresh status
-And the status message clears
+And a "Refreshed N repositories" confirmation message is shown
+And the confirmation message clears automatically after 3 seconds
+```
+
+```gherkin
+Given a refresh operation fails
+When the error occurs
+Then an error message is shown in the title bar
+And the message describes what went wrong
+And the message clears automatically after 3 seconds
+```
+
+```gherkin
+Given the TUI is launching
+When repositories are being loaded initially
+Then "Loading N repositories..." is shown in the console
+And "✓ Loaded N repositories" is shown when complete
+And the TUI launches with fresh status
 ```
 
 ### Split-Pane Layout [Slice 2]
@@ -322,8 +354,10 @@ And the detail pane renders the error state
 Given a workspace with no repositories
 When the TUI launches
 Then the repo list is empty
+And no item is selected (selection is None)
 And the detail pane shows "No repository selected"
 And navigation keys (j/k) do not panic
+And selection remains None when navigation keys are pressed
 ```
 
 #### Single repository
@@ -349,6 +383,8 @@ And navigation between repos still works
 - **Poll interval**: 100ms timeout for key event polling
 - **Detail query timeout**: Detail provider uses 5-second git timeout
 - **Max commits**: Detail pane shows up to 10 recent commits by default
+- **Status message timeout**: Status messages auto-clear after 3 seconds
+- **Help overlay minimum size**: 44 columns × 20 rows minimum viable dimensions
 
 ## Keybindings Reference
 
@@ -363,7 +399,7 @@ And navigation between repos still works
 | j, Down | Detail pane focused | Scroll detail down |
 | k, Up | Detail pane focused | Scroll detail up |
 | q, Esc, Enter, Tab | Detail pane focused | Return focus to repo list |
-| Any key | Help overlay active | Close help and return to repo list |
+| Printable keys, Esc, Enter | Help overlay active | Close help and return to repo list |
 
 ## Open Questions
 
@@ -389,19 +425,36 @@ And navigation between repos still works
 - **2026-02-11**: `?` key shows help overlay
   - Centered modal overlay with all keybindings and status legend
   - Shows Grove version for bug reports
-  - Any key dismisses (not just Esc/q) for quick access
+  - Printable keys, Esc, and Enter dismiss (control keys ignored to prevent accidental dismissal)
+  - Minimum viable size enforced (44x20) for small terminals
   - Preferred over footer hints (which get cut off in narrow terminals)
 
 - **2026-02-11**: `r` key for manual refresh
   - Users can update status without restarting Grove
-  - Shows "Refreshing..." message during update
+  - Shows "Refreshing..." message immediately (UI renders before blocking)
+  - Shows "Refreshed N repositories" confirmation on success
+  - Shows error message on failure with details
   - Clears detail cache to force re-query on next selection
   - Preferred over auto-refresh timer (explicit control, no background work)
 
 - **2026-02-11**: Empty workspace shows helpful message
   - Displays "No repositories configured" with setup instructions
   - Includes example workspace.yaml snippet
+  - Selection set to None (prevents index out of bounds)
+  - Navigation keys remain safe (no-op when empty)
   - Prevents confusing blank screen on first run
+
+- **2026-02-11**: Status message auto-clear
+  - Status messages (refresh confirmation, errors) expire after 3 seconds
+  - Uses timestamp-based approach (message paired with Instant)
+  - Auto-clear checked during render cycle (no separate timer thread)
+  - Provides feedback without cluttering UI permanently
+
+- **2026-02-11**: Initial load indicator
+  - Console shows "Loading N repositories..." before TUI launches
+  - Console shows "✓ Loaded N repositories" when ready
+  - Provides feedback during initial refresh (1-2 second startup)
+  - Prevents impression that app has hung
 
 - **2026-02-10**: q/Esc in detail pane returns to list, does not quit
   - Prevents accidental quit when exploring detail
