@@ -217,6 +217,34 @@ impl RefreshStats {
     }
 }
 
+/// Command from graft.yaml
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Command {
+    pub run: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub working_dir: Option<String>,
+    #[serde(default)]
+    pub env: Option<std::collections::HashMap<String, String>>,
+}
+
+/// Minimal graft.yaml representation (commands section only)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraftYaml {
+    #[serde(default)]
+    pub commands: std::collections::HashMap<String, Command>,
+}
+
+/// State of a running command
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandState {
+    NotStarted,
+    Running,
+    Completed { exit_code: i32 },
+    Failed { error: String },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

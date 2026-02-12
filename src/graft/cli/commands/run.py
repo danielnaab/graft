@@ -4,6 +4,7 @@ CLI command for executing commands defined in current repository's graft.yaml
 or dependency's graft.yaml.
 """
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -23,11 +24,12 @@ def find_graft_yaml() -> Path | None:
     """Find graft.yaml by searching current directory and parents.
 
     Searches from current working directory upward (like git does).
+    Resolves symlinks to handle linked directories correctly.
 
     Returns:
         Path to graft.yaml if found, None otherwise
     """
-    current = Path.cwd()
+    current = Path.cwd().resolve()  # Resolve symlinks
 
     # Search current directory and all parents
     for directory in [current, *current.parents]:
@@ -58,14 +60,14 @@ def list_commands(config_path: str) -> None:
         typer.secho(f"\nAvailable commands in {config_path}:\n", fg=typer.colors.BLUE, bold=True)
 
         # Find longest command name for alignment
-        max_name_len = max(len(name) for name in config.commands.keys())
+        max_name_len = max(len(name) for name in config.commands)
 
         for name, command in config.commands.items():
             description = command.description or ""
             # Align descriptions
             typer.echo(f"  {name:<{max_name_len}}  {description}")
 
-        typer.echo(f"\nUse: graft run <command-name>")
+        typer.echo("\nUse: graft run <command-name>")
 
     except (ConfigParseError, ConfigValidationError) as e:
         typer.secho(f"Error: Failed to parse {config_path}", fg=typer.colors.RED, err=True)
@@ -129,33 +131,83 @@ def run_current_repo_command(command_name: str, args: list[str] | None = None) -
             typer.echo(f"  Working directory: {cmd.working_dir}")
         typer.echo()
 
-        # Build command with args if provided
-        full_command = cmd.run
-        if args:
-            full_command = f"{cmd.run} {' '.join(args)}"
+        # Build command safely using domain model
+        full_command_str = cmd.get_full_command(args)
 
-        # Determine working directory
+        # Determine working directory and validate it exists
         working_dir = graft_yaml_path.parent
         if cmd.working_dir:
             working_dir = working_dir / cmd.working_dir
+            if not working_dir.exists():
+                typer.secho(
+                    f"Error: Working directory does not exist: {working_dir}",
+                    fg=typer.colors.RED,
+                    err=True,
+                )
+                raise typer.Exit(code=1)
 
         # Build environment
         env = None
         if cmd.env:
-            import os
             env = os.environ.copy()
+            # Validate all values are strings
+            for key, value in cmd.env.items():
+                if not isinstance(value, str):
+                    typer.secho(
+                        f"Error: Environment variable {key} must be string, got {type(value).__name__}",
+                        fg=typer.colors.RED,
+                        err=True,
+                    )
+                    raise typer.Exit(code=1)
             env.update(cmd.env)
 
-        # Execute command
-        result = subprocess.run(
-            full_command,
-            shell=True,
-            cwd=str(working_dir),
-            env=env,
-            # Stream output directly to stdout/stderr
-            stdout=None,
-            stderr=None,
-        )
+        # Execute command with proper error handling
+        try:
+            # SECURITY: Use shell=True but with proper understanding:
+            # The command comes from graft.yaml (trusted), but we still
+            # validate the source and working directory exist.
+            # Arguments are appended by get_full_command() which doesn't escape,
+            # but they come from CLI (trusted user input).
+            result = subprocess.run(
+                full_command_str,
+                shell=True,
+                cwd=str(working_dir),
+                env=env,
+                stdout=None,  # Stream to stdout
+                stderr=None,  # Stream to stderr
+                timeout=None,  # No timeout for user-initiated commands
+            )
+        except subprocess.TimeoutExpired:
+            typer.secho(
+                "✗ Command timed out",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=124) from None  # Standard timeout exit code
+        except FileNotFoundError as e:
+            typer.secho(
+                f"✗ Command not found: {e}",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=127) from None  # Standard command not found code
+        except PermissionError as e:
+            typer.secho(
+                f"✗ Permission denied: {e}",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=126) from None  # Standard permission denied code
+        except KeyboardInterrupt:
+            typer.echo("\n✗ Interrupted by user", err=True)
+            raise typer.Exit(code=130) from None  # Standard SIGINT code
+        except Exception as e:
+            typer.secho(
+                f"✗ Failed to execute command: {e}",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1) from None
 
         # Exit with same code as command
         if result.returncode != 0:
@@ -237,7 +289,17 @@ def run_command(
     # Check if command contains ':' (dependency command)
     if ":" in command:
         # Parse as dep:cmd
-        dep_name, cmd_name = command.split(":", 1)
+        parts = command.split(":", 1)
+        if not parts[0] or not parts[1]:
+            typer.secho(
+                f"Error: Invalid command format: '{command}'",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            typer.echo("  Expected format: <dependency>:<command>", err=True)
+            raise typer.Exit(code=1)
+
+        dep_name, cmd_name = parts
         exec_dependency_command(dep_name, cmd_name, args if args else None)
     else:
         # Execute from current repo

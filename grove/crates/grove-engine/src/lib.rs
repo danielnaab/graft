@@ -10,6 +10,6 @@ pub mod git;
 pub mod registry;
 
 // Re-export public API
-pub use config::YamlConfigLoader;
+pub use config::{GraftYamlConfigLoader, YamlConfigLoader};
 pub use git::GitoxideStatus;
 pub use registry::WorkspaceRegistry;

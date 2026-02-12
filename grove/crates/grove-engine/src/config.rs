@@ -1,6 +1,6 @@
 //! YAML configuration loading adapter.
 
-use grove_core::{ConfigLoader, CoreError, Result, WorkspaceConfig};
+use grove_core::{ConfigLoader, CoreError, GraftYaml, GraftYamlLoader, Result, WorkspaceConfig};
 use std::fs;
 
 /// YAML-based configuration loader.
@@ -27,6 +27,39 @@ impl ConfigLoader for YamlConfigLoader {
 
         serde_yml::from_str(&contents).map_err(|e| CoreError::InvalidConfig {
             details: format!("Failed to parse config file '{config_path}': {e}"),
+        })
+    }
+}
+
+/// YAML-based graft.yaml loader.
+#[derive(Debug)]
+pub struct GraftYamlConfigLoader;
+
+impl GraftYamlConfigLoader {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for GraftYamlConfigLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GraftYamlLoader for GraftYamlConfigLoader {
+    fn load_graft(&self, graft_path: &str) -> Result<GraftYaml> {
+        // Check if file exists
+        if !std::path::Path::new(graft_path).exists() {
+            return Ok(GraftYaml::default()); // No graft.yaml = no commands
+        }
+
+        let contents = fs::read_to_string(graft_path).map_err(|e| CoreError::InvalidConfig {
+            details: format!("Failed to read graft.yaml: {e}"),
+        })?;
+
+        serde_yml::from_str(&contents).map_err(|e| CoreError::InvalidConfig {
+            details: format!("Failed to parse graft.yaml: {e}"),
         })
     }
 }

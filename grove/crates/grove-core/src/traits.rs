@@ -1,6 +1,6 @@
 //! Trait definitions (ports) for Grove.
 
-use crate::domain::{RefreshStats, RepoDetail, RepoPath, RepoStatus, WorkspaceConfig};
+use crate::domain::{GraftYaml, RefreshStats, RepoDetail, RepoPath, RepoStatus, WorkspaceConfig};
 use crate::error::Result;
 
 /// Capability to load workspace configuration.
@@ -33,4 +33,10 @@ pub trait RepoRegistry {
     ///
     /// Returns statistics about the refresh operation (successful/failed counts).
     fn refresh_all(&mut self) -> Result<RefreshStats>;
+}
+
+/// Capability to load graft.yaml files.
+pub trait GraftYamlLoader {
+    /// Load and parse graft.yaml from path.
+    fn load_graft(&self, graft_path: &str) -> Result<GraftYaml>;
 }

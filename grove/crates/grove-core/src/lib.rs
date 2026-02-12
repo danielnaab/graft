@@ -11,8 +11,8 @@ pub mod traits;
 
 // Re-export commonly used types
 pub use domain::{
-    CommitInfo, FileChange, FileChangeStatus, RefreshStats, RepoDetail, RepoPath, RepoStatus,
-    RepositoryDeclaration, WorkspaceConfig, WorkspaceName,
+    Command, CommandState, CommitInfo, FileChange, FileChangeStatus, GraftYaml, RefreshStats,
+    RepoDetail, RepoPath, RepoStatus, RepositoryDeclaration, WorkspaceConfig, WorkspaceName,
 };
 pub use error::{CoreError, Result};
-pub use traits::{ConfigLoader, GitStatus, RepoDetailProvider, RepoRegistry};
+pub use traits::{ConfigLoader, GitStatus, GraftYamlLoader, RepoDetailProvider, RepoRegistry};

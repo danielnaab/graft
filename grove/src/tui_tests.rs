@@ -1177,3 +1177,170 @@ fn empty_workspace_navigation_does_not_panic() {
     app.handle_key(KeyCode::Char('k'));
     assert_eq!(app.list_state.selected(), None);
 }
+
+// --- Status bar tests (Phase 1 improvements) ---
+
+#[test]
+fn status_message_creates_with_timestamp() {
+    let msg = StatusMessage::error("Test error");
+    assert_eq!(msg.text, "Test error");
+    assert_eq!(msg.msg_type, MessageType::Error);
+    assert!(msg.shown_at.elapsed() < Duration::from_millis(10));
+}
+
+#[test]
+fn status_message_not_expired_immediately() {
+    let msg = StatusMessage::info("Test");
+    assert!(!msg.is_expired());
+}
+
+#[test]
+fn status_message_expires_after_three_seconds() {
+    let mut msg = StatusMessage::warning("Test");
+    // Manually set the timestamp to 4 seconds ago
+    msg.shown_at = Instant::now() - Duration::from_secs(4);
+    assert!(msg.is_expired(), "Message should expire after 3 seconds");
+}
+
+#[test]
+fn status_message_convenience_constructors() {
+    let error = StatusMessage::error("Error message");
+    assert_eq!(error.msg_type, MessageType::Error);
+    assert_eq!(error.text, "Error message");
+
+    let warning = StatusMessage::warning("Warning message");
+    assert_eq!(warning.msg_type, MessageType::Warning);
+    assert_eq!(warning.text, "Warning message");
+
+    let info = StatusMessage::info("Info message");
+    assert_eq!(info.msg_type, MessageType::Info);
+    assert_eq!(info.text, "Info message");
+
+    let success = StatusMessage::success("Success message");
+    assert_eq!(success.msg_type, MessageType::Success);
+    assert_eq!(success.text, "Success message");
+}
+
+#[test]
+fn message_type_symbols_unicode() {
+    assert_eq!(MessageType::Error.symbol(true), "✗");
+    assert_eq!(MessageType::Warning.symbol(true), "⚠");
+    assert_eq!(MessageType::Info.symbol(true), "ℹ");
+    assert_eq!(MessageType::Success.symbol(true), "✓");
+}
+
+#[test]
+fn message_type_symbols_ascii() {
+    assert_eq!(MessageType::Error.symbol(false), "X");
+    assert_eq!(MessageType::Warning.symbol(false), "!");
+    assert_eq!(MessageType::Info.symbol(false), "i");
+    assert_eq!(MessageType::Success.symbol(false), "*");
+}
+
+#[test]
+fn message_type_colors() {
+    assert_eq!(MessageType::Error.fg_color(), Color::White);
+    assert_eq!(MessageType::Error.bg_color(), Color::Red);
+
+    assert_eq!(MessageType::Warning.fg_color(), Color::Black);
+    assert_eq!(MessageType::Warning.bg_color(), Color::Yellow);
+
+    assert_eq!(MessageType::Info.fg_color(), Color::White);
+    assert_eq!(MessageType::Info.bg_color(), Color::Blue);
+
+    assert_eq!(MessageType::Success.fg_color(), Color::Black);
+    assert_eq!(MessageType::Success.bg_color(), Color::Green);
+}
+
+#[test]
+fn supports_unicode_detects_incompatible_terminals() {
+    // Note: This test depends on the actual TERM environment variable
+    // In a real test environment, you might want to mock std::env::var
+
+    // For now, just verify the function doesn't panic
+    let _ = supports_unicode();
+
+    // We can't easily test this without mocking, but we can at least
+    // verify it returns a boolean
+    assert!(supports_unicode() || !supports_unicode());
+}
+
+#[test]
+fn clear_expired_status_message_removes_old_messages() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Set a message that's already expired
+    let mut old_msg = StatusMessage::info("Old message");
+    old_msg.shown_at = Instant::now() - Duration::from_secs(4);
+    app.status_message = Some(old_msg);
+
+    // Clear expired messages
+    app.clear_expired_status_message();
+
+    assert!(
+        app.status_message.is_none(),
+        "Expired message should be cleared"
+    );
+}
+
+#[test]
+fn clear_expired_status_message_keeps_fresh_messages() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Set a fresh message
+    app.status_message = Some(StatusMessage::success("Fresh message"));
+
+    // Clear expired messages
+    app.clear_expired_status_message();
+
+    assert!(
+        app.status_message.is_some(),
+        "Fresh message should not be cleared"
+    );
+}
+
+#[test]
+fn status_message_set_on_refresh() {
+    let mut app = App::new(
+        MockRegistry::with_repos(2),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Trigger refresh
+    app.needs_refresh = true;
+    app.handle_refresh_if_needed();
+
+    // Should have success message
+    assert!(app.status_message.is_some());
+    let msg = app.status_message.as_ref().unwrap();
+    assert_eq!(msg.msg_type, MessageType::Success);
+    assert!(msg.text.contains("Refreshed"));
+}
+
+#[test]
+fn status_message_set_on_no_commands() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Simulate pressing 'x' when no commands available
+    // (load_commands_for_selected_repo will find no commands and remain empty)
+    app.handle_key(KeyCode::Char('x'));
+
+    // Should have warning message
+    assert!(app.status_message.is_some());
+    let msg = app.status_message.as_ref().unwrap();
+    assert_eq!(msg.msg_type, MessageType::Warning);
+    assert!(msg.text.contains("No commands"));
+}

@@ -16,6 +16,8 @@ unicode-width = "0.1"
 wait-timeout = "0.2"
 log = "0.4"
 env_logger = "0.11"
+tokio = { version = "1.42", features = ["process", "io-util", "rt", "sync", "time"] }
+ansi-to-tui = "6.0"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -46,6 +48,8 @@ shellexpand = { workspace = true }
 unicode-width = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
+tokio = { workspace = true }
+ansi-to-tui = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

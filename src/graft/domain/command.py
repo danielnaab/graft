@@ -98,8 +98,14 @@ class Command:
     def get_full_command(self, args: list[str] | None = None) -> str:
         """Get the full command string with optional arguments appended.
 
+        SECURITY NOTE: Arguments are appended without shell escaping.
+        This is safe when args come from trusted sources (CLI user input),
+        but would be unsafe if args came from untrusted sources.
+        The command is executed with shell=True, so shell metacharacters
+        in args will be interpreted.
+
         Args:
-            args: Optional additional arguments to append
+            args: Optional additional arguments from trusted source (CLI)
 
         Returns:
             Complete command string

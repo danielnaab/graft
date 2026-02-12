@@ -6,21 +6,131 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use grove_core::{FileChangeStatus, RepoDetail, RepoDetailProvider, RepoRegistry, RepoStatus};
+use grove_core::{
+    Command, CommandState, FileChangeStatus, GraftYamlLoader, RepoDetail, RepoDetailProvider,
+    RepoRegistry, RepoStatus,
+};
+use grove_engine::GraftYamlConfigLoader;
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
     Terminal,
 };
 use std::io;
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthStr;
 
 /// Default number of recent commits to show in the detail pane.
 const DEFAULT_MAX_COMMITS: usize = 10;
+
+/// Maximum bytes of command output to buffer (1MB)
+const MAX_OUTPUT_BYTES: usize = 1_048_576;
+
+/// Check if the terminal supports Unicode characters.
+///
+/// Returns false for terminals known to have poor Unicode support.
+fn supports_unicode() -> bool {
+    std::env::var("TERM")
+        .map(|term| {
+            !term.contains("linux") && !term.contains("ascii") && !term.contains("vt100")
+        })
+        .unwrap_or(true) // Default to Unicode support
+}
+
+/// Message types for status bar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MessageType {
+    Error,
+    Warning,
+    Info,
+    Success,
+}
+
+impl MessageType {
+    /// Get the symbol for this message type.
+    ///
+    /// Returns Unicode symbols when supported, ASCII fallback otherwise.
+    fn symbol(&self, unicode: bool) -> &'static str {
+        match (self, unicode) {
+            (MessageType::Error, true) => "✗",
+            (MessageType::Error, false) => "X",
+            (MessageType::Warning, true) => "⚠",
+            (MessageType::Warning, false) => "!",
+            (MessageType::Info, true) => "ℹ",
+            (MessageType::Info, false) => "i",
+            (MessageType::Success, true) => "✓",
+            (MessageType::Success, false) => "*",
+        }
+    }
+
+    /// Get the foreground color for this message type.
+    fn fg_color(&self) -> Color {
+        match self {
+            MessageType::Error => Color::White,
+            MessageType::Warning => Color::Black,
+            MessageType::Info => Color::White,
+            MessageType::Success => Color::Black,
+        }
+    }
+
+    /// Get the background color for this message type.
+    fn bg_color(&self) -> Color {
+        match self {
+            MessageType::Error => Color::Red,
+            MessageType::Warning => Color::Yellow,
+            MessageType::Info => Color::Blue,
+            MessageType::Success => Color::Green,
+        }
+    }
+}
+
+/// A status bar message with metadata.
+#[derive(Debug, Clone)]
+struct StatusMessage {
+    text: String,
+    msg_type: MessageType,
+    shown_at: Instant,
+}
+
+impl StatusMessage {
+    /// Create a new status message.
+    fn new(text: impl Into<String>, msg_type: MessageType) -> Self {
+        Self {
+            text: text.into(),
+            msg_type,
+            shown_at: Instant::now(),
+        }
+    }
+
+    /// Create an error message.
+    fn error(text: impl Into<String>) -> Self {
+        Self::new(text, MessageType::Error)
+    }
+
+    /// Create a warning message.
+    fn warning(text: impl Into<String>) -> Self {
+        Self::new(text, MessageType::Warning)
+    }
+
+    /// Create an info message.
+    fn info(text: impl Into<String>) -> Self {
+        Self::new(text, MessageType::Info)
+    }
+
+    /// Create a success message.
+    fn success(text: impl Into<String>) -> Self {
+        Self::new(text, MessageType::Success)
+    }
+
+    /// Check if this message has expired (older than 3 seconds).
+    fn is_expired(&self) -> bool {
+        self.shown_at.elapsed() > Duration::from_secs(3)
+    }
+}
 
 /// Which pane currently has focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +138,16 @@ pub enum ActivePane {
     RepoList,
     Detail,
     Help,
+    CommandPicker,
+    CommandOutput,
+}
+
+/// Events from async command execution.
+#[derive(Debug)]
+enum CommandEvent {
+    OutputLine(String),
+    Completed(i32),
+    Failed(String),
 }
 
 /// Main TUI application state.
@@ -41,8 +161,21 @@ pub struct App<R, D> {
     cached_detail: Option<RepoDetail>,
     cached_detail_index: Option<usize>,
     workspace_name: String,
-    status_message: Option<(String, Instant)>,
+    status_message: Option<StatusMessage>,
     needs_refresh: bool,
+
+    // Command execution state
+    command_picker_state: ListState,
+    available_commands: Vec<(String, Command)>,
+    selected_repo_for_commands: Option<String>,
+    output_lines: Vec<String>,
+    output_scroll: usize,
+    output_bytes: usize,
+    output_truncated: bool,
+    command_state: CommandState,
+    command_name: Option<String>,
+    graft_loader: GraftYamlConfigLoader,
+    command_event_rx: Option<Receiver<CommandEvent>>,
 }
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -67,6 +200,19 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             workspace_name,
             status_message: None,
             needs_refresh: false,
+
+            // Command execution state
+            command_picker_state: ListState::default(),
+            available_commands: Vec::new(),
+            selected_repo_for_commands: None,
+            output_lines: Vec::new(),
+            output_scroll: 0,
+            output_bytes: 0,
+            output_truncated: false,
+            command_state: CommandState::NotStarted,
+            command_name: None,
+            graft_loader: GraftYamlConfigLoader::new(),
+            command_event_rx: None,
         }
     }
 
@@ -77,20 +223,22 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             match self.registry.refresh_all() {
                 Ok(stats) => {
                     // Show success message with stats (auto-clears after 3 seconds)
-                    let msg = if stats.all_successful() {
-                        format!("Refreshed {} repositories", stats.successful)
+                    self.status_message = if stats.all_successful() {
+                        Some(StatusMessage::success(format!(
+                            "Refreshed {} repositories",
+                            stats.successful
+                        )))
                     } else {
-                        format!(
+                        Some(StatusMessage::warning(format!(
                             "Refreshed {}/{} repositories ({} errors)",
                             stats.successful,
                             stats.total(),
                             stats.failed
-                        )
+                        )))
                     };
-                    self.status_message = Some((msg, Instant::now()));
                 }
                 Err(e) => {
-                    self.status_message = Some((format!("Refresh failed: {}", e), Instant::now()));
+                    self.status_message = Some(StatusMessage::error(format!("Refresh failed: {}", e)));
                 }
             }
 
@@ -105,8 +253,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Clear expired status messages (older than 3 seconds)
     fn clear_expired_status_message(&mut self) {
-        if let Some((_, set_at)) = &self.status_message {
-            if set_at.elapsed() > Duration::from_secs(3) {
+        if let Some(msg) = &self.status_message {
+            if msg.is_expired() {
                 self.status_message = None;
             }
         }
@@ -117,6 +265,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             ActivePane::RepoList => self.handle_key_repo_list(code),
             ActivePane::Detail => self.handle_key_detail(code),
             ActivePane::Help => self.handle_key_help(code),
+            ActivePane::CommandPicker => self.handle_key_command_picker(code),
+            ActivePane::CommandOutput => self.handle_key_command_output(code),
         }
     }
 
@@ -137,10 +287,20 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             KeyCode::Char('r') => {
                 // Manual refresh - set flag to trigger refresh in event loop
                 self.needs_refresh = true;
-                self.status_message = Some(("Refreshing...".to_string(), Instant::now()));
+                self.status_message = Some(StatusMessage::info("Refreshing..."));
             }
             KeyCode::Char('?') => {
                 self.active_pane = ActivePane::Help;
+            }
+            KeyCode::Char('x') => {
+                // Load commands for selected repo
+                self.load_commands_for_selected_repo();
+                if self.available_commands.is_empty() {
+                    self.status_message = Some(StatusMessage::warning("No commands defined in graft.yaml"));
+                } else {
+                    self.active_pane = ActivePane::CommandPicker;
+                    self.status_message = None;
+                }
             }
             _ => {}
         }
@@ -169,6 +329,63 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.active_pane = ActivePane::RepoList;
             }
             _ => {} // Ignore control keys and other special keys
+        }
+    }
+
+    fn handle_key_command_picker(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                let i = self.command_picker_state.selected().unwrap_or(0);
+                if i + 1 < self.available_commands.len() {
+                    self.command_picker_state.select(Some(i + 1));
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                let i = self.command_picker_state.selected().unwrap_or(0);
+                if i > 0 {
+                    self.command_picker_state.select(Some(i - 1));
+                }
+            }
+            KeyCode::Enter => {
+                // Execute selected command
+                self.execute_selected_command();
+            }
+            KeyCode::Char('q') | KeyCode::Esc => {
+                // Close picker
+                self.active_pane = ActivePane::RepoList;
+                self.available_commands.clear();
+                self.selected_repo_for_commands = None;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_key_command_output(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                // Scroll down
+                if self.output_scroll + 1 < self.output_lines.len() {
+                    self.output_scroll += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                // Scroll up
+                if self.output_scroll > 0 {
+                    self.output_scroll -= 1;
+                }
+            }
+            KeyCode::Char('q') => {
+                // Close output pane
+                self.active_pane = ActivePane::RepoList;
+                self.output_lines.clear();
+                self.output_scroll = 0;
+                self.output_bytes = 0;
+                self.command_state = CommandState::NotStarted;
+                self.command_name = None;
+                self.output_truncated = false;
+                self.command_event_rx = None;
+            }
+            _ => {}
         }
     }
 
@@ -245,17 +462,144 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.detail_scroll = 0;
     }
 
+    /// Load commands for the currently selected repository.
+    fn load_commands_for_selected_repo(&mut self) {
+        let Some(selected) = self.list_state.selected() else {
+            return;
+        };
+
+        let repos = self.registry.list_repos();
+        if selected >= repos.len() {
+            return;
+        }
+
+        let repo_path = repos[selected].as_path().display().to_string();
+
+        // Check cache - avoid re-parsing if same repo
+        if self.selected_repo_for_commands.as_ref() == Some(&repo_path) {
+            return; // Already loaded
+        }
+
+        // Load graft.yaml
+        let graft_path = format!("{}/graft.yaml", repo_path);
+        let graft_config = match self.graft_loader.load_graft(&graft_path) {
+            Ok(config) => config,
+            Err(e) => {
+                self.status_message = Some(StatusMessage::error(format!("Error loading graft.yaml: {e}")));
+                return;
+            }
+        };
+
+        // Populate commands list
+        self.available_commands = graft_config.commands.into_iter().collect();
+        self.available_commands.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by name
+        self.selected_repo_for_commands = Some(repo_path);
+
+        // Select first command if any exist
+        if !self.available_commands.is_empty() {
+            self.command_picker_state.select(Some(0));
+        }
+    }
+
+    /// Handle incoming command output events.
+    fn handle_command_events(&mut self) {
+        let mut should_close = false;
+
+        if let Some(rx) = &self.command_event_rx {
+            while let Ok(event) = rx.try_recv() {
+                match event {
+                    CommandEvent::OutputLine(line) => {
+                        let line_bytes = line.len();
+                        if self.output_bytes + line_bytes > MAX_OUTPUT_BYTES {
+                            self.output_truncated = true;
+                            // Stop accepting more output
+                            should_close = true;
+                        } else {
+                            self.output_bytes += line_bytes;
+                            self.output_lines.push(line);
+                        }
+                    }
+                    CommandEvent::Completed(exit_code) => {
+                        self.command_state = CommandState::Completed { exit_code };
+                        should_close = true;
+                    }
+                    CommandEvent::Failed(error) => {
+                        self.command_state = CommandState::Failed { error };
+                        should_close = true;
+                    }
+                }
+            }
+        }
+
+        if should_close {
+            self.command_event_rx = None;
+        }
+    }
+
+    /// Execute the currently selected command.
+    fn execute_selected_command(&mut self) {
+        let Some(cmd_idx) = self.command_picker_state.selected() else {
+            return;
+        };
+
+        if cmd_idx >= self.available_commands.len() {
+            return;
+        }
+
+        let (cmd_name, _cmd) = &self.available_commands[cmd_idx];
+        let Some(repo_path) = &self.selected_repo_for_commands else {
+            return;
+        };
+
+        // Switch to output pane
+        self.active_pane = ActivePane::CommandOutput;
+        self.output_lines.clear();
+        self.output_scroll = 0;
+        self.output_bytes = 0;
+        self.output_truncated = false;
+        self.command_state = CommandState::Running;
+        self.command_name = Some(cmd_name.clone());
+
+        // Create channel for command output
+        let (tx, rx) = mpsc::channel();
+        self.command_event_rx = Some(rx);
+
+        // Spawn command in background thread
+        let cmd_name_clone = cmd_name.clone();
+        let repo_path_clone = repo_path.clone();
+
+        std::thread::spawn(move || {
+            spawn_command(cmd_name_clone, repo_path_clone, tx);
+        });
+    }
+
     fn render(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
         // Clear expired status messages
         self.clear_expired_status_message();
 
+        // Handle command events
+        self.handle_command_events();
+
         self.ensure_detail_loaded();
 
         terminal.draw(|frame| {
+            // Main layout: content area + status bar at bottom
+            let main_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(3),      // Content area (flexible)
+                    Constraint::Length(1),   // Status bar (1 line)
+                ])
+                .split(frame.area());
+
+            let content_area = main_chunks[0];
+            let status_bar_area = main_chunks[1];
+
+            // Split content area into repo list and detail pane
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-                .split(frame.area());
+                .split(content_area);
 
             // --- Left pane: repo list ---
             let repos = self.registry.list_repos();
@@ -267,12 +611,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 Color::DarkGray
             };
 
-            // Build title with workspace name and optional status message
-            let title = if let Some((msg, _)) = &self.status_message {
-                format!("Grove: {} - {}", self.workspace_name, msg)
-            } else {
-                format!("Grove: {} (↑↓/jk navigate, ?help)", self.workspace_name)
-            };
+            // Build title with workspace name
+            let title = format!("Grove: {} (↑↓/jk navigate, x:commands, ?:help)", self.workspace_name);
 
             // Handle empty workspace case
             if repos.is_empty() {
@@ -377,6 +717,19 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             if self.active_pane == ActivePane::Help {
                 self.render_help_overlay(frame);
             }
+
+            // --- Command picker overlay ---
+            if self.active_pane == ActivePane::CommandPicker {
+                self.render_command_picker_overlay(frame);
+            }
+
+            // --- Command output overlay ---
+            if self.active_pane == ActivePane::CommandOutput {
+                self.render_command_output_overlay(frame);
+            }
+
+            // --- Status bar (always rendered at bottom) ---
+            self.render_status_bar(frame, status_bar_area);
         })?;
 
         Ok(())
@@ -417,6 +770,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             Line::from(""),
             Line::from(Span::styled("Actions", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
             Line::from("  r            Refresh repository status"),
+            Line::from("  x            Execute command (from graft.yaml)"),
             Line::from("  ?            Show this help"),
             Line::from(""),
             Line::from(Span::styled("Detail Pane", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
@@ -444,6 +798,29 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 Span::raw("  "),
                 Span::styled("↓n", Style::default().fg(Color::Red)),
                 Span::raw("  Commits behind remote"),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled("Status Bar", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from("  The bottom line shows status messages:"),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("✗", Style::default().fg(Color::Red)),
+                Span::raw(" Red    - Errors"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("⚠", Style::default().fg(Color::Yellow)),
+                Span::raw(" Yellow - Warnings"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("ℹ", Style::default().fg(Color::Blue)),
+                Span::raw(" Blue   - Information"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("✓", Style::default().fg(Color::Green)),
+                Span::raw(" Green  - Success"),
             ]),
             Line::from(""),
             Line::from(Span::styled(
@@ -482,6 +859,157 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             .alignment(Alignment::Left);
 
         frame.render_widget(help_widget, popup_area);
+    }
+
+    /// Render the command picker overlay as a centered popup.
+    fn render_command_picker_overlay(&mut self, frame: &mut ratatui::Frame) {
+        let area = centered_rect(70, 80, frame.area());
+
+        // Clear background
+        frame.render_widget(Clear, area);
+
+        // Create bordered block
+        let block = Block::default()
+            .title(" Commands (↑↓/jk: navigate, Enter: execute, q: close) ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .style(Style::default().bg(Color::Black));
+
+        // Build list items
+        let items: Vec<ListItem> = self
+            .available_commands
+            .iter()
+            .map(|(name, cmd)| {
+                let desc = cmd.description.as_deref().unwrap_or("");
+                let content = format!("{:<20} {}", name, desc);
+                ListItem::new(content)
+            })
+            .collect();
+
+        let list = List::new(items)
+            .block(block)
+            .highlight_style(Style::default().bg(Color::Rgb(40, 40, 50)).add_modifier(Modifier::BOLD))
+            .highlight_symbol("▶ ");
+
+        frame.render_stateful_widget(list, area, &mut self.command_picker_state);
+    }
+
+    /// Render the command output overlay.
+    fn render_command_output_overlay(&mut self, frame: &mut ratatui::Frame) {
+        let area = frame.area();
+
+        // Build header based on state
+        let header = match &self.command_state {
+            CommandState::Running => format!(
+                " Running: {} (j/k: scroll, q: close) ",
+                self.command_name.as_deref().unwrap_or("unknown")
+            ),
+            CommandState::Completed { exit_code } => {
+                if *exit_code == 0 {
+                    format!(
+                        " ✓ {}: Completed successfully (exit {}) - Press q to close ",
+                        self.command_name.as_deref().unwrap_or("unknown"),
+                        exit_code
+                    )
+                } else {
+                    format!(
+                        " ✗ {}: Failed with exit code {} - Press q to close ",
+                        self.command_name.as_deref().unwrap_or("unknown"),
+                        exit_code
+                    )
+                }
+            }
+            CommandState::Failed { error } => {
+                format!(" ✗ Failed: {} - Press q to close ", error)
+            }
+            CommandState::NotStarted => " Output ".to_string(),
+        };
+
+        let block = Block::default()
+            .title(header)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .style(Style::default().bg(Color::Black));
+
+        // Get visible lines based on scroll position
+        let inner = block.inner(area);
+        let visible_height = inner.height as usize;
+        let start = self.output_scroll;
+        let end = (start + visible_height).min(self.output_lines.len());
+        let visible_lines: Vec<Line> = self.output_lines[start..end]
+            .iter()
+            .map(|line| Line::from(line.clone()))
+            .collect();
+
+        // Clamp scroll
+        let max_scroll = self.output_lines.len().saturating_sub(visible_height);
+        self.output_scroll = self.output_scroll.min(max_scroll);
+
+        let paragraph = Paragraph::new(visible_lines)
+            .block(block)
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(paragraph, area);
+
+        // Show truncation warning if needed
+        if self.output_truncated {
+            let warning_area = Rect {
+                x: area.x + 2,
+                y: area.y + area.height.saturating_sub(3),
+                width: 50.min(area.width.saturating_sub(4)),
+                height: 1,
+            };
+            let warning = Paragraph::new(" ⚠ Output truncated (exceeded 1MB limit) ")
+                .style(Style::default().fg(Color::Black).bg(Color::Yellow));
+            frame.render_widget(warning, warning_area);
+        }
+    }
+
+    /// Render the status bar at the bottom of the screen.
+    fn render_status_bar(&self, frame: &mut ratatui::Frame, area: Rect) {
+        let unicode = supports_unicode();
+
+        let (mut text, fg_color, bg_color) = if let Some(msg) = &self.status_message {
+            let symbol = msg.msg_type.symbol(unicode);
+            let fg = msg.msg_type.fg_color();
+            let bg = msg.msg_type.bg_color();
+            (format!(" {} {}", symbol, msg.text), fg, bg)
+        } else {
+            // Default status when no message
+            (
+                " Ready • Press ? for help".to_string(),
+                Color::White,
+                Color::DarkGray,
+            )
+        };
+
+        // Truncate with ellipsis if message is too long
+        let max_width = area.width as usize;
+        if text.width() > max_width {
+            // Need to account for ellipsis width (3 characters)
+            let target_width = max_width.saturating_sub(3);
+
+            // Truncate to target width
+            let mut truncated = String::new();
+            let mut current_width = 0;
+
+            for ch in text.chars() {
+                let ch_width = UnicodeWidthStr::width(ch.to_string().as_str());
+                if current_width + ch_width > target_width {
+                    break;
+                }
+                truncated.push(ch);
+                current_width += ch_width;
+            }
+
+            truncated.push_str("...");
+            text = truncated;
+        }
+
+        let status_bar = Paragraph::new(text)
+            .style(Style::default().fg(fg_color).bg(bg_color));
+
+        frame.render_widget(status_bar, area);
     }
 
     /// Build the lines for the detail pane based on cached detail.
@@ -912,6 +1440,113 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
                 Span::raw(" "),
                 Span::styled(loading_text, Style::default().fg(Color::Gray)),
             ])
+        }
+    }
+}
+
+/// Helper to create a centered rectangle.
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
+
+/// Spawn a graft command in the background and send output via channel.
+fn spawn_command(command_name: String, repo_path: String, tx: Sender<CommandEvent>) {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+
+    // Spawn graft run command
+    let result = Command::new("graft")
+        .arg("run")
+        .arg(&command_name)
+        .current_dir(&repo_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+
+    let mut child = match result {
+        Ok(child) => child,
+        Err(e) => {
+            let _ = tx.send(CommandEvent::Failed(format!("Failed to spawn graft: {e}")));
+            return;
+        }
+    };
+
+    // Capture stdout in a thread
+    let stdout = child.stdout.take();
+    let tx_stdout = tx.clone();
+    let stdout_thread = stdout.map(|out| {
+        std::thread::spawn(move || {
+            let reader = BufReader::new(out);
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => {
+                        if tx_stdout.send(CommandEvent::OutputLine(line)).is_err() {
+                            break; // Channel closed
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx_stdout.send(CommandEvent::Failed(format!("Read error: {e}")));
+                        break;
+                    }
+                }
+            }
+        })
+    });
+
+    // Capture stderr in a thread
+    let stderr = child.stderr.take();
+    let tx_stderr = tx.clone();
+    let stderr_thread = stderr.map(|err| {
+        std::thread::spawn(move || {
+            let reader = BufReader::new(err);
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => {
+                        if tx_stderr.send(CommandEvent::OutputLine(line)).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx_stderr.send(CommandEvent::Failed(format!("Read error: {e}")));
+                        break;
+                    }
+                }
+            }
+        })
+    });
+
+    // Wait for child to complete
+    match child.wait() {
+        Ok(status) => {
+            // Wait for output threads to finish
+            if let Some(thread) = stdout_thread {
+                let _ = thread.join();
+            }
+            if let Some(thread) = stderr_thread {
+                let _ = thread.join();
+            }
+
+            let exit_code = status.code().unwrap_or(-1);
+            let _ = tx.send(CommandEvent::Completed(exit_code));
+        }
+        Err(e) => {
+            let _ = tx.send(CommandEvent::Failed(format!("Wait failed: {e}")));
         }
     }
 }
