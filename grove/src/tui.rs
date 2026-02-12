@@ -27,8 +27,11 @@ use unicode_width::UnicodeWidthStr;
 /// Default number of recent commits to show in the detail pane.
 const DEFAULT_MAX_COMMITS: usize = 10;
 
-/// Maximum bytes of command output to buffer (1MB)
-const MAX_OUTPUT_BYTES: usize = 1_048_576;
+/// Maximum lines of command output to buffer (~1MB at 100 chars/line)
+const MAX_OUTPUT_LINES: usize = 10_000;
+
+/// Number of lines to drop when buffer is full (reduces churn)
+const LINES_TO_DROP: usize = 1_000;
 
 /// Check if the terminal supports Unicode characters.
 ///
@@ -145,6 +148,7 @@ pub enum ActivePane {
 /// Events from async command execution.
 #[derive(Debug)]
 pub enum CommandEvent {
+    Started(u32),       // Process PID
     OutputLine(String),
     Completed(i32),
     Failed(String),
@@ -170,12 +174,13 @@ pub struct App<R, D> {
     selected_repo_for_commands: Option<String>,
     output_lines: Vec<String>,
     output_scroll: usize,
-    output_bytes: usize,
-    output_truncated: bool,
+    output_truncated_start: bool, // True if we dropped lines from start (ring buffer)
     command_state: CommandState,
     command_name: Option<String>,
     graft_loader: GraftYamlConfigLoader,
     command_event_rx: Option<Receiver<CommandEvent>>,
+    running_command_pid: Option<u32>, // PID of running command (for cancellation)
+    show_stop_confirmation: bool,     // Show "stop command?" dialog
 }
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -207,12 +212,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             selected_repo_for_commands: None,
             output_lines: Vec::new(),
             output_scroll: 0,
-            output_bytes: 0,
-            output_truncated: false,
+            output_truncated_start: false,
             command_state: CommandState::NotStarted,
             command_name: None,
             graft_loader: GraftYamlConfigLoader::new(),
             command_event_rx: None,
+            running_command_pid: None,
+            show_stop_confirmation: false,
         }
     }
 
@@ -361,6 +367,58 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     }
 
     fn handle_key_command_output(&mut self, code: KeyCode) {
+        // If showing stop confirmation dialog, handle dialog keys
+        if self.show_stop_confirmation {
+            match code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    // Send SIGTERM to stop command
+                    if let Some(pid) = self.running_command_pid {
+                        #[cfg(unix)]
+                        {
+                            use nix::sys::signal::{kill, Signal};
+                            use nix::unistd::Pid;
+
+                            match kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
+                                Ok(_) => {
+                                    self.status_message = Some(StatusMessage::info("Stopping command..."));
+                                }
+                                Err(e) => {
+                                    self.status_message = Some(StatusMessage::error(
+                                        format!("Failed to stop command: {}", e)
+                                    ));
+                                }
+                            }
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            self.status_message = Some(StatusMessage::warning(
+                                "Command cancellation not supported on Windows"
+                            ));
+                        }
+
+                        self.running_command_pid = None;
+                    }
+
+                    // Close pane and dialog
+                    self.show_stop_confirmation = false;
+                    self.active_pane = ActivePane::RepoList;
+                    self.output_lines.clear();
+                    self.output_scroll = 0;
+                    self.command_state = CommandState::NotStarted;
+                    self.command_name = None;
+                    self.output_truncated_start = false;
+                    self.command_event_rx = None;
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    // Cancel stop - continue running
+                    self.show_stop_confirmation = false;
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        // Normal output pane key handling
         match code {
             KeyCode::Char('j') | KeyCode::Down => {
                 // Scroll down
@@ -375,15 +433,21 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 }
             }
             KeyCode::Char('q') => {
-                // Close output pane
-                self.active_pane = ActivePane::RepoList;
-                self.output_lines.clear();
-                self.output_scroll = 0;
-                self.output_bytes = 0;
-                self.command_state = CommandState::NotStarted;
-                self.command_name = None;
-                self.output_truncated = false;
-                self.command_event_rx = None;
+                // Check if command is still running
+                if matches!(self.command_state, CommandState::Running) {
+                    // Show confirmation dialog
+                    self.show_stop_confirmation = true;
+                } else {
+                    // Command finished, close immediately
+                    self.active_pane = ActivePane::RepoList;
+                    self.output_lines.clear();
+                    self.output_scroll = 0;
+                    self.command_state = CommandState::NotStarted;
+                    self.command_name = None;
+                    self.output_truncated_start = false;
+                    self.command_event_rx = None;
+                    self.running_command_pid = None;
+                }
             }
             _ => {}
         }
@@ -508,19 +572,52 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         if let Some(rx) = &self.command_event_rx {
             while let Ok(event) = rx.try_recv() {
                 match event {
+                    CommandEvent::Started(pid) => {
+                        self.running_command_pid = Some(pid);
+                    }
                     CommandEvent::OutputLine(line) => {
-                        let line_bytes = line.len();
-                        if self.output_bytes + line_bytes > MAX_OUTPUT_BYTES {
-                            self.output_truncated = true;
-                            // Stop accepting more output
-                            should_close = true;
-                        } else {
-                            self.output_bytes += line_bytes;
-                            self.output_lines.push(line);
+                        // Add line to buffer
+                        self.output_lines.push(line);
+
+                        // If buffer too large, drop oldest lines (ring buffer)
+                        if self.output_lines.len() > MAX_OUTPUT_LINES {
+                            // Drop oldest lines to make room
+                            self.output_lines.drain(0..LINES_TO_DROP);
+
+                            // Add truncation marker if first time
+                            if !self.output_truncated_start {
+                                self.output_lines.insert(
+                                    0,
+                                    format!("... [earlier output truncated - showing last {} lines]", MAX_OUTPUT_LINES)
+                                );
+                                self.output_truncated_start = true;
+                            }
+
+                            // Adjust scroll position to stay in bounds
+                            if self.output_scroll > LINES_TO_DROP {
+                                self.output_scroll -= LINES_TO_DROP;
+                            } else {
+                                self.output_scroll = 0;
+                            }
                         }
                     }
                     CommandEvent::Completed(exit_code) => {
                         self.command_state = CommandState::Completed { exit_code };
+
+                        // Add spec-compliant completion message to output
+                        self.output_lines.push(String::new()); // Blank line
+
+                        let unicode = supports_unicode();
+                        if exit_code == 0 {
+                            // Success: "✓ Command completed successfully"
+                            let symbol = if unicode { "✓" } else { "*" };
+                            self.output_lines.push(format!("{} Command completed successfully", symbol));
+                        } else {
+                            // Failure: "✗ Command failed with exit code N"
+                            let symbol = if unicode { "✗" } else { "X" };
+                            self.output_lines.push(format!("{} Command failed with exit code {}", symbol, exit_code));
+                        }
+
                         should_close = true;
                     }
                     CommandEvent::Failed(error) => {
@@ -555,8 +652,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.active_pane = ActivePane::CommandOutput;
         self.output_lines.clear();
         self.output_scroll = 0;
-        self.output_bytes = 0;
-        self.output_truncated = false;
+        self.output_truncated_start = false;
         self.command_state = CommandState::Running;
         self.command_name = Some(cmd_name.clone());
 
@@ -726,6 +822,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             // --- Command output overlay ---
             if self.active_pane == ActivePane::CommandOutput {
                 self.render_command_output_overlay(frame);
+            }
+
+            // --- Stop confirmation dialog (rendered on top of command output) ---
+            if self.show_stop_confirmation {
+                self.render_stop_confirmation_dialog(frame);
             }
 
             // --- Status bar (always rendered at bottom) ---
@@ -952,7 +1053,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         frame.render_widget(paragraph, area);
 
         // Show truncation warning if needed
-        if self.output_truncated {
+        if self.output_truncated_start {
             let warning_area = Rect {
                 x: area.x + 2,
                 y: area.y + area.height.saturating_sub(3),
@@ -963,6 +1064,56 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 .style(Style::default().fg(Color::Black).bg(Color::Yellow));
             frame.render_widget(warning, warning_area);
         }
+    }
+
+    /// Render the stop confirmation dialog as a centered popup.
+    fn render_stop_confirmation_dialog(&self, frame: &mut ratatui::Frame) {
+        // Dialog dimensions
+        let dialog_width = 60;
+        let dialog_height = 7;
+
+        // Center the dialog
+        let area = frame.area();
+        let x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
+        let y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
+
+        let dialog_area = Rect::new(x, y, dialog_width, dialog_height);
+
+        // Clear background
+        frame.render_widget(Clear, dialog_area);
+
+        // Build dialog content
+        let text = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "Stop running command?",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "This will send SIGTERM to the process.",
+                Style::default().fg(Color::Gray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "y = Yes, stop   n = No, continue   Esc = Cancel",
+                Style::default().fg(Color::Cyan),
+            )),
+        ];
+
+        let dialog = Paragraph::new(text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow))
+                    .title(" Confirm ")
+                    .style(Style::default().bg(Color::Black)),
+            )
+            .alignment(Alignment::Center);
+
+        frame.render_widget(dialog, dialog_area);
     }
 
     /// Render the status bar at the bottom of the screen.
@@ -1569,6 +1720,9 @@ pub fn spawn_command(command_name: String, repo_path: String, tx: Sender<Command
             return;
         }
     };
+
+    // Send PID for cancellation support
+    let _ = tx.send(CommandEvent::Started(child.id()));
 
     // Capture stdout in a thread
     let stdout = child.stdout.take();

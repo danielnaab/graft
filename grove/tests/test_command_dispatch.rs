@@ -47,6 +47,9 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(CommandEvent::Started(_pid)) => {
+                // Process started, continue waiting for output
+            }
             Ok(CommandEvent::OutputLine(line)) => {
                 output_lines.push(line);
             }
@@ -123,6 +126,9 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(CommandEvent::Started(_)) => {
+                // Process started, continue
+            }
             Ok(CommandEvent::Failed(msg)) => {
                 // Graft should report command not found
                 assert!(
@@ -184,6 +190,9 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(CommandEvent::Started(_)) => {
+                // Process started, continue
+            }
             Ok(CommandEvent::Completed(code)) => {
                 exit_code = Some(code);
                 break;
@@ -243,6 +252,9 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(CommandEvent::Started(_)) => {
+                // Process started, continue
+            }
             Ok(CommandEvent::OutputLine(line)) => {
                 output_lines.push(line);
             }
@@ -294,17 +306,23 @@ fn test_graft_not_in_path_error() {
     );
 
     // Should get helpful "graft not found" error
-    match rx.recv_timeout(Duration::from_secs(2)) {
-        Ok(CommandEvent::Failed(msg)) => {
-            assert!(
-                msg.contains("graft") && msg.contains("not found"),
-                "Error should mention graft not found: {}",
-                msg
-            );
+    loop {
+        match rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(CommandEvent::Started(_)) => {
+                // Process started, continue
+            }
+            Ok(CommandEvent::Failed(msg)) => {
+                assert!(
+                    msg.contains("graft") && msg.contains("not found"),
+                    "Error should mention graft not found: {}",
+                    msg
+                );
+                break;
+            }
+            other => panic!(
+                "Expected Failed event with graft not found, got: {:?}",
+                other
+            ),
         }
-        other => panic!(
-            "Expected Failed event with graft not found, got: {:?}",
-            other
-        ),
     }
 }

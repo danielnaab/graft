@@ -51,6 +51,9 @@ env_logger = { workspace = true }
 tokio = { workspace = true }
 ansi-to-tui = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.27", features = ["signal"] }
+
 [dev-dependencies]
 tempfile = "3"
 
