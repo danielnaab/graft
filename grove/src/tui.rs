@@ -12,7 +12,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
     Terminal,
 };
 use std::io;
@@ -466,6 +466,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             width: popup_width,
             height: popup_height,
         };
+
+        // Clear the area behind the popup first
+        frame.render_widget(Clear, popup_area);
 
         // Render help content with solid background
         let help_widget = Paragraph::new(help_text)
