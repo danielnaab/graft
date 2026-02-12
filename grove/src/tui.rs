@@ -1472,12 +1472,21 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 /// 2. System graft in PATH
 ///
 /// Returns the command string to use (e.g., "graft" or "uv run python -m graft").
+///
+/// **Important**: Probes from /tmp to ensure command works from arbitrary directories,
+/// not just the current working directory. This prevents false positives when Grove
+/// runs from within the graft source tree.
 fn find_graft_command() -> Result<String> {
     // Try uv-managed installation first
     // This works for both development (uv run) and production (uv pip install)
     // Use --help instead of --version since graft doesn't have --version flag
+    //
+    // CRITICAL: Run from /tmp to avoid false positive when Grove runs from graft source tree.
+    // uv searches UP for pyproject.toml, so running from grove/ would find ../pyproject.toml
+    // even though that won't work when executing from arbitrary repo directories.
     let uv_check = std::process::Command::new("uv")
         .args(&["run", "--quiet", "python", "-m", "graft", "--help"])
+        .current_dir("/tmp")  // Probe from neutral directory
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
@@ -1489,8 +1498,10 @@ fn find_graft_command() -> Result<String> {
     }
 
     // Fall back to system graft in PATH
+    // Also probe from /tmp for consistency
     let system_check = std::process::Command::new("graft")
         .arg("--help")
+        .current_dir("/tmp")  // Probe from neutral directory
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
