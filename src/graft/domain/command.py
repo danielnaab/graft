@@ -52,6 +52,11 @@ class Command:
             raise ValidationError(
                 f"Command name too long: {len(self.name)} chars (max 100)"
             )
+        if ":" in self.name:
+            raise ValidationError(
+                f"Command name '{self.name}' cannot contain ':' (reserved separator). "
+                f"Use '{self.name.replace(':', '-')}' instead."
+            )
 
         # Validate run command (required)
         if not self.run:

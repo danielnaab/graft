@@ -249,3 +249,23 @@ npm test
         assert cmd1.name == "migrate-v2"
         assert cmd2.name == "verify_migration"
         assert cmd3.name == "migrate-v2_final"
+
+    def test_command_name_with_colon_raises_validation_error(self) -> None:
+        """Should raise ValidationError for command name containing colon."""
+        with pytest.raises(ValidationError) as exc_info:
+            Command(name="test:unit", run="pytest tests/unit")
+
+        error_msg = str(exc_info.value)
+        assert "test:unit" in error_msg
+        assert "cannot contain ':'" in error_msg
+        assert "reserved separator" in error_msg
+        # Should suggest alternative
+        assert "test-unit" in error_msg
+
+    def test_command_name_with_multiple_colons_raises_validation_error(self) -> None:
+        """Should raise ValidationError for command name with multiple colons."""
+        with pytest.raises(ValidationError) as exc_info:
+            Command(name="db:migrate:rollback", run="./migrate.sh rollback")
+
+        assert "db:migrate:rollback" in str(exc_info.value)
+        assert "cannot contain ':'" in str(exc_info.value)

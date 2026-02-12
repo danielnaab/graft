@@ -13,6 +13,7 @@ from graft.cli.commands import (
     fetch,
     remove,
     resolve,
+    run,
     show,
     status,
     sync,
@@ -77,6 +78,10 @@ app.command(name="add", help="Add a dependency to graft.yaml")(
 
 app.command(name="remove", help="Remove a dependency from graft.yaml")(
     remove.remove_command
+)
+
+app.command(name="run", help="Run command from graft.yaml")(
+    run.run_command
 )
 
 
