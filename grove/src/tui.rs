@@ -1465,24 +1465,94 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
+/// Find the graft command, checking uv-managed installation first.
+///
+/// Tries in order:
+/// 1. uv-managed graft (development and production via uv)
+/// 2. System graft in PATH
+///
+/// Returns the command string to use (e.g., "graft" or "uv run python -m graft").
+fn find_graft_command() -> Result<String> {
+    // Try uv-managed installation first
+    // This works for both development (uv run) and production (uv pip install)
+    // Use --help instead of --version since graft doesn't have --version flag
+    let uv_check = std::process::Command::new("uv")
+        .args(&["run", "--quiet", "python", "-m", "graft", "--help"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    if let Ok(status) = uv_check {
+        if status.success() {
+            return Ok("uv run python -m graft".to_string());
+        }
+    }
+
+    // Fall back to system graft in PATH
+    let system_check = std::process::Command::new("graft")
+        .arg("--help")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    if let Ok(status) = system_check {
+        if status.success() {
+            return Ok("graft".to_string());
+        }
+    }
+
+    // Neither found - provide helpful error
+    Err(anyhow::anyhow!(
+        "graft command not found\n\n\
+         Grove requires graft to execute commands.\n\n\
+         Install graft:\n\
+         - Via uv: uv pip install graft\n\
+         - Via pip: pip install graft\n\n\
+         Or ensure graft is in your PATH."
+    ))
+}
+
 /// Spawn a graft command in the background and send output via channel.
 fn spawn_command(command_name: String, repo_path: String, tx: Sender<CommandEvent>) {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
 
-    // Spawn graft run command
-    let result = Command::new("graft")
-        .arg("run")
-        .arg(&command_name)
-        .current_dir(&repo_path)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
+    // Find graft command (uv-managed or system)
+    let graft_cmd = match find_graft_command() {
+        Ok(cmd) => cmd,
+        Err(e) => {
+            let _ = tx.send(CommandEvent::Failed(e.to_string()));
+            return;
+        }
+    };
+
+    // Spawn appropriate command
+    let result = if graft_cmd.starts_with("uv run") {
+        // uv-managed: "uv run python -m graft run <command>"
+        Command::new("uv")
+            .args(&["run", "python", "-m", "graft", "run", &command_name])
+            .current_dir(&repo_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    } else {
+        // System graft: "graft run <command>"
+        Command::new(&graft_cmd)
+            .args(&["run", &command_name])
+            .current_dir(&repo_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    };
 
     let mut child = match result {
         Ok(child) => child,
         Err(e) => {
-            let _ = tx.send(CommandEvent::Failed(format!("Failed to spawn graft: {e}")));
+            let _ = tx.send(CommandEvent::Failed(format!(
+                "Failed to spawn {}: {}\n\n\
+                 Ensure graft is properly installed and in PATH.",
+                graft_cmd, e
+            )));
             return;
         }
     };
