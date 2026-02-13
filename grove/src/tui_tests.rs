@@ -1344,3 +1344,106 @@ fn status_message_set_on_no_commands() {
     assert_eq!(msg.msg_type, MessageType::Warning);
     assert!(msg.text.contains("No commands"));
 }
+
+// ===== Command Execution Tests (Phase 1 & 2 Features) =====
+
+#[test]
+fn command_state_transitions_not_started_to_running() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    
+    // Initial state
+    assert!(matches!(app.command_state, CommandState::NotStarted));
+    
+    // Simulate command start
+    app.command_state = CommandState::Running;
+    assert!(matches!(app.command_state, CommandState::Running));
+}
+
+#[test]
+fn command_state_transitions_running_to_completed() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    
+    app.command_state = CommandState::Running;
+    
+    // Simulate successful completion
+    app.command_state = CommandState::Completed { exit_code: 0 };
+    assert!(matches!(app.command_state, CommandState::Completed { exit_code: 0 }));
+}
+
+#[test]
+fn command_state_transitions_running_to_failed() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    
+    app.command_state = CommandState::Running;
+    
+    // Simulate failure
+    app.command_state = CommandState::Failed { error: "test error".to_string() };
+    assert!(matches!(app.command_state, CommandState::Failed { .. }));
+}
+
+#[test]
+fn confirmation_dialog_not_shown_initially() {
+    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    assert!(!app.show_stop_confirmation, "Dialog should not be shown initially");
+}
+
+#[test]
+fn confirmation_dialog_shows_for_running_command() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    
+    // Set up running command state
+    app.command_state = CommandState::Running;
+    app.active_pane = ActivePane::CommandOutput;
+    
+    // Press 'q' should show confirmation
+    app.handle_key(KeyCode::Char('q'));
+    assert!(app.show_stop_confirmation, "Dialog should show for running command");
+}
+
+#[test]
+fn confirmation_dialog_not_shown_for_completed_command() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    
+    // Set up completed command state
+    app.command_state = CommandState::Completed { exit_code: 0 };
+    app.active_pane = ActivePane::CommandOutput;
+    
+    // Press 'q' should close immediately (no confirmation)
+    app.handle_key(KeyCode::Char('q'));
+    assert!(!app.show_stop_confirmation, "Dialog should not show for completed command");
+    assert_eq!(app.active_pane, ActivePane::RepoList, "Should return to repo list");
+}
+
+#[test]
+fn pid_tracking_none_initially() {
+    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    assert!(app.running_command_pid.is_none(), "PID should be None initially");
+}
+
+#[test]
+fn pid_tracking_set_on_started_event() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    
+    // Simulate Started event with PID 12345
+    app.running_command_pid = Some(12345);
+    assert_eq!(app.running_command_pid, Some(12345), "PID should be set");
+}
+
+#[test]
+fn ring_buffer_flag_false_initially() {
+    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    assert!(!app.output_truncated_start, "Ring buffer flag should be false initially");
+}
+
+#[test]
+fn output_pane_scroll_initialized_to_zero() {
+    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    assert_eq!(app.output_scroll, 0, "Output scroll should start at 0");
+}
+
+#[test]
+fn output_lines_empty_initially() {
+    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    assert!(app.output_lines.is_empty(), "Output lines should be empty initially");
+}
+

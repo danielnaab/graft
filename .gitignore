@@ -48,3 +48,9 @@ htmlcov/
 .DS_Store
 Thumbs.db
 .graft
+
+# Temporary scratch files (move to notes/ before committing)
+*-WIP.md
+*-SCRATCH.md
+*-TODO.md
+*-TEMP.md
