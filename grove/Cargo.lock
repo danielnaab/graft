@@ -1328,6 +1328,7 @@ dependencies = [
  "log",
  "nix",
  "ratatui 0.29.0",
+ "shell-words",
  "shellexpand",
  "tempfile",
  "tokio",

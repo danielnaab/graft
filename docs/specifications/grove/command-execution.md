@@ -74,9 +74,8 @@ And no command is executed
 ```gherkin
 Given a command is selected in the picker
 When the user presses Enter
-Then the selected command is executed
-And the command picker closes
-And an output pane appears showing execution
+Then the command picker closes
+And an argument input dialog appears
 ```
 
 ```gherkin
@@ -84,6 +83,91 @@ Given a repository has no commands defined
 When the user presses "x"
 Then a message is shown: "No commands defined in graft.yaml"
 And the command picker does not appear
+```
+
+### Argument Input [Implemented 2026-02-13]
+
+```gherkin
+Given a command has been selected for execution
+When the command picker closes
+Then an argument input dialog appears
+And shows "Arguments for '<command-name>'"
+And allows the user to enter arguments or press Enter to skip
+```
+
+```gherkin
+Given the argument input dialog is displayed
+When the user types characters
+Then they are inserted at the cursor position
+And the cursor advances
+And displayed in the input field with a cursor indicator (▊ in middle, _ at end)
+```
+
+```gherkin
+Given the argument input dialog is displayed
+When the user presses Backspace
+Then the character before the cursor is removed
+And the cursor moves backward
+```
+
+```gherkin
+Given the argument input dialog is displayed
+When the user presses Left/Right arrow keys
+Then the cursor moves in that direction
+And stops at buffer boundaries (0 and length)
+```
+
+```gherkin
+Given the argument input dialog is displayed
+When the user presses Home/End keys
+Then the cursor jumps to start/end of buffer
+```
+
+```gherkin
+Given the argument input dialog is displayed
+When the user types or edits arguments
+Then a preview line shows how the command will be executed
+And shows parsed arguments with proper quoting
+And appears in green for valid parsing, red for errors
+```
+
+```gherkin
+Given the argument input dialog is displayed
+When the user presses Enter with valid arguments
+Then arguments are parsed using shell-style syntax (respecting quotes)
+And Grove calls `graft run <command-name> <arg1> <arg2> ...`
+And the argument dialog closes
+And the output pane appears
+```
+
+```gherkin
+Given the argument input dialog is displayed
+When the user presses Enter with invalid arguments (e.g., unmatched quote)
+Then an error message is shown in the status bar
+And the dialog remains open
+And the command is NOT executed
+```
+
+```gherkin
+Given the user wants to pass an argument with spaces
+When they enter: Personal "This is a test"
+Then the preview shows: graft run capture Personal 'This is a test'
+And it is parsed as 2 arguments: ["Personal", "This is a test"]
+```
+
+```gherkin
+Given the argument input dialog is displayed with empty buffer
+When the user presses Enter
+Then Grove calls `graft run <command-name>` without arguments
+And execution proceeds normally
+```
+
+```gherkin
+Given the argument input dialog is displayed
+When the user presses Esc
+Then the dialog closes without executing
+And focus returns to the repository list
+And the command is not executed
 ```
 
 ### Command Execution [Slice 7]
@@ -218,8 +302,14 @@ And the user can manually stop with "q" → "y"
 | x | Repo list focused | Open command picker for selected repo |
 | j, Down | Command picker | Move selection down |
 | k, Up | Command picker | Move selection up |
-| Enter | Command picker | Execute selected command |
+| Enter | Command picker | Open argument input dialog |
 | q, Esc | Command picker | Close picker without executing |
+| Char | Argument input | Insert character at cursor position |
+| Backspace | Argument input | Delete character before cursor |
+| Left, Right | Argument input | Move cursor backward/forward |
+| Home, End | Argument input | Jump to start/end of input |
+| Enter | Argument input | Execute command (if parsing valid) |
+| Esc | Argument input | Cancel and return to repo list |
 | j, Down | Output pane | Scroll output down |
 | k, Up | Output pane | Scroll output up |
 | q | Output pane (command running) | Show stop confirmation |
@@ -230,7 +320,7 @@ And the user can manually stop with "q" → "y"
 ## Open Questions
 
 **High Priority:**
-- [ ] Should command arguments be supported (prompt for args before execution)?
+- [x] Command arguments supported via text input dialog (implemented 2026-02-13)
 - [ ] Should there be a keybinding to re-run the last command?
 
 **Medium Priority:**
@@ -267,6 +357,24 @@ And the user can manually stop with "q" → "y"
   - Prevents memory exhaustion from verbose commands
   - 10,000 lines ≈ 1MB of output (reasonable for terminal display)
   - Notify user when limit reached
+
+- **2026-02-13**: Command arguments via text input dialog
+  - Modal dialog appears after command selection
+  - Simple text buffer with Char/Backspace handling
+  - Arguments parsed using `shell-words` crate (respects quotes, escapes)
+  - Empty input allowed (skip arguments)
+  - Supports quoted arguments for strings with spaces: `arg1 "arg with spaces"`
+  - Consistent with existing modal UI pattern (Help, CommandPicker)
+  - Fixed: Output pane now clears background properly (no overlay bleed-through)
+
+- **2026-02-13**: Phase 1 UX improvements
+  - **Cursor navigation**: Left/Right arrows, Home/End keys for editing anywhere in buffer
+  - **Visual cursor**: Shows ▊ in middle of text, _ at end
+  - **Command preview**: Real-time preview of parsed command (green=valid, red=error)
+  - **Parse validation**: Blocks execution on parsing errors, shows error in status bar
+  - **Refactored state**: Introduced `ArgumentInputState` struct to encapsulate buffer + cursor + command
+  - **Dialog size**: Increased to 70 chars wide × 9 lines tall (was 60×7) for preview
+  - **Test coverage**: Added 7 new tests (cursor nav, insertion at position, error blocking)
 
 ## Sources
 

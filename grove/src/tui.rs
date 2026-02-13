@@ -142,7 +142,16 @@ pub enum ActivePane {
     Detail,
     Help,
     CommandPicker,
+    ArgumentInput,
     CommandOutput,
+}
+
+/// State for argument input dialog.
+#[derive(Debug, Clone)]
+struct ArgumentInputState {
+    buffer: String,
+    cursor_pos: usize,  // Character position (not byte position)
+    command_name: String,
 }
 
 /// Events from async command execution.
@@ -172,6 +181,7 @@ pub struct App<R, D> {
     command_picker_state: ListState,
     available_commands: Vec<(String, Command)>,
     selected_repo_for_commands: Option<String>,
+    argument_input: Option<ArgumentInputState>,
     output_lines: Vec<String>,
     output_scroll: usize,
     output_truncated_start: bool, // True if we dropped lines from start (ring buffer)
@@ -210,6 +220,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             command_picker_state: ListState::default(),
             available_commands: Vec::new(),
             selected_repo_for_commands: None,
+            argument_input: None,
             output_lines: Vec::new(),
             output_scroll: 0,
             output_truncated_start: false,
@@ -272,6 +283,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             ActivePane::Detail => self.handle_key_detail(code),
             ActivePane::Help => self.handle_key_help(code),
             ActivePane::CommandPicker => self.handle_key_command_picker(code),
+            ActivePane::ArgumentInput => self.handle_key_argument_input(code),
             ActivePane::CommandOutput => self.handle_key_command_output(code),
         }
     }
@@ -361,6 +373,85 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.active_pane = ActivePane::RepoList;
                 self.available_commands.clear();
                 self.selected_repo_for_commands = None;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_key_argument_input(&mut self, code: KeyCode) {
+        let Some(state) = &mut self.argument_input else {
+            return;
+        };
+
+        match code {
+            KeyCode::Enter => {
+                // Parse and execute command with arguments
+                let args = if state.buffer.is_empty() {
+                    Vec::new()
+                } else {
+                    // Use shell-style parsing to respect quotes
+                    match shell_words::split(&state.buffer) {
+                        Ok(parsed_args) => parsed_args,
+                        Err(_) => {
+                            // Show error message and stay in dialog
+                            self.status_message = Some(StatusMessage::error(
+                                "Cannot execute: fix parsing error first"
+                            ));
+                            return;
+                        }
+                    }
+                };
+
+                let command_name = state.command_name.clone();
+
+                // Reset state and transition to output pane
+                self.argument_input = None;
+                self.active_pane = ActivePane::CommandOutput;
+
+                // Execute command
+                self.execute_command_with_args(command_name, args);
+            }
+            KeyCode::Esc => {
+                // Cancel input, return to repo list
+                self.argument_input = None;
+                self.active_pane = ActivePane::RepoList;
+            }
+            KeyCode::Left => {
+                // Move cursor left
+                if state.cursor_pos > 0 {
+                    state.cursor_pos -= 1;
+                }
+            }
+            KeyCode::Right => {
+                // Move cursor right
+                let char_count = state.buffer.chars().count();
+                if state.cursor_pos < char_count {
+                    state.cursor_pos += 1;
+                }
+            }
+            KeyCode::Home => {
+                // Jump to start
+                state.cursor_pos = 0;
+            }
+            KeyCode::End => {
+                // Jump to end
+                state.cursor_pos = state.buffer.chars().count();
+            }
+            KeyCode::Char(c) => {
+                // Insert character at cursor position
+                let mut chars: Vec<char> = state.buffer.chars().collect();
+                chars.insert(state.cursor_pos, c);
+                state.buffer = chars.into_iter().collect();
+                state.cursor_pos += 1;
+            }
+            KeyCode::Backspace => {
+                // Delete character before cursor
+                if state.cursor_pos > 0 {
+                    let mut chars: Vec<char> = state.buffer.chars().collect();
+                    chars.remove(state.cursor_pos - 1);
+                    state.buffer = chars.into_iter().collect();
+                    state.cursor_pos -= 1;
+                }
             }
             _ => {}
         }
@@ -644,28 +735,40 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
 
         let (cmd_name, _cmd) = &self.available_commands[cmd_idx];
+
+        // Create argument input state and transition to argument input
+        self.argument_input = Some(ArgumentInputState {
+            buffer: String::new(),
+            cursor_pos: 0,
+            command_name: cmd_name.clone(),
+        });
+        self.active_pane = ActivePane::ArgumentInput;
+
+        // Command picker closes, argument input opens
+    }
+
+    /// Execute command with provided arguments.
+    fn execute_command_with_args(&mut self, command_name: String, args: Vec<String>) {
         let Some(repo_path) = &self.selected_repo_for_commands else {
             return;
         };
 
-        // Switch to output pane
-        self.active_pane = ActivePane::CommandOutput;
-        self.output_lines.clear();
-        self.output_scroll = 0;
-        self.output_truncated_start = false;
-        self.command_state = CommandState::Running;
-        self.command_name = Some(cmd_name.clone());
-
-        // Create channel for command output
+        // Create channel for command events
         let (tx, rx) = mpsc::channel();
         self.command_event_rx = Some(rx);
 
-        // Spawn command in background thread
-        let cmd_name_clone = cmd_name.clone();
-        let repo_path_clone = repo_path.clone();
+        // Store command info
+        self.command_name = Some(command_name.clone());
+        self.command_state = CommandState::Running;
+        self.output_lines.clear();
+        self.output_scroll = 0;
+        self.output_truncated_start = false;
+        self.running_command_pid = None;
 
+        // Spawn command execution thread with arguments
+        let repo_path_clone = repo_path.clone();
         std::thread::spawn(move || {
-            spawn_command(cmd_name_clone, repo_path_clone, tx);
+            spawn_command(command_name, args, repo_path_clone, tx);
         });
     }
 
@@ -817,6 +920,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             // --- Command picker overlay ---
             if self.active_pane == ActivePane::CommandPicker {
                 self.render_command_picker_overlay(frame);
+            }
+
+            // --- Argument input overlay ---
+            if self.active_pane == ActivePane::ArgumentInput {
+                self.render_argument_input_overlay(frame);
             }
 
             // --- Command output overlay ---
@@ -995,9 +1103,118 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         frame.render_stateful_widget(list, area, &mut self.command_picker_state);
     }
 
+    /// Render the argument input overlay as a centered dialog.
+    fn render_argument_input_overlay(&self, frame: &mut ratatui::Frame) {
+        let area = frame.area();
+
+        let Some(state) = &self.argument_input else {
+            return;
+        };
+
+        // Create centered dialog with absolute dimensions (increased height for preview)
+        let dialog_width = 70.min(area.width.saturating_sub(4));
+        let dialog_height = 9;
+
+        // Center the dialog
+        let x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
+        let y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
+
+        let dialog_area = Rect::new(x, y, dialog_width, dialog_height);
+
+        // Clear background
+        frame.render_widget(Clear, dialog_area);
+
+        // Title with command name
+        let title = format!(" Arguments for '{}' ", state.command_name);
+
+        // Input content with cursor at proper position
+        let chars: Vec<char> = state.buffer.chars().collect();
+        let before_cursor: String = chars[..state.cursor_pos].iter().collect();
+        let after_cursor: String = chars[state.cursor_pos..].iter().collect();
+
+        let input_text = if after_cursor.is_empty() {
+            format!("> {}_", before_cursor)  // Cursor at end
+        } else {
+            format!("> {}▊{}", before_cursor, after_cursor)  // Cursor in middle (block char)
+        };
+
+        // Generate command preview
+        let (preview_text, preview_style) = self.format_argument_preview(state);
+
+        // Help text
+        let help = "← → Home End: navigate  |  Enter: run  |  Esc: cancel";
+
+        // Build dialog content
+        let content = vec![
+            Line::from(""),
+            Line::from(input_text).style(Style::default().fg(Color::Cyan)),
+            Line::from(""),
+            Line::from(preview_text).style(preview_style),
+            Line::from(""),
+            Line::from(help).style(Style::default().fg(Color::DarkGray)),
+        ];
+
+        let paragraph = Paragraph::new(content)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(title)
+                    .border_style(Style::default().fg(Color::Yellow))
+                    .style(Style::default().bg(Color::Black)),
+            )
+            .alignment(Alignment::Left);
+
+        frame.render_widget(paragraph, dialog_area);
+    }
+
+    /// Format the command preview line showing how arguments will be parsed.
+    fn format_argument_preview(&self, state: &ArgumentInputState) -> (String, Style) {
+        if state.buffer.is_empty() {
+            return (
+                format!("Will execute: graft run {}", state.command_name),
+                Style::default().fg(Color::DarkGray),
+            );
+        }
+
+        match shell_words::split(&state.buffer) {
+            Ok(args) => {
+                // Show parsed arguments with shell quoting for clarity
+                let quoted_args: Vec<String> = args
+                    .iter()
+                    .map(|arg| {
+                        if arg.contains(' ') || arg.contains('"') || arg.contains('\'') {
+                            format!("'{}'", arg)
+                        } else {
+                            arg.clone()
+                        }
+                    })
+                    .collect();
+
+                let preview = if quoted_args.is_empty() {
+                    format!("Will execute: graft run {}", state.command_name)
+                } else {
+                    format!(
+                        "Will execute: graft run {} {}",
+                        state.command_name,
+                        quoted_args.join(" ")
+                    )
+                };
+
+                (preview, Style::default().fg(Color::Green))
+            }
+            Err(e) => (
+                format!("⚠ Parse error: {} - fix before running", e),
+                Style::default().fg(Color::Red),
+            ),
+        }
+    }
+
     /// Render the command output overlay.
     fn render_command_output_overlay(&mut self, frame: &mut ratatui::Frame) {
         let area = frame.area();
+
+        // Clear the background to prevent detail pane from showing through
+        frame.render_widget(Clear, area);
 
         // Build header based on state
         let header = match &self.command_state {
@@ -1677,7 +1894,12 @@ fn find_graft_command() -> Result<String> {
 /// Spawn a graft command in the background and send output via channel.
 ///
 /// Made public to allow integration testing.
-pub fn spawn_command(command_name: String, repo_path: String, tx: Sender<CommandEvent>) {
+pub fn spawn_command(
+    command_name: String,
+    args: Vec<String>,
+    repo_path: String,
+    tx: Sender<CommandEvent>,
+) {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
 
@@ -1692,18 +1914,30 @@ pub fn spawn_command(command_name: String, repo_path: String, tx: Sender<Command
 
     // Spawn appropriate command
     let result = if graft_cmd.starts_with("uv run") {
-        // uv-managed: "uv run python -m graft run <command>"
-        Command::new("uv")
-            .args(&["run", "python", "-m", "graft", "run", &command_name])
-            .current_dir(&repo_path)
+        // uv-managed: "uv run python -m graft run <command> [args...]"
+        let mut cmd = Command::new("uv");
+        cmd.args(&["run", "python", "-m", "graft", "run", &command_name]);
+
+        // Add user arguments
+        if !args.is_empty() {
+            cmd.args(&args);
+        }
+
+        cmd.current_dir(&repo_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
     } else {
-        // System graft: "graft run <command>"
-        Command::new(&graft_cmd)
-            .args(&["run", &command_name])
-            .current_dir(&repo_path)
+        // System graft: "graft run <command> [args...]"
+        let mut cmd = Command::new(&graft_cmd);
+        cmd.args(&["run", &command_name]);
+
+        // Add user arguments
+        if !args.is_empty() {
+            cmd.args(&args);
+        }
+
+        cmd.current_dir(&repo_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()

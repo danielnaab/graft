@@ -1447,3 +1447,270 @@ fn output_lines_empty_initially() {
     assert!(app.output_lines.is_empty(), "Output lines should be empty initially");
 }
 
+// ===== Argument Input Tests (Phase 4) =====
+
+#[test]
+fn argument_input_opens_after_command_selected() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.available_commands = vec![("test".to_string(), grove_core::Command {
+        run: "echo test".to_string(),
+        description: Some("Test command".to_string()),
+        working_dir: None,
+        env: None,
+    })];
+    app.active_pane = ActivePane::CommandPicker;
+    app.command_picker_state.select(Some(0));
+
+    app.execute_selected_command();
+
+    assert_eq!(app.active_pane, ActivePane::ArgumentInput);
+    assert!(app.argument_input.is_some());
+    let state = app.argument_input.as_ref().unwrap();
+    assert_eq!(state.command_name, "test");
+    assert!(state.buffer.is_empty());
+    assert_eq!(state.cursor_pos, 0);
+}
+
+#[test]
+fn argument_input_buffer_updates_on_char() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: String::new(),
+        cursor_pos: 0,
+        command_name: "test".to_string(),
+    });
+
+    app.handle_key(KeyCode::Char('a'));
+    app.handle_key(KeyCode::Char('r'));
+    app.handle_key(KeyCode::Char('g'));
+
+    let state = app.argument_input.as_ref().unwrap();
+    assert_eq!(state.buffer, "arg");
+    assert_eq!(state.cursor_pos, 3);
+}
+
+#[test]
+fn argument_input_backspace_removes_char() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: "test".to_string(),
+        cursor_pos: 4,
+        command_name: "test".to_string(),
+    });
+
+    app.handle_key(KeyCode::Backspace);
+
+    let state = app.argument_input.as_ref().unwrap();
+    assert_eq!(state.buffer, "tes");
+    assert_eq!(state.cursor_pos, 3);
+}
+
+#[test]
+fn argument_input_escape_cancels() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: "some args".to_string(),
+        cursor_pos: 9,
+        command_name: "test".to_string(),
+    });
+
+    app.handle_key(KeyCode::Esc);
+
+    assert_eq!(app.active_pane, ActivePane::RepoList);
+    assert!(app.argument_input.is_none());
+}
+
+#[test]
+fn argument_input_enter_executes_with_args() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: "arg1 arg2".to_string(),
+        cursor_pos: 9,
+        command_name: "test".to_string(),
+    });
+    app.selected_repo_for_commands = Some("/tmp/test".to_string());
+
+    app.handle_key(KeyCode::Enter);
+
+    assert_eq!(app.active_pane, ActivePane::CommandOutput);
+    assert!(app.argument_input.is_none());
+    assert_eq!(app.command_name, Some("test".to_string()));
+}
+
+#[test]
+fn argument_input_enter_with_empty_buffer_executes_without_args() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: String::new(),
+        cursor_pos: 0,
+        command_name: "test".to_string(),
+    });
+    app.selected_repo_for_commands = Some("/tmp/test".to_string());
+
+    app.handle_key(KeyCode::Enter);
+
+    assert_eq!(app.active_pane, ActivePane::CommandOutput);
+    assert_eq!(app.command_name, Some("test".to_string()));
+}
+
+#[test]
+fn argument_input_parses_quoted_arguments_correctly() {
+    // This test verifies that shell-style quoting works for arguments with spaces
+    // Input: Personal "This is a test"
+    // Expected: ["Personal", "This is a test"] (2 arguments)
+
+    // We can't directly test the parsing without exposing it, but we can verify
+    // the behavior through the integration test. This test just documents the
+    // expected behavior and verifies the shell-words crate works as expected.
+
+    let input = r#"Personal "This is a test""#;
+    let parsed = shell_words::split(input).unwrap();
+
+    assert_eq!(parsed.len(), 2, "Should parse into 2 arguments");
+    assert_eq!(parsed[0], "Personal");
+    assert_eq!(parsed[1], "This is a test");
+}
+
+#[test]
+fn argument_input_handles_multiple_quoted_args() {
+    let input = r#""First arg" "Second arg" third"#;
+    let parsed = shell_words::split(input).unwrap();
+
+    assert_eq!(parsed.len(), 3);
+    assert_eq!(parsed[0], "First arg");
+    assert_eq!(parsed[1], "Second arg");
+    assert_eq!(parsed[2], "third");
+}
+
+// ===== Cursor Navigation Tests (Phase 1) =====
+
+#[test]
+fn argument_input_cursor_moves_left() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: "test".to_string(),
+        cursor_pos: 4,
+        command_name: "cmd".to_string(),
+    });
+    app.active_pane = ActivePane::ArgumentInput;
+
+    app.handle_key(KeyCode::Left);
+
+    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 3);
+}
+
+#[test]
+fn argument_input_cursor_moves_right() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: "test".to_string(),
+        cursor_pos: 2,
+        command_name: "cmd".to_string(),
+    });
+    app.active_pane = ActivePane::ArgumentInput;
+
+    app.handle_key(KeyCode::Right);
+
+    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 3);
+}
+
+#[test]
+fn argument_input_cursor_stops_at_boundaries() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: "test".to_string(),
+        cursor_pos: 0,
+        command_name: "cmd".to_string(),
+    });
+    app.active_pane = ActivePane::ArgumentInput;
+
+    // Try to move left at start
+    app.handle_key(KeyCode::Left);
+    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 0);
+
+    // Move to end
+    app.argument_input.as_mut().unwrap().cursor_pos = 4;
+
+    // Try to move right at end
+    app.handle_key(KeyCode::Right);
+    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 4);
+}
+
+#[test]
+fn argument_input_home_end_keys() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: "test".to_string(),
+        cursor_pos: 2,
+        command_name: "cmd".to_string(),
+    });
+    app.active_pane = ActivePane::ArgumentInput;
+
+    app.handle_key(KeyCode::Home);
+    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 0);
+
+    app.handle_key(KeyCode::End);
+    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 4);
+}
+
+#[test]
+fn argument_input_inserts_char_at_cursor() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: "test".to_string(),
+        cursor_pos: 2,
+        command_name: "cmd".to_string(),
+    });
+    app.active_pane = ActivePane::ArgumentInput;
+
+    app.handle_key(KeyCode::Char('X'));
+
+    let state = app.argument_input.as_ref().unwrap();
+    assert_eq!(state.buffer, "teXst");
+    assert_eq!(state.cursor_pos, 3);
+}
+
+#[test]
+fn argument_input_backspace_at_cursor() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: "test".to_string(),
+        cursor_pos: 2,
+        command_name: "cmd".to_string(),
+    });
+    app.active_pane = ActivePane::ArgumentInput;
+
+    app.handle_key(KeyCode::Backspace);
+
+    let state = app.argument_input.as_ref().unwrap();
+    assert_eq!(state.buffer, "tst");
+    assert_eq!(state.cursor_pos, 1);
+}
+
+#[test]
+fn argument_input_prevents_execution_on_parse_error() {
+    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    app.argument_input = Some(super::ArgumentInputState {
+        buffer: r#"unclosed "quote"#.to_string(),
+        cursor_pos: 15,
+        command_name: "cmd".to_string(),
+    });
+    app.active_pane = ActivePane::ArgumentInput;
+    app.selected_repo_for_commands = Some("/tmp/test".to_string());
+
+    app.handle_key(KeyCode::Enter);
+
+    // Should stay in ArgumentInput pane
+    assert_eq!(app.active_pane, ActivePane::ArgumentInput);
+
+    // Should show error message
+    assert!(app.status_message.is_some());
+    let msg = app.status_message.as_ref().unwrap();
+    assert!(msg.text.contains("parsing error") || msg.text.contains("Parse error"));
+}
+

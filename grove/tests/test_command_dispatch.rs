@@ -36,7 +36,7 @@ commands:
 
     // Spawn in thread to avoid blocking
     std::thread::spawn(move || {
-        spawn_command("test-hello".to_string(), repo_path, tx);
+        spawn_command("test-hello".to_string(), Vec::new(), repo_path, tx);
     });
 
     // Assert: Collect output and verify
@@ -116,7 +116,7 @@ commands:
     let repo_path = temp_dir.path().to_string_lossy().to_string();
 
     std::thread::spawn(move || {
-        spawn_command("nonexistent-command".to_string(), repo_path, tx);
+        spawn_command("nonexistent-command".to_string(), Vec::new(), repo_path, tx);
     });
 
     // Assert: Should get failure or non-zero exit
@@ -180,7 +180,7 @@ commands:
     let repo_path = temp_dir.path().to_string_lossy().to_string();
 
     std::thread::spawn(move || {
-        spawn_command("failing-command".to_string(), repo_path, tx);
+        spawn_command("failing-command".to_string(), Vec::new(), repo_path, tx);
     });
 
     // Assert: Should complete with exit code 42
@@ -241,7 +241,7 @@ commands:
     let repo_path = temp_dir.path().to_string_lossy().to_string();
 
     std::thread::spawn(move || {
-        spawn_command("multiline".to_string(), repo_path, tx);
+        spawn_command("multiline".to_string(), Vec::new(), repo_path, tx);
     });
 
     // Collect all output
@@ -282,6 +282,78 @@ commands:
 }
 
 #[test]
+fn test_command_with_arguments_passed_to_subprocess() {
+    // Setup: Create command that echoes its arguments
+    let temp_dir = tempdir().unwrap();
+    let graft_yaml = temp_dir.path().join("graft.yaml");
+    fs::write(
+        &graft_yaml,
+        r#"apiVersion: graft/v1beta1
+name: test-repo
+description: Test repository
+
+commands:
+  echo-args:
+    run: echo
+    description: Echo arguments
+"#,
+    )
+    .unwrap();
+
+    // Execute: Spawn command with arguments
+    let (tx, rx) = mpsc::channel();
+    let repo_path = temp_dir.path().to_string_lossy().to_string();
+
+    std::thread::spawn(move || {
+        spawn_command(
+            "echo-args".to_string(),
+            vec!["arg1".to_string(), "arg2".to_string(), "arg3".to_string()],
+            repo_path,
+            tx,
+        );
+    });
+
+    // Collect output
+    let mut output_lines = Vec::new();
+    let mut exit_code = None;
+    let timeout = Duration::from_secs(10);
+    let start = std::time::Instant::now();
+
+    while start.elapsed() < timeout {
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(CommandEvent::Started(_)) => continue,
+            Ok(CommandEvent::OutputLine(line)) => {
+                output_lines.push(line);
+            }
+            Ok(CommandEvent::Completed(code)) => {
+                exit_code = Some(code);
+                break;
+            }
+            Ok(CommandEvent::Failed(msg)) => {
+                panic!("Command failed: {}", msg);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    // Verify arguments were passed
+    assert_eq!(
+        exit_code,
+        Some(0),
+        "Command should complete successfully. Output: {:?}",
+        output_lines
+    );
+
+    let combined = output_lines.join("\n");
+    assert!(
+        combined.contains("arg1") && combined.contains("arg2") && combined.contains("arg3"),
+        "Output should contain all arguments. Got: {}",
+        combined
+    );
+}
+
+#[test]
 #[ignore] // Only run if user explicitly removes graft from PATH
 fn test_graft_not_in_path_error() {
     // This test verifies the error when graft is not installed
@@ -301,6 +373,7 @@ fn test_graft_not_in_path_error() {
     let (tx, rx) = mpsc::channel();
     spawn_command(
         "test".to_string(),
+        Vec::new(),
         temp_dir.path().to_string_lossy().to_string(),
         tx,
     );
