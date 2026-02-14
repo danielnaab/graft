@@ -1,0 +1,164 @@
+# Example graft.yaml for a notebook/notes vault repository
+# Provides state tracking for writing metrics, tasks, and knowledge graph health
+
+apiVersion: graft/v0
+
+metadata:
+  name: notebook
+  description: "Personal notes and knowledge base"
+
+# Quick capture command for adding notes
+commands:
+  capture:
+    run: "python3 scripts/capture.py"
+    description: "Quick capture: capture <section> <content>"
+
+  daily:
+    run: "python3 scripts/daily_note.py"
+    description: "Open today's daily note"
+
+# State queries for notebook analytics
+state:
+  # Daily writing accountability
+  writing-today:
+    run: |
+      python3 -c "
+      import json
+      from datetime import datetime
+      from pathlib import Path
+
+      today = datetime.now().date()
+      notes_dir = Path('.')
+
+      created = modified = words = 0
+      for p in notes_dir.rglob('*.md'):
+          if p.is_file() and not str(p).startswith('.'):
+              mtime = datetime.fromtimestamp(p.stat().st_mtime).date()
+              if mtime == today:
+                  modified += 1
+                  text = p.read_text()
+                  if str(today) in text[:100]:  # Simplified: check if today's date in frontmatter
+                      created += 1
+                  words += len(text.split())
+
+      print(json.dumps({
+          'notes_created': created,
+          'notes_modified': modified,
+          'words_today': words,
+          'date': str(today)
+      }))
+      "
+    cache:
+      deterministic: false  # Changes throughout the day
+    timeout: 15
+
+  # Task overview across all notes
+  tasks:
+    run: |
+      python3 -c "
+      import json
+      import re
+      from pathlib import Path
+
+      notes_dir = Path('.')
+      open_tasks = completed = 0
+
+      for p in notes_dir.rglob('*.md'):
+          if p.is_file() and not str(p).startswith('.'):
+              for line in p.read_text().splitlines():
+                  if re.match(r'-\s+\[\s\]', line):
+                      open_tasks += 1
+                  elif re.match(r'-\s+\[x\]', line, re.IGNORECASE):
+                      completed += 1
+
+      print(json.dumps({
+          'open': open_tasks,
+          'completed': completed,
+          'total': open_tasks + completed
+      }))
+      "
+    cache:
+      deterministic: true  # Tied to git commit
+    timeout: 20
+
+  # Knowledge graph connectivity
+  graph:
+    run: |
+      python3 -c "
+      import json
+      import re
+      from pathlib import Path
+      from collections import defaultdict
+
+      notes_dir = Path('.')
+      notes = list(notes_dir.rglob('*.md'))
+      notes = [p for p in notes if p.is_file() and not str(p).startswith('.')]
+
+      backlinks = defaultdict(int)
+      broken = 0
+
+      for note in notes:
+          content = note.read_text()
+          # Find wikilinks: [[note-name]]
+          links = re.findall(r'\[\[([^\]|]+)', content)
+          for link in links:
+              # Check if target exists
+              target_exists = any(link in str(n) for n in notes)
+              if target_exists:
+                  backlinks[link] += 1
+              else:
+                  broken += 1
+
+      orphaned = len([n for n in notes if str(n.stem) not in backlinks])
+      total_links = sum(backlinks.values())
+
+      print(json.dumps({
+          'total_notes': len(notes),
+          'total_links': total_links,
+          'orphaned': orphaned,
+          'broken_links': broken,
+          'avg_links': round(total_links / len(notes), 2) if notes else 0
+      }))
+      "
+    cache:
+      deterministic: true
+    timeout: 30
+
+  # Recent activity summary
+  recent:
+    run: |
+      python3 -c "
+      import json
+      from pathlib import Path
+      from datetime import datetime, timedelta
+
+      notes_dir = Path('.')
+      now = datetime.now()
+      today = now.date()
+
+      notes = []
+      for p in notes_dir.rglob('*.md'):
+          if p.is_file() and not str(p).startswith('.'):
+              mtime = datetime.fromtimestamp(p.stat().st_mtime)
+              notes.append({'path': str(p), 'mtime': mtime})
+
+      notes.sort(key=lambda x: x['mtime'], reverse=True)
+
+      modified_today = sum(1 for n in notes if n['mtime'].date() == today)
+      modified_week = sum(1 for n in notes if (now - n['mtime']).days <= 7)
+
+      last = notes[0] if notes else None
+      minutes_ago = int((now - last['mtime']).total_seconds() / 60) if last else 0
+
+      print(json.dumps({
+          'last_modified': {
+              'note': Path(last['path']).name if last else None,
+              'minutes_ago': minutes_ago
+          },
+          'modified_today': modified_today,
+          'modified_this_week': modified_week
+      }))
+      "
+    cache:
+      deterministic: false
+    timeout: 15

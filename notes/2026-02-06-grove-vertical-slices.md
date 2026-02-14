@@ -1,12 +1,15 @@
 ---
 title: "Grove Vertical Slices"
 date: 2026-02-06
-status: working
+updated: 2026-02-13
+status: implemented (3/7 complete, 1/7 partial)
 participants: ["human", "agent"]
 tags: [exploration, grove, tui, rust, vertical-slices, implementation]
 ---
 
 # Grove Vertical Slices
+
+> **Update 2026-02-13**: See [Grove Vertical Slices Evolution](./2026-02-13-grove-vertical-slices-evolution.md) for current status, redesigned slices, and new slice proposals based on evolved understanding of Grove as a workspace orchestration hub.
 
 ## Context
 
@@ -26,7 +29,9 @@ No slice is "just plumbing" or "just UI." Each one wires a user-visible capabili
 
 ---
 
-## Slice 1: Workspace Config + Repo List TUI
+## Slice 1: Workspace Config + Repo List TUI ✅ **IMPLEMENTED**
+
+**Status**: 100% complete (2026-02-10)
 
 **User story**: "Show me my repos and their git status."
 
@@ -64,7 +69,9 @@ Launch `grove`, see a list of configured repositories with per-repo git status (
 
 ---
 
-## Slice 2: Repo Detail Pane
+## Slice 2: Repo Detail Pane ✅ **IMPLEMENTED**
+
+**Status**: 100% complete (2026-02-10)
 
 **User story**: "What's happening in this repo?"
 
@@ -98,7 +105,9 @@ Select a repo in the list and see a detail pane showing: recent commits (last ~1
 
 ---
 
-## Slice 3: Quick Capture
+## Slice 3: Quick Capture ❌ **NOT IMPLEMENTED**
+
+**Status**: 0% complete (requires redesign - see Slice 3v2 in evolution doc)
 
 **User story**: "Capture this thought, right now."
 
@@ -134,7 +143,9 @@ Press `c`, type a note in the bottom bar, press `Enter`. The note is saved as a 
 
 ---
 
-## Slice 4: File Navigation + $EDITOR
+## Slice 4: File Navigation + $EDITOR ❌ **NOT IMPLEMENTED**
+
+**Status**: 0% complete (consider replacing with Link Following - see evolution doc)
 
 **User story**: "Open that file."
 
@@ -169,7 +180,9 @@ In the detail pane, navigate the file tree of the selected repo. Press `Enter` o
 
 ---
 
-## Slice 5: Graft Metadata Display
+## Slice 5: Graft Metadata Display ⚠️ **PARTIALLY IMPLEMENTED**
+
+**Status**: ~30% complete (parsing only, no UI - see Slice 10 in evolution doc for completion plan)
 
 **User story**: "What are the dependencies?"
 
@@ -205,7 +218,9 @@ For repos that contain `graft.yaml`, see a "Dependencies" view in the detail pan
 
 ---
 
-## Slice 6: Cross-Repo Search
+## Slice 6: Cross-Repo Search ❌ **NOT IMPLEMENTED**
+
+**Status**: 0% complete (requires simplification - see Slice 6v2 in evolution doc for streaming ripgrep approach)
 
 **User story**: "Find this across everything."
 
@@ -243,7 +258,18 @@ Press `/`, type a query, see results across all workspace repos grouped by repo 
 
 ---
 
-## Slice 7: Command Execution
+## Slice 7: Command Execution ✅ **IMPLEMENTED + ENHANCED**
+
+**Status**: 100% complete + Phase 1 UX improvements (2026-02-13)
+
+**Enhancements beyond original scope**:
+- Argument input dialog with cursor navigation (←→, Home, End)
+- Real-time command preview showing parsed arguments
+- Parse validation blocking execution on errors
+- Shell-style argument parsing (respects quotes via shell-words crate)
+- Visual cursor indicator (▊ in middle, _ at end)
+- Error feedback in status bar
+- 15 comprehensive tests
 
 **User story**: "Run that command."
 
@@ -283,17 +309,25 @@ Press `r` in a repo to see available commands. For graft-aware repos, this inclu
 
 ## Slice Summary
 
-| # | Slice | Layers touched | Key crate additions |
-|---|-------|---------------|-------------------|
-| 1 | Workspace config + repo list | config, engine, TUI | serde_yaml, gix, ratatui, crossterm |
-| 2 | Repo detail pane | engine, TUI | (gix rev-walk) |
-| 3 | Quick capture | config, engine, TUI | (gix staging/commit) |
-| 4 | File navigation + $EDITOR | engine, TUI | ignore |
-| 5 | Graft metadata display | config, engine, TUI | (serde_yaml for graft.yaml) |
-| 6 | Cross-repo search | config, engine, TUI | tantivy |
-| 7 | Command execution | config, engine, TUI | (std::process) |
+| # | Slice | Status | Layers touched | Key crate additions |
+|---|-------|--------|---------------|-------------------|
+| 1 | Workspace config + repo list | ✅ Complete | config, engine, TUI | serde_yaml, gix, ratatui, crossterm |
+| 2 | Repo detail pane | ✅ Complete | engine, TUI | (gix rev-walk) |
+| 3 | Quick capture | ❌ Not started | config, engine, TUI | (gix staging/commit) |
+| 4 | File navigation + $EDITOR | ❌ Not started | engine, TUI | ignore |
+| 5 | Graft metadata display | ⚠️ Partial (30%) | config, engine, TUI | (serde_yaml for graft.yaml) |
+| 6 | Cross-repo search | ❌ Not started | config, engine, TUI | tantivy |
+| 7 | Command execution | ✅ Complete + Enhanced | config, engine, TUI | shell-words, (std::process) |
+
+**Implementation Progress: 3.5/7 slices complete (50%)**
 
 Each slice is independently demoable. Together they build the full Phase 1-3 vision from the workspace UI exploration, delivered incrementally rather than in horizontal layers.
+
+**Note**: See [Grove Vertical Slices Evolution (2026-02-13)](./2026-02-13-grove-vertical-slices-evolution.md) for:
+- Detailed implementation status analysis
+- Redesigned approaches for unimplemented slices
+- 8 new slice proposals (Slices 8-15) based on evolved understanding
+- Revised priority roadmap
 
 ---
 
