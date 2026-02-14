@@ -496,6 +496,41 @@ And the detail view is shown
 And the application does not quit
 ```
 
+#### Refreshing State Queries
+
+```gherkin
+Given the state panel is open
+And a query is selected
+When the user presses 'r'
+Then the query is re-executed via graft CLI
+And the status bar shows "Refreshing <query>..."
+And the cache is updated with fresh results
+And the panel displays the updated data
+And a success message is shown
+```
+
+```gherkin
+Given the user presses 'r' to refresh a query
+And the graft command fails
+Then an error message is shown in the status bar
+And the error details are logged
+And the cached data remains unchanged
+```
+
+```gherkin
+Given the user presses 'r' to refresh a query
+And graft is not installed
+Then an error message is shown: "Failed to run graft command. Is graft installed?"
+And the cached data remains unchanged
+```
+
+```gherkin
+Given the state panel shows cached results
+Then each query displays its cache age (e.g., "5m ago", "2h ago", "3d ago")
+And users can see data freshness at a glance
+And can decide which queries need refreshing
+```
+
 #### Error Handling
 
 ```gherkin
@@ -536,6 +571,7 @@ And the panel shows empty state
 | q, Esc, Enter, Tab | Detail pane focused | Return focus to repo list |
 | j, Down | State panel active | Select next query |
 | k, Up | State panel active | Select previous query |
+| r | State panel active | Refresh selected query |
 | q, Esc | State panel active | Close panel and return to detail |
 | Printable keys, Esc, Enter | Help overlay active | Close help and return to repo list |
 

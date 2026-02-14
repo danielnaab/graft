@@ -568,6 +568,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     self.state_panel_list_state.select(Some(i - 1));
                 }
             }
+            KeyCode::Char('r') => {
+                // Refresh selected query
+                self.refresh_selected_state_query();
+            }
             KeyCode::Char('q') | KeyCode::Esc => {
                 // Close state panel, return to detail view
                 self.active_pane = ActivePane::Detail;
@@ -575,6 +579,151 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.state_results.clear();
             }
             _ => {}
+        }
+    }
+
+    /// Refresh the currently selected state query
+    fn refresh_selected_state_query(&mut self) {
+        use std::process::Command;
+
+        // Get selected query index
+        let selected = match self.state_panel_list_state.selected() {
+            Some(i) => i,
+            None => {
+                self.status_message = Some(StatusMessage::warning(
+                    "No query selected".to_string()
+                ));
+                return;
+            }
+        };
+
+        // Get query name (clone to avoid borrow issues)
+        let query_name = match self.state_queries.get(selected) {
+            Some(q) => q.name.clone(),
+            None => return,
+        };
+
+        // Get current repo path
+        let repos = self.registry.list_repos();
+        let repo_idx = match self.list_state.selected() {
+            Some(i) => i,
+            None => {
+                self.status_message = Some(StatusMessage::warning(
+                    "No repository selected".to_string()
+                ));
+                return;
+            }
+        };
+
+        let repo_path = match repos.get(repo_idx) {
+            Some(r) => r.as_path(),
+            None => return,
+        };
+
+        // Show "Refreshing..." message
+        self.status_message = Some(StatusMessage::info(
+            format!("Refreshing {}...", query_name)
+        ));
+
+        // Try uv-managed graft first (development mode)
+        let uv_result = Command::new("uv")
+            .args(&["run", "python", "-m", "graft", "state", "query", &query_name, "--refresh"])
+            .current_dir(repo_path)
+            .output();
+
+        let success = if let Ok(output) = uv_result {
+            if output.status.success() {
+                true
+            } else {
+                // Try system graft as fallback
+                let system_result = Command::new("graft")
+                    .args(&["state", "query", &query_name, "--refresh"])
+                    .current_dir(repo_path)
+                    .output();
+
+                if let Ok(output) = system_result {
+                    if output.status.success() {
+                        true
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        self.status_message = Some(StatusMessage::error(
+                            format!("Failed to refresh {}: {}", query_name, stderr.trim())
+                        ));
+                        false
+                    }
+                } else {
+                    self.status_message = Some(StatusMessage::error(
+                        "Failed to run graft command. Is graft installed?".to_string()
+                    ));
+                    false
+                }
+            }
+        } else {
+            // uv failed, try system graft
+            let system_result = Command::new("graft")
+                .args(&["state", "query", &query_name, "--refresh"])
+                .current_dir(repo_path)
+                .output();
+
+            if let Ok(output) = system_result {
+                if output.status.success() {
+                    true
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    self.status_message = Some(StatusMessage::error(
+                        format!("Failed to refresh {}: {}", query_name, stderr.trim())
+                    ));
+                    false
+                }
+            } else {
+                self.status_message = Some(StatusMessage::error(
+                    "Failed to run graft command. Is graft installed?".to_string()
+                ));
+                false
+            }
+        };
+
+        if success {
+            // Reload cache for this query
+            self.reload_state_query_cache(selected, repo_path);
+
+            self.status_message = Some(StatusMessage::success(
+                format!("Refreshed {}", query_name)
+            ));
+        }
+    }
+
+    /// Reload cache for a specific query index
+    fn reload_state_query_cache(&mut self, query_index: usize, repo_path: &std::path::Path) {
+        use crate::state::{compute_workspace_hash, read_latest_cached};
+
+        if query_index >= self.state_queries.len() {
+            return;
+        }
+
+        let query = &self.state_queries[query_index];
+
+        let workspace_hash = compute_workspace_hash(&self.workspace_name);
+        let repo_name = repo_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+
+        // Read updated cache
+        match read_latest_cached(&workspace_hash, repo_name, &query.name) {
+            Ok(result) => {
+                // Update the result in the vector
+                if query_index < self.state_results.len() {
+                    self.state_results[query_index] = Some(result);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to reload cache for {}: {}", query.name, e);
+                // Keep existing cache or set to None
+                if query_index < self.state_results.len() {
+                    self.state_results[query_index] = None;
+                }
+            }
         }
     }
 
@@ -1112,7 +1261,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             Line::from(Span::styled("Detail Pane", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
             Line::from("  j, ↓         Scroll down"),
             Line::from("  k, ↑         Scroll up"),
+            Line::from("  s            Open state queries panel"),
             Line::from("  q, Esc       Return to repository list"),
+            Line::from(""),
+            Line::from(Span::styled("State Panel", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from("  j, ↓         Select next query"),
+            Line::from("  k, ↑         Select previous query"),
+            Line::from("  r            Refresh selected query"),
+            Line::from("  q, Esc       Close panel"),
             Line::from(""),
             Line::from(Span::styled("Status Indicators", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
             Line::from(vec![
@@ -1239,7 +1395,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         // Create bordered block
         let block = Block::default()
-            .title(" State Queries (↑↓/jk: navigate, q: close) ")
+            .title(" State Queries (↑↓/jk: navigate, r: refresh, q: close) ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan))
             .style(Style::default().bg(Color::Black));
@@ -1251,15 +1407,38 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             .enumerate()
             .map(|(idx, query)| {
                 // Get cached result if available
-                let summary = if let Some(Some(result)) = self.state_results.get(idx) {
+                let line = if let Some(Some(result)) = self.state_results.get(idx) {
                     let age = result.metadata.time_ago();
                     let data_summary = result.summary();
-                    format!("{:<20} {} ({})", query.name, data_summary, age)
+
+                    // Format with proper alignment for readability
+                    Line::from(vec![
+                        Span::styled(
+                            format!("{:<14}", query.name),
+                            Style::default().fg(Color::Cyan),
+                        ),
+                        Span::raw("  "),
+                        Span::raw(format!("{:<45}", data_summary)),
+                        Span::styled(
+                            format!("({})", age),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ])
                 } else {
-                    format!("{:<20} (no cached data)", query.name)
+                    Line::from(vec![
+                        Span::styled(
+                            format!("{:<14}", query.name),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                        Span::raw("  "),
+                        Span::styled(
+                            "(no cached data)",
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ])
                 };
 
-                ListItem::new(summary)
+                ListItem::new(line)
             })
             .collect();
 
@@ -1267,15 +1446,45 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         if items.is_empty() {
             let empty_text = vec![
                 Line::from(""),
-                Line::from("No state queries found in graft.yaml").style(Style::default().fg(Color::DarkGray)),
+                Line::from("  No state queries defined in graft.yaml")
+                    .style(Style::default().fg(Color::Yellow)),
                 Line::from(""),
-                Line::from("Add state queries to your graft.yaml:").style(Style::default().fg(Color::DarkGray)),
+                Line::from("  State queries track project metrics over time:")
+                    .style(Style::default().fg(Color::DarkGray)),
+                Line::from("  • Code coverage, test counts, lint warnings")
+                    .style(Style::default().fg(Color::DarkGray)),
+                Line::from("  • Task/issue counts, PR status")
+                    .style(Style::default().fg(Color::DarkGray)),
+                Line::from("  • Documentation health, broken links")
+                    .style(Style::default().fg(Color::DarkGray)),
                 Line::from(""),
-                Line::from("  state:").style(Style::default().fg(Color::Yellow)),
-                Line::from("    coverage:").style(Style::default().fg(Color::Yellow)),
-                Line::from("      run: pytest --cov").style(Style::default().fg(Color::Yellow)),
-                Line::from("      cache:").style(Style::default().fg(Color::Yellow)),
-                Line::from("        deterministic: true").style(Style::default().fg(Color::Yellow)),
+                Line::from("  Example graft.yaml configuration:")
+                    .style(Style::default().fg(Color::White)),
+                Line::from(""),
+                Line::from("    state:")
+                    .style(Style::default().fg(Color::Cyan)),
+                Line::from("      coverage:")
+                    .style(Style::default().fg(Color::Cyan)),
+                Line::from("        run: \"pytest --cov --cov-report=json\"")
+                    .style(Style::default().fg(Color::Green)),
+                Line::from("        cache:")
+                    .style(Style::default().fg(Color::Cyan)),
+                Line::from("          deterministic: true")
+                    .style(Style::default().fg(Color::Green)),
+                Line::from("        description: \"Code coverage metrics\"")
+                    .style(Style::default().fg(Color::Green)),
+                Line::from(""),
+                Line::from("      tasks:")
+                    .style(Style::default().fg(Color::Cyan)),
+                Line::from("        run: \"task-tracker status --json\"")
+                    .style(Style::default().fg(Color::Green)),
+                Line::from("        cache:")
+                    .style(Style::default().fg(Color::Cyan)),
+                Line::from("          deterministic: false")
+                    .style(Style::default().fg(Color::Green)),
+                Line::from(""),
+                Line::from("  Press 'q' to close  │  Learn more: graft.dev/docs/state")
+                    .style(Style::default().fg(Color::DarkGray)),
             ];
 
             let paragraph = Paragraph::new(empty_text)

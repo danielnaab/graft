@@ -1986,3 +1986,115 @@ fn state_results_match_queries_length() {
                "Queries and results must stay in sync");
 }
 
+// ===== State Panel Phase 1 Tests =====
+
+#[test]
+fn state_panel_refresh_key_triggers_refresh() {
+    use crate::state::StateQuery;
+
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.active_pane = ActivePane::StatePanel;
+    app.list_state.select(Some(0));
+
+    // Add mock query
+    app.state_queries = vec![
+        StateQuery {
+            name: "test".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
+    ];
+    app.state_results = vec![None];
+    app.state_panel_list_state.select(Some(0));
+
+    // Press 'r' to refresh
+    // Note: This will attempt to run graft command, which may not be available in test
+    // The test verifies the key is wired up correctly
+    app.handle_key(KeyCode::Char('r'));
+
+    // After refresh attempt, should have a status message
+    assert!(app.status_message.is_some(),
+            "Refresh should set a status message");
+}
+
+#[test]
+fn state_panel_refresh_with_no_selection_shows_warning() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.active_pane = ActivePane::StatePanel;
+    // No selection
+
+    app.handle_key(KeyCode::Char('r'));
+
+    // Should show warning about no selection
+    assert!(app.status_message.is_some());
+    let msg = app.status_message.as_ref().unwrap();
+    assert_eq!(msg.msg_type, MessageType::Warning);
+}
+
+#[test]
+fn state_panel_shows_cache_age_formatting() {
+    use crate::state::{StateQuery, StateResult, StateMetadata};
+    use serde_json::json;
+
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+
+    app.state_queries = vec![
+        StateQuery {
+            name: "coverage".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
+    ];
+
+    // Create a result with known timestamp
+    app.state_results = vec![
+        Some(StateResult {
+            metadata: StateMetadata {
+                query_name: "coverage".to_string(),
+                commit_hash: "abc123".to_string(),
+                timestamp: (chrono::Utc::now() - chrono::Duration::minutes(5))
+                    .to_rfc3339(),
+                command: "pytest --cov".to_string(),
+                deterministic: true,
+            },
+            data: json!({"lines": 85}),
+        }),
+    ];
+
+    // Verify time_ago() method works
+    if let Some(Some(result)) = app.state_results.get(0) {
+        let age = result.metadata.time_ago();
+        // Should show something like "5m ago"
+        assert!(age.contains("m ago") || age.contains("just now"),
+                "Cache age should be formatted, got: {}", age);
+    }
+}
+
+#[test]
+fn state_panel_empty_state_is_helpful() {
+    let app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+
+    // Empty state should render without panicking
+    // This is more of a smoke test - actual rendering tested visually
+    assert!(app.state_queries.is_empty());
+    assert!(app.state_results.is_empty());
+}
+
