@@ -1,5 +1,6 @@
 //! Grove - Multi-repo workspace manager with graft awareness.
 
+mod state;
 mod tui;
 
 use anyhow::{Context, Result};

@@ -144,6 +144,7 @@ pub enum ActivePane {
     CommandPicker,
     ArgumentInput,
     CommandOutput,
+    StatePanel,
 }
 
 /// State for argument input dialog.
@@ -191,6 +192,11 @@ pub struct App<R, D> {
     command_event_rx: Option<Receiver<CommandEvent>>,
     running_command_pid: Option<u32>, // PID of running command (for cancellation)
     show_stop_confirmation: bool,     // Show "stop command?" dialog
+
+    // State query panel
+    state_queries: Vec<crate::state::StateQuery>,
+    state_results: Vec<Option<crate::state::StateResult>>,
+    state_panel_list_state: ListState,
 }
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -230,6 +236,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             command_event_rx: None,
             running_command_pid: None,
             show_stop_confirmation: false,
+
+            // State query panel
+            state_queries: Vec::new(),
+            state_results: Vec::new(),
+            state_panel_list_state: ListState::default(),
         }
     }
 
@@ -268,6 +279,50 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
+    /// Load state queries for the selected repository
+    fn load_state_queries(&mut self, repo_path: &str) {
+        use crate::state::{compute_workspace_hash, discover_state_queries, read_latest_cached};
+        use std::path::Path;
+
+        // Clear previous state
+        self.state_queries.clear();
+        self.state_results.clear();
+        self.state_panel_list_state = ListState::default();
+
+        // Find graft.yaml in repository
+        let graft_yaml_path = Path::new(repo_path).join("graft.yaml");
+        if !graft_yaml_path.exists() {
+            return;
+        }
+
+        // Discover state queries
+        match discover_state_queries(&graft_yaml_path) {
+            Ok(queries) => {
+                self.state_queries = queries;
+
+                // Try to read cached results for each query
+                let workspace_hash = compute_workspace_hash(&self.workspace_name);
+                let repo_name = Path::new(repo_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown");
+
+                for query in &self.state_queries {
+                    let result = read_latest_cached(&workspace_hash, repo_name, &query.name).ok();
+                    self.state_results.push(result);
+                }
+
+                // Select first query if available
+                if !self.state_queries.is_empty() {
+                    self.state_panel_list_state.select(Some(0));
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to discover state queries: {}", e);
+            }
+        }
+    }
+
     /// Clear expired status messages (older than 3 seconds)
     fn clear_expired_status_message(&mut self) {
         if let Some(msg) = &self.status_message {
@@ -284,6 +339,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             ActivePane::Help => self.handle_key_help(code),
             ActivePane::CommandPicker => self.handle_key_command_picker(code),
             ActivePane::ArgumentInput => self.handle_key_argument_input(code),
+            ActivePane::StatePanel => self.handle_key_state_panel(code),
             ActivePane::CommandOutput => self.handle_key_command_output(code),
         }
     }
@@ -334,6 +390,27 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 self.detail_scroll = self.detail_scroll.saturating_sub(1);
+            }
+            KeyCode::Char('s') => {
+                // Show state panel for selected repository
+                if let Some(selected) = self.list_state.selected() {
+                    let repos = self.registry.list_repos();
+                    if let Some(repo) = repos.get(selected) {
+                        let repo_path_str = repo.as_path().to_str().unwrap_or("");
+                        self.load_state_queries(repo_path_str);
+                        self.active_pane = ActivePane::StatePanel;
+                    }
+                }
+            }
+            KeyCode::Char('x') => {
+                // Open command picker (same as from repo list)
+                self.load_commands_for_selected_repo();
+                if self.available_commands.is_empty() {
+                    self.status_message = Some(StatusMessage::warning("No commands defined in graft.yaml"));
+                } else {
+                    self.active_pane = ActivePane::CommandPicker;
+                    self.status_message = None;
+                }
             }
             _ => {}
         }
@@ -452,6 +529,30 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     state.buffer = chars.into_iter().collect();
                     state.cursor_pos -= 1;
                 }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_key_state_panel(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                let i = self.state_panel_list_state.selected().unwrap_or(0);
+                if i + 1 < self.state_queries.len() {
+                    self.state_panel_list_state.select(Some(i + 1));
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                let i = self.state_panel_list_state.selected().unwrap_or(0);
+                if i > 0 {
+                    self.state_panel_list_state.select(Some(i - 1));
+                }
+            }
+            KeyCode::Char('q') | KeyCode::Esc => {
+                // Close state panel, return to detail view
+                self.active_pane = ActivePane::Detail;
+                self.state_queries.clear();
+                self.state_results.clear();
             }
             _ => {}
         }
@@ -922,6 +1023,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.render_command_picker_overlay(frame);
             }
 
+            // --- State panel overlay ---
+            if self.active_pane == ActivePane::StatePanel {
+                self.render_state_panel_overlay(frame);
+            }
+
             // --- Argument input overlay ---
             if self.active_pane == ActivePane::ArgumentInput {
                 self.render_argument_input_overlay(frame);
@@ -1101,6 +1207,69 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             .highlight_symbol("▶ ");
 
         frame.render_stateful_widget(list, area, &mut self.command_picker_state);
+    }
+
+    /// Render the state panel overlay showing cached state queries.
+    fn render_state_panel_overlay(&mut self, frame: &mut ratatui::Frame) {
+        let area = centered_rect(80, 80, frame.area());
+
+        // Clear background
+        frame.render_widget(Clear, area);
+
+        // Create bordered block
+        let block = Block::default()
+            .title(" State Queries (↑↓/jk: navigate, q: close) ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .style(Style::default().bg(Color::Black));
+
+        // Build list items with query name, summary, and cache age
+        let items: Vec<ListItem> = self
+            .state_queries
+            .iter()
+            .enumerate()
+            .map(|(idx, query)| {
+                // Get cached result if available
+                let summary = if let Some(Some(result)) = self.state_results.get(idx) {
+                    let age = result.metadata.time_ago();
+                    let data_summary = result.summary();
+                    format!("{:<20} {} ({})", query.name, data_summary, age)
+                } else {
+                    format!("{:<20} (no cached data)", query.name)
+                };
+
+                ListItem::new(summary)
+            })
+            .collect();
+
+        // Show empty state if no queries
+        if items.is_empty() {
+            let empty_text = vec![
+                Line::from(""),
+                Line::from("No state queries found in graft.yaml").style(Style::default().fg(Color::DarkGray)),
+                Line::from(""),
+                Line::from("Add state queries to your graft.yaml:").style(Style::default().fg(Color::DarkGray)),
+                Line::from(""),
+                Line::from("  state:").style(Style::default().fg(Color::Yellow)),
+                Line::from("    coverage:").style(Style::default().fg(Color::Yellow)),
+                Line::from("      run: pytest --cov").style(Style::default().fg(Color::Yellow)),
+                Line::from("      cache:").style(Style::default().fg(Color::Yellow)),
+                Line::from("        deterministic: true").style(Style::default().fg(Color::Yellow)),
+            ];
+
+            let paragraph = Paragraph::new(empty_text)
+                .block(block)
+                .alignment(Alignment::Left);
+
+            frame.render_widget(paragraph, area);
+        } else {
+            let list = List::new(items)
+                .block(block)
+                .highlight_style(Style::default().bg(Color::Rgb(40, 40, 50)).add_modifier(Modifier::BOLD))
+                .highlight_symbol("▶ ");
+
+            frame.render_stateful_widget(list, area, &mut self.state_panel_list_state);
+        }
     }
 
     /// Render the argument input overlay as a centered dialog.

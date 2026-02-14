@@ -2,7 +2,7 @@
 
 use super::query::StateResult;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Read a cached state query result for a specific query and commit.
 ///
