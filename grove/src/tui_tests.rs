@@ -1714,3 +1714,275 @@ fn argument_input_prevents_execution_on_parse_error() {
     assert!(msg.text.contains("parsing error") || msg.text.contains("Parse error"));
 }
 
+// ===== State Panel Tests (Phase 1) =====
+
+#[test]
+fn state_panel_opens_on_s_key() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.list_state.select(Some(0));
+    app.active_pane = ActivePane::Detail;
+
+    // Press 's' to open state panel
+    app.handle_key(KeyCode::Char('s'));
+
+    // Verify transition happened
+    assert_eq!(app.active_pane, ActivePane::StatePanel,
+               "'s' should open state panel");
+}
+
+#[test]
+fn state_panel_closes_on_esc() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.active_pane = ActivePane::StatePanel;
+
+    app.handle_key(KeyCode::Esc);
+
+    assert_eq!(app.active_pane, ActivePane::Detail,
+               "Esc should return to detail view");
+}
+
+#[test]
+fn state_panel_closes_on_q() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.active_pane = ActivePane::StatePanel;
+
+    app.handle_key(KeyCode::Char('q'));
+
+    assert_eq!(app.active_pane, ActivePane::Detail,
+               "'q' should return to detail view");
+    assert!(!app.should_quit,
+            "'q' in state panel should NOT quit the app");
+}
+
+#[test]
+fn state_panel_navigation_with_j_key() {
+    use crate::state::StateQuery;
+
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.active_pane = ActivePane::StatePanel;
+
+    // Mock some state queries
+    app.state_queries = vec![
+        StateQuery {
+            name: "coverage".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
+        StateQuery {
+            name: "tasks".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
+    ];
+    app.state_results = vec![None, None];
+    app.state_panel_list_state.select(Some(0));
+
+    app.handle_key(KeyCode::Char('j'));
+
+    assert_eq!(app.state_panel_list_state.selected(), Some(1),
+               "'j' should move down to next query");
+}
+
+#[test]
+fn state_panel_navigation_with_k_key() {
+    use crate::state::StateQuery;
+
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.active_pane = ActivePane::StatePanel;
+
+    app.state_queries = vec![
+        StateQuery { name: "q1".to_string(), description: None,
+                     deterministic: true, timeout: None },
+        StateQuery { name: "q2".to_string(), description: None,
+                     deterministic: true, timeout: None },
+    ];
+    app.state_results = vec![None, None];
+    app.state_panel_list_state.select(Some(1));
+
+    app.handle_key(KeyCode::Char('k'));
+
+    assert_eq!(app.state_panel_list_state.selected(), Some(0),
+               "'k' should move up to previous query");
+}
+
+#[test]
+fn state_panel_navigation_does_not_move_past_end() {
+    use crate::state::StateQuery;
+
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.active_pane = ActivePane::StatePanel;
+
+    app.state_queries = vec![
+        StateQuery { name: "q1".to_string(), description: None,
+                     deterministic: true, timeout: None },
+        StateQuery { name: "q2".to_string(), description: None,
+                     deterministic: true, timeout: None },
+    ];
+    app.state_results = vec![None, None];
+    app.state_panel_list_state.select(Some(1)); // Last item
+
+    app.handle_key(KeyCode::Char('j'));
+
+    // Should stay at last item (no wrapping implemented)
+    assert_eq!(app.state_panel_list_state.selected(), Some(1),
+               "Should not move past last query");
+}
+
+#[test]
+fn state_panel_navigation_does_not_move_before_start() {
+    use crate::state::StateQuery;
+
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.active_pane = ActivePane::StatePanel;
+
+    app.state_queries = vec![
+        StateQuery { name: "q1".to_string(), description: None,
+                     deterministic: true, timeout: None },
+    ];
+    app.state_results = vec![None];
+    app.state_panel_list_state.select(Some(0)); // First item
+
+    app.handle_key(KeyCode::Char('k'));
+
+    // Should stay at first item
+    assert_eq!(app.state_panel_list_state.selected(), Some(0),
+               "Should not move before first query");
+}
+
+#[test]
+fn state_panel_navigation_with_arrow_keys() {
+    use crate::state::StateQuery;
+
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.active_pane = ActivePane::StatePanel;
+
+    app.state_queries = vec![
+        StateQuery { name: "q1".to_string(), description: None,
+                     deterministic: true, timeout: None },
+        StateQuery { name: "q2".to_string(), description: None,
+                     deterministic: true, timeout: None },
+        StateQuery { name: "q3".to_string(), description: None,
+                     deterministic: true, timeout: None },
+    ];
+    app.state_results = vec![None, None, None];
+    app.state_panel_list_state.select(Some(1));
+
+    // Test Down arrow
+    app.handle_key(KeyCode::Down);
+    assert_eq!(app.state_panel_list_state.selected(), Some(2),
+               "Down arrow should move down");
+
+    // Test Up arrow
+    app.handle_key(KeyCode::Up);
+    assert_eq!(app.state_panel_list_state.selected(), Some(1),
+               "Up arrow should move up");
+}
+
+#[test]
+fn state_panel_handles_empty_queries_gracefully() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.active_pane = ActivePane::StatePanel;
+    app.state_queries = Vec::new();
+    app.state_results = Vec::new();
+
+    // Should not panic on navigation with no queries
+    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('k'));
+    app.handle_key(KeyCode::Down);
+    app.handle_key(KeyCode::Up);
+
+    // Selection should remain None or 0
+    assert!(app.state_panel_list_state.selected().is_none() ||
+            app.state_panel_list_state.selected() == Some(0),
+            "Empty query list should not panic");
+}
+
+#[test]
+fn state_panel_clears_state_on_close() {
+    use crate::state::StateQuery;
+
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+    app.active_pane = ActivePane::StatePanel;
+
+    // Populate with data
+    app.state_queries = vec![
+        StateQuery { name: "test".to_string(), description: None,
+                     deterministic: true, timeout: None },
+    ];
+    app.state_results = vec![None];
+
+    // Close panel
+    app.handle_key(KeyCode::Esc);
+
+    // Verify cleanup
+    assert!(app.state_queries.is_empty(),
+            "Queries should be cleared on close");
+    assert!(app.state_results.is_empty(),
+            "Results should be cleared on close");
+}
+
+#[test]
+fn state_results_match_queries_length() {
+    use crate::state::StateQuery;
+
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string()
+    );
+
+    // Simulate load_state_queries populating data
+    app.state_queries = vec![
+        StateQuery { name: "q1".to_string(), description: None,
+                     deterministic: true, timeout: None },
+        StateQuery { name: "q2".to_string(), description: None,
+                     deterministic: true, timeout: None },
+    ];
+    app.state_results = vec![None, None];
+
+    assert_eq!(app.state_queries.len(), app.state_results.len(),
+               "Queries and results must stay in sync");
+}
+

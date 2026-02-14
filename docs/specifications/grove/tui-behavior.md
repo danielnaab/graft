@@ -378,6 +378,140 @@ And the repo list continues to function normally
 And navigation between repos still works
 ```
 
+### State Panel [Phase 1]
+
+The state panel provides an overlay view of state queries defined in a repository's graft.yaml file.
+
+#### Opening State Panel from Detail View
+
+```gherkin
+Given the user is viewing repository detail
+And the repository has a graft.yaml file
+When the user presses 's'
+Then the state panel overlay appears
+And the state queries are discovered from graft.yaml
+And the cached results are loaded for each query
+```
+
+```gherkin
+Given the user is viewing repository detail
+And the repository has no graft.yaml file
+When the user presses 's'
+Then the state panel overlay appears
+And shows an empty state message
+```
+
+```gherkin
+Given the user is viewing repository detail
+And the graft.yaml file has invalid YAML syntax
+When the user presses 's'
+Then an error message is shown in the status bar
+And the state panel shows empty state
+And the error is logged
+```
+
+#### Navigating State Panel
+
+```gherkin
+Given the state panel is open with multiple queries
+And the first query is selected
+When the user presses 'j' or Down arrow
+Then the selection moves to the next query
+```
+
+```gherkin
+Given the state panel is open with multiple queries
+And the second query is selected
+When the user presses 'k' or Up arrow
+Then the selection moves to the previous query
+```
+
+```gherkin
+Given the state panel is open
+And the last query is selected
+When the user presses 'j' or Down
+Then the selection remains on the last query
+```
+
+```gherkin
+Given the state panel is open
+And the first query is selected
+When the user presses 'k' or Up
+Then the selection remains on the first query
+```
+
+#### State Panel Display
+
+```gherkin
+Given the state panel is open
+And a query has cached results
+Then the query name is displayed
+And a summary of the data is shown (e.g., "5000 words total, 250 today")
+And the cache age is displayed (e.g., "5m ago", "2h ago")
+```
+
+```gherkin
+Given the state panel is open
+And a query has no cached results
+Then the query name is displayed
+And "(no cached data)" is shown
+```
+
+```gherkin
+Given a state query returns data with "total_words" and "words_today"
+Then the summary shows "X words total, Y today"
+```
+
+```gherkin
+Given a state query returns data with "open" and "completed"
+Then the summary shows "X open, Y done"
+```
+
+```gherkin
+Given a state query returns data with "broken_links" and "orphaned"
+Then the summary shows "X broken links, Y orphans"
+```
+
+```gherkin
+Given a state query returns data in an unknown format
+Then the summary shows generic information
+And does not panic or show raw JSON
+```
+
+#### Closing State Panel
+
+```gherkin
+Given the state panel is open
+When the user presses Esc
+Then the panel closes
+And the detail view is shown
+And the state query data is cleared
+```
+
+```gherkin
+Given the state panel is open
+When the user presses 'q'
+Then the panel closes
+And the detail view is shown
+And the application does not quit
+```
+
+#### Error Handling
+
+```gherkin
+Given the state panel is open
+And all queries have no cached results
+Then an info message is shown: "No cached state data found. Run 'graft state query <name>' to populate cache."
+```
+
+```gherkin
+Given the user opens the state panel
+And the graft.yaml cannot be parsed
+Then an error message is shown in the status bar
+And the error details are logged
+And the panel shows empty state
+```
+
 ## Constraints
 
 - **Poll interval**: 100ms timeout for key event polling
@@ -398,7 +532,11 @@ And navigation between repos still works
 | q, Esc | Repo list focused | Quit application |
 | j, Down | Detail pane focused | Scroll detail down |
 | k, Up | Detail pane focused | Scroll detail up |
+| s | Detail pane focused | Open state queries panel |
 | q, Esc, Enter, Tab | Detail pane focused | Return focus to repo list |
+| j, Down | State panel active | Select next query |
+| k, Up | State panel active | Select previous query |
+| q, Esc | State panel active | Close panel and return to detail |
 | Printable keys, Esc, Enter | Help overlay active | Close help and return to repo list |
 
 ## Open Questions
@@ -492,6 +630,17 @@ And navigation between repos still works
   - Repository name takes priority over branch name (branch visible in detail pane)
   - Ensures users can identify repos even in extremely constrained layouts
   - Uses unicode-aware width calculation (not byte count) for threshold checks
+
+- **2026-02-14**: State panel for viewing cached state query results
+  - Accessible via 's' key from detail pane
+  - Overlays the detail pane as a centered modal (80% width/height)
+  - Discovers state queries from graft.yaml in selected repository
+  - Shows cached results for each query with smart summary formatting
+  - Handles errors gracefully (YAML parse errors, missing cache, etc.)
+  - Returns to detail pane with q/Esc (q does NOT quit app from state panel)
+  - Query-specific summary formats: writing metrics, task counts, graph stats
+  - Generic fallback for unknown query data formats
+  - Provides actionable feedback when no cache exists
 
 ## Sources
 

@@ -308,8 +308,23 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     .unwrap_or("unknown");
 
                 for query in &self.state_queries {
-                    let result = read_latest_cached(&workspace_hash, repo_name, &query.name).ok();
-                    self.state_results.push(result);
+                    match read_latest_cached(&workspace_hash, repo_name, &query.name) {
+                        Ok(result) => self.state_results.push(Some(result)),
+                        Err(e) => {
+                            log::debug!("No cache for query {}: {}", query.name, e);
+                            self.state_results.push(None);
+                            // This is expected - not all queries have cache yet
+                        }
+                    }
+                }
+
+                // If we discovered queries but none have cache, inform user
+                if !self.state_queries.is_empty()
+                    && self.state_results.iter().all(|r| r.is_none())
+                {
+                    self.status_message = Some(StatusMessage::info(
+                        "No cached state data found. Run 'graft state query <name>' to populate cache.".to_string()
+                    ));
                 }
 
                 // Select first query if available
@@ -319,6 +334,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             }
             Err(e) => {
                 log::warn!("Failed to discover state queries: {}", e);
+                self.status_message = Some(StatusMessage::error(format!(
+                    "Failed to load state queries: {}",
+                    e
+                )));
+                // Still allow panel to open (show empty state with error context)
             }
         }
     }
@@ -1086,6 +1106,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             Line::from(Span::styled("Actions", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
             Line::from("  r            Refresh repository status"),
             Line::from("  x            Execute command (from graft.yaml)"),
+            Line::from("  s            View state queries (from detail pane)"),
             Line::from("  ?            Show this help"),
             Line::from(""),
             Line::from(Span::styled("Detail Pane", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
