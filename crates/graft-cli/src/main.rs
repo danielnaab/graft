@@ -3,10 +3,11 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use graft_engine::{
-    fetch_all_dependencies, fetch_dependency, filter_breaking_changes, filter_changes_by_type,
-    get_all_status, get_change_details, get_changes_for_dependency, get_dependency_status,
-    parse_graft_yaml, parse_lock_file, resolve_all_dependencies, resolve_and_create_lock,
-    sync_all_dependencies, validate_config_schema, validate_integrity, write_lock_file,
+    apply_lock, fetch_all_dependencies, fetch_dependency, filter_breaking_changes,
+    filter_changes_by_type, get_all_status, get_change_details, get_changes_for_dependency,
+    get_dependency_status, parse_graft_yaml, parse_lock_file, resolve_all_dependencies,
+    resolve_and_create_lock, sync_all_dependencies, validate_config_schema, validate_integrity,
+    write_lock_file,
 };
 use std::path::{Path, PathBuf};
 
@@ -86,6 +87,15 @@ enum Commands {
         /// Optional dependency name to sync (syncs all if not specified)
         dep_name: Option<String>,
     },
+    /// Apply dependency version to lock file without migrations
+    Apply {
+        /// Dependency name
+        dep_name: String,
+
+        /// Target ref to apply (e.g., "main", "v1.0.0")
+        #[arg(long)]
+        to: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -122,6 +132,9 @@ fn main() -> Result<()> {
         }
         Commands::Sync { dep_name } => {
             sync_command(dep_name.as_deref())?;
+        }
+        Commands::Apply { dep_name, to } => {
+            apply_command(&dep_name, &to)?;
         }
     }
 
@@ -1029,6 +1042,31 @@ fn sync_command(dep_name: Option<&str>) -> Result<()> {
             std::process::exit(1);
         }
     }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn apply_command(dep_name: &str, to: &str) -> Result<()> {
+    let config_path = Path::new("graft.yaml");
+    let lock_path = Path::new("graft.lock");
+    let deps_directory = ".graft";
+
+    // Parse graft.yaml
+    let config = parse_graft_yaml(config_path).context("Failed to parse graft.yaml")?;
+
+    // Apply the dependency lock
+    let result = apply_lock(&config, lock_path, dep_name, to, deps_directory)
+        .context("Failed to apply dependency version")?;
+
+    // Display success
+    println!();
+    println!("Applied {}@{}", result.name, result.git_ref);
+    println!("  Source: {}", result.source);
+    println!("  Commit: {}...", &result.commit.as_str()[..7]);
+    println!("Updated graft.lock");
+    println!();
+    println!("Note: No migrations were run.");
 
     Ok(())
 }

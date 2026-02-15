@@ -130,9 +130,8 @@ pub fn validate_integrity(
                 } else {
                     let expected_short = &entry.commit.as_str()[..7];
                     let actual_short = &actual_commit.as_str()[..7];
-                    let message = format!(
-                        "Commit mismatch: expected {expected_short}, got {actual_short}"
-                    );
+                    let message =
+                        format!("Commit mismatch: expected {expected_short}, got {actual_short}");
                     results.push(IntegrityResult {
                         name: name.clone(),
                         valid: false,

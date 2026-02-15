@@ -54,9 +54,7 @@ fn is_submodule(path: &Path) -> Result<bool, GraftError> {
     let output = ProcessCommand::new("git")
         .args(["submodule", "status", &path.display().to_string()])
         .output()
-        .map_err(|e| GraftError::Resolution {
-            details: format!("Failed to check submodule status: {e}"),
-        })?;
+        .map_err(|e| GraftError::Resolution(format!("Failed to check submodule status: {e}")))?;
 
     Ok(output.status.success() && !output.stdout.is_empty())
 }
@@ -71,15 +69,13 @@ fn add_submodule(url: &str, path: &Path) -> Result<(), GraftError> {
     let output = ProcessCommand::new("git")
         .args(["submodule", "add", url, &path.display().to_string()])
         .output()
-        .map_err(|e| GraftError::Resolution {
-            details: format!("Failed to add submodule: {e}"),
-        })?;
+        .map_err(|e| GraftError::Resolution(format!("Failed to add submodule: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GraftError::Resolution {
-            details: format!("git submodule add failed: {stderr}"),
-        });
+        return Err(GraftError::Resolution(format!(
+            "git submodule add failed: {stderr}"
+        )));
     }
 
     Ok(())
@@ -90,15 +86,13 @@ fn update_submodule(path: &Path) -> Result<(), GraftError> {
     let output = ProcessCommand::new("git")
         .args(["submodule", "update", "--init", &path.display().to_string()])
         .output()
-        .map_err(|e| GraftError::Resolution {
-            details: format!("Failed to update submodule: {e}"),
-        })?;
+        .map_err(|e| GraftError::Resolution(format!("Failed to update submodule: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GraftError::Resolution {
-            details: format!("git submodule update failed: {stderr}"),
-        });
+        return Err(GraftError::Resolution(format!(
+            "git submodule update failed: {stderr}"
+        )));
     }
 
     Ok(())
@@ -110,15 +104,13 @@ fn fetch_all(path: &Path) -> Result<(), GraftError> {
         .args(["fetch", "--all"])
         .current_dir(path)
         .output()
-        .map_err(|e| GraftError::Resolution {
-            details: format!("Failed to fetch: {e}"),
-        })?;
+        .map_err(|e| GraftError::Resolution(format!("Failed to fetch: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GraftError::Resolution {
-            details: format!("git fetch failed: {stderr}"),
-        });
+        return Err(GraftError::Resolution(format!(
+            "git fetch failed: {stderr}"
+        )));
     }
 
     Ok(())
@@ -134,46 +126,38 @@ fn resolve_ref(path: &Path, git_ref: &str) -> Result<String, GraftError> {
             .args(["rev-parse", &ref_name])
             .current_dir(path)
             .output()
-            .map_err(|e| GraftError::Resolution {
-                details: format!("Failed to resolve ref: {e}"),
-            })?;
+            .map_err(|e| GraftError::Resolution(format!("Failed to resolve ref: {e}")))?;
 
         if output.status.success() {
             return String::from_utf8(output.stdout)
                 .map(|s| s.trim().to_string())
-                .map_err(|e| GraftError::Resolution {
-                    details: format!("Invalid UTF-8 in git output: {e}"),
-                });
+                .map_err(|e| GraftError::Resolution(format!("Invalid UTF-8 in git output: {e}")));
         }
     }
 
-    Err(GraftError::Resolution {
-        details: format!("Could not resolve ref: {git_ref}"),
-    })
+    Err(GraftError::Resolution(format!(
+        "Could not resolve ref: {git_ref}"
+    )))
 }
 
 /// Get current commit hash
-fn get_current_commit(path: &Path) -> Result<String, GraftError> {
+pub(crate) fn get_current_commit(path: &Path) -> Result<String, GraftError> {
     let output = ProcessCommand::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(path)
         .output()
-        .map_err(|e| GraftError::Resolution {
-            details: format!("Failed to get current commit: {e}"),
-        })?;
+        .map_err(|e| GraftError::Resolution(format!("Failed to get current commit: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GraftError::Resolution {
-            details: format!("git rev-parse HEAD failed: {stderr}"),
-        });
+        return Err(GraftError::Resolution(format!(
+            "git rev-parse HEAD failed: {stderr}"
+        )));
     }
 
     String::from_utf8(output.stdout)
         .map(|s| s.trim().to_string())
-        .map_err(|e| GraftError::Resolution {
-            details: format!("Invalid UTF-8 in git output: {e}"),
-        })
+        .map_err(|e| GraftError::Resolution(format!("Invalid UTF-8 in git output: {e}")))
 }
 
 /// Checkout a specific commit
@@ -182,15 +166,13 @@ fn checkout(path: &Path, commit: &str) -> Result<(), GraftError> {
         .args(["checkout", commit])
         .current_dir(path)
         .output()
-        .map_err(|e| GraftError::Resolution {
-            details: format!("Failed to checkout: {e}"),
-        })?;
+        .map_err(|e| GraftError::Resolution(format!("Failed to checkout: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GraftError::Resolution {
-            details: format!("git checkout failed: {stderr}"),
-        });
+        return Err(GraftError::Resolution(format!(
+            "git checkout failed: {stderr}"
+        )));
     }
 
     Ok(())
@@ -232,20 +214,16 @@ pub fn resolve_dependency(
         // Path exists but isn't a submodule
         if is_repository(&local_path) {
             // Legacy clone detected
-            Err(GraftError::Resolution {
-                details: format!(
-                    "Legacy clone detected at {}. Delete it and re-run resolve: rm -rf {}",
-                    local_path.display(),
-                    local_path.display()
-                ),
-            })
+            Err(GraftError::Resolution(format!(
+                "Legacy clone detected at {}. Delete it and re-run resolve: rm -rf {}",
+                local_path.display(),
+                local_path.display()
+            )))
         } else {
-            Err(GraftError::Resolution {
-                details: format!(
-                    "Path exists but is not a git repository: {}",
-                    local_path.display()
-                ),
-            })
+            Err(GraftError::Resolution(format!(
+                "Path exists but is not a git repository: {}",
+                local_path.display()
+            )))
         }
     } else {
         // Add new submodule
