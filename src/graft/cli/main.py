@@ -15,6 +15,7 @@ from graft.cli.commands import (
     resolve,
     run,
     show,
+    state,
     status,
     sync,
     tree,
@@ -30,6 +31,7 @@ app = typer.Typer(
 
 # Register command groups
 app.add_typer(example.app, name="example", help="Example commands")
+app.add_typer(state.state_app, name="state", help="Query and cache repository state")
 
 # Register commands
 app.command(name="resolve", help="Resolve dependencies from graft.yaml")(

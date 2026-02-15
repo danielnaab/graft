@@ -17,6 +17,7 @@ from graft.domain.exceptions import (
     ConfigParseError,
     ConfigValidationError,
 )
+from graft.domain.state import StateQuery
 from graft.services.dependency_context import DependencyContext
 
 
@@ -131,6 +132,34 @@ def parse_graft_yaml(
             )
             commands[cmd_name] = command
 
+    # Parse state queries (optional)
+    state_queries: dict[str, StateQuery] = {}
+    if "state" in data:
+        if not isinstance(data["state"], dict):
+            raise ConfigValidationError(
+                path=config_path,
+                field="state",
+                reason="Must be a mapping/dict of state_name: {...}",
+            )
+
+        for state_name, state_data in data["state"].items():
+            if not isinstance(state_data, dict):
+                raise ConfigValidationError(
+                    path=config_path,
+                    field=f"state.{state_name}",
+                    reason="State query must be a mapping/dict with 'run' field",
+                )
+
+            try:
+                state_query = StateQuery.from_dict(state_name, state_data)
+                state_queries[state_name] = state_query
+            except ValueError as e:
+                raise ConfigValidationError(
+                    path=config_path,
+                    field=f"state.{state_name}",
+                    reason=str(e),
+                ) from e
+
     # Parse changes (optional)
     changes: dict[str, Change] = {}
     if "changes" in data:
@@ -242,6 +271,7 @@ def parse_graft_yaml(
         metadata=metadata,
         changes=changes,
         commands=commands,
+        state=state_queries,
     )
 
 

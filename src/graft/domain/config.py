@@ -10,6 +10,7 @@ from graft.domain.change import Change
 from graft.domain.command import Command
 from graft.domain.dependency import DependencySpec
 from graft.domain.exceptions import ValidationError
+from graft.domain.state import StateQuery
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class GraftConfig:
         metadata: Optional metadata section (name, description, etc.)
         changes: Mapping of git ref to Change objects
         commands: Mapping of command name to Command objects
+        state: Mapping of state query name to StateQuery objects
 
     Example:
         >>> config = GraftConfig(
@@ -43,6 +45,7 @@ class GraftConfig:
     metadata: dict[str, Any] = field(default_factory=dict)
     changes: dict[str, Change] = field(default_factory=dict)
     commands: dict[str, Command] = field(default_factory=dict)
+    state: dict[str, StateQuery] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate configuration."""
@@ -158,3 +161,28 @@ class GraftConfig:
             List of changes with migration command defined
         """
         return [c for c in self.changes.values() if c.needs_migration()]
+
+    def get_state_query(self, name: str) -> StateQuery:
+        """Get state query by name.
+
+        Args:
+            name: State query name
+
+        Returns:
+            StateQuery for the name
+
+        Raises:
+            KeyError: If state query not found
+        """
+        return self.state[name]
+
+    def has_state_query(self, name: str) -> bool:
+        """Check if state query exists.
+
+        Args:
+            name: State query name
+
+        Returns:
+            True if state query exists
+        """
+        return name in self.state

@@ -742,3 +742,75 @@ class SubprocessGitOperations:
         except subprocess.SubprocessError:
             # If we can't check status, assume not clean for safety
             return False
+
+    def add_worktree(self, repo_path: str, worktree_path: str, commit: str) -> None:
+        """Create a git worktree at a specific commit.
+
+        Creates a temporary working directory checked out at the specified commit.
+        Used for executing commands at historical commits without affecting main tree.
+
+        Args:
+            repo_path: Path to main git repository
+            worktree_path: Path where worktree should be created
+            commit: Git commit hash to checkout in worktree
+
+        Raises:
+            ValueError: If worktree creation fails
+        """
+        try:
+            # Create worktree at specific commit (detached HEAD)
+            cmd = ["git", "worktree", "add", "--detach", worktree_path, commit]
+            result = subprocess.run(
+                cmd,
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr.strip()
+                raise ValueError(
+                    f"Failed to create worktree at {worktree_path} for commit {commit}: {stderr}"
+                )
+
+        except subprocess.SubprocessError as e:
+            raise ValueError(
+                f"Failed to create worktree at {worktree_path}: {e}"
+            ) from e
+
+    def remove_worktree(self, repo_path: str, worktree_path: str) -> None:
+        """Remove a git worktree.
+
+        Removes a previously created worktree and cleans up git metadata.
+
+        Args:
+            repo_path: Path to main git repository
+            worktree_path: Path to worktree to remove
+
+        Raises:
+            ValueError: If worktree removal fails
+        """
+        try:
+            # Remove worktree (force flag to handle even if worktree dir was deleted)
+            cmd = ["git", "worktree", "remove", "--force", worktree_path]
+            result = subprocess.run(
+                cmd,
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr.strip()
+                # Don't fail if worktree doesn't exist (already cleaned up)
+                if "not a working tree" not in stderr.lower():
+                    raise ValueError(
+                        f"Failed to remove worktree at {worktree_path}: {stderr}"
+                    )
+
+        except subprocess.SubprocessError as e:
+            raise ValueError(
+                f"Failed to remove worktree at {worktree_path}: {e}"
+            ) from e

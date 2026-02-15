@@ -41,6 +41,10 @@ class FakeGitOperations:
         self._update_submodule_calls: list[tuple[str, bool, bool]] = []  # (path, init, recursive)
         self._remove_submodule_calls: list[str] = []  # paths
         self._submodule_branches: dict[str, str] = {}  # path -> branch
+        # Worktree tracking
+        self._worktrees: dict[str, str] = {}  # worktree_path -> commit
+        self._add_worktree_calls: list[tuple[str, str, str]] = []  # (repo_path, worktree_path, commit)
+        self._remove_worktree_calls: list[tuple[str, str]] = []  # (repo_path, worktree_path)
 
     def clone(self, url: str, destination: str, ref: str) -> None:
         """Fake clone operation.
@@ -311,6 +315,9 @@ class FakeGitOperations:
         self._update_submodule_calls.clear()
         self._remove_submodule_calls.clear()
         self._submodule_branches.clear()
+        self._worktrees.clear()
+        self._add_worktree_calls.clear()
+        self._remove_worktree_calls.clear()
 
     def configure_working_directory_clean(self, repo_path: str, is_clean: bool) -> None:
         """Configure whether a working directory should appear clean (test helper).
@@ -456,6 +463,44 @@ class FakeGitOperations:
         # By default, assume clean unless configured otherwise
         return self._working_directory_clean.get(repo_path, True)
 
+    # Worktree operations
+
+    def add_worktree(self, repo_path: str, worktree_path: str, commit: str) -> None:
+        """Create a git worktree at a specific commit (fake).
+
+        Args:
+            repo_path: Path to main git repository
+            worktree_path: Path where worktree should be created
+            commit: Git commit hash to checkout in worktree
+
+        Raises:
+            ValueError: If repository doesn't exist
+        """
+        self._add_worktree_calls.append((repo_path, worktree_path, commit))
+
+        # Must be a known repository
+        if repo_path not in self._cloned_repos and repo_path not in self._submodules:
+            raise ValueError(f"Not a git repository: {repo_path}")
+
+        # Record worktree
+        self._worktrees[worktree_path] = commit
+
+    def remove_worktree(self, repo_path: str, worktree_path: str) -> None:
+        """Remove a git worktree (fake).
+
+        Args:
+            repo_path: Path to main git repository
+            worktree_path: Path to worktree to remove
+
+        Raises:
+            ValueError: If worktree doesn't exist
+        """
+        self._remove_worktree_calls.append((repo_path, worktree_path))
+
+        # Remove worktree if it exists (ignore if not)
+        if worktree_path in self._worktrees:
+            del self._worktrees[worktree_path]
+
     # Submodule test helpers
 
     def was_submodule_added(self, url: str, path: str, ref: str | None = None) -> bool:
@@ -514,3 +559,54 @@ class FakeGitOperations:
         """
         import hashlib
         return hashlib.sha1(seed.encode()).hexdigest()
+
+    # Worktree test helpers
+
+    def was_worktree_added(self, repo_path: str, worktree_path: str, commit: str) -> bool:
+        """Check if add_worktree was called with specific args.
+
+        Args:
+            repo_path: Expected repository path
+            worktree_path: Expected worktree path
+            commit: Expected commit
+
+        Returns:
+            True if add_worktree was called with these arguments
+        """
+        return (repo_path, worktree_path, commit) in self._add_worktree_calls
+
+    def was_worktree_removed(self, repo_path: str, worktree_path: str) -> bool:
+        """Check if remove_worktree was called with specific args.
+
+        Args:
+            repo_path: Expected repository path
+            worktree_path: Expected worktree path
+
+        Returns:
+            True if remove_worktree was called with these arguments
+        """
+        return (repo_path, worktree_path) in self._remove_worktree_calls
+
+    def get_worktree_count(self) -> int:
+        """Get number of active worktrees.
+
+        Returns:
+            Number of worktrees
+        """
+        return len(self._worktrees)
+
+    def get_add_worktree_calls(self) -> list[tuple[str, str, str]]:
+        """Get all add_worktree calls.
+
+        Returns:
+            List of (repo_path, worktree_path, commit) tuples
+        """
+        return self._add_worktree_calls.copy()
+
+    def get_remove_worktree_calls(self) -> list[tuple[str, str]]:
+        """Get all remove_worktree calls.
+
+        Returns:
+            List of (repo_path, worktree_path) tuples
+        """
+        return self._remove_worktree_calls.copy()

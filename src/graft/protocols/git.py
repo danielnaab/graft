@@ -241,3 +241,33 @@ class GitOperations(Protocol):
             True if working directory is clean (no uncommitted changes)
         """
         ...
+
+    def add_worktree(self, repo_path: str, worktree_path: str, commit: str) -> None:
+        """Create a git worktree at a specific commit.
+
+        Creates a temporary working directory checked out at the specified commit.
+        Used for executing commands at historical commits without affecting main tree.
+
+        Args:
+            repo_path: Path to main git repository
+            worktree_path: Path where worktree should be created
+            commit: Git commit hash to checkout in worktree
+
+        Raises:
+            Exception: If worktree creation fails
+        """
+        ...
+
+    def remove_worktree(self, repo_path: str, worktree_path: str) -> None:
+        """Remove a git worktree.
+
+        Removes a previously created worktree and cleans up git metadata.
+
+        Args:
+            repo_path: Path to main git repository
+            worktree_path: Path to worktree to remove
+
+        Raises:
+            Exception: If worktree removal fails
+        """
+        ...
