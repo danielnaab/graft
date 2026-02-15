@@ -1419,6 +1419,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "graft-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "graft-core",
+ "graft-engine",
+ "serde_json",
+]
+
+[[package]]
+name = "graft-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "regex",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "graft-engine"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "graft-core",
+ "serde",
+ "serde_yaml",
+ "serde_yml",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "grove"
 version = "0.1.0"
 dependencies = [

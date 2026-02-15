@@ -75,6 +75,24 @@ Session documents from state panel Phase 1 implementation:
 
 ---
 
+## Graft Rust Rewrite (2026-02-15)
+
+Session documents for rewriting graft in Rust via Ralph loop (autonomous AI agent loop).
+All artifacts in [2026-02-15-rust-rewrite/](2026-02-15-rust-rewrite/).
+
+**Active**:
+- [Implementation Plan](2026-02-15-rust-rewrite/plan.md) - Spec-driven task list (living, updated by loop)
+- [Progress Log](2026-02-15-rust-rewrite/progress.md) - Append-only learnings from each iteration
+- [Prompt](2026-02-15-rust-rewrite/prompt.md) - Agent instructions for each iteration
+- [Ralph Script](2026-02-15-rust-rewrite/ralph.sh) - Loop runner (`./notes/2026-02-15-rust-rewrite/ralph.sh`)
+
+**Canonical sources**:
+- **Specs**: [docs/specifications/graft/](../docs/specifications/graft/)
+- **Python reference**: [src/graft/](../src/graft/)
+- **Rust crates**: [crates/graft-core/](../crates/graft-core/), [crates/graft-engine/](../crates/graft-engine/), [crates/graft-cli/](../crates/graft-cli/)
+
+---
+
 ## Adding New Notes
 
 When creating session logs or exploration notes:

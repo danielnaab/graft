@@ -1,0 +1,15 @@
+[package]
+name = "graft-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core types, traits, and errors for Graft"
+license = "MIT"
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }
+regex = { workspace = true }
+
+[lints]
+workspace = true

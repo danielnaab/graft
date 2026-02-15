@@ -1,0 +1,40 @@
+[package]
+name = "grove"
+version = "0.1.0"
+edition = "2021"
+description = "Multi-repo workspace manager with graft awareness"
+license = "MIT"
+authors = ["Your Name <you@example.com>"]
+
+[[bin]]
+name = "grove"
+path = "src/main.rs"
+
+[dependencies]
+grove-core = { workspace = true }
+grove-engine = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+shellexpand = { workspace = true }
+shell-words = { workspace = true }
+unicode-width = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+tokio = { workspace = true }
+ansi-to-tui = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.27", features = ["signal"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

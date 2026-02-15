@@ -7,7 +7,7 @@ license = "MIT"
 authors = ["Your Name <you@example.com>"]
 
 [dependencies]
-grove-core = { path = "../grove-core" }
+grove-core = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }

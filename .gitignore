@@ -49,6 +49,9 @@ htmlcov/
 Thumbs.db
 .graft
 
+# Rust
+/target/
+
 # Temporary scratch files (move to notes/ before committing)
 *-WIP.md
 *-SCRATCH.md

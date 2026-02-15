@@ -94,8 +94,8 @@ See [docs/guides/user-guide.md](docs/guides/user-guide.md#core-concepts) for det
 
 ## Components
 
-- **Graft** (Python CLI) - Semantic dependency manager in `src/graft/`
-- **Grove** (Rust workspace tool) - Multi-repo workspace management in `grove/` ([docs](grove/docs/agents.md))
+- **Graft** - Semantic dependency manager (Rust rewrite in `crates/graft-*/`; Python legacy in `src/graft/`)
+- **Grove** (Rust workspace tool) - Multi-repo workspace management in `crates/grove-*/` ([docs](grove/docs/agents.md))
 
 ## Project Status
 

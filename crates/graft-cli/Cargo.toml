@@ -1,0 +1,20 @@
+[package]
+name = "graft-cli"
+version = "0.1.0"
+edition = "2021"
+description = "CLI for Graft semantic dependency manager"
+license = "MIT"
+
+[[bin]]
+name = "graft"
+path = "src/main.rs"
+
+[dependencies]
+graft-core = { workspace = true }
+graft-engine = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

@@ -2,16 +2,18 @@
 
 You are working on the **Graft** project: semantic dependency management for knowledge bases.
 
-This repo contains two components:
-- **Graft** (Python CLI) - `src/graft/` - the dependency manager
-- **Grove** (Rust workspace tool) - `grove/` - workspace management for multi-repo development
+This repo contains two components in a shared Rust workspace:
+- **Graft** (Rust CLI, rewrite in progress; Python legacy in `src/graft/`) - semantic dependency manager
+- **Grove** (Rust workspace tool) - workspace management for multi-repo development
 
 ## Orientation
 
 | Path | Purpose |
 |------|---------|
-| `src/graft/` | Python source (domain/services/protocols/adapters/cli) |
-| `grove/` | Rust workspace tool (submodule, has its own [agent entrypoint](grove/docs/agents.md)) |
+| `Cargo.toml` | Virtual workspace manifest (all Rust crates) |
+| `crates/` | All Rust crates (grove-core, grove-engine, grove-cli, graft-core, graft-engine, graft-cli) |
+| `src/graft/` | Python source (legacy, kept during Rust transition) |
+| `grove/docs/` | Grove-specific docs ([agent entrypoint](grove/docs/agents.md)) |
 | `docs/specifications/` | Canonical specs (architecture, graft format, grove specs, decision ADRs) |
 | `docs/` | Implementation documentation (architecture overview, guides, ADRs) |
 | `notes/` | Time-bounded exploration notes ([index](notes/index.md)) |
@@ -23,9 +25,15 @@ This repo contains two components:
 Always run before committing:
 
 ```bash
+# Python (legacy)
 uv run pytest                    # 405 tests, ~46% coverage
 uv run mypy src/                 # Strict mode type checking
 uv run ruff check src/ tests/   # Linting
+
+# Rust
+cargo fmt --check                # Format check
+cargo clippy -- -D warnings      # Lint
+cargo test                       # All Rust tests
 ```
 
 ## Architectural principles
@@ -56,7 +64,7 @@ From the [agent workflow playbook](.graft/meta-knowledge-base/docs/playbooks/age
 
 When sources disagree, follow this precedence:
 
-1. **Source code** (`src/`, `grove/`) — canonical for how things actually work
+1. **Source code** (`src/`, `crates/`) — canonical for how things actually work
 2. **Specifications** (`docs/specifications/`) — canonical for what to build
 3. **Implementation docs** (`docs/`) — interpretation of specs, may lag behind code
 4. **Notes** (`notes/`) — ephemeral exploration, may contain outdated thinking
@@ -66,8 +74,9 @@ When docs and code disagree, **code is canonical** for implementation details. W
 ## Write boundaries
 
 You may write to:
-- `src/**` - Source code
-- `tests/**` - Test code
+- `src/**` - Python source code
+- `crates/**` - Rust source code
+- `tests/**` - Python test code
 - `docs/**` - Implementation documentation
 - `notes/**` - Time-bounded development notes
 
@@ -75,13 +84,16 @@ Never write to:
 - `docs/specifications/**` - Canonical specs (requires explicit spec-change workflow)
 - `secrets/**`, `config/prod/**` - Sensitive configuration
 
-## Working with Grove
+## Working with Rust crates
 
-Grove is a Rust workspace tool in the `grove/` submodule. It has its own:
-- Agent entrypoint: [`grove/docs/agents.md`](grove/docs/agents.md)
-- Specifications: [`docs/specifications/grove/`](docs/specifications/grove/)
+All Rust code lives in `crates/` under a virtual workspace rooted at `Cargo.toml`:
+- **grove-core**, **grove-engine**, **grove-cli** — Grove workspace manager
+- **graft-core**, **graft-engine**, **graft-cli** — Graft in Rust (rewrite in progress)
 
-When working on Grove, read its agent entrypoint first. The root project's Rust patterns (from `rust-starter`) apply.
+Grove agent entrypoint: [`grove/docs/agents.md`](grove/docs/agents.md)
+Grove specifications: [`docs/specifications/grove/`](docs/specifications/grove/)
+
+When working on Rust crates, follow patterns from [rust-starter](.graft/rust-starter/).
 
 ## .graft dependencies
 

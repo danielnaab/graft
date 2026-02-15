@@ -25,9 +25,9 @@ imports:
 
 components:
   - name: grove
-    path: grove
+    path: crates/grove-cli
     entrypoint: grove/docs/agents.md
-    note: "Rust workspace management tool (git submodule)"
+    note: "Rust workspace management tool (binary crate in shared workspace)"
 
 paths:
   docs: docs
@@ -52,8 +52,8 @@ sources:
       note: "Grove workspace management specifications"
     - path: "src/graft/**/*.py"
       note: "Source code is canonical for implementation details"
-    - path: "grove/crates/**/*.rs"
-      note: "Grove source code is canonical for its implementation"
+    - path: "crates/**/*.rs"
+      note: "Rust source code is canonical for its implementation"
     - path: "docs/decisions/**"
       note: "Implementation-specific ADRs (error handling, etc.)"
 
@@ -77,5 +77,5 @@ rules:
   provenance:
     requiredFor: ["factual-claims", "operational-guidance"]
   writes:
-    allow: ["src/**", "tests/**", "docs/**", "notes/**"]
+    allow: ["src/**", "crates/**", "tests/**", "docs/**", "notes/**"]
     deny: ["docs/specifications/**", "secrets/**", "config/prod/**"]
