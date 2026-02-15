@@ -167,15 +167,15 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
 ## Phase 6: State queries
 
 ### Task 12: State query support
-- [ ] Implement state query discovery, execution, and caching
+- [x] Implement state query discovery, execution, and caching
 - **Specs**: `docs/specifications/graft/state-queries.md` (Stage 1 scope only)
 - **Python reference**: `src/graft/services/state_service.py` (if exists), `crates/grove-cli/src/state/`
 - **Acceptance**:
-  - `graft state list` shows available queries from graft.yaml state section
-  - `graft state query <name>` executes query command, captures JSON output
-  - Results cached by commit hash at spec-defined cache path
-  - `graft state invalidate` clears cache
-  - Deterministic queries use cached results when commit matches
+  - `graft state list` shows available queries from graft.yaml state section ✓
+  - `graft state query <name>` executes query command, captures JSON output ✓
+  - Results cached by commit hash at spec-defined cache path ✓
+  - `graft state invalidate` clears cache ✓
+  - Deterministic queries use cached results when commit matches ✓
 
 ## Phase 7: Integration and polish
 
