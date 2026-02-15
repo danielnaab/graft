@@ -114,14 +114,14 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
 ## Phase 4: Mutation operations
 
 ### Task 8: `graft apply`
-- [ ] Update lock file to record current dependency state
+- [x] Update lock file to record current dependency state
 - **Specs**: `docs/specifications/graft/core-operations.md` (Mutation Operations > apply)
 - **Python reference**: `src/graft/services/lock_service.py`, `src/graft/cli/commands/apply.py`
 - **Acceptance**:
-  - Records current commit hash and timestamp for specified dependency
-  - Creates lock file if it doesn't exist
-  - Updates existing entries
-  - Validates state before writing
+  - Records current commit hash and timestamp for specified dependency ✓
+  - Creates lock file if it doesn't exist ✓
+  - Updates existing entries ✓
+  - Validates state before writing ✓
 
 ### Task 9: `graft upgrade`
 - [ ] Atomic upgrade with migration execution and rollback

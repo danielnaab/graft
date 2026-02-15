@@ -390,3 +390,66 @@ None needed — implementation is clean and meets all acceptance criteria. The s
 9. Exit code 1 only if ALL dependencies fail (or any fail when syncing single dependency)
 10. Reusing helper functions (fetch_all, checkout, update_submodule) keeps code DRY
 
+---
+
+### Iteration 8 — `graft apply` command
+**Status**: completed
+**Commits**: `629e647` (initial implementation), `e5189a5` (refactoring)
+**Files changed**:
+- `crates/graft-core/src/error.rs` (+5 lines: DependencyNotFound and Git error variants)
+- `crates/graft-engine/src/mutation.rs` (new, 212 lines: apply_lock function and helpers)
+- `crates/graft-engine/src/lib.rs` (re-export mutation module)
+- `crates/graft-engine/src/resolution.rs` (+1 line: make resolve_ref pub(crate); -68 lines: refactor Resolution error from struct to tuple variant)
+- `crates/graft-engine/src/validation.rs` (formatting fix)
+- `crates/graft-cli/src/main.rs` (+32 lines: apply command)
+
+**What was done**:
+- Implemented mutation module in graft-engine:
+  - `apply_lock()`: Updates lock file without running migrations
+  - `fetch_ref()`: Best-effort fetch from remote origin
+  - `ApplyResult` struct for structured results
+  - Reuses `resolve_ref()` from resolution module (after refactoring)
+- Implemented apply CLI command:
+  - `graft apply <dep-name> --to <ref>`: Apply specific version to lock file
+  - Validates dependency exists in config
+  - Validates dependency is resolved (directory exists)
+  - Resolves git ref to commit hash (supports branches, tags, commits)
+  - Creates/updates lock file with timestamp
+  - Clear output with source, commit, and migration note
+- Refactored error types:
+  - Changed `GraftError::Resolution` from struct `{ details: String }` to tuple variant `(String)` for consistency
+  - Updated all 23 uses of Resolution error across resolution.rs
+  - Added `DependencyNotFound { name: String }` variant
+  - Added `Git(String)` variant for git operation errors
+- All 37 tests passing (34 unit + 3 integration)
+- Manual end-to-end testing confirmed all scenarios work
+
+**Critique findings**:
+1. ✅ Spec compliance: Fully matches core-operations.md specification
+2. ✅ Acceptance criteria: All 4 criteria genuinely met and verified
+3. ✅ Code quality: Idiomatic Rust, follows established patterns
+4. ✅ Error messages: Clear and helpful with context
+5. ⚠️ **Initial issue**: Duplicated resolve_ref logic from resolution.rs
+6. ✅ **Fixed in second commit**: Refactored to reuse existing resolve_ref
+7. ✅ Test coverage: Unit tests for result type and error cases
+8. ✅ Integration: Works seamlessly with existing commands and domain types
+
+**Improvements made**:
+- Refactored to reuse `resolve_ref()` from resolution module instead of duplicating
+- Made `resolve_ref()` pub(crate) in resolution.rs for internal reuse
+- Removed 26 lines of duplicate code from mutation.rs
+- Applied cargo fmt to fix whitespace
+- All verification commands pass cleanly
+
+**Learnings for future iterations**:
+1. **Check for existing functions before implementing**: The resolution module already had resolve_ref that could be reused
+2. `pub(crate)` is the right visibility for internal helper functions shared across modules
+3. Error variant refactoring: struct variants `{ details: String }` → tuple variants `(String)` for simpler code
+4. Pattern: mutation operations should validate config → validate state → update lock file
+5. Fetch operations should be best-effort (don't fail on local-only repos)
+6. Ref resolution order matters: `origin/<ref>` first for branches catches updates
+7. Lock file operations follow atomic pattern: parse → modify in memory → validate → write
+8. CLI display pattern: blank line → result → details → note → blank line
+9. Self-critique after first commit identified and fixed code duplication before marking complete
+10. Test file creation/update separately from test file parsing (different error paths)
+
