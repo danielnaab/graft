@@ -1781,12 +1781,14 @@ fn state_panel_navigation_with_j_key() {
     app.state_queries = vec![
         StateQuery {
             name: "coverage".to_string(),
+            run: "pytest --cov".to_string(),
             description: None,
             deterministic: true,
             timeout: None,
         },
         StateQuery {
             name: "tasks".to_string(),
+            run: "task-list".to_string(),
             description: None,
             deterministic: true,
             timeout: None,
@@ -1813,9 +1815,9 @@ fn state_panel_navigation_with_k_key() {
     app.active_pane = ActivePane::StatePanel;
 
     app.state_queries = vec![
-        StateQuery { name: "q1".to_string(), description: None,
+        StateQuery { name: "q1".to_string(), run: "echo q1".to_string(), description: None,
                      deterministic: true, timeout: None },
-        StateQuery { name: "q2".to_string(), description: None,
+        StateQuery { name: "q2".to_string(), run: "echo q2".to_string(), description: None,
                      deterministic: true, timeout: None },
     ];
     app.state_results = vec![None, None];
@@ -1839,9 +1841,9 @@ fn state_panel_navigation_does_not_move_past_end() {
     app.active_pane = ActivePane::StatePanel;
 
     app.state_queries = vec![
-        StateQuery { name: "q1".to_string(), description: None,
+        StateQuery { name: "q1".to_string(), run: "echo q1".to_string(), description: None,
                      deterministic: true, timeout: None },
-        StateQuery { name: "q2".to_string(), description: None,
+        StateQuery { name: "q2".to_string(), run: "echo q2".to_string(), description: None,
                      deterministic: true, timeout: None },
     ];
     app.state_results = vec![None, None];
@@ -1866,7 +1868,7 @@ fn state_panel_navigation_does_not_move_before_start() {
     app.active_pane = ActivePane::StatePanel;
 
     app.state_queries = vec![
-        StateQuery { name: "q1".to_string(), description: None,
+        StateQuery { name: "q1".to_string(), run: "echo q1".to_string(), description: None,
                      deterministic: true, timeout: None },
     ];
     app.state_results = vec![None];
@@ -1891,11 +1893,11 @@ fn state_panel_navigation_with_arrow_keys() {
     app.active_pane = ActivePane::StatePanel;
 
     app.state_queries = vec![
-        StateQuery { name: "q1".to_string(), description: None,
+        StateQuery { name: "q1".to_string(), run: "echo q1".to_string(), description: None,
                      deterministic: true, timeout: None },
-        StateQuery { name: "q2".to_string(), description: None,
+        StateQuery { name: "q2".to_string(), run: "echo q2".to_string(), description: None,
                      deterministic: true, timeout: None },
-        StateQuery { name: "q3".to_string(), description: None,
+        StateQuery { name: "q3".to_string(), run: "echo q3".to_string(), description: None,
                      deterministic: true, timeout: None },
     ];
     app.state_results = vec![None, None, None];
@@ -1948,7 +1950,7 @@ fn state_panel_clears_state_on_close() {
 
     // Populate with data
     app.state_queries = vec![
-        StateQuery { name: "test".to_string(), description: None,
+        StateQuery { name: "test".to_string(), run: "echo test".to_string(), description: None,
                      deterministic: true, timeout: None },
     ];
     app.state_results = vec![None];
@@ -1975,9 +1977,9 @@ fn state_results_match_queries_length() {
 
     // Simulate load_state_queries populating data
     app.state_queries = vec![
-        StateQuery { name: "q1".to_string(), description: None,
+        StateQuery { name: "q1".to_string(), run: "echo q1".to_string(), description: None,
                      deterministic: true, timeout: None },
-        StateQuery { name: "q2".to_string(), description: None,
+        StateQuery { name: "q2".to_string(), run: "echo q2".to_string(), description: None,
                      deterministic: true, timeout: None },
     ];
     app.state_results = vec![None, None];
@@ -2004,6 +2006,7 @@ fn state_panel_refresh_key_triggers_refresh() {
     app.state_queries = vec![
         StateQuery {
             name: "test".to_string(),
+            run: "echo test".to_string(),
             description: None,
             deterministic: true,
             timeout: None,
@@ -2054,6 +2057,7 @@ fn state_panel_shows_cache_age_formatting() {
     app.state_queries = vec![
         StateQuery {
             name: "coverage".to_string(),
+            run: "pytest --cov".to_string(),
             description: None,
             deterministic: true,
             timeout: None,

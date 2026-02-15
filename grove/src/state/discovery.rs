@@ -38,10 +38,11 @@ pub fn discover_state_queries(graft_yaml_path: &Path) -> Result<Vec<StateQuery>,
 /// Parse a single state query from YAML config.
 fn parse_state_query(name: &str, config: &Value) -> Result<StateQuery, String> {
     // Get run command (required)
-    let _run = config
+    let run = config
         .get("run")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| format!("State query '{}' missing 'run' field", name))?;
+        .ok_or_else(|| format!("State query '{}' missing 'run' field", name))?
+        .to_string();
 
     // Get cache config
     let deterministic = config
@@ -63,6 +64,7 @@ fn parse_state_query(name: &str, config: &Value) -> Result<StateQuery, String> {
 
     Ok(StateQuery {
         name: name.to_string(),
+        run,
         description,
         deterministic,
         timeout,
@@ -101,10 +103,12 @@ state:
         assert_eq!(queries.len(), 2);
 
         let coverage = queries.iter().find(|q| q.name == "coverage").unwrap();
+        assert_eq!(coverage.run, "pytest --cov");
         assert_eq!(coverage.deterministic, true);
         assert_eq!(coverage.timeout, Some(60));
 
         let tasks = queries.iter().find(|q| q.name == "tasks").unwrap();
+        assert_eq!(tasks.run, "task-tracker status");
         assert_eq!(tasks.deterministic, false);
         assert_eq!(tasks.timeout, Some(30));
     }

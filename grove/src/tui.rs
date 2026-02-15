@@ -323,7 +323,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     && self.state_results.iter().all(|r| r.is_none())
                 {
                     self.status_message = Some(StatusMessage::info(
-                        "No cached state data found. Run 'graft state query <name>' to populate cache.".to_string()
+                        "No cached data. Press 'r' to refresh selected query.".to_string()
                     ));
                 }
 
@@ -597,9 +597,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             }
         };
 
-        // Get query name (clone to avoid borrow issues)
-        let query_name = match self.state_queries.get(selected) {
-            Some(q) => q.name.clone(),
+        // Get query (clone to avoid borrow issues)
+        let (query_name, run_command) = match self.state_queries.get(selected) {
+            Some(q) => (q.name.clone(), q.run.clone()),
             None => return,
         };
 
@@ -625,59 +625,45 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             format!("Refreshing {}...", query_name)
         ));
 
-        // Try uv-managed graft first (development mode)
-        let uv_result = Command::new("uv")
-            .args(&["run", "python", "-m", "graft", "state", "query", &query_name, "--refresh"])
+        // Parse the run command using shell-words to handle quotes properly
+        let args = match shell_words::split(&run_command) {
+            Ok(args) => args,
+            Err(e) => {
+                self.status_message = Some(StatusMessage::error(
+                    format!("Failed to parse command '{}': {}", run_command, e)
+                ));
+                return;
+            }
+        };
+
+        if args.is_empty() {
+            self.status_message = Some(StatusMessage::error(
+                format!("Empty command for query '{}'", query_name)
+            ));
+            return;
+        }
+
+        // Execute the run command directly
+        let result = Command::new(&args[0])
+            .args(&args[1..])
             .current_dir(repo_path)
             .output();
 
-        let success = if let Ok(output) = uv_result {
-            if output.status.success() {
-                true
-            } else {
-                // Try system graft as fallback
-                let system_result = Command::new("graft")
-                    .args(&["state", "query", &query_name, "--refresh"])
-                    .current_dir(repo_path)
-                    .output();
-
-                if let Ok(output) = system_result {
-                    if output.status.success() {
-                        true
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        self.status_message = Some(StatusMessage::error(
-                            format!("Failed to refresh {}: {}", query_name, stderr.trim())
-                        ));
-                        false
-                    }
-                } else {
-                    self.status_message = Some(StatusMessage::error(
-                        "Failed to run graft command. Is graft installed?".to_string()
-                    ));
-                    false
-                }
-            }
-        } else {
-            // uv failed, try system graft
-            let system_result = Command::new("graft")
-                .args(&["state", "query", &query_name, "--refresh"])
-                .current_dir(repo_path)
-                .output();
-
-            if let Ok(output) = system_result {
+        let success = match result {
+            Ok(output) => {
                 if output.status.success() {
                     true
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     self.status_message = Some(StatusMessage::error(
-                        format!("Failed to refresh {}: {}", query_name, stderr.trim())
+                        format!("Command failed: {}", stderr.trim())
                     ));
                     false
                 }
-            } else {
+            }
+            Err(e) => {
                 self.status_message = Some(StatusMessage::error(
-                    "Failed to run graft command. Is graft installed?".to_string()
+                    format!("Failed to execute '{}': {}", run_command, e)
                 ));
                 false
             }
@@ -1081,7 +1067,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             };
 
             // Build title with workspace name
-            let title = format!("Grove: {} (↑↓/jk navigate, x:commands, ?:help)", self.workspace_name);
+            let title = format!("Grove: {} (↑↓/jk navigate, Enter: details, x:commands, ?:help)", self.workspace_name);
 
             // Handle empty workspace case
             if repos.is_empty() {
