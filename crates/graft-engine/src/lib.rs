@@ -11,4 +11,8 @@ pub mod query;
 // Re-export commonly used functions
 pub use config::parse_graft_yaml;
 pub use lock::{parse_lock_file, write_lock_file};
-pub use query::{get_all_status, get_dependency_status, DependencyStatus};
+pub use query::{
+    filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_by_ref,
+    get_change_details, get_changes_for_dependency, get_dependency_status, ChangeDetails,
+    DependencyStatus,
+};
