@@ -33,14 +33,14 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
 ## Phase 1: Core types and config parsing (graft-core, graft-engine)
 
 ### Task 1: graft.yaml parsing and domain model
-- [ ] Parse `graft.yaml` into validated domain types
+- [x] Parse `graft.yaml` into validated domain types
 - **Specs**: `docs/specifications/graft/graft-yaml-format.md`, `docs/specifications/graft/change-model.md`
 - **Python reference**: `src/graft/domain/`, `src/graft/adapters/yaml_config.py`, `src/graft/services/config_service.py`
 - **Acceptance**:
-  - Parses this repo's own `graft.yaml` successfully
-  - Validates apiVersion, dependency sources, change refs, command names (no colons)
-  - Rejects malformed files with clear errors
-  - `cargo test` passes for graft-core and graft-engine
+  - Parses this repo's own `graft.yaml` successfully ✓
+  - Validates apiVersion, dependency sources, change refs, command names (no colons) ✓
+  - Rejects malformed files with clear errors ✓
+  - `cargo test` passes for graft-core and graft-engine ✓
 
 ### Task 2: Lock file parsing and writing
 - [ ] Parse and write `graft.lock` with round-trip fidelity
