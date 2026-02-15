@@ -96,6 +96,27 @@ enum Commands {
         #[arg(long)]
         to: String,
     },
+    /// Upgrade dependency to new version with migrations
+    Upgrade {
+        /// Dependency name
+        dep_name: String,
+
+        /// Target ref to upgrade to (e.g., "v2.0.0")
+        #[arg(long)]
+        to: String,
+
+        /// Skip migration command (not recommended)
+        #[arg(long)]
+        skip_migration: bool,
+
+        /// Skip verification command (not recommended)
+        #[arg(long)]
+        skip_verify: bool,
+
+        /// Show what would be done without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -135,6 +156,15 @@ fn main() -> Result<()> {
         }
         Commands::Apply { dep_name, to } => {
             apply_command(&dep_name, &to)?;
+        }
+        Commands::Upgrade {
+            dep_name,
+            to,
+            skip_migration,
+            skip_verify,
+            dry_run,
+        } => {
+            upgrade_command(&dep_name, &to, skip_migration, skip_verify, dry_run)?;
         }
     }
 
@@ -1067,6 +1097,244 @@ fn apply_command(dep_name: &str, to: &str) -> Result<()> {
     println!("Updated graft.lock");
     println!();
     println!("Note: No migrations were run.");
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn upgrade_command(
+    dep_name: &str,
+    to: &str,
+    skip_migration: bool,
+    skip_verify: bool,
+    dry_run: bool,
+) -> Result<()> {
+    let config_path = Path::new("graft.yaml");
+    let lock_path = Path::new("graft.lock");
+    let deps_directory = ".graft";
+
+    // Parse consumer's graft.yaml
+    let consumer_config =
+        parse_graft_yaml(config_path).context("Failed to parse consumer graft.yaml")?;
+
+    // Check dependency exists
+    if !consumer_config.dependencies.contains_key(dep_name) {
+        bail!(
+            "Dependency '{}' not found in graft.yaml\nAvailable dependencies: {}",
+            dep_name,
+            consumer_config
+                .dependencies
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    let dep_spec = &consumer_config.dependencies[dep_name];
+    let source = dep_spec.git_url.as_str();
+
+    // Parse dependency's graft.yaml
+    let dep_config_path = PathBuf::from(deps_directory)
+        .join(dep_name)
+        .join("graft.yaml");
+    let dep_config =
+        parse_graft_yaml(&dep_config_path).context("Failed to parse dependency graft.yaml")?;
+
+    // Resolve ref to commit hash
+    let dep_repo_path = PathBuf::from(deps_directory).join(dep_name);
+
+    // Try to fetch the ref (best effort)
+    let _ = std::process::Command::new("git")
+        .args(["-C", dep_repo_path.to_str().unwrap(), "fetch", "origin", to])
+        .output();
+
+    // Resolve ref to commit
+    let output = std::process::Command::new("git")
+        .args(["-C", dep_repo_path.to_str().unwrap(), "rev-parse", to])
+        .output()
+        .context("Failed to resolve git ref")?;
+
+    if !output.status.success() {
+        bail!(
+            "Failed to resolve ref '{}': {}",
+            to,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Display upgrade info
+    println!();
+    println!("Upgrading {dep_name} → {to}");
+    println!("  Source: {source}");
+    println!("  Commit: {}...", &commit[..7]);
+    println!();
+
+    // Show warnings if skipping steps
+    if skip_migration {
+        println!("  Warning: Skipping migration command");
+    }
+    if skip_verify {
+        println!("  Warning: Skipping verification command");
+    }
+
+    // Handle dry-run mode
+    if dry_run {
+        println!("DRY RUN MODE - No changes will be made");
+        println!();
+
+        // Get change details to show what would happen
+        let change = dep_config
+            .changes
+            .get(to)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Change '{to}' not found in dependency configuration")
+            })?;
+
+        println!("Planned operations:");
+        println!();
+
+        // Step 1: Snapshot
+        println!("1. Create snapshot for rollback");
+        println!("   Snapshot: graft.lock");
+        println!();
+
+        // Step 2: Migration
+        if let Some(ref migration_cmd) = change.migration {
+            if skip_migration {
+                println!("2. Migration command (SKIPPED)");
+                println!("   Name: {migration_cmd}");
+                println!();
+            } else {
+                println!("2. Run migration command");
+                if let Some(cmd) = dep_config.commands.get(migration_cmd) {
+                    println!("   Name: {migration_cmd}");
+                    println!("   Command: {}", cmd.run);
+                    if let Some(ref desc) = cmd.description {
+                        println!("   Description: {desc}");
+                    }
+                    if let Some(ref wd) = cmd.working_dir {
+                        println!("   Working directory: {wd}");
+                    }
+                } else {
+                    println!("   Warning: Migration command '{migration_cmd}' not found in config");
+                }
+                println!();
+            }
+        } else {
+            println!("2. No migration required");
+            println!();
+        }
+
+        // Step 3: Verification
+        if let Some(ref verify_cmd) = change.verify {
+            if skip_verify {
+                println!("3. Verification command (SKIPPED)");
+                println!("   Name: {verify_cmd}");
+                println!();
+            } else {
+                println!("3. Run verification command");
+                if let Some(cmd) = dep_config.commands.get(verify_cmd) {
+                    println!("   Name: {verify_cmd}");
+                    println!("   Command: {}", cmd.run);
+                    if let Some(ref desc) = cmd.description {
+                        println!("   Description: {desc}");
+                    }
+                    if let Some(ref wd) = cmd.working_dir {
+                        println!("   Working directory: {wd}");
+                    }
+                } else {
+                    println!("   Warning: Verification command '{verify_cmd}' not found in config");
+                }
+                println!();
+            }
+        } else {
+            println!("3. No verification required");
+            println!();
+        }
+
+        // Step 4: Lock file update
+        println!("4. Update graft.lock");
+        println!("   Dependency: {dep_name}");
+        println!("   New ref: {to}");
+        println!("   New commit: {}...", &commit[..7]);
+        println!();
+
+        println!("✓ Dry run complete - no changes made");
+        println!();
+        println!("To perform the upgrade, run without --dry-run:");
+        println!("  graft upgrade {dep_name} --to {to}");
+        return Ok(());
+    }
+
+    // Perform the upgrade
+    let result = graft_engine::upgrade_dependency(
+        &dep_config,
+        &consumer_config,
+        lock_path,
+        dep_name,
+        to,
+        &commit,
+        ".",
+        deps_directory,
+        skip_migration,
+        skip_verify,
+    )
+    .context("Failed to upgrade dependency")?;
+
+    // Display results
+    println!();
+
+    if result.success {
+        // Show migration result
+        if let Some(ref migration) = result.migration_result {
+            println!("Migration completed:");
+            if !migration.stdout.is_empty() {
+                println!("  {}", migration.stdout.trim());
+            }
+        }
+
+        // Show verification result
+        if let Some(ref verify) = result.verify_result {
+            println!("Verification passed:");
+            if !verify.stdout.is_empty() {
+                println!("  {}", verify.stdout.trim());
+            }
+        }
+
+        println!();
+        println!("✓ Upgrade complete");
+        println!("Updated graft.lock: {dep_name}@{to}");
+    } else {
+        eprintln!("✗ Upgrade failed");
+        if let Some(ref error) = result.error {
+            eprintln!("  Error: {error}");
+        }
+        eprintln!();
+        eprintln!("All changes have been rolled back");
+        eprintln!("Lock file remains unchanged");
+
+        // Show command output if available
+        if let Some(ref migration) = result.migration_result {
+            if !migration.stderr.is_empty() {
+                eprintln!();
+                eprintln!("Migration output:");
+                eprintln!("  {}", migration.stderr.trim());
+            }
+        }
+
+        if let Some(ref verify) = result.verify_result {
+            if !verify.stderr.is_empty() {
+                eprintln!();
+                eprintln!("Verification output:");
+                eprintln!("  {}", verify.stderr.trim());
+            }
+        }
+
+        std::process::exit(1);
+    }
 
     Ok(())
 }

@@ -1,13 +1,15 @@
 //! Lock file mutation operations.
 //!
-//! Functions for updating lock file state without running migrations.
+//! Functions for updating lock file state and atomic dependency upgrades.
 
 use graft_core::domain::{CommitHash, GraftConfig, LockEntry, LockFile};
 use graft_core::error::{GraftError, Result};
 use std::path::Path;
 
+use crate::command::{execute_command_by_name, CommandResult};
 use crate::lock::{parse_lock_file, write_lock_file};
 use crate::resolution::resolve_ref;
+use crate::snapshot::SnapshotManager;
 
 /// Apply a dependency version to lock file without running migrations.
 ///
@@ -207,4 +209,231 @@ mod tests {
             panic!("Expected Resolution error");
         }
     }
+}
+
+/// Upgrade a dependency to a new version with atomic rollback.
+///
+/// This performs an atomic upgrade operation that:
+/// 1. Creates snapshot for rollback
+/// 2. Runs migration command (if defined)
+/// 3. Runs verification command (if defined)
+/// 4. Updates lock file
+/// 5. On failure: rolls back all changes
+///
+/// # Arguments
+///
+/// * `dep_config` - Dependency's graft configuration (contains changes and commands)
+/// * `consumer_config` - Consumer's graft configuration (contains dependency source)
+/// * `lock_path` - Path to graft.lock file
+/// * `dep_name` - Name of dependency to upgrade
+/// * `to_ref` - Target ref to upgrade to
+/// * `commit` - Resolved commit hash for `to_ref`
+/// * `base_dir` - Base directory for command execution
+/// * `deps_directory` - Path to .graft directory
+/// * `skip_migration` - Skip migration command (not recommended)
+/// * `skip_verify` - Skip verification command (not recommended)
+///
+/// # Returns
+///
+/// * `Ok(UpgradeResult)` - Upgrade result with command outputs
+/// * `Err(GraftError)` - If upgrade setup failed
+///
+/// # Examples
+///
+/// ```no_run
+/// use graft_engine::{parse_graft_yaml, upgrade_dependency};
+/// use std::path::Path;
+///
+/// let consumer_config = parse_graft_yaml("graft.yaml").unwrap();
+/// let dep_config = parse_graft_yaml(".graft/meta-kb/graft.yaml").unwrap();
+/// let commit = "abc123...".to_string();
+///
+/// let result = upgrade_dependency(
+///     &dep_config,
+///     &consumer_config,
+///     "graft.lock",
+///     "meta-kb",
+///     "v2.0.0",
+///     &commit,
+///     ".",
+///     ".graft",
+///     false,
+///     false,
+/// ).unwrap();
+///
+/// if result.success {
+///     println!("Upgrade complete!");
+/// }
+/// ```
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
+pub fn upgrade_dependency(
+    dep_config: &GraftConfig,
+    consumer_config: &GraftConfig,
+    lock_path: impl AsRef<Path>,
+    dep_name: &str,
+    to_ref: &str,
+    commit: &str,
+    base_dir: impl AsRef<Path>,
+    deps_directory: &str,
+    skip_migration: bool,
+    skip_verify: bool,
+) -> Result<UpgradeResult> {
+    let lock_path = lock_path.as_ref();
+    let base_dir = base_dir.as_ref();
+
+    // Get change details
+    let change = dep_config
+        .changes
+        .get(to_ref)
+        .ok_or_else(|| GraftError::ChangeNotFound(to_ref.to_string()))?;
+
+    // Get dependency spec for source URL
+    let dep_spec = consumer_config.dependencies.get(dep_name).ok_or_else(|| {
+        GraftError::DependencyNotFound {
+            name: dep_name.to_string(),
+        }
+    })?;
+
+    // Step 1: Create snapshot for rollback
+    let mut snapshot_manager = SnapshotManager::new()?;
+    let snapshot_id = snapshot_manager.create_snapshot(&["graft.lock"], base_dir)?;
+
+    // Step 2: Run migration command (if defined and not skipped)
+    let migration_result = if let Some(ref migration_cmd) = change.migration {
+        if skip_migration {
+            None
+        } else {
+            let dep_path = Path::new(deps_directory).join(dep_name);
+            match execute_command_by_name(dep_config, migration_cmd, &dep_path, &[]) {
+                Ok(result) => {
+                    if !result.success {
+                        // Rollback on migration failure
+                        let _ = snapshot_manager.restore_snapshot(&snapshot_id, base_dir);
+                        return Ok(UpgradeResult {
+                            success: false,
+                            snapshot_id: Some(snapshot_id),
+                            migration_result: Some(result.clone()),
+                            verify_result: None,
+                            error: Some(format!(
+                                "Migration failed with exit code {}",
+                                result.exit_code
+                            )),
+                        });
+                    }
+                    Some(result)
+                }
+                Err(e) => {
+                    // Rollback on migration error
+                    let _ = snapshot_manager.restore_snapshot(&snapshot_id, base_dir);
+                    return Ok(UpgradeResult {
+                        success: false,
+                        snapshot_id: Some(snapshot_id),
+                        migration_result: None,
+                        verify_result: None,
+                        error: Some(format!("Migration error: {e}")),
+                    });
+                }
+            }
+        }
+    } else {
+        None
+    };
+
+    // Step 3: Run verification command (if defined and not skipped)
+    let verify_result = if let Some(ref verify_cmd) = change.verify {
+        if skip_verify {
+            None
+        } else {
+            let dep_path = Path::new(deps_directory).join(dep_name);
+            match execute_command_by_name(dep_config, verify_cmd, &dep_path, &[]) {
+                Ok(result) => {
+                    if !result.success {
+                        // Rollback on verification failure
+                        let _ = snapshot_manager.restore_snapshot(&snapshot_id, base_dir);
+                        return Ok(UpgradeResult {
+                            success: false,
+                            snapshot_id: Some(snapshot_id),
+                            migration_result,
+                            verify_result: Some(result.clone()),
+                            error: Some(format!(
+                                "Verification failed with exit code {}",
+                                result.exit_code
+                            )),
+                        });
+                    }
+                    Some(result)
+                }
+                Err(e) => {
+                    // Rollback on verification error
+                    let _ = snapshot_manager.restore_snapshot(&snapshot_id, base_dir);
+                    return Ok(UpgradeResult {
+                        success: false,
+                        snapshot_id: Some(snapshot_id),
+                        migration_result,
+                        verify_result: None,
+                        error: Some(format!("Verification error: {e}")),
+                    });
+                }
+            }
+        }
+    } else {
+        None
+    };
+
+    // Step 4: Update lock file
+    let commit_hash = CommitHash::new(commit)?;
+    let mut lock = if lock_path.exists() {
+        parse_lock_file(lock_path)?
+    } else {
+        LockFile::new()
+    };
+
+    let consumed_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let lock_entry = LockEntry {
+        source: dep_spec.git_url.clone(),
+        git_ref: graft_core::domain::GitRef::new(to_ref)?,
+        commit: commit_hash,
+        consumed_at,
+    };
+
+    lock.dependencies.insert(dep_name.to_string(), lock_entry);
+
+    if let Err(e) = write_lock_file(lock_path, &lock) {
+        // Rollback on lock file update failure
+        let _ = snapshot_manager.restore_snapshot(&snapshot_id, base_dir);
+        return Ok(UpgradeResult {
+            success: false,
+            snapshot_id: Some(snapshot_id),
+            migration_result,
+            verify_result,
+            error: Some(format!("Failed to update lock file: {e}")),
+        });
+    }
+
+    // Success! Delete snapshot
+    let _ = snapshot_manager.delete_snapshot(&snapshot_id);
+
+    Ok(UpgradeResult {
+        success: true,
+        snapshot_id: None,
+        migration_result,
+        verify_result,
+        error: None,
+    })
+}
+
+/// Result of an upgrade operation.
+#[derive(Debug, Clone)]
+pub struct UpgradeResult {
+    /// Whether upgrade succeeded
+    pub success: bool,
+    /// Snapshot ID (None if cleaned up after success)
+    pub snapshot_id: Option<String>,
+    /// Result of migration command (if run)
+    pub migration_result: Option<CommandResult>,
+    /// Result of verification command (if run)
+    pub verify_result: Option<CommandResult>,
+    /// Error message if failed
+    pub error: Option<String>,
 }

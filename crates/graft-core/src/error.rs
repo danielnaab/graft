@@ -59,6 +59,15 @@ pub enum GraftError {
     #[error("git error: {0}")]
     Git(String),
 
+    #[error("snapshot error: {0}")]
+    Snapshot(String),
+
+    #[error("command execution error: {0}")]
+    CommandExecution(String),
+
+    #[error("change not found: {0}")]
+    ChangeNotFound(String),
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
