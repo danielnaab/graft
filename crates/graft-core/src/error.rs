@@ -32,6 +32,24 @@ pub enum GraftError {
     #[error("invalid dependency name: {0}")]
     InvalidDependencyName(String),
 
+    #[error("invalid commit hash: {0}")]
+    InvalidCommitHash(String),
+
+    #[error("invalid timestamp: {0}")]
+    InvalidTimestamp(String),
+
+    #[error("invalid lock entry: {0}")]
+    InvalidLockEntry(String),
+
+    #[error("unsupported API version: {0}")]
+    UnsupportedApiVersion(String),
+
+    #[error("lock file not found: {path}")]
+    LockFileNotFound { path: String },
+
+    #[error("lock file parse error in {path}: {reason}")]
+    LockFileParse { path: String, reason: String },
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 

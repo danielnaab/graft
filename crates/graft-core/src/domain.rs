@@ -563,6 +563,182 @@ impl GraftConfig {
     }
 }
 
+/// A validated git commit hash (40-character SHA-1).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct CommitHash(String);
+
+impl CommitHash {
+    pub fn new(hash: impl Into<String>) -> Result<Self> {
+        let hash = hash.into();
+
+        // Must be exactly 40 lowercase hex characters
+        if hash.len() != 40 {
+            return Err(GraftError::InvalidCommitHash(format!(
+                "commit hash must be 40 characters, got {}",
+                hash.len()
+            )));
+        }
+
+        // Validate hex characters (0-9, a-f lowercase)
+        if !hash.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) {
+            return Err(GraftError::InvalidCommitHash(
+                "commit hash must be lowercase hexadecimal (0-9, a-f)".to_string(),
+            ));
+        }
+
+        Ok(Self(hash))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for CommitHash {
+    type Error = GraftError;
+
+    fn try_from(value: String) -> Result<Self> {
+        Self::new(value)
+    }
+}
+
+impl From<CommitHash> for String {
+    fn from(hash: CommitHash) -> Self {
+        hash.0
+    }
+}
+
+impl std::fmt::Display for CommitHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// A lock file entry tracking consumed dependency state.
+///
+/// Represents a single dependency in graft.lock with the exact commit
+/// that has been consumed and when it was consumed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LockEntry {
+    /// Git URL or path to dependency repository
+    pub source: GitUrl,
+    /// Consumed git ref (tag, branch, or commit)
+    #[serde(rename = "ref")]
+    pub git_ref: GitRef,
+    /// Full commit hash (40-char SHA-1)
+    pub commit: CommitHash,
+    /// ISO 8601 timestamp when version was consumed
+    pub consumed_at: String,
+}
+
+impl LockEntry {
+    #[must_use]
+    pub fn new(
+        source: GitUrl,
+        git_ref: GitRef,
+        commit: CommitHash,
+        consumed_at: impl Into<String>,
+    ) -> Self {
+        Self {
+            source,
+            git_ref,
+            commit,
+            consumed_at: consumed_at.into(),
+        }
+    }
+
+    /// Validate the timestamp format.
+    ///
+    /// Checks that `consumed_at` is a valid ISO 8601 timestamp.
+    pub fn validate(&self) -> Result<()> {
+        // Basic ISO 8601 validation - accept various formats
+        let ts = &self.consumed_at;
+        if ts.is_empty() {
+            return Err(GraftError::InvalidTimestamp(
+                "consumed_at cannot be empty".to_string(),
+            ));
+        }
+
+        // Should contain a date part (YYYY-MM-DD)
+        if !ts.contains('-') || ts.len() < 10 {
+            return Err(GraftError::InvalidTimestamp(format!(
+                "invalid ISO 8601 timestamp: {ts}"
+            )));
+        }
+
+        Ok(())
+    }
+}
+
+/// The graft.lock file structure.
+///
+/// Tracks exact state of consumed direct dependencies for reproducibility.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LockFile {
+    /// API version (e.g., "graft/v0")
+    #[serde(rename = "apiVersion")]
+    pub api_version: String,
+    /// Map of dependency name to lock entry
+    #[serde(default)]
+    pub dependencies: HashMap<String, LockEntry>,
+}
+
+impl LockFile {
+    const SUPPORTED_API_VERSION: &'static str = "graft/v0";
+
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            api_version: Self::SUPPORTED_API_VERSION.to_string(),
+            dependencies: HashMap::new(),
+        }
+    }
+
+    /// Validate the lock file structure.
+    pub fn validate(&self) -> Result<()> {
+        // Validate API version
+        if !self.api_version.starts_with("graft/") {
+            return Err(GraftError::UnsupportedApiVersion(self.api_version.clone()));
+        }
+
+        if self.api_version != Self::SUPPORTED_API_VERSION {
+            return Err(GraftError::UnsupportedApiVersion(self.api_version.clone()));
+        }
+
+        // Validate each lock entry
+        for (name, entry) in &self.dependencies {
+            entry
+                .validate()
+                .map_err(|e| GraftError::InvalidLockEntry(format!("dependency '{name}': {e}")))?;
+        }
+
+        Ok(())
+    }
+
+    /// Get a lock entry by dependency name.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&LockEntry> {
+        self.dependencies.get(name)
+    }
+
+    /// Insert or update a lock entry.
+    pub fn insert(&mut self, name: String, entry: LockEntry) {
+        self.dependencies.insert(name, entry);
+    }
+
+    /// Remove a lock entry by name.
+    pub fn remove(&mut self, name: &str) -> Option<LockEntry> {
+        self.dependencies.remove(name)
+    }
+}
+
+impl Default for LockFile {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -660,5 +836,72 @@ mod tests {
 
         // Should now pass
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn commit_hash_validates_length() {
+        assert!(CommitHash::new("abc").is_err());
+        assert!(CommitHash::new("a".repeat(39)).is_err());
+        assert!(CommitHash::new("a".repeat(41)).is_err());
+        assert!(CommitHash::new("a".repeat(40)).is_ok());
+    }
+
+    #[test]
+    fn commit_hash_validates_hex() {
+        assert!(CommitHash::new("g".repeat(40)).is_err());
+        assert!(CommitHash::new("ABCD".to_string() + &"a".repeat(36)).is_err()); // uppercase
+        assert!(CommitHash::new("abc123def456789012345678901234567890abcd").is_ok());
+    }
+
+    #[test]
+    fn lock_entry_validates_timestamp() {
+        let source = GitUrl::new("https://github.com/user/repo.git").unwrap();
+        let git_ref = GitRef::new("v1.0.0").unwrap();
+        let commit = CommitHash::new("a".repeat(40)).unwrap();
+
+        let entry = LockEntry::new(source.clone(), git_ref.clone(), commit.clone(), "");
+        assert!(entry.validate().is_err());
+
+        let entry = LockEntry::new(
+            source.clone(),
+            git_ref.clone(),
+            commit.clone(),
+            "2026-01-31T10:30:00Z",
+        );
+        assert!(entry.validate().is_ok());
+
+        let entry = LockEntry::new(source, git_ref, commit, "2026-01-31T10:30:00.123456+00:00");
+        assert!(entry.validate().is_ok());
+    }
+
+    #[test]
+    fn lock_file_validates_api_version() {
+        let mut lock = LockFile::new();
+        lock.api_version = "v1".to_string();
+        assert!(lock.validate().is_err());
+
+        lock.api_version = "graft/v1".to_string();
+        assert!(lock.validate().is_err());
+
+        lock.api_version = "graft/v0".to_string();
+        assert!(lock.validate().is_ok());
+    }
+
+    #[test]
+    fn lock_file_crud_operations() {
+        let mut lock = LockFile::new();
+        assert!(lock.get("meta-kb").is_none());
+
+        let source = GitUrl::new("https://github.com/org/meta-kb.git").unwrap();
+        let git_ref = GitRef::new("v2.0.0").unwrap();
+        let commit = CommitHash::new("abc123def456789012345678901234567890abcd").unwrap();
+        let entry = LockEntry::new(source, git_ref, commit, "2026-01-31T10:30:00Z");
+
+        lock.insert("meta-kb".to_string(), entry.clone());
+        assert_eq!(lock.get("meta-kb"), Some(&entry));
+
+        let removed = lock.remove("meta-kb");
+        assert_eq!(removed, Some(entry));
+        assert!(lock.get("meta-kb").is_none());
     }
 }
