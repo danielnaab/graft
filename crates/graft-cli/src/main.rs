@@ -1013,13 +1013,7 @@ fn sync_command(dep_name: Option<&str>) -> Result<()> {
         for result in &results {
             if result.success {
                 success_count += 1;
-                if result.action == "up_to_date" {
-                    // Print in dimmed color for "already at correct state"
-                    println!("  ✓ {}: {}", result.name, result.message);
-                } else {
-                    // Normal bright color for actual changes
-                    println!("  ✓ {}: {}", result.name, result.message);
-                }
+                println!("  ✓ {}: {}", result.name, result.message);
             } else {
                 eprintln!("  ✗ {}: {}", result.name, result.message);
             }
