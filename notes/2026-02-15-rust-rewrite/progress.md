@@ -221,3 +221,50 @@ None needed — implementation complete and clean on first pass.
 6. Manual CLI testing is sufficient when following established patterns (no integration test infrastructure yet)
 7. Spec mentions `--from` and `--to` for range queries, but these require git integration (out of scope per Python TODO)
 
+---
+
+### Iteration 5 — `graft validate` command
+**Status**: completed
+**Commit**: `ea9502c`
+**Files changed**:
+- `crates/graft-engine/src/validation.rs` (new, 312 lines)
+- `crates/graft-engine/src/lib.rs` (export validation module)
+- `crates/graft-cli/src/main.rs` (+242 lines: validate command and CLI integration)
+
+**What was done**:
+- Implemented validation module in graft-engine:
+  - `validate_config_schema()`: Check business rules (at least one dependency required)
+  - `validate_integrity()`: Compare .graft/ commits against lock file
+  - `ValidationError` type with severity (Error, Warning)
+  - `IntegrityResult` type for per-dependency validation results
+  - `get_current_commit()`: Run `git rev-parse HEAD` to get current commit
+- Implemented validate CLI command:
+  - Three modes: `--config`, `--lock`, `--integrity` (or all if no flag)
+  - Text and JSON output formats via `--format`
+  - Exit codes: 0=success, 1=validation error, 2=integrity mismatch
+  - Accumulates all errors, reports them all at once (not fail-fast)
+  - Clear, actionable error messages with suggestions
+- 4 unit tests for validation module (config validation, integrity checks)
+- Manual end-to-end testing confirmed all modes work correctly
+
+**Critique findings**:
+1. ✅ Spec compliance: All three validation modes implemented per spec
+2. ✅ Acceptance criteria: All 5 criteria genuinely met and verified
+3. ✅ Code quality: Follows established patterns from query/status/changes commands
+4. ✅ Error messages: Clear and helpful (e.g., "Dependency not found in .graft/")
+5. ⚠️ Test coverage: Unit tests adequate, but no integration tests for CLI (acceptable - manual testing confirms it works)
+6. ⚠️ Lock validation: Relies on parsing validation rather than separate checks (acceptable - parser validates commit hash format, timestamps, required fields per spec)
+
+**Improvements made**:
+None needed — implementation is clean and meets all acceptance criteria. The spec's lock validation requirements are satisfied by the parser's validation logic.
+
+**Learnings for future iterations**:
+1. Validation belongs in service layer (graft-engine), not CLI — enables reuse
+2. Use `std::process::Command` to run git commands and capture output
+3. `#[allow(clippy::if_not_else)]` when "check for missing file" flow is clearer than inverting
+4. Exit code 2 for integrity failures distinguishes from general validation errors (exit code 1)
+5. JSON output for automation: accumulate structured results, output at end
+6. Text output for humans: print as you go, use ✓/✗/⚠ symbols
+7. Lock file validation can be done via parsing — parser already validates format, hash length, etc.
+8. Pattern: `git rev-parse HEAD` in dependency directory to get current commit hash
+

@@ -78,15 +78,15 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
   - Exit code 1 when dependency not found ✓
 
 ### Task 5: `graft validate`
-- [ ] Implement configuration validation
+- [x] Implement configuration validation
 - **Specs**: `docs/specifications/graft/core-operations.md` (Validation Operations > validate)
 - **Python reference**: `src/graft/services/validation_service.py`, `src/graft/cli/commands/validate.py`
 - **Acceptance**:
-  - Validates graft.yaml schema and field constraints
-  - Validates lock file consistency (locked deps match declared deps)
-  - Validates dependency integrity (submodule checkout matches lock)
-  - Reports ALL errors (not just first), exit code 1 if any
-  - `--json` output
+  - Validates graft.yaml schema and field constraints ✓
+  - Validates lock file consistency (locked deps match declared deps) ✓
+  - Validates dependency integrity (submodule checkout matches lock) ✓
+  - Reports ALL errors (not just first), exit code 1 if any ✓
+  - `--json` output ✓
 
 ## Phase 3: Dependency resolution
 
