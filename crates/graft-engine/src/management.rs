@@ -324,4 +324,42 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
+
+    #[test]
+    fn test_add_validates_git_url() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "apiVersion: graft/v0").unwrap();
+        file.flush().unwrap();
+
+        // Empty URL should fail
+        let result = add_dependency_to_config(file.path(), "test", "", "main");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("git URL"));
+    }
+
+    #[test]
+    fn test_add_validates_git_ref() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "apiVersion: graft/v0").unwrap();
+        file.flush().unwrap();
+
+        let result = add_dependency_to_config(
+            file.path(),
+            "test",
+            "https://example.com/repo.git",
+            "", // Empty ref should fail
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("git ref"));
+    }
+
+    #[test]
+    fn test_remove_from_lock_missing_file_succeeds() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let lock_path = temp_dir.path().join("graft.lock");
+
+        // Should succeed silently when lock file doesn't exist
+        let result = remove_dependency_from_lock(&lock_path, "any-dep");
+        assert!(result.is_ok());
+    }
 }
