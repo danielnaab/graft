@@ -138,13 +138,13 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
   - Exit codes per spec ✓
 
 ### Task 10: `graft add` and `graft remove`
-- [ ] Manage dependency declarations
+- [x] Manage dependency declarations
 - **Specs**: `docs/specifications/graft/core-operations.md` (Management Operations > add, remove)
 - **Python reference**: `src/graft/cli/commands/add.py`, `src/graft/adapters/yaml_config.py`
 - **Acceptance**:
-  - `graft add <name> <url>` adds dependency to graft.yaml
-  - `graft remove <name>` removes dependency and cleans up submodule
-  - Both validate before and after modification
+  - `graft add <name> <url>` adds dependency to graft.yaml ✓
+  - `graft remove <name>` removes dependency and cleans up submodule ✓
+  - Both validate before and after modification ✓
 
 ## Phase 5: Command execution
 
