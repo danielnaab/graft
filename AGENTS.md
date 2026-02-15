@@ -3,8 +3,8 @@
 You are working on the **Graft** project: semantic dependency management for knowledge bases.
 
 This repo contains two components in a shared Rust workspace:
-- **Graft** (Rust CLI, rewrite in progress; Python legacy in `src/graft/`) - semantic dependency manager
-- **Grove** (Rust workspace tool) - workspace management for multi-repo development
+- **Graft** (Rust CLI in `crates/graft-*`, ready for use; Python legacy in `src/graft/`) - semantic dependency manager
+- **Grove** (Rust workspace tool in `crates/grove-*`) - workspace management for multi-repo development
 
 ## Orientation
 
@@ -25,15 +25,16 @@ This repo contains two components in a shared Rust workspace:
 Always run before committing:
 
 ```bash
-# Python (legacy)
+# Graft (Rust) - primary implementation
+cargo fmt --check                # Format check
+cargo clippy -- -D warnings      # Lint
+cargo test                       # All Rust tests (49 tests: 42 unit, 7 integration)
+cargo run -p graft-cli -- status # Smoke test
+
+# Graft (Python) - legacy, maintained for compatibility
 uv run pytest                    # 405 tests, ~46% coverage
 uv run mypy src/                 # Strict mode type checking
 uv run ruff check src/ tests/   # Linting
-
-# Rust
-cargo fmt --check                # Format check
-cargo clippy -- -D warnings      # Lint
-cargo test                       # All Rust tests
 ```
 
 ## Architectural principles
@@ -45,12 +46,19 @@ The Python codebase follows patterns from [python-starter](.graft/python-starter
 - **Functional service layer**: Business logic lives in pure functions in `src/graft/services/`, not in classes. Functions take a protocol-typed context parameter.
 - **Fakes, not mocks**: Tests use in-memory fakes (`tests/fakes/`) that implement protocols. No unittest.mock.
 
-The Rust codebase (Grove) follows patterns from [rust-starter](.graft/rust-starter/):
+The Rust codebase (Grove and Graft) follows patterns from [rust-starter](.graft/rust-starter/):
 
 - **Library-first architecture**: Core logic in library crates, thin binary wrappers.
 - **Trait-based boundaries**: Rust equivalent of Protocol-based DI.
 - **Error handling as values**: `thiserror` for library errors, `anyhow` for binary errors.
 - **Newtype pattern**: Domain identity types wrap primitives for type safety.
+
+Graft Rust implementation status:
+- ✅ All core operations implemented (`status`, `resolve`, `fetch`, `sync`, `apply`, `upgrade`, `validate`, `changes`, `show`, `add`, `remove`, `run`)
+- ✅ State queries (Stage 1) implemented
+- ✅ Output parity with Python CLI verified (see `notes/2026-02-15-rust-rewrite/parity-verification.md`)
+- ✅ 49 tests passing (42 unit, 7 integration)
+- Ready for production use
 
 ## Workflow: Plan -> Patch -> Verify
 
