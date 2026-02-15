@@ -8,5 +8,7 @@ pub mod domain;
 pub mod error;
 
 // Re-export commonly used types
-pub use domain::{Change, Command, DependencySpec, GitRef, GitUrl, GraftConfig, Metadata};
+pub use domain::{
+    Change, Command, DependencySpec, GitRef, GitUrl, GraftConfig, Metadata, StateCache, StateQuery,
+};
 pub use error::{GraftError, Result};

@@ -193,6 +193,7 @@ mod tests {
             dependencies: HashMap::new(),
             changes: HashMap::new(),
             commands: HashMap::new(),
+            state: HashMap::new(),
         };
 
         let errors = validate_config_schema(&config);
@@ -222,6 +223,7 @@ mod tests {
             dependencies: deps,
             changes: HashMap::new(),
             commands: HashMap::new(),
+            state: HashMap::new(),
         };
 
         let errors = validate_config_schema(&config);

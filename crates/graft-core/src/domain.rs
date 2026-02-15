@@ -413,6 +413,86 @@ impl Command {
     }
 }
 
+/// Cache configuration for a state query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateCache {
+    /// If true, cache is keyed by commit hash and valid indefinitely.
+    /// If false, cache has TTL (not implemented in Stage 1).
+    pub deterministic: bool,
+}
+
+impl Default for StateCache {
+    fn default() -> Self {
+        Self {
+            deterministic: true,
+        }
+    }
+}
+
+/// A state query definition from graft.yaml.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateQuery {
+    #[serde(skip)]
+    pub name: String,
+    /// Command to execute. Must output valid JSON to stdout.
+    pub run: String,
+    #[serde(default)]
+    pub cache: StateCache,
+    /// Command timeout in seconds. Default: 300 (5 minutes).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+}
+
+impl StateQuery {
+    pub fn new(name: impl Into<String>, run: impl Into<String>) -> Result<Self> {
+        let name = name.into();
+        let run = run.into();
+
+        // Validate name
+        if name.is_empty() {
+            return Err(GraftError::Validation(
+                "state query name cannot be empty".to_string(),
+            ));
+        }
+        if name.trim().is_empty() {
+            return Err(GraftError::Validation(
+                "state query name cannot be only whitespace".to_string(),
+            ));
+        }
+
+        // Validate run
+        if run.is_empty() {
+            return Err(GraftError::Validation(format!(
+                "state query '{name}': 'run' field is required"
+            )));
+        }
+        if run.trim().is_empty() {
+            return Err(GraftError::Validation(format!(
+                "state query '{name}': 'run' field cannot be only whitespace"
+            )));
+        }
+
+        Ok(Self {
+            name,
+            run,
+            cache: StateCache::default(),
+            timeout: None,
+        })
+    }
+
+    #[must_use]
+    pub fn with_cache(mut self, cache: StateCache) -> Self {
+        self.cache = cache;
+        self
+    }
+
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: u64) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+}
+
 /// Optional metadata section from graft.yaml.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Metadata {
@@ -439,6 +519,8 @@ pub struct GraftConfig {
     pub changes: HashMap<String, Change>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub commands: HashMap<String, Command>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub state: HashMap<String, StateQuery>,
 }
 
 impl GraftConfig {
@@ -462,6 +544,7 @@ impl GraftConfig {
             metadata: None,
             changes: HashMap::new(),
             commands: HashMap::new(),
+            state: HashMap::new(),
         })
     }
 
@@ -486,6 +569,12 @@ impl GraftConfig {
     #[must_use]
     pub fn add_command(mut self, name: String, command: Command) -> Self {
         self.commands.insert(name, command);
+        self
+    }
+
+    #[must_use]
+    pub fn add_state_query(mut self, name: String, query: StateQuery) -> Self {
+        self.state.insert(name, query);
         self
     }
 

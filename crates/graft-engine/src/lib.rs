@@ -12,6 +12,7 @@ pub mod mutation;
 pub mod query;
 pub mod resolution;
 pub mod snapshot;
+pub mod state;
 pub mod validation;
 
 // Re-export commonly used functions
@@ -34,6 +35,10 @@ pub use resolution::{
     SyncResult,
 };
 pub use snapshot::SnapshotManager;
+pub use state::{
+    execute_state_query, get_cache_path, get_state, invalidate_cached_state, list_state_queries,
+    read_cached_state, write_cached_state, StateMetadata, StateQueryStatus, StateResult,
+};
 pub use validation::{
     validate_config_schema, validate_integrity, IntegrityResult, ValidationError,
 };

@@ -2,6 +2,7 @@
 
 use graft_core::{
     Change, Command, DependencySpec, GitRef, GitUrl, GraftConfig, GraftError, Metadata, Result,
+    StateCache, StateQuery,
 };
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -322,6 +323,87 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
             let spec = DependencySpec::new(name, GitUrl::new(git_url)?, GitRef::new(git_ref)?)?;
 
             config.dependencies.insert(name.to_string(), spec);
+        }
+    }
+
+    // Parse state queries (optional)
+    if let Some(state_value) = obj.get(Value::String("state".to_string())) {
+        let state_map = state_value
+            .as_mapping()
+            .ok_or_else(|| GraftError::ConfigValidation {
+                path: path.to_string(),
+                field: "state".to_string(),
+                reason: "must be a mapping/dict of query_name: {...}".to_string(),
+            })?;
+
+        for (query_name, query_data) in state_map {
+            let name = query_name
+                .as_str()
+                .ok_or_else(|| GraftError::ConfigValidation {
+                    path: path.to_string(),
+                    field: "state".to_string(),
+                    reason: "state query name must be a string".to_string(),
+                })?;
+
+            let query_obj =
+                query_data
+                    .as_mapping()
+                    .ok_or_else(|| GraftError::ConfigValidation {
+                        path: path.to_string(),
+                        field: format!("state.{name}"),
+                        reason: "state query must be an object".to_string(),
+                    })?;
+
+            // Extract 'run' field (required)
+            let run = query_obj
+                .get(Value::String("run".to_string()))
+                .ok_or_else(|| GraftError::ConfigValidation {
+                    path: path.to_string(),
+                    field: format!("state.{name}"),
+                    reason: "state query must have 'run' field".to_string(),
+                })?
+                .as_str()
+                .ok_or_else(|| GraftError::ConfigValidation {
+                    path: path.to_string(),
+                    field: format!("state.{name}.run"),
+                    reason: "'run' must be a string".to_string(),
+                })?;
+
+            let mut query = StateQuery::new(name, run)?;
+
+            // Parse cache (optional)
+            if let Some(cache_value) = query_obj.get(Value::String("cache".to_string())) {
+                let cache_obj =
+                    cache_value
+                        .as_mapping()
+                        .ok_or_else(|| GraftError::ConfigValidation {
+                            path: path.to_string(),
+                            field: format!("state.{name}.cache"),
+                            reason: "cache must be an object".to_string(),
+                        })?;
+
+                let deterministic = cache_obj
+                    .get(Value::String("deterministic".to_string()))
+                    .and_then(serde_yaml::Value::as_bool)
+                    .unwrap_or(true);
+
+                query.cache = StateCache { deterministic };
+            }
+
+            // Parse timeout (optional)
+            if let Some(timeout_value) = query_obj.get(Value::String("timeout".to_string())) {
+                let timeout =
+                    timeout_value
+                        .as_u64()
+                        .ok_or_else(|| GraftError::ConfigValidation {
+                            path: path.to_string(),
+                            field: format!("state.{name}.timeout"),
+                            reason: "timeout must be a positive integer".to_string(),
+                        })?;
+                query.timeout = Some(timeout);
+            }
+
+            config.state.insert(name.to_string(), query);
         }
     }
 

@@ -5,8 +5,9 @@ use clap::{Parser, Subcommand};
 use graft_engine::{
     add_dependency_to_config, apply_lock, fetch_all_dependencies, fetch_dependency,
     filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_details,
-    get_changes_for_dependency, get_dependency_status, is_submodule, parse_graft_yaml,
-    parse_lock_file, remove_dependency_from_config, remove_dependency_from_lock, remove_submodule,
+    get_changes_for_dependency, get_dependency_status, get_state, invalidate_cached_state,
+    is_submodule, list_state_queries, parse_graft_yaml, parse_lock_file,
+    remove_dependency_from_config, remove_dependency_from_lock, remove_submodule,
     resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, sync_all_dependencies,
     validate_config_schema, validate_integrity, write_lock_file,
 };
@@ -148,6 +149,43 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// State query operations
+    State {
+        #[command(subcommand)]
+        subcommand: StateCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum StateCommands {
+    /// List all state queries
+    List,
+    /// Execute a state query
+    Query {
+        /// Query name to execute
+        name: String,
+
+        /// Force refresh (ignore cache)
+        #[arg(short, long)]
+        refresh: bool,
+
+        /// Output only the data (no metadata)
+        #[arg(long)]
+        raw: bool,
+
+        /// Pretty-print JSON output
+        #[arg(short, long, default_value = "true")]
+        pretty: bool,
+    },
+    /// Invalidate cached state
+    Invalidate {
+        /// Query name to invalidate (omit for all)
+        name: Option<String>,
+
+        /// Invalidate all queries
+        #[arg(short, long)]
+        all: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -210,6 +248,22 @@ fn main() -> Result<()> {
         Commands::Run { command, args } => {
             run_command(command.as_deref(), &args)?;
         }
+        Commands::State { subcommand } => match subcommand {
+            StateCommands::List => {
+                state_list_command()?;
+            }
+            StateCommands::Query {
+                name,
+                refresh,
+                raw,
+                pretty,
+            } => {
+                state_query_command(&name, refresh, raw, pretty)?;
+            }
+            StateCommands::Invalidate { name, all } => {
+                state_invalidate_command(name.as_deref(), all)?;
+            }
+        },
     }
 
     Ok(())
@@ -1783,4 +1837,161 @@ fn run_dependency_command(dep_name: &str, command_name: &str, args: &[String]) -
     println!("✓ Command completed successfully");
 
     Ok(())
+}
+
+fn state_list_command() -> Result<()> {
+    // Find graft.yaml
+    let graft_path =
+        find_graft_yaml().context("No graft.yaml found in current directory or parents")?;
+
+    // Parse config
+    let config = parse_graft_yaml(&graft_path)?;
+
+    if config.state.is_empty() {
+        println!("No state queries defined in graft.yaml");
+        return Ok(());
+    }
+
+    // Get current commit hash
+    let repo_path = graft_path
+        .parent()
+        .context("Failed to get repository path")?;
+    let commit_hash = get_current_commit(repo_path)?;
+
+    // Use repository name as both workspace and repo name (simplified for Stage 1)
+    let repo_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .context("Failed to get repository name")?;
+
+    // List queries with cache status
+    let statuses = list_state_queries(&config.state, repo_name, repo_name, &commit_hash);
+
+    println!("State queries defined in graft.yaml:\n");
+
+    for status in statuses {
+        println!("{}", status.name);
+        println!("  Command: {}", status.command);
+        if status.cached {
+            if let Some(timestamp) = status.cache_timestamp {
+                println!("  Cached:  Yes ({timestamp})");
+            } else {
+                println!("  Cached:  Yes");
+            }
+        } else {
+            println!("  Cached:  No");
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn state_query_command(name: &str, refresh: bool, raw: bool, pretty: bool) -> Result<()> {
+    // Find graft.yaml
+    let graft_path =
+        find_graft_yaml().context("No graft.yaml found in current directory or parents")?;
+
+    // Parse config
+    let config = parse_graft_yaml(&graft_path)?;
+
+    // Find the query
+    let query = config
+        .state
+        .get(name)
+        .context(format!("State query '{name}' not found in graft.yaml"))?;
+
+    // Get repository path
+    let repo_path = graft_path
+        .parent()
+        .context("Failed to get repository path")?;
+
+    // Get current commit hash
+    let commit_hash = get_current_commit(repo_path)?;
+
+    // Use repository name as both workspace and repo name (simplified for Stage 1)
+    let repo_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .context("Failed to get repository name")?;
+
+    // Execute query (with caching)
+    let result = get_state(
+        query,
+        repo_name,
+        repo_name,
+        repo_path,
+        &commit_hash,
+        refresh,
+    )?;
+
+    // Output results
+    if raw {
+        // Just output the data
+        if pretty {
+            println!("{}", serde_json::to_string_pretty(&result.data)?);
+        } else {
+            println!("{}", serde_json::to_string(&result.data)?);
+        }
+    } else {
+        // Output with metadata
+        if pretty {
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        } else {
+            println!("{}", serde_json::to_string(&result)?);
+        }
+    }
+
+    Ok(())
+}
+
+fn state_invalidate_command(name: Option<&str>, all: bool) -> Result<()> {
+    // Find graft.yaml
+    let graft_path =
+        find_graft_yaml().context("No graft.yaml found in current directory or parents")?;
+
+    // Get repository path
+    let repo_path = graft_path
+        .parent()
+        .context("Failed to get repository path")?;
+
+    // Use repository name as both workspace and repo name (simplified for Stage 1)
+    let repo_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .context("Failed to get repository name")?;
+
+    let count = if all || name.is_none() {
+        // Invalidate all
+        invalidate_cached_state(repo_name, repo_name, None)?
+    } else {
+        // Invalidate specific query
+        invalidate_cached_state(repo_name, repo_name, name)?
+    };
+
+    if all || name.is_none() {
+        println!("✓ Invalidated all state caches ({count} file(s) deleted)");
+    } else if let Some(query_name) = name {
+        println!("✓ Invalidated cache for '{query_name}' ({count} file(s) deleted)");
+    }
+
+    Ok(())
+}
+
+/// Get current commit hash for a repository.
+fn get_current_commit(repo_path: &Path) -> Result<String> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .context("Failed to run git rev-parse")?;
+
+    if !output.status.success() {
+        bail!("Failed to get current commit hash");
+    }
+
+    let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    Ok(commit)
 }

@@ -345,6 +345,7 @@ mod change_tests {
             dependencies: HashMap::new(),
             changes,
             commands,
+            state: HashMap::new(),
         }
     }
 
