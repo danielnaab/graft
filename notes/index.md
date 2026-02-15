@@ -19,6 +19,37 @@ For durable documentation, see:
 
 ---
 
+## State Queries Implementation (2026-02-13)
+
+Session documents from state queries Stage 1 implementation (Python CLI):
+
+**Deprecated** (implementation complete):
+- [Stage 1 Summary](2026-02-13-state-queries-stage1-summary.md) - Consolidated delivery + improvements summary
+- [Stage 1 Review](2026-02-13-state-queries-stage1-review.md) - Condensed critique findings
+
+**Canonical source**: [docs/specifications/graft/state-queries.md](../docs/specifications/graft/state-queries.md)
+
+---
+
+## Grove Argument Input (2026-02-13)
+
+Session documents from grove argument input Phase 1:
+
+**Deprecated** (implementation complete):
+- [Argument Input Summary](2026-02-13-grove-argument-input-summary.md) - Phase 1 delivery summary
+- [Command Arguments Review](2026-02-13-grove-command-arguments-review.md) - Critique + improvement roadmap
+
+**Canonical source**: [docs/specifications/grove/command-execution.md](../docs/specifications/grove/command-execution.md)
+
+---
+
+## Grove Vertical Slices (2026-02-13)
+
+**Deprecated** (review complete):
+- [Slices Review](2026-02-13-grove-slices-review.md) - Status assessment + new slice proposals
+
+---
+
 ## State Panel Implementation (2026-02-14)
 
 Session documents from state panel Phase 1 implementation:

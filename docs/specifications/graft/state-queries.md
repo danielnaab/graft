@@ -1,10 +1,8 @@
 ---
 status: working
-phase: stage-1
 last-verified: 2026-02-14
-last-updated: 2026-02-14
+last-updated: 2026-02-15
 owners: [human, agent]
-spec-implementation-sync: true
 ---
 
 # State Queries
@@ -136,10 +134,19 @@ Then graft clears cached state for the specific query
 ```gherkin
 Given a repository has historical commits
 When the user runs `graft state query coverage --commit HEAD~5`
-Then graft checks out the specified commit (detached HEAD or worktree)
-And executes the state query
+And the working tree is clean
+Then graft creates a temporary git worktree at the specified commit
+And executes the state query in the worktree
 And caches the result for that commit hash
-And restores the original HEAD
+And cleans up the worktree
+```
+
+```gherkin
+Given a repository has historical commits
+When the user runs `graft state query coverage --commit HEAD~5`
+And the working tree has uncommitted changes
+Then graft returns an error
+And tells the user to commit or stash changes first
 ```
 
 ```gherkin
@@ -164,6 +171,7 @@ Then the cache is stored at:
 Given a cache file exists
 When the cache file contains metadata
 Then metadata includes:
+  - query_name: the name of the state query
   - commit_hash: the git commit
   - timestamp: when the query was executed
   - command: the run command that was executed
@@ -174,6 +182,7 @@ Then metadata includes:
 ```json
 {
   "metadata": {
+    "query_name": "coverage",
     "commit_hash": "abc123...",
     "timestamp": "2026-02-13T10:30:00Z",
     "command": "pytest --cov --cov-report=json --quiet | jq '.totals.percent_covered'",
@@ -189,7 +198,7 @@ Then metadata includes:
 
 ```gherkin
 Given a repository has state queries defined
-When the user runs `graft state --list`
+When the user runs `graft state list`
 Then graft shows all defined state queries
 And indicates which have cached results for current commit
 ```
@@ -208,7 +217,7 @@ State queries in graft.yaml:
 
 ```gherkin
 Given a repository has no graft.yaml
-When the user runs `graft state coverage`
+When the user runs `graft state query coverage`
 Then graft returns an error
 And suggests creating graft.yaml with state definitions
 ```
@@ -217,7 +226,7 @@ And suggests creating graft.yaml with state definitions
 
 ```gherkin
 Given a repository's graft.yaml has no `state:` section
-When the user runs `graft state coverage`
+When the user runs `graft state query coverage`
 Then graft returns an error
 And suggests adding state queries to graft.yaml
 ```
@@ -226,7 +235,7 @@ And suggests adding state queries to graft.yaml
 
 ```gherkin
 Given a repository's graft.yaml defines state queries
-When the user runs `graft state nonexistent`
+When the user runs `graft state query nonexistent`
 And "nonexistent" is not defined
 Then graft returns an error
 And lists available state queries
@@ -252,17 +261,16 @@ And shows the raw output for debugging
 And does not cache the result
 ```
 
-### Detached HEAD / dirty working tree
+### Dirty working tree with temporal query
 
 ```gherkin
-Given the user runs `graft state coverage --commit HEAD~5`
+Given the user runs `graft state query coverage --commit HEAD~5`
 When the working tree has uncommitted changes
-Then graft uses git worktree to create a temporary checkout
-And executes the query in the worktree
-And cleans up the worktree afterward
+Then graft returns an error
+And tells the user to commit or stash changes first
 ```
 
-**Alternative:** Fail fast if working tree is dirty and ask user to commit/stash first (simpler for Stage 1).
+Temporal queries require a clean working tree. This is a safety measure to prevent worktree creation from interfering with in-progress work. When the tree is clean, graft uses `git worktree add` to create an isolated checkout at the target commit.
 
 ## Constraints
 
