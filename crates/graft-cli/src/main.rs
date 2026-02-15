@@ -42,7 +42,7 @@ fn main() -> Result<()> {
 fn status_command(dep_name: Option<&str>, format: &str) -> Result<()> {
     // Validate format
     if format != "text" && format != "json" {
-        anyhow::bail!("Invalid format '{}'. Must be 'text' or 'json'", format);
+        anyhow::bail!("Invalid format '{format}'. Must be 'text' or 'json'");
     }
 
     let lock_path = Path::new("graft.lock");
@@ -66,33 +66,30 @@ fn status_command(dep_name: Option<&str>, format: &str) -> Result<()> {
         // Show status for single dependency
         let status = get_dependency_status(&lock_file, name);
 
-        match status {
-            Some(s) => {
-                if format == "json" {
-                    let json = serde_json::json!({
-                        "name": s.name,
-                        "current_ref": s.current_ref,
-                        "commit": s.commit.as_str(),
-                        "consumed_at": s.consumed_at.to_rfc3339(),
-                    });
-                    println!("{}", serde_json::to_string_pretty(&json)?);
-                } else {
-                    println!("{}: {}", s.name, s.current_ref);
-                    println!("  Commit: {}...", &s.commit.as_str()[..7]);
-                    println!("  Consumed: {}", s.consumed_at.format("%Y-%m-%d %H:%M:%S"));
-                }
+        if let Some(s) = status {
+            if format == "json" {
+                let json = serde_json::json!({
+                    "name": s.name,
+                    "current_ref": s.current_ref,
+                    "commit": s.commit.as_str(),
+                    "consumed_at": s.consumed_at,
+                });
+                println!("{}", serde_json::to_string_pretty(&json)?);
+            } else {
+                println!("{}: {}", s.name, s.current_ref);
+                println!("  Commit: {}...", &s.commit.as_str()[..7]);
+                println!("  Consumed: {}", s.consumed_at);
             }
-            None => {
-                if format == "json" {
-                    let json = serde_json::json!({
-                        "error": format!("Dependency '{}' not found in graft.lock", name)
-                    });
-                    println!("{}", serde_json::to_string_pretty(&json)?);
-                } else {
-                    eprintln!("Error: Dependency '{}' not found in graft.lock", name);
-                }
-                std::process::exit(1);
+        } else {
+            if format == "json" {
+                let json = serde_json::json!({
+                    "error": format!("Dependency '{name}' not found in graft.lock")
+                });
+                println!("{}", serde_json::to_string_pretty(&json)?);
+            } else {
+                eprintln!("Error: Dependency '{name}' not found in graft.lock");
             }
+            std::process::exit(1);
         }
     } else {
         // Show status for all dependencies
@@ -115,7 +112,7 @@ fn status_command(dep_name: Option<&str>, format: &str) -> Result<()> {
                 let status_obj = serde_json::json!({
                     "current_ref": status.current_ref,
                     "commit": status.commit.as_str(),
-                    "consumed_at": status.consumed_at.to_rfc3339(),
+                    "consumed_at": status.consumed_at,
                 });
                 deps_map.insert(name.clone(), status_obj);
             }
@@ -131,7 +128,7 @@ fn status_command(dep_name: Option<&str>, format: &str) -> Result<()> {
                     status.name,
                     status.current_ref,
                     &status.commit.as_str()[..7],
-                    status.consumed_at.format("%Y-%m-%d %H:%M:%S")
+                    status.consumed_at
                 );
             }
         }
