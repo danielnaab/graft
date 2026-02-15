@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 use graft_engine::{
     filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_details,
     get_changes_for_dependency, get_dependency_status, parse_graft_yaml, parse_lock_file,
+    validate_config_schema, validate_integrity,
 };
 use std::path::{Path, PathBuf};
 
@@ -54,6 +55,24 @@ enum Commands {
         #[arg(long, default_value = "text")]
         format: String,
     },
+    /// Validate graft configuration and integrity
+    Validate {
+        /// Validate only graft.yaml config
+        #[arg(long)]
+        config: bool,
+
+        /// Validate only graft.lock schema
+        #[arg(long)]
+        lock: bool,
+
+        /// Validate only .graft/ integrity
+        #[arg(long)]
+        integrity: bool,
+
+        /// Output format (text or json)
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -73,6 +92,14 @@ fn main() -> Result<()> {
         }
         Commands::Show { dep_ref, format } => {
             show_command(&dep_ref, &format)?;
+        }
+        Commands::Validate {
+            config,
+            lock,
+            integrity,
+            format,
+        } => {
+            validate_command(config, lock, integrity, &format)?;
         }
     }
 
@@ -443,6 +470,294 @@ fn show_command(dep_ref: &str, format: &str) -> Result<()> {
         if details.migration_command.is_none() && details.verify_command.is_none() {
             println!("No migration or verification required");
             println!();
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines, clippy::if_not_else)]
+fn validate_command(
+    config_only: bool,
+    lock_only: bool,
+    integrity_only: bool,
+    format: &str,
+) -> Result<()> {
+    // Validate format
+    if format != "text" && format != "json" {
+        bail!("Invalid format '{format}'. Must be 'text' or 'json'");
+    }
+
+    // Validate flag combinations
+    let flags_set = [config_only, lock_only, integrity_only]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+    if flags_set > 1 {
+        bail!("--config, --lock, and --integrity are mutually exclusive");
+    }
+
+    // Determine what to validate based on flags
+    let validate_config = config_only || flags_set == 0;
+    let validate_lock = lock_only || flags_set == 0;
+    let validate_integrity_mode = integrity_only || flags_set == 0;
+
+    let mut all_errors = Vec::new();
+    let mut all_warnings = Vec::new();
+    let mut integrity_failed = false;
+
+    // For JSON output, collect results
+    let mut json_config = serde_json::json!({ "valid": true, "errors": [] });
+    let mut json_lock = serde_json::json!({ "valid": true, "errors": [] });
+    let mut json_integrity = serde_json::json!({ "valid": true, "results": [] });
+
+    // Validate graft.yaml
+    if validate_config {
+        if format == "text" {
+            println!("Validating graft.yaml...");
+        }
+
+        let config_path = Path::new("graft.yaml");
+        if !config_path.exists() {
+            let error_msg = "graft.yaml not found";
+            all_errors.push(error_msg.to_string());
+            json_config["valid"] = serde_json::Value::Bool(false);
+            json_config["errors"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::Value::String(error_msg.to_string()));
+
+            if format == "text" {
+                eprintln!("  ✗ {error_msg}");
+                println!();
+            }
+        } else {
+            match parse_graft_yaml(config_path) {
+                Ok(config) => {
+                    let errors = validate_config_schema(&config);
+
+                    if errors.is_empty() {
+                        if format == "text" {
+                            println!("  ✓ Schema is valid");
+                            println!();
+                        }
+                    } else {
+                        json_config["valid"] = serde_json::Value::Bool(false);
+                        for error in &errors {
+                            all_errors.push(error.message.clone());
+                            json_config["errors"]
+                                .as_array_mut()
+                                .unwrap()
+                                .push(serde_json::Value::String(error.message.clone()));
+
+                            if format == "text" {
+                                eprintln!("  ✗ {}", error.message);
+                            }
+                        }
+                        if format == "text" {
+                            println!();
+                        }
+                    }
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to parse graft.yaml: {e}");
+                    all_errors.push(error_msg.clone());
+                    json_config["valid"] = serde_json::Value::Bool(false);
+                    json_config["errors"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(serde_json::Value::String(error_msg.clone()));
+
+                    if format == "text" {
+                        eprintln!("  ✗ {error_msg}");
+                        println!();
+                    }
+                }
+            }
+        }
+    }
+
+    // Validate graft.lock
+    if validate_lock {
+        if format == "text" {
+            println!("Validating graft.lock...");
+        }
+
+        let lock_path = Path::new("graft.lock");
+        if !lock_path.exists() {
+            let warning_msg = "graft.lock not found (run 'graft resolve' to create)";
+            all_warnings.push(warning_msg.to_string());
+
+            if format == "text" {
+                println!("  ⚠ {warning_msg}");
+                println!();
+            }
+        } else {
+            match parse_lock_file(lock_path) {
+                Ok(lock_file) => {
+                    if lock_file.dependencies.is_empty() {
+                        let warning_msg = "graft.lock is empty";
+                        all_warnings.push(warning_msg.to_string());
+
+                        if format == "text" {
+                            println!("  ⚠ {warning_msg}");
+                            println!();
+                        }
+                    } else if format == "text" {
+                        println!("  ✓ Schema is valid");
+                        println!();
+                    }
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to read graft.lock: {e}");
+                    all_errors.push(error_msg.clone());
+                    json_lock["valid"] = serde_json::Value::Bool(false);
+                    json_lock["errors"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(serde_json::Value::String(error_msg.clone()));
+
+                    if format == "text" {
+                        eprintln!("  ✗ {error_msg}");
+                        println!();
+                    }
+                }
+            }
+        }
+    }
+
+    // Validate integrity (.graft/ matches lock file)
+    if validate_integrity_mode {
+        if format == "text" {
+            println!("Validating integrity...");
+        }
+
+        let lock_path = Path::new("graft.lock");
+        if !lock_path.exists() {
+            let error_msg = "graft.lock not found (cannot validate integrity)";
+            all_errors.push(error_msg.to_string());
+            json_integrity["valid"] = serde_json::Value::Bool(false);
+
+            if format == "text" {
+                eprintln!("  ✗ graft.lock not found");
+                println!();
+            }
+        } else {
+            match parse_lock_file(lock_path) {
+                Ok(lock_file) => {
+                    if lock_file.dependencies.is_empty() {
+                        let warning_msg = "graft.lock is empty";
+                        all_warnings.push(warning_msg.to_string());
+
+                        if format == "text" {
+                            println!("  ⚠ {warning_msg}");
+                            println!();
+                        }
+                    } else {
+                        // Run integrity validation
+                        let results = validate_integrity(".graft", &lock_file);
+
+                        // Process results
+                        for result in &results {
+                            if result.valid {
+                                if format == "text" {
+                                    println!("  ✓ {}: {}", result.name, result.message);
+                                }
+                            } else {
+                                integrity_failed = true;
+                                json_integrity["valid"] = serde_json::Value::Bool(false);
+
+                                if format == "text" {
+                                    eprintln!("  ✗ {}: {}", result.name, result.message);
+                                }
+                            }
+
+                            // Add to JSON results
+                            json_integrity["results"]
+                                .as_array_mut()
+                                .unwrap()
+                                .push(serde_json::json!({
+                                    "name": result.name,
+                                    "valid": result.valid,
+                                    "expected_commit": result.expected_commit.as_str(),
+                                    "actual_commit": result.actual_commit.as_ref().map(graft_core::domain::CommitHash::as_str),
+                                    "message": result.message,
+                                }));
+                        }
+
+                        if integrity_failed {
+                            all_errors.push("Integrity check failed".to_string());
+                        }
+
+                        if format == "text" {
+                            println!();
+                        }
+                    }
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to validate integrity: {e}");
+                    all_errors.push(error_msg.clone());
+                    json_integrity["valid"] = serde_json::Value::Bool(false);
+
+                    if format == "text" {
+                        eprintln!("  ✗ {error_msg}");
+                        println!();
+                    }
+                }
+            }
+        }
+    }
+
+    // Output summary
+    if format == "json" {
+        let mut output = serde_json::json!({});
+
+        if validate_config {
+            output["config"] = json_config;
+        }
+        if validate_lock {
+            output["lock"] = json_lock;
+        }
+        if validate_integrity_mode {
+            output["integrity"] = json_integrity;
+        }
+
+        // Overall status
+        let overall = if all_errors.is_empty() {
+            "passed"
+        } else {
+            "failed"
+        };
+        output["overall"] = serde_json::Value::String(overall.to_string());
+
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        // Text summary
+        if !all_errors.is_empty() {
+            let error_count = all_errors.len();
+            let warning_count = all_warnings.len();
+
+            if warning_count > 0 {
+                eprintln!(
+                    "Validation failed with {error_count} error(s) and {warning_count} warning(s)"
+                );
+            } else {
+                eprintln!("Validation failed with {error_count} error(s)");
+            }
+        } else if !all_warnings.is_empty() {
+            let warning_count = all_warnings.len();
+            println!("Validation passed with {warning_count} warning(s)");
+        } else {
+            println!("Validation successful");
+        }
+    }
+
+    // Exit with appropriate code
+    if !all_errors.is_empty() {
+        if integrity_failed {
+            std::process::exit(2);
+        } else {
+            std::process::exit(1);
         }
     }
 
