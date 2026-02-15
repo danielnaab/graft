@@ -91,15 +91,16 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
 ## Phase 3: Dependency resolution
 
 ### Task 6: `graft resolve`
-- [ ] Clone declared dependencies as git submodules
+- [x] Clone declared dependencies as git submodules
 - **Specs**: `docs/specifications/graft/core-operations.md` (Resolution Operations > resolve), `docs/specifications/graft/dependency-layout.md`
 - **Python reference**: `src/graft/services/resolution_service.py`, `src/graft/adapters/git.py`
 - **Acceptance**:
-  - Clones dependencies to `.graft/<name>/` as git submodules
-  - Checks out declared ref
-  - Skips already-resolved dependencies
-  - Reports status for each dependency
-  - Exit code 0 on success, 1 on partial failure
+  - Clones dependencies to `.graft/<name>/` as git submodules ✓
+  - Checks out declared ref ✓
+  - Skips already-resolved dependencies ✓
+  - Reports status for each dependency ✓
+  - Exit code 0 on success, 1 on partial failure ✓
+  - Creates/updates graft.lock with current state ✓
 
 ### Task 7: `graft fetch` and `graft sync`
 - [ ] Implement remote update and lock synchronization

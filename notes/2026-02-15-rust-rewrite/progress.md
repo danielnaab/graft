@@ -268,3 +268,67 @@ None needed — implementation is clean and meets all acceptance criteria. The s
 7. Lock file validation can be done via parsing — parser already validates format, hash length, etc.
 8. Pattern: `git rev-parse HEAD` in dependency directory to get current commit hash
 
+
+---
+
+### Iteration 6 — `graft resolve` command
+**Status**: completed
+**Commits**: `d1d68ea` (initial implementation), `be4cf98` (lock file fix)
+**Files changed**:
+- `crates/graft-core/src/error.rs` (+3 lines: GraftError::Resolution variant)
+- `crates/graft-engine/src/resolution.rs` (new, 363 lines)
+- `crates/graft-engine/src/lib.rs` (re-export resolution functions)
+- `crates/graft-cli/src/main.rs` (+89 lines: resolve command)
+
+**What was done**:
+- Implemented dependency resolution module in graft-engine:
+  - `resolve_dependency()`: Resolve single dependency as git submodule
+  - `resolve_all_dependencies()`: Resolve all declared dependencies
+  - `resolve_and_create_lock()`: Resolve and create/update lock file
+  - `ResolutionResult`: Structured result type with success/failure status
+- Git operations via std::process::Command (consistent with validation module):
+  - `is_submodule()`: Check if path is registered submodule (git submodule status)
+  - `add_submodule()`: Add new submodule (git submodule add)
+  - `update_submodule()`: Update existing submodule (git submodule update --init)
+  - `fetch_all()`: Fetch all refs from remote
+  - `resolve_ref()`: Resolve git ref to commit (tries origin/<ref> first for branches)
+  - `get_current_commit()`: Get HEAD commit hash
+  - `checkout()`: Checkout specific commit
+- CLI command implementation:
+  - Shows configuration header (path, API version, dependency count)
+  - Displays resolution status for each dependency (cloned vs resolved)
+  - Updates graft.lock after successful resolution
+  - Exit code 0 on success, 1 on failure
+  - Clear error messages with suggestions (legacy clone, auth failures)
+
+**Critique findings**:
+1. ✅ Spec compliance: Fully matches core-operations.md and dependency-layout.md
+2. ✅ Acceptance criteria: All 6 criteria met (5 original + lock file creation)
+3. ✅ Code quality: Idiomatic Rust, follows validation.rs patterns
+4. ✅ Error messages: Clear and helpful with actionable suggestions
+5. ⚠️ **Initial gap**: First implementation did NOT update lock file (critical omission)
+6. ✅ **Fixed in second commit**: Added resolve_and_create_lock() function
+7. ⚠️ Test coverage: Unit tests for result types, no integration tests for git ops
+8. ⚠️ Hardcoded deps_directory: CLI always uses ".graft" (acceptable per spec)
+
+**Improvements made**:
+- **Critical fix**: Added lock file creation/update functionality
+  - resolve_and_create_lock() combines resolution with lock file generation
+  - Uses chrono for ISO 8601 timestamp generation
+  - Ensures lock file commit hashes match submodule state (synchronization guarantee)
+  - Lock file only written if ALL dependencies resolve successfully
+- Fixed test_is_repository to work in test environment (searches up directory tree)
+- Error handling: continues attempting all deps even if some fail
+
+**Learnings for future iterations**:
+1. **Self-critique is essential**: Initial implementation missed a critical spec requirement (lock file update)
+2. Pattern: resolve operations should be atomic at the lock file level (all or nothing)
+3. Use std::process::Command for git operations (consistent with existing code)
+4. ISO 8601 timestamp format: `chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)`
+5. Resolve ref strategy: try `origin/<ref>` first for branches, fall back to `<ref>` for tags/commits
+6. ResolutionResult separates display logic from core resolution (enables both formats)
+7. Lock file uses HashMap (not IndexMap) per domain model, but alphabetical order preserved by write_lock_file
+8. The spec implies lock file creation: "resolve" establishes the consumed state
+9. Git submodules provide the physical layer, graft.lock provides the semantic layer
+10. Test strategy: unit tests for helpers, manual end-to-end testing for git operations
+
