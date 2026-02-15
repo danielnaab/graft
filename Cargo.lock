@@ -1433,9 +1433,9 @@ dependencies = [
 name = "graft-core"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "regex",
  "serde",
+ "serde_yaml",
  "thiserror 2.0.18",
 ]
 
@@ -1445,6 +1445,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "graft-core",
+ "indexmap",
  "serde",
  "serde_yaml",
  "serde_yml",
