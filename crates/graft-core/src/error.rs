@@ -50,6 +50,9 @@ pub enum GraftError {
     #[error("lock file parse error in {path}: {reason}")]
     LockFileParse { path: String, reason: String },
 
+    #[error("dependency resolution error: {details}")]
+    Resolution { details: String },
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 

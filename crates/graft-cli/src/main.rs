@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use graft_engine::{
     filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_details,
     get_changes_for_dependency, get_dependency_status, parse_graft_yaml, parse_lock_file,
-    validate_config_schema, validate_integrity,
+    resolve_all_dependencies, validate_config_schema, validate_integrity,
 };
 use std::path::{Path, PathBuf};
 
@@ -73,6 +73,8 @@ enum Commands {
         #[arg(long, default_value = "text")]
         format: String,
     },
+    /// Resolve dependencies specified in graft.yaml
+    Resolve,
 }
 
 fn main() -> Result<()> {
@@ -100,6 +102,9 @@ fn main() -> Result<()> {
             format,
         } => {
             validate_command(config, lock, integrity, &format)?;
+        }
+        Commands::Resolve => {
+            resolve_command()?;
         }
     }
 
@@ -759,6 +764,88 @@ fn validate_command(
         } else {
             std::process::exit(1);
         }
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn resolve_command() -> Result<()> {
+    let config_path = Path::new("graft.yaml");
+
+    // Check if graft.yaml exists
+    if !config_path.exists() {
+        eprintln!("Error: graft.yaml not found in current directory");
+        std::process::exit(1);
+    }
+
+    // Parse graft.yaml
+    let config = parse_graft_yaml(config_path).context("Failed to parse graft.yaml")?;
+
+    // Display header
+    println!(
+        "Found configuration: {}",
+        config_path.canonicalize()?.display()
+    );
+    println!("API Version: {}", config.api_version);
+    println!("Dependencies: {}", config.dependencies.len());
+    println!();
+
+    // Check if there are dependencies to resolve
+    if config.dependencies.is_empty() {
+        println!("No dependencies to resolve.");
+        return Ok(());
+    }
+
+    println!("Resolving dependencies...");
+    println!();
+
+    // Resolve all dependencies
+    let deps_directory = ".graft";
+    let results = resolve_all_dependencies(&config, deps_directory);
+
+    // Display results
+    let mut succeeded = 0;
+    let mut failed = 0;
+
+    for result in &results {
+        if result.success {
+            succeeded += 1;
+            if let Some(path) = &result.local_path {
+                let absolute_path = path.canonicalize().unwrap_or_else(|_| path.clone());
+                if result.newly_cloned {
+                    println!("✓ {}: cloned to {}", result.name, absolute_path.display());
+                } else {
+                    println!("✓ {}: resolved to {}", result.name, absolute_path.display());
+                }
+            }
+        } else {
+            failed += 1;
+            if let Some(error) = &result.error {
+                eprintln!("✗ {}: {}", result.name, error);
+
+                // Provide helpful suggestions
+                if error.contains("Legacy clone detected") {
+                    eprintln!("  Suggestion: Delete the directory and re-run resolve");
+                } else if error.contains("Authentication failed")
+                    || error.contains("Could not resolve host")
+                {
+                    eprintln!("  Suggestion: Check network connectivity and SSH key configuration");
+                }
+            }
+        }
+    }
+
+    println!();
+    println!("Resolved: {succeeded}/{}", results.len());
+    println!();
+
+    // Summary message
+    if failed == 0 {
+        println!("All dependencies resolved successfully!");
+    } else {
+        eprintln!("Some dependencies failed to resolve.");
+        std::process::exit(1);
     }
 
     Ok(())

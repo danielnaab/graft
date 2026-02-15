@@ -7,6 +7,7 @@
 pub mod config;
 pub mod lock;
 pub mod query;
+pub mod resolution;
 pub mod validation;
 
 // Re-export commonly used functions
@@ -17,6 +18,7 @@ pub use query::{
     get_change_details, get_changes_for_dependency, get_dependency_status, ChangeDetails,
     DependencyStatus,
 };
+pub use resolution::{resolve_all_dependencies, resolve_dependency, ResolutionResult};
 pub use validation::{
     validate_config_schema, validate_integrity, IntegrityResult, ValidationError,
 };

@@ -1,0 +1,319 @@
+//! Dependency resolution service.
+//!
+//! Implements the flat-only resolution model: only direct dependencies
+//! declared in graft.yaml are resolved as git submodules.
+
+use graft_core::{DependencySpec, GraftConfig, GraftError};
+use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
+
+/// Result of resolving a single dependency
+#[derive(Debug, Clone)]
+pub struct ResolutionResult {
+    /// Dependency name
+    pub name: String,
+    /// Whether resolution succeeded
+    pub success: bool,
+    /// Local path where dependency was placed
+    pub local_path: Option<PathBuf>,
+    /// Error message if resolution failed
+    pub error: Option<String>,
+    /// Whether the dependency was newly cloned
+    pub newly_cloned: bool,
+}
+
+impl ResolutionResult {
+    /// Create a successful resolution result
+    #[must_use]
+    pub fn success(name: impl Into<String>, local_path: PathBuf, newly_cloned: bool) -> Self {
+        Self {
+            name: name.into(),
+            success: true,
+            local_path: Some(local_path),
+            error: None,
+            newly_cloned,
+        }
+    }
+
+    /// Create a failed resolution result
+    #[must_use]
+    pub fn failure(name: impl Into<String>, error: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            success: false,
+            local_path: None,
+            error: Some(error.into()),
+            newly_cloned: false,
+        }
+    }
+}
+
+/// Check if a path is a git submodule
+fn is_submodule(path: &Path) -> Result<bool, GraftError> {
+    let output = ProcessCommand::new("git")
+        .args(["submodule", "status", &path.display().to_string()])
+        .output()
+        .map_err(|e| GraftError::Resolution {
+            details: format!("Failed to check submodule status: {e}"),
+        })?;
+
+    Ok(output.status.success() && !output.stdout.is_empty())
+}
+
+/// Check if a path is a git repository
+fn is_repository(path: &Path) -> bool {
+    path.join(".git").exists()
+}
+
+/// Add a new git submodule
+fn add_submodule(url: &str, path: &Path) -> Result<(), GraftError> {
+    let output = ProcessCommand::new("git")
+        .args(["submodule", "add", url, &path.display().to_string()])
+        .output()
+        .map_err(|e| GraftError::Resolution {
+            details: format!("Failed to add submodule: {e}"),
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(GraftError::Resolution {
+            details: format!("git submodule add failed: {stderr}"),
+        });
+    }
+
+    Ok(())
+}
+
+/// Update existing submodule (init if needed)
+fn update_submodule(path: &Path) -> Result<(), GraftError> {
+    let output = ProcessCommand::new("git")
+        .args(["submodule", "update", "--init", &path.display().to_string()])
+        .output()
+        .map_err(|e| GraftError::Resolution {
+            details: format!("Failed to update submodule: {e}"),
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(GraftError::Resolution {
+            details: format!("git submodule update failed: {stderr}"),
+        });
+    }
+
+    Ok(())
+}
+
+/// Fetch all refs from remote
+fn fetch_all(path: &Path) -> Result<(), GraftError> {
+    let output = ProcessCommand::new("git")
+        .args(["fetch", "--all"])
+        .current_dir(path)
+        .output()
+        .map_err(|e| GraftError::Resolution {
+            details: format!("Failed to fetch: {e}"),
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(GraftError::Resolution {
+            details: format!("git fetch failed: {stderr}"),
+        });
+    }
+
+    Ok(())
+}
+
+/// Resolve a git ref to a commit hash
+fn resolve_ref(path: &Path, git_ref: &str) -> Result<String, GraftError> {
+    // Try origin/<ref> first for branches
+    let refs_to_try = vec![format!("origin/{git_ref}"), git_ref.to_string()];
+
+    for ref_name in refs_to_try {
+        let output = ProcessCommand::new("git")
+            .args(["rev-parse", &ref_name])
+            .current_dir(path)
+            .output()
+            .map_err(|e| GraftError::Resolution {
+                details: format!("Failed to resolve ref: {e}"),
+            })?;
+
+        if output.status.success() {
+            return String::from_utf8(output.stdout)
+                .map(|s| s.trim().to_string())
+                .map_err(|e| GraftError::Resolution {
+                    details: format!("Invalid UTF-8 in git output: {e}"),
+                });
+        }
+    }
+
+    Err(GraftError::Resolution {
+        details: format!("Could not resolve ref: {git_ref}"),
+    })
+}
+
+/// Get current commit hash
+fn get_current_commit(path: &Path) -> Result<String, GraftError> {
+    let output = ProcessCommand::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(path)
+        .output()
+        .map_err(|e| GraftError::Resolution {
+            details: format!("Failed to get current commit: {e}"),
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(GraftError::Resolution {
+            details: format!("git rev-parse HEAD failed: {stderr}"),
+        });
+    }
+
+    String::from_utf8(output.stdout)
+        .map(|s| s.trim().to_string())
+        .map_err(|e| GraftError::Resolution {
+            details: format!("Invalid UTF-8 in git output: {e}"),
+        })
+}
+
+/// Checkout a specific commit
+fn checkout(path: &Path, commit: &str) -> Result<(), GraftError> {
+    let output = ProcessCommand::new("git")
+        .args(["checkout", commit])
+        .current_dir(path)
+        .output()
+        .map_err(|e| GraftError::Resolution {
+            details: format!("Failed to checkout: {e}"),
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(GraftError::Resolution {
+            details: format!("git checkout failed: {stderr}"),
+        });
+    }
+
+    Ok(())
+}
+
+/// Resolve a single dependency as a git submodule
+///
+/// This implements the core resolution logic:
+/// 1. If submodule exists: fetch and checkout ref
+/// 2. If path exists but isn't submodule: error (legacy clone)
+/// 3. If path doesn't exist: add as submodule and checkout ref
+pub fn resolve_dependency(
+    spec: &DependencySpec,
+    deps_directory: &str,
+) -> Result<ResolutionResult, GraftError> {
+    let local_path = PathBuf::from(format!("{deps_directory}/{}", spec.name));
+
+    // Check if submodule already exists
+    if is_submodule(&local_path)? {
+        // Update existing submodule
+        update_submodule(&local_path)?;
+
+        // Fetch all refs
+        fetch_all(&local_path)?;
+
+        // Resolve ref to commit
+        let resolved_commit = resolve_ref(&local_path, spec.git_ref.as_str())?;
+
+        // Check if we need to checkout
+        let current_commit = get_current_commit(&local_path)?;
+        if current_commit != resolved_commit {
+            checkout(&local_path, &resolved_commit)?;
+        }
+
+        Ok(ResolutionResult::success(
+            &spec.name, local_path, false, // Not newly cloned
+        ))
+    } else if local_path.exists() {
+        // Path exists but isn't a submodule
+        if is_repository(&local_path) {
+            // Legacy clone detected
+            Err(GraftError::Resolution {
+                details: format!(
+                    "Legacy clone detected at {}. Delete it and re-run resolve: rm -rf {}",
+                    local_path.display(),
+                    local_path.display()
+                ),
+            })
+        } else {
+            Err(GraftError::Resolution {
+                details: format!(
+                    "Path exists but is not a git repository: {}",
+                    local_path.display()
+                ),
+            })
+        }
+    } else {
+        // Add new submodule
+        add_submodule(spec.git_url.as_str(), &local_path)?;
+
+        // Resolve ref to commit and checkout
+        let resolved_commit = resolve_ref(&local_path, spec.git_ref.as_str())?;
+        checkout(&local_path, &resolved_commit)?;
+
+        Ok(ResolutionResult::success(
+            &spec.name, local_path, true, // Newly cloned
+        ))
+    }
+}
+
+/// Resolve all dependencies from configuration
+///
+/// Continues on failure to attempt all dependencies.
+/// Returns results for all dependencies.
+pub fn resolve_all_dependencies(
+    config: &GraftConfig,
+    deps_directory: &str,
+) -> Vec<ResolutionResult> {
+    let mut results = Vec::new();
+
+    for spec in config.dependencies.values() {
+        let result = match resolve_dependency(spec, deps_directory) {
+            Ok(res) => res,
+            Err(e) => ResolutionResult::failure(&spec.name, e.to_string()),
+        };
+        results.push(result);
+    }
+
+    results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolution_result_success() {
+        let result = ResolutionResult::success("test-dep", PathBuf::from("/path"), true);
+        assert!(result.success);
+        assert_eq!(result.name, "test-dep");
+        assert!(result.newly_cloned);
+        assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn test_resolution_result_failure() {
+        let result = ResolutionResult::failure("test-dep", "connection failed");
+        assert!(!result.success);
+        assert_eq!(result.name, "test-dep");
+        assert!(!result.newly_cloned);
+        assert_eq!(result.error.as_deref(), Some("connection failed"));
+    }
+
+    #[test]
+    fn test_is_repository() {
+        // Repo root should be a git repo (find it by going up from current dir)
+        let mut path = std::env::current_dir().unwrap();
+        while !is_repository(&path) && path.parent().is_some() {
+            path = path.parent().unwrap().to_path_buf();
+        }
+        // At least one parent should be a git repo (or current dir is already)
+        assert!(is_repository(&path) || is_repository(Path::new(".")));
+
+        // Non-existent path should not be a repo
+        assert!(!is_repository(Path::new("/nonexistent/path")));
+    }
+}
