@@ -117,7 +117,7 @@ fn fetch_all(path: &Path) -> Result<(), GraftError> {
 }
 
 /// Resolve a git ref to a commit hash
-fn resolve_ref(path: &Path, git_ref: &str) -> Result<String, GraftError> {
+pub(crate) fn resolve_ref(path: &Path, git_ref: &str) -> Result<String, GraftError> {
     // Try origin/<ref> first for branches
     let refs_to_try = vec![format!("origin/{git_ref}"), git_ref.to_string()];
 

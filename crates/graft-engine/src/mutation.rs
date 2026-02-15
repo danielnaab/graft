@@ -7,6 +7,7 @@ use graft_core::error::{GraftError, Result};
 use std::path::Path;
 
 use crate::lock::{parse_lock_file, write_lock_file};
+use crate::resolution::resolve_ref;
 
 /// Apply a dependency version to lock file without running migrations.
 ///
@@ -138,38 +139,6 @@ fn fetch_ref(repo_path: &Path, git_ref: &str) -> Result<()> {
         Err(GraftError::Git(
             String::from_utf8_lossy(&output.stderr).to_string(),
         ))
-    }
-}
-
-/// Resolve a git ref to a commit hash.
-///
-/// Tries multiple strategies:
-/// 1. Direct resolution of ref
-/// 2. Resolution of origin/<ref> for branches
-fn resolve_ref(repo_path: &Path, git_ref: &str) -> Result<String> {
-    use std::process::Command;
-
-    // Try direct resolution first
-    let output = Command::new("git")
-        .args(["-C", repo_path.to_str().unwrap(), "rev-parse", git_ref])
-        .output()?;
-
-    if output.status.success() {
-        return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
-    }
-
-    // Try origin/<ref> for branches
-    let origin_ref = format!("origin/{git_ref}");
-    let output = Command::new("git")
-        .args(["-C", repo_path.to_str().unwrap(), "rev-parse", &origin_ref])
-        .output()?;
-
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    } else {
-        Err(GraftError::Git(format!(
-            "Could not resolve ref '{git_ref}'"
-        )))
     }
 }
 
