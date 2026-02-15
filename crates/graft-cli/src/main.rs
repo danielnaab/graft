@@ -3,10 +3,10 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use graft_engine::{
-    filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_details,
-    get_changes_for_dependency, get_dependency_status, parse_graft_yaml, parse_lock_file,
-    resolve_all_dependencies, resolve_and_create_lock, validate_config_schema, validate_integrity,
-    write_lock_file,
+    fetch_all_dependencies, fetch_dependency, filter_breaking_changes, filter_changes_by_type,
+    get_all_status, get_change_details, get_changes_for_dependency, get_dependency_status,
+    parse_graft_yaml, parse_lock_file, resolve_all_dependencies, resolve_and_create_lock,
+    sync_all_dependencies, validate_config_schema, validate_integrity, write_lock_file,
 };
 use std::path::{Path, PathBuf};
 
@@ -76,6 +76,16 @@ enum Commands {
     },
     /// Resolve dependencies specified in graft.yaml
     Resolve,
+    /// Fetch updates from remote repositories
+    Fetch {
+        /// Optional dependency name to fetch (fetches all if not specified)
+        dep_name: Option<String>,
+    },
+    /// Sync dependencies to match lock file state
+    Sync {
+        /// Optional dependency name to sync (syncs all if not specified)
+        dep_name: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -106,6 +116,12 @@ fn main() -> Result<()> {
         }
         Commands::Resolve => {
             resolve_command()?;
+        }
+        Commands::Fetch { dep_name } => {
+            fetch_command(dep_name.as_deref())?;
+        }
+        Commands::Sync { dep_name } => {
+            sync_command(dep_name.as_deref())?;
         }
     }
 
@@ -864,6 +880,161 @@ fn resolve_command() -> Result<()> {
 
     println!();
     println!("All dependencies resolved successfully!");
+
+    Ok(())
+}
+
+fn fetch_command(dep_name: Option<&str>) -> Result<()> {
+    let config_path = Path::new("graft.yaml");
+
+    // Check if graft.yaml exists
+    if !config_path.exists() {
+        eprintln!("Error: graft.yaml not found in current directory");
+        std::process::exit(1);
+    }
+
+    // Parse graft.yaml
+    let config = parse_graft_yaml(config_path).context("Failed to parse graft.yaml")?;
+
+    // Determine which dependencies to fetch
+    if let Some(name) = dep_name {
+        // Fetch specific dependency
+        if !config.dependencies.contains_key(name) {
+            eprintln!("Error: Dependency '{name}' not found in graft.yaml");
+            std::process::exit(1);
+        }
+
+        println!("Fetching {name}...");
+
+        let deps_directory = ".graft";
+        let result = fetch_dependency(name, deps_directory)?;
+
+        if result.success {
+            println!("  ✓ Fetched successfully");
+        } else if let Some(error) = result.error {
+            eprintln!("  ✗ {error}");
+            std::process::exit(1);
+        }
+    } else {
+        // Fetch all dependencies
+        if config.dependencies.is_empty() {
+            println!("No dependencies to fetch.");
+            return Ok(());
+        }
+
+        println!("Fetching all dependencies...");
+        println!();
+
+        let deps_directory = ".graft";
+        let results = fetch_all_dependencies(&config, deps_directory);
+
+        let mut success_count = 0;
+        let mut error_count = 0;
+
+        for result in &results {
+            if result.success {
+                success_count += 1;
+                println!("  ✓ {}: fetched successfully", result.name);
+            } else if let Some(error) = &result.error {
+                error_count += 1;
+                eprintln!("  ✗ {}: {error}", result.name);
+            }
+        }
+
+        println!();
+
+        if error_count == 0 {
+            let dep_word = if success_count == 1 {
+                "dependency"
+            } else {
+                "dependencies"
+            };
+            println!("✓ Successfully fetched {success_count} {dep_word}");
+        } else {
+            let error_word = if error_count == 1 { "error" } else { "errors" };
+            println!("Fetched {success_count}, {error_count} {error_word}");
+            if error_count > 0 && success_count == 0 {
+                std::process::exit(1);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn sync_command(dep_name: Option<&str>) -> Result<()> {
+    let lock_path = Path::new("graft.lock");
+
+    // Check if lock file exists
+    if !lock_path.exists() {
+        eprintln!("Error: graft.lock not found");
+        eprintln!("Run 'graft resolve' to create the lock file.");
+        std::process::exit(1);
+    }
+
+    // Parse lock file
+    let lock_file = parse_lock_file(lock_path).context("Failed to read graft.lock")?;
+
+    if lock_file.dependencies.is_empty() {
+        println!("No dependencies in lock file.");
+        return Ok(());
+    }
+
+    let deps_directory = ".graft";
+
+    if let Some(name) = dep_name {
+        // Sync specific dependency
+        if let Some(entry) = lock_file.dependencies.get(name) {
+            println!("Syncing {name}...");
+
+            let result = graft_engine::sync_dependency(name, entry, deps_directory)?;
+
+            if result.success {
+                println!("  ✓ {}", result.message);
+            } else {
+                eprintln!("  ✗ {}", result.message);
+                std::process::exit(1);
+            }
+        } else {
+            eprintln!("Error: Dependency '{name}' not found in graft.lock");
+            std::process::exit(1);
+        }
+    } else {
+        // Sync all dependencies
+        println!("Syncing dependencies to lock file...");
+        println!();
+
+        let results = sync_all_dependencies(&lock_file, deps_directory);
+
+        let mut success_count = 0;
+        let total = results.len();
+
+        for result in &results {
+            if result.success {
+                success_count += 1;
+                if result.action == "up_to_date" {
+                    // Print in dimmed color for "already at correct state"
+                    println!("  ✓ {}: {}", result.name, result.message);
+                } else {
+                    // Normal bright color for actual changes
+                    println!("  ✓ {}: {}", result.name, result.message);
+                }
+            } else {
+                eprintln!("  ✗ {}: {}", result.name, result.message);
+            }
+        }
+
+        println!();
+
+        if success_count == total {
+            println!("Synced: {success_count}/{total} dependencies");
+        } else {
+            let failed = total - success_count;
+            println!("Synced: {success_count}/{total} dependencies ({failed} failed)");
+            std::process::exit(1);
+        }
+    }
 
     Ok(())
 }

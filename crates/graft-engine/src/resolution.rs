@@ -362,3 +362,228 @@ pub fn resolve_and_create_lock(
         dependencies: lock_entries,
     })
 }
+
+/// Result of fetching a single dependency
+#[derive(Debug, Clone)]
+pub struct FetchResult {
+    /// Dependency name
+    pub name: String,
+    /// Whether fetch succeeded
+    pub success: bool,
+    /// Error message if fetch failed
+    pub error: Option<String>,
+}
+
+impl FetchResult {
+    /// Create a successful fetch result
+    #[must_use]
+    pub fn success(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            success: true,
+            error: None,
+        }
+    }
+
+    /// Create a failed fetch result
+    #[must_use]
+    pub fn failure(name: impl Into<String>, error: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            success: false,
+            error: Some(error.into()),
+        }
+    }
+}
+
+/// Fetch a single dependency's remote state
+///
+/// Updates the local cache of remote refs without modifying the checked-out commit.
+pub fn fetch_dependency(name: &str, deps_directory: &str) -> Result<FetchResult, GraftError> {
+    let local_path = PathBuf::from(format!("{deps_directory}/{name}"));
+
+    // Check if dependency exists
+    if !local_path.exists() {
+        return Ok(FetchResult::failure(
+            name,
+            "not cloned (run 'graft resolve')",
+        ));
+    }
+
+    // Check if it's a git repository
+    if !is_repository(&local_path) {
+        return Ok(FetchResult::failure(name, "not a git repository"));
+    }
+
+    // Fetch from remote
+    fetch_all(&local_path)?;
+
+    Ok(FetchResult::success(name))
+}
+
+/// Fetch all dependencies from configuration
+///
+/// Continues on failure to attempt all dependencies.
+pub fn fetch_all_dependencies(config: &GraftConfig, deps_directory: &str) -> Vec<FetchResult> {
+    let mut results = Vec::new();
+
+    for name in config.dependencies.keys() {
+        let result = match fetch_dependency(name, deps_directory) {
+            Ok(res) => res,
+            Err(e) => FetchResult::failure(name, e.to_string()),
+        };
+        results.push(result);
+    }
+
+    results
+}
+
+/// Result of syncing a single dependency
+#[derive(Debug, Clone)]
+pub struct SyncResult {
+    /// Dependency name
+    pub name: String,
+    /// Whether sync succeeded
+    pub success: bool,
+    /// Action taken: "cloned", "`checked_out`", "`up_to_date`"
+    pub action: String,
+    /// Human-readable message
+    pub message: String,
+}
+
+impl SyncResult {
+    /// Create a successful sync result
+    #[must_use]
+    pub fn success(
+        name: impl Into<String>,
+        action: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            success: true,
+            action: action.into(),
+            message: message.into(),
+        }
+    }
+
+    /// Create a failed sync result
+    #[must_use]
+    pub fn failure(name: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            success: false,
+            action: "failed".to_string(),
+            message: message.into(),
+        }
+    }
+}
+
+/// Sync a single dependency to match lock file state
+///
+/// Ensures the dependency exists and is checked out to the commit
+/// specified in the lock file.
+pub fn sync_dependency(
+    name: &str,
+    entry: &LockEntry,
+    deps_directory: &str,
+) -> Result<SyncResult, GraftError> {
+    let local_path = PathBuf::from(format!("{deps_directory}/{name}"));
+
+    // Check if it's a submodule
+    if is_submodule(&local_path)? {
+        // Update submodule (init if needed)
+        update_submodule(&local_path)?;
+
+        // Get current commit
+        let current_commit = get_current_commit(&local_path)?;
+
+        // Check if already at correct commit
+        if current_commit == entry.commit.as_str() {
+            return Ok(SyncResult::success(
+                name,
+                "up_to_date",
+                format!("Already at {}", &entry.commit.as_str()[..7]),
+            ));
+        }
+
+        // Checkout the locked commit
+        checkout(&local_path, entry.commit.as_str())?;
+
+        Ok(SyncResult::success(
+            name,
+            "checked_out",
+            format!("Checked out to {}", &entry.commit.as_str()[..7]),
+        ))
+    } else if local_path.exists() {
+        // Path exists but isn't a submodule
+        if is_repository(&local_path) {
+            // Legacy clone - sync it but warn
+            let current_commit = get_current_commit(&local_path)?;
+
+            if current_commit == entry.commit.as_str() {
+                return Ok(SyncResult::success(
+                    name,
+                    "up_to_date",
+                    format!(
+                        "Already at {} (legacy clone - delete and re-resolve)",
+                        &entry.commit.as_str()[..7]
+                    ),
+                ));
+            }
+
+            // Fetch and checkout
+            fetch_all(&local_path)?;
+            checkout(&local_path, entry.commit.as_str())?;
+
+            Ok(SyncResult::success(
+                name,
+                "checked_out",
+                format!(
+                    "Checked out {} (legacy clone - delete and re-resolve)",
+                    &entry.commit.as_str()[..7]
+                ),
+            ))
+        } else {
+            Ok(SyncResult::failure(
+                name,
+                format!(
+                    "Path exists but is not a git repository: {}",
+                    local_path.display()
+                ),
+            ))
+        }
+    } else {
+        // Dependency doesn't exist - add as submodule
+        add_submodule(entry.source.as_str(), &local_path)?;
+
+        // Checkout the exact commit
+        checkout(&local_path, entry.commit.as_str())?;
+
+        Ok(SyncResult::success(
+            name,
+            "cloned",
+            format!(
+                "Added submodule and checked out {}",
+                &entry.commit.as_str()[..7]
+            ),
+        ))
+    }
+}
+
+/// Sync all dependencies to match lock file state
+///
+/// Continues on failure to attempt all dependencies.
+pub fn sync_all_dependencies(lock_file: &LockFile, deps_directory: &str) -> Vec<SyncResult> {
+    let mut results = Vec::new();
+
+    for (name, entry) in &lock_file.dependencies {
+        let result = match sync_dependency(name, entry, deps_directory) {
+            Ok(res) => res,
+            Err(e) => SyncResult::failure(name, e.to_string()),
+        };
+        results.push(result);
+    }
+
+    results
+}

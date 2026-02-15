@@ -19,7 +19,9 @@ pub use query::{
     DependencyStatus,
 };
 pub use resolution::{
-    resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, ResolutionResult,
+    fetch_all_dependencies, fetch_dependency, resolve_all_dependencies, resolve_and_create_lock,
+    resolve_dependency, sync_all_dependencies, sync_dependency, FetchResult, ResolutionResult,
+    SyncResult,
 };
 pub use validation::{
     validate_config_schema, validate_integrity, IntegrityResult, ValidationError,
