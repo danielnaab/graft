@@ -42,9 +42,9 @@ If verification fails, fix the issues before proceeding. Do not mark a task comp
 
 ## Step 6: Commit implementation
 
-Commit your changes: `git add <specific files> && git commit -m "feat(graft): <description>"`
+Commit your implementation changes: `git add <specific files> && git commit -m "feat(graft): <description>"`
 
-Include plan.md and progress.md in the commit.
+Do NOT include plan.md or progress.md yet — those will be updated and committed in Step 9.
 
 ## Step 7: Self-critique
 
@@ -87,4 +87,6 @@ Append an entry to `notes/2026-02-15-rust-rewrite/progress.md` with this format:
 
 If you discovered a pattern that applies across tasks (not just this one), also add it to the "Consolidated Patterns" section at the top of progress.md.
 
-Commit the final plan.md and progress.md updates.
+**Commit the updated plan.md and progress.md**: `git add notes/2026-02-15-rust-rewrite/plan.md notes/2026-02-15-rust-rewrite/progress.md && git commit -m "docs: Update plan.md and progress.md for <task title> completion"`
+
+This ensures each task ends with a commit marking its completion, making it clear where each task boundary is in the git history.
