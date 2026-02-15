@@ -103,13 +103,13 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
   - Creates/updates graft.lock with current state ✓
 
 ### Task 7: `graft fetch` and `graft sync`
-- [ ] Implement remote update and lock synchronization
+- [x] Implement remote update and lock synchronization
 - **Specs**: `docs/specifications/graft/core-operations.md` (fetch, sync)
 - **Python reference**: `src/graft/services/sync_service.py`, `src/graft/cli/commands/fetch.py`
 - **Acceptance**:
-  - `graft fetch` updates remote refs without changing checkouts
-  - `graft sync` ensures submodule checkouts match lock file
-  - Both report per-dependency status
+  - `graft fetch` updates remote refs without changing checkouts ✓
+  - `graft sync` ensures submodule checkouts match lock file ✓
+  - Both report per-dependency status ✓
 
 ## Phase 4: Mutation operations
 

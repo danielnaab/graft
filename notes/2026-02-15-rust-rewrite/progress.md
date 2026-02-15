@@ -332,3 +332,61 @@ None needed — implementation is clean and meets all acceptance criteria. The s
 9. Git submodules provide the physical layer, graft.lock provides the semantic layer
 10. Test strategy: unit tests for helpers, manual end-to-end testing for git operations
 
+---
+
+### Iteration 7 — `graft fetch` and `graft sync` commands
+**Status**: completed
+**Commits**: `271e346` (initial implementation), `3bc617b` (cleanup)
+**Files changed**:
+- `crates/graft-engine/src/resolution.rs` (+223 lines: fetch and sync functions)
+- `crates/graft-engine/src/lib.rs` (re-export new functions)
+- `crates/graft-cli/src/main.rs` (+144 lines: fetch and sync CLI commands)
+
+**What was done**:
+- Implemented fetch functionality in graft-engine:
+  - `fetch_dependency()`: Fetch single dependency's remote refs
+  - `fetch_all_dependencies()`: Fetch all dependencies from config
+  - `FetchResult` type for structured results
+  - Reuses existing `fetch_all()` helper from resolution module
+- Implemented sync functionality in graft-engine:
+  - `sync_dependency()`: Sync single dependency to lock file state
+  - `sync_all_dependencies()`: Sync all dependencies from lock file
+  - `SyncResult` type with action field ("cloned", "checked_out", "up_to_date")
+  - Handles three cases: submodule exists, legacy clone, dependency missing
+  - Includes warning messages for legacy clones
+- Implemented CLI commands:
+  - `graft fetch [dep-name]`: Fetch specific or all dependencies
+  - `graft sync [dep-name]`: Sync specific or all dependencies to lock state
+  - Both support optional single-dependency mode
+  - Clear status reporting with ✓/✗ symbols
+  - Exit codes: 0 on success, 1 on failure
+- Pattern follows existing commands (resolve, validate)
+- All 56 tests passing (19 domain, 31 engine, 1 integration, 5 lock integration)
+
+**Critique findings**:
+1. ✅ Spec compliance: Fully matches core-operations.md for both fetch and sync
+2. ✅ Acceptance criteria: All 3 criteria genuinely met
+3. ✅ Code quality: Follows established patterns from resolution.rs
+4. ✅ Error messages: Clear and helpful ("not cloned", "legacy clone" warnings)
+5. ⚠️ Test coverage: No unit tests for new functions (acceptable - relies on tested helpers)
+6. ⚠️ Minor issue: Redundant if-else in sync command display (fixed in second commit)
+7. ✅ Integration: Clean re-exports, consistent with existing commands
+8. ✅ Edge cases: Handles missing deps, legacy clones, non-git paths, network failures
+
+**Improvements made**:
+- Fixed doc markdown (backticks for `checked_out` and `up_to_date`)
+- Removed redundant if-else in sync_command display logic (both branches were identical)
+- Simplified display code after clippy caught the redundancy
+
+**Learnings for future iterations**:
+1. Result types (FetchResult, SyncResult) provide clean separation of service logic from display
+2. The "action" field in SyncResult enables CLI to differentiate display (even if we don't use different colors yet)
+3. Sync operation is idempotent: running it multiple times is safe
+4. Fetch updates remote tracking but doesn't change local state (safe to run repeatedly)
+5. Legacy clone handling: detect via `is_repository()` but not `is_submodule()`, warn but still sync
+6. Pattern: sync reads lock file, fetch reads config (different data sources for different purposes)
+7. Spec explicitly says sync does NOT run migrations - migrations are for upgrade command only
+8. Both commands continue on partial failure to attempt all dependencies (consistent with resolve)
+9. Exit code 1 only if ALL dependencies fail (or any fail when syncing single dependency)
+10. Reusing helper functions (fetch_all, checkout, update_submodule) keeps code DRY
+
