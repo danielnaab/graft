@@ -188,8 +188,9 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
   - Tests pass in CI ✓
 
 ### Task 14: Parity verification and documentation
-- [ ] Verify output parity with Python CLI and update docs
+- [x] Verify output parity with Python CLI and update docs
 - **Acceptance**:
-  - `cargo run -p graft-cli -- status` and `uv run python -m graft status` produce equivalent output
-  - AGENTS.md and CLAUDE.md reflect Rust graft verification commands
-  - Any spec gaps discovered during implementation are documented above
+  - `cargo run -p graft-cli -- status` and `uv run python -m graft status` produce equivalent output ✓
+  - AGENTS.md and CLAUDE.md reflect Rust graft verification commands ✓
+  - Any spec gaps discovered during implementation are documented above ✓
+  - Comprehensive parity verification document created at `notes/2026-02-15-rust-rewrite/parity-verification.md` ✓
