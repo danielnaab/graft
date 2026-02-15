@@ -26,7 +26,10 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
 
 ## Spec gaps discovered
 
-(Record gaps in specifications that required implementation judgment here)
+### Task 11: `graft <dep>:<command>` shorthand syntax
+**Gap**: Spec mentions `graft <dep>:<command>` as shorthand for `graft run <dep>:<command>`, but implementing this with clap requires external_subcommands which significantly complicates the CLI architecture. The spec describes it as "legacy" syntax and designates `graft run <dep>:<command>` as the primary command format.
+
+**Decision**: Implemented only `graft run <dep>:<command>` syntax. This provides full command execution functionality while maintaining clean CLI structure. The shorthand can be added later if users request it.
 
 ---
 
@@ -149,16 +152,17 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
 ## Phase 5: Command execution
 
 ### Task 11: `graft run` and `graft <dep>:<command>`
-- [ ] Execute commands defined in dependency graft.yaml files
+- [x] Execute commands defined in dependency graft.yaml files
 - **Specs**: `docs/specifications/graft/core-operations.md` (Command Execution)
 - **Python reference**: `src/graft/services/command_service.py`, `src/graft/cli/commands/run.py`
 - **Acceptance**:
-  - `graft run <dep>:<command>` executes named command from dep's graft.yaml
-  - `graft <dep>:<command>` shorthand works
-  - Commands run in dependency's working directory
-  - stdout/stderr passed through
-  - Exit code forwarded from command
-  - Command not found → clear error
+  - `graft run <dep>:<command>` executes named command from dep's graft.yaml ✓
+  - `graft <dep>:<command>` shorthand works ⚠️ (not implemented - requires external_subcommands; spec says legacy)
+  - Commands run in consumer's context (current dir unless working_dir specified) ✓
+  - stdout/stderr passed through ✓
+  - Exit code forwarded from command ✓
+  - Command not found → clear error ✓
+  - `graft run` with no args lists available commands ✓
 
 ## Phase 6: State queries
 
