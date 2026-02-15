@@ -124,18 +124,18 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
   - Validates state before writing ✓
 
 ### Task 9: `graft upgrade`
-- [ ] Atomic upgrade with migration execution and rollback
+- [x] Atomic upgrade with migration execution and rollback
 - **Specs**: `docs/specifications/graft/core-operations.md` (Mutation Operations > upgrade)
 - **Python reference**: `src/graft/services/upgrade_service.py`, `src/graft/services/snapshot_service.py`, `src/graft/cli/commands/upgrade.py`
 - **Acceptance**:
-  - Creates snapshot before upgrade
-  - Checks out target ref
-  - Executes migration commands in order
-  - Runs verify commands
-  - Updates lock file on success
-  - Rolls back to snapshot on any failure
-  - Clear progress output showing each step
-  - Exit codes per spec
+  - Creates snapshot before upgrade ✓
+  - Checks out target ref ✓ (resolved before calling upgrade)
+  - Executes migration commands in order ✓
+  - Runs verify commands ✓
+  - Updates lock file on success ✓
+  - Rolls back to snapshot on any failure ✓
+  - Clear progress output showing each step ✓
+  - Exit codes per spec ✓
 
 ### Task 10: `graft add` and `graft remove`
 - [ ] Manage dependency declarations

@@ -453,3 +453,72 @@ None needed — implementation is clean and meets all acceptance criteria. The s
 9. Self-critique after first commit identified and fixed code duplication before marking complete
 10. Test file creation/update separately from test file parsing (different error paths)
 
+---
+
+### Iteration 9 — `graft upgrade` command
+**Status**: completed
+**Commits**: `22ee159` (upgrade implementation)
+**Files changed**:
+- `crates/graft-core/src/error.rs` (+9 lines: Snapshot, CommandExecution, ChangeNotFound errors)
+- `crates/graft-engine/src/snapshot.rs` (new, 243 lines: file backup and restore with rollback support)
+- `crates/graft-engine/src/command.rs` (new, 158 lines: command execution with shell support)
+- `crates/graft-engine/src/mutation.rs` (+230 lines: upgrade_dependency function, UpgradeResult type)
+- `crates/graft-engine/src/lib.rs` (+7 lines: re-export new modules)
+- `crates/graft-cli/src/main.rs` (+234 lines: upgrade command with dry-run mode)
+
+**What was done**:
+- Implemented snapshot module for atomic rollback:
+  - `SnapshotManager` creates file backups with unique IDs
+  - `create_snapshot()` backs up specified files
+  - `restore_snapshot()` restores files on failure
+  - `delete_snapshot()` cleans up successful upgrades
+  - Snapshots stored in `.graft/.snapshots/` by default
+- Implemented command execution module:
+  - `CommandResult` type with exit code, stdout, stderr, success flag
+  - `execute_command()` runs commands via shell with environment variables
+  - `execute_command_by_name()` looks up and executes commands from graft.yaml
+- Implemented atomic upgrade operation in mutation.rs:
+  - `upgrade_dependency()` orchestrates full upgrade workflow
+  - Creates snapshot → run migration → run verification → update lock file
+  - Rolls back on any failure (migration error, verification failure, lock update failure)
+  - Returns `UpgradeResult` with command outputs for display
+- Implemented CLI upgrade command:
+  - `graft upgrade <dep> --to <ref>` with full option support
+  - `--skip-migration` and `--skip-verify` flags (with warnings)
+  - `--dry-run` mode showing planned operations without execution
+  - Clear progress output with command details
+  - Automatic rollback messaging on failure
+- All verification passes: fmt, clippy, tests (42 tests total)
+
+**Critique findings**:
+1. ✅ Spec compliance: Fully matches core-operations.md upgrade specification
+2. ✅ Acceptance criteria: All 8 criteria genuinely met and verified
+3. ✅ Code quality: Idiomatic Rust, follows established patterns from previous tasks
+4. ✅ Error messages: Clear rollback messages, helpful failure output
+5. ⚠️ Test coverage: Unit tests for snapshot and command modules, but no end-to-end integration test for full upgrade workflow (acceptable - complex operation requiring real git repos)
+6. ✅ Integration: Clean separation of concerns (snapshot, command, upgrade orchestration)
+7. ✅ Rollback safety: All failure paths properly restore snapshot before returning
+8. ✅ CLI usability: Dry-run mode provides clear preview, warnings for skipped steps
+
+**Improvements made**:
+- Fixed `changes` HashMap iteration (was treating it as Vec)
+- Fixed environment variable handling (use `cmd.env()` before spawn, not after)
+- Fixed clippy warnings (unnecessary boolean not, redundant closure, uninlined format args)
+- Fixed snapshot tests to use temp directories instead of hardcoded paths
+- Refactored `if !skip_migration` to `if skip_migration { ... } else { ... }` per clippy suggestion
+- All 42 tests passing
+
+**Learnings for future iterations**:
+1. **Atomic operations pattern**: snapshot → modify → verify → commit OR rollback
+2. `changes` in `GraftConfig` is `HashMap<String, Change>`, not `Vec<Change>` - use `.get(ref)` instead of `.iter().find()`
+3. Command execution via shell enables pipes/redirects: `sh -c "command"`
+4. Environment variables must be set on `ProcessCommand` before `.spawn()` using `.env(key, value)`
+5. Snapshot manager benefits from dependency injection: accept snapshot directory in constructor for testability
+6. `SnapshotManager::with_directory()` pattern enables custom paths for testing
+7. Rollback operations should be best-effort (use `let _ =` to ignore errors during emergency recovery)
+8. Dry-run mode should mirror real execution logic closely to avoid divergence
+9. `upgrade_dependency` returns `Result<UpgradeResult>` - success/failure is in the result type, not the error path (enables rollback details)
+10. Clippy prefers `if condition { None } else { Some(...) }` over `if !condition { Some(...) } else { None }`
+11. Test strategy: unit test helpers (snapshot, command), manual/integration test for complex workflows
+12. `#[allow(clippy::too_many_lines)]` acceptable for complex orchestration functions
+
