@@ -3,6 +3,7 @@
 //! Implements the flat-only resolution model: only direct dependencies
 //! declared in graft.yaml are resolved as git submodules.
 
+use graft_core::domain::{CommitHash, LockEntry, LockFile};
 use graft_core::{DependencySpec, GraftConfig, GraftError};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
@@ -316,4 +317,48 @@ mod tests {
         // Non-existent path should not be a repo
         assert!(!is_repository(Path::new("/nonexistent/path")));
     }
+}
+
+/// Resolve all dependencies and create a lock file
+///
+/// This combines resolution with lock file creation, ensuring that
+/// the lock file accurately reflects the resolved state of all dependencies.
+///
+/// Returns the lock file on success, or an error if any dependency fails to resolve.
+pub fn resolve_and_create_lock(
+    config: &GraftConfig,
+    deps_directory: &str,
+) -> Result<LockFile, GraftError> {
+    use std::collections::HashMap;
+
+    let mut lock_entries = HashMap::new();
+
+    // Get current timestamp in ISO 8601 format
+    let consumed_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+    for spec in config.dependencies.values() {
+        let local_path = PathBuf::from(format!("{deps_directory}/{}", spec.name));
+
+        // Resolve the dependency (will error if resolution fails)
+        let _result = resolve_dependency(spec, deps_directory)?;
+
+        // Get the current commit hash
+        let commit_str = get_current_commit(&local_path)?;
+        let commit = CommitHash::new(commit_str)?;
+
+        // Create lock entry
+        let lock_entry = LockEntry {
+            source: spec.git_url.clone(),
+            git_ref: spec.git_ref.clone(),
+            commit,
+            consumed_at: consumed_at.clone(),
+        };
+
+        lock_entries.insert(spec.name.clone(), lock_entry);
+    }
+
+    Ok(LockFile {
+        api_version: config.api_version.clone(),
+        dependencies: lock_entries,
+    })
 }

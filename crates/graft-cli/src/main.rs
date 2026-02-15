@@ -5,7 +5,8 @@ use clap::{Parser, Subcommand};
 use graft_engine::{
     filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_details,
     get_changes_for_dependency, get_dependency_status, parse_graft_yaml, parse_lock_file,
-    resolve_all_dependencies, validate_config_schema, validate_integrity,
+    resolve_all_dependencies, resolve_and_create_lock, validate_config_schema, validate_integrity,
+    write_lock_file,
 };
 use std::path::{Path, PathBuf};
 
@@ -800,11 +801,11 @@ fn resolve_command() -> Result<()> {
     println!("Resolving dependencies...");
     println!();
 
-    // Resolve all dependencies
+    // Resolve all dependencies and get their status for display
     let deps_directory = ".graft";
     let results = resolve_all_dependencies(&config, deps_directory);
 
-    // Display results
+    // Display resolution results
     let mut succeeded = 0;
     let mut failed = 0;
 
@@ -838,15 +839,31 @@ fn resolve_command() -> Result<()> {
 
     println!();
     println!("Resolved: {succeeded}/{}", results.len());
-    println!();
 
-    // Summary message
-    if failed == 0 {
-        println!("All dependencies resolved successfully!");
-    } else {
-        eprintln!("Some dependencies failed to resolve.");
+    // Exit early if any dependencies failed
+    if failed > 0 {
+        eprintln!("\nSome dependencies failed to resolve.");
         std::process::exit(1);
     }
+
+    // Create/update lock file
+    println!();
+    println!("Updating lock file...");
+
+    match resolve_and_create_lock(&config, deps_directory) {
+        Ok(lock_file) => {
+            let lock_path = Path::new("graft.lock");
+            write_lock_file(lock_path, &lock_file).context("Failed to write graft.lock")?;
+            println!("✓ graft.lock updated");
+        }
+        Err(e) => {
+            eprintln!("✗ Failed to create lock file: {e}");
+            std::process::exit(1);
+        }
+    }
+
+    println!();
+    println!("All dependencies resolved successfully!");
 
     Ok(())
 }
