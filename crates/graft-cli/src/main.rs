@@ -139,6 +139,15 @@ enum Commands {
         #[arg(long)]
         keep_files: bool,
     },
+    /// Execute a command from graft.yaml
+    Run {
+        /// Command name or dep:command (e.g., "test" or "meta-kb:migrate")
+        command: Option<String>,
+
+        /// Arguments to pass to the command
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -197,6 +206,9 @@ fn main() -> Result<()> {
         }
         Commands::Remove { name, keep_files } => {
             remove_command(&name, keep_files)?;
+        }
+        Commands::Run { command, args } => {
+            run_command(command.as_deref(), &args)?;
         }
     }
 
@@ -1498,6 +1510,277 @@ fn remove_command(name: &str, keep_files: bool) -> Result<()> {
 
     println!();
     println!("Dependency removed successfully!");
+
+    Ok(())
+}
+
+/// Find graft.yaml by searching current directory and parent directories.
+fn find_graft_yaml() -> Option<PathBuf> {
+    let mut current = std::env::current_dir().ok()?;
+
+    loop {
+        let candidate = current.join("graft.yaml");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+
+        // Move to parent directory
+        if !current.pop() {
+            break;
+        }
+    }
+
+    None
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_command(command_name: Option<&str>, args: &[String]) -> Result<()> {
+    // No command specified - list available commands
+    let Some(command_name) = command_name else {
+        let Some(config_path) = find_graft_yaml() else {
+            eprintln!("Error: No graft.yaml found in current directory or parent directories");
+            std::process::exit(1);
+        };
+
+        let config = parse_graft_yaml(&config_path)
+            .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+
+        if config.commands.is_empty() {
+            println!("No commands defined in {}", config_path.display());
+            return Ok(());
+        }
+
+        println!("\nAvailable commands in {}:\n", config_path.display());
+
+        // Find longest command name for alignment
+        let max_name_len = config.commands.keys().map(String::len).max().unwrap_or(0);
+
+        for (name, command) in &config.commands {
+            let description = command.description.as_deref().unwrap_or("");
+            println!("  {name:<max_name_len$}  {description}");
+        }
+
+        println!("\nUse: graft run <command-name>");
+        return Ok(());
+    };
+
+    // Check if command contains ':' (dependency command)
+    if let Some((dep_name, cmd_name)) = command_name.split_once(':') {
+        if dep_name.is_empty() || cmd_name.is_empty() {
+            bail!("Error: Invalid command format: '{command_name}'\n  Expected format: <dependency>:<command>");
+        }
+
+        run_dependency_command(dep_name, cmd_name, args)?;
+    } else {
+        // Execute from current repo
+        run_current_repo_command(command_name, args)?;
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_current_repo_command(command_name: &str, args: &[String]) -> Result<()> {
+    // Find graft.yaml
+    let Some(graft_yaml_path) = find_graft_yaml() else {
+        eprintln!("Error: No graft.yaml found in current directory or parent directories");
+        std::process::exit(1);
+    };
+
+    // Parse graft.yaml
+    let config =
+        parse_graft_yaml(&graft_yaml_path).context("Failed to parse current repo graft.yaml")?;
+
+    // Check if command exists
+    let Some(cmd) = config.commands.get(command_name) else {
+        eprintln!(
+            "Error: Command '{command_name}' not found in {}",
+            graft_yaml_path.display()
+        );
+
+        if config.commands.is_empty() {
+            eprintln!("  No commands defined in graft.yaml");
+        } else {
+            eprintln!("\nAvailable commands:");
+            for (name, command) in &config.commands {
+                let desc = command.description.as_deref().unwrap_or("");
+                eprintln!("  {name}  {desc}");
+            }
+        }
+
+        std::process::exit(1);
+    };
+
+    // Display what we're running
+    println!("\nExecuting: {command_name}");
+    if let Some(desc) = &cmd.description {
+        println!("  {desc}");
+    }
+    println!("  Command: {}", cmd.run);
+    if !args.is_empty() {
+        println!("  Arguments: {}", args.join(" "));
+    }
+    if let Some(ref wd) = cmd.working_dir {
+        println!("  Working directory: {wd}");
+    }
+    println!();
+
+    // Determine working directory relative to graft.yaml's location
+    let base_dir = graft_yaml_path.parent().unwrap_or(Path::new("."));
+    let working_dir = if let Some(ref cmd_dir) = cmd.working_dir {
+        base_dir.join(cmd_dir)
+    } else {
+        base_dir.to_path_buf()
+    };
+
+    // Validate working directory exists
+    if !working_dir.exists() {
+        eprintln!(
+            "Error: Working directory does not exist: {}",
+            working_dir.display()
+        );
+        std::process::exit(1);
+    }
+
+    // Build full command with args
+    let full_command = if args.is_empty() {
+        cmd.run.clone()
+    } else {
+        format!("{} {}", cmd.run, args.join(" "))
+    };
+
+    // Set up environment variables
+    let mut process_cmd = std::process::Command::new("sh");
+    process_cmd
+        .arg("-c")
+        .arg(&full_command)
+        .current_dir(&working_dir);
+
+    // Add environment variables if specified
+    if let Some(env_vars) = &cmd.env {
+        for (key, value) in env_vars {
+            process_cmd.env(key, value);
+        }
+    }
+
+    // Execute command with output streaming
+    let status = process_cmd.status().with_context(|| {
+        format!(
+            "Failed to execute command '{}' in directory '{}'",
+            cmd.run,
+            working_dir.display()
+        )
+    })?;
+
+    // Check exit code
+    if !status.success() {
+        let exit_code = status.code().unwrap_or(1);
+        println!();
+        eprintln!("✗ Command failed with exit code {exit_code}");
+        std::process::exit(exit_code);
+    }
+
+    println!();
+    println!("✓ Command completed successfully");
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_dependency_command(dep_name: &str, command_name: &str, args: &[String]) -> Result<()> {
+    // Find dependency's graft.yaml
+    let dep_path = PathBuf::from(".graft").join(dep_name).join("graft.yaml");
+
+    if !dep_path.exists() {
+        eprintln!(
+            "Error: Dependency configuration not found: {}",
+            dep_path.display()
+        );
+        eprintln!("  Suggestion: Check that {dep_name} is resolved in .graft/");
+        std::process::exit(1);
+    }
+
+    // Parse dependency's graft.yaml
+    let config = parse_graft_yaml(&dep_path)
+        .with_context(|| format!("Failed to parse {}", dep_path.display()))?;
+
+    // Check if command exists
+    let Some(cmd) = config.commands.get(command_name) else {
+        eprintln!("Error: Command '{command_name}' not found in {dep_name}/graft.yaml");
+
+        if config.commands.is_empty() {
+            eprintln!("  No commands defined in {dep_name}/graft.yaml");
+        } else {
+            let available: Vec<&str> = config.commands.keys().map(String::as_str).collect();
+            eprintln!("  Available commands: {}", available.join(", "));
+        }
+
+        std::process::exit(1);
+    };
+
+    // Display what we're running
+    println!("\nExecuting: {dep_name}:{command_name}");
+    if let Some(desc) = &cmd.description {
+        println!("  {desc}");
+    }
+    println!("  Command: {}", cmd.run);
+    if !args.is_empty() {
+        println!("  Arguments: {}", args.join(" "));
+    }
+    if let Some(ref wd) = cmd.working_dir {
+        println!("  Working directory: {wd}");
+    }
+    println!();
+
+    // Determine working directory
+    // For dependency commands, execute in consumer's context (current directory)
+    // unless command has working_dir specified
+    let working_dir = if let Some(ref cmd_dir) = cmd.working_dir {
+        PathBuf::from(cmd_dir)
+    } else {
+        PathBuf::from(".")
+    };
+
+    // Build full command with args
+    let full_command = if args.is_empty() {
+        cmd.run.clone()
+    } else {
+        format!("{} {}", cmd.run, args.join(" "))
+    };
+
+    // Set up environment variables
+    let mut process_cmd = std::process::Command::new("sh");
+    process_cmd
+        .arg("-c")
+        .arg(&full_command)
+        .current_dir(&working_dir);
+
+    // Add environment variables if specified
+    if let Some(env_vars) = &cmd.env {
+        for (key, value) in env_vars {
+            process_cmd.env(key, value);
+        }
+    }
+
+    // Execute command with output streaming
+    let status = process_cmd.status().with_context(|| {
+        format!(
+            "Failed to execute command '{}' in directory '{}'",
+            cmd.run,
+            working_dir.display()
+        )
+    })?;
+
+    // Check exit code
+    if !status.success() {
+        let exit_code = status.code().unwrap_or(1);
+        println!();
+        eprintln!("✗ Command failed with exit code {exit_code}");
+        std::process::exit(exit_code);
+    }
+
+    println!();
+    println!("✓ Command completed successfully");
 
     Ok(())
 }
