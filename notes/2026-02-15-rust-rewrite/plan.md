@@ -43,16 +43,16 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
   - `cargo test` passes for graft-core and graft-engine ✓
 
 ### Task 2: Lock file parsing and writing
-- [ ] Parse and write `graft.lock` with round-trip fidelity
+- [x] Parse and write `graft.lock` with round-trip fidelity
 - **Specs**: `docs/specifications/graft/lock-file-format.md`
 - **Python reference**: `src/graft/domain/lock.py`, `src/graft/adapters/yaml_lock.py`
 - **Acceptance**:
-  - Parses this repo's `graft.lock` (if present) successfully
-  - Round-trip: parse then write produces identical output
-  - Alphabetical ordering of dependencies on write
-  - Validates commit hash format, timestamp format, apiVersion
-  - Handles missing lock file gracefully
-  - `cargo test` passes
+  - Parses this repo's `graft.lock` (if present) successfully ✓
+  - Round-trip: parse then write produces identical output ✓
+  - Alphabetical ordering of dependencies on write ✓
+  - Validates commit hash format, timestamp format, apiVersion ✓
+  - Handles missing lock file gracefully ✓
+  - `cargo test` passes ✓
 
 ## Phase 2: Read-only operations (graft-engine, graft-cli)
 

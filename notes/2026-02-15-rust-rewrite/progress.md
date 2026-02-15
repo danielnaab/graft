@@ -76,3 +76,50 @@ None needed — implementation complete and clean on first pass.
 5. Integration tests in `tests/` dir can access repo files via `CARGO_MANIFEST_DIR`
 6. Newtype pattern + validation in constructor = compile-time safety
 
+---
+
+### Iteration 2 — Lock file parsing and writing
+**Status**: completed
+**Commit**: `fbdb523`
+**Files changed**:
+- `crates/graft-core/src/domain.rs` (+183 lines: CommitHash, LockEntry, LockFile types)
+- `crates/graft-core/src/error.rs` (+9 lines: lock-specific error variants)
+- `crates/graft-engine/src/lib.rs` (export lock module)
+- `crates/graft-engine/src/lock.rs` (new, 342 lines: parsing and writing logic)
+- `crates/graft-engine/Cargo.toml` (add indexmap dependency)
+- `crates/graft-engine/tests/test_lock_file.rs` (new, 192 lines: integration tests)
+
+**What was done**:
+- Implemented lock file domain types in graft-core:
+  - `CommitHash`: validated 40-char lowercase hex SHA-1 hash
+  - `LockEntry`: source, ref, commit, consumed_at with timestamp validation
+  - `LockFile`: top-level structure with API version validation
+- Implemented parsing and writing in graft-engine/lock.rs:
+  - `parse_lock_file()`: read from file path
+  - `parse_lock_file_str()`: parse from YAML string with flexible path parameter
+  - `write_lock_file()`: write with alphabetical ordering via IndexMap
+  - Round-trip fidelity: parse → write → parse preserves all data
+- Integration test successfully parses repo's own graft.lock (4 dependencies)
+- 40 total tests passing (19 domain, 15 lock module, 5 integration, 1 config)
+
+**Critique findings**:
+1. ✅ Spec compliance: All acceptance criteria met, matches v3 flat-only format
+2. ✅ Round-trip fidelity: Confirmed via integration test
+3. ✅ Code quality: Follows established patterns from Task 1
+4. ✅ Error handling: Clear errors for missing files, parse failures, validation
+5. ✅ Test coverage: Unit tests for all validations, integration test for real file
+6. ⚠️ Initial commit hash validation issue: Used `is_ascii_hexdigit()` which accepts uppercase; fixed to match spec's lowercase requirement
+
+**Improvements made**:
+- Fixed commit hash validation to check for lowercase hex only (`'0'..='9' | 'a'..='f'`)
+- Fixed clippy warnings: doc comments with backticks, inlined format args
+- Fixed lifetime issues in integration tests (temp PathBuf borrowing)
+
+**Learnings for future iterations**:
+1. `is_ascii_hexdigit()` accepts both upper and lower case — use explicit char ranges for lowercase-only validation
+2. Use `impl Into<String>` for flexible string parameters (accepts both `&str` and `String`)
+3. `IndexMap` preserves insertion order during serialization — use for alphabetical output
+4. PathBuf temporary lifetime issues: create binding before calling `.parent().unwrap()`
+5. Integration tests can parse repo's actual files to verify real-world compatibility
+6. Clippy `doc_markdown` lint: wrap type names in backticks in doc comments
+
