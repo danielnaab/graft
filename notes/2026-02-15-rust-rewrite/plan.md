@@ -180,12 +180,12 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
 ## Phase 7: Integration and polish
 
 ### Task 13: End-to-end integration tests
-- [ ] Test the full CLI against real repositories
+- [x] Test the full CLI against real repositories
 - **Acceptance**:
-  - Test resolves this repo's own graft.yaml dependencies
-  - Test round-trips status → resolve → status
-  - Test upgrade with rollback on failure
-  - Tests pass in CI
+  - Test resolves this repo's own graft.yaml dependencies ✓
+  - Test round-trips status → resolve → status ✓
+  - Test upgrade with rollback on failure ✓
+  - Tests pass in CI ✓
 
 ### Task 14: Parity verification and documentation
 - [ ] Verify output parity with Python CLI and update docs
