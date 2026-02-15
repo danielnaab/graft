@@ -3,11 +3,12 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use graft_engine::{
-    apply_lock, fetch_all_dependencies, fetch_dependency, filter_breaking_changes,
-    filter_changes_by_type, get_all_status, get_change_details, get_changes_for_dependency,
-    get_dependency_status, parse_graft_yaml, parse_lock_file, resolve_all_dependencies,
-    resolve_and_create_lock, sync_all_dependencies, validate_config_schema, validate_integrity,
-    write_lock_file,
+    add_dependency_to_config, apply_lock, fetch_all_dependencies, fetch_dependency,
+    filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_details,
+    get_changes_for_dependency, get_dependency_status, is_submodule, parse_graft_yaml,
+    parse_lock_file, remove_dependency_from_config, remove_dependency_from_lock, remove_submodule,
+    resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, sync_all_dependencies,
+    validate_config_schema, validate_integrity, write_lock_file,
 };
 use std::path::{Path, PathBuf};
 
@@ -117,6 +118,27 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Add a dependency to graft.yaml
+    Add {
+        /// Dependency name (used in .graft/<name>/)
+        name: String,
+
+        /// Source URL and ref in format "url#ref" (e.g., "<https://github.com/org/repo.git#main>")
+        source_ref: String,
+
+        /// Add to config only, don't resolve (clone)
+        #[arg(long)]
+        no_resolve: bool,
+    },
+    /// Remove a dependency from graft.yaml
+    Remove {
+        /// Dependency name to remove
+        name: String,
+
+        /// Keep files in .graft/<name>/ instead of deleting
+        #[arg(long)]
+        keep_files: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -165,6 +187,16 @@ fn main() -> Result<()> {
             dry_run,
         } => {
             upgrade_command(&dep_name, &to, skip_migration, skip_verify, dry_run)?;
+        }
+        Commands::Add {
+            name,
+            source_ref,
+            no_resolve,
+        } => {
+            add_command(&name, &source_ref, no_resolve)?;
+        }
+        Commands::Remove { name, keep_files } => {
+            remove_command(&name, keep_files)?;
         }
     }
 
@@ -1186,12 +1218,9 @@ fn upgrade_command(
         println!();
 
         // Get change details to show what would happen
-        let change = dep_config
-            .changes
-            .get(to)
-            .ok_or_else(|| {
-                anyhow::anyhow!("Change '{to}' not found in dependency configuration")
-            })?;
+        let change = dep_config.changes.get(to).ok_or_else(|| {
+            anyhow::anyhow!("Change '{to}' not found in dependency configuration")
+        })?;
 
         println!("Planned operations:");
         println!();
@@ -1335,6 +1364,140 @@ fn upgrade_command(
 
         std::process::exit(1);
     }
+
+    Ok(())
+}
+
+fn add_command(name: &str, source_ref: &str, no_resolve: bool) -> Result<()> {
+    let config_path = Path::new("graft.yaml");
+
+    // Parse source#ref format
+    let Some((source, git_ref)) = source_ref.rsplit_once('#') else {
+        bail!("Error: Source must include ref in format 'url#ref' (e.g., 'https://github.com/org/repo.git#main')");
+    };
+
+    if source.is_empty() {
+        bail!("Error: URL cannot be empty");
+    }
+
+    if git_ref.is_empty() {
+        bail!("Error: Ref cannot be empty");
+    }
+
+    // Check config file exists
+    if !config_path.exists() {
+        bail!("Error: graft.yaml not found. Create it first or run 'graft init'.");
+    }
+
+    println!("Adding dependency: {name}");
+    println!();
+    println!("Source: {source}");
+    println!("Ref: {git_ref}");
+    println!();
+
+    // Add to config
+    add_dependency_to_config(config_path, name, source, git_ref)
+        .context("Failed to add dependency to graft.yaml")?;
+
+    println!("✓ Added to graft.yaml");
+
+    // Optionally resolve (clone)
+    if no_resolve {
+        println!();
+        println!("Run 'graft resolve' to clone the dependency.");
+    } else {
+        // Parse config to get the dependency spec
+        let config = parse_graft_yaml(config_path).context("Failed to parse graft.yaml")?;
+
+        // Find the dependency
+        let Some(dep) = config.dependencies.get(name) else {
+            bail!("Internal error: dependency not found after adding");
+        };
+
+        // Resolve it
+        let result = resolve_dependency(dep, ".graft").context("Failed to resolve dependency")?;
+
+        if result.success {
+            let action = if result.newly_cloned {
+                "Cloned"
+            } else {
+                "Resolved"
+            };
+            println!("✓ {action} to {}", result.local_path.unwrap().display());
+
+            // Update lock file
+            let lock_path = Path::new("graft.lock");
+            let lock_file = resolve_and_create_lock(&config, ".graft")
+                .context("Failed to update graft.lock")?;
+            write_lock_file(lock_path, &lock_file).context("Failed to write graft.lock")?;
+            println!("✓ Updated graft.lock");
+        } else {
+            eprintln!(
+                "✗ {}",
+                result.error.unwrap_or_else(|| "Unknown error".to_string())
+            );
+            eprintln!();
+            eprintln!("Dependency added to graft.yaml but not resolved.");
+            eprintln!("Run 'graft resolve' to retry.");
+            std::process::exit(1);
+        }
+    }
+
+    println!();
+    println!("Dependency added successfully!");
+
+    Ok(())
+}
+
+fn remove_command(name: &str, keep_files: bool) -> Result<()> {
+    let config_path = Path::new("graft.yaml");
+    let lock_path = Path::new("graft.lock");
+    let deps_path = PathBuf::from(".graft").join(name);
+
+    // Check config file exists
+    if !config_path.exists() {
+        bail!("Error: graft.yaml not found");
+    }
+
+    println!("Removing dependency: {name}");
+    println!();
+
+    // Remove from config
+    remove_dependency_from_config(config_path, name)
+        .context("Failed to remove dependency from graft.yaml")?;
+    println!("✓ Removed from graft.yaml");
+
+    // Remove from lock file (if exists)
+    if lock_path.exists() {
+        remove_dependency_from_lock(lock_path, name)
+            .context("Failed to remove dependency from graft.lock")?;
+        println!("✓ Removed from graft.lock");
+    }
+
+    // Handle submodule/files removal
+    if deps_path.exists() {
+        if is_submodule(&deps_path) {
+            if keep_files {
+                println!("⚠ Kept submodule files in {}", deps_path.display());
+                println!("  (submodule entry still removed from .gitmodules)");
+            } else {
+                remove_submodule(&deps_path).context("Failed to remove submodule")?;
+                println!("✓ Removed submodule {}", deps_path.display());
+            }
+        } else if keep_files {
+            println!("⚠ Kept files in {} (legacy clone)", deps_path.display());
+        } else {
+            // Legacy clone - use fs::remove_dir_all
+            std::fs::remove_dir_all(&deps_path)
+                .with_context(|| format!("Failed to delete {}", deps_path.display()))?;
+            println!("✓ Deleted {}", deps_path.display());
+        }
+    } else if !keep_files {
+        println!("  (no files found at {})", deps_path.display());
+    }
+
+    println!();
+    println!("Dependency removed successfully!");
 
     Ok(())
 }

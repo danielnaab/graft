@@ -7,6 +7,7 @@
 pub mod command;
 pub mod config;
 pub mod lock;
+pub mod management;
 pub mod mutation;
 pub mod query;
 pub mod resolution;
@@ -17,6 +18,10 @@ pub mod validation;
 pub use command::{execute_command, execute_command_by_name, CommandResult};
 pub use config::parse_graft_yaml;
 pub use lock::{parse_lock_file, write_lock_file};
+pub use management::{
+    add_dependency_to_config, is_submodule, remove_dependency_from_config,
+    remove_dependency_from_lock, remove_submodule, AddResult, RemoveResult,
+};
 pub use mutation::{apply_lock, upgrade_dependency, ApplyResult, UpgradeResult};
 pub use query::{
     filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_by_ref,
