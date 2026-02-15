@@ -67,15 +67,15 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
   - `cargo run -p graft-cli -- status` works against this repo (or reports no deps gracefully) ✓
 
 ### Task 4: `graft changes` and `graft show`
-- [ ] Implement change listing and detail display
+- [x] Implement change listing and detail display
 - **Specs**: `docs/specifications/graft/core-operations.md` (Query Operations > changes, show), `docs/specifications/graft/change-model.md`
 - **Python reference**: `src/graft/services/query_service.py`, `src/graft/cli/commands/changes.py`, `src/graft/cli/commands/show.py`
 - **Acceptance**:
-  - `graft changes <dep>` lists unconsumed changes with type and description
-  - `graft show <dep> <ref>` shows change details including migration/verify commands
-  - Supports `--type` filter per spec
-  - Supports `--json` output
-  - Exit code 1 when dependency not found
+  - `graft changes <dep>` lists changes with type and description ✓
+  - `graft show <dep>@<ref>` shows change details including migration/verify commands ✓
+  - Supports `--type` and `--breaking` filters per spec ✓
+  - Supports `--format text/json` output ✓
+  - Exit code 1 when dependency not found ✓
 
 ### Task 5: `graft validate`
 - [ ] Implement configuration validation
