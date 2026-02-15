@@ -108,7 +108,11 @@ impl RepoDetailProvider for MockDetailProvider {
 // Test 1: Keybinding handling - quit keys
 #[test]
 fn handles_quit_with_q_key() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     assert!(!app.should_quit, "Should not quit initially");
 
     app.handle_key(KeyCode::Char('q'));
@@ -117,7 +121,11 @@ fn handles_quit_with_q_key() {
 
 #[test]
 fn handles_quit_with_esc_key() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     assert!(!app.should_quit, "Should not quit initially");
 
     app.handle_key(KeyCode::Esc);
@@ -127,7 +135,11 @@ fn handles_quit_with_esc_key() {
 // Test 2: Navigation with empty list doesn't panic
 #[test]
 fn navigation_with_empty_list_does_not_panic() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
 
     // These should not panic even with empty list
     app.next();
@@ -143,7 +155,11 @@ fn navigation_with_empty_list_does_not_panic() {
 // Test 3: Navigation wraps at boundaries
 #[test]
 fn navigation_wraps_from_last_to_first() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
 
     // Start at last item (index 2)
     app.list_state.select(Some(2));
@@ -159,7 +175,11 @@ fn navigation_wraps_from_last_to_first() {
 
 #[test]
 fn navigation_wraps_from_first_to_last() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
 
     // Start at first item (index 0)
     app.list_state.select(Some(0));
@@ -175,7 +195,11 @@ fn navigation_wraps_from_first_to_last() {
 
 #[test]
 fn navigation_moves_down_normally() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
 
     app.list_state.select(Some(0));
     app.next();
@@ -187,7 +211,11 @@ fn navigation_moves_down_normally() {
 
 #[test]
 fn navigation_moves_up_normally() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
 
     app.list_state.select(Some(2));
     app.previous();
@@ -306,7 +334,11 @@ fn formats_loading_state() {
 // Test 8: Keybinding ignores unknown keys
 #[test]
 fn ignores_unknown_keybindings() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.list_state.select(Some(1));
 
     // Press unknown keys
@@ -326,7 +358,11 @@ fn ignores_unknown_keybindings() {
 // Test 9: j/k vim-style navigation
 #[test]
 fn handles_vim_style_navigation() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.list_state.select(Some(0));
 
     // Press j (vim down)
@@ -340,7 +376,11 @@ fn handles_vim_style_navigation() {
 
 #[test]
 fn handles_arrow_key_navigation() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.list_state.select(Some(0));
 
     // Press Down arrow
@@ -404,27 +444,43 @@ fn shows_nonzero_ahead_behind_counts() {
 // Focus management tests
 #[test]
 fn starts_with_repo_list_focused() {
-    let app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     assert_eq!(app.active_pane, ActivePane::RepoList);
 }
 
 #[test]
 fn enter_switches_to_detail_pane() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.handle_key(KeyCode::Enter);
     assert_eq!(app.active_pane, ActivePane::Detail);
 }
 
 #[test]
 fn tab_switches_to_detail_pane() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.handle_key(KeyCode::Tab);
     assert_eq!(app.active_pane, ActivePane::Detail);
 }
 
 #[test]
 fn q_in_detail_returns_to_list() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.active_pane = ActivePane::Detail;
 
     app.handle_key(KeyCode::Char('q'));
@@ -434,7 +490,11 @@ fn q_in_detail_returns_to_list() {
 
 #[test]
 fn esc_in_detail_returns_to_list() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.active_pane = ActivePane::Detail;
 
     app.handle_key(KeyCode::Esc);
@@ -444,7 +504,11 @@ fn esc_in_detail_returns_to_list() {
 
 #[test]
 fn enter_in_detail_returns_to_list() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.active_pane = ActivePane::Detail;
 
     app.handle_key(KeyCode::Enter);
@@ -453,7 +517,11 @@ fn enter_in_detail_returns_to_list() {
 
 #[test]
 fn tab_in_detail_returns_to_list() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.active_pane = ActivePane::Detail;
 
     app.handle_key(KeyCode::Tab);
@@ -463,7 +531,11 @@ fn tab_in_detail_returns_to_list() {
 // Detail scroll tests
 #[test]
 fn j_in_detail_scrolls_down() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.active_pane = ActivePane::Detail;
 
     assert_eq!(app.detail_scroll, 0);
@@ -475,7 +547,11 @@ fn j_in_detail_scrolls_down() {
 
 #[test]
 fn k_in_detail_does_not_go_below_zero() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.active_pane = ActivePane::Detail;
 
     assert_eq!(app.detail_scroll, 0);
@@ -486,7 +562,11 @@ fn k_in_detail_does_not_go_below_zero() {
 // Cache invalidation tests
 #[test]
 fn navigation_invalidates_detail_cache() {
-    let mut app = App::new(MockRegistry::with_repos(3), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
 
     // Simulate having a cached detail for index 0
     app.cached_detail = Some(RepoDetail::empty());
@@ -504,7 +584,11 @@ fn navigation_invalidates_detail_cache() {
 // Detail rendering tests
 #[test]
 fn build_detail_lines_no_selection() {
-    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test-workspace".to_string());
+    let app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     // No cached detail
     let lines = app.build_detail_lines();
     let text: String = lines
@@ -516,7 +600,11 @@ fn build_detail_lines_no_selection() {
 
 #[test]
 fn build_detail_lines_with_error() {
-    let mut app = App::new(MockRegistry::with_repos(1), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.cached_detail = Some(RepoDetail::with_error("git failed".to_string()));
     app.cached_detail_index = Some(0);
 
@@ -779,7 +867,11 @@ fn build_detail_lines_shows_error_and_partial_data() {
 
 #[test]
 fn detail_scroll_clamps_to_content_length() {
-    let mut app = App::new(MockRegistry::with_repos(1), MockDetailProvider::empty(), "test-workspace".to_string());
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
     app.active_pane = ActivePane::Detail;
 
     // Load detail (will be a short empty detail)
@@ -813,7 +905,10 @@ fn compact_path_returns_unchanged_if_fits() {
 #[test]
 fn compact_path_applies_tilde_expansion() {
     // Note: shellexpand::tilde only works if HOME is set and matches the path
-    let path = format!("{}/projects/graft", std::env::var("HOME").unwrap_or_default());
+    let path = format!(
+        "{}/projects/graft",
+        std::env::var("HOME").unwrap_or_default()
+    );
     let result = compact_path(&path, 100);
     assert!(
         result.starts_with("~/"),
@@ -1073,7 +1168,10 @@ fn verify_overhead_calculation_is_accurate() {
         "Line width {} should fit in pane {} with overhead, got spans: {:?}",
         actual_width,
         pane_width,
-        line.spans.iter().map(|s| s.content.as_ref()).collect::<Vec<_>>()
+        line.spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<Vec<_>>()
     );
 
     // Verify all expected components are present
@@ -1349,11 +1447,15 @@ fn status_message_set_on_no_commands() {
 
 #[test]
 fn command_state_transitions_not_started_to_running() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
-    
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
     // Initial state
     assert!(matches!(app.command_state, CommandState::NotStarted));
-    
+
     // Simulate command start
     app.command_state = CommandState::Running;
     assert!(matches!(app.command_state, CommandState::Running));
@@ -1361,69 +1463,118 @@ fn command_state_transitions_not_started_to_running() {
 
 #[test]
 fn command_state_transitions_running_to_completed() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
-    
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
     app.command_state = CommandState::Running;
-    
+
     // Simulate successful completion
     app.command_state = CommandState::Completed { exit_code: 0 };
-    assert!(matches!(app.command_state, CommandState::Completed { exit_code: 0 }));
+    assert!(matches!(
+        app.command_state,
+        CommandState::Completed { exit_code: 0 }
+    ));
 }
 
 #[test]
 fn command_state_transitions_running_to_failed() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
-    
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
     app.command_state = CommandState::Running;
-    
+
     // Simulate failure
-    app.command_state = CommandState::Failed { error: "test error".to_string() };
+    app.command_state = CommandState::Failed {
+        error: "test error".to_string(),
+    };
     assert!(matches!(app.command_state, CommandState::Failed { .. }));
 }
 
 #[test]
 fn confirmation_dialog_not_shown_initially() {
-    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
-    assert!(!app.show_stop_confirmation, "Dialog should not be shown initially");
+    let app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+    assert!(
+        !app.show_stop_confirmation,
+        "Dialog should not be shown initially"
+    );
 }
 
 #[test]
 fn confirmation_dialog_shows_for_running_command() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
-    
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
     // Set up running command state
     app.command_state = CommandState::Running;
     app.active_pane = ActivePane::CommandOutput;
-    
+
     // Press 'q' should show confirmation
     app.handle_key(KeyCode::Char('q'));
-    assert!(app.show_stop_confirmation, "Dialog should show for running command");
+    assert!(
+        app.show_stop_confirmation,
+        "Dialog should show for running command"
+    );
 }
 
 #[test]
 fn confirmation_dialog_not_shown_for_completed_command() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
-    
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
     // Set up completed command state
     app.command_state = CommandState::Completed { exit_code: 0 };
     app.active_pane = ActivePane::CommandOutput;
-    
+
     // Press 'q' should close immediately (no confirmation)
     app.handle_key(KeyCode::Char('q'));
-    assert!(!app.show_stop_confirmation, "Dialog should not show for completed command");
-    assert_eq!(app.active_pane, ActivePane::RepoList, "Should return to repo list");
+    assert!(
+        !app.show_stop_confirmation,
+        "Dialog should not show for completed command"
+    );
+    assert_eq!(
+        app.active_pane,
+        ActivePane::RepoList,
+        "Should return to repo list"
+    );
 }
 
 #[test]
 fn pid_tracking_none_initially() {
-    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
-    assert!(app.running_command_pid.is_none(), "PID should be None initially");
+    let app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+    assert!(
+        app.running_command_pid.is_none(),
+        "PID should be None initially"
+    );
 }
 
 #[test]
 fn pid_tracking_set_on_started_event() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
-    
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
     // Simulate Started event with PID 12345
     app.running_command_pid = Some(12345);
     assert_eq!(app.running_command_pid, Some(12345), "PID should be set");
@@ -1431,33 +1582,58 @@ fn pid_tracking_set_on_started_event() {
 
 #[test]
 fn ring_buffer_flag_false_initially() {
-    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
-    assert!(!app.output_truncated_start, "Ring buffer flag should be false initially");
+    let app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+    assert!(
+        !app.output_truncated_start,
+        "Ring buffer flag should be false initially"
+    );
 }
 
 #[test]
 fn output_pane_scroll_initialized_to_zero() {
-    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     assert_eq!(app.output_scroll, 0, "Output scroll should start at 0");
 }
 
 #[test]
 fn output_lines_empty_initially() {
-    let app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
-    assert!(app.output_lines.is_empty(), "Output lines should be empty initially");
+    let app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+    assert!(
+        app.output_lines.is_empty(),
+        "Output lines should be empty initially"
+    );
 }
 
 // ===== Argument Input Tests (Phase 4) =====
 
 #[test]
 fn argument_input_opens_after_command_selected() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
-    app.available_commands = vec![("test".to_string(), grove_core::Command {
-        run: "echo test".to_string(),
-        description: Some("Test command".to_string()),
-        working_dir: None,
-        env: None,
-    })];
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+    app.available_commands = vec![(
+        "test".to_string(),
+        grove_core::Command {
+            run: "echo test".to_string(),
+            description: Some("Test command".to_string()),
+            working_dir: None,
+            env: None,
+        },
+    )];
     app.active_pane = ActivePane::CommandPicker;
     app.command_picker_state.select(Some(0));
 
@@ -1473,7 +1649,11 @@ fn argument_input_opens_after_command_selected() {
 
 #[test]
 fn argument_input_buffer_updates_on_char() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.active_pane = ActivePane::ArgumentInput;
     app.argument_input = Some(super::ArgumentInputState {
         buffer: String::new(),
@@ -1492,7 +1672,11 @@ fn argument_input_buffer_updates_on_char() {
 
 #[test]
 fn argument_input_backspace_removes_char() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.active_pane = ActivePane::ArgumentInput;
     app.argument_input = Some(super::ArgumentInputState {
         buffer: "test".to_string(),
@@ -1509,7 +1693,11 @@ fn argument_input_backspace_removes_char() {
 
 #[test]
 fn argument_input_escape_cancels() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.active_pane = ActivePane::ArgumentInput;
     app.argument_input = Some(super::ArgumentInputState {
         buffer: "some args".to_string(),
@@ -1525,7 +1713,11 @@ fn argument_input_escape_cancels() {
 
 #[test]
 fn argument_input_enter_executes_with_args() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.active_pane = ActivePane::ArgumentInput;
     app.argument_input = Some(super::ArgumentInputState {
         buffer: "arg1 arg2".to_string(),
@@ -1543,7 +1735,11 @@ fn argument_input_enter_executes_with_args() {
 
 #[test]
 fn argument_input_enter_with_empty_buffer_executes_without_args() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.active_pane = ActivePane::ArgumentInput;
     app.argument_input = Some(super::ArgumentInputState {
         buffer: String::new(),
@@ -1591,7 +1787,11 @@ fn argument_input_handles_multiple_quoted_args() {
 
 #[test]
 fn argument_input_cursor_moves_left() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.argument_input = Some(super::ArgumentInputState {
         buffer: "test".to_string(),
         cursor_pos: 4,
@@ -1606,7 +1806,11 @@ fn argument_input_cursor_moves_left() {
 
 #[test]
 fn argument_input_cursor_moves_right() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.argument_input = Some(super::ArgumentInputState {
         buffer: "test".to_string(),
         cursor_pos: 2,
@@ -1621,7 +1825,11 @@ fn argument_input_cursor_moves_right() {
 
 #[test]
 fn argument_input_cursor_stops_at_boundaries() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.argument_input = Some(super::ArgumentInputState {
         buffer: "test".to_string(),
         cursor_pos: 0,
@@ -1643,7 +1851,11 @@ fn argument_input_cursor_stops_at_boundaries() {
 
 #[test]
 fn argument_input_home_end_keys() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.argument_input = Some(super::ArgumentInputState {
         buffer: "test".to_string(),
         cursor_pos: 2,
@@ -1660,7 +1872,11 @@ fn argument_input_home_end_keys() {
 
 #[test]
 fn argument_input_inserts_char_at_cursor() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.argument_input = Some(super::ArgumentInputState {
         buffer: "test".to_string(),
         cursor_pos: 2,
@@ -1677,7 +1893,11 @@ fn argument_input_inserts_char_at_cursor() {
 
 #[test]
 fn argument_input_backspace_at_cursor() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.argument_input = Some(super::ArgumentInputState {
         buffer: "test".to_string(),
         cursor_pos: 2,
@@ -1694,7 +1914,11 @@ fn argument_input_backspace_at_cursor() {
 
 #[test]
 fn argument_input_prevents_execution_on_parse_error() {
-    let mut app = App::new(MockRegistry::empty(), MockDetailProvider::empty(), "test".to_string());
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
     app.argument_input = Some(super::ArgumentInputState {
         buffer: r#"unclosed "quote"#.to_string(),
         cursor_pos: 15,
@@ -1721,7 +1945,7 @@ fn state_panel_opens_on_s_key() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.list_state.select(Some(0));
     app.active_pane = ActivePane::Detail;
@@ -1730,8 +1954,11 @@ fn state_panel_opens_on_s_key() {
     app.handle_key(KeyCode::Char('s'));
 
     // Verify transition happened
-    assert_eq!(app.active_pane, ActivePane::StatePanel,
-               "'s' should open state panel");
+    assert_eq!(
+        app.active_pane,
+        ActivePane::StatePanel,
+        "'s' should open state panel"
+    );
 }
 
 #[test]
@@ -1739,14 +1966,17 @@ fn state_panel_closes_on_esc() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.active_pane = ActivePane::StatePanel;
 
     app.handle_key(KeyCode::Esc);
 
-    assert_eq!(app.active_pane, ActivePane::Detail,
-               "Esc should return to detail view");
+    assert_eq!(
+        app.active_pane,
+        ActivePane::Detail,
+        "Esc should return to detail view"
+    );
 }
 
 #[test]
@@ -1754,16 +1984,21 @@ fn state_panel_closes_on_q() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.active_pane = ActivePane::StatePanel;
 
     app.handle_key(KeyCode::Char('q'));
 
-    assert_eq!(app.active_pane, ActivePane::Detail,
-               "'q' should return to detail view");
-    assert!(!app.should_quit,
-            "'q' in state panel should NOT quit the app");
+    assert_eq!(
+        app.active_pane,
+        ActivePane::Detail,
+        "'q' should return to detail view"
+    );
+    assert!(
+        !app.should_quit,
+        "'q' in state panel should NOT quit the app"
+    );
 }
 
 #[test]
@@ -1773,7 +2008,7 @@ fn state_panel_navigation_with_j_key() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.active_pane = ActivePane::StatePanel;
 
@@ -1799,8 +2034,11 @@ fn state_panel_navigation_with_j_key() {
 
     app.handle_key(KeyCode::Char('j'));
 
-    assert_eq!(app.state_panel_list_state.selected(), Some(1),
-               "'j' should move down to next query");
+    assert_eq!(
+        app.state_panel_list_state.selected(),
+        Some(1),
+        "'j' should move down to next query"
+    );
 }
 
 #[test]
@@ -1810,23 +2048,36 @@ fn state_panel_navigation_with_k_key() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.active_pane = ActivePane::StatePanel;
 
     app.state_queries = vec![
-        StateQuery { name: "q1".to_string(), run: "echo q1".to_string(), description: None,
-                     deterministic: true, timeout: None },
-        StateQuery { name: "q2".to_string(), run: "echo q2".to_string(), description: None,
-                     deterministic: true, timeout: None },
+        StateQuery {
+            name: "q1".to_string(),
+            run: "echo q1".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
+        StateQuery {
+            name: "q2".to_string(),
+            run: "echo q2".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
     ];
     app.state_results = vec![None, None];
     app.state_panel_list_state.select(Some(1));
 
     app.handle_key(KeyCode::Char('k'));
 
-    assert_eq!(app.state_panel_list_state.selected(), Some(0),
-               "'k' should move up to previous query");
+    assert_eq!(
+        app.state_panel_list_state.selected(),
+        Some(0),
+        "'k' should move up to previous query"
+    );
 }
 
 #[test]
@@ -1836,15 +2087,25 @@ fn state_panel_navigation_does_not_move_past_end() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.active_pane = ActivePane::StatePanel;
 
     app.state_queries = vec![
-        StateQuery { name: "q1".to_string(), run: "echo q1".to_string(), description: None,
-                     deterministic: true, timeout: None },
-        StateQuery { name: "q2".to_string(), run: "echo q2".to_string(), description: None,
-                     deterministic: true, timeout: None },
+        StateQuery {
+            name: "q1".to_string(),
+            run: "echo q1".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
+        StateQuery {
+            name: "q2".to_string(),
+            run: "echo q2".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
     ];
     app.state_results = vec![None, None];
     app.state_panel_list_state.select(Some(1)); // Last item
@@ -1852,8 +2113,11 @@ fn state_panel_navigation_does_not_move_past_end() {
     app.handle_key(KeyCode::Char('j'));
 
     // Should stay at last item (no wrapping implemented)
-    assert_eq!(app.state_panel_list_state.selected(), Some(1),
-               "Should not move past last query");
+    assert_eq!(
+        app.state_panel_list_state.selected(),
+        Some(1),
+        "Should not move past last query"
+    );
 }
 
 #[test]
@@ -1863,22 +2127,28 @@ fn state_panel_navigation_does_not_move_before_start() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.active_pane = ActivePane::StatePanel;
 
-    app.state_queries = vec![
-        StateQuery { name: "q1".to_string(), run: "echo q1".to_string(), description: None,
-                     deterministic: true, timeout: None },
-    ];
+    app.state_queries = vec![StateQuery {
+        name: "q1".to_string(),
+        run: "echo q1".to_string(),
+        description: None,
+        deterministic: true,
+        timeout: None,
+    }];
     app.state_results = vec![None];
     app.state_panel_list_state.select(Some(0)); // First item
 
     app.handle_key(KeyCode::Char('k'));
 
     // Should stay at first item
-    assert_eq!(app.state_panel_list_state.selected(), Some(0),
-               "Should not move before first query");
+    assert_eq!(
+        app.state_panel_list_state.selected(),
+        Some(0),
+        "Should not move before first query"
+    );
 }
 
 #[test]
@@ -1888,30 +2158,51 @@ fn state_panel_navigation_with_arrow_keys() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.active_pane = ActivePane::StatePanel;
 
     app.state_queries = vec![
-        StateQuery { name: "q1".to_string(), run: "echo q1".to_string(), description: None,
-                     deterministic: true, timeout: None },
-        StateQuery { name: "q2".to_string(), run: "echo q2".to_string(), description: None,
-                     deterministic: true, timeout: None },
-        StateQuery { name: "q3".to_string(), run: "echo q3".to_string(), description: None,
-                     deterministic: true, timeout: None },
+        StateQuery {
+            name: "q1".to_string(),
+            run: "echo q1".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
+        StateQuery {
+            name: "q2".to_string(),
+            run: "echo q2".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
+        StateQuery {
+            name: "q3".to_string(),
+            run: "echo q3".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
     ];
     app.state_results = vec![None, None, None];
     app.state_panel_list_state.select(Some(1));
 
     // Test Down arrow
     app.handle_key(KeyCode::Down);
-    assert_eq!(app.state_panel_list_state.selected(), Some(2),
-               "Down arrow should move down");
+    assert_eq!(
+        app.state_panel_list_state.selected(),
+        Some(2),
+        "Down arrow should move down"
+    );
 
     // Test Up arrow
     app.handle_key(KeyCode::Up);
-    assert_eq!(app.state_panel_list_state.selected(), Some(1),
-               "Up arrow should move up");
+    assert_eq!(
+        app.state_panel_list_state.selected(),
+        Some(1),
+        "Up arrow should move up"
+    );
 }
 
 #[test]
@@ -1919,7 +2210,7 @@ fn state_panel_handles_empty_queries_gracefully() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.active_pane = ActivePane::StatePanel;
     app.state_queries = Vec::new();
@@ -1932,9 +2223,11 @@ fn state_panel_handles_empty_queries_gracefully() {
     app.handle_key(KeyCode::Up);
 
     // Selection should remain None or 0
-    assert!(app.state_panel_list_state.selected().is_none() ||
-            app.state_panel_list_state.selected() == Some(0),
-            "Empty query list should not panic");
+    assert!(
+        app.state_panel_list_state.selected().is_none()
+            || app.state_panel_list_state.selected() == Some(0),
+        "Empty query list should not panic"
+    );
 }
 
 #[test]
@@ -1944,25 +2237,32 @@ fn state_panel_clears_state_on_close() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.active_pane = ActivePane::StatePanel;
 
     // Populate with data
-    app.state_queries = vec![
-        StateQuery { name: "test".to_string(), run: "echo test".to_string(), description: None,
-                     deterministic: true, timeout: None },
-    ];
+    app.state_queries = vec![StateQuery {
+        name: "test".to_string(),
+        run: "echo test".to_string(),
+        description: None,
+        deterministic: true,
+        timeout: None,
+    }];
     app.state_results = vec![None];
 
     // Close panel
     app.handle_key(KeyCode::Esc);
 
     // Verify cleanup
-    assert!(app.state_queries.is_empty(),
-            "Queries should be cleared on close");
-    assert!(app.state_results.is_empty(),
-            "Results should be cleared on close");
+    assert!(
+        app.state_queries.is_empty(),
+        "Queries should be cleared on close"
+    );
+    assert!(
+        app.state_results.is_empty(),
+        "Results should be cleared on close"
+    );
 }
 
 #[test]
@@ -1972,20 +2272,33 @@ fn state_results_match_queries_length() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
 
     // Simulate load_state_queries populating data
     app.state_queries = vec![
-        StateQuery { name: "q1".to_string(), run: "echo q1".to_string(), description: None,
-                     deterministic: true, timeout: None },
-        StateQuery { name: "q2".to_string(), run: "echo q2".to_string(), description: None,
-                     deterministic: true, timeout: None },
+        StateQuery {
+            name: "q1".to_string(),
+            run: "echo q1".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
+        StateQuery {
+            name: "q2".to_string(),
+            run: "echo q2".to_string(),
+            description: None,
+            deterministic: true,
+            timeout: None,
+        },
     ];
     app.state_results = vec![None, None];
 
-    assert_eq!(app.state_queries.len(), app.state_results.len(),
-               "Queries and results must stay in sync");
+    assert_eq!(
+        app.state_queries.len(),
+        app.state_results.len(),
+        "Queries and results must stay in sync"
+    );
 }
 
 // ===== State Panel Phase 1 Tests =====
@@ -1997,21 +2310,19 @@ fn state_panel_refresh_key_triggers_refresh() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.active_pane = ActivePane::StatePanel;
     app.list_state.select(Some(0));
 
     // Add mock query
-    app.state_queries = vec![
-        StateQuery {
-            name: "test".to_string(),
-            run: "echo test".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-    ];
+    app.state_queries = vec![StateQuery {
+        name: "test".to_string(),
+        run: "echo test".to_string(),
+        description: None,
+        deterministic: true,
+        timeout: None,
+    }];
     app.state_results = vec![None];
     app.state_panel_list_state.select(Some(0));
 
@@ -2021,8 +2332,10 @@ fn state_panel_refresh_key_triggers_refresh() {
     app.handle_key(KeyCode::Char('r'));
 
     // After refresh attempt, should have a status message
-    assert!(app.status_message.is_some(),
-            "Refresh should set a status message");
+    assert!(
+        app.status_message.is_some(),
+        "Refresh should set a status message"
+    );
 }
 
 #[test]
@@ -2030,7 +2343,7 @@ fn state_panel_refresh_with_no_selection_shows_warning() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
     app.active_pane = ActivePane::StatePanel;
     // No selection
@@ -2045,46 +2358,44 @@ fn state_panel_refresh_with_no_selection_shows_warning() {
 
 #[test]
 fn state_panel_shows_cache_age_formatting() {
-    use crate::state::{StateQuery, StateResult, StateMetadata};
+    use crate::state::{StateMetadata, StateQuery, StateResult};
     use serde_json::json;
 
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
 
-    app.state_queries = vec![
-        StateQuery {
-            name: "coverage".to_string(),
-            run: "pytest --cov".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-    ];
+    app.state_queries = vec![StateQuery {
+        name: "coverage".to_string(),
+        run: "pytest --cov".to_string(),
+        description: None,
+        deterministic: true,
+        timeout: None,
+    }];
 
     // Create a result with known timestamp
-    app.state_results = vec![
-        Some(StateResult {
-            metadata: StateMetadata {
-                query_name: "coverage".to_string(),
-                commit_hash: "abc123".to_string(),
-                timestamp: (chrono::Utc::now() - chrono::Duration::minutes(5))
-                    .to_rfc3339(),
-                command: "pytest --cov".to_string(),
-                deterministic: true,
-            },
-            data: json!({"lines": 85}),
-        }),
-    ];
+    app.state_results = vec![Some(StateResult {
+        metadata: StateMetadata {
+            query_name: "coverage".to_string(),
+            commit_hash: "abc123".to_string(),
+            timestamp: (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339(),
+            command: "pytest --cov".to_string(),
+            deterministic: true,
+        },
+        data: json!({"lines": 85}),
+    })];
 
     // Verify time_ago() method works
     if let Some(Some(result)) = app.state_results.get(0) {
         let age = result.metadata.time_ago();
         // Should show something like "5m ago"
-        assert!(age.contains("m ago") || age.contains("just now"),
-                "Cache age should be formatted, got: {}", age);
+        assert!(
+            age.contains("m ago") || age.contains("just now"),
+            "Cache age should be formatted, got: {}",
+            age
+        );
     }
 }
 
@@ -2093,7 +2404,7 @@ fn state_panel_empty_state_is_helpful() {
     let app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
-        "test-workspace".to_string()
+        "test-workspace".to_string(),
     );
 
     // Empty state should render without panicking
@@ -2101,4 +2412,3 @@ fn state_panel_empty_state_is_helpful() {
     assert!(app.state_queries.is_empty());
     assert!(app.state_results.is_empty());
 }
-

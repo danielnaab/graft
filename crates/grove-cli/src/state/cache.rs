@@ -1,5 +1,4 @@
 ///! Reading cached state query results from graft cache directory.
-
 use super::query::StateResult;
 use std::fs;
 use std::path::PathBuf;
@@ -15,21 +14,11 @@ pub fn read_cached_state(
 ) -> Result<StateResult, String> {
     let cache_path = get_cache_path(workspace_hash, repo_name, query_name, commit_hash);
 
-    let content = fs::read_to_string(&cache_path).map_err(|e| {
-        format!(
-            "Failed to read cache file {}: {}",
-            cache_path.display(),
-            e
-        )
-    })?;
+    let content = fs::read_to_string(&cache_path)
+        .map_err(|e| format!("Failed to read cache file {}: {}", cache_path.display(), e))?;
 
-    serde_json::from_str(&content).map_err(|e| {
-        format!(
-            "Failed to parse cache file {}: {}",
-            cache_path.display(),
-            e
-        )
-    })
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse cache file {}: {}", cache_path.display(), e))
 }
 
 /// Get all cached results for a query across all commits.
@@ -46,8 +35,8 @@ pub fn read_all_cached_for_query(
 
     let mut results: Vec<StateResult> = Vec::new();
 
-    for entry in fs::read_dir(&query_dir)
-        .map_err(|e| format!("Failed to read query cache dir: {}", e))?
+    for entry in
+        fs::read_dir(&query_dir).map_err(|e| format!("Failed to read query cache dir: {}", e))?
     {
         let entry = entry.map_err(|e| format!("Failed to read dir entry: {}", e))?;
         let path = entry.path();

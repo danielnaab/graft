@@ -275,7 +275,9 @@ commands:
     // Verify we captured multiple lines
     let output_text = output_lines.join("\n");
     assert!(
-        output_text.contains("Line 1") && output_text.contains("Line 2") && output_text.contains("Line 3"),
+        output_text.contains("Line 1")
+            && output_text.contains("Line 2")
+            && output_text.contains("Line 3"),
         "Should capture all three lines. Got: {:?}",
         output_lines
     );

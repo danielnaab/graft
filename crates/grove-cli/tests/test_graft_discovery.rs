@@ -11,9 +11,7 @@ fn test_graft_command_available() {
         .output();
 
     // Try system graft
-    let system_result = std::process::Command::new("graft")
-        .arg("--help")
-        .output();
+    let system_result = std::process::Command::new("graft").arg("--help").output();
 
     let has_uv_graft = uv_result.map(|o| o.status.success()).unwrap_or(false);
     let has_system_graft = system_result.map(|o| o.status.success()).unwrap_or(false);

@@ -4,8 +4,8 @@
 //! using real file system interactions.
 
 use grove::state::{
-    compute_workspace_hash, discover_state_queries, read_all_cached_for_query,
-    read_cached_state, read_latest_cached, StateMetadata, StateResult,
+    compute_workspace_hash, discover_state_queries, read_all_cached_for_query, read_cached_state,
+    read_latest_cached, StateMetadata, StateResult,
 };
 use serde_json::json;
 use std::fs;
@@ -41,8 +41,8 @@ state:
     )
     .unwrap();
 
-    let queries = discover_state_queries(graft_yaml.as_path())
-        .expect("Failed to discover state queries");
+    let queries =
+        discover_state_queries(graft_yaml.as_path()).expect("Failed to discover state queries");
 
     assert_eq!(queries.len(), 2);
 
@@ -84,8 +84,8 @@ commands:
     )
     .unwrap();
 
-    let queries = discover_state_queries(graft_yaml.as_path())
-        .expect("Should succeed with empty queries");
+    let queries =
+        discover_state_queries(graft_yaml.as_path()).expect("Should succeed with empty queries");
 
     assert_eq!(queries.len(), 0);
 }
@@ -266,8 +266,7 @@ fn read_all_cached_returns_sorted_by_time() {
     // Create multiple cache files with different timestamps
     let commits = vec!["aaa", "bbb", "ccc"];
     for (i, commit) in commits.iter().enumerate() {
-        let timestamp = (chrono::Utc::now() - chrono::Duration::hours((3 - i) as i64))
-            .to_rfc3339();
+        let timestamp = (chrono::Utc::now() - chrono::Duration::hours((3 - i) as i64)).to_rfc3339();
 
         let result = StateResult {
             metadata: StateMetadata {
@@ -288,8 +287,8 @@ fn read_all_cached_returns_sorted_by_time() {
     }
 
     // Read all
-    let all_results =
-        read_all_cached_for_query(workspace_hash, repo_name, query_name).expect("Failed to read all cached");
+    let all_results = read_all_cached_for_query(workspace_hash, repo_name, query_name)
+        .expect("Failed to read all cached");
 
     assert_eq!(all_results.len(), 3);
 

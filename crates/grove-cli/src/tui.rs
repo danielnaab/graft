@@ -38,9 +38,7 @@ const LINES_TO_DROP: usize = 1_000;
 /// Returns false for terminals known to have poor Unicode support.
 fn supports_unicode() -> bool {
     std::env::var("TERM")
-        .map(|term| {
-            !term.contains("linux") && !term.contains("ascii") && !term.contains("vt100")
-        })
+        .map(|term| !term.contains("linux") && !term.contains("ascii") && !term.contains("vt100"))
         .unwrap_or(true) // Default to Unicode support
 }
 
@@ -151,14 +149,14 @@ pub enum ActivePane {
 #[derive(Debug, Clone)]
 struct ArgumentInputState {
     buffer: String,
-    cursor_pos: usize,  // Character position (not byte position)
+    cursor_pos: usize, // Character position (not byte position)
     command_name: String,
 }
 
 /// Events from async command execution.
 #[derive(Debug)]
 pub enum CommandEvent {
-    Started(u32),       // Process PID
+    Started(u32), // Process PID
     OutputLine(String),
     Completed(i32),
     Failed(String),
@@ -266,7 +264,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     };
                 }
                 Err(e) => {
-                    self.status_message = Some(StatusMessage::error(format!("Refresh failed: {}", e)));
+                    self.status_message =
+                        Some(StatusMessage::error(format!("Refresh failed: {}", e)));
                 }
             }
 
@@ -319,11 +318,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 }
 
                 // If we discovered queries but none have cache, inform user
-                if !self.state_queries.is_empty()
-                    && self.state_results.iter().all(|r| r.is_none())
+                if !self.state_queries.is_empty() && self.state_results.iter().all(|r| r.is_none())
                 {
                     self.status_message = Some(StatusMessage::info(
-                        "No cached data. Press 'r' to refresh selected query.".to_string()
+                        "No cached data. Press 'r' to refresh selected query.".to_string(),
                     ));
                 }
 
@@ -390,7 +388,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 // Load commands for selected repo
                 self.load_commands_for_selected_repo();
                 if self.available_commands.is_empty() {
-                    self.status_message = Some(StatusMessage::warning("No commands defined in graft.yaml"));
+                    self.status_message =
+                        Some(StatusMessage::warning("No commands defined in graft.yaml"));
                 } else {
                     self.active_pane = ActivePane::CommandPicker;
                     self.status_message = None;
@@ -426,7 +425,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 // Open command picker (same as from repo list)
                 self.load_commands_for_selected_repo();
                 if self.available_commands.is_empty() {
-                    self.status_message = Some(StatusMessage::warning("No commands defined in graft.yaml"));
+                    self.status_message =
+                        Some(StatusMessage::warning("No commands defined in graft.yaml"));
                 } else {
                     self.active_pane = ActivePane::CommandPicker;
                     self.status_message = None;
@@ -492,7 +492,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                         Err(_) => {
                             // Show error message and stay in dialog
                             self.status_message = Some(StatusMessage::error(
-                                "Cannot execute: fix parsing error first"
+                                "Cannot execute: fix parsing error first",
                             ));
                             return;
                         }
@@ -590,9 +590,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         let selected = match self.state_panel_list_state.selected() {
             Some(i) => i,
             None => {
-                self.status_message = Some(StatusMessage::warning(
-                    "No query selected".to_string()
-                ));
+                self.status_message = Some(StatusMessage::warning("No query selected".to_string()));
                 return;
             }
         };
@@ -608,9 +606,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         let repo_idx = match self.list_state.selected() {
             Some(i) => i,
             None => {
-                self.status_message = Some(StatusMessage::warning(
-                    "No repository selected".to_string()
-                ));
+                self.status_message =
+                    Some(StatusMessage::warning("No repository selected".to_string()));
                 return;
             }
         };
@@ -621,25 +618,25 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         };
 
         // Show "Refreshing..." message
-        self.status_message = Some(StatusMessage::info(
-            format!("Refreshing {}...", query_name)
-        ));
+        self.status_message = Some(StatusMessage::info(format!("Refreshing {}...", query_name)));
 
         // Parse the run command using shell-words to handle quotes properly
         let args = match shell_words::split(&run_command) {
             Ok(args) => args,
             Err(e) => {
-                self.status_message = Some(StatusMessage::error(
-                    format!("Failed to parse command '{}': {}", run_command, e)
-                ));
+                self.status_message = Some(StatusMessage::error(format!(
+                    "Failed to parse command '{}': {}",
+                    run_command, e
+                )));
                 return;
             }
         };
 
         if args.is_empty() {
-            self.status_message = Some(StatusMessage::error(
-                format!("Empty command for query '{}'", query_name)
-            ));
+            self.status_message = Some(StatusMessage::error(format!(
+                "Empty command for query '{}'",
+                query_name
+            )));
             return;
         }
 
@@ -655,16 +652,18 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     true
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    self.status_message = Some(StatusMessage::error(
-                        format!("Command failed: {}", stderr.trim())
-                    ));
+                    self.status_message = Some(StatusMessage::error(format!(
+                        "Command failed: {}",
+                        stderr.trim()
+                    )));
                     false
                 }
             }
             Err(e) => {
-                self.status_message = Some(StatusMessage::error(
-                    format!("Failed to execute '{}': {}", run_command, e)
-                ));
+                self.status_message = Some(StatusMessage::error(format!(
+                    "Failed to execute '{}': {}",
+                    run_command, e
+                )));
                 false
             }
         };
@@ -673,9 +672,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             // Reload cache for this query
             self.reload_state_query_cache(selected, repo_path);
 
-            self.status_message = Some(StatusMessage::success(
-                format!("Refreshed {}", query_name)
-            ));
+            self.status_message = Some(StatusMessage::success(format!("Refreshed {}", query_name)));
         }
     }
 
@@ -727,19 +724,21 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
                             match kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
                                 Ok(_) => {
-                                    self.status_message = Some(StatusMessage::info("Stopping command..."));
+                                    self.status_message =
+                                        Some(StatusMessage::info("Stopping command..."));
                                 }
                                 Err(e) => {
-                                    self.status_message = Some(StatusMessage::error(
-                                        format!("Failed to stop command: {}", e)
-                                    ));
+                                    self.status_message = Some(StatusMessage::error(format!(
+                                        "Failed to stop command: {}",
+                                        e
+                                    )));
                                 }
                             }
                         }
                         #[cfg(not(unix))]
                         {
                             self.status_message = Some(StatusMessage::warning(
-                                "Command cancellation not supported on Windows"
+                                "Command cancellation not supported on Windows",
                             ));
                         }
 
@@ -896,7 +895,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         let graft_config = match self.graft_loader.load_graft(&graft_path) {
             Ok(config) => config,
             Err(e) => {
-                self.status_message = Some(StatusMessage::error(format!("Error loading graft.yaml: {e}")));
+                self.status_message = Some(StatusMessage::error(format!(
+                    "Error loading graft.yaml: {e}"
+                )));
                 return;
             }
         };
@@ -935,7 +936,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                             if !self.output_truncated_start {
                                 self.output_lines.insert(
                                     0,
-                                    format!("... [earlier output truncated - showing last {} lines]", MAX_OUTPUT_LINES)
+                                    format!(
+                                        "... [earlier output truncated - showing last {} lines]",
+                                        MAX_OUTPUT_LINES
+                                    ),
                                 );
                                 self.output_truncated_start = true;
                             }
@@ -958,11 +962,15 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                         if exit_code == 0 {
                             // Success: "✓ Command completed successfully"
                             let symbol = if unicode { "✓" } else { "*" };
-                            self.output_lines.push(format!("{} Command completed successfully", symbol));
+                            self.output_lines
+                                .push(format!("{} Command completed successfully", symbol));
                         } else {
                             // Failure: "✗ Command failed with exit code N"
                             let symbol = if unicode { "✗" } else { "X" };
-                            self.output_lines.push(format!("{} Command failed with exit code {}", symbol, exit_code));
+                            self.output_lines.push(format!(
+                                "{} Command failed with exit code {}",
+                                symbol, exit_code
+                            ));
                         }
 
                         should_close = true;
@@ -1042,8 +1050,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Min(3),      // Content area (flexible)
-                    Constraint::Length(1),   // Status bar (1 line)
+                    Constraint::Min(3),    // Content area (flexible)
+                    Constraint::Length(1), // Status bar (1 line)
                 ])
                 .split(frame.area());
 
@@ -1067,7 +1075,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             };
 
             // Build title with workspace name
-            let title = format!("Grove: {} (↑↓/jk navigate, Enter: details, x:commands, ?:help)", self.workspace_name);
+            let title = format!(
+                "Grove: {} (↑↓/jk navigate, Enter: details, x:commands, ?:help)",
+                self.workspace_name
+            );
 
             // Handle empty workspace case
             if repos.is_empty() {
@@ -1075,7 +1086,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     Line::from(""),
                     Line::from(Span::styled(
                         "No repositories configured",
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
                     )),
                     Line::from(""),
                     Line::from(Span::styled(
@@ -1087,10 +1100,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                         Style::default().fg(Color::Cyan),
                     )),
                     Line::from(""),
-                    Line::from(Span::styled(
-                        "Example:",
-                        Style::default().fg(Color::Gray),
-                    )),
+                    Line::from(Span::styled("Example:", Style::default().fg(Color::Gray))),
                     Line::from(Span::styled(
                         "  repositories:",
                         Style::default().fg(Color::DarkGray),
@@ -1213,13 +1223,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         if area.width < 44 || area.height < 20 {
             // Terminal too small, show simplified message
             let msg = "Terminal too small for help. Resize or press any key.";
-            let warning = Paragraph::new(msg)
-                .alignment(Alignment::Center)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Yellow)),
-                );
+            let warning = Paragraph::new(msg).alignment(Alignment::Center).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
             frame.render_widget(warning, area);
             return;
         }
@@ -1229,34 +1237,61 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         let help_text = vec![
             Line::from(Span::styled(
                 format!("Grove v{} - Help", version),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
-            Line::from(Span::styled("Navigation", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "Navigation",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
             Line::from("  j, ↓         Move selection down"),
             Line::from("  k, ↑         Move selection up"),
             Line::from("  Enter, Tab   View repository details"),
             Line::from("  q, Esc       Quit (or return from detail pane)"),
             Line::from(""),
-            Line::from(Span::styled("Actions", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "Actions",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
             Line::from("  r            Refresh repository status"),
             Line::from("  x            Execute command (from graft.yaml)"),
             Line::from("  s            View state queries (from detail pane)"),
             Line::from("  ?            Show this help"),
             Line::from(""),
-            Line::from(Span::styled("Detail Pane", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "Detail Pane",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
             Line::from("  j, ↓         Scroll down"),
             Line::from("  k, ↑         Scroll up"),
             Line::from("  s            Open state queries panel"),
             Line::from("  q, Esc       Return to repository list"),
             Line::from(""),
-            Line::from(Span::styled("State Panel", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "State Panel",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
             Line::from("  j, ↓         Select next query"),
             Line::from("  k, ↑         Select previous query"),
             Line::from("  r            Refresh selected query"),
             Line::from("  q, Esc       Close panel"),
             Line::from(""),
-            Line::from(Span::styled("Status Indicators", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "Status Indicators",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
             Line::from(vec![
                 Span::raw("  "),
                 Span::styled("●", Style::default().fg(Color::Yellow)),
@@ -1278,7 +1313,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 Span::raw("  Commits behind remote"),
             ]),
             Line::from(""),
-            Line::from(Span::styled("Status Bar", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "Status Bar",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
             Line::from("  The bottom line shows status messages:"),
             Line::from(vec![
                 Span::raw("  "),
@@ -1310,7 +1350,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         // Calculate popup size and position (centered)
         // Ensure minimum viable size
         let popup_width = 60.min(area.width.saturating_sub(4)).max(40);
-        let popup_height = (help_text.len() as u16 + 2).min(area.height.saturating_sub(4)).max(20);
+        let popup_height = (help_text.len() as u16 + 2)
+            .min(area.height.saturating_sub(4))
+            .max(20);
 
         let popup_x = (area.width.saturating_sub(popup_width)) / 2;
         let popup_y = (area.height.saturating_sub(popup_height)) / 2;
@@ -1366,7 +1408,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         let list = List::new(items)
             .block(block)
-            .highlight_style(Style::default().bg(Color::Rgb(40, 40, 50)).add_modifier(Modifier::BOLD))
+            .highlight_style(
+                Style::default()
+                    .bg(Color::Rgb(40, 40, 50))
+                    .add_modifier(Modifier::BOLD),
+            )
             .highlight_symbol("▶ ");
 
         frame.render_stateful_widget(list, area, &mut self.command_picker_state);
@@ -1405,10 +1451,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                         ),
                         Span::raw("  "),
                         Span::raw(format!("{:<45}", data_summary)),
-                        Span::styled(
-                            format!("({})", age),
-                            Style::default().fg(Color::DarkGray),
-                        ),
+                        Span::styled(format!("({})", age), Style::default().fg(Color::DarkGray)),
                     ])
                 } else {
                     Line::from(vec![
@@ -1417,10 +1460,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                             Style::default().fg(Color::DarkGray),
                         ),
                         Span::raw("  "),
-                        Span::styled(
-                            "(no cached data)",
-                            Style::default().fg(Color::DarkGray),
-                        ),
+                        Span::styled("(no cached data)", Style::default().fg(Color::DarkGray)),
                     ])
                 };
 
@@ -1447,25 +1487,20 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 Line::from("  Example graft.yaml configuration:")
                     .style(Style::default().fg(Color::White)),
                 Line::from(""),
-                Line::from("    state:")
-                    .style(Style::default().fg(Color::Cyan)),
-                Line::from("      coverage:")
-                    .style(Style::default().fg(Color::Cyan)),
+                Line::from("    state:").style(Style::default().fg(Color::Cyan)),
+                Line::from("      coverage:").style(Style::default().fg(Color::Cyan)),
                 Line::from("        run: \"pytest --cov --cov-report=json\"")
                     .style(Style::default().fg(Color::Green)),
-                Line::from("        cache:")
-                    .style(Style::default().fg(Color::Cyan)),
+                Line::from("        cache:").style(Style::default().fg(Color::Cyan)),
                 Line::from("          deterministic: true")
                     .style(Style::default().fg(Color::Green)),
                 Line::from("        description: \"Code coverage metrics\"")
                     .style(Style::default().fg(Color::Green)),
                 Line::from(""),
-                Line::from("      tasks:")
-                    .style(Style::default().fg(Color::Cyan)),
+                Line::from("      tasks:").style(Style::default().fg(Color::Cyan)),
                 Line::from("        run: \"task-tracker status --json\"")
                     .style(Style::default().fg(Color::Green)),
-                Line::from("        cache:")
-                    .style(Style::default().fg(Color::Cyan)),
+                Line::from("        cache:").style(Style::default().fg(Color::Cyan)),
                 Line::from("          deterministic: false")
                     .style(Style::default().fg(Color::Green)),
                 Line::from(""),
@@ -1481,7 +1516,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         } else {
             let list = List::new(items)
                 .block(block)
-                .highlight_style(Style::default().bg(Color::Rgb(40, 40, 50)).add_modifier(Modifier::BOLD))
+                .highlight_style(
+                    Style::default()
+                        .bg(Color::Rgb(40, 40, 50))
+                        .add_modifier(Modifier::BOLD),
+                )
                 .highlight_symbol("▶ ");
 
             frame.render_stateful_widget(list, area, &mut self.state_panel_list_state);
@@ -1518,9 +1557,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         let after_cursor: String = chars[state.cursor_pos..].iter().collect();
 
         let input_text = if after_cursor.is_empty() {
-            format!("> {}_", before_cursor)  // Cursor at end
+            format!("> {}_", before_cursor) // Cursor at end
         } else {
-            format!("> {}▊{}", before_cursor, after_cursor)  // Cursor in middle (block char)
+            format!("> {}▊{}", before_cursor, after_cursor) // Cursor in middle (block char)
         };
 
         // Generate command preview
@@ -1759,8 +1798,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             text = truncated;
         }
 
-        let status_bar = Paragraph::new(text)
-            .style(Style::default().fg(fg_color).bg(bg_color));
+        let status_bar = Paragraph::new(text).style(Style::default().fg(fg_color).bg(bg_color));
 
         frame.render_widget(status_bar, area);
     }
@@ -2122,8 +2160,10 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
                     // Try with branch first
                     // Overhead: highlight (2) + full_status_width + safety margin (3)
                     let overhead_with_branch = 2 + full_status_width + 3;
-                    let max_path_width_with_branch = (pane_width as usize).saturating_sub(overhead_with_branch);
-                    let compacted_path_with_branch = compact_path(&path, max_path_width_with_branch);
+                    let max_path_width_with_branch =
+                        (pane_width as usize).saturating_sub(overhead_with_branch);
+                    let compacted_path_with_branch =
+                        compact_path(&path, max_path_width_with_branch);
 
                     // If path is severely compacted (uses [..] prefix or display width < 8), drop branch
                     let use_branch = !compacted_path_with_branch.starts_with("[..]")
@@ -2133,7 +2173,10 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
                         // Normal: show with branch
                         // Format: path [branch] ● [↑n] [↓n]
                         let mut spans = vec![
-                            Span::styled(compacted_path_with_branch, Style::default().fg(Color::White)),
+                            Span::styled(
+                                compacted_path_with_branch,
+                                Style::default().fg(Color::White),
+                            ),
                             Span::raw(" "),
                             Span::styled(branch, Style::default().fg(Color::Cyan)),
                             Span::raw(" "),
@@ -2156,7 +2199,8 @@ fn format_repo_line(path: String, status: Option<&RepoStatus>, pane_width: u16) 
                         // Format: path ● [↑n] [↓n]
                         // Overhead: highlight (2) + minimal_status_width + safety margin (3)
                         let overhead_without_branch = 2 + minimal_status_width + 3;
-                        let max_path_width = (pane_width as usize).saturating_sub(overhead_without_branch);
+                        let max_path_width =
+                            (pane_width as usize).saturating_sub(overhead_without_branch);
                         let compacted_path = compact_path(&path, max_path_width);
 
                         let mut spans = vec![
@@ -2239,7 +2283,7 @@ fn find_graft_command() -> Result<String> {
     // even though that won't work when executing from arbitrary repo directories.
     let uv_check = std::process::Command::new("uv")
         .args(&["run", "--quiet", "python", "-m", "graft", "--help"])
-        .current_dir("/tmp")  // Probe from neutral directory
+        .current_dir("/tmp") // Probe from neutral directory
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
@@ -2254,7 +2298,7 @@ fn find_graft_command() -> Result<String> {
     // Also probe from /tmp for consistency
     let system_check = std::process::Command::new("graft")
         .arg("--help")
-        .current_dir("/tmp")  // Probe from neutral directory
+        .current_dir("/tmp") // Probe from neutral directory
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
@@ -2426,8 +2470,8 @@ pub fn run<R: RepoRegistry, D: RepoDetailProvider>(
     let result = loop {
         // If refresh requested, render "Refreshing..." first, then refresh
         if app.needs_refresh {
-            app.render(&mut terminal)?;  // Show "Refreshing..." message
-            app.handle_refresh_if_needed();  // Do the refresh
+            app.render(&mut terminal)?; // Show "Refreshing..." message
+            app.handle_refresh_if_needed(); // Do the refresh
         }
 
         app.render(&mut terminal)?;

@@ -1,5 +1,4 @@
 ///! Discover state queries from graft.yaml files.
-
 use super::query::StateQuery;
 use serde_yaml::Value;
 use std::fs;
@@ -10,8 +9,8 @@ pub fn discover_state_queries(graft_yaml_path: &Path) -> Result<Vec<StateQuery>,
     let content = fs::read_to_string(graft_yaml_path)
         .map_err(|e| format!("Failed to read graft.yaml: {}", e))?;
 
-    let yaml: Value = serde_yaml::from_str(&content)
-        .map_err(|e| format!("Failed to parse graft.yaml: {}", e))?;
+    let yaml: Value =
+        serde_yaml::from_str(&content).map_err(|e| format!("Failed to parse graft.yaml: {}", e))?;
 
     let mut queries = Vec::new();
 
@@ -52,9 +51,7 @@ fn parse_state_query(name: &str, config: &Value) -> Result<StateQuery, String> {
         .unwrap_or(true); // Default to deterministic
 
     // Get timeout
-    let timeout = config
-        .get("timeout")
-        .and_then(|t| t.as_u64());
+    let timeout = config.get("timeout").and_then(|t| t.as_u64());
 
     // Get description (optional, from command description if available)
     let description = config

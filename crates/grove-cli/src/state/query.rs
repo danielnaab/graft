@@ -1,5 +1,4 @@
 ///! State query data structures.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -92,9 +91,7 @@ impl StateResult {
             }
 
             // Graph metrics
-            if let (Some(broken), Some(orphaned)) =
-                (obj.get("broken_links"), obj.get("orphaned"))
-            {
+            if let (Some(broken), Some(orphaned)) = (obj.get("broken_links"), obj.get("orphaned")) {
                 return format!(
                     "{} broken links, {} orphans",
                     broken.as_u64().unwrap_or(0),
