@@ -123,3 +123,46 @@ None needed — implementation complete and clean on first pass.
 5. Integration tests can parse repo's actual files to verify real-world compatibility
 6. Clippy `doc_markdown` lint: wrap type names in backticks in doc comments
 
+---
+
+### Iteration 3 — `graft status` command
+**Status**: completed
+**Commit**: `49726a3`
+**Files changed**:
+- `crates/graft-engine/src/query.rs` (fixed field names and types to match domain model)
+- `crates/graft-engine/src/lib.rs` (re-export query functions)
+- `crates/graft-cli/src/main.rs` (fixed timestamp handling and clippy warnings)
+- `crates/graft-cli/Cargo.toml` (removed unused chrono dependency)
+
+**What was done**:
+- Fixed query module implementation that was written but didn't compile:
+  - Corrected field names: `ref_name` → `git_ref`, used proper domain types
+  - Changed timestamp from `DateTime<Utc>` to `String` to match domain model
+  - Fixed tests to use `GitUrl::new()` and `GitRef::new()` constructors
+  - Changed from `HashMap` to `IndexMap` for alphabetical ordering
+- Updated CLI to handle string-based timestamps (removed chrono formatting)
+- Fixed clippy warnings: inlined format args, `if let` instead of `match`
+- All 4 acceptance criteria met and verified against repo's graft.lock
+
+**Critique findings**:
+1. ✅ Spec compliance: Fully matches core-operations.md specification
+2. ✅ Acceptance criteria: All 4 criteria genuinely met, tested end-to-end
+3. ✅ Code quality: Idiomatic Rust, follows established patterns from lock.rs
+4. ✅ Error messages: Clear and helpful ("Dependency 'x' not found in graft.lock")
+5. ✅ Test coverage: 4 unit tests plus integration testing with real graft.lock
+6. ✅ Integration: Clean re-export from lib.rs, works with existing domain types
+
+**Improvements made**:
+- Fixed all type mismatches between query module and domain model
+- Removed unnecessary chrono dependency from CLI
+- Fixed clippy warnings for better code quality
+- Used `IndexMap` to guarantee alphabetical output ordering
+
+**Learnings for future iterations**:
+1. Always read domain model before implementing - the query module was written with outdated assumptions about field names
+2. `consumed_at` is stored as a String in domain (ISO 8601), not parsed to `DateTime<Utc>`
+3. `IndexMap` is better than sorting a Vec when you need both ordering and key-value lookups
+4. CLI should match the data types from the service layer, not transform them unnecessarily
+5. Query functions should be simple data transformations - no I/O or parsing
+6. The pattern: query functions accept `&LockFile`, CLI handles file I/O via parse functions
+

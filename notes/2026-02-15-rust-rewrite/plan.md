@@ -57,14 +57,14 @@ implementation, add a `SPEC-GAP:` note to this file and make a reasonable choice
 ## Phase 2: Read-only operations (graft-engine, graft-cli)
 
 ### Task 3: `graft status`
-- [ ] Implement the status query operation end-to-end
+- [x] Implement the status query operation end-to-end
 - **Specs**: `docs/specifications/graft/core-operations.md` (Query Operations > status)
 - **Python reference**: `src/graft/services/query_service.py`, `src/graft/cli/commands/status.py`
 - **Acceptance**:
-  - Shows each dependency with current ref, locked commit, and sync status
-  - Supports `--json` output format per spec
-  - Exit code 0 on success
-  - `cargo run -p graft-cli -- status` works against this repo (or reports no deps gracefully)
+  - Shows each dependency with current ref, locked commit, and sync status ✓
+  - Supports `--json` output format per spec ✓
+  - Exit code 0 on success ✓
+  - `cargo run -p graft-cli -- status` works against this repo (or reports no deps gracefully) ✓
 
 ### Task 4: `graft changes` and `graft show`
 - [ ] Implement change listing and detail display
