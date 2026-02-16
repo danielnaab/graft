@@ -221,7 +221,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
   - 4+ documents have Sources sections linking to specs and code
 
 ### Task 14: Clarify authority boundaries and fix linking
-- [ ] Add authority notes and fix broken links
+- [x] Add authority notes and fix broken links
 - **Target files**: `docs/README.md`, `docs/guides/*.md`, docs that interpret specs
 - **What to do**:
   - Add authority notes to interpretation documents

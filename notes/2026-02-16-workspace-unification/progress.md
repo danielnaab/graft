@@ -364,3 +364,41 @@ None needed. Implementation is complete and high quality.
 - The provenance policy recommends dedicated `## Sources` sections at the end of documents, which works well for user-facing docs.
 - Rust references can be at both crate level (`crates/graft-cli/`) and file level (`crates/graft-common/src/git.rs`) depending on granularity needed.
 - Link verification from the repo root using relative paths is important when docs are in subdirectories.
+
+---
+
+### Iteration 14 — Clarify authority boundaries and fix linking
+**Status**: completed
+**Files changed**:
+- `docs/grove/planning/roadmap.md` (fixed 7 broken relative path links to specifications and notes)
+- `docs/grove/planning/slices/slice-1-workspace-config.md` (fixed 3 broken links to specifications and rust-starter)
+- `docs/grove/implementation/architecture-overview.md` (fixed 1 rust-starter link, added authority note)
+- `docs/architecture.md` (added authority note)
+- `docs/grove-overview.md` (added authority note)
+- `docs/guides/grove-user-guide.md` (added authority note)
+- `docs/cli-reference.md` (enhanced authority note)
+
+**What was done**:
+Fixed broken relative path links in grove documentation that used incorrect `../` hop counts after the Task 10 doc merge. Corrected specification links from `../../../../docs/specifications/grove/` to `../../../specifications/grove/`. Fixed rust-starter architecture links from `docs/architecture.md` to `docs/architecture/architecture.md`. Added explicit authority notes to 4 interpretation documents (architecture.md, grove-overview.md, grove-user-guide.md, cli-reference.md) clarifying their relationship to canonical specifications. All 7 link fixes verified to resolve to existing files.
+
+**Critique findings**:
+All acceptance criteria fully met. No issues identified. The implementation correctly:
+- Fixed all broken relative path links (grove specs and rust-starter references)
+- Added authority notes following existing patterns from other docs
+- Link fixes are minimal and surgical - only correcting what was broken
+- Authority notes are concise and point to canonical sources
+- All 423 workspace tests pass (pre-existing grove TUI clippy issues expected per MEMORY.md)
+- No broken links remain (verified with manual file existence checks)
+- The two `file:///` instances in configuration.md are examples showing file:// protocol syntax, not actual broken links
+
+**Improvements made**:
+None needed. The implementation is complete and correct.
+
+**Learnings for future iterations**:
+- When docs are moved between directory levels (Task 10), internal links need adjustment based on new `../` hop count to reach target directories
+- Authority notes should be concise, placed after the title, and reference canonical sources explicitly
+- Link verification requires both grep pattern search AND manual file existence checks
+- Grove doc merge (Task 10) introduced link breakage because grove/ files were at different nesting depth than their new docs/ locations
+- Using `test -f` to verify link targets exist is more reliable than just grepping for link patterns
+- Pre-existing clippy issues in specific files (grove TUI) should be noted in MEMORY.md to avoid confusion during verification
+
