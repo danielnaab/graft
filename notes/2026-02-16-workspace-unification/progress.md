@@ -236,3 +236,47 @@ None needed. The implementation is comprehensive and effective.
 - Using `PYTHONWARNINGS=default` in testing ensures deprecation warnings are visible (normally they're filtered).
 - pyproject.toml's `Development Status :: 7 - Inactive` is the appropriate classifier for deprecated packages.
 - Multi-channel deprecation (docstrings + runtime + docs + metadata) ensures maximum visibility for users.
+
+---
+
+### Iteration 10 — Merge grove/ docs into main documentation tree
+**Status**: completed
+**Files changed**:
+- `docs/grove-overview.md` (new, replaces grove/docs/README.md)
+- `docs/guides/grove-user-guide.md` (new, from grove/docs/user-guide.md)
+- `docs/grove/implementation/` (new, from grove/docs/grove/implementation/)
+- `docs/grove/planning/` (new, from grove/docs/grove/planning/)
+- `docs/grove/design-state-integration.md` (new, from grove/docs/design/)
+- `AGENTS.md` (updated with inline Grove section)
+- `knowledge-base.yaml` (merged grove/knowledge-base.yaml content)
+- `docs/index.md` (updated grove references)
+- `CLAUDE.md` (fixed grove/docs reference)
+- `README.md` (updated grove documentation link)
+- `continue-here.md` (updated grove agent reference)
+- `grove/README.md` (replaced with redirect)
+- Removed `grove/docs/` and `grove/notes/` (empty)
+
+**What was done**:
+Merged all grove documentation from `grove/docs/` into main `docs/` structure. Created `docs/grove-overview.md` as the new entry point, moved user guide to `docs/guides/`, moved implementation and planning docs to `docs/grove/`. Integrated grove agent guidance directly into main `AGENTS.md` as an inline section. Merged `grove/knowledge-base.yaml` content into root `knowledge-base.yaml`, adding all grove components and path mappings. Updated all internal links across documentation to point to new locations. Replaced `grove/README.md` with a redirect document listing all new locations. Removed empty `grove/docs/` and `grove/notes/` directories. Grove directory now only contains historical files (PHASE1-SUMMARY.txt, STATUS-BAR-PHASE1-COMPLETE.md, etc.) and the redirect README.
+
+**Critique findings**:
+All acceptance criteria met. No broken links - verified with grep and manual checks. All grove docs accessible from main docs structure. The implementation correctly:
+- Moved all grove docs to appropriate locations in docs/
+- Created a clear overview document (grove-overview.md)
+- Integrated grove guidance into main AGENTS.md (avoiding duplication)
+- Merged KB configs cleanly (added graft-common and updated paths)
+- Fixed all references in AGENTS.md, CLAUDE.md, README.md, continue-here.md, docs/index.md
+- Updated internal doc links to new locations
+- Preserved historical grove files with clear redirect
+
+Minor overlap with Task 11: Updated knowledge-base.yaml to include graft-common component and updated component descriptions (Rust primary, Python deprecated). This was necessary to complete the grove documentation merge since the KB structure needed to reflect the current state.
+
+**Improvements made**:
+Fixed missed references in CLAUDE.md, README.md, and continue-here.md discovered after initial commit. All grove/docs references now point to new locations.
+
+**Learnings for future iterations**:
+- When merging documentation from a subdirectory, use multi-pass grep to catch all references (*.md, *.yaml, etc.).
+- Knowledge-base.yaml updates benefit from being comprehensive - updating all component descriptions together provides clarity.
+- Inline agent guidance (like Grove section in AGENTS.md) works well for unified repos, avoiding duplication across multiple agent entrypoint files.
+- Redirect files (like grove/README.md) should list all new locations for easy navigation during transition.
+- Notes (ephemeral docs) can have stale references - that's acceptable per meta-KB temporal layers policy.

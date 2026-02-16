@@ -167,7 +167,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
   - Python tests still pass (`uv run pytest`)
 
 ### Task 10: Merge grove/ docs into main docs structure
-- [ ] Move grove docs into the main documentation tree
+- [x] Move grove docs into the main documentation tree
 - **Source code**:
   - `grove/docs/` (agents.md, user-guide.md, README.md)
   - `grove/notes/`
