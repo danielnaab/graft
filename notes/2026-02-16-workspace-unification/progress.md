@@ -132,3 +132,29 @@ None needed.
 - Removing `wait-timeout` from grove-engine's dependencies worked seamlessly since it now comes transitively via graft-common.
 - All existing grove-engine tests continue to pass without modification, confirming the wrapper preserves exact behavior.
 - The shared command runner now adds timeout protection to git operations that previously lacked it (which will benefit graft-engine in Task 6).
+
+---
+
+### Iteration 6 — Migrate graft-engine to use graft-common (commands + git ops)
+**Status**: completed
+**Files changed**:
+- `crates/graft-engine/Cargo.toml` (added graft-common dependency)
+- `crates/graft-engine/src/resolution.rs` (replaced bare git commands with shared ops, added timeout protection to submodule operations)
+- `crates/graft-engine/src/command.rs` (replaced command execution with shared timeout-protected runner)
+- `crates/graft-engine/src/validation.rs` (replaced get_current_commit with shared version)
+
+**What was done**:
+Migrated graft-engine to use shared infrastructure from graft-common. Replaced 6 git operation functions (`resolve_ref`, `get_current_commit`, `checkout`, `fetch_all`, `is_repository`) with calls to `graft_common::git`. Added timeout protection to 3 git submodule operations (`is_submodule`, `add_submodule`, `update_submodule`) using `graft_common::command::run_command_with_timeout`. Migrated command execution in `command.rs` to use the shared timeout-protected runner, adding timeout protection that graft previously lacked. All 54 graft-engine tests pass, and total workspace tests remain at 420+.
+
+**Critique findings**:
+All acceptance criteria met. Code is clean, idiomatic, and follows the thin-wrapper pattern established in Task 5 (grove-engine migration). Error handling is comprehensive with proper context preservation. The migration adds timeout protection to git operations that previously lacked it, which is a significant improvement. The `is_repository` wrapper is a one-line function but maintains consistency with existing code style. No issues requiring fixes.
+
+**Improvements made**:
+None needed.
+
+**Learnings for future iterations**:
+- Git submodule operations (`git submodule status/add/update`) now have timeout protection via the shared command runner.
+- Graft previously had NO timeout protection on ANY git operations, which is now fixed. This matches the protection that grove has had since Task 1.
+- The thin-wrapper pattern (delegate to shared code, convert errors) continues to work well for migration without breaking existing tests.
+- All 6 git operation functions in resolution.rs are now one-liners that delegate to graft-common, reducing code from ~80 lines to ~6 lines.
+- Command execution also reduced from ~20 lines (spawn/wait logic) to a single call to the shared runner.

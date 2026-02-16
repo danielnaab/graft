@@ -105,7 +105,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 6: Migrate graft-engine to use `graft-common` (commands + git ops)
-- [ ] Replace graft-engine's git and command code with `graft-common`
+- [x] Replace graft-engine's git and command code with `graft-common`
 - **Source code**:
   - `crates/graft-engine/src/resolution.rs` (bare `Command::new("git")` calls)
   - `crates/graft-engine/src/command.rs` (command execution)
