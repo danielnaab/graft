@@ -185,3 +185,29 @@ None needed. The implementation is clean and correct.
 - The thin-wrapper pattern (convert parameters/errors, delegate to shared code) continues to work well for migration.
 - Total code reduction: ~338 lines removed (duplicate types and cache functions) across both crates.
 - Both graft and grove now share the same cache directory structure and types, ensuring cache consistency across tools.
+
+---
+
+### Iteration 8 — Deduplicate graft.yaml command/state parsing
+**Status**: completed
+**Files changed**:
+- `crates/graft-common/src/config.rs` (new, 400 lines)
+- `crates/graft-common/src/lib.rs` (added config module export)
+- `crates/graft-common/Cargo.toml` (added serde_yaml dependency)
+- `crates/grove-cli/src/state/discovery.rs` (replaced with thin wrapper using shared parser, ~80 lines removed)
+- `crates/grove-engine/src/config.rs` (migrated GraftYamlLoader to use shared parser)
+
+**What was done**:
+Created `graft-common/src/config.rs` with shared graft.yaml parsing utilities. Extracted two types (`CommandDef`, `StateQueryDef`) and two public functions (`parse_commands`, `parse_state_queries`) that parse the commands and state sections of graft.yaml files. Both functions return `HashMap<String, T>` which consumers adapt to their own domain types. Migrated grove-cli's state query discovery to use `parse_state_queries` (reduced from ~70 lines to ~20 lines). Migrated grove-engine's `GraftYamlConfigLoader` to use `parse_commands` for the commands section. Added 8 unit tests covering success cases, missing files, missing sections, and default values.
+
+**Critique findings**:
+All acceptance criteria met. Code is idiomatic Rust with proper error handling (`Result<HashMap, String>`), good documentation (including backticked type names per clippy), and comprehensive tests. The shared parser eliminates ~80 lines of duplicate parsing logic from grove-cli while maintaining backward compatibility. Both grove-cli (via discovery.rs and GraftYamlConfigLoader) and grove-engine (via GraftYamlConfigLoader) now use the shared parser. The grove-cli TUI has 64 pre-existing clippy warnings (per MEMORY.md) which are unrelated to this task - all modified crates pass clippy cleanly.
+
+**Improvements made**:
+None needed. Implementation is correct and complete.
+
+**Learnings for future iterations**:
+- Shared parsing utilities can return simple `HashMap` collections that consumers adapt to their domain types - this avoids forcing type coupling while still eliminating duplicate code.
+- The same thin-wrapper pattern used for git ops and state queries works well for config parsing too.
+- Both tools (graft and grove) had nearly identical YAML parsing logic for state queries - extracting to graft-common eliminates this duplication.
+- Grove-cli uses the shared parser twice: once directly (for state query discovery) and once indirectly (via grove-engine's GraftYamlConfigLoader for commands).

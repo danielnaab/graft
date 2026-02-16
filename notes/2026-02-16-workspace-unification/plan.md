@@ -138,7 +138,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 8: Deduplicate graft.yaml command/state parsing
-- [ ] Extract shared graft.yaml parser for commands and state queries
+- [x] Extract shared graft.yaml parser for commands and state queries
 - **Source code**:
   - `crates/grove-cli/src/state/discovery.rs` (re-parses graft.yaml from scratch)
   - `crates/grove-engine/src/config.rs` (`GraftYamlConfigLoader`, parses minimal subset)
