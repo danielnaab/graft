@@ -1435,6 +1435,7 @@ name = "graft-common"
 version = "0.1.0"
 dependencies = [
  "log",
+ "tempfile",
  "thiserror 2.0.18",
  "wait-timeout",
 ]
