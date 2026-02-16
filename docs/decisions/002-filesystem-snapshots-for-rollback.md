@@ -1,7 +1,10 @@
+---
+status: accepted
+date: 2026-01-04
+---
+
 # ADR 002: Filesystem Snapshots for Rollback
 
-**Status**: Accepted
-**Date**: 2026-01-04
 **Deciders**: Implementation team
 **Context**: Phase 5 snapshot/rollback implementation
 

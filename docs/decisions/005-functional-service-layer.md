@@ -1,7 +1,10 @@
+---
+status: accepted
+date: 2026-01-04
+---
+
 # ADR 005: Functional Service Layer
 
-**Status**: Accepted
-**Date**: 2026-01-04
 **Deciders**: Implementation team
 **Context**: Core architecture design
 

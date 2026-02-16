@@ -1,7 +1,10 @@
-# Grove Architecture Overview
+---
+status: stable
+version: 0.1.0
+updated: 2026-02-10
+---
 
-**Version:** 0.1.0 (Slice 1)
-**Last Updated:** 2026-02-10
+# Grove Architecture Overview
 
 ## Table of Contents
 

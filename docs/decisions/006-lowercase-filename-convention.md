@@ -1,11 +1,12 @@
+---
+status: accepted
+date: 2026-01-04
+tags: [documentation, conventions, user-experience]
+---
+
 # ADR 006: Lowercase Filename Convention
 
-**Status**: Accepted
-**Date**: 2026-01-04
 **Decision Makers**: Development team
-**Tags**: documentation, conventions, user-experience
-
----
 
 ## Context
 

@@ -1,7 +1,10 @@
+---
+status: accepted
+date: 2026-01-04
+---
+
 # ADR 001: Require Explicit Ref in Upgrade Command
 
-**Status**: Accepted
-**Date**: 2026-01-04
 **Deciders**: Implementation team
 **Context**: Phase 8 CLI implementation
 

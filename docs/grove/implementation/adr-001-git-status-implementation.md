@@ -1,8 +1,9 @@
+---
+status: accepted
+date: 2026-02-10
+---
+
 # ADR 001: Git Status Implementation Strategy
-
-## Status
-
-Accepted
 
 ## Context
 

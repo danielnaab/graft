@@ -1,3 +1,8 @@
+---
+status: stable
+updated: 2026-02-16
+---
+
 # Architectural Decision Records (ADRs)
 
 This directory contains Architectural Decision Records (ADRs) documenting key design decisions in the graft project.

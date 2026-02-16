@@ -1,7 +1,9 @@
-# Information Architecture
+---
+status: stable
+updated: 2026-01-04
+---
 
-**Status**: stable
-**Last Updated**: 2026-01-04
+# Information Architecture
 
 ## Overview
 

@@ -1,3 +1,8 @@
+---
+status: stable
+updated: 2026-02-16
+---
+
 # Grove User Guide
 
 ## Quick Start

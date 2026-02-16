@@ -1,7 +1,10 @@
+---
+status: accepted
+date: 2026-01-04
+---
+
 # ADR 003: Snapshot Only graft.lock, Not Full Workspace
 
-**Status**: Accepted
-**Date**: 2026-01-04
 **Deciders**: Implementation team
 **Context**: Phase 5 snapshot/rollback implementation
 
