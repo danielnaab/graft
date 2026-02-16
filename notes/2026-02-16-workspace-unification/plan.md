@@ -233,8 +233,8 @@ verify, and mark complete. Follow existing patterns in the codebase.
   - Authority boundaries explicit in interpretation docs
 
 ### Task 15: Create ADR for workspace unification
-- [ ] Write ADR documenting workspace unification decisions
-- **Target**: `docs/decisions/008-workspace-common-crate.md` (or next available number)
+- [x] Write ADR documenting workspace unification decisions
+- **Target**: `docs/decisions/007-workspace-common-crate.md` (next available number was 007)
 - **Reference**: existing ADRs in `docs/decisions/` for format
 - **What to do**:
   - Document: why graft-common was created, why serde_yaml was chosen, what was extracted, what was deferred (trait-based DI for graft), future work

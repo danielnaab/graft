@@ -402,3 +402,30 @@ None needed. The implementation is complete and correct.
 - Using `test -f` to verify link targets exist is more reliable than just grepping for link patterns
 - Pre-existing clippy issues in specific files (grove TUI) should be noted in MEMORY.md to avoid confusion during verification
 
+---
+
+### Iteration 15 — Create ADR for workspace unification
+**Status**: completed
+**Files changed**:
+- `docs/decisions/007-workspace-common-crate.md` (new, 300 lines)
+- `docs/decisions/README.md` (updated index and decision log)
+
+**What was done**:
+Created comprehensive ADR 007 documenting all workspace unification decisions. The ADR covers: why graft-common was created (eliminate 600 lines of duplication across 6 crates), what was extracted (timeout-protected command execution, git primitives, state query types, graft.yaml parsing), migration strategy (thin wrapper pattern), why serde_yaml was chosen over serde_yml (de-facto standard), what was deferred (trait-based DI refactor for graft), and future work (3 areas of potential expansion). Followed the standard ADR template with Context, Decision, Consequences, Alternatives Considered, and References sections. Added ADR to decisions/README.md index under "Core Architecture" and to the decision log table. All references and file paths verified to exist.
+
+**Critique findings**:
+All acceptance criteria fully met. The ADR is comprehensive, well-structured, and accurately documents the workspace unification decisions made across Iterations 1-8. Document quality is high: proper YAML frontmatter, follows ADR template, concrete code examples, clear explanations. All referenced paths verified to exist. The ADR provides excellent context for future developers to understand why these architectural decisions were made. Test count variation (422 vs 423) is normal and doesn't affect the document's accuracy - the important comparison is "up from 402 before unification" which is correct. No issues identified.
+
+**Improvements made**:
+None needed. The implementation is complete and high quality.
+
+**Learnings for future iterations**:
+- ADRs should be comprehensive but focused - this one covers 8 iterations of work in a single cohesive narrative
+- Concrete code examples (before/after) are valuable for understanding architectural decisions
+- The "What Was Not Extracted" section is important - documenting what was deliberately deferred prevents future confusion
+- Impact Assessment section with concrete numbers (lines eliminated, tests added, changed crates) provides measurable value
+- Implementation Timeline section helps readers understand the scope and phasing of the work
+- Cross-referencing related ADRs (004, 005) connects architectural decisions across the project
+- Valid YAML frontmatter is critical - always verify with `head -5` after creation
+- Link verification for documentation is just as important as for code - use `test -f` for file paths
+
