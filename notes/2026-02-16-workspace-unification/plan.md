@@ -54,7 +54,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 3: Add shared git primitives to `graft-common`
-- [ ] Extract common git operations into `graft-common`
+- [x] Extract common git operations into `graft-common`
 - **Source code**:
   - `crates/grove-engine/src/git.rs` (git operations with timeout protection)
   - `crates/graft-engine/src/resolution.rs` (bare `Command::new("git")` calls)
