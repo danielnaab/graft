@@ -1,0 +1,23 @@
+Excellent! The task is complete. Here's a summary of what was accomplished:
+
+## Task 2 Complete: Standardize on `serde_yaml`
+
+**What was done:**
+- Migrated all YAML parsing from `serde_yml` to `serde_yaml` across the workspace
+- Replaced 5 call sites total:
+  - 2 in `grove-engine/src/config.rs`
+  - 3 in `graft-engine/src/lock.rs`
+- Removed `serde_yml` from workspace `Cargo.toml` and all individual crate `Cargo.toml` files
+- `Cargo.lock` automatically cleaned up, removing `serde_yml` and its transitive dependency `libyml`
+
+**Verification:**
+- ✅ All 402+ tests pass
+- ✅ No `serde_yml` references remain in source code or `Cargo.toml` files
+- ✅ `cargo fmt --check` passes
+- ✅ `cargo test` passes (pre-existing clippy warnings in `grove-cli/src/tui.rs` remain)
+
+**Commits:**
+1. `71a9047` - feat(graft): standardize on serde_yaml, remove serde_yml dependency
+2. `463e760` - docs: Update plan and progress for Task 2 completion
+
+The repository is now ready for the next iteration, which will be **Task 3: Add shared git primitives to `graft-common`**.

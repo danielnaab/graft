@@ -1,0 +1,38 @@
+Perfect! All verification passes. Let me provide a summary of what was accomplished:
+
+## Summary
+
+**Task 6: `graft resolve` command** has been successfully completed.
+
+### Implementation Highlights:
+
+**Core Resolution Logic (graft-engine/resolution.rs):**
+- Implements flat-only dependency resolution using git submodules
+- 8 git operation functions (is_submodule, add_submodule, update_submodule, fetch_all, resolve_ref, get_current_commit, checkout)
+- `resolve_dependency()`: Handles existing submodules, legacy clones, and new additions
+- `resolve_all_dependencies()`: Processes all dependencies, continues on failure
+- `resolve_and_create_lock()`: Resolves dependencies AND updates graft.lock (critical)
+
+**CLI Command:**
+- Clean output showing configuration, resolution progress, and lock file update
+- Exit code 0 on success, 1 on failure
+- Helpful error messages with suggestions for common issues
+
+**All 6 Acceptance Criteria Met:**
+1. ✅ Clones dependencies to `.graft/<name>/` as git submodules
+2. ✅ Checks out declared ref
+3. ✅ Skips already-resolved dependencies
+4. ✅ Reports status for each dependency
+5. ✅ Exit code 0 on success, 1 on partial failure
+6. ✅ Creates/updates graft.lock (added after self-critique)
+
+**Self-Critique Process:**
+The self-critique identified a critical gap: the initial implementation did not update the lock file, which is required by the spec. This was fixed in a second commit by adding `resolve_and_create_lock()` that ensures the lock file accurately reflects the resolved state.
+
+**Verification:**
+- ✅ All tests pass (31 tests)
+- ✅ No clippy warnings
+- ✅ Manual testing confirms correct behavior
+- ✅ Lock file correctly updated with current timestamps and commit hashes
+
+The implementation follows established patterns from prior tasks and integrates cleanly with the existing codebase.

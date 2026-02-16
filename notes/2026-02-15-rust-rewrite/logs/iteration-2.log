@@ -1,0 +1,41 @@
+Perfect! Task 4 is complete. Let me provide a summary:
+
+## Summary
+
+**Task 4: `graft changes` and `graft show` - COMPLETED**
+
+I successfully implemented the change listing and detail display functionality for graft:
+
+### What was built:
+
+1. **Query functions in graft-engine** (`query.rs`):
+   - `get_changes_for_dependency()` - Get all changes from a dependency's config
+   - `filter_changes_by_type()` - Filter by type (breaking, feature, fix, etc.)
+   - `filter_breaking_changes()` - Filter to breaking changes only
+   - `get_change_by_ref()` - Look up specific change
+   - `get_change_details()` - Get change with resolved command details
+   - `ChangeDetails` struct for structured results
+
+2. **CLI commands in graft-cli** (`main.rs`):
+   - `graft changes <dep>` - Lists changes from dependency's graft.yaml
+     - `--type <type>` - Filter by change type
+     - `--breaking` - Show only breaking changes
+     - `--format text/json` - Output format
+   - `graft show <dep>@<ref>` - Shows detailed change information
+     - Displays type, description, migration/verify commands
+     - `--format text/json` - Output format
+
+### Verification results:
+- ✅ All 49 tests passing (8 new tests for change queries)
+- ✅ Cargo fmt: passed
+- ✅ Cargo clippy: passed (graft crates only)
+- ✅ Manual testing: commands work correctly with real dependencies
+- ✅ All 5 acceptance criteria met
+
+### Key patterns established:
+- Query functions take `&GraftConfig`, return owned data
+- CLI handles file I/O, calls query functions, formats output
+- Consistent error handling and JSON output across commands
+- `#[allow(clippy::too_many_lines)]` acceptable for display functions
+
+The implementation is complete, tested, and ready for the next task.

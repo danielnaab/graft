@@ -1,0 +1,33 @@
+Perfect! Task 8 is complete. Let me provide a summary to the user:
+
+## Task 8 Complete: Deduplicated graft.yaml parsing
+
+I've successfully extracted shared graft.yaml parsing utilities into `graft-common` and migrated both grove-cli and grove-engine to use them.
+
+### What was done:
+
+1. **Created `graft-common/src/config.rs`** with:
+   - `CommandDef` and `StateQueryDef` types representing parsed YAML structures
+   - `parse_commands()` - parses the `commands:` section from graft.yaml
+   - `parse_state_queries()` - parses the `state:` section from graft.yaml
+   - 8 unit tests covering success cases, missing files, and defaults
+
+2. **Migrated grove-cli** (`state/discovery.rs`):
+   - Replaced ~70 lines of duplicate parsing logic with a ~20 line wrapper
+   - Now delegates to `graft_common::parse_state_queries()`
+   - All existing tests still pass
+
+3. **Migrated grove-engine** (`config.rs`):
+   - Updated `GraftYamlConfigLoader` to use `graft_common::parse_commands()`
+   - Maintains the `GraftYaml` return type for backward compatibility
+   - All tests pass
+
+### Results:
+
+- ✅ Eliminated ~80 lines of duplicate YAML parsing code
+- ✅ Both tools now share the same parsing implementation
+- ✅ All 420+ tests passing
+- ✅ Modified crates pass clippy and formatting checks
+- ✅ Committed with clean history (2 commits: implementation + docs)
+
+The task is complete and ready for the next iteration!

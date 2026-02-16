@@ -1,0 +1,20 @@
+Excellent! The commit sequence is correct:
+1. Implementation commit: "docs: Add provenance sections to key documents"
+2. Plan/progress commit: "docs: Update plan and progress for Task 13 completion"
+
+## Summary
+
+Task 13 is complete! I successfully:
+
+1. **Added Sources sections to 4 key documents** (`docs/README.md`, `docs/guides/user-guide.md`, `docs/cli-reference.md`, `docs/configuration.md`)
+
+2. **Updated source references to reflect Rust as primary implementation**, with comprehensive links to:
+   - Canonical specifications (graft.yaml format, lock file format, core operations, change model, ADRs)
+   - Rust implementation (crates: graft-cli, graft-engine, graft-core, graft-common, grove-*)
+   - Python implementation (marked as deprecated with legacy code paths)
+
+3. **Grounded architectural claims in spec links and code references** with helpful context descriptions for each source
+
+4. **Followed the provenance policy from meta-KB** with dedicated "## Sources" sections using proper formatting
+
+All acceptance criteria met, all 422 tests pass, all links verified, and documentation is now fully compliant with the meta-KB provenance policy!

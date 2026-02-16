@@ -1,0 +1,28 @@
+Excellent! The commits are properly separated:
+1. `49726a3` - Implementation commit
+2. `f6a0d0f` - Documentation commit (plan.md and progress.md updates)
+
+## Summary
+
+Task 3 (`graft status`) has been successfully completed. The implementation:
+
+**What was delivered:**
+- Query service in `crates/graft-engine/src/query.rs` with functions `get_all_status()` and `get_dependency_status()`
+- CLI status command in `crates/graft-cli/src/main.rs` supporting both text and JSON output
+- Full test coverage with 4 unit tests
+- Integration tested against the repo's own `graft.lock` file
+
+**Key fixes made:**
+- Corrected query module implementation to use proper domain types (`GitRef`, `GitUrl`, `CommitHash`)
+- Fixed field name mismatches (`git_ref` not `ref_name`)
+- Changed timestamp handling from `DateTime<Utc>` to `String` to match domain model
+- Used `IndexMap` for guaranteed alphabetical ordering in output
+- Fixed clippy warnings and removed unused dependencies
+
+**All acceptance criteria met:**
+✅ Shows each dependency with current ref, locked commit, and sync status  
+✅ Supports `--json` output format per spec  
+✅ Exit code 0 on success  
+✅ Works against this repo's graft.lock successfully
+
+The next task in the plan is **Task 4: `graft changes` and `graft show`**.

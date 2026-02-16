@@ -1,0 +1,46 @@
+Perfect! Let me create a summary of what was accomplished:
+
+## Summary
+
+I've successfully completed **Task 10: `graft add` and `graft remove` commands** from the Rust rewrite plan.
+
+### What was implemented:
+
+1. **Management module** (`crates/graft-engine/src/management.rs`):
+   - `add_dependency_to_config()` - Adds dependencies to graft.yaml while preserving YAML structure
+   - `remove_dependency_from_config()` - Removes dependencies from graft.yaml
+   - `remove_dependency_from_lock()` - Removes from lock file (silently succeeds if missing)
+   - `remove_submodule()` - Properly removes git submodules via `git submodule deinit` and `git rm`
+   - `is_submodule()` - Checks if a path is a git submodule
+
+2. **CLI commands** (`crates/graft-cli/src/main.rs`):
+   - **`graft add <name> <source>#<ref>`**:
+     - Parses source#ref format
+     - Validates URL and ref via domain types
+     - Adds to graft.yaml
+     - `--no-resolve`: Adds to config only (doesn't clone)
+     - Default: Also resolves dependency and updates lock file
+   
+   - **`graft remove <name>`**:
+     - Removes from graft.yaml
+     - Removes from graft.lock (if exists)
+     - Removes submodule completely
+     - `--keep-files`: Preserves .graft/<name>/ directory
+
+### Verification:
+
+✅ **All acceptance criteria met**:
+- `graft add <name> <url>` adds dependency to graft.yaml
+- `graft remove <name>` removes dependency and cleans up submodule  
+- Both validate before modification (via DependencySpec constructors)
+
+✅ **All tests passing**: 7 new unit tests + 46 existing tests
+✅ **Code quality**: Passes `cargo fmt`, `cargo clippy -D warnings`
+✅ **Manual testing**: Verified full add → resolve → remove workflow
+
+### Git commits:
+1. `e8aa2f8` - feat(graft): implement add and remove commands
+2. `b0a4585` - test(graft): add validation tests for add/remove operations
+3. `e78e699` - docs: Update plan and progress for Task 10 completion
+
+The implementation follows all established patterns from previous tasks and is ready for the next iteration.

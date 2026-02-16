@@ -1,0 +1,45 @@
+Excellent! Task 11 is complete. Let me create a brief summary of what was accomplished:
+
+## Task 11 Complete: `graft run` Command Implementation
+
+I successfully implemented the `graft run` command for executing commands defined in graft.yaml files. Here's what was delivered:
+
+### Implementation Summary
+
+**Three command modes:**
+1. `graft run` — Lists all available commands from current repository's graft.yaml
+2. `graft run <command>` — Executes a command from current repository  
+3. `graft run <dep>:<command>` — Executes a command from a dependency's graft.yaml
+
+**Key features:**
+- Searches for graft.yaml by walking up directory tree (like git)
+- Executes commands in consumer's context (current dir unless command specifies `working_dir`)
+- Streams stdout/stderr in real-time
+- Forwards exit codes from executed commands
+- Clear error messages with helpful suggestions
+- Support for command-line arguments
+
+**Files modified:**
+- `crates/graft-cli/src/main.rs` (+283 lines)
+
+**Verification:**
+- ✅ All Rust tests passing (42 tests total)
+- ✅ Clippy clean with `-D warnings`
+- ✅ cargo fmt clean
+- ✅ Manual integration tests verify correct behavior
+
+### Acceptance Criteria Status
+
+✅ `graft run <dep>:<command>` executes named command from dep's graft.yaml  
+⚠️ `graft <dep>:<command>` shorthand not implemented (requires external_subcommands; spec labels as "legacy")  
+✅ Commands run in consumer's context per spec  
+✅ stdout/stderr passed through  
+✅ Exit code forwarded from command  
+✅ Command not found → clear error  
+✅ `graft run` lists available commands
+
+### Spec Gap
+
+The spec mentions `graft <dep>:<command>` as a shorthand syntax, but implementing this with clap would require using `external_subcommands` which significantly complicates the CLI architecture. The spec also describes this as "legacy" syntax and designates `graft run <dep>:<command>` as the primary format. I documented this decision in the plan.md file.
+
+The implementation is complete and ready for the next task!

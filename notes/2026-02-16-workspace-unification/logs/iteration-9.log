@@ -1,0 +1,9 @@
+Perfect! Task 9 is complete. The Python implementation is now clearly marked as deprecated with:
+- A comprehensive `DEPRECATED.md` explaining the migration path
+- Deprecation notices in module docstrings
+- Runtime warnings when the CLI is invoked
+- Updated package metadata in `pyproject.toml`
+
+All 485 Python tests continue to pass, confirming that the deprecation notices don't break any functionality.
+
+The next task (Task 10) is to merge grove docs into the main documentation tree. This is a more complex documentation reorganization task that will require careful link updates.

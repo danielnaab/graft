@@ -1,0 +1,46 @@
+Perfect! Task 12 is now complete. Let me provide a summary for the user.
+
+---
+
+## Summary
+
+I've successfully completed **Task 12: State query support** for the graft Rust rewrite. Here's what was implemented:
+
+### Domain Types (graft-core)
+- Added `StateQuery` and `StateCache` types for state query definitions
+- Added `state` field to `GraftConfig` for storing state queries
+
+### State Engine (graft-engine)
+- **Config parsing**: Parse `state:` section from graft.yaml
+- **Execution**: `execute_state_query()` runs commands via shell and validates JSON output
+- **Caching**: Results stored at `~/.cache/graft/{workspace-hash}/{repo-name}/state/{query-name}/{commit-hash}.json`
+- **Cache invalidation**: Clear cache for specific queries or all queries
+- **Query listing**: Show all queries with cache status
+
+### CLI Commands (graft-cli)
+- `graft state list` - Lists all state queries with cache status
+- `graft state query <name>` - Executes a query with caching support
+  - `--refresh` to bypass cache
+  - `--raw` to output only data (no metadata)
+  - `--pretty` for formatted JSON
+- `graft state invalidate [name]` - Clears cache
+  - `--all` to clear all caches
+
+### Verification
+✅ All acceptance criteria met:
+- State queries parsed from graft.yaml
+- Commands executed with JSON validation
+- Results cached by commit hash
+- Cache invalidation working
+- Deterministic queries use cached results
+
+✅ All verification passing:
+- `cargo fmt --check`
+- `cargo clippy -- -D warnings`
+- `cargo test` (all 50+ tests passing)
+
+**Commits**:
+- `19a52e4` - Implementation
+- `3ab367a` - Plan and progress updates
+
+The implementation follows Stage 1 scope only (as specified). Temporal queries with git worktree are deferred to later stages for simplicity.

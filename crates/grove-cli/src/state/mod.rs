@@ -12,5 +12,5 @@ pub use cache::{
 pub use discovery::discover_state_queries;
 pub use query::{StateQuery, StateResult};
 
-// Re-export shared types from graft-common for convenience
+// Re-export shared types from graft-common for tests
 pub use graft_common::state::StateMetadata;

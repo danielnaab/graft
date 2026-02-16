@@ -1,0 +1,36 @@
+Perfect! I have successfully completed Task 9 (`graft upgrade` command). Let me summarize what was implemented:
+
+## Summary
+
+I implemented the `graft upgrade` command with atomic rollback support for the Rust graft CLI. This was Task 9 in the implementation plan.
+
+### What was built:
+
+1. **Snapshot Module** (`crates/graft-engine/src/snapshot.rs`):
+   - File backup and restore functionality for rollback support
+   - Snapshots stored in `.graft/.snapshots/` with unique IDs
+   - Handles missing files gracefully
+
+2. **Command Execution Module** (`crates/graft-engine/src/command.rs`):
+   - Executes commands from dependency graft.yaml files
+   - Supports environment variables, working directories, shell pipes
+   - Returns structured `CommandResult` with exit code and output
+
+3. **Upgrade Function** (`crates/graft-engine/src/mutation.rs`):
+   - Atomic upgrade operation: snapshot → migrate → verify → update lock OR rollback
+   - Automatic rollback on any failure
+   - Returns `UpgradeResult` with command outputs
+
+4. **CLI Command** (`crates/graft-cli/src/main.rs`):
+   - `graft upgrade <dep> --to <ref>` with full spec compliance
+   - `--skip-migration` and `--skip-verify` flags
+   - `--dry-run` mode for previewing operations
+   - Clear progress output and error messages
+
+### Verification:
+- ✅ All code formatted (`cargo fmt --check`)
+- ✅ All clippy lints pass (`cargo clippy -- -D warnings`)
+- ✅ All 42 tests pass (`cargo test`)
+- ✅ All 8 acceptance criteria met
+
+The implementation follows the specification in `docs/specifications/graft/core-operations.md` and matches the Python reference implementation's behavior while using idiomatic Rust patterns.

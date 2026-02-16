@@ -1,0 +1,30 @@
+Excellent! Task 7 has been completed successfully. 
+
+## Summary
+
+I successfully migrated state query consumers to use `graft-common` types:
+
+### Changes Made:
+1. **grove-cli**: 
+   - Added `graft-common` dependency
+   - Replaced duplicate `StateMetadata` and `StateResult` types with re-exports from `graft-common`
+   - Replaced cache functions with wrappers that maintain backward compatibility (accepting pre-computed workspace hashes)
+   - Updated module exports
+
+2. **graft-engine**:
+   - Replaced duplicate `StateMetadata` and `StateResult` types with re-exports from `graft-common`
+   - Replaced cache read/write/invalidate functions with thin wrappers that delegate to `graft-common`
+   - Kept graft-specific execution logic (`execute_state_query`, `get_state`)
+
+### Key Decisions:
+- Grove-cli wrappers maintain API compatibility by accepting pre-computed workspace hashes (as expected by existing tests)
+- Both crates now share the same cache directory structure and types, ensuring consistency
+- Removed ~338 lines of duplicate code
+
+### Verification:
+- ✅ All 420+ tests pass
+- ✅ No duplicate `StateMetadata`/`StateResult` definitions
+- ✅ Format and clippy pass for modified packages
+- ✅ Pre-existing TUI clippy issues are documented and unrelated to this migration
+
+The next task in the plan is **Task 8: Deduplicate graft.yaml command/state parsing**.

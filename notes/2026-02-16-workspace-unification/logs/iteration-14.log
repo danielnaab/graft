@@ -1,0 +1,32 @@
+Perfect! Task 14 is now complete. Let me provide a summary of what was accomplished:
+
+## Task 14 Complete: Authority Boundaries and Link Fixes
+
+Successfully completed Task 14 with all acceptance criteria met:
+
+### What Was Fixed
+
+**Broken Links (11 total):**
+- Fixed 7 broken specification links in `docs/grove/planning/roadmap.md` (wrong relative path depth)
+- Fixed 2 broken specification links in `docs/grove/planning/slices/slice-1-workspace-config.md`
+- Fixed 2 broken rust-starter architecture links (wrong subdirectory path)
+
+**Authority Notes Added:**
+- `docs/architecture.md` - Added note clarifying relationship to canonical specs
+- `docs/grove-overview.md` - Added note pointing to Grove specifications
+- `docs/guides/grove-user-guide.md` - Added note referencing canonical requirements
+- `docs/cli-reference.md` - Enhanced existing note to be clearer
+- `docs/grove/implementation/architecture-overview.md` - Added note referencing Grove specs
+
+### Key Outcomes
+
+✅ **No broken links** - All internal documentation links now resolve correctly
+✅ **Authority boundaries explicit** - Interpretation documents clearly reference canonical sources  
+✅ **No file:/// issues** - Only legitimate examples in configuration docs
+✅ **Verification passed** - All 423 tests pass, format/clippy clean (except pre-existing TUI issues)
+
+### Commits
+1. `08e003d` - Implementation: Fixed links and added authority notes
+2. `3390be6` - Documentation: Updated plan and progress log
+
+The repository documentation now has consistent authority boundaries and all internal links are verified to work correctly. Ready for Task 15 (ADR creation) next.

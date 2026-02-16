@@ -1,0 +1,6 @@
+Excellent! Task 1 is complete with three commits:
+1. The implementation
+2. The critique fix
+3. The plan/progress update
+
+Task 1 is complete. The `graft-common` crate now exists with timeout-protected command execution, all tests pass, and the implementation is documented in the progress log.

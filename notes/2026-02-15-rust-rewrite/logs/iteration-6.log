@@ -1,0 +1,32 @@
+Perfect! Task 8 is now complete. Let me provide a summary:
+
+## Task 8: `graft apply` — Completed ✓
+
+I successfully implemented the `graft apply` command, which allows updating the lock file without running migrations. This is useful for manual migration workflows.
+
+### What was implemented:
+
+**Engine layer (`graft-engine/mutation.rs`):**
+- `apply_lock()` function that validates dependency, resolves git ref to commit, and updates lock file
+- `ApplyResult` struct for structured return values
+- Reuses `resolve_ref()` from resolution module (after refactoring to avoid duplication)
+
+**CLI layer (`graft-cli/main.rs`):**
+- `graft apply <dep-name> --to <ref>` command
+- Clean output showing source, commit hash, and migration note
+
+**Error handling improvements:**
+- Added `DependencyNotFound` and `Git` error variants
+- Refactored `Resolution` error from struct to tuple variant for consistency
+
+### Verification:
+- ✅ All 37 tests passing (34 unit + 3 integration)
+- ✅ Formatting (`cargo fmt --check`)
+- ✅ Linting (`cargo clippy -- -D warnings`)
+- ✅ Manual end-to-end testing with real dependencies
+
+### Self-critique applied:
+- Identified and fixed code duplication by reusing existing `resolve_ref()` function
+- Committed implementation, performed critique, applied improvements, then committed fixes separately
+
+The implementation fully satisfies the specification and all acceptance criteria.

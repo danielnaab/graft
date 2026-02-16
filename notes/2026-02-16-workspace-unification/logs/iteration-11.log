@@ -1,0 +1,44 @@
+Perfect! Task 11 is now complete. Let me provide a summary of what was accomplished:
+
+## Task 11 Complete: Update Entrypoints
+
+I've successfully updated all project entrypoint documents to reflect the current state after workspace unification:
+
+### Changes Made
+
+**AGENTS.md:**
+- Documented `graft-common` crate with details about what it provides (timeout-protected commands, git ops, state types, config parsing)
+- Updated test count from 49 to 423 tests across workspace
+- Changed status from "ready for use" to "production ready"
+- Marked Python implementation as deprecated throughout
+- Updated Graft Rust implementation status to note workspace unification completion
+
+**CLAUDE.md:**
+- Updated verification command test counts (423 Rust tests, 485 Python tests)
+- Updated Python description from "legacy, maintained for compatibility" to "deprecated, maintained for reference"
+
+**continue-here.md:**
+- Complete rewrite reflecting current state as of 2026-02-16
+- Rust CLI clearly marked as primary implementation
+- Python CLI marked as deprecated with migration guide reference
+- Documented workspace unification completion and graft-common crate
+- Added comprehensive session handoff context including:
+  - Current state of both Graft and Grove
+  - Quick start commands for both Rust and Python
+  - Updated project structure showing graft-common
+  - Clear metrics (423 Rust tests, 485 Python tests)
+  - Architecture patterns for both implementations
+  - Next steps pointing to remaining tasks
+
+**knowledge-base.yaml:**
+- Already updated in Task 10 with graft-common component
+
+### Verification
+
+- ✅ All 423 workspace tests pass
+- ✅ No broken links in any updated files
+- ✅ Test counts verified against actual test runs
+- ✅ All references to "rewrite in progress" removed
+- ✅ Consistent language across all three files
+
+The next task (Task 12) is to add lifecycle frontmatter to all documentation files.

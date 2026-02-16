@@ -1,0 +1,23 @@
+Excellent! Task 6 is successfully completed. Here's a summary of what was accomplished:
+
+## Task 6 Summary: Migrate graft-engine to use graft-common (commands + git ops)
+
+### What was done:
+- **Added graft-common dependency** to graft-engine
+- **Replaced 6 git operations** with shared implementations from graft-common:
+  - `resolve_ref` → `graft_common::git::git_rev_parse`
+  - `get_current_commit` → `graft_common::git::get_current_commit`
+  - `checkout` → `graft_common::git::git_checkout`
+  - `fetch_all` → `graft_common::git::git_fetch`
+  - `is_repository` → `graft_common::git::is_git_repo`
+- **Added timeout protection** to 3 git submodule operations:
+  - `is_submodule`, `add_submodule`, `update_submodule` now use `run_command_with_timeout`
+- **Migrated command execution** in `command.rs` to use shared timeout-protected runner
+
+### Key improvements:
+- **Reduced code**: ~100 lines of git/command code replaced with thin wrappers
+- **Added timeout protection**: Graft previously had NO timeout protection on git operations (now fixed)
+- **Consistent behavior**: Graft and Grove now use the same git operations infrastructure
+- **All tests pass**: 420+ tests, no regressions
+
+The implementation follows the same thin-wrapper pattern established in Task 5 and is ready for the next phase of the unification work.

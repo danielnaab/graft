@@ -1,0 +1,30 @@
+Excellent! Task 3 is fully complete. Let me summarize what was accomplished:
+
+## Task 3 Summary: Add shared git primitives to graft-common
+
+**Implementation:**
+- Created `crates/graft-common/src/git.rs` with 5 shared git operations:
+  - `is_git_repo()` - checks if a path is a git repository
+  - `get_current_commit()` - gets the current HEAD commit hash
+  - `git_rev_parse()` - resolves git refs to commit hashes (tries `origin/ref` first for branches)
+  - `git_fetch()` - fetches all refs from remote
+  - `git_checkout()` - checks out a specific commit
+
+**Key design decisions:**
+- All operations use timeout protection via `run_command_with_timeout` from Task 1
+- Functions accept `impl AsRef<Path>` for flexibility
+- Proper error handling with `GitError` enum using thiserror
+- Comprehensive documentation with examples
+
+**Testing:**
+- Added 9 unit tests covering success, failure, and edge cases
+- Total workspace tests: 420 (up from 402 after Task 2)
+- All tests pass, no regressions
+
+**Quality:**
+- ✅ `cargo fmt --check` passes
+- ✅ `cargo clippy -p graft-common -- -D warnings` passes (no warnings in graft-common)
+- ✅ `cargo test` passes (420 tests total)
+- ✅ Code follows Rust idioms and workspace patterns
+
+The shared git primitives are now ready to be used by consumers in the next phase (Tasks 5-8). The next iteration should pick up Task 4: Extract shared state query types and cache logic to graft-common.

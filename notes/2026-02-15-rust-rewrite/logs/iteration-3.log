@@ -1,0 +1,43 @@
+Perfect! Task 5 is now complete. Let me provide a summary of what was accomplished:
+
+## Task 5 Complete: `graft validate` Command
+
+I've successfully implemented the `graft validate` command with all acceptance criteria met:
+
+### What was built:
+1. **Validation module** (`crates/graft-engine/src/validation.rs`):
+   - `validate_config_schema()` - checks business rules (at least one dependency required)
+   - `validate_integrity()` - verifies .graft/ directory matches lock file by comparing commit hashes
+   - Uses `git rev-parse HEAD` to get current commit from each dependency
+
+2. **CLI command** (`crates/graft-cli/src/main.rs`):
+   - Three validation modes: `--config`, `--lock`, `--integrity` (or all if no flags)
+   - Both text and JSON output formats
+   - Exit codes: 0 (success), 1 (validation error), 2 (integrity mismatch)
+   - Reports ALL errors, not just the first one
+
+### Verified against this repo:
+```bash
+$ cargo run -p graft-cli -- validate
+Validating graft.yaml...
+  ✓ Schema is valid
+
+Validating graft.lock...
+  ✓ Schema is valid
+
+Validating integrity...
+  ✓ living-specifications: Commit matches
+  ✓ meta-knowledge-base: Commit matches
+  ✓ python-starter: Commit matches
+  ✓ rust-starter: Commit matches
+
+Validation successful
+```
+
+### Test results:
+- ✅ All 28 graft-engine tests pass (4 new validation tests)
+- ✅ Cargo clippy passes with no warnings
+- ✅ Manual testing confirms all three modes work correctly
+- ✅ JSON output format works as expected
+
+The implementation follows the established patterns from prior tasks and integrates cleanly with the existing codebase. Ready for the next task!

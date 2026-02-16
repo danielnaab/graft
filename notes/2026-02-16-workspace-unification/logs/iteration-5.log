@@ -1,0 +1,18 @@
+Excellent! The commit sequence is clean:
+1. Implementation commit: "feat(graft): migrate grove-engine to use graft-common command execution"
+2. Documentation commit: "docs: Update plan and progress for Task 5 completion"
+
+This matches the workflow prescribed in the prompt. Task 5 is complete and the next iteration will pick up Task 6.
+
+## Summary
+
+**Task 5: Migrate grove-engine to use `graft-common` command execution** ✅
+
+Successfully migrated grove-engine to use the shared timeout-protected command runner from graft-common. The implementation:
+- Replaced a 50-line local implementation with a clean thin wrapper (22 lines gained, 50 removed = net -28 lines)
+- Preserved all existing behavior and API contracts
+- Maintained the `GROVE_GIT_TIMEOUT_MS` environment variable support
+- All 40 grove-engine tests pass without modification
+- Removed `wait-timeout` as a direct dependency (now comes via graft-common)
+
+The thin wrapper pattern proved ideal for this migration - it converts domain-agnostic `CommandError` to grove-specific `CoreError` while delegating all execution logic to the shared implementation. This makes the migration low-risk and preserves the existing API for all 6 call sites in grove-engine.

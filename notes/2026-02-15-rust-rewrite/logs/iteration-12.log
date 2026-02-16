@@ -1,0 +1,39 @@
+Excellent! All 14 tasks are complete. Let me create a final summary:
+
+## Summary
+
+I've successfully completed **Task 14: Parity verification and documentation**, which was the final task in the graft Rust implementation plan.
+
+### What was accomplished:
+
+1. **Comprehensive parity verification** (`notes/2026-02-15-rust-rewrite/parity-verification.md`):
+   - Tested all 14 commands side-by-side (Rust vs Python)
+   - Verified text output equivalence
+   - Verified JSON output equivalence
+   - Documented minor differences (timestamp formatting)
+   - Discovered that **Rust implementation is more correct** than Python in validation (better git submodule detection)
+
+2. **Documentation updates**:
+   - **AGENTS.md**: Updated to reflect Rust graft is "ready for use" (not "rewrite in progress")
+   - **CLAUDE.md**: Reorganized verification commands to prioritize Rust implementation
+   - Both files now clearly indicate Rust is primary, Python is legacy/maintained for compatibility
+
+3. **Verification results**:
+   - ✅ All graft crates pass `cargo clippy -- -D warnings`
+   - ✅ All 91 tests pass (19 domain, 54 engine, 7 integration, 11 doctests)
+   - ✅ Smoke test successful (`graft status` works correctly)
+   - ✅ Output parity verified across all commands
+
+### Key findings:
+
+- **Output equivalence**: Rust and Python produce equivalent output with only minor formatting differences (ISO 8601 timestamps: `Z` vs `+00:00`)
+- **Rust advantages**: More spec-compliant (preserves full timestamps), better submodule validation
+- **Spec gaps documented**: Legacy `graft <dep>:<command>` shorthand not implemented (requires architectural change; spec marks as "legacy")
+
+### All 14 tasks completed:
+
+The graft Rust implementation is **ready for production use** as a drop-in replacement for the Python implementation. All core operations, state queries (Stage 1), validation, and command execution are fully implemented and tested.
+
+**Final commits**:
+- `2530d3e` - Parity verification and documentation updates
+- `6b9a2ef` - Plan and progress log updates marking Task 14 complete
