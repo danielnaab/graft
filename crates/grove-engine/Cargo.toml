@@ -11,7 +11,7 @@ grove-core = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
-serde_yml = { workspace = true }
+serde_yaml = { workspace = true }
 gix = { workspace = true }
 wait-timeout = { workspace = true }
 log = { workspace = true }

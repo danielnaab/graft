@@ -25,7 +25,7 @@ impl ConfigLoader for YamlConfigLoader {
             details: format!("Failed to read config file '{config_path}': {e}"),
         })?;
 
-        serde_yml::from_str(&contents).map_err(|e| CoreError::InvalidConfig {
+        serde_yaml::from_str(&contents).map_err(|e| CoreError::InvalidConfig {
             details: format!("Failed to parse config file '{config_path}': {e}"),
         })
     }
@@ -58,7 +58,7 @@ impl GraftYamlLoader for GraftYamlConfigLoader {
             details: format!("Failed to read graft.yaml: {e}"),
         })?;
 
-        serde_yml::from_str(&contents).map_err(|e| CoreError::InvalidConfig {
+        serde_yaml::from_str(&contents).map_err(|e| CoreError::InvalidConfig {
             details: format!("Failed to parse graft.yaml: {e}"),
         })
     }

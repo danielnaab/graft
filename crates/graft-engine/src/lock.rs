@@ -78,7 +78,7 @@ pub fn parse_lock_file_str(yaml_str: &str, path_for_errors: impl Into<String>) -
     let path_for_errors = path_for_errors.into();
 
     // Parse YAML
-    let lock: LockFile = serde_yml::from_str(yaml_str).map_err(|e| GraftError::LockFileParse {
+    let lock: LockFile = serde_yaml::from_str(yaml_str).map_err(|e| GraftError::LockFileParse {
         path: path_for_errors.clone(),
         reason: e.to_string(),
     })?;
@@ -130,7 +130,7 @@ pub fn write_lock_file(path: impl AsRef<Path>, lock: &LockFile) -> Result<()> {
     let ordered = to_ordered_lock(lock);
 
     // Serialize to YAML
-    let yaml = serde_yml::to_string(&ordered).map_err(|e| GraftError::Yaml(e.to_string()))?;
+    let yaml = serde_yaml::to_string(&ordered).map_err(|e| GraftError::Yaml(e.to_string()))?;
 
     // Write to file
     std::fs::write(path, yaml)?;
@@ -312,7 +312,7 @@ dependencies:
 
         // Serialize
         let ordered = to_ordered_lock(&lock);
-        let yaml = serde_yml::to_string(&ordered).unwrap();
+        let yaml = serde_yaml::to_string(&ordered).unwrap();
 
         // Deserialize
         let parsed = parse_lock_file_str(&yaml, "test.lock").unwrap();
