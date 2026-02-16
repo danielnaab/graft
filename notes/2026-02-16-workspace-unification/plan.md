@@ -38,7 +38,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 2: Standardize on `serde_yaml` (remove `serde_yml`)
-- [ ] Migrate all `serde_yml` call sites to `serde_yaml`
+- [x] Migrate all `serde_yml` call sites to `serde_yaml`
 - **Source code**:
   - `crates/grove-engine/src/config.rs` (~2 call sites using `serde_yml`)
   - `crates/graft-engine/src/lock.rs` (~3 call sites using `serde_yml`)

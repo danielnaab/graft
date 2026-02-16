@@ -34,3 +34,29 @@ Updated documentation to clarify that the function configures stdout/stderr pipi
 - The crate passes all checks in isolation even though the workspace has pre-existing clippy issues in `grove-cli/src/tui.rs`.
 - When testing new crates in isolation, use `cd crates/<crate-name> && cargo test` to avoid workspace-wide clippy errors.
 
+---
+
+### Iteration 2 — Standardize on serde_yaml (remove serde_yml)
+**Status**: completed
+**Files changed**:
+- `crates/grove-engine/src/config.rs` (replaced `serde_yml::from_str` calls)
+- `crates/graft-engine/src/lock.rs` (replaced `serde_yml::from_str` and `serde_yml::to_string` calls)
+- `crates/grove-engine/Cargo.toml` (changed `serde_yml` to `serde_yaml`)
+- `crates/graft-engine/Cargo.toml` (removed `serde_yml`)
+- `Cargo.toml` (removed `serde_yml` from workspace dependencies)
+- `Cargo.lock` (removed `serde_yml` and transitive dependency `libyml`)
+
+**What was done**:
+Migrated all YAML parsing from `serde_yml` to `serde_yaml` across both `grove-engine` and `graft-engine`. Replaced 2 call sites in `grove-engine/src/config.rs` and 3 call sites in `graft-engine/src/lock.rs`. Removed `serde_yml` from all `Cargo.toml` files (workspace and individual crates). The migration is API-compatible - no behavioral changes, just swapping the underlying parser. Cargo.lock was automatically updated to remove the `serde_yml` crate and its transitive dependency `libyml`.
+
+**Critique findings**:
+None. The implementation is straightforward and correct. The changes are minimal and surgical - exactly what was needed. The `serde_yaml` and `serde_yml` APIs are compatible for basic deserialization/serialization, so this is a drop-in replacement. All 402+ tests still pass.
+
+**Improvements made**:
+None needed.
+
+**Learnings for future iterations**:
+- `serde_yaml` is API-compatible with `serde_yml` for basic `from_str` and `to_string` operations - simple find-and-replace works.
+- The workspace had both `serde_yml` and `serde_yaml` dependencies before this task, so `graft-engine` was already using both.
+- Removing unused dependencies from workspace `Cargo.toml` automatically cleans up `Cargo.lock` - no manual intervention needed.
+
