@@ -211,3 +211,28 @@ None needed. Implementation is correct and complete.
 - The same thin-wrapper pattern used for git ops and state queries works well for config parsing too.
 - Both tools (graft and grove) had nearly identical YAML parsing logic for state queries - extracting to graft-common eliminates this duplication.
 - Grove-cli uses the shared parser twice: once directly (for state query discovery) and once indirectly (via grove-engine's GraftYamlConfigLoader for commands).
+
+---
+
+### Iteration 9 — Mark Python code as deprecated
+**Status**: completed
+**Files changed**:
+- `src/graft/__init__.py` (added deprecation notice to module docstring)
+- `src/graft/__main__.py` (added runtime deprecation warning)
+- `src/graft/DEPRECATED.md` (new, comprehensive deprecation notice)
+- `pyproject.toml` (updated description and development status to "Inactive")
+
+**What was done**:
+Added comprehensive deprecation notices to the Python implementation. Created `DEPRECATED.md` explaining the migration path, rationale, timeline, and Rust implementation details. Added deprecation warnings to both `__init__.py` (module docstring) and `__main__.py` (runtime warning visible when CLI is invoked). Updated `pyproject.toml` to reflect "Development Status :: 7 - Inactive" and added "(DEPRECATED - use Rust implementation)" to the description. All 485 Python tests still pass. The runtime warning is visible when users run the Python CLI (`python -m graft`), ensuring clear communication.
+
+**Critique findings**:
+All acceptance criteria met. Deprecation is clearly communicated through multiple channels: module docstrings, runtime warnings, comprehensive DEPRECATED.md, and package metadata. The runtime warning uses `stacklevel=2` and is confirmed visible in CLI output. Python tests all pass (485 tests), confirming no functionality was broken. The DEPRECATED.md provides a complete migration guide with rationale, timeline, and next steps.
+
+**Improvements made**:
+None needed. The implementation is comprehensive and effective.
+
+**Learnings for future iterations**:
+- Python's `warnings.warn()` with `DeprecationWarning` is effective for runtime notifications and is visible even in non-test contexts.
+- Using `PYTHONWARNINGS=default` in testing ensures deprecation warnings are visible (normally they're filtered).
+- pyproject.toml's `Development Status :: 7 - Inactive` is the appropriate classifier for deprecated packages.
+- Multi-channel deprecation (docstrings + runtime + docs + metadata) ensures maximum visibility for users.

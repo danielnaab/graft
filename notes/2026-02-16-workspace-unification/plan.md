@@ -155,7 +155,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
 ## Phase 3: Repository Organization (Tasks 9–11)
 
 ### Task 9: Mark Python code as deprecated
-- [ ] Add deprecation notices to Python code
+- [x] Add deprecation notices to Python code
 - **Source code**: `src/graft/__init__.py`, `src/graft/__main__.py`, `pyproject.toml`
 - **What to do**:
   - Add deprecation notice to `src/graft/__init__.py` or `src/graft/__main__.py`
