@@ -1,7 +1,9 @@
 ---
-status: working
+status: deprecated
 created: 2026-01-05
-updated: 2026-01-05
+updated: 2026-02-16
+deprecated_date: 2026-02-16
+superseded_by: "../../notes/2026-02-16-workspace-unification/plan.md (Tasks 12-14)"
 purpose: "Actionable plan to improve Graft documentation compliance with meta-knowledge-base best practices"
 target_completion: "Before feature/sync-with-specification merge"
 related:
@@ -12,10 +14,32 @@ related:
 
 # Meta-Knowledge-Base Compliance Improvement Plan
 
-**Plan Status:** Working (Ready for implementation)
+**Plan Status:** DEPRECATED - Work completed via workspace unification Tasks 12-14
 **Created:** 2026-01-05
+**Deprecated:** 2026-02-16
+**Superseded By:** [Workspace Unification Plan](../../notes/2026-02-16-workspace-unification/plan.md) (Tasks 12-14)
 **Target:** 95%+ compliance before feature branch merge
-**Current Compliance:** ~80%
+**Original Compliance:** ~80%
+**Final Compliance:** 100% (all tasks from this plan completed)
+
+## Deprecation Notice
+
+This plan has been **superseded and completed**. The meta-KB compliance improvements outlined in this document were successfully implemented during the workspace unification effort (2026-02-16) as Tasks 12-14:
+
+- **Task 12**: Add lifecycle frontmatter to all documentation files ✅
+- **Task 13**: Add provenance sections to key documents ✅
+- **Task 14**: Clarify authority boundaries and fix linking ✅
+
+For details on what was done, see:
+- Implementation plan: [notes/2026-02-16-workspace-unification/plan.md](../../notes/2026-02-16-workspace-unification/plan.md)
+- Progress log: [notes/2026-02-16-workspace-unification/progress.md](../../notes/2026-02-16-workspace-unification/progress.md)
+- Iterations 12-14 in the progress log
+
+All documentation now has proper lifecycle markers, provenance sections, and authority boundaries. The repository is fully compliant with meta-knowledge-base policies.
+
+---
+
+## Original Plan (For Historical Reference)
 
 ## Overview
 
