@@ -75,7 +75,8 @@ Run `git log --oneline -10` for complete history.
 - [docs/guides/contributing.md](docs/guides/contributing.md) - Development workflow
 
 ### For Grove Work
-- [grove/docs/agents.md](grove/docs/agents.md) - Grove agent entrypoint
+- [AGENTS.md - Grove Section](AGENTS.md#grove-specific-guidance) - Grove agent guidance
+- [docs/grove-overview.md](docs/grove-overview.md) - Grove overview
 - [docs/specifications/grove/](docs/specifications/grove/) - Grove specifications
 - [notes/index.md](notes/index.md) - Recent Grove exploration notes
 
