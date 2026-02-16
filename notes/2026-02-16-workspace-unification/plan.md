@@ -122,7 +122,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 7: Migrate state query consumers to `graft-common` types
-- [ ] Replace duplicated state types with `graft-common` re-exports
+- [x] Replace duplicated state types with `graft-common` re-exports
 - **Source code**:
   - `crates/grove-cli/src/state/query.rs` (duplicated types)
   - `crates/grove-cli/src/state/cache.rs` (duplicated cache logic)

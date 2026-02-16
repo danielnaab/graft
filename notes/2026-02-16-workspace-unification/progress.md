@@ -158,3 +158,30 @@ None needed.
 - The thin-wrapper pattern (delegate to shared code, convert errors) continues to work well for migration without breaking existing tests.
 - All 6 git operation functions in resolution.rs are now one-liners that delegate to graft-common, reducing code from ~80 lines to ~6 lines.
 - Command execution also reduced from ~20 lines (spawn/wait logic) to a single call to the shared runner.
+
+---
+
+### Iteration 7 — Migrate state query consumers to graft-common types
+**Status**: completed
+**Files changed**:
+- `crates/grove-cli/Cargo.toml` (added graft-common dependency)
+- `crates/grove-cli/src/state/query.rs` (replaced duplicate types with re-exports)
+- `crates/grove-cli/src/state/cache.rs` (replaced with wrappers around graft-common functions)
+- `crates/grove-cli/src/state/mod.rs` (updated exports)
+- `crates/graft-engine/src/state.rs` (replaced duplicate types and cache functions)
+- `Cargo.lock` (updated)
+
+**What was done**:
+Migrated both grove-cli and graft-engine to use shared state query types and cache management from graft-common. Replaced duplicate `StateMetadata` and `StateResult` types in both crates with re-exports from `graft-common::state`. For grove-cli, kept wrapper functions that accept pre-computed workspace hashes (for backward compatibility with existing tests and code), while the wrappers delegate to graft-common's path construction and I/O functions. For graft-engine, replaced cache read/write/invalidate functions with thin wrappers that convert `std::io::Result` to `graft_core::Result`. Kept graft-specific execution logic (`execute_state_query`, `get_state`) in graft-engine and grove-specific discovery logic in grove-cli. All 420+ tests pass.
+
+**Critique findings**:
+All acceptance criteria met. The implementation properly maintains API compatibility for both consumers while eliminating code duplication. Grove-cli's wrappers correctly handle the difference between graft-common's workspace-name-based API and the pre-computed-hash-based API expected by existing code and tests. Graft-engine's wrappers properly convert error types. Fixed clippy issues in the modified files (redundant closures, doc comment style). Pre-existing clippy issues in grove TUI code (64 warnings) are expected per MEMORY.md and not related to this migration.
+
+**Improvements made**:
+None needed. The implementation is clean and correct.
+
+**Learnings for future iterations**:
+- When migrating to shared code, API compatibility matters - grove-cli's existing tests and code expected pre-computed workspace hashes, so the wrappers maintain that interface.
+- The thin-wrapper pattern (convert parameters/errors, delegate to shared code) continues to work well for migration.
+- Total code reduction: ~338 lines removed (duplicate types and cache functions) across both crates.
+- Both graft and grove now share the same cache directory structure and types, ensuring cache consistency across tools.
