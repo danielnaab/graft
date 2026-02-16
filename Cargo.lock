@@ -1431,6 +1431,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "graft-common"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "thiserror 2.0.18",
+ "wait-timeout",
+]
+
+[[package]]
 name = "graft-core"
 version = "0.1.0"
 dependencies = [

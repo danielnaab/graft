@@ -32,6 +32,7 @@ grove-core = { path = "crates/grove-core" }
 grove-engine = { path = "crates/grove-engine" }
 graft-core = { path = "crates/graft-core" }
 graft-engine = { path = "crates/graft-engine" }
+graft-common = { path = "crates/graft-common" }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
