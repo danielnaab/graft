@@ -2417,9 +2417,11 @@ fn state_panel_empty_state_is_helpful() {
 
 #[test]
 fn execute_query_command_captures_json_output() {
-    let result =
-        execute_state_query_command("echo '{\"total_words\": 5000}'", std::path::Path::new("/tmp"))
-            .expect("should succeed");
+    let result = execute_state_query_command(
+        "echo '{\"total_words\": 5000}'",
+        std::path::Path::new("/tmp"),
+    )
+    .expect("should succeed");
 
     assert_eq!(result.data["total_words"], 5000);
 }
@@ -2485,8 +2487,8 @@ fn execute_query_command_gets_commit_hash_from_git_repo() {
         .output()
         .unwrap();
 
-    let result = execute_state_query_command("echo '{\"ok\": true}'", temp.path())
-        .expect("should succeed");
+    let result =
+        execute_state_query_command("echo '{\"ok\": true}'", temp.path()).expect("should succeed");
 
     // Should have a real commit hash (40 hex chars), not "unknown"
     assert_ne!(result.commit_hash, "unknown");
@@ -2498,8 +2500,8 @@ fn execute_query_command_gets_commit_hash_from_git_repo() {
 fn execute_query_command_uses_unknown_hash_for_non_git_dir() {
     let temp = tempfile::tempdir().unwrap();
 
-    let result = execute_state_query_command("echo '{\"ok\": true}'", temp.path())
-        .expect("should succeed");
+    let result =
+        execute_state_query_command("echo '{\"ok\": true}'", temp.path()).expect("should succeed");
 
     assert_eq!(result.commit_hash, "unknown");
 }
@@ -2535,9 +2537,10 @@ fn refresh_updates_in_memory_state_result() {
         repos: vec![repo_path.clone()],
         statuses: {
             let mut m = HashMap::new();
-            m.insert(repo_path, RepoStatus::new(
-                RepoPath::new(temp.path().to_str().unwrap()).unwrap(),
-            ));
+            m.insert(
+                repo_path,
+                RepoStatus::new(RepoPath::new(temp.path().to_str().unwrap()).unwrap()),
+            );
             m
         },
     };
@@ -2580,26 +2583,29 @@ fn refresh_updates_in_memory_state_result() {
     assert_eq!(msg.msg_type, MessageType::Success);
 
     // Verify summary formatting works
-    assert_eq!(result.summary(), "1234 words total, 56 today");
+    assert_eq!(
+        crate::state::format_state_summary(result),
+        "1234 words total, 56 today"
+    );
 }
 
 #[test]
 fn refresh_writes_to_cache() {
-    use crate::state::{compute_workspace_hash, read_latest_cached, StateQuery};
+    use crate::state::StateQuery;
 
     let temp = tempfile::tempdir().unwrap();
     let repo_path = RepoPath::new(temp.path().to_str().unwrap()).unwrap();
     let workspace_name = "test-cache-write-workspace";
-    let workspace_hash = compute_workspace_hash(workspace_name);
     let repo_name = temp.path().file_name().unwrap().to_str().unwrap();
 
     let registry = MockRegistry {
         repos: vec![repo_path.clone()],
         statuses: {
             let mut m = HashMap::new();
-            m.insert(repo_path, RepoStatus::new(
-                RepoPath::new(temp.path().to_str().unwrap()).unwrap(),
-            ));
+            m.insert(
+                repo_path,
+                RepoStatus::new(RepoPath::new(temp.path().to_str().unwrap()).unwrap()),
+            );
             m
         },
     };
@@ -2626,11 +2632,10 @@ fn refresh_writes_to_cache() {
     app.handle_key(KeyCode::Char('r'));
 
     // Verify cache was written and can be read back
-    let cached = read_latest_cached(&workspace_hash, repo_name, "cache-test");
+    let cached = graft_common::state::read_latest_cached(workspace_name, repo_name, "cache-test");
     assert!(
-        cached.is_ok(),
-        "should be able to read cache after refresh: {:?}",
-        cached.err()
+        cached.is_some(),
+        "should be able to read cache after refresh"
     );
 
     let cached = cached.unwrap();
@@ -2638,6 +2643,7 @@ fn refresh_writes_to_cache() {
     assert_eq!(cached.metadata.query_name, "cache-test");
 
     // Clean up cache
+    let workspace_hash = graft_common::state::compute_workspace_hash(workspace_name);
     let cache_root = std::path::PathBuf::from(std::env::var("HOME").unwrap())
         .join(".cache/graft")
         .join(&workspace_hash);
@@ -2655,9 +2661,10 @@ fn refresh_with_invalid_json_command_shows_error() {
         repos: vec![repo_path.clone()],
         statuses: {
             let mut m = HashMap::new();
-            m.insert(repo_path, RepoStatus::new(
-                RepoPath::new(temp.path().to_str().unwrap()).unwrap(),
-            ));
+            m.insert(
+                repo_path,
+                RepoStatus::new(RepoPath::new(temp.path().to_str().unwrap()).unwrap()),
+            );
             m
         },
     };
@@ -2699,9 +2706,10 @@ fn refresh_with_failing_command_shows_error() {
         repos: vec![repo_path.clone()],
         statuses: {
             let mut m = HashMap::new();
-            m.insert(repo_path, RepoStatus::new(
-                RepoPath::new(temp.path().to_str().unwrap()).unwrap(),
-            ));
+            m.insert(
+                repo_path,
+                RepoStatus::new(RepoPath::new(temp.path().to_str().unwrap()).unwrap()),
+            );
             m
         },
     };

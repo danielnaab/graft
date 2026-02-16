@@ -280,7 +280,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Load state queries for the selected repository
     fn load_state_queries(&mut self, repo_path: &str) {
-        use crate::state::{compute_workspace_hash, discover_state_queries, read_latest_cached};
+        use crate::state::discover_state_queries;
         use std::path::Path;
 
         // Clear previous state
@@ -300,20 +300,21 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.state_queries = queries;
 
                 // Try to read cached results for each query
-                let workspace_hash = compute_workspace_hash(&self.workspace_name);
                 let repo_name = Path::new(repo_path)
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("unknown");
 
                 for query in &self.state_queries {
-                    match read_latest_cached(&workspace_hash, repo_name, &query.name) {
-                        Ok(result) => self.state_results.push(Some(result)),
-                        Err(e) => {
-                            log::debug!("No cache for query {}: {}", query.name, e);
-                            self.state_results.push(None);
-                            // This is expected - not all queries have cache yet
-                        }
+                    if let Some(result) = crate::state::read_latest_cached(
+                        &self.workspace_name,
+                        repo_name,
+                        &query.name,
+                    ) {
+                        self.state_results.push(Some(result));
+                    } else {
+                        log::debug!("No cache for query {}", query.name);
+                        self.state_results.push(None);
                     }
                 }
 
@@ -644,7 +645,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             }
         }
     }
-
 
     fn handle_key_command_output(&mut self, code: KeyCode) {
         // If showing stop confirmation dialog, handle dialog keys
@@ -1377,7 +1377,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 // Get cached result if available
                 let line = if let Some(Some(result)) = self.state_results.get(idx) {
                     let age = result.metadata.time_ago();
-                    let data_summary = result.summary();
+                    let data_summary = crate::state::format_state_summary(result);
 
                     // Format with proper alignment for readability
                     Line::from(vec![

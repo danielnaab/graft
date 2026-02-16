@@ -3,10 +3,10 @@
 //! Implements the flat-only resolution model: only direct dependencies
 //! declared in graft.yaml are resolved as git submodules.
 
+use crate::domain::{CommitHash, LockEntry, LockFile};
+use crate::{DependencySpec, GraftConfig, GraftError};
 use graft_common::command::run_command_with_timeout;
 use graft_common::git::{get_current_commit as git_get_current_commit, is_git_repo};
-use graft_core::domain::{CommitHash, LockEntry, LockFile};
-use graft_core::{DependencySpec, GraftConfig, GraftError};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 

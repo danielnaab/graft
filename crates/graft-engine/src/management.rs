@@ -1,6 +1,6 @@
 //! Dependency management operations (add, remove).
 
-use graft_core::{DependencySpec, GitRef, GitUrl, GraftError, Result};
+use crate::{DependencySpec, GitRef, GitUrl, GraftError, Result};
 use std::fs;
 use std::path::Path;
 use std::process::Command;

@@ -92,7 +92,7 @@ fn test_round_trip_repo_lock() {
 
 #[test]
 fn test_write_alphabetical_ordering() {
-    use graft_core::domain::{CommitHash, GitRef, GitUrl, LockEntry, LockFile};
+    use graft_engine::domain::{CommitHash, GitRef, GitUrl, LockEntry, LockFile};
 
     let mut lock = LockFile::new();
 
@@ -160,7 +160,7 @@ fn test_handles_missing_lock_file() {
     let result = parse_lock_file("/nonexistent/path/to/graft.lock");
     assert!(result.is_err());
 
-    if let Err(graft_core::error::GraftError::LockFileNotFound { path }) = result {
+    if let Err(graft_engine::error::GraftError::LockFileNotFound { path }) = result {
         assert!(path.contains("nonexistent"));
     } else {
         panic!("Expected LockFileNotFound error");

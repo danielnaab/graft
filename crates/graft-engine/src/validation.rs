@@ -3,7 +3,7 @@
 //! Provides functions for validating graft.yaml, graft.lock,
 //! and .graft/ directory integrity.
 
-use graft_core::domain::{CommitHash, GraftConfig, LockFile};
+use crate::domain::{CommitHash, GraftConfig, LockFile};
 use std::path::Path;
 
 /// A validation error with severity.
@@ -168,7 +168,7 @@ fn get_current_commit(repo_path: &Path) -> Result<CommitHash, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graft_core::domain::{DependencySpec, GitRef, GitUrl, LockEntry, Metadata};
+    use crate::domain::{DependencySpec, GitRef, GitUrl, LockEntry, Metadata};
     use std::collections::HashMap;
 
     #[test]

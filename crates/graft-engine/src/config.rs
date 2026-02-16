@@ -1,6 +1,6 @@
 //! Configuration parsing for graft.yaml files.
 
-use graft_core::{
+use crate::{
     Change, Command, DependencySpec, GitRef, GitUrl, GraftConfig, GraftError, Metadata, Result,
     StateCache, StateQuery,
 };

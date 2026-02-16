@@ -2,8 +2,8 @@
 //!
 //! Functions for updating lock file state and atomic dependency upgrades.
 
-use graft_core::domain::{CommitHash, GraftConfig, LockEntry, LockFile};
-use graft_core::error::{GraftError, Result};
+use crate::domain::{CommitHash, GraftConfig, LockEntry, LockFile};
+use crate::error::{GraftError, Result};
 use std::path::Path;
 
 use crate::command::{execute_command_by_name, CommandResult};
@@ -86,7 +86,7 @@ pub fn apply_lock(
     // Create/update lock entry
     let lock_entry = LockEntry {
         source: dep_spec.git_url.clone(),
-        git_ref: graft_core::domain::GitRef::new(target_ref)?,
+        git_ref: crate::domain::GitRef::new(target_ref)?,
         commit: commit.clone(),
         consumed_at,
     };
@@ -147,7 +147,7 @@ fn fetch_ref(repo_path: &Path, git_ref: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graft_core::domain::{DependencySpec, GitRef, GitUrl};
+    use crate::domain::{DependencySpec, GitRef, GitUrl};
     use std::collections::HashMap;
 
     #[test]
@@ -392,7 +392,7 @@ pub fn upgrade_dependency(
     let consumed_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let lock_entry = LockEntry {
         source: dep_spec.git_url.clone(),
-        git_ref: graft_core::domain::GitRef::new(to_ref)?,
+        git_ref: crate::domain::GitRef::new(to_ref)?,
         commit: commit_hash,
         consumed_at,
     };

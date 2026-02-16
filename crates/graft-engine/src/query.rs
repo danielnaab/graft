@@ -3,7 +3,7 @@
 //! Provides functions for querying dependency status from lock files
 //! and changes from graft.yaml files.
 
-use graft_core::domain::{Change, Command, CommitHash, GraftConfig, LockFile};
+use crate::domain::{Change, Command, CommitHash, GraftConfig, LockFile};
 use indexmap::IndexMap;
 
 /// Status information for a single dependency.
@@ -74,7 +74,7 @@ pub fn get_dependency_status(lock_file: &LockFile, dep_name: &str) -> Option<Dep
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graft_core::domain::{GitRef, GitUrl, LockEntry};
+    use crate::domain::{GitRef, GitUrl, LockEntry};
     use std::collections::HashMap;
 
     #[test]
@@ -296,7 +296,7 @@ pub fn get_change_details(config: &GraftConfig, ref_name: &str) -> Option<Change
 #[cfg(test)]
 mod change_tests {
     use super::*;
-    use graft_core::domain::Metadata;
+    use crate::domain::Metadata;
     use std::collections::HashMap;
 
     fn build_test_config() -> GraftConfig {

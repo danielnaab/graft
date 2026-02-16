@@ -4,8 +4,8 @@
 //! using real file system interactions.
 
 use grove::state::{
-    compute_workspace_hash, discover_state_queries, read_all_cached_for_query, read_cached_state,
-    read_latest_cached, StateMetadata, StateResult,
+    compute_workspace_hash, discover_state_queries, format_state_summary,
+    read_all_cached_for_query, read_latest_cached, StateMetadata, StateResult,
 };
 use serde_json::json;
 use std::fs;
@@ -137,7 +137,8 @@ state:
 // ===== Cache Reading Tests =====
 
 /// Helper function to get test cache directory path
-fn get_test_cache_dir(workspace_hash: &str, repo_name: &str, query_name: &str) -> PathBuf {
+fn get_test_cache_dir(workspace_name: &str, repo_name: &str, query_name: &str) -> PathBuf {
+    let workspace_hash = compute_workspace_hash(workspace_name);
     PathBuf::from(std::env::var("HOME").unwrap())
         .join(".cache/graft")
         .join(workspace_hash)
@@ -147,7 +148,8 @@ fn get_test_cache_dir(workspace_hash: &str, repo_name: &str, query_name: &str) -
 }
 
 /// Helper function to cleanup test cache
-fn cleanup_test_cache(workspace_hash: &str) {
+fn cleanup_test_cache(workspace_name: &str) {
+    let workspace_hash = compute_workspace_hash(workspace_name);
     let cache_root = PathBuf::from(std::env::var("HOME").unwrap())
         .join(".cache/graft")
         .join(workspace_hash);
@@ -157,13 +159,13 @@ fn cleanup_test_cache(workspace_hash: &str) {
 
 #[test]
 fn read_cached_state_from_file() {
-    let workspace_hash = "test_hash_12345";
+    let workspace_name = "test-read-cached-state";
     let repo_name = "my-repo";
     let query_name = "coverage";
     let commit_hash = "abc123def456";
 
     // Create cache directory
-    let cache_dir = get_test_cache_dir(workspace_hash, repo_name, query_name);
+    let cache_dir = get_test_cache_dir(workspace_name, repo_name, query_name);
     fs::create_dir_all(&cache_dir).unwrap();
 
     // Write cache file
@@ -181,16 +183,17 @@ fn read_cached_state_from_file() {
 
     fs::write(&cache_file, serde_json::to_string(&result).unwrap()).unwrap();
 
-    // Read cache
-    let loaded = read_cached_state(workspace_hash, repo_name, query_name, commit_hash)
-        .expect("Failed to read cache");
+    // Read cache using graft-common (workspace_name, not hash)
+    let loaded =
+        graft_common::state::read_cached_state(workspace_name, repo_name, query_name, commit_hash)
+            .expect("Failed to read cache");
 
     assert_eq!(loaded.metadata.query_name, "coverage");
     assert_eq!(loaded.data["lines"], 85);
     assert_eq!(loaded.data["branches"], 72);
 
     // Cleanup
-    cleanup_test_cache(workspace_hash);
+    cleanup_test_cache(workspace_name);
 }
 
 #[test]
@@ -198,11 +201,11 @@ fn read_latest_cached_returns_newest() {
     use std::thread;
     use std::time::Duration;
 
-    let workspace_hash = "test_latest_123";
+    let workspace_name = "test-read-latest";
     let repo_name = "my-repo";
     let query_name = "tasks";
 
-    let cache_dir = get_test_cache_dir(workspace_hash, repo_name, query_name);
+    let cache_dir = get_test_cache_dir(workspace_name, repo_name, query_name);
     fs::create_dir_all(&cache_dir).unwrap();
 
     // Write older result
@@ -243,24 +246,24 @@ fn read_latest_cached_returns_newest() {
     )
     .unwrap();
 
-    // Read latest
-    let latest =
-        read_latest_cached(workspace_hash, repo_name, query_name).expect("Failed to read latest");
+    // Read latest using graft-common
+    let latest = read_latest_cached(workspace_name, repo_name, query_name)
+        .expect("Should find latest cached result");
 
     assert_eq!(latest.metadata.commit_hash, "new456");
     assert_eq!(latest.data["open"], 59);
 
     // Cleanup
-    cleanup_test_cache(workspace_hash);
+    cleanup_test_cache(workspace_name);
 }
 
 #[test]
 fn read_all_cached_returns_sorted_by_time() {
-    let workspace_hash = "test_all_456";
+    let workspace_name = "test-read-all";
     let repo_name = "my-repo";
     let query_name = "writing";
 
-    let cache_dir = get_test_cache_dir(workspace_hash, repo_name, query_name);
+    let cache_dir = get_test_cache_dir(workspace_name, repo_name, query_name);
     fs::create_dir_all(&cache_dir).unwrap();
 
     // Create multiple cache files with different timestamps
@@ -286,9 +289,8 @@ fn read_all_cached_returns_sorted_by_time() {
         .unwrap();
     }
 
-    // Read all
-    let all_results = read_all_cached_for_query(workspace_hash, repo_name, query_name)
-        .expect("Failed to read all cached");
+    // Read all using graft-common
+    let all_results = read_all_cached_for_query(workspace_name, repo_name, query_name);
 
     assert_eq!(all_results.len(), 3);
 
@@ -298,7 +300,7 @@ fn read_all_cached_returns_sorted_by_time() {
     assert_eq!(all_results[2].metadata.commit_hash, "aaa");
 
     // Cleanup
-    cleanup_test_cache(workspace_hash);
+    cleanup_test_cache(workspace_name);
 }
 
 #[test]
@@ -334,7 +336,7 @@ fn summary_formats_writing_metrics() {
         }),
     };
 
-    assert_eq!(result.summary(), "5000 words total, 250 today");
+    assert_eq!(format_state_summary(&result), "5000 words total, 250 today");
 }
 
 #[test]
@@ -350,7 +352,7 @@ fn summary_formats_task_metrics() {
         data: json!({"open": 59, "completed": 49}),
     };
 
-    assert_eq!(result.summary(), "59 open, 49 done");
+    assert_eq!(format_state_summary(&result), "59 open, 49 done");
 }
 
 #[test]
@@ -369,7 +371,10 @@ fn summary_formats_graph_metrics() {
         }),
     };
 
-    assert_eq!(result.summary(), "2223 broken links, 463 orphans");
+    assert_eq!(
+        format_state_summary(&result),
+        "2223 broken links, 463 orphans"
+    );
 }
 
 #[test]
@@ -386,6 +391,6 @@ fn summary_falls_back_for_unknown_format() {
     };
 
     // Should not panic, should return something reasonable
-    let summary = result.summary();
+    let summary = format_state_summary(&result);
     assert!(!summary.is_empty(), "Summary should not be empty");
 }

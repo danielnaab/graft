@@ -9,7 +9,7 @@
 //! This has NO domain-specific knowledge. It treats all state queries as:
 //!     command → JSON output → cache by commit hash
 
-use graft_core::{GraftError, Result, StateQuery};
+use crate::{GraftError, Result, StateQuery};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
@@ -199,7 +199,7 @@ pub struct StateQueryStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graft_core::StateCache;
+    use crate::StateCache;
 
     #[test]
     fn test_execute_state_query_success() {

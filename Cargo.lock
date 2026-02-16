@@ -1424,7 +1424,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "graft-core",
  "graft-engine",
  "serde_json",
  "tempfile",
@@ -1446,28 +1445,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "graft-core"
-version = "0.1.0"
-dependencies = [
- "regex",
- "serde",
- "serde_yaml",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "graft-engine"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "graft-common",
- "graft-core",
  "indexmap",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml",
  "sha2",
  "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1489,7 +1479,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "sha2",
  "shell-words",
  "shellexpand",
  "tempfile",

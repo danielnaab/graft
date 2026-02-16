@@ -2,7 +2,7 @@
 //!
 //! Provides file backup and restore functionality for atomic upgrades.
 
-use graft_core::error::{GraftError, Result};
+use crate::error::{GraftError, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

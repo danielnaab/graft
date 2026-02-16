@@ -2,8 +2,8 @@
 //!
 //! Implements reading, writing, and validation of graft.lock files.
 
-use graft_core::domain::LockFile;
-use graft_core::error::{GraftError, Result};
+use crate::domain::LockFile;
+use crate::error::{GraftError, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -109,7 +109,7 @@ pub fn parse_lock_file_str(yaml_str: &str, path_for_errors: impl Into<String>) -
 /// # Examples
 ///
 /// ```no_run
-/// use graft_core::domain::LockFile;
+/// use graft_engine::domain::LockFile;
 /// use graft_engine::lock::write_lock_file;
 ///
 /// let lock = LockFile::new();
@@ -147,7 +147,7 @@ struct OrderedLockFile {
     #[serde(rename = "apiVersion")]
     api_version: String,
     #[serde(skip_serializing_if = "IndexMap::is_empty")]
-    dependencies: IndexMap<String, graft_core::domain::LockEntry>,
+    dependencies: IndexMap<String, crate::domain::LockEntry>,
 }
 
 fn to_ordered_lock(lock: &LockFile) -> OrderedLockFile {
@@ -172,7 +172,7 @@ fn to_ordered_lock(lock: &LockFile) -> OrderedLockFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graft_core::domain::{CommitHash, GitRef, GitUrl, LockEntry};
+    use crate::domain::{CommitHash, GitRef, GitUrl, LockEntry};
 
     #[test]
     fn parse_lock_file_str_basic() {

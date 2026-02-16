@@ -2,8 +2,8 @@
 //!
 //! Functions for executing dependency-defined commands from graft.yaml.
 
-use graft_core::domain::{Command, GraftConfig};
-use graft_core::error::{GraftError, Result};
+use crate::domain::{Command, GraftConfig};
+use crate::error::{GraftError, Result};
 use std::path::Path;
 use std::process::Command as ProcessCommand;
 
@@ -106,7 +106,7 @@ pub fn execute_command_by_name(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graft_core::domain::Command;
+    use crate::domain::Command;
     use std::path::PathBuf;
 
     #[test]

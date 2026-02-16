@@ -1,8 +1,11 @@
-//! Graft engine: business logic, adapters, and services.
+//! Graft engine: domain types, business logic, adapters, and services.
 //!
-//! This crate implements the service layer for graft, including
-//! config parsing, dependency resolution, lock management,
-//! upgrades, and adapter implementations.
+//! This crate implements the domain types, service layer, config parsing,
+//! dependency resolution, lock management, upgrades, and adapter
+//! implementations for graft.
+
+pub mod domain;
+pub mod error;
 
 pub mod command;
 pub mod config;
@@ -14,6 +17,10 @@ pub mod resolution;
 pub mod snapshot;
 pub mod state;
 pub mod validation;
+
+// Re-export domain types and errors at crate root
+pub use domain::*;
+pub use error::{GraftError, Result};
 
 // Re-export commonly used functions
 pub use command::{execute_command, execute_command_by_name, CommandResult};

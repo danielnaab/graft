@@ -843,7 +843,7 @@ fn validate_command(
                                     "name": result.name,
                                     "valid": result.valid,
                                     "expected_commit": result.expected_commit.as_str(),
-                                    "actual_commit": result.actual_commit.as_ref().map(graft_core::domain::CommitHash::as_str),
+                                    "actual_commit": result.actual_commit.as_ref().map(graft_engine::domain::CommitHash::as_str),
                                     "message": result.message,
                                 }));
                         }
