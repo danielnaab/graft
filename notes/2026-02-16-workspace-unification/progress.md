@@ -337,3 +337,30 @@ None needed. The implementation is complete and correct.
 - ADR status values should be lowercase in frontmatter (`accepted`, not `Accepted`) for consistency
 - The `status: accepted` for ADRs distinguishes them from `status: stable` for guides and architectural docs
 - Grove documentation (moved from `grove/docs/` in Task 10) needed frontmatter added after the merge
+
+---
+
+### Iteration 13 — Add provenance sections to key documents
+**Status**: completed
+**Files changed**:
+- `docs/README.md` (expanded Sources section)
+- `docs/guides/user-guide.md` (added Sources section)
+- `docs/cli-reference.md` (added Sources section)
+- `docs/configuration.md` (added Sources section)
+
+**What was done**:
+Added comprehensive Sources sections to 4 key documentation files following the meta-KB provenance policy. Each Sources section includes three categories: Canonical Specifications (links to specs and ADRs), Rust Implementation (Primary) with crate-level and file-level references, and Python Implementation (Deprecated) with legacy code references. All sections follow the same hierarchical structure for consistency. Fixed ADR link paths (decision-0001, decision-0004, decision-0007) to match actual filenames. All 422+ workspace tests pass, and all links were verified to be valid.
+
+**Critique findings**:
+All acceptance criteria met completely. Code quality is high - well-organized, clear, consistent formatting across all four documents. Sources sections match the style of the existing one in docs/README.md and are consistent with the provenance policy from meta-KB. The implementation goes slightly beyond the minimum by including helpful context descriptions for each link (e.g., "- snapshot and rollback behavior"). All links verified to be valid. No issues requiring fixes.
+
+**Improvements made**:
+None needed. Implementation is complete and high quality.
+
+**Learnings for future iterations**:
+- When adding Sources sections, organize hierarchically: Canonical Specs → Rust Implementation (Primary) → Python Implementation (Deprecated) for consistency.
+- Include brief context descriptions after each link (e.g., "- system design and core concepts") to help readers understand what each source provides.
+- Specification ADR files are named `decision-0001-...` not `0001-...` - check actual filenames before linking.
+- The provenance policy recommends dedicated `## Sources` sections at the end of documents, which works well for user-facing docs.
+- Rust references can be at both crate level (`crates/graft-cli/`) and file level (`crates/graft-common/src/git.rs`) depending on granularity needed.
+- Link verification from the repo root using relative paths is important when docs are in subdirectories.

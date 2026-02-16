@@ -210,7 +210,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
   - Every doc file in `docs/` has valid frontmatter with status field
 
 ### Task 13: Add provenance sections to key documents
-- [ ] Add Sources sections to key documents
+- [x] Add Sources sections to key documents
 - **Target files**: `docs/README.md`, `docs/guides/user-guide.md`, `docs/cli-reference.md`, `docs/configuration.md`
 - **What to do**:
   - Add `## Sources` sections with links to specs and code
