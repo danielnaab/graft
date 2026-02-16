@@ -49,18 +49,29 @@ impl Default for GraftYamlConfigLoader {
 
 impl GraftYamlLoader for GraftYamlConfigLoader {
     fn load_graft(&self, graft_path: &str) -> Result<GraftYaml> {
-        // Check if file exists
-        if !std::path::Path::new(graft_path).exists() {
-            return Ok(GraftYaml::default()); // No graft.yaml = no commands
-        }
+        // Use shared parser from graft-common
+        let commands_map =
+            graft_common::parse_commands(graft_path).map_err(|e| CoreError::InvalidConfig {
+                details: format!("Failed to parse graft.yaml commands: {e}"),
+            })?;
 
-        let contents = fs::read_to_string(graft_path).map_err(|e| CoreError::InvalidConfig {
-            details: format!("Failed to read graft.yaml: {e}"),
-        })?;
+        // Convert CommandDef to grove_core::Command
+        let commands = commands_map
+            .into_iter()
+            .map(|(name, def)| {
+                (
+                    name,
+                    grove_core::Command {
+                        run: def.run,
+                        description: def.description,
+                        working_dir: def.working_dir,
+                        env: def.env,
+                    },
+                )
+            })
+            .collect();
 
-        serde_yaml::from_str(&contents).map_err(|e| CoreError::InvalidConfig {
-            details: format!("Failed to parse graft.yaml: {e}"),
-        })
+        Ok(GraftYaml { commands })
     }
 }
 
