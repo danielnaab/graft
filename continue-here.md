@@ -26,10 +26,11 @@ All planned CLI development is complete:
 
 ### Grove (Rust workspace tool)
 
-Active development in `grove/` submodule:
+Active development in `crates/grove-*/`:
 - Slice 1 implemented and reviewed (two review phases completed)
 - Workspace discovery, manifest parsing, and status display working
-- See `grove/docs/agents.md` for Grove-specific context
+- See [AGENTS.md - Grove Section](AGENTS.md#grove-specific-guidance) for Grove-specific context
+- See [docs/grove-overview.md](docs/grove-overview.md) for Grove overview
 - See `docs/specifications/grove/` for Grove specifications
 
 ---
