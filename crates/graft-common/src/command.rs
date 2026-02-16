@@ -45,8 +45,10 @@ fn get_command_timeout(env_var: Option<&str>) -> u64 {
 
 /// Run a command with a timeout.
 ///
+/// The function configures the command to pipe stdout and stderr.
+///
 /// # Arguments
-/// * `cmd` - The command to run (must have stdout/stderr configured)
+/// * `cmd` - The command to run
 /// * `operation` - Human-readable operation name for error messages
 /// * `timeout_env_var` - Optional environment variable name to read timeout from
 ///
