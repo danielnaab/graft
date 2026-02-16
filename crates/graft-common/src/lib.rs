@@ -5,6 +5,12 @@
 
 pub mod command;
 pub mod git;
+pub mod state;
 
 pub use command::{run_command_with_timeout, CommandError};
 pub use git::{get_current_commit, git_checkout, git_fetch, git_rev_parse, is_git_repo, GitError};
+pub use state::{
+    compute_workspace_hash, get_cache_path, get_query_cache_dir, invalidate_cached_state,
+    read_all_cached_for_query, read_cached_state, read_latest_cached, write_cached_state,
+    StateMetadata, StateResult,
+};
