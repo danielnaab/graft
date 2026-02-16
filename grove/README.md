@@ -1,88 +1,22 @@
-# Grove
+# Grove Documentation Moved
 
-Multi-repo workspace manager with graft awareness
+**Grove documentation has been merged into the main documentation structure.**
 
-## Quick Start
+## New Locations
 
-### Prerequisites
+- **Overview**: [docs/grove-overview.md](../docs/grove-overview.md)
+- **User Guide**: [docs/guides/grove-user-guide.md](../docs/guides/grove-user-guide.md)
+- **Architecture**: [docs/grove/implementation/architecture-overview.md](../docs/grove/implementation/architecture-overview.md)
+- **Planning**: [docs/grove/planning/](../docs/grove/planning/)
+- **Specifications**: [docs/specifications/grove/](../docs/specifications/grove/)
+- **Agent Guidance**: [AGENTS.md](../AGENTS.md#grove-specific-guidance)
+- **Source Code**: [crates/grove-*](../crates/)
 
-- [Rust](https://rustup.rs/) (stable toolchain)
+## Historical Files
 
-### Build & Run
+The files in this directory are preserved for historical reference only:
 
-```bash
-cargo build --all
-cargo run -- --help
-```
-
-### Running Tests
-
-```bash
-cargo test --all
-```
-
-### Code Quality
-
-```bash
-# Format
-cargo fmt --all
-
-# Lint
-cargo clippy --all-targets -- -D warnings
-
-# Both
-cargo fmt --all && cargo clippy --all-targets -- -D warnings
-```
-
-## Project Structure
-
-```
-grove/
-├── src/main.rs                    # CLI entry point (clap)
-├── crates/
-│   ├── grove-core/          # Domain types, traits, errors
-│   └── grove-engine/        # Business logic
-├── tests/                         # Integration tests
-│   ├── common/mod.rs              # Shared fakes
-│   └── integration_test.rs        # Integration tests
-└── docs/                          # Documentation
-```
-
-## Architecture
-
-This project follows a layered architecture:
-
-```
-Binary (CLI) → Engine (logic) → Core (types, traits)
-```
-
-- **Core**: Domain types, trait definitions, error types. No I/O.
-- **Engine**: Business logic using trait bounds. Pure functions.
-- **Binary**: Thin CLI wrapper. Parses args, wires dependencies, formats output.
-
-Dependencies point inward — core depends on nothing.
-
-For detailed patterns, see the [Architecture Documentation](.graft/rust-starter/docs/architecture/architecture.md).
-
-## Architectural Decisions
-
-Each pattern choice is documented:
-
-- [Cargo Workspace](.graft/rust-starter/docs/decisions/001-cargo-workspace.md)
-- [Library-First](.graft/rust-starter/docs/decisions/002-library-first.md)
-- [Trait-Based DI](.graft/rust-starter/docs/decisions/003-trait-based-di.md)
-- [Error Handling](.graft/rust-starter/docs/decisions/004-error-handling.md)
-- [clap CLI](.graft/rust-starter/docs/decisions/005-clap-cli.md)
-- [Newtype Pattern](.graft/rust-starter/docs/decisions/007-newtype-pattern.md)
-- [Testing Without Mocks](.graft/rust-starter/docs/decisions/008-testing-without-mocks.md)
-
-## Documentation
-
-- [Project Docs](docs/README.md)
-- [Development Guide](.graft/rust-starter/docs/guides/development.md)
-- [Getting Started](.graft/rust-starter/docs/guides/getting-started.md)
-- [Reference](.graft/rust-starter/docs/reference/project-reference.md)
-
----
-
-For AI agents: See [docs/agents.md](docs/agents.md) for structured technical reference.
+- `PHASE1-SUMMARY.txt` - Grove Slice 1 completion summary
+- `STATUS-BAR-PHASE1-COMPLETE.md` - Status bar phase 1 completion notes
+- `TEMPLATE_STATUS.md` - Template status tracking
+- `knowledge-base.yaml` - Legacy KB config (merged into root knowledge-base.yaml)

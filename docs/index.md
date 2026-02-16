@@ -31,10 +31,12 @@ This project contains two components:
 
 | Component | Language | Path | Agent Entrypoint |
 |-----------|----------|------|-----------------|
-| **Graft** (CLI) | Python | `src/graft/` | [AGENTS.md](../AGENTS.md) |
-| **Grove** (workspace tool) | Rust | `grove/` | [grove/docs/agents.md](../grove/docs/agents.md) |
+| **Graft** (Rust, primary) | Rust | `crates/graft-*` | [AGENTS.md](../AGENTS.md#working-with-rust-crates) |
+| **Graft** (Python, deprecated) | Python | `src/graft/` | [DEPRECATED.md](../src/graft/DEPRECATED.md) |
+| **Grove** (workspace tool) | Rust | `crates/grove-*` | [AGENTS.md](../AGENTS.md#grove-specific-guidance) |
+| **Graft-Common** (shared) | Rust | `crates/graft-common` | [AGENTS.md](../AGENTS.md#working-with-rust-crates) |
 
-Grove specifications live in [`docs/specifications/grove/`](specifications/grove/).
+Grove documentation: [Overview](grove-overview.md), [User Guide](guides/grove-user-guide.md), [Architecture](grove/implementation/architecture-overview.md).
 
 ---
 
@@ -237,7 +239,7 @@ See [meta-knowledge-base style policy](../.graft/meta-knowledge-base/docs/polici
 
 - **Specifications**: `docs/specifications/` (graft, grove, decisions)
 - **Meta-Knowledge-Base**: [`.graft/meta-knowledge-base/AGENTS.md`](../.graft/meta-knowledge-base/AGENTS.md)
-- **Grove**: [`grove/docs/agents.md`](../grove/docs/agents.md)
+- **Grove Docs**: [Overview](grove-overview.md), [Implementation](grove/implementation/), [Planning](grove/planning/)
 
 ---
 

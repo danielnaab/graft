@@ -11,11 +11,11 @@ This repo contains two components in a shared Rust workspace:
 | Path | Purpose |
 |------|---------|
 | `Cargo.toml` | Virtual workspace manifest (all Rust crates) |
-| `crates/` | All Rust crates (grove-core, grove-engine, grove-cli, graft-core, graft-engine, graft-cli) |
-| `src/graft/` | Python source (legacy, kept during Rust transition) |
-| `grove/docs/` | Grove-specific docs ([agent entrypoint](grove/docs/agents.md)) |
+| `crates/` | All Rust crates (grove-core, grove-engine, grove-cli, graft-core, graft-engine, graft-cli, graft-common) |
+| `src/graft/` | Python source (legacy, deprecated) |
 | `docs/specifications/` | Canonical specs (architecture, graft format, grove specs, decision ADRs) |
 | `docs/` | Implementation documentation (architecture overview, guides, ADRs) |
+| `docs/grove/` | Grove-specific docs (implementation, planning) |
 | `notes/` | Time-bounded exploration notes ([index](notes/index.md)) |
 | `.graft/` | Dependencies managed via `graft resolve` |
 | `knowledge-base.yaml` | KB structure declaration |
@@ -95,13 +95,43 @@ Never write to:
 ## Working with Rust crates
 
 All Rust code lives in `crates/` under a virtual workspace rooted at `Cargo.toml`:
-- **grove-core**, **grove-engine**, **grove-cli** — Grove workspace manager
-- **graft-core**, **graft-engine**, **graft-cli** — Graft in Rust (rewrite in progress)
 
-Grove agent entrypoint: [`grove/docs/agents.md`](grove/docs/agents.md)
-Grove specifications: [`docs/specifications/grove/`](docs/specifications/grove/)
+- **graft-common** — Shared infrastructure (command execution, git operations, state types, config parsing)
+- **graft-core**, **graft-engine**, **graft-cli** — Graft semantic dependency manager
+- **grove-core**, **grove-engine**, **grove-cli** — Grove workspace manager
 
 When working on Rust crates, follow patterns from [rust-starter](.graft/rust-starter/).
+
+### Grove-Specific Guidance
+
+**File Organization:**
+```
+crates/grove-cli/src/
+├── main.rs                      # CLI (clap, anyhow, wiring)
+├── lib.rs                       # Library exports for tests
+├── tui.rs                       # TUI implementation
+└── state/                       # State query integration
+crates/grove-core/src/
+├── domain.rs                    # Domain types (newtypes, enums)
+├── error.rs                     # Error enums (thiserror)
+├── traits.rs                    # Trait ports
+└── lib.rs                       # Re-exports
+crates/grove-engine/src/
+├── service.rs                   # Business logic functions
+└── lib.rs                       # Re-exports
+```
+
+**Common Tasks:**
+- **Add domain type**: Define in `crates/grove-core/src/domain.rs`, re-export from `lib.rs`
+- **Add trait (port)**: Define in `crates/grove-core/src/traits.rs`, use via `&impl Trait` bounds
+- **Add engine function**: Define in `crates/grove-engine/src/`, accept trait bounds, return `Result`
+- **Add CLI subcommand**: Add variant to `Command` enum in `crates/grove-cli/src/main.rs`
+
+**Documentation:**
+- [Grove Overview](docs/grove-overview.md) — What is Grove, quick start
+- [User Guide](docs/guides/grove-user-guide.md) — Installation, configuration, usage
+- [Architecture](docs/grove/implementation/architecture-overview.md) — Three-layer design, TUI, git querying
+- [Specifications](docs/specifications/grove/) — Canonical requirements
 
 ## .graft dependencies
 

@@ -24,15 +24,25 @@ imports:
     entrypoint: knowledge-base.yaml
 
 components:
+  - name: graft-common
+    path: crates/graft-common
+    note: "Shared infrastructure (command execution, git ops, state types, config parsing)"
+  - name: graft
+    path: crates/graft-cli
+    note: "Graft semantic dependency manager (Rust implementation, primary)"
+  - name: graft-python
+    path: src/graft
+    note: "Graft Python implementation (deprecated, maintained for compatibility)"
   - name: grove
     path: crates/grove-cli
-    entrypoint: grove/docs/agents.md
-    note: "Rust workspace management tool (binary crate in shared workspace)"
+    note: "Grove multi-repo workspace manager (Rust implementation)"
 
 paths:
   docs: docs
   notes: notes
   specifications: docs/specifications
+  grove_docs: docs/grove
+  grove_specs: docs/specifications/grove
 
 conventions:
   architecture: "Clean architecture with Protocol-based DI (Python), trait-based boundaries (Rust)"
@@ -62,12 +72,16 @@ sources:
       note: "Developer-friendly architecture overview, interprets specifications"
     - path: "docs/guides/**"
       note: "User guides - practical application of canonical specifications"
+    - path: "docs/grove-overview.md"
+      note: "Grove overview, interprets grove specifications"
+    - path: "docs/grove/implementation/**"
+      note: "Grove implementation docs and ADRs"
     - path: "docs/configuration.md"
       note: "Configuration examples and guidance, interprets format specs"
 
   tracking:
-    - path: "status/**"
-      note: "Implementation tracking - working documents, not canonical"
+    - path: "docs/grove/planning/**"
+      note: "Grove planning docs (roadmap, slices) - working documents"
     - path: "notes/**"
       note: "Time-bounded exploration and session logs"
 
