@@ -85,3 +85,27 @@ None needed. The implementation is clean, well-tested, and ready for consumer mi
 - The shared git primitives return `Result<String, GitError>` which consumers will need to convert to their own error types (e.g., `GraftError` or `CoreError`). This is intentional - each crate maintains its own error domain.
 - Running `cargo clippy -p <crate>` checks a single crate in isolation, avoiding workspace-wide clippy issues.
 
+---
+
+### Iteration 4 — Extract shared state query types and cache logic to graft-common
+**Status**: completed
+**Files changed**:
+- `crates/graft-common/src/state.rs` (new)
+- `crates/graft-common/src/lib.rs` (added state module export)
+- `crates/graft-common/Cargo.toml` (added serde, serde_json, sha2, chrono dependencies)
+
+**What was done**:
+Created `graft-common/src/state.rs` with shared state query types and cache management extracted from both `graft-engine/src/state.rs` and `grove-cli/src/state/{query.rs,cache.rs}`. Extracted types: `StateMetadata` (with `time_ago()` and `summary()` methods), `StateResult` (with domain-specific summary formatting). Extracted cache functions: `compute_workspace_hash()`, `get_cache_path()`, `get_query_cache_dir()`, `read_cached_state()`, `read_all_cached_for_query()`, `read_latest_cached()`, `write_cached_state()`, `invalidate_cached_state()`. Added 7 unit tests covering hash generation, path construction, time formatting, and summary formatting. All workspace tests pass (420+ tests).
+
+**Critique findings**:
+All acceptance criteria met. Code is idiomatic Rust with proper error handling (`Option<StateResult>` for reads, `std::io::Result` for writes). Test coverage is good for the types and their methods. The cache I/O functions don't have dedicated unit tests in graft-common, but they are straightforward file operations that will be integration-tested by consumers. Fixed a defensive programming issue where `&commit_hash[..7]` could panic on short hashes by using `.min(commit_hash.len())`. The implementation cleanly matches the original code from both source locations, ensuring smooth consumer migration.
+
+**Improvements made**:
+None needed. The implementation is solid and ready for consumer migration in Task 7.
+
+**Learnings for future iterations**:
+- When extracting code that exists in multiple locations, ensure the function signatures and behavior match exactly to avoid migration issues.
+- The `StateMetadata::time_ago()` and `StateResult::summary()` methods provide domain-specific formatting that's valuable for both graft and grove CLIs.
+- The cache path structure (`~/.cache/graft/{workspace-hash}/{repo-name}/state/{query-name}/{commit-hash}.json`) is shared across both tools, so extracting it to graft-common is the right choice.
+- Both `graft-engine` and `grove-cli` had duplicate implementations of workspace hash computation (SHA256, truncated to 16 hex chars) - now they can share the same implementation.
+

@@ -74,7 +74,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 4: Extract shared state query types and cache logic to `graft-common`
-- [ ] Move duplicated state types and cache logic to `graft-common`
+- [x] Move duplicated state types and cache logic to `graft-common`
 - **Source code**:
   - `crates/graft-engine/src/state.rs` (state types and cache logic)
   - `crates/grove-cli/src/state/query.rs` (duplicated state types)
