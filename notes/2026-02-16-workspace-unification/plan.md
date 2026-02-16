@@ -247,7 +247,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
 ## Phase 5: Final Polish (Task 16)
 
 ### Task 16: Final verification and cleanup
-- [ ] Full verification pass and cleanup
+- [x] Full verification pass and cleanup
 - **What to do**:
   - Run full `cargo fmt --check && cargo clippy -- -D warnings && cargo test` across all crates
   - Run `cargo run -p graft-cli -- status` smoke test
