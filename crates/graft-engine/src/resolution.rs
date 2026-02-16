@@ -3,6 +3,8 @@
 //! Implements the flat-only resolution model: only direct dependencies
 //! declared in graft.yaml are resolved as git submodules.
 
+use graft_common::command::run_command_with_timeout;
+use graft_common::git::{get_current_commit as git_get_current_commit, is_git_repo};
 use graft_core::domain::{CommitHash, LockEntry, LockFile};
 use graft_core::{DependencySpec, GraftConfig, GraftError};
 use std::path::{Path, PathBuf};
@@ -51,9 +53,10 @@ impl ResolutionResult {
 
 /// Check if a path is a git submodule
 fn is_submodule(path: &Path) -> Result<bool, GraftError> {
-    let output = ProcessCommand::new("git")
-        .args(["submodule", "status", &path.display().to_string()])
-        .output()
+    let mut cmd = ProcessCommand::new("git");
+    cmd.args(["submodule", "status", &path.display().to_string()]);
+
+    let output = run_command_with_timeout(cmd, "git submodule status", None)
         .map_err(|e| GraftError::Resolution(format!("Failed to check submodule status: {e}")))?;
 
     Ok(output.status.success() && !output.stdout.is_empty())
@@ -61,14 +64,15 @@ fn is_submodule(path: &Path) -> Result<bool, GraftError> {
 
 /// Check if a path is a git repository
 fn is_repository(path: &Path) -> bool {
-    path.join(".git").exists()
+    is_git_repo(path)
 }
 
 /// Add a new git submodule
 fn add_submodule(url: &str, path: &Path) -> Result<(), GraftError> {
-    let output = ProcessCommand::new("git")
-        .args(["submodule", "add", url, &path.display().to_string()])
-        .output()
+    let mut cmd = ProcessCommand::new("git");
+    cmd.args(["submodule", "add", url, &path.display().to_string()]);
+
+    let output = run_command_with_timeout(cmd, "git submodule add", None)
         .map_err(|e| GraftError::Resolution(format!("Failed to add submodule: {e}")))?;
 
     if !output.status.success() {
@@ -83,9 +87,10 @@ fn add_submodule(url: &str, path: &Path) -> Result<(), GraftError> {
 
 /// Update existing submodule (init if needed)
 fn update_submodule(path: &Path) -> Result<(), GraftError> {
-    let output = ProcessCommand::new("git")
-        .args(["submodule", "update", "--init", &path.display().to_string()])
-        .output()
+    let mut cmd = ProcessCommand::new("git");
+    cmd.args(["submodule", "update", "--init", &path.display().to_string()]);
+
+    let output = run_command_with_timeout(cmd, "git submodule update", None)
         .map_err(|e| GraftError::Resolution(format!("Failed to update submodule: {e}")))?;
 
     if !output.status.success() {
@@ -100,82 +105,23 @@ fn update_submodule(path: &Path) -> Result<(), GraftError> {
 
 /// Fetch all refs from remote
 fn fetch_all(path: &Path) -> Result<(), GraftError> {
-    let output = ProcessCommand::new("git")
-        .args(["fetch", "--all"])
-        .current_dir(path)
-        .output()
-        .map_err(|e| GraftError::Resolution(format!("Failed to fetch: {e}")))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GraftError::Resolution(format!(
-            "git fetch failed: {stderr}"
-        )));
-    }
-
-    Ok(())
+    graft_common::git::git_fetch(path).map_err(|e| GraftError::Resolution(e.to_string()))
 }
 
 /// Resolve a git ref to a commit hash
 pub(crate) fn resolve_ref(path: &Path, git_ref: &str) -> Result<String, GraftError> {
-    // Try origin/<ref> first for branches
-    let refs_to_try = vec![format!("origin/{git_ref}"), git_ref.to_string()];
-
-    for ref_name in refs_to_try {
-        let output = ProcessCommand::new("git")
-            .args(["rev-parse", &ref_name])
-            .current_dir(path)
-            .output()
-            .map_err(|e| GraftError::Resolution(format!("Failed to resolve ref: {e}")))?;
-
-        if output.status.success() {
-            return String::from_utf8(output.stdout)
-                .map(|s| s.trim().to_string())
-                .map_err(|e| GraftError::Resolution(format!("Invalid UTF-8 in git output: {e}")));
-        }
-    }
-
-    Err(GraftError::Resolution(format!(
-        "Could not resolve ref: {git_ref}"
-    )))
+    graft_common::git::git_rev_parse(path, git_ref)
+        .map_err(|e| GraftError::Resolution(e.to_string()))
 }
 
 /// Get current commit hash
 pub(crate) fn get_current_commit(path: &Path) -> Result<String, GraftError> {
-    let output = ProcessCommand::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(path)
-        .output()
-        .map_err(|e| GraftError::Resolution(format!("Failed to get current commit: {e}")))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GraftError::Resolution(format!(
-            "git rev-parse HEAD failed: {stderr}"
-        )));
-    }
-
-    String::from_utf8(output.stdout)
-        .map(|s| s.trim().to_string())
-        .map_err(|e| GraftError::Resolution(format!("Invalid UTF-8 in git output: {e}")))
+    git_get_current_commit(path).map_err(|e| GraftError::Resolution(e.to_string()))
 }
 
 /// Checkout a specific commit
 fn checkout(path: &Path, commit: &str) -> Result<(), GraftError> {
-    let output = ProcessCommand::new("git")
-        .args(["checkout", commit])
-        .current_dir(path)
-        .output()
-        .map_err(|e| GraftError::Resolution(format!("Failed to checkout: {e}")))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GraftError::Resolution(format!(
-            "git checkout failed: {stderr}"
-        )));
-    }
-
-    Ok(())
+    graft_common::git::git_checkout(path, commit).map_err(|e| GraftError::Resolution(e.to_string()))
 }
 
 /// Resolve a single dependency as a git submodule

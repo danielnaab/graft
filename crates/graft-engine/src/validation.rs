@@ -160,23 +160,9 @@ pub fn validate_integrity(
 ///
 /// Runs `git rev-parse HEAD` in the repository directory.
 fn get_current_commit(repo_path: &Path) -> Result<CommitHash, String> {
-    use std::process::Command;
+    let commit_str = graft_common::git::get_current_commit(repo_path).map_err(|e| e.to_string())?;
 
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| format!("Failed to run git: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git rev-parse failed: {stderr}"));
-    }
-
-    let commit_str = String::from_utf8_lossy(&output.stdout);
-    let commit_str = commit_str.trim();
-
-    CommitHash::new(commit_str).map_err(|e| format!("Invalid commit hash from git: {e}"))
+    CommitHash::new(&commit_str).map_err(|e| format!("Invalid commit hash from git: {e}"))
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@
 use graft_core::domain::{Command, GraftConfig};
 use graft_core::error::{GraftError, Result};
 use std::path::Path;
-use std::process::{Command as ProcessCommand, Stdio};
+use std::process::Command as ProcessCommand;
 
 /// Result of executing a command.
 #[derive(Debug, Clone)]
@@ -52,11 +52,7 @@ pub fn execute_command(
 
     // Set environment variables if specified (must be done before spawn)
     let mut cmd = ProcessCommand::new("sh");
-    cmd.arg("-c")
-        .arg(&shell_cmd)
-        .current_dir(&working_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.arg("-c").arg(&shell_cmd).current_dir(&working_dir);
 
     if let Some(env_vars) = &command.env {
         for (key, value) in env_vars {
@@ -64,13 +60,10 @@ pub fn execute_command(
         }
     }
 
-    let process = cmd
-        .spawn()
-        .map_err(|e| GraftError::CommandExecution(format!("Failed to spawn command: {e}")))?;
-
-    let output = process
-        .wait_with_output()
-        .map_err(|e| GraftError::CommandExecution(format!("Failed to wait for command: {e}")))?;
+    // Use timeout-protected command runner from graft-common
+    let output =
+        graft_common::command::run_command_with_timeout(cmd, "graft command execution", None)
+            .map_err(|e| GraftError::CommandExecution(e.to_string()))?;
 
     let exit_code = output.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
