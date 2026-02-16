@@ -3,8 +3,8 @@
 You are working on the **Graft** project: semantic dependency management for knowledge bases.
 
 This repo contains two components in a shared Rust workspace:
-- **Graft** (Rust CLI in `crates/graft-*`, ready for use; Python legacy in `src/graft/`) - semantic dependency manager
-- **Grove** (Rust workspace tool in `crates/grove-*`) - workspace management for multi-repo development
+- **Graft** (Rust CLI in `crates/graft-*`, production ready; Python legacy in `src/graft/` is deprecated) - semantic dependency manager
+- **Grove** (Rust workspace tool in `crates/grove-*`, production ready) - workspace management for multi-repo development
 
 ## Orientation
 
@@ -15,7 +15,7 @@ This repo contains two components in a shared Rust workspace:
 | `src/graft/` | Python source (legacy, deprecated) |
 | `docs/specifications/` | Canonical specs (architecture, graft format, grove specs, decision ADRs) |
 | `docs/` | Implementation documentation (architecture overview, guides, ADRs) |
-| `docs/grove/` | Grove-specific docs (implementation, planning) |
+| `docs/grove/` | Grove implementation and planning docs |
 | `notes/` | Time-bounded exploration notes ([index](notes/index.md)) |
 | `.graft/` | Dependencies managed via `graft resolve` |
 | `knowledge-base.yaml` | KB structure declaration |
@@ -28,11 +28,11 @@ Always run before committing:
 # Graft (Rust) - primary implementation
 cargo fmt --check                # Format check
 cargo clippy -- -D warnings      # Lint
-cargo test                       # All Rust tests (49 tests: 42 unit, 7 integration)
+cargo test                       # All Rust tests (423 tests across workspace)
 cargo run -p graft-cli -- status # Smoke test
 
-# Graft (Python) - legacy, maintained for compatibility
-uv run pytest                    # 405 tests, ~46% coverage
+# Graft (Python) - deprecated, maintained for reference
+uv run pytest                    # 485 tests, ~23% coverage
 uv run mypy src/                 # Strict mode type checking
 uv run ruff check src/ tests/   # Linting
 ```
@@ -57,8 +57,9 @@ Graft Rust implementation status:
 - ✅ All core operations implemented (`status`, `resolve`, `fetch`, `sync`, `apply`, `upgrade`, `validate`, `changes`, `show`, `add`, `remove`, `run`)
 - ✅ State queries (Stage 1) implemented
 - ✅ Output parity with Python CLI verified (see `notes/2026-02-15-rust-rewrite/parity-verification.md`)
-- ✅ 49 tests passing (42 unit, 7 integration)
-- Ready for production use
+- ✅ Workspace unification complete: shared infrastructure extracted to `graft-common`
+- ✅ 423 tests passing across workspace
+- Production ready
 
 ## Workflow: Plan -> Patch -> Verify
 
@@ -96,7 +97,10 @@ Never write to:
 
 All Rust code lives in `crates/` under a virtual workspace rooted at `Cargo.toml`:
 
-- **graft-common** — Shared infrastructure (command execution, git operations, state types, config parsing)
+- **graft-common** — Shared infrastructure (timeout-protected command execution, git operations, state types, graft.yaml parsing)
+  - Used by both graft and grove for common functionality
+  - Eliminates code duplication across crates
+  - Provides consistent timeout protection for all git operations
 - **graft-core**, **graft-engine**, **graft-cli** — Graft semantic dependency manager
 - **grove-core**, **grove-engine**, **grove-cli** — Grove workspace manager
 

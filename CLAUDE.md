@@ -8,11 +8,11 @@ Read [AGENTS.md](AGENTS.md) for full project context, architectural principles, 
 # Graft (Rust) - primary implementation
 cargo fmt --check                # Format check
 cargo clippy -- -D warnings      # Lint
-cargo test                       # All Rust tests (49 tests: 42 unit, 7 integration)
+cargo test                       # All Rust tests (423 tests across workspace)
 cargo run -p graft-cli -- status # Smoke test
 
-# Graft (Python) - legacy, maintained for compatibility
-uv run pytest                    # 405 tests, ~46% coverage
+# Graft (Python) - deprecated, maintained for reference
+uv run pytest                    # 485 tests, ~23% coverage
 uv run mypy src/                 # Strict mode type checking
 uv run ruff check src/ tests/   # Linting
 ```
