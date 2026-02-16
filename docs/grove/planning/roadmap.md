@@ -32,7 +32,7 @@ Grove is a multi-repo workspace manager with graft awareness, built incrementall
 - Git status querying (branch, clean/dirty, ahead/behind)
 - Terminal UI with repository list
 - Vim-style navigation
-- Living specification: [tui-behavior.md](../../../../docs/specifications/grove/tui-behavior.md)
+- Living specification: [tui-behavior.md](../../../specifications/grove/tui-behavior.md)
 
 ### Slice 2: Repo Detail Pane
 
@@ -45,7 +45,7 @@ Grove is a multi-repo workspace manager with graft awareness, built incrementall
 - Recent commits display with author and date
 - Detail scroll with clamping
 - Detail caching by selection index
-- Living specification: [tui-behavior.md](../../../../docs/specifications/grove/tui-behavior.md)
+- Living specification: [tui-behavior.md](../../../specifications/grove/tui-behavior.md)
 
 ## Next Up: Slice 3
 
@@ -55,11 +55,11 @@ Grove is a multi-repo workspace manager with graft awareness, built incrementall
 
 **Dependencies:** Slice 1 (workspace config with capture routing is already specified in workspace-config.md)
 
-**Specification:** See [workspace-config.md](../../../../docs/specifications/grove/workspace-config.md) Capture Configuration section ([Slice 3] scenarios) for full behavior specification.
+**Specification:** See [workspace-config.md](../../../specifications/grove/workspace-config.md) Capture Configuration section ([Slice 3] scenarios) for full behavior specification.
 
 ## Sources
 
-- [Grove Vertical Slices](../../../../notes/2026-02-06-grove-vertical-slices.md)
-- [Architecture Spec](../../../../docs/specifications/grove/architecture.md)
-- [Workspace Config Spec](../../../../docs/specifications/grove/workspace-config.md)
-- [TUI Behavior Spec](../../../../docs/specifications/grove/tui-behavior.md)
+- [Grove Vertical Slices](../../../notes/2026-02-06-grove-vertical-slices.md)
+- [Architecture Spec](../../../specifications/grove/architecture.md)
+- [Workspace Config Spec](../../../specifications/grove/workspace-config.md)
+- [TUI Behavior Spec](../../../specifications/grove/tui-behavior.md)

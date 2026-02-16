@@ -7,6 +7,8 @@ updated: 2026-02-02
 
 Command reference for graft.
 
+> **Authority Note:** User-facing command reference interpreting canonical specifications. For authoritative operation semantics, see [Core Operations Specification](specifications/graft/core-operations.md).
+
 **Implementation:** `src/graft/cli/commands/`
 **Tests:** `tests/integration/test_cli_commands.py`
 

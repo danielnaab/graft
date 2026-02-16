@@ -7,6 +7,8 @@ status: working
 
 Multi-repo workspace manager with graft awareness
 
+> **Authority Note:** Working document providing Grove overview. For canonical architecture decisions, see [Grove Specifications](specifications/grove/) and [Implementation ADRs](grove/implementation/).
+
 ## Quick Start
 
 ```bash

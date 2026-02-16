@@ -6,6 +6,8 @@ updated: 2026-02-10
 
 # Grove Architecture Overview
 
+> **Authority Note:** Implementation architecture document describing Grove's three-layer design. For canonical requirements, see [Grove Specifications](../../../specifications/grove/).
+
 ## Table of Contents
 
 1. [Three-Layer Architecture](#three-layer-architecture)
@@ -437,7 +439,7 @@ impl GitStatus for FakeGitStatus {
 
 - [ADR-001: Git Status Implementation](./adr-001-git-status-implementation.md)
 - [Slice 1 Planning](../planning/slices/slice-1-workspace-config.md)
-- [Rust Starter Patterns](../../.graft/rust-starter/docs/architecture.md)
+- [Rust Starter Patterns](../../../.graft/rust-starter/docs/architecture/architecture.md)
 - [Ratatui Documentation](https://docs.rs/ratatui/0.29.0/ratatui/)
 - [Gitoxide Documentation](https://docs.rs/gix/0.66.0/gix/)
 

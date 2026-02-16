@@ -5,6 +5,8 @@ updated: 2026-01-04
 
 # Information Architecture
 
+> **Authority Note:** This document describes organizational conventions for the graft repository. For canonical architectural decisions, see [specifications/architecture.md](specifications/architecture.md) and [specification ADRs](specifications/decisions/).
+
 ## Overview
 
 This document describes how information is organized in the graft repository to support effective distributed agentic coding while maintaining clarity for human developers.

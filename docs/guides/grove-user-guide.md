@@ -5,6 +5,8 @@ updated: 2026-02-16
 
 # Grove User Guide
 
+> **Authority Note:** User-facing guide interpreting Grove specifications. For canonical requirements, see [Grove Specifications](../../specifications/grove/).
+
 ## Quick Start
 
 Grove is a multi-repo workspace manager that shows git status across your repositories in a terminal UI.

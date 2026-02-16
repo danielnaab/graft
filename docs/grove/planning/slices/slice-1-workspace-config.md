@@ -155,6 +155,6 @@ shellexpand = "3"
 
 ## Sources
 
-- [Architecture Spec](../../../../../docs/specifications/grove/architecture.md)
-- [Workspace Config Spec](../../../../../docs/specifications/grove/workspace-config.md)
-- [Rust Starter Patterns](../../../.graft/rust-starter/docs/architecture.md)
+- [Architecture Spec](../../../../specifications/grove/architecture.md)
+- [Workspace Config Spec](../../../../specifications/grove/workspace-config.md)
+- [Rust Starter Patterns](../../../../.graft/rust-starter/docs/architecture/architecture.md)
