@@ -1,16 +1,16 @@
 [project]
 name = "graft"
 version = "0.1.0"
-description = "Knowledge base tooling with language server support"
+description = "Knowledge base tooling with language server support (DEPRECATED - use Rust implementation)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Graft Team", email = "team@graft.dev"}
 ]
-keywords = ["template", "starter", "clean-architecture", "functional"]
+keywords = ["template", "starter", "clean-architecture", "functional", "deprecated"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 7 - Inactive",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",

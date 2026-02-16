@@ -1,5 +1,9 @@
 """Graft - Knowledge base tooling with language server support
 
+DEPRECATED: This Python implementation is deprecated as of February 2026.
+The Rust implementation is production-ready and is the recommended version.
+See src/graft/DEPRECATED.md for migration information.
+
 This package demonstrates functional service layer architecture with
 protocol-based dependency injection.
 
