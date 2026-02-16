@@ -53,6 +53,11 @@ Related docs, code, discussions...
   - Status: Accepted
   - Impact: All abstractions (Git, FileSystem, etc.)
 
+- **[ADR 007: Workspace Common Crate](007-workspace-common-crate.md)**
+  - Why we created graft-common for shared infrastructure
+  - Status: Accepted
+  - Impact: All Rust crates (code deduplication, timeout protection)
+
 - **[ADR 005: Functional Service Layer](005-functional-service-layer.md)**
   - Why services are pure functions instead of classes
   - Status: Accepted
@@ -86,6 +91,7 @@ Related docs, code, discussions...
 | 003 | Snapshot Only Lock File | Accepted | 2026-01-04 | Rollback scope |
 | 004 | Protocol-Based Dependency Injection | Accepted | 2026-01-04 | Core arch |
 | 005 | Functional Service Layer | Accepted | 2026-01-04 | Service design |
+| 007 | Workspace Common Crate | Accepted | 2026-02-16 | Rust workspace |
 
 ## Guidelines for New ADRs
 
@@ -180,4 +186,4 @@ Don't create ADRs for:
 
 ---
 
-Last Updated: 2026-01-04
+Last Updated: 2026-02-16
