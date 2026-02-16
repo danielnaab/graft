@@ -200,7 +200,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
 ## Phase 4: Meta-KB Documentation Compliance (Tasks 12–15)
 
 ### Task 12: Add lifecycle frontmatter to all documentation files
-- [ ] Add status frontmatter to docs lacking it
+- [x] Add status frontmatter to docs lacking it
 - **Target files**: `docs/README.md`, `docs/guides/*.md`, `docs/cli-reference.md`, `docs/configuration.md`, `docs/index.md`, `docs/architecture.md`, `docs/decisions/*.md`, `docs/plans/*.md`
 - **Reference**: `docs/plans/meta-kb-compliance-improvements.md` (existing compliance plan)
 - **What to do**:

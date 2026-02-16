@@ -303,3 +303,37 @@ None needed. The implementation is complete and high quality.
 - continue-here.md should provide comprehensive session handoff with clear status, recent changes, and next steps.
 - Link verification is straightforward with grep for markdown links and checking file existence.
 - knowledge-base.yaml may have already been updated in prior iterations (verify before duplicating work).
+
+---
+
+### Iteration 12 — Add lifecycle frontmatter to all documentation files
+**Status**: completed
+**Files changed**:
+- `docs/architecture.md` (converted inline status to YAML frontmatter)
+- `docs/decisions/README.md` (added frontmatter)
+- `docs/decisions/001-require-explicit-ref-in-upgrade.md` through `006-lowercase-filename-convention.md` (6 ADRs, converted inline status to frontmatter)
+- `docs/guides/grove-user-guide.md` (added frontmatter)
+- `docs/grove/implementation/architecture-overview.md` (converted inline version/date to frontmatter)
+- `docs/grove/implementation/adr-001-git-status-implementation.md` (converted inline status to frontmatter)
+
+**What was done**:
+Added YAML frontmatter with `status` field to 11 documentation files that lacked it. Converted inline status markers (e.g., `**Status**: Accepted`) to frontmatter format (e.g., `status: accepted`). All files now have proper lifecycle metadata following meta-KB policy templates. Status values used: `stable` (production docs), `accepted` (ADRs), matching existing patterns in the codebase. All 423 workspace tests pass.
+
+**Critique findings**:
+All acceptance criteria met. Every documentation file in `docs/` now has valid YAML frontmatter with a status field. The implementation correctly:
+- Preserved all existing content structure (only moved status markers to frontmatter)
+- Used consistent date format (YYYY-MM-DD)
+- Applied appropriate status values (stable for guides, accepted for ADRs)
+- Verified several `docs/plans/*.md` files already had frontmatter and didn't need changes
+- No broken links created, no tests broken
+- Pre-existing clippy issues in grove TUI remain as expected per MEMORY.md
+
+**Improvements made**:
+None needed. The implementation is complete and correct.
+
+**Learnings for future iterations**:
+- When adding frontmatter, check existing files first - many may already have proper frontmatter from previous work
+- Converting inline status markers (`**Status**: Accepted`) to frontmatter is straightforward - remove the inline version and add to YAML block
+- ADR status values should be lowercase in frontmatter (`accepted`, not `Accepted`) for consistency
+- The `status: accepted` for ADRs distinguishes them from `status: stable` for guides and architectural docs
+- Grove documentation (moved from `grove/docs/` in Task 10) needed frontmatter added after the merge
