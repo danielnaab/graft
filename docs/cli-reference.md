@@ -352,3 +352,25 @@ graft validate --integrity
 ```bash
 graft meta-kb:build
 ```
+
+---
+
+## Sources
+
+**Canonical Specifications:**
+- [Core Operations](specifications/graft/core-operations.md) - operation definitions and behavior
+- [graft.yaml Format](specifications/graft/graft-yaml-format.md) - dependency and command format
+- [Lock File Format](specifications/graft/lock-file-format.md) - lock file schema
+- [ADR 0001: Require Explicit Ref in Upgrade](specifications/decisions/decision-0001-initial-scope.md) - initial scope and design
+- [ADR 0004: Atomic Upgrades](specifications/decisions/decision-0004-atomic-upgrades.md) - snapshot and rollback behavior
+- [ADR 0007: Flat-Only Dependencies](specifications/decisions/decision-0007-flat-only-dependencies.md) - dependency resolution model
+
+**Rust Implementation (Primary):**
+- Command Dispatch: `crates/graft-cli/src/main.rs` (clap command definitions)
+- Command Execution: `crates/graft-engine/src/command.rs` (dep:cmd implementation)
+- Core Operations: `crates/graft-engine/src/` (resolve, apply, upgrade, sync, validate)
+- Git Operations: `crates/graft-common/src/git.rs` (timeout-protected git ops)
+
+**Python Implementation (Deprecated):**
+- Commands: `src/graft/cli/commands/` (all CLI commands)
+- Integration Tests: `tests/integration/test_cli_commands.py` (command validation)

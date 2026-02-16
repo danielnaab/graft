@@ -192,3 +192,25 @@ deps:
 
 See [CLI Reference](../cli-reference.md) for complete command documentation.
 See [Configuration Guide](../configuration.md) for format details.
+
+---
+
+## Sources
+
+**Canonical Specifications:**
+- [Change Model](../specifications/graft/change-model.md) - semantic evolution markers (breaking, feature, fix)
+- [graft.yaml Format](../specifications/graft/graft-yaml-format.md) - dependency declarations and commands
+- [Lock File Format](../specifications/graft/lock-file-format.md) - reproducible state tracking
+- [Core Operations](../specifications/graft/core-operations.md) - resolve, apply, upgrade, sync
+- [ADR 0007: Flat-Only Dependencies](../specifications/decisions/decision-0007-flat-only-dependencies.md) - no transitive resolution
+
+**Rust Implementation (Primary):**
+- CLI: `crates/graft-cli/src/main.rs` (command dispatch)
+- Engine: `crates/graft-engine/src/` (core operations)
+- Domain: `crates/graft-core/src/domain.rs` (models)
+- Common: `crates/graft-common/src/` (git ops, config parsing, state queries)
+
+**Python Implementation (Deprecated):**
+- CLI: `src/graft/cli/commands/` (all commands)
+- Services: `src/graft/services/` (pure functions)
+- Domain: `src/graft/domain/` (frozen dataclasses)

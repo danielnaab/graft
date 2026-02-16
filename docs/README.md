@@ -173,18 +173,30 @@ Canonical specifications for the Graft ecosystem live in [`specifications/`](spe
 ## Sources
 
 **Canonical Specifications:**
-- [Graft Architecture](specifications/architecture.md)
-- [ADR 004: Protocol-Based DI](decisions/004-protocol-based-dependency-injection.md)
-- [ADR 005: Functional Services](decisions/005-functional-service-layer.md)
-- [ADR 002: Filesystem Snapshots](decisions/002-filesystem-snapshots-for-rollback.md)
+- [Graft Architecture](specifications/architecture.md) - system design and core concepts
+- [Graft Specifications](specifications/graft/) - graft.yaml, lock file, operations, change model
+- [Grove Specifications](specifications/grove/) - workspace management architecture
+- [Decision ADRs](specifications/decisions/) - architectural decisions (0001-0007)
+- [ADR 004: Protocol-Based DI](decisions/004-protocol-based-dependency-injection.md) - Python DI pattern
+- [ADR 005: Functional Services](decisions/005-functional-service-layer.md) - Python service layer design
+- [ADR 002: Filesystem Snapshots](decisions/002-filesystem-snapshots-for-rollback.md) - rollback mechanism
 
-**Implementation:**
-- Domain: `src/graft/domain/*.py`
-- Services: `src/graft/services/*.py`
-- Protocols: `src/graft/protocols/*.py`
-- Adapters: `src/graft/adapters/*.py`
-- CLI: `src/graft/cli/commands/*.py`
+**Rust Implementation (Primary):**
+- Graft Crates: `crates/graft-cli/`, `crates/graft-engine/`, `crates/graft-core/` (423 tests)
+- Grove Crates: `crates/grove-cli/`, `crates/grove-engine/`, `crates/grove-core/`
+- Shared Infrastructure: `crates/graft-common/` (git ops, config parsing, state queries)
+- Domain Models: `crates/graft-core/src/domain.rs`, `crates/grove-core/src/domain.rs` (newtypes, enums)
+- Engine Logic: `crates/graft-engine/src/`, `crates/grove-engine/src/` (business logic functions)
+
+**Python Implementation (Deprecated):**
+- Domain: `src/graft/domain/*.py` (frozen dataclasses)
+- Services: `src/graft/services/*.py` (pure functions)
+- Protocols: `src/graft/protocols/*.py` (structural subtyping)
+- Adapters: `src/graft/adapters/*.py` (implementations)
+- CLI: `src/graft/cli/commands/*.py` (command handlers)
+- Tests: `tests/unit/` (12 modules), `tests/integration/` (4 modules), 485 tests
 
 **Validation:**
-- Tests: `tests/unit/` (12 modules), `tests/integration/` (4 modules)
+- Rust Tests: `cargo test` (423 tests across workspace)
+- Python Tests: `uv run pytest` (485 tests, ~23% coverage)
 - Workflow: [workflow-validation.md](../status/workflow-validation.md)

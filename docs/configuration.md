@@ -185,3 +185,23 @@ commands:
 
 See [User Guide](guides/user-guide.md) for usage examples.
 See specifications for complete validation rules.
+
+---
+
+## Sources
+
+**Canonical Specifications:**
+- [graft.yaml Format](specifications/graft/graft-yaml-format.md) - complete schema and validation rules
+- [Lock File Format](specifications/graft/lock-file-format.md) - lock file v2 schema
+- [Change Model](specifications/graft/change-model.md) - change types and metadata
+
+**Rust Implementation (Primary):**
+- Config Parsing: `crates/graft-common/src/config.rs` (shared YAML parser for commands and state queries)
+- Full Config: `crates/graft-engine/src/config.rs` (complete graft.yaml parsing)
+- Lock File: `crates/graft-engine/src/lock.rs` (lock file read/write)
+- Domain Models: `crates/graft-core/src/domain.rs` (GraftConfig, LockEntry, Change)
+
+**Python Implementation (Deprecated):**
+- Config Parser: `src/graft/services/config_service.py` (graft.yaml parsing)
+- Lock Adapter: `src/graft/adapters/lock_file.py` (lock file I/O)
+- Domain Models: `src/graft/domain/graft_config.py`, `src/graft/domain/lock_entry.py`, `src/graft/domain/change.py`
