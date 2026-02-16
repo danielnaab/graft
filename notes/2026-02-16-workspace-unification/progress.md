@@ -109,3 +109,26 @@ None needed. The implementation is solid and ready for consumer migration in Tas
 - The cache path structure (`~/.cache/graft/{workspace-hash}/{repo-name}/state/{query-name}/{commit-hash}.json`) is shared across both tools, so extracting it to graft-common is the right choice.
 - Both `graft-engine` and `grove-cli` had duplicate implementations of workspace hash computation (SHA256, truncated to 16 hex chars) - now they can share the same implementation.
 
+
+---
+
+### Iteration 5 — Migrate grove-engine to use graft-common command execution
+**Status**: completed
+**Files changed**:
+- `crates/grove-engine/Cargo.toml` (added graft-common dependency, removed wait-timeout)
+- `crates/grove-engine/src/git.rs` (replaced local run_git_with_timeout with thin wrapper that delegates to graft-common)
+
+**What was done**:
+Migrated grove-engine to use the shared timeout-protected command runner from graft-common. Replaced the 50-line local implementation of `run_git_with_timeout` with a thin wrapper function that converts `CommandError` to `CoreError` and delegates to `graft_common::command::run_command_with_timeout`. The wrapper preserves the existing API for all 6 call sites in grove-engine (status, rev-parse, rev-list ahead/behind, log, status detail) and maintains the `GROVE_GIT_TIMEOUT_MS` environment variable behavior. All 40 grove-engine tests pass unchanged.
+
+**Critique findings**:
+None. The implementation is clean and correct. The thin wrapper pattern is the right approach - it maintains the existing API for grove-engine callers while delegating to the shared implementation. Error conversion is comprehensive and preserves all error context. All acceptance criteria met.
+
+**Improvements made**:
+None needed.
+
+**Learnings for future iterations**:
+- The thin wrapper pattern (convert errors, delegate to shared code) is a clean way to migrate without changing all call sites.
+- Removing `wait-timeout` from grove-engine's dependencies worked seamlessly since it now comes transitively via graft-common.
+- All existing grove-engine tests continue to pass without modification, confirming the wrapper preserves exact behavior.
+- The shared command runner now adds timeout protection to git operations that previously lacked it (which will benefit graft-engine in Task 6).

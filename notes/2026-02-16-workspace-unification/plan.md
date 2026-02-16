@@ -93,7 +93,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
 ## Phase 2: Consumer Migration (Tasks 5–8)
 
 ### Task 5: Migrate grove-engine to use `graft-common` command execution
-- [ ] Replace grove-engine's command runner with `graft-common`
+- [x] Replace grove-engine's command runner with `graft-common`
 - **Source code**: `crates/grove-engine/src/git.rs`, `crates/grove-engine/Cargo.toml`
 - **What to do**:
   - Add `graft-common` dependency to grove-engine
