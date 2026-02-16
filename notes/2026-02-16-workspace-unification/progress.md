@@ -280,3 +280,26 @@ Fixed missed references in CLAUDE.md, README.md, and continue-here.md discovered
 - Inline agent guidance (like Grove section in AGENTS.md) works well for unified repos, avoiding duplication across multiple agent entrypoint files.
 - Redirect files (like grove/README.md) should list all new locations for easy navigation during transition.
 - Notes (ephemeral docs) can have stale references - that's acceptable per meta-KB temporal layers policy.
+
+### Iteration 11 — Update entrypoints (AGENTS.md, CLAUDE.md, continue-here.md)
+**Status**: completed
+**Files changed**:
+- `AGENTS.md` (updated graft-common docs, test counts, status)
+- `CLAUDE.md` (updated test counts)
+- `continue-here.md` (complete rewrite)
+
+**What was done**:
+Updated all three project entrypoint documents to reflect the current state after workspace unification. AGENTS.md: Added detailed documentation for graft-common crate (what it provides, why it exists), updated test count from 49 to 423, changed status from "ready for use" to "production ready", marked Python as deprecated. CLAUDE.md: Updated verification commands with correct test counts (423 Rust, 485 Python). continue-here.md: Complete rewrite to reflect Rust as primary implementation, Python as deprecated, workspace unification complete, grove docs merged. All changes are consistent across files with no broken links.
+
+**Critique findings**:
+All acceptance criteria fully met. Documentation is comprehensive, accurate, and internally consistent. Test counts verified with cargo test (423) and uv run pytest (485). All links verified to work. Status accurately reflects current state. No stale references to "rewrite in progress" remain. Python consistently marked as deprecated across all files. Grove documentation merge properly reflected. No issues identified.
+
+**Improvements made**:
+None needed. The implementation is complete and high quality.
+
+**Learnings for future iterations**:
+- When updating multiple entrypoint documents, maintain consistent language and status across all files (e.g., "production ready", "deprecated").
+- Test count verification is important - running the actual test suite ensures accuracy.
+- continue-here.md should provide comprehensive session handoff with clear status, recent changes, and next steps.
+- Link verification is straightforward with grep for markdown links and checking file existence.
+- knowledge-base.yaml may have already been updated in prior iterations (verify before duplicating work).

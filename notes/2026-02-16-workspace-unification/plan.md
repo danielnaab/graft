@@ -186,7 +186,7 @@ verify, and mark complete. Follow existing patterns in the codebase.
   - All grove docs accessible from main docs structure
 
 ### Task 11: Update entrypoints (AGENTS.md, CLAUDE.md, continue-here.md)
-- [ ] Update project entrypoint documents to reflect current state
+- [x] Update project entrypoint documents to reflect current state
 - **Source code**: `AGENTS.md`, `CLAUDE.md`, `continue-here.md`, `knowledge-base.yaml`
 - **What to do**:
   - AGENTS.md: document `graft-common` crate, fix stale "rewrite in progress" reference, update test counts, remove grove/ directory references
