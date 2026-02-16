@@ -1434,7 +1434,11 @@ dependencies = [
 name = "graft-common"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "log",
+ "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "wait-timeout",
@@ -1455,6 +1459,7 @@ name = "graft-engine"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "graft-common",
  "graft-core",
  "indexmap",
  "serde",
@@ -1474,6 +1479,7 @@ dependencies = [
  "clap",
  "crossterm",
  "env_logger",
+ "graft-common",
  "grove-core",
  "grove-engine",
  "log",
@@ -1505,13 +1511,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gix",
+ "graft-common",
  "grove-core",
  "log",
  "serde",
  "serde_yaml",
  "tempfile",
  "thiserror 2.0.18",
- "wait-timeout",
 ]
 
 [[package]]

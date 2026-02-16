@@ -10,86 +10,16 @@
 //!     command → JSON output → cache by commit hash
 
 use graft_core::{GraftError, Result, StateQuery};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command as ProcessCommand;
 
-/// Metadata for a state query result.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StateMetadata {
-    pub query_name: String,
-    pub commit_hash: String,
-    pub timestamp: String, // ISO 8601 format
-    pub command: String,
-    pub deterministic: bool,
-}
+// Re-export shared types from graft-common
+pub use graft_common::state::{StateMetadata, StateResult};
 
-/// A state query result with data and metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StateResult {
-    pub metadata: StateMetadata,
-    pub data: Value,
-}
-
-/// Get cache file path for a state query result.
-///
-/// Format: `~/.cache/graft/{workspace-hash}/{repo-name}/state/{query-name}/{commit-hash}.json`
-pub fn get_cache_path(
-    workspace_name: &str,
-    repo_name: &str,
-    query_name: &str,
-    commit_hash: &str,
-) -> PathBuf {
-    // Compute workspace hash to avoid path conflicts
-    let mut hasher = Sha256::new();
-    hasher.update(workspace_name.as_bytes());
-    let hash_result = hasher.finalize();
-    let workspace_hash = format!("{hash_result:x}")[..16].to_string();
-
-    // Build cache path
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home)
-        .join(".cache/graft")
-        .join(workspace_hash)
-        .join(repo_name)
-        .join("state")
-        .join(query_name)
-        .join(format!("{commit_hash}.json"))
-}
-
-/// Read cached state result if it exists.
-pub fn read_cached_state(
-    workspace_name: &str,
-    repo_name: &str,
-    query_name: &str,
-    commit_hash: &str,
-) -> Option<StateResult> {
-    let cache_path = get_cache_path(workspace_name, repo_name, query_name, commit_hash);
-
-    if !cache_path.exists() {
-        return None;
-    }
-
-    match fs::read_to_string(&cache_path) {
-        Ok(content) => match serde_json::from_str(&content) {
-            Ok(result) => Some(result),
-            Err(e) => {
-                eprintln!(
-                    "Warning: Corrupted cache for {query_name} at commit {}: {e}",
-                    &commit_hash[..7]
-                );
-                // Delete corrupted cache file
-                let _ = fs::remove_file(&cache_path);
-                None
-            }
-        },
-        Err(_) => None,
-    }
-}
+// Re-export shared cache functions from graft-common
+pub use graft_common::state::{get_cache_path, read_cached_state};
 
 /// Write state result to cache.
 pub fn write_cached_state(
@@ -97,24 +27,8 @@ pub fn write_cached_state(
     repo_name: &str,
     result: &StateResult,
 ) -> Result<()> {
-    let cache_path = get_cache_path(
-        workspace_name,
-        repo_name,
-        &result.metadata.query_name,
-        &result.metadata.commit_hash,
-    );
-
-    // Ensure directory exists
-    if let Some(parent) = cache_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    // Write cache file
-    let content = serde_json::to_string_pretty(result)
-        .map_err(|e| GraftError::Validation(format!("Failed to serialize cache: {e}")))?;
-
-    fs::write(&cache_path, content)?;
-
+    graft_common::state::write_cached_state(workspace_name, repo_name, result)
+        .map_err(GraftError::Io)?;
     Ok(())
 }
 
@@ -126,62 +40,9 @@ pub fn invalidate_cached_state(
     repo_name: &str,
     query_name: Option<&str>,
 ) -> Result<usize> {
-    let mut hasher = Sha256::new();
-    hasher.update(workspace_name.as_bytes());
-    let hash_result = hasher.finalize();
-    let workspace_hash = format!("{hash_result:x}")[..16].to_string();
-
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let cache_root = PathBuf::from(home)
-        .join(".cache/graft")
-        .join(workspace_hash)
-        .join(repo_name)
-        .join("state");
-
-    if let Some(query_name) = query_name {
-        // Delete specific query cache
-        let query_dir = cache_root.join(query_name);
-        if query_dir.exists() {
-            let count = fs::read_dir(&query_dir)
-                .map(|entries| entries.filter_map(std::result::Result::ok).count())
-                .unwrap_or(0);
-
-            fs::remove_dir_all(&query_dir)?;
-
-            Ok(count)
-        } else {
-            Ok(0)
-        }
-    } else {
-        // Delete entire state cache directory
-        if cache_root.exists() {
-            let count = count_files_recursive(&cache_root);
-            fs::remove_dir_all(&cache_root)?;
-
-            Ok(count)
-        } else {
-            Ok(0)
-        }
-    }
-}
-
-/// Count files recursively in a directory.
-fn count_files_recursive(dir: &Path) -> usize {
-    fs::read_dir(dir)
-        .map(|entries| {
-            entries
-                .filter_map(std::result::Result::ok)
-                .map(|entry| {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        count_files_recursive(&path)
-                    } else {
-                        1
-                    }
-                })
-                .sum()
-        })
-        .unwrap_or(0)
+    let count = graft_common::state::invalidate_cached_state(workspace_name, repo_name, query_name)
+        .map_err(GraftError::Io)?;
+    Ok(count)
 }
 
 /// Execute a state query and return the result.
@@ -339,18 +200,6 @@ pub struct StateQueryStatus {
 mod tests {
     use super::*;
     use graft_core::StateCache;
-
-    #[test]
-    fn test_get_cache_path() {
-        let path = get_cache_path("my-workspace", "my-repo", "coverage", "abc123");
-        let path_str = path.to_string_lossy();
-
-        assert!(path_str.contains(".cache/graft"));
-        assert!(path_str.contains("my-repo"));
-        assert!(path_str.contains("state"));
-        assert!(path_str.contains("coverage"));
-        assert!(path_str.ends_with("abc123.json"));
-    }
 
     #[test]
     fn test_execute_state_query_success() {
