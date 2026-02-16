@@ -20,9 +20,9 @@ uv run ruff check src/ tests/   # Linting
 ## Key paths
 
 - `Cargo.toml` - Virtual workspace manifest (all Rust crates)
-- `crates/` - All Rust crates (grove-core, grove-engine, grove-cli, graft-core, graft-engine, graft-cli)
-- `src/graft/` - Python source (legacy, maintained for compatibility)
-- `grove/docs/` - Grove-specific docs ([agent entrypoint](grove/docs/agents.md))
+- `crates/` - All Rust crates (grove-core, grove-engine, grove-cli, graft-core, graft-engine, graft-cli, graft-common)
+- `src/graft/` - Python source (legacy, deprecated)
+- `docs/grove/` - Grove-specific docs (implementation, planning)
 - `docs/specifications/` - Canonical specs
 - `docs/` - Implementation docs
 - `notes/` - Exploration notes ([index](notes/index.md))
