@@ -8,12 +8,12 @@ authors = ["Your Name <you@example.com>"]
 
 [dependencies]
 grove-core = { workspace = true }
+graft-common = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 gix = { workspace = true }
-wait-timeout = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]

@@ -1,61 +1,33 @@
 //! Git status adapter using gitoxide and git command.
 
+use graft_common::command::{run_command_with_timeout, CommandError};
 use grove_core::{
     CommitInfo, CoreError, FileChange, FileChangeStatus, GitStatus as GitStatusTrait, RepoDetail,
     RepoDetailProvider, RepoPath, RepoStatus, Result,
 };
 use std::path::Path;
 use std::process::{Command, Output};
-use std::time::Duration;
-use wait_timeout::ChildExt;
 
-/// Default timeout for git subprocess commands (5 seconds)
-const DEFAULT_GIT_TIMEOUT_MS: u64 = 5000;
-
-/// Get the git timeout from environment variable or use default.
-fn get_git_timeout() -> u64 {
-    std::env::var("GROVE_GIT_TIMEOUT_MS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_GIT_TIMEOUT_MS)
-}
-
-/// Run a git command with a timeout.
-///
-/// Returns the command output on success, or an error if the command fails or times out.
-fn run_git_with_timeout(mut cmd: Command, operation: &str) -> Result<Output> {
-    // Spawn with piped stdout/stderr
-    let mut child = cmd
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| CoreError::GitError {
-            details: format!("Failed to spawn git {operation}: {e}"),
-        })?;
-
-    let timeout_ms = get_git_timeout();
-    let timeout = Duration::from_millis(timeout_ms);
-
-    match child.wait_timeout(timeout) {
-        Ok(Some(_status)) => {
-            // Process completed within timeout - get output
-            child.wait_with_output().map_err(|e| CoreError::GitError {
-                details: format!("Failed to read git output for {operation}: {e}"),
-            })
-        }
-        Ok(None) => {
-            // Timeout occurred, kill the process
-            let _ = child.kill();
-            let _ = child.wait();
-            Err(CoreError::GitTimeout {
-                operation: operation.to_string(),
-                timeout_ms,
-            })
-        }
-        Err(e) => Err(CoreError::GitError {
-            details: format!("Git process error for {operation}: {e}"),
-        }),
-    }
+/// Run a git command with a timeout, converting `CommandError` to `CoreError`.
+fn run_git_with_timeout(cmd: Command, operation: &str) -> Result<Output> {
+    run_command_with_timeout(cmd, operation, Some("GROVE_GIT_TIMEOUT_MS")).map_err(|e| match e {
+        CommandError::SpawnError { details, .. } => CoreError::GitError {
+            details: format!("Failed to spawn git {operation}: {details}"),
+        },
+        CommandError::Timeout {
+            timeout_ms,
+            operation,
+        } => CoreError::GitTimeout {
+            operation,
+            timeout_ms,
+        },
+        CommandError::OutputError { details, .. } => CoreError::GitError {
+            details: format!("Failed to read git output for {operation}: {details}"),
+        },
+        CommandError::ProcessError { details, .. } => CoreError::GitError {
+            details: format!("Git process error for {operation}: {details}"),
+        },
+    })
 }
 
 /// Gitoxide-based git status implementation.
