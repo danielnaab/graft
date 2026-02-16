@@ -2412,3 +2412,321 @@ fn state_panel_empty_state_is_helpful() {
     assert!(app.state_queries.is_empty());
     assert!(app.state_results.is_empty());
 }
+
+// ===== execute_state_query_command tests =====
+
+#[test]
+fn execute_query_command_captures_json_output() {
+    let result =
+        execute_state_query_command("echo '{\"total_words\": 5000}'", std::path::Path::new("/tmp"))
+            .expect("should succeed");
+
+    assert_eq!(result.data["total_words"], 5000);
+}
+
+#[test]
+fn execute_query_command_supports_shell_features() {
+    // Pipes should work because we use sh -c
+    let result = execute_state_query_command(
+        "echo '{\"a\": 1, \"b\": 2}' | cat",
+        std::path::Path::new("/tmp"),
+    )
+    .expect("should succeed with pipes");
+
+    assert_eq!(result.data["a"], 1);
+    assert_eq!(result.data["b"], 2);
+}
+
+#[test]
+fn execute_query_command_rejects_invalid_json() {
+    let result = execute_state_query_command("echo 'not json'", std::path::Path::new("/tmp"));
+
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().contains("Invalid JSON"),
+        "should report invalid JSON"
+    );
+}
+
+#[test]
+fn execute_query_command_rejects_non_object_json() {
+    let result = execute_state_query_command("echo '[1, 2, 3]'", std::path::Path::new("/tmp"));
+
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().contains("JSON object"),
+        "should require JSON object"
+    );
+}
+
+#[test]
+fn execute_query_command_reports_failed_commands() {
+    let result = execute_state_query_command("exit 1", std::path::Path::new("/tmp"));
+
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().contains("Command failed"),
+        "should report command failure"
+    );
+}
+
+#[test]
+fn execute_query_command_gets_commit_hash_from_git_repo() {
+    let temp = tempfile::tempdir().unwrap();
+    // Initialize a git repo and make a commit
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "--allow-empty", "-m", "initial"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    let result = execute_state_query_command("echo '{\"ok\": true}'", temp.path())
+        .expect("should succeed");
+
+    // Should have a real commit hash (40 hex chars), not "unknown"
+    assert_ne!(result.commit_hash, "unknown");
+    assert_eq!(result.commit_hash.len(), 40);
+    assert!(result.commit_hash.chars().all(|c| c.is_ascii_hexdigit()));
+}
+
+#[test]
+fn execute_query_command_uses_unknown_hash_for_non_git_dir() {
+    let temp = tempfile::tempdir().unwrap();
+
+    let result = execute_state_query_command("echo '{\"ok\": true}'", temp.path())
+        .expect("should succeed");
+
+    assert_eq!(result.commit_hash, "unknown");
+}
+
+#[test]
+fn raw_state_result_finalize_sets_metadata() {
+    let raw = RawStateResult {
+        data: serde_json::json!({"count": 42}),
+        commit_hash: "abc123".to_string(),
+    };
+
+    let result = raw.finalize("my-query", "echo test", true);
+
+    assert_eq!(result.metadata.query_name, "my-query");
+    assert_eq!(result.metadata.commit_hash, "abc123");
+    assert_eq!(result.metadata.command, "echo test");
+    assert!(result.metadata.deterministic);
+    assert_eq!(result.data["count"], 42);
+    // Timestamp should be recent
+    assert!(result.metadata.timestamp_parsed().is_some());
+}
+
+// ===== Full refresh flow tests =====
+
+#[test]
+fn refresh_updates_in_memory_state_result() {
+    use crate::state::StateQuery;
+
+    let temp = tempfile::tempdir().unwrap();
+    let repo_path = RepoPath::new(temp.path().to_str().unwrap()).unwrap();
+
+    let registry = MockRegistry {
+        repos: vec![repo_path.clone()],
+        statuses: {
+            let mut m = HashMap::new();
+            m.insert(repo_path, RepoStatus::new(
+                RepoPath::new(temp.path().to_str().unwrap()).unwrap(),
+            ));
+            m
+        },
+    };
+
+    let mut app = App::new(
+        registry,
+        MockDetailProvider::empty(),
+        "test-refresh-workspace".to_string(),
+    );
+    app.active_pane = ActivePane::StatePanel;
+    app.list_state.select(Some(0));
+
+    // Add a query that outputs valid JSON
+    app.state_queries = vec![StateQuery {
+        name: "test-query".to_string(),
+        run: "echo '{\"total_words\": 1234, \"words_today\": 56}'".to_string(),
+        description: None,
+        deterministic: false,
+        timeout: None,
+    }];
+    app.state_results = vec![None]; // Start with no cached data
+    app.state_panel_list_state.select(Some(0));
+
+    // Press 'r' to refresh
+    app.handle_key(KeyCode::Char('r'));
+
+    // Verify the in-memory result was updated
+    assert!(
+        app.state_results[0].is_some(),
+        "state_results should be populated after refresh"
+    );
+
+    let result = app.state_results[0].as_ref().unwrap();
+    assert_eq!(result.data["total_words"], 1234);
+    assert_eq!(result.data["words_today"], 56);
+    assert_eq!(result.metadata.query_name, "test-query");
+
+    // Verify success status message
+    let msg = app.status_message.as_ref().unwrap();
+    assert_eq!(msg.msg_type, MessageType::Success);
+
+    // Verify summary formatting works
+    assert_eq!(result.summary(), "1234 words total, 56 today");
+}
+
+#[test]
+fn refresh_writes_to_cache() {
+    use crate::state::{compute_workspace_hash, read_latest_cached, StateQuery};
+
+    let temp = tempfile::tempdir().unwrap();
+    let repo_path = RepoPath::new(temp.path().to_str().unwrap()).unwrap();
+    let workspace_name = "test-cache-write-workspace";
+    let workspace_hash = compute_workspace_hash(workspace_name);
+    let repo_name = temp.path().file_name().unwrap().to_str().unwrap();
+
+    let registry = MockRegistry {
+        repos: vec![repo_path.clone()],
+        statuses: {
+            let mut m = HashMap::new();
+            m.insert(repo_path, RepoStatus::new(
+                RepoPath::new(temp.path().to_str().unwrap()).unwrap(),
+            ));
+            m
+        },
+    };
+
+    let mut app = App::new(
+        registry,
+        MockDetailProvider::empty(),
+        workspace_name.to_string(),
+    );
+    app.active_pane = ActivePane::StatePanel;
+    app.list_state.select(Some(0));
+
+    app.state_queries = vec![StateQuery {
+        name: "cache-test".to_string(),
+        run: "echo '{\"items\": 99}'".to_string(),
+        description: None,
+        deterministic: true,
+        timeout: None,
+    }];
+    app.state_results = vec![None];
+    app.state_panel_list_state.select(Some(0));
+
+    // Refresh
+    app.handle_key(KeyCode::Char('r'));
+
+    // Verify cache was written and can be read back
+    let cached = read_latest_cached(&workspace_hash, repo_name, "cache-test");
+    assert!(
+        cached.is_ok(),
+        "should be able to read cache after refresh: {:?}",
+        cached.err()
+    );
+
+    let cached = cached.unwrap();
+    assert_eq!(cached.data["items"], 99);
+    assert_eq!(cached.metadata.query_name, "cache-test");
+
+    // Clean up cache
+    let cache_root = std::path::PathBuf::from(std::env::var("HOME").unwrap())
+        .join(".cache/graft")
+        .join(&workspace_hash);
+    std::fs::remove_dir_all(cache_root).ok();
+}
+
+#[test]
+fn refresh_with_invalid_json_command_shows_error() {
+    use crate::state::StateQuery;
+
+    let temp = tempfile::tempdir().unwrap();
+    let repo_path = RepoPath::new(temp.path().to_str().unwrap()).unwrap();
+
+    let registry = MockRegistry {
+        repos: vec![repo_path.clone()],
+        statuses: {
+            let mut m = HashMap::new();
+            m.insert(repo_path, RepoStatus::new(
+                RepoPath::new(temp.path().to_str().unwrap()).unwrap(),
+            ));
+            m
+        },
+    };
+
+    let mut app = App::new(
+        registry,
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.active_pane = ActivePane::StatePanel;
+    app.list_state.select(Some(0));
+
+    app.state_queries = vec![StateQuery {
+        name: "bad-query".to_string(),
+        run: "echo 'not valid json'".to_string(),
+        description: None,
+        deterministic: false,
+        timeout: None,
+    }];
+    app.state_results = vec![None];
+    app.state_panel_list_state.select(Some(0));
+
+    app.handle_key(KeyCode::Char('r'));
+
+    // Should show error, result should remain None
+    let msg = app.status_message.as_ref().unwrap();
+    assert_eq!(msg.msg_type, MessageType::Error);
+    assert!(app.state_results[0].is_none());
+}
+
+#[test]
+fn refresh_with_failing_command_shows_error() {
+    use crate::state::StateQuery;
+
+    let temp = tempfile::tempdir().unwrap();
+    let repo_path = RepoPath::new(temp.path().to_str().unwrap()).unwrap();
+
+    let registry = MockRegistry {
+        repos: vec![repo_path.clone()],
+        statuses: {
+            let mut m = HashMap::new();
+            m.insert(repo_path, RepoStatus::new(
+                RepoPath::new(temp.path().to_str().unwrap()).unwrap(),
+            ));
+            m
+        },
+    };
+
+    let mut app = App::new(
+        registry,
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.active_pane = ActivePane::StatePanel;
+    app.list_state.select(Some(0));
+
+    app.state_queries = vec![StateQuery {
+        name: "fail-query".to_string(),
+        run: "exit 1".to_string(),
+        description: None,
+        deterministic: false,
+        timeout: None,
+    }];
+    app.state_results = vec![None];
+    app.state_panel_list_state.select(Some(0));
+
+    app.handle_key(KeyCode::Char('r'));
+
+    let msg = app.status_message.as_ref().unwrap();
+    assert_eq!(msg.msg_type, MessageType::Error);
+    assert!(app.state_results[0].is_none());
+}

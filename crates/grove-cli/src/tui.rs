@@ -582,133 +582,69 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
-    /// Refresh the currently selected state query
+    /// Refresh the currently selected state query.
+    ///
+    /// Executes the query command, captures JSON output from stdout,
+    /// writes the result to cache, and updates the in-memory display.
     fn refresh_selected_state_query(&mut self) {
-        use std::process::Command;
-
         // Get selected query index
-        let selected = match self.state_panel_list_state.selected() {
-            Some(i) => i,
-            None => {
-                self.status_message = Some(StatusMessage::warning("No query selected".to_string()));
-                return;
-            }
+        let Some(selected) = self.state_panel_list_state.selected() else {
+            self.status_message = Some(StatusMessage::warning("No query selected".to_string()));
+            return;
         };
 
         // Get query (clone to avoid borrow issues)
-        let (query_name, run_command) = match self.state_queries.get(selected) {
-            Some(q) => (q.name.clone(), q.run.clone()),
-            None => return,
+        let Some(q) = self.state_queries.get(selected) else {
+            return;
         };
+        let (query_name, run_command, deterministic) =
+            (q.name.clone(), q.run.clone(), q.deterministic);
 
         // Get current repo path
         let repos = self.registry.list_repos();
-        let repo_idx = match self.list_state.selected() {
-            Some(i) => i,
-            None => {
+        let Some(repo_idx) = self.list_state.selected() else {
+            self.status_message =
+                Some(StatusMessage::warning("No repository selected".to_string()));
+            return;
+        };
+
+        let Some(repo_path) = repos.get(repo_idx).map(grove_core::RepoPath::as_path) else {
+            return;
+        };
+
+        self.status_message = Some(StatusMessage::info(format!("Refreshing {query_name}...")));
+
+        match execute_state_query_command(&run_command, repo_path) {
+            Ok(state_result) => {
+                let state_result = state_result.finalize(&query_name, &run_command, deterministic);
+
+                // Write to cache
+                let repo_name = repo_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown");
+                if let Err(e) = graft_common::state::write_cached_state(
+                    &self.workspace_name,
+                    repo_name,
+                    &state_result,
+                ) {
+                    log::warn!("Failed to write cache for {query_name}: {e}");
+                }
+
+                // Update in-memory result directly
+                if selected < self.state_results.len() {
+                    self.state_results[selected] = Some(state_result);
+                }
+
                 self.status_message =
-                    Some(StatusMessage::warning("No repository selected".to_string()));
-                return;
-            }
-        };
-
-        let repo_path = match repos.get(repo_idx) {
-            Some(r) => r.as_path(),
-            None => return,
-        };
-
-        // Show "Refreshing..." message
-        self.status_message = Some(StatusMessage::info(format!("Refreshing {}...", query_name)));
-
-        // Parse the run command using shell-words to handle quotes properly
-        let args = match shell_words::split(&run_command) {
-            Ok(args) => args,
-            Err(e) => {
-                self.status_message = Some(StatusMessage::error(format!(
-                    "Failed to parse command '{}': {}",
-                    run_command, e
-                )));
-                return;
-            }
-        };
-
-        if args.is_empty() {
-            self.status_message = Some(StatusMessage::error(format!(
-                "Empty command for query '{}'",
-                query_name
-            )));
-            return;
-        }
-
-        // Execute the run command directly
-        let result = Command::new(&args[0])
-            .args(&args[1..])
-            .current_dir(repo_path)
-            .output();
-
-        let success = match result {
-            Ok(output) => {
-                if output.status.success() {
-                    true
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    self.status_message = Some(StatusMessage::error(format!(
-                        "Command failed: {}",
-                        stderr.trim()
-                    )));
-                    false
-                }
+                    Some(StatusMessage::success(format!("Refreshed {query_name}")));
             }
             Err(e) => {
-                self.status_message = Some(StatusMessage::error(format!(
-                    "Failed to execute '{}': {}",
-                    run_command, e
-                )));
-                false
+                self.status_message = Some(StatusMessage::error(e));
             }
-        };
-
-        if success {
-            // Reload cache for this query
-            self.reload_state_query_cache(selected, repo_path);
-
-            self.status_message = Some(StatusMessage::success(format!("Refreshed {}", query_name)));
         }
     }
 
-    /// Reload cache for a specific query index
-    fn reload_state_query_cache(&mut self, query_index: usize, repo_path: &std::path::Path) {
-        use crate::state::{compute_workspace_hash, read_latest_cached};
-
-        if query_index >= self.state_queries.len() {
-            return;
-        }
-
-        let query = &self.state_queries[query_index];
-
-        let workspace_hash = compute_workspace_hash(&self.workspace_name);
-        let repo_name = repo_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown");
-
-        // Read updated cache
-        match read_latest_cached(&workspace_hash, repo_name, &query.name) {
-            Ok(result) => {
-                // Update the result in the vector
-                if query_index < self.state_results.len() {
-                    self.state_results[query_index] = Some(result);
-                }
-            }
-            Err(e) => {
-                log::warn!("Failed to reload cache for {}: {}", query.name, e);
-                // Keep existing cache or set to None
-                if query_index < self.state_results.len() {
-                    self.state_results[query_index] = None;
-                }
-            }
-        }
-    }
 
     fn handle_key_command_output(&mut self, code: KeyCode) {
         // If showing stop confirmation dialog, handle dialog keys
@@ -2318,6 +2254,83 @@ fn find_graft_command() -> Result<String> {
          - Via pip: pip install graft\n\n\
          Or ensure graft is in your PATH."
     ))
+}
+
+/// Intermediate result from executing a state query command.
+///
+/// Contains the parsed JSON data and commit hash, but not yet the metadata
+/// fields that require query context (name, command, deterministic flag).
+#[derive(Debug)]
+struct RawStateResult {
+    data: serde_json::Value,
+    commit_hash: String,
+}
+
+impl RawStateResult {
+    /// Finalize into a full `StateResult` by adding query metadata.
+    fn finalize(
+        self,
+        query_name: &str,
+        run_command: &str,
+        deterministic: bool,
+    ) -> crate::state::StateResult {
+        crate::state::StateResult {
+            metadata: crate::state::StateMetadata {
+                query_name: query_name.to_string(),
+                commit_hash: self.commit_hash,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                command: run_command.to_string(),
+                deterministic,
+            },
+            data: self.data,
+        }
+    }
+}
+
+/// Execute a state query command and capture JSON output from stdout.
+///
+/// Runs the command via `sh -c` (matching graft-engine behavior) to support
+/// shell features like pipes, redirects, and variable expansion.
+/// Returns the parsed JSON data and commit hash on success.
+fn execute_state_query_command(
+    run_command: &str,
+    repo_path: &std::path::Path,
+) -> Result<RawStateResult, String> {
+    use std::process::Command;
+
+    // Get commit hash from the repo
+    let commit_hash = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Execute command via sh -c
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(run_command)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to execute '{run_command}': {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Command failed: {}", stderr.trim()));
+    }
+
+    // Parse JSON from stdout
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let data: serde_json::Value =
+        serde_json::from_str(&stdout).map_err(|e| format!("Invalid JSON output: {e}"))?;
+
+    if !data.is_object() {
+        return Err("Query must output a JSON object".to_string());
+    }
+
+    Ok(RawStateResult { data, commit_hash })
 }
 
 /// Spawn a graft command in the background and send output via channel.
