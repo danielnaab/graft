@@ -1,8 +1,6 @@
 //! Vim-style `:` command line input handling, command parsing, and command palette.
 
-use super::{
-    App, CommandLineState, KeyCode, RepoDetailProvider, RepoRegistry, StatusMessage, View,
-};
+use super::{App, KeyCode, RepoDetailProvider, RepoRegistry, StatusMessage, View};
 
 // ===== Command palette registry =====
 
@@ -48,7 +46,7 @@ pub(super) const PALETTE_COMMANDS: &[PaletteEntry] = &[
 
 /// Return the subset of `PALETTE_COMMANDS` whose `command` field contains `filter`
 /// as a case-insensitive substring. Preserves the original display order.
-pub(super) fn filtered_palette<'a>(filter: &str) -> Vec<&'a PaletteEntry> {
+pub(super) fn filtered_palette(filter: &str) -> Vec<&'static PaletteEntry> {
     let filter = filter.to_ascii_lowercase();
     PALETTE_COMMANDS
         .iter()
@@ -230,17 +228,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 }
             }
             _ => {}
-        }
-    }
-
-    /// Build a new `CommandLineState` with the given buffer pre-filled (e.g.
-    /// when a palette entry is selected and Tab/Enter fills it in).
-    #[allow(dead_code)]
-    fn command_line_state_with(buffer: &str) -> CommandLineState {
-        CommandLineState {
-            buffer: buffer.to_string(),
-            cursor_pos: buffer.len(),
-            palette_selected: 0,
         }
     }
 
