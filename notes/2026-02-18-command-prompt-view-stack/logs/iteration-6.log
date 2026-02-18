@@ -1,0 +1,15 @@
+Task 6 is complete. Here's a summary of what was done:
+
+## Task 6: Escape-goes-home and stack discipline
+
+**What changed:**
+
+- **`app.rs`**: Split `q`/`Esc` in `handle_key_dashboard` — `q` quits, `Esc` calls `reset_to_dashboard()` (no-op when already home, but consistent semantics). Same split in `handle_key_help` — `Esc` resets to dashboard, other chars `pop_view()`. Removed the `#[allow(dead_code)]` annotation from `reset_to_dashboard()`.
+
+- **`repo_detail.rs`**: Split `q`/`Esc` — `q` (and `Tab`) call `pop_view()`, `Esc` calls `reset_to_dashboard()`.
+
+- **`overlays.rs`**: Split `q`/`Esc` in `handle_key_command_output` — both show stop confirmation when running; when not running, `q` pops while `Esc` resets to dashboard. Extracted `clear_command_output_state()` helper to eliminate duplication.
+
+- **`tests.rs`**: Updated `handles_quit_with_esc_key` → `esc_from_dashboard_does_not_quit` (Esc no longer quits). Added 10 new tests covering: deep stack Escape, q/Esc from each view type, stop confirmation gating both keys.
+
+All 140 TUI tests pass. `cargo fmt --check && cargo clippy -- -D warnings && cargo test` all pass.

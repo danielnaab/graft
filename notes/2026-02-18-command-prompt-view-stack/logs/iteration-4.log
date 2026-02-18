@@ -1,0 +1,21 @@
+Task 4 is complete. Here's a summary of what was accomplished:
+
+## Task 4: Full-width Dashboard view — Complete ✓
+
+**What changed:**
+
+1. **`mod.rs`**: Removed `ActivePane` enum entirely. Added `ArgumentInputMode { Inactive, Active }` to track the argument input overlay state separately from the view stack.
+
+2. **`app.rs`**: Removed `active_pane` field, `sync_active_pane()`, and `active_pane_from_view()` bridge methods. `push_view()` and `pop_view()` are now clean — no bridge syncing needed.
+
+3. **`render.rs`**: Rewrote `render()` to dispatch on `current_view()` — Dashboard, RepoDetail, Help, and CommandOutput each render full-width. Added `render_repo_detail_view()` helper. The old 40/60 split is gone.
+
+4. **`repo_list.rs`**: Removed `ActivePane::RepoList` border color check — always Cyan since it's only called when Dashboard is current view.
+
+5. **`overlays.rs`**: Renamed `render_help_overlay` → `render_help_view` (full-width view, not an overlay). Renamed `render_command_output_overlay` → `render_command_output_view`. Updated argument input to use `argument_input_mode`.
+
+6. **`hint_bar.rs`** and **`tab_commands.rs`**: Updated to use `ArgumentInputMode` instead of `ActivePane::ArgumentInput`.
+
+7. **`tests.rs`**: All `active_pane`/`ActivePane` references removed. Tests use `current_view()` exclusively.
+
+**Verification**: `cargo fmt --check && cargo clippy -- -D warnings && cargo test` all pass (133 TUI unit tests, 423 total workspace tests).

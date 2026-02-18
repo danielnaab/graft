@@ -1,0 +1,22 @@
+Task 1 is complete. Here's a summary of what was done:
+
+## Task 1 Complete: View Enum and ViewStack
+
+**What was implemented:**
+
+1. **`View` enum** in `mod.rs` with variants: `Dashboard`, `RepoDetail(usize)`, `CommandOutput`, `Help`
+
+2. **`view_stack: Vec<View>`** field added to `App` struct, initialized with `[View::Dashboard]`
+
+3. **Helper methods** in `app.rs`:
+   - `current_view()` — returns top-of-stack view
+   - `push_view(view)` — pushes a view and syncs bridge
+   - `pop_view()` — pops back (minimum: Dashboard stays)
+   - `reset_to_dashboard()` — clears stack to just Dashboard
+   - `reset_to_view(view)` — replaces stack with single view
+   - `active_pane_from_view()` — bridge from View to legacy ActivePane
+   - `sync_active_pane()` — keeps `active_pane` in sync (skips when `ArgumentInput` overlay is active)
+
+4. **Pre-existing clippy/fmt issues fixed** in `state/` and `main.rs` that were blocking verification
+
+All 123 TUI tests pass unchanged, and `cargo fmt --check && cargo clippy -- -D warnings && cargo test` all pass.

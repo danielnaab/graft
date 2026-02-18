@@ -1,0 +1,19 @@
+Task 2 is complete. Here's a summary of what was accomplished:
+
+## Task 2: Wire key dispatch through ViewStack — Complete
+
+**Changes made:**
+
+- **`app.rs`**: `handle_key()` now dispatches on `current_view()` with `ArgumentInput` intercepted first as an overlay. `handle_key_repo_list` renamed to `handle_key_dashboard` (navigation uses `push_view()`). New `handle_key_repo_detail` handles `q`/`Esc`/`Tab` via `pop_view()`. Removed all `#[allow(dead_code)]` from Task 1 additions.
+
+- **`hint_bar.rs`**: Context hints now dispatch on `current_view()` with ArgumentInput overlay check at the top.
+
+- **`overlays.rs`**: ArgumentInput Enter pushes `View::CommandOutput`; Esc restores `active_pane` from view stack. Command output `q` uses `pop_view()`.
+
+- **`tab_changes.rs`**: Enter key uses `pop_view()` instead of direct `active_pane` assignment.
+
+- **`tests.rs`**: All tests updated to use `push_view()` for setup and assert `current_view()` alongside `active_pane`. 123 tests pass.
+
+**Key patterns discovered:**
+- When dismissing the ArgumentInput overlay, use `active_pane_from_view()` explicitly rather than `pop_view()` (because `sync_active_pane()` skips syncing when `active_pane == ArgumentInput`)
+- Tab-specific key handlers must also be checked for direct `active_pane` assignments that need to become `pop_view()` calls

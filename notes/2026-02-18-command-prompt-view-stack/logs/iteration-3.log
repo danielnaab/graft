@@ -1,0 +1,25 @@
+Task 3 is complete. Here's a summary of what was done:
+
+## Task 3: Wire CommandOutput and ArgumentInput through ViewStack ✓
+
+**What changed:**
+
+Most of the wiring was already done in Tasks 1 & 2. The one missing piece was `Escape` handling in `CommandOutput`:
+
+- **`overlays.rs`**: Added `KeyCode::Esc` to the same match arm as `KeyCode::Char('q')` in `handle_key_command_output`. Now both keys:
+  - Show stop confirmation dialog when a command is running
+  - Pop the view (back to previous view) when the command is finished
+
+**New tests (10 total):**
+- `command_output_pushes_onto_view_stack` — verifies push/bridge sync
+- `command_output_q_pops_back_to_previous_view` — q closes to Dashboard
+- `command_output_esc_pops_back_to_previous_view` — Esc closes to Dashboard
+- `command_output_pops_to_repo_detail_when_launched_from_there` — pops to correct previous view
+- `command_output_q_shows_stop_confirmation_when_running` — stop gate for q
+- `command_output_esc_shows_stop_confirmation_when_running` — stop gate for Esc
+- `stop_confirmation_n_cancels_and_stays_in_command_output` — cancel confirmation
+- `stop_confirmation_esc_cancels_and_stays_in_command_output` — Esc in dialog
+- `argument_input_overlay_is_intercepted_before_view_dispatch` — overlay intercept
+- `argument_input_esc_restores_view_without_popping_stack` — Esc restores via bridge
+
+All 133 tests pass, `cargo fmt --check` and `cargo clippy -- -D warnings` clean.
