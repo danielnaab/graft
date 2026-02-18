@@ -1,8 +1,8 @@
 //! Main render method and layout composition.
 
 use super::{
-    io, ActivePane, App, Block, Borders, Color, Constraint, CrosstermBackend, DetailTab, Direction,
-    Layout, RepoDetailProvider, RepoRegistry, Result, Style, Terminal,
+    io, App, ArgumentInputMode, Block, Borders, Color, Constraint, CrosstermBackend, DetailTab,
+    Direction, Layout, RepoDetailProvider, RepoRegistry, Result, Style, Terminal, View,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -31,50 +31,25 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             let content_area = main_chunks[0];
             let status_bar_area = main_chunks[1];
 
-            // Split content area into repo list and detail pane
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-                .split(content_area);
-
-            // --- Left pane: repo list ---
-            self.render_repo_list(frame, chunks[0]);
-
-            // --- Right pane: detail with tabs ---
-            let detail_border_color = if self.active_pane == ActivePane::Detail {
-                Color::Cyan
-            } else {
-                Color::DarkGray
-            };
-
-            let tab_title = self.render_tab_header();
-
-            let block = Block::default()
-                .title(tab_title)
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(detail_border_color));
-
-            let inner = block.inner(chunks[1]);
-            frame.render_widget(block, chunks[1]);
-
-            // Render active tab content
-            match self.active_tab {
-                DetailTab::Changes => self.render_changes_tab(frame, inner),
-                DetailTab::State => self.render_state_tab(frame, inner),
-                DetailTab::Commands => self.render_commands_tab(frame, inner),
+            // Dispatch to per-view full-width renderer
+            match self.current_view().clone() {
+                View::Dashboard => {
+                    self.render_repo_list(frame, content_area);
+                }
+                View::RepoDetail(_) => {
+                    self.render_repo_detail_view(frame, content_area);
+                }
+                View::Help => {
+                    self.render_help_view(frame, content_area);
+                }
+                View::CommandOutput => {
+                    self.render_command_output_view(frame, content_area);
+                }
             }
 
-            // --- Overlays (rendered on top if active) ---
-            if self.active_pane == ActivePane::Help {
-                self.render_help_overlay(frame);
-            }
-
-            if self.active_pane == ActivePane::ArgumentInput {
+            // --- Overlays rendered on top when active ---
+            if self.argument_input_mode == ArgumentInputMode::Active {
                 self.render_argument_input_overlay(frame);
-            }
-
-            if self.active_pane == ActivePane::CommandOutput {
-                self.render_command_output_overlay(frame);
             }
 
             if self.show_stop_confirmation {
@@ -86,5 +61,29 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         })?;
 
         Ok(())
+    }
+
+    /// Render the repo detail view (full-width, with tab header).
+    pub(super) fn render_repo_detail_view(
+        &mut self,
+        frame: &mut ratatui::Frame,
+        area: super::Rect,
+    ) {
+        let tab_title = self.render_tab_header();
+
+        let block = Block::default()
+            .title(tab_title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan));
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        // Render active tab content
+        match self.active_tab {
+            DetailTab::Changes => self.render_changes_tab(frame, inner),
+            DetailTab::State => self.render_state_tab(frame, inner),
+            DetailTab::Commands => self.render_commands_tab(frame, inner),
+        }
     }
 }

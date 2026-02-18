@@ -1,6 +1,6 @@
 //! Context-sensitive keybinding hint bar.
 
-use super::{ActivePane, App, DetailTab, RepoDetailProvider, RepoRegistry, View};
+use super::{App, ArgumentInputMode, DetailTab, RepoDetailProvider, RepoRegistry, View};
 
 /// A keybinding hint for the status bar.
 pub(super) struct KeyHint {
@@ -13,7 +13,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     #[allow(clippy::too_many_lines)]
     pub(super) fn current_hints(&self) -> Vec<KeyHint> {
         // ArgumentInput is an overlay — show its hints regardless of view stack.
-        if self.active_pane == ActivePane::ArgumentInput {
+        if self.argument_input_mode == ArgumentInputMode::Active {
             return vec![
                 KeyHint {
                     key: "Enter",

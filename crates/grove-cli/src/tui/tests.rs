@@ -430,7 +430,6 @@ fn starts_with_repo_list_focused() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    assert_eq!(app.active_pane, ActivePane::RepoList);
     assert_eq!(*app.current_view(), View::Dashboard);
     assert_eq!(app.active_tab, DetailTab::Changes);
 }
@@ -443,7 +442,6 @@ fn enter_switches_to_detail_pane() {
         "test-workspace".to_string(),
     );
     app.handle_key(KeyCode::Enter);
-    assert_eq!(app.active_pane, ActivePane::Detail);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
     assert_eq!(app.active_tab, DetailTab::Changes);
 }
@@ -456,7 +454,6 @@ fn tab_switches_to_detail_pane() {
         "test-workspace".to_string(),
     );
     app.handle_key(KeyCode::Tab);
-    assert_eq!(app.active_pane, ActivePane::Detail);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
 }
 
@@ -470,7 +467,6 @@ fn q_in_detail_returns_to_list() {
     app.push_view(View::RepoDetail(0));
 
     app.handle_key(KeyCode::Char('q'));
-    assert_eq!(app.active_pane, ActivePane::RepoList);
     assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit, "q in detail should NOT quit the app");
 }
@@ -485,7 +481,6 @@ fn esc_in_detail_returns_to_list() {
     app.push_view(View::RepoDetail(0));
 
     app.handle_key(KeyCode::Esc);
-    assert_eq!(app.active_pane, ActivePane::RepoList);
     assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit, "Esc in detail should NOT quit the app");
 }
@@ -501,7 +496,6 @@ fn enter_in_detail_changes_tab_returns_to_list() {
     app.active_tab = DetailTab::Changes;
 
     app.handle_key(KeyCode::Enter);
-    assert_eq!(app.active_pane, ActivePane::RepoList);
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -515,7 +509,6 @@ fn tab_in_detail_returns_to_list() {
     app.push_view(View::RepoDetail(0));
 
     app.handle_key(KeyCode::Tab);
-    assert_eq!(app.active_pane, ActivePane::RepoList);
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -1154,17 +1147,9 @@ fn help_overlay_activates_on_question_mark() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-
-    assert_eq!(app.active_pane, ActivePane::RepoList);
     assert_eq!(*app.current_view(), View::Dashboard);
 
     app.handle_key(KeyCode::Char('?'));
-
-    assert_eq!(
-        app.active_pane,
-        ActivePane::Help,
-        "Pressing '?' should activate help overlay"
-    );
     assert_eq!(
         *app.current_view(),
         View::Help,
@@ -1181,15 +1166,9 @@ fn help_overlay_dismisses_on_printable_key() {
     );
 
     app.handle_key(KeyCode::Char('?'));
-    assert_eq!(app.active_pane, ActivePane::Help);
     assert_eq!(*app.current_view(), View::Help);
 
     app.handle_key(KeyCode::Char('q'));
-    assert_eq!(
-        app.active_pane,
-        ActivePane::RepoList,
-        "Printable key should dismiss help"
-    );
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -1202,15 +1181,9 @@ fn help_overlay_dismisses_on_esc() {
     );
 
     app.handle_key(KeyCode::Char('?'));
-    assert_eq!(app.active_pane, ActivePane::Help);
     assert_eq!(*app.current_view(), View::Help);
 
     app.handle_key(KeyCode::Esc);
-    assert_eq!(
-        app.active_pane,
-        ActivePane::RepoList,
-        "Esc should dismiss help"
-    );
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -1372,8 +1345,6 @@ fn x_from_repo_list_navigates_to_commands_tab() {
     );
 
     app.handle_key(KeyCode::Char('x'));
-
-    assert_eq!(app.active_pane, ActivePane::Detail);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
     assert_eq!(app.active_tab, DetailTab::Commands);
 }
@@ -1387,8 +1358,6 @@ fn s_from_repo_list_navigates_to_state_tab() {
     );
 
     app.handle_key(KeyCode::Char('s'));
-
-    assert_eq!(app.active_pane, ActivePane::Detail);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
     assert_eq!(app.active_tab, DetailTab::State);
 }
@@ -1489,11 +1458,6 @@ fn confirmation_dialog_not_shown_for_completed_command() {
         !app.show_stop_confirmation,
         "Dialog should not show for completed command"
     );
-    assert_eq!(
-        app.active_pane,
-        ActivePane::RepoList,
-        "Should return to repo list"
-    );
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -1582,7 +1546,7 @@ fn argument_input_opens_after_command_selected() {
 
     app.execute_selected_command();
 
-    assert_eq!(app.active_pane, ActivePane::ArgumentInput);
+    assert_eq!(app.argument_input_mode, ArgumentInputMode::Active);
     assert!(app.argument_input.is_some());
     let state = app.argument_input.as_ref().unwrap();
     assert_eq!(state.command_name, "test");
@@ -1597,7 +1561,7 @@ fn argument_input_buffer_updates_on_char() {
         MockDetailProvider::empty(),
         "test".to_string(),
     );
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: String::new(),
         cursor_pos: 0,
@@ -1620,7 +1584,7 @@ fn argument_input_backspace_removes_char() {
         MockDetailProvider::empty(),
         "test".to_string(),
     );
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: "test".to_string(),
         cursor_pos: 4,
@@ -1641,7 +1605,7 @@ fn argument_input_escape_cancels() {
         MockDetailProvider::empty(),
         "test".to_string(),
     );
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: "some args".to_string(),
         cursor_pos: 9,
@@ -1649,8 +1613,6 @@ fn argument_input_escape_cancels() {
     });
 
     app.handle_key(KeyCode::Esc);
-
-    assert_eq!(app.active_pane, ActivePane::RepoList);
     assert!(app.argument_input.is_none());
 }
 
@@ -1661,7 +1623,7 @@ fn argument_input_enter_executes_with_args() {
         MockDetailProvider::empty(),
         "test".to_string(),
     );
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: "arg1 arg2".to_string(),
         cursor_pos: 9,
@@ -1670,8 +1632,6 @@ fn argument_input_enter_executes_with_args() {
     app.selected_repo_for_commands = Some("/tmp/test".to_string());
 
     app.handle_key(KeyCode::Enter);
-
-    assert_eq!(app.active_pane, ActivePane::CommandOutput);
     assert!(app.argument_input.is_none());
     assert_eq!(app.command_name, Some("test".to_string()));
 }
@@ -1683,7 +1643,7 @@ fn argument_input_enter_with_empty_buffer_executes_without_args() {
         MockDetailProvider::empty(),
         "test".to_string(),
     );
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: String::new(),
         cursor_pos: 0,
@@ -1692,8 +1652,6 @@ fn argument_input_enter_with_empty_buffer_executes_without_args() {
     app.selected_repo_for_commands = Some("/tmp/test".to_string());
 
     app.handle_key(KeyCode::Enter);
-
-    assert_eq!(app.active_pane, ActivePane::CommandOutput);
     assert_eq!(app.command_name, Some("test".to_string()));
 }
 
@@ -1732,7 +1690,7 @@ fn argument_input_cursor_moves_left() {
         cursor_pos: 4,
         command_name: "cmd".to_string(),
     });
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Left);
 
@@ -1751,7 +1709,7 @@ fn argument_input_cursor_moves_right() {
         cursor_pos: 2,
         command_name: "cmd".to_string(),
     });
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Right);
 
@@ -1770,7 +1728,7 @@ fn argument_input_cursor_stops_at_boundaries() {
         cursor_pos: 0,
         command_name: "cmd".to_string(),
     });
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Left);
     assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 0);
@@ -1793,7 +1751,7 @@ fn argument_input_home_end_keys() {
         cursor_pos: 2,
         command_name: "cmd".to_string(),
     });
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Home);
     assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 0);
@@ -1814,7 +1772,7 @@ fn argument_input_inserts_char_at_cursor() {
         cursor_pos: 2,
         command_name: "cmd".to_string(),
     });
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Char('X'));
 
@@ -1835,7 +1793,7 @@ fn argument_input_backspace_at_cursor() {
         cursor_pos: 2,
         command_name: "cmd".to_string(),
     });
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Backspace);
 
@@ -1856,12 +1814,12 @@ fn argument_input_prevents_execution_on_parse_error() {
         cursor_pos: 15,
         command_name: "cmd".to_string(),
     });
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
     app.selected_repo_for_commands = Some("/tmp/test".to_string());
 
     app.handle_key(KeyCode::Enter);
 
-    assert_eq!(app.active_pane, ActivePane::ArgumentInput);
+    assert_eq!(app.argument_input_mode, ArgumentInputMode::Active);
 
     assert!(app.status_message.is_some());
     let msg = app.status_message.as_ref().unwrap();
@@ -1900,8 +1858,6 @@ fn s_key_switches_to_state_tab_from_detail() {
     app.active_tab = DetailTab::Changes;
 
     app.handle_key(KeyCode::Char('s'));
-
-    assert_eq!(app.active_pane, ActivePane::Detail);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
     assert_eq!(app.active_tab, DetailTab::State);
 }
@@ -1917,8 +1873,6 @@ fn x_key_switches_to_commands_tab_from_detail() {
     app.active_tab = DetailTab::Changes;
 
     app.handle_key(KeyCode::Char('x'));
-
-    assert_eq!(app.active_pane, ActivePane::Detail);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
     assert_eq!(app.active_tab, DetailTab::Commands);
 }
@@ -1935,7 +1889,6 @@ fn q_from_any_tab_returns_to_repo_list() {
     app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::State;
     app.handle_key(KeyCode::Char('q'));
-    assert_eq!(app.active_pane, ActivePane::RepoList);
     assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit);
 
@@ -1943,7 +1896,6 @@ fn q_from_any_tab_returns_to_repo_list() {
     app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::Commands;
     app.handle_key(KeyCode::Char('q'));
-    assert_eq!(app.active_pane, ActivePane::RepoList);
     assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit);
 }
@@ -2446,11 +2398,6 @@ fn empty_workspace_x_does_not_navigate() {
     );
 
     app.handle_key(KeyCode::Char('x'));
-    assert_eq!(
-        app.active_pane,
-        ActivePane::RepoList,
-        "x with no repos should not navigate"
-    );
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -2463,11 +2410,6 @@ fn empty_workspace_s_does_not_navigate() {
     );
 
     app.handle_key(KeyCode::Char('s'));
-    assert_eq!(
-        app.active_pane,
-        ActivePane::RepoList,
-        "s with no repos should not navigate"
-    );
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -2487,11 +2429,6 @@ fn command_output_pushes_onto_view_stack() {
         *app.current_view(),
         View::CommandOutput,
         "CommandOutput should be on top of view stack"
-    );
-    assert_eq!(
-        app.active_pane,
-        ActivePane::CommandOutput,
-        "active_pane bridge should reflect CommandOutput"
     );
     assert_eq!(
         app.view_stack.len(),
@@ -2518,7 +2455,6 @@ fn command_output_q_pops_back_to_previous_view() {
         View::Dashboard,
         "q should pop CommandOutput back to Dashboard"
     );
-    assert_eq!(app.active_pane, ActivePane::RepoList);
     assert!(
         !app.should_quit,
         "Should not quit after popping CommandOutput"
@@ -2543,7 +2479,6 @@ fn command_output_esc_pops_back_to_previous_view() {
         View::Dashboard,
         "Esc should pop CommandOutput back to Dashboard"
     );
-    assert_eq!(app.active_pane, ActivePane::RepoList);
     assert!(
         !app.should_quit,
         "Should not quit after Esc in CommandOutput"
@@ -2569,7 +2504,6 @@ fn command_output_pops_to_repo_detail_when_launched_from_there() {
         View::RepoDetail(1),
         "q should pop CommandOutput back to RepoDetail"
     );
-    assert_eq!(app.active_pane, ActivePane::Detail);
 }
 
 #[test]
@@ -2688,7 +2622,7 @@ fn argument_input_overlay_is_intercepted_before_view_dispatch() {
 
     // Set up ArgumentInput overlay while in RepoDetail view
     app.push_view(View::RepoDetail(0));
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: String::new(),
         cursor_pos: 0,
@@ -2706,11 +2640,7 @@ fn argument_input_overlay_is_intercepted_before_view_dispatch() {
         View::RepoDetail(0),
         "View should not change — ArgumentInput intercepts before view dispatch"
     );
-    assert_eq!(
-        app.active_pane,
-        ActivePane::ArgumentInput,
-        "active_pane should remain ArgumentInput"
-    );
+    assert_eq!(app.argument_input_mode, ArgumentInputMode::Active);
     let state = app.argument_input.as_ref().unwrap();
     assert_eq!(
         state.buffer, "q",
@@ -2728,7 +2658,7 @@ fn argument_input_esc_restores_view_without_popping_stack() {
 
     // ArgumentInput overlay while in RepoDetail
     app.push_view(View::RepoDetail(0));
-    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: "some args".to_string(),
         cursor_pos: 9,
@@ -2742,11 +2672,6 @@ fn argument_input_esc_restores_view_without_popping_stack() {
         *app.current_view(),
         View::RepoDetail(0),
         "View stack should be unchanged after ArgumentInput Esc"
-    );
-    assert_eq!(
-        app.active_pane,
-        ActivePane::Detail,
-        "active_pane should reflect the underlying view (Detail)"
     );
     assert!(
         app.argument_input.is_none(),

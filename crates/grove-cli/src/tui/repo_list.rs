@@ -1,9 +1,8 @@
 //! Repository list rendering and path formatting utilities.
 
 use super::{
-    ActivePane, Alignment, App, Block, Borders, Color, FileChangeStatus, Line, List, ListItem,
-    Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, RepoStatus, Span, Style,
-    UnicodeWidthStr,
+    Alignment, App, Block, Borders, Color, FileChangeStatus, Line, List, ListItem, Modifier,
+    Paragraph, Rect, RepoDetailProvider, RepoRegistry, RepoStatus, Span, Style, UnicodeWidthStr,
 };
 
 /// Extract the basename (final component) from a path.
@@ -303,11 +302,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         let repos = self.registry.list_repos();
         let pane_width = area.width;
 
-        let list_border_color = if self.active_pane == ActivePane::RepoList {
-            Color::Cyan
-        } else {
-            Color::DarkGray
-        };
+        // Always use Cyan — render_repo_list is only called when Dashboard is the current view.
+        let list_border_color = Color::Cyan;
 
         let title = format!("Grove: {}", self.workspace_name);
 

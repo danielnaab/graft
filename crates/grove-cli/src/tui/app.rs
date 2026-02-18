@@ -1,7 +1,7 @@
 //! App struct construction, key dispatch, navigation, and data loading.
 
 use super::{
-    ActivePane, App, CommandState, DetailTab, GraftYamlConfigLoader, KeyCode, ListState,
+    App, ArgumentInputMode, CommandState, DetailTab, GraftYamlConfigLoader, KeyCode, ListState,
     RepoDetail, RepoDetailProvider, RepoRegistry, StatusMessage, View, DEFAULT_MAX_COMMITS,
 };
 
@@ -19,8 +19,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             detail_provider,
             list_state,
             should_quit: false,
-            active_pane: ActivePane::RepoList,
             view_stack: vec![View::Dashboard],
+            argument_input_mode: ArgumentInputMode::Inactive,
             active_tab: DetailTab::Changes,
             detail_scroll: 0,
             cached_detail: None,
@@ -93,7 +93,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     pub(super) fn handle_key(&mut self, code: KeyCode) {
         // ArgumentInput is an overlay — intercept before view dispatch.
-        if self.active_pane == ActivePane::ArgumentInput {
+        if self.argument_input_mode == ArgumentInputMode::Active {
             self.handle_key_argument_input(code);
             return;
         }
@@ -290,19 +290,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.view_stack.last().expect("view_stack is never empty")
     }
 
-    /// Push a view onto the stack and update the `active_pane` bridge.
+    /// Push a view onto the stack.
     pub(super) fn push_view(&mut self, view: View) {
         self.view_stack.push(view);
-        self.sync_active_pane();
     }
 
     /// Pop the top view from the stack (minimum: Dashboard stays).
-    /// Updates the `active_pane` bridge.
     pub(super) fn pop_view(&mut self) {
         if self.view_stack.len() > 1 {
             self.view_stack.pop();
         }
-        self.sync_active_pane();
     }
 
     #[allow(dead_code)] // Used in Task 6
@@ -310,7 +307,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     pub(super) fn reset_to_dashboard(&mut self) {
         self.view_stack.clear();
         self.view_stack.push(View::Dashboard);
-        self.sync_active_pane();
     }
 
     #[allow(dead_code)] // Used in Task 8
@@ -318,25 +314,5 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     pub(super) fn reset_to_view(&mut self, view: View) {
         self.view_stack.clear();
         self.view_stack.push(view);
-        self.sync_active_pane();
-    }
-
-    /// Bridge: derive the legacy `ActivePane` value from the current view stack
-    /// so that rendering code that still uses `active_pane` continues to work.
-    pub(super) fn active_pane_from_view(&self) -> ActivePane {
-        match self.current_view() {
-            View::Dashboard => ActivePane::RepoList,
-            View::RepoDetail(_) => ActivePane::Detail,
-            View::CommandOutput => ActivePane::CommandOutput,
-            View::Help => ActivePane::Help,
-        }
-    }
-
-    /// Sync `active_pane` from the view stack (bridge method).
-    fn sync_active_pane(&mut self) {
-        // ArgumentInput is an overlay, not a stack view — don't clobber it.
-        if self.active_pane != ActivePane::ArgumentInput {
-            self.active_pane = self.active_pane_from_view();
-        }
     }
 }

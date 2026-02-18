@@ -1,8 +1,9 @@
 //! Overlay rendering: help, argument input, command output, stop confirmation.
 
 use super::{
-    Alignment, App, ArgumentInputState, Block, Borders, Clear, Color, CommandState, KeyCode, Line,
-    Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span, StatusMessage, Style, Wrap,
+    Alignment, App, ArgumentInputMode, ArgumentInputState, Block, Borders, Clear, Color,
+    CommandState, KeyCode, Line, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span,
+    StatusMessage, Style, Wrap,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -28,16 +29,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 let command_name = state.command_name.clone();
 
                 self.argument_input = None;
-                // Push CommandOutput view; clear ArgumentInput pane first so sync works.
-                self.active_pane = self.active_pane_from_view();
+                // Dismiss the overlay, then push CommandOutput view.
+                self.argument_input_mode = ArgumentInputMode::Inactive;
                 self.push_view(super::View::CommandOutput);
 
                 self.execute_command_with_args(command_name, args);
             }
             KeyCode::Esc => {
                 self.argument_input = None;
-                // ArgumentInput is an overlay; restore active_pane from view stack.
-                self.active_pane = self.active_pane_from_view();
+                // Dismiss the overlay; underlying view stays unchanged.
+                self.argument_input_mode = ArgumentInputMode::Inactive;
             }
             KeyCode::Left => {
                 if state.cursor_pos > 0 {
@@ -153,15 +154,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
-    /// Render the help overlay as a centered popup.
+    /// Render the help view as a full-width centered popup.
     #[allow(
         clippy::unused_self,
         clippy::too_many_lines,
         clippy::cast_possible_truncation
     )]
-    pub(super) fn render_help_overlay(&self, frame: &mut ratatui::Frame) {
-        let area = frame.area();
-
+    pub(super) fn render_help_view(&self, frame: &mut ratatui::Frame, area: Rect) {
         if area.width < 44 || area.height < 20 {
             let msg = "Terminal too small for help. Resize or press any key.";
             let warning = Paragraph::new(msg).alignment(Alignment::Center).block(
@@ -252,8 +251,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             .min(area.height.saturating_sub(4))
             .max(20);
 
-        let popup_x = (area.width.saturating_sub(popup_width)) / 2;
-        let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+        let popup_x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+        let popup_y = area.y + (area.height.saturating_sub(popup_height)) / 2;
 
         let popup_area = Rect {
             x: popup_x,
@@ -375,13 +374,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
-    /// Render the command output overlay.
+    /// Render the command output view (full-width).
     #[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
-    pub(super) fn render_command_output_overlay(&mut self, frame: &mut ratatui::Frame) {
-        let area = frame.area();
-
-        frame.render_widget(Clear, area);
-
+    pub(super) fn render_command_output_view(&mut self, frame: &mut ratatui::Frame, area: Rect) {
         let header = match &self.command_state {
             CommandState::Running => format!(
                 " Running: {} (j/k: scroll, q: close) ",

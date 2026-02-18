@@ -68,16 +68,6 @@ fn supports_unicode() -> bool {
         .unwrap_or(true) // Default to Unicode support
 }
 
-/// Which pane currently has focus.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActivePane {
-    RepoList,
-    Detail,
-    Help,
-    ArgumentInput,
-    CommandOutput,
-}
-
 /// A view in the view stack.
 ///
 /// Each variant represents a full-screen content area. Navigation pushes and
@@ -102,6 +92,16 @@ struct ArgumentInputState {
     command_name: String,
 }
 
+/// Whether the argument input overlay is currently active.
+///
+/// This is separate from the view stack — `ArgumentInput` is an overlay over
+/// the current view, not a view itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArgumentInputMode {
+    Inactive,
+    Active,
+}
+
 /// Main TUI application state.
 #[allow(clippy::struct_excessive_bools)]
 pub struct App<R, D> {
@@ -109,10 +109,11 @@ pub struct App<R, D> {
     detail_provider: D,
     list_state: ListState,
     should_quit: bool,
-    active_pane: ActivePane,
     /// View stack — the top of the stack is the current view.
     /// Invariant: always has at least one element (Dashboard).
     view_stack: Vec<View>,
+    /// Whether the argument input overlay is shown over the current view.
+    argument_input_mode: ArgumentInputMode,
     active_tab: DetailTab,
     detail_scroll: usize,
     cached_detail: Option<RepoDetail>,

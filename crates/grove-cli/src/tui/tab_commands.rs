@@ -1,8 +1,9 @@
 //! Commands tab: command list and execution.
 
 use super::{
-    ActivePane, Alignment, App, ArgumentInputState, Color, GraftYamlLoader, KeyCode, Line, List,
-    ListItem, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, StatusMessage, Style,
+    Alignment, App, ArgumentInputMode, ArgumentInputState, Color, GraftYamlLoader, KeyCode, Line,
+    List, ListItem, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, StatusMessage,
+    Style,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -140,6 +141,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             cursor_pos: 0,
             command_name: cmd_name.clone(),
         });
-        self.active_pane = ActivePane::ArgumentInput;
+        self.argument_input_mode = ArgumentInputMode::Active;
     }
 }
