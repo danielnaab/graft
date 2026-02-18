@@ -2698,3 +2698,330 @@ fn esc_from_deeply_nested_repo_detail_resets_to_dashboard() {
     assert_eq!(app.view_stack.len(), 1, "All views above Dashboard cleared");
     assert!(!app.should_quit);
 }
+
+// ===== Task 7: Command Line Input Infrastructure =====
+
+#[test]
+fn colon_activates_command_line() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    assert!(
+        app.command_line.is_none(),
+        "Command line should be inactive initially"
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+
+    assert!(
+        app.command_line.is_some(),
+        "`:` should activate command line"
+    );
+    let state = app.command_line.as_ref().unwrap();
+    assert!(
+        state.buffer.is_empty(),
+        "Buffer should be empty on activation"
+    );
+    assert_eq!(state.cursor_pos, 0, "Cursor should be at position 0");
+}
+
+#[test]
+fn colon_activates_command_line_from_repo_detail() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+
+    app.handle_key(KeyCode::Char(':'));
+
+    assert!(
+        app.command_line.is_some(),
+        "`:` should activate from any view"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::RepoDetail(0),
+        "View should not change"
+    );
+}
+
+#[test]
+fn command_line_escape_cancels() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    assert!(app.command_line.is_some());
+
+    app.handle_key(KeyCode::Esc);
+
+    assert!(app.command_line.is_none(), "Esc should cancel command line");
+    assert_eq!(
+        *app.current_view(),
+        View::Dashboard,
+        "View should not change"
+    );
+    assert!(!app.should_quit, "Esc in command line should not quit");
+}
+
+#[test]
+fn command_line_char_input_appends_to_buffer() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char('h'));
+    app.handle_key(KeyCode::Char('e'));
+    app.handle_key(KeyCode::Char('l'));
+    app.handle_key(KeyCode::Char('p'));
+
+    let state = app.command_line.as_ref().unwrap();
+    assert_eq!(state.buffer, "help");
+    assert_eq!(state.cursor_pos, 4);
+}
+
+#[test]
+fn command_line_backspace_removes_char() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char('h'));
+    app.handle_key(KeyCode::Char('e'));
+    app.handle_key(KeyCode::Char('l'));
+    app.handle_key(KeyCode::Char('p'));
+    app.handle_key(KeyCode::Backspace);
+
+    let state = app.command_line.as_ref().unwrap();
+    assert_eq!(state.buffer, "hel");
+    assert_eq!(state.cursor_pos, 3);
+}
+
+#[test]
+fn command_line_backspace_at_start_is_noop() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    // cursor_pos = 0, buffer = ""
+    app.handle_key(KeyCode::Backspace);
+
+    let state = app.command_line.as_ref().unwrap();
+    assert!(state.buffer.is_empty(), "Backspace at start should be noop");
+    assert_eq!(state.cursor_pos, 0);
+}
+
+#[test]
+fn command_line_left_right_cursor_movement() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char('a'));
+    app.handle_key(KeyCode::Char('b'));
+    app.handle_key(KeyCode::Char('c'));
+    // cursor at 3
+
+    app.handle_key(KeyCode::Left);
+    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 2);
+
+    app.handle_key(KeyCode::Left);
+    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 1);
+
+    app.handle_key(KeyCode::Right);
+    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 2);
+}
+
+#[test]
+fn command_line_cursor_stops_at_boundaries() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char('x'));
+    // cursor at 1, buffer = "x"
+
+    // Can't go right past end
+    app.handle_key(KeyCode::Right);
+    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 1);
+
+    // Move to start
+    app.handle_key(KeyCode::Left);
+    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 0);
+
+    // Can't go left past start
+    app.handle_key(KeyCode::Left);
+    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 0);
+}
+
+#[test]
+fn command_line_home_end_keys() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char('a'));
+    app.handle_key(KeyCode::Char('b'));
+    app.handle_key(KeyCode::Char('c'));
+    // cursor at 3
+
+    app.handle_key(KeyCode::Home);
+    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 0);
+
+    app.handle_key(KeyCode::End);
+    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 3);
+}
+
+#[test]
+fn command_line_enter_with_empty_buffer_dismisses_silently() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    // No input — empty buffer
+
+    app.handle_key(KeyCode::Enter);
+
+    assert!(
+        app.command_line.is_none(),
+        "Enter with empty buffer should dismiss command line"
+    );
+    assert!(
+        app.status_message.is_none(),
+        "Empty Enter should not produce a status message"
+    );
+}
+
+#[test]
+fn command_line_enter_with_input_dismisses_and_sets_message() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char('h'));
+    app.handle_key(KeyCode::Char('e'));
+    app.handle_key(KeyCode::Char('l'));
+    app.handle_key(KeyCode::Char('p'));
+
+    app.handle_key(KeyCode::Enter);
+
+    assert!(
+        app.command_line.is_none(),
+        "Enter should dismiss command line"
+    );
+    // Task 7: non-empty Enter produces a status message (execution in Task 8)
+    assert!(
+        app.status_message.is_some(),
+        "Non-empty Enter should produce a status message"
+    );
+}
+
+#[test]
+fn command_line_intercepts_before_view_dispatch() {
+    // When command line is active, keys are handled by command line — not by view dispatch.
+    // j should be added to the buffer, not scroll the detail view.
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+
+    app.handle_key(KeyCode::Char(':'));
+    let detail_scroll_before = app.detail_scroll;
+
+    app.handle_key(KeyCode::Char('j'));
+
+    assert_eq!(
+        app.command_line.as_ref().unwrap().buffer,
+        "j",
+        "j should be added to command line buffer, not scroll view"
+    );
+    assert_eq!(
+        app.detail_scroll, detail_scroll_before,
+        "detail_scroll should not change while command line is active"
+    );
+}
+
+#[test]
+fn command_line_esc_does_not_affect_view_stack() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+    app.push_view(View::Help);
+    // Stack: Dashboard → RepoDetail(0) → Help
+
+    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Esc);
+
+    // Command line Esc only closes command line — does not pop view stack
+    assert_eq!(
+        *app.current_view(),
+        View::Help,
+        "View should remain Help after command line Esc"
+    );
+    assert_eq!(app.view_stack.len(), 3, "Stack should be unchanged");
+}
+
+#[test]
+fn argument_input_blocks_command_line_activation() {
+    // ArgumentInput intercepts before command line, so `:` in argument input is a char input.
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.argument_input_mode = ArgumentInputMode::Active;
+    app.argument_input = Some(ArgumentInputState {
+        buffer: String::new(),
+        cursor_pos: 0,
+        command_name: "test".to_string(),
+    });
+
+    app.handle_key(KeyCode::Char(':'));
+
+    // `:` should be added to argument input buffer, NOT activate command line
+    assert!(
+        app.command_line.is_none(),
+        "Command line should NOT activate when ArgumentInput is active"
+    );
+    assert_eq!(
+        app.argument_input.as_ref().unwrap().buffer,
+        ":",
+        "`:` should be appended to argument input buffer"
+    );
+}

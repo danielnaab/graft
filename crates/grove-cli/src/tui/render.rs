@@ -1,11 +1,52 @@
 //! Main render method and layout composition.
 
 use super::{
-    io, App, ArgumentInputMode, Constraint, CrosstermBackend, Direction, Layout,
-    RepoDetailProvider, RepoRegistry, Result, Terminal, View,
+    io, App, ArgumentInputMode, Color, Constraint, CrosstermBackend, Direction, Layout, Line,
+    Paragraph, RepoDetailProvider, RepoRegistry, Result, Span, Style, Terminal, View,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
+    /// Render the vim-style `:` command line at the bottom of the screen.
+    ///
+    /// Shows `:<buffer>` with a cursor indicator. Replaces the hint bar when active.
+    pub(super) fn render_command_line(&self, frame: &mut ratatui::Frame, area: super::Rect) {
+        let Some(state) = &self.command_line else {
+            return;
+        };
+
+        let chars: Vec<char> = state.buffer.chars().collect();
+        let before_cursor: String = chars[..state.cursor_pos].iter().collect();
+        let after_cursor: String = chars[state.cursor_pos..].iter().collect();
+
+        // Build spans: ":" prompt, text before cursor, cursor block, text after cursor
+        let mut spans = vec![
+            Span::styled(":", Style::default().fg(Color::Cyan)),
+            Span::styled(before_cursor, Style::default().fg(Color::White)),
+        ];
+
+        if after_cursor.is_empty() {
+            // Cursor at end: show underscore
+            spans.push(Span::styled("_", Style::default().fg(Color::White)));
+        } else {
+            let mut after_chars = after_cursor.chars();
+            let cursor_char = after_chars.next().unwrap_or(' ');
+            let rest: String = after_chars.collect();
+            // Cursor char highlighted as block
+            spans.push(Span::styled(
+                cursor_char.to_string(),
+                Style::default().fg(Color::Black).bg(Color::White),
+            ));
+            if !rest.is_empty() {
+                spans.push(Span::styled(rest, Style::default().fg(Color::White)));
+            }
+        }
+
+        // Ratatui clips content to the widget area naturally.
+        let line = Line::from(spans);
+        let widget = Paragraph::new(line).style(Style::default().bg(Color::DarkGray));
+        frame.render_widget(widget, area);
+    }
+
     pub(super) fn render(
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -56,8 +97,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.render_stop_confirmation_dialog(frame);
             }
 
-            // --- Status bar (always rendered at bottom) ---
-            self.render_status_bar(frame, status_bar_area);
+            // --- Bottom bar: command line when active, status bar otherwise ---
+            if self.command_line.is_some() {
+                self.render_command_line(frame, status_bar_area);
+            } else {
+                self.render_status_bar(frame, status_bar_area);
+            }
         })?;
 
         Ok(())

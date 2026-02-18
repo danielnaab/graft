@@ -1,8 +1,9 @@
 //! App struct construction, key dispatch, navigation, and data loading.
 
 use super::{
-    App, ArgumentInputMode, CommandState, GraftYamlConfigLoader, KeyCode, ListState, RepoDetail,
-    RepoDetailProvider, RepoRegistry, StatusMessage, View, DEFAULT_MAX_COMMITS,
+    App, ArgumentInputMode, CommandLineState, CommandState, GraftYamlConfigLoader, KeyCode,
+    ListState, RepoDetail, RepoDetailProvider, RepoRegistry, StatusMessage, View,
+    DEFAULT_MAX_COMMITS,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -21,6 +22,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             should_quit: false,
             view_stack: vec![View::Dashboard],
             argument_input_mode: ArgumentInputMode::Inactive,
+            command_line: None,
             detail_scroll: 0,
             cached_detail: None,
             cached_detail_index: None,
@@ -94,6 +96,21 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         // ArgumentInput is an overlay — intercept before view dispatch.
         if self.argument_input_mode == ArgumentInputMode::Active {
             self.handle_key_argument_input(code);
+            return;
+        }
+
+        // Command line is an overlay — intercept before view dispatch.
+        if self.command_line.is_some() {
+            self.handle_key_command_line(code);
+            return;
+        }
+
+        // `:` activates command line from any view.
+        if code == KeyCode::Char(':') {
+            self.command_line = Some(CommandLineState {
+                buffer: String::new(),
+                cursor_pos: 0,
+            });
             return;
         }
 

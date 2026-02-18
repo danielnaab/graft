@@ -2,6 +2,7 @@
 
 mod app;
 mod command_exec;
+mod command_line;
 mod hint_bar;
 mod overlays;
 mod render;
@@ -98,6 +99,17 @@ enum ArgumentInputMode {
     Active,
 }
 
+/// State for the vim-style `:` command line.
+///
+/// When active, the command line renders at the bottom of the screen
+/// (replacing the hint bar) and accepts a single-line command input.
+/// `Escape` cancels; `Enter` submits.
+#[derive(Debug, Clone)]
+struct CommandLineState {
+    buffer: String,
+    cursor_pos: usize, // Character position (not byte position)
+}
+
 /// Main TUI application state.
 #[allow(clippy::struct_excessive_bools)]
 pub struct App<R, D> {
@@ -110,6 +122,8 @@ pub struct App<R, D> {
     view_stack: Vec<View>,
     /// Whether the argument input overlay is shown over the current view.
     argument_input_mode: ArgumentInputMode,
+    /// Active `:` command line state, or `None` when the command line is dismissed.
+    command_line: Option<CommandLineState>,
     detail_scroll: usize,
     cached_detail: Option<RepoDetail>,
     cached_detail_index: Option<usize>,

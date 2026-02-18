@@ -40,6 +40,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     action: "refresh",
                 },
                 KeyHint {
+                    key: ":",
+                    action: "command",
+                },
+                KeyHint {
                     key: "?",
                     action: "help",
                 },
@@ -60,6 +64,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 KeyHint {
                     key: "r",
                     action: "refresh state",
+                },
+                KeyHint {
+                    key: ":",
+                    action: "command",
                 },
                 KeyHint {
                     key: "?",
