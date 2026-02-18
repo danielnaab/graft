@@ -110,6 +110,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             self.command_line = Some(CommandLineState {
                 buffer: String::new(),
                 cursor_pos: 0,
+                palette_selected: 0,
             });
             return;
         }

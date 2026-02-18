@@ -104,10 +104,13 @@ enum ArgumentInputMode {
 /// When active, the command line renders at the bottom of the screen
 /// (replacing the hint bar) and accepts a single-line command input.
 /// `Escape` cancels; `Enter` submits.
+/// A command palette popup is shown above the command line when the
+/// buffer is empty or partially typed; `j`/`k` navigate it.
 #[derive(Debug, Clone)]
 struct CommandLineState {
     buffer: String,
-    cursor_pos: usize, // Character position (not byte position)
+    cursor_pos: usize,       // Character position (not byte position)
+    palette_selected: usize, // Index into the filtered palette entries
 }
 
 /// Main TUI application state.

@@ -2898,7 +2898,10 @@ fn command_line_home_end_keys() {
 }
 
 #[test]
-fn command_line_enter_with_empty_buffer_dismisses_silently() {
+fn command_line_enter_with_empty_buffer_fills_selected_palette_entry() {
+    // When buffer is empty and palette has entries, Enter fills the command line
+    // with the selected entry (instead of dismissing). The first entry is selected
+    // by default (palette_selected = 0).
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::empty(),
@@ -2906,17 +2909,28 @@ fn command_line_enter_with_empty_buffer_dismisses_silently() {
     );
 
     app.handle_key(KeyCode::Char(':'));
-    // No input — empty buffer
+    // No input — empty buffer, palette shows all commands, first is selected
 
     app.handle_key(KeyCode::Enter);
 
+    // Command line should still be open, buffer filled with the first palette entry
     assert!(
-        app.command_line.is_none(),
-        "Enter with empty buffer should dismiss command line"
+        app.command_line.is_some(),
+        "Enter on palette selection should keep command line open"
+    );
+    let state = app.command_line.as_ref().unwrap();
+    // First palette entry is "help"
+    assert_eq!(
+        state.buffer, "help",
+        "Enter should fill buffer with selected palette entry"
+    );
+    assert_eq!(
+        state.cursor_pos, 4,
+        "Cursor should be at end of filled text"
     );
     assert!(
         app.status_message.is_none(),
-        "Empty Enter should not produce a status message"
+        "Filling from palette should not produce a status message"
     );
 }
 
@@ -2951,7 +2965,7 @@ fn command_line_enter_with_help_pushes_help_view() {
 #[test]
 fn command_line_intercepts_before_view_dispatch() {
     // When command line is active, keys are handled by command line — not by view dispatch.
-    // j should be added to the buffer, not scroll the detail view.
+    // j navigates the palette (not scroll the detail view), other chars go to the buffer.
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::empty(),
@@ -2962,12 +2976,28 @@ fn command_line_intercepts_before_view_dispatch() {
     app.handle_key(KeyCode::Char(':'));
     let detail_scroll_before = app.detail_scroll;
 
-    app.handle_key(KeyCode::Char('j'));
+    // Type 'r' (not a palette nav key) — should go to buffer
+    app.handle_key(KeyCode::Char('r'));
 
     assert_eq!(
         app.command_line.as_ref().unwrap().buffer,
-        "j",
-        "j should be added to command line buffer, not scroll view"
+        "r",
+        "r should be added to command line buffer"
+    );
+    assert_eq!(
+        app.detail_scroll, detail_scroll_before,
+        "detail_scroll should not change while command line is active"
+    );
+
+    // j navigates palette, not view — does NOT add 'j' to buffer
+    let buffer_before = app.command_line.as_ref().unwrap().buffer.clone();
+    app.handle_key(KeyCode::Char('j'));
+    // Since buffer is "r", filtered palette has "refresh" and "repo" and "run".
+    // j moves palette_selected, not buffer.
+    assert_eq!(
+        app.command_line.as_ref().unwrap().buffer,
+        buffer_before,
+        "j should navigate palette, not append to buffer"
     );
     assert_eq!(
         app.detail_scroll, detail_scroll_before,
@@ -3121,6 +3151,7 @@ fn cli_command_quit_long_form() {
     app.command_line = Some(CommandLineState {
         buffer: "quit".to_string(),
         cursor_pos: 4,
+        palette_selected: 0,
     });
     app.handle_key(KeyCode::Enter);
 
@@ -3138,6 +3169,7 @@ fn cli_command_refresh_triggers_refresh() {
     app.command_line = Some(super::CommandLineState {
         buffer: "refresh".to_string(),
         cursor_pos: 7,
+        palette_selected: 0,
     });
     app.handle_key(KeyCode::Enter);
 
@@ -3157,6 +3189,7 @@ fn cli_command_unknown_shows_error() {
     app.command_line = Some(super::CommandLineState {
         buffer: "frobnicate".to_string(),
         cursor_pos: 10,
+        palette_selected: 0,
     });
     app.handle_key(KeyCode::Enter);
 
@@ -3184,6 +3217,7 @@ fn cli_command_repo_by_index_jumps_to_repo() {
     app.command_line = Some(super::CommandLineState {
         buffer: "repo 2".to_string(),
         cursor_pos: 6,
+        palette_selected: 0,
     });
     app.handle_key(KeyCode::Enter);
 
@@ -3212,6 +3246,7 @@ fn cli_command_repo_by_index_out_of_range_shows_error() {
     app.command_line = Some(super::CommandLineState {
         buffer: "repo 99".to_string(),
         cursor_pos: 7,
+        palette_selected: 0,
     });
     app.handle_key(KeyCode::Enter);
 
@@ -3237,6 +3272,7 @@ fn cli_command_repo_by_name_jumps_to_matching_repo() {
     app.command_line = Some(super::CommandLineState {
         buffer: "repo repo1".to_string(),
         cursor_pos: 10,
+        palette_selected: 0,
     });
     app.handle_key(KeyCode::Enter);
 
@@ -3259,6 +3295,7 @@ fn cli_command_repo_no_match_shows_error() {
     app.command_line = Some(super::CommandLineState {
         buffer: "repo nonexistent".to_string(),
         cursor_pos: 16,
+        palette_selected: 0,
     });
     app.handle_key(KeyCode::Enter);
 
@@ -3281,6 +3318,7 @@ fn cli_command_run_with_no_repo_shows_warning() {
     app.command_line = Some(super::CommandLineState {
         buffer: "run test".to_string(),
         cursor_pos: 8,
+        palette_selected: 0,
     });
     app.handle_key(KeyCode::Enter);
 
@@ -3304,6 +3342,7 @@ fn cli_command_run_from_repo_detail_pushes_command_output() {
     app.command_line = Some(super::CommandLineState {
         buffer: "run test".to_string(),
         cursor_pos: 8,
+        palette_selected: 0,
     });
     app.handle_key(KeyCode::Enter);
 
@@ -3340,6 +3379,7 @@ fn cli_command_run_from_dashboard_uses_selected_repo() {
     app.command_line = Some(super::CommandLineState {
         buffer: "run build".to_string(),
         cursor_pos: 9,
+        palette_selected: 0,
     });
     app.handle_key(KeyCode::Enter);
 
@@ -3364,6 +3404,7 @@ fn cli_command_state_refreshes_state_query() {
     app.command_line = Some(super::CommandLineState {
         buffer: "state".to_string(),
         cursor_pos: 5,
+        palette_selected: 0,
     });
     app.handle_key(KeyCode::Enter);
 
@@ -3373,4 +3414,304 @@ fn cli_command_state_refreshes_state_query() {
         app.status_message.is_some(),
         ":state should produce a status message"
     );
+}
+
+// ===== Task 9: Command palette =====
+
+#[test]
+fn command_palette_shows_all_commands_when_buffer_empty() {
+    use crate::tui::command_line::{filtered_palette, PALETTE_COMMANDS};
+
+    // Empty buffer → all commands visible
+    let entries = filtered_palette("");
+    assert_eq!(
+        entries.len(),
+        PALETTE_COMMANDS.len(),
+        "Empty filter should show all palette entries"
+    );
+}
+
+#[test]
+fn command_palette_filters_by_prefix() {
+    use crate::tui::command_line::filtered_palette;
+
+    // "re" matches "refresh" and "repo"
+    let entries = filtered_palette("re");
+    let names: Vec<&str> = entries.iter().map(|e| e.command).collect();
+    assert!(names.contains(&"refresh"), "Should match 'refresh'");
+    assert!(names.contains(&"repo"), "Should match 'repo'");
+    assert!(!names.contains(&"help"), "'help' should not match 're'");
+    assert!(!names.contains(&"quit"), "'quit' should not match 're'");
+}
+
+#[test]
+fn command_palette_filter_is_case_insensitive() {
+    use crate::tui::command_line::filtered_palette;
+
+    // "RE" should match same as "re"
+    let lower = filtered_palette("re");
+    let upper = filtered_palette("RE");
+    assert_eq!(
+        lower.len(),
+        upper.len(),
+        "Filtering should be case-insensitive"
+    );
+}
+
+#[test]
+fn command_palette_filter_no_matches_returns_empty() {
+    use crate::tui::command_line::filtered_palette;
+
+    let entries = filtered_palette("zzz");
+    assert!(
+        entries.is_empty(),
+        "No commands match 'zzz', should return empty"
+    );
+}
+
+#[test]
+fn palette_navigation_j_moves_selection_down() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    // palette_selected starts at 0
+
+    app.handle_key(KeyCode::Char('j'));
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        1,
+        "j should move palette selection down"
+    );
+
+    app.handle_key(KeyCode::Char('j'));
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        2,
+        "j should move palette selection down again"
+    );
+}
+
+#[test]
+fn palette_navigation_k_moves_selection_up() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    // Move to index 2 first
+    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'));
+    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 2);
+
+    app.handle_key(KeyCode::Char('k'));
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        1,
+        "k should move palette selection up"
+    );
+}
+
+#[test]
+fn palette_navigation_j_wraps_from_last_to_first() {
+    use crate::tui::command_line::PALETTE_COMMANDS;
+
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    // Move to the last entry
+    let last_idx = PALETTE_COMMANDS.len() - 1;
+    app.command_line.as_mut().unwrap().palette_selected = last_idx;
+
+    app.handle_key(KeyCode::Char('j'));
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        0,
+        "j from last entry should wrap to first"
+    );
+}
+
+#[test]
+fn palette_navigation_k_wraps_from_first_to_last() {
+    use crate::tui::command_line::PALETTE_COMMANDS;
+
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    // palette_selected starts at 0
+
+    app.handle_key(KeyCode::Char('k'));
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        PALETTE_COMMANDS.len() - 1,
+        "k from first entry should wrap to last"
+    );
+}
+
+#[test]
+fn palette_navigation_up_down_arrows_work() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 0);
+
+    app.handle_key(KeyCode::Down);
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        1,
+        "Down arrow should work same as j"
+    );
+
+    app.handle_key(KeyCode::Up);
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        0,
+        "Up arrow should work same as k"
+    );
+}
+
+#[test]
+fn palette_enter_fills_command_line_with_selected_entry() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    // Navigate to "quit" (index 1 in PALETTE_COMMANDS)
+    app.handle_key(KeyCode::Char('j'));
+    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 1);
+
+    app.handle_key(KeyCode::Enter);
+
+    // Should fill buffer with "quit" and leave command line open
+    assert!(
+        app.command_line.is_some(),
+        "Command line should remain open after palette selection"
+    );
+    let state = app.command_line.as_ref().unwrap();
+    assert_eq!(
+        state.buffer, "quit",
+        "Buffer should be filled with selected palette entry"
+    );
+    assert_eq!(
+        state.cursor_pos, 4,
+        "Cursor should be at end of filled text"
+    );
+    assert!(
+        !app.should_quit,
+        "Should not have quit yet (buffer filled, not submitted)"
+    );
+}
+
+#[test]
+fn palette_enter_on_filled_buffer_submits_command() {
+    // When buffer has text, Enter submits rather than filling from palette
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    // Type "quit" manually
+    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('u'));
+    app.handle_key(KeyCode::Char('i'));
+    app.handle_key(KeyCode::Char('t'));
+
+    app.handle_key(KeyCode::Enter);
+
+    assert!(
+        app.command_line.is_none(),
+        "Enter with non-empty buffer should dismiss command line"
+    );
+    assert!(app.should_quit, ":quit should have been executed");
+}
+
+#[test]
+fn typing_resets_palette_selection() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    // Navigate palette
+    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'));
+    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 2);
+
+    // Typing a character should reset selection to 0
+    app.handle_key(KeyCode::Char('r'));
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        0,
+        "Typing should reset palette selection to 0"
+    );
+}
+
+#[test]
+fn backspace_resets_palette_selection() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char('r'));
+    // Navigate palette in filtered state (3 entries: refresh, repo, run)
+    app.handle_key(KeyCode::Char('j'));
+    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 1);
+
+    // Backspace should reset selection
+    app.handle_key(KeyCode::Backspace);
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        0,
+        "Backspace should reset palette selection to 0"
+    );
+}
+
+#[test]
+fn palette_escape_dismisses_command_line() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    // Navigate palette a bit
+    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'));
+
+    app.handle_key(KeyCode::Esc);
+
+    assert!(
+        app.command_line.is_none(),
+        "Esc should dismiss command line (and palette)"
+    );
+    assert_eq!(*app.current_view(), View::Dashboard);
+    assert!(!app.should_quit);
 }

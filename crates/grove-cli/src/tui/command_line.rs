@@ -1,6 +1,60 @@
-//! Vim-style `:` command line input handling and command parsing.
+//! Vim-style `:` command line input handling, command parsing, and command palette.
 
-use super::{App, KeyCode, RepoDetailProvider, RepoRegistry, StatusMessage, View};
+use super::{
+    App, CommandLineState, KeyCode, RepoDetailProvider, RepoRegistry, StatusMessage, View,
+};
+
+// ===== Command palette registry =====
+
+/// A single entry in the command palette.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PaletteEntry {
+    /// The command name to type (e.g. `"help"` → fills `:help`).
+    pub(super) command: &'static str,
+    /// Short human-readable description shown in the palette.
+    pub(super) description: &'static str,
+}
+
+/// All known commands, in display order.
+///
+/// This is the canonical list for the palette. Each entry's `command` field
+/// corresponds to the `parse_command` keyword that will execute it.
+pub(super) const PALETTE_COMMANDS: &[PaletteEntry] = &[
+    PaletteEntry {
+        command: "help",
+        description: "Show keybindings and command reference",
+    },
+    PaletteEntry {
+        command: "quit",
+        description: "Quit Grove",
+    },
+    PaletteEntry {
+        command: "refresh",
+        description: "Refresh all repository statuses",
+    },
+    PaletteEntry {
+        command: "repo",
+        description: "Jump to a repository by name or index",
+    },
+    PaletteEntry {
+        command: "run",
+        description: "Run a graft command in the current repository",
+    },
+    PaletteEntry {
+        command: "state",
+        description: "Refresh state queries for the current repository",
+    },
+];
+
+/// Return the subset of `PALETTE_COMMANDS` whose `command` field contains `filter`
+/// as a case-insensitive substring. Preserves the original display order.
+pub(super) fn filtered_palette<'a>(filter: &str) -> Vec<&'a PaletteEntry> {
+    let filter = filter.to_ascii_lowercase();
+    PALETTE_COMMANDS
+        .iter()
+        .filter(|e| e.command.contains(filter.as_str()))
+        .collect()
+}
 
 // ===== Command parsing =====
 
@@ -81,8 +135,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// Handle a key press when the command line is active.
     ///
     /// The command line intercepts all keys before view dispatch. `Escape`
-    /// cancels; `Enter` submits and dispatches to the appropriate action;
-    /// other keys edit the buffer.
+    /// cancels; `Enter` either fills from the selected palette entry (when the
+    /// palette has a selection and no explicit command is typed) or submits the
+    /// buffer as a command; `j`/`k` / Up/Down navigate the palette.
     pub(super) fn handle_key_command_line(&mut self, code: KeyCode) {
         let Some(state) = &mut self.command_line else {
             return;
@@ -94,6 +149,23 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.command_line = None;
             }
             KeyCode::Enter => {
+                // If the palette has a selection and the buffer text exactly
+                // matches the selected entry's prefix (or is empty), fill the
+                // buffer with the selected command and move cursor to end.
+                // Otherwise submit the buffer as-is.
+                let entries = filtered_palette(&state.buffer);
+                let selected = state.palette_selected;
+
+                if !entries.is_empty() && selected < entries.len() && state.buffer.is_empty() {
+                    // Fill command line with selected palette entry.
+                    let command = entries[selected].command;
+                    state.buffer = command.to_string();
+                    state.cursor_pos = command.len();
+                    // Leave command line open so user can add arguments.
+                    return;
+                }
+
+                // Normal submit
                 let buffer = state.buffer.clone();
                 self.command_line = None;
 
@@ -102,6 +174,25 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     self.execute_cli_command(cmd);
                 }
                 // Empty Enter dismisses command line silently.
+            }
+            // Palette navigation: j / Down moves selection down.
+            KeyCode::Char('j') | KeyCode::Down => {
+                let entries = filtered_palette(&state.buffer);
+                if !entries.is_empty() {
+                    let next = state.palette_selected + 1;
+                    state.palette_selected = if next >= entries.len() { 0 } else { next };
+                }
+            }
+            // Palette navigation: k / Up moves selection up.
+            KeyCode::Char('k') | KeyCode::Up => {
+                let entries = filtered_palette(&state.buffer);
+                if !entries.is_empty() {
+                    state.palette_selected = if state.palette_selected == 0 {
+                        entries.len() - 1
+                    } else {
+                        state.palette_selected - 1
+                    };
+                }
             }
             KeyCode::Left => {
                 if state.cursor_pos > 0 {
@@ -125,6 +216,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 chars.insert(state.cursor_pos, c);
                 state.buffer = chars.into_iter().collect();
                 state.cursor_pos += 1;
+                // Reset palette selection when buffer changes.
+                state.palette_selected = 0;
             }
             KeyCode::Backspace => {
                 if state.cursor_pos > 0 {
@@ -132,9 +225,22 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     chars.remove(state.cursor_pos - 1);
                     state.buffer = chars.into_iter().collect();
                     state.cursor_pos -= 1;
+                    // Reset palette selection when buffer changes.
+                    state.palette_selected = 0;
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Build a new `CommandLineState` with the given buffer pre-filled (e.g.
+    /// when a palette entry is selected and Tab/Enter fills it in).
+    #[allow(dead_code)]
+    fn command_line_state_with(buffer: &str) -> CommandLineState {
+        CommandLineState {
+            buffer: buffer.to_string(),
+            cursor_pos: buffer.len(),
+            palette_selected: 0,
         }
     }
 
