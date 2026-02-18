@@ -152,6 +152,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.ensure_detail_loaded();
 
         terminal.draw(|frame| {
+            // Clear every cell before drawing so no previous terminal content
+            // bleeds through areas that widgets don't explicitly paint.
+            frame.render_widget(Clear, frame.area());
+
             // Main layout: content area + status bar at bottom
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
