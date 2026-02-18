@@ -1,0 +1,29 @@
+All tasks are complete. Here's a summary of what was done in this final iteration:
+
+## Task 10: Update TUI Behavior and Command Execution Specs — Complete
+
+**Files changed:**
+- `docs/specifications/grove/tui-behavior.md` — full rewrite
+- `docs/specifications/grove/command-execution.md` — major update
+- `docs/specifications/grove/README.md` — updated spec description
+- `docs/specifications/grove/domain-models.md` — "Output Pane" → "CommandOutput View"
+
+**What was done:**
+
+`tui-behavior.md` was rewritten to reflect the view stack architecture:
+- Added **Architecture: View Stack** section at the top documenting the `View` enum, stack navigation semantics (`q` pops, `Escape` resets to Dashboard), and overlay concept
+- Removed `Split-Pane Layout`, `Focus Management`, `State Panel` (overlay), and old `Detail Pane` sections
+- Added `Dashboard Navigation`, `RepoDetail View`, `RepoDetail Scroll`, `RepoDetail Navigation` sections
+- Integrated state queries into the RepoDetail view section (not a separate overlay)
+- Added a **Command Line** section documenting `:` activation, palette, and all available commands
+- Updated keybindings reference into per-view tables; updated Decisions section
+
+`command-execution.md` was updated to:
+- Describe CommandOutput as a view on the stack (not an overlay/pane)
+- Document `:run` as a direct execution path via the command line
+- Replace command picker overlay description with inline Commands section in RepoDetail (using `n`/`p`/`Enter` instead of old `x`/`j`/`k` picker pattern)
+- Fix Esc-from-argument-input to "return to current view" (not "repo list")
+
+**Self-critique findings and fixes:** Initial drafts had three inaccuracies caught against the implementation code: `r` is view-specific (not universal), `x` from Dashboard pushes RepoDetail (no picker overlay), and commands use `n`/`p` not an overlay. All fixed before committing.
+
+**All 10 tasks are now complete.** The Ralph loop for this plan is done.

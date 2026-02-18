@@ -93,6 +93,37 @@ All artifacts in [2026-02-15-rust-rewrite/](2026-02-15-rust-rewrite/).
 
 ---
 
+## Grove Agentic Orchestration (2026-02-18)
+
+Design exploration of how agentic workflow automation fits into grove and graft.
+
+**Active**:
+- [Agentic Orchestration](2026-02-18-grove-agentic-orchestration.md) — Sessions, plans, process management, new vertical slices 8-13
+- [Command Line and View Stack](2026-02-18-grove-command-prompt-exploration.md) — `:` command line, view stack replacing two-pane layout, dispatch radio metaphor
+
+---
+
+## Command Prompt and View Stack Implementation (2026-02-18)
+
+Ralph loop for evolving the TUI from fixed two-pane layout to view stack with command line.
+All artifacts in [2026-02-18-command-prompt-view-stack/](2026-02-18-command-prompt-view-stack/).
+
+**Active**:
+- [Implementation Plan](2026-02-18-command-prompt-view-stack/plan.md) - 10 tasks in 3 phases (living, updated by loop)
+- [Progress Log](2026-02-18-command-prompt-view-stack/progress.md) - Append-only learnings from each iteration
+- [Prompt](2026-02-18-command-prompt-view-stack/prompt.md) - Agent instructions for each iteration
+- [Ralph Script](2026-02-18-command-prompt-view-stack/ralph.sh) - Loop runner (`./notes/2026-02-18-command-prompt-view-stack/ralph.sh`)
+
+**Design sources**:
+- [Command Line and View Stack](2026-02-18-grove-command-prompt-exploration.md) — design exploration
+- [Agentic Orchestration](2026-02-18-grove-agentic-orchestration.md) — dispatch board metaphor
+
+**Canonical sources**:
+- **Specs**: [docs/specifications/grove/tui-behavior.md](../docs/specifications/grove/tui-behavior.md), [command-execution.md](../docs/specifications/grove/command-execution.md)
+- **Code**: [crates/grove-cli/src/tui/](../crates/grove-cli/src/tui/)
+
+---
+
 ## Adding New Notes
 
 When creating session logs or exploration notes:

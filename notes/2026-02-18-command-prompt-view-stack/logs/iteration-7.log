@@ -1,0 +1,23 @@
+Task 7 is complete. Here's a summary of what was built:
+
+## Task 7: Command Line Input Infrastructure — Complete
+
+**What was implemented:**
+
+1. **`CommandLineState { buffer: String, cursor_pos: usize }`** added to `mod.rs` — state for the vim-style `:` command line
+
+2. **`App.command_line: Option<CommandLineState>`** — tracks whether the command line is active
+
+3. **Key dispatch in `handle_key()`** — `:` activates command line before view dispatch; active command line intercepts all keys (same pattern as `ArgumentInput`)
+
+4. **`command_line.rs` — `handle_key_command_line()`**:
+   - `Escape` cancels silently (view stack unchanged)
+   - `Enter` with non-empty buffer submits (placeholder status message; execution wired in Task 8)
+   - `Enter` with empty buffer dismisses silently
+   - Char/Backspace/Left/Right/Home/End all edit buffer with character-accurate cursor tracking
+
+5. **`render_command_line()`** — renders `:<before_cursor>[cursor]<after_cursor>` in the 1-line status bar area with DarkGray background, replacing the hint bar when active
+
+6. **Hint bar** gains `:command` hint on Dashboard and RepoDetail views
+
+7. **16 new tests** covering all acceptance criteria plus edge cases (`:` from Help activates command line rather than popping, mid-buffer insert, ArgumentInput blocks command line activation)

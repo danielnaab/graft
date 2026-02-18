@@ -1,0 +1,17 @@
+Task 5 is complete. Here's a summary of what was done:
+
+## Task 5: Full-width RepoDetail view — Complete
+
+**What changed:**
+- **Removed** `DetailTab` enum and `active_tab` field from `App`
+- **Deleted** `tab_changes.rs`, `tab_commands.rs`, `tab_state.rs`, `tabs.rs` — 4 modules gone
+- **Created** `repo_detail.rs` — unified scrollable view with all sections in one scrollable column:
+  - Changed Files + Recent Commits (top)
+  - State Queries (middle)  
+  - Commands with selection indicator (bottom)
+- **Block title** now shows repo path + branch + dirty indicator (was split between tab header and content)
+- **Keys in RepoDetail**: `j`/`k` scroll, `Enter` executes selected command, `r` refreshes state queries, `n`/`p` navigate command picker, `q`/`Esc`/`Tab` go back
+- **Dashboard `x`/`s` keys** now just open RepoDetail (no tab pre-selection needed)
+- **Tests**: 129 tests pass; renamed `build_detail_lines_*` → `build_repo_detail_lines_*`, removed tab-switching tests, updated hint bar assertions
+
+**Verification:** `cargo fmt --check && cargo clippy -- -D warnings && cargo test` — all clean.

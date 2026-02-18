@@ -1,0 +1,22 @@
+Task 9 is complete. Here's a summary of what was done:
+
+---
+
+## Task 9: Command Palette — Completed
+
+**What was built:**
+
+1. **`PALETTE_COMMANDS` registry** in `command_line.rs` — 6 entries (`help`, `quit`, `refresh`, `repo`, `run`, `state`) with short descriptions. `filtered_palette(filter)` returns a `Vec<&'static PaletteEntry>` filtered by case-insensitive substring match.
+
+2. **`palette_selected: usize`** added to `CommandLineState` to track which palette entry is highlighted.
+
+3. **Palette navigation keys** in `handle_key_command_line`:
+   - `j`/Down — move selection down (wraps from last→first)
+   - `k`/Up — move selection up (wraps from first→last)
+   - `Enter` on empty buffer — fills command line with selected entry, leaves it open for arguments
+   - `Enter` on non-empty buffer — submits as before
+   - Typing/Backspace — resets `palette_selected` to 0 (list re-filters)
+
+4. **`render_command_palette()`** in `render.rs` — draws a bordered popup anchored to the bottom-left of the content area (just above the status bar). Shows filtered entries with the selected one highlighted in cyan.
+
+5. **14 new tests** covering: palette filtering, case-insensitivity, j/k/arrow navigation, wraparound, Enter-fills vs. Enter-submits, typing/backspace resetting selection, Esc dismissal.

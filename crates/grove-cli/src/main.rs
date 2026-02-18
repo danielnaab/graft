@@ -84,7 +84,7 @@ fn main() -> Result<()> {
 
     // Show loading indicator while refreshing status
     log::debug!("Refreshing repository status...");
-    eprintln!("Loading {} repositories...", repo_count);
+    eprintln!("Loading {repo_count} repositories...");
 
     let stats = registry
         .refresh_all()

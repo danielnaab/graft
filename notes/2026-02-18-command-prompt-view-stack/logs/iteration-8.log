@@ -1,0 +1,22 @@
+Task 8 is complete. Here's a summary of what was done:
+
+## Task 8: Command execution from command line — Complete
+
+**What was built:**
+
+1. **`CliCommand` enum** with 7 variants: `Help`, `Quit`, `Refresh`, `Repo(String)`, `Run(String, Vec<String>)`, `State`, `Unknown(String)`
+
+2. **`parse_command(input: &str) -> CliCommand`** — strips whitespace, lowercases the first token, dispatches to the right variant. Uses `shell_words` for arg splitting in `:run`. 12 unit tests inside `command_line.rs`.
+
+3. **Real `Enter` dispatch** in `handle_key_command_line` — replaces the Task 7 placeholder, calls `parse_command` then `execute_cli_command`.
+
+4. **`execute_cli_command`** — dispatches each variant:
+   - `:help` → `push_view(Help)`
+   - `:quit`/`:q` → `should_quit = true`
+   - `:refresh` → `needs_refresh = true` + status message
+   - `:repo <n>` → `jump_to_repo()` (1-based index or substring match, uses `reset_to_view`)
+   - `:run <cmd> [args]` → `run_command_by_name()` (uses current view's repo, pushes `CommandOutput`, executes)
+   - `:state` → `refresh_selected_state_query()`
+   - Unknown → error in status bar
+
+5. **12 integration tests** in `tests.rs` covering each command variant's behavior.
