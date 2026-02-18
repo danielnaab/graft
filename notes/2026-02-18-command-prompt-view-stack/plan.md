@@ -78,7 +78,7 @@ Key constraints:
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 4: Full-width Dashboard view
-- [ ] Rewrite rendering to dispatch on `current_view()`, remove the 40/60 split layout
+- [x] Rewrite rendering to dispatch on `current_view()`, remove the 40/60 split layout
 - **Code**: `crates/grove-cli/src/tui/render.rs`, `crates/grove-cli/src/tui/repo_list.rs`, `crates/grove-cli/src/tui/mod.rs`
 - **Specs**: `docs/specifications/grove/tui-behavior.md` (Repo List Display)
 - **Design**: `notes/2026-02-18-grove-command-prompt-exploration.md` (What Full Width Gives the Dashboard)

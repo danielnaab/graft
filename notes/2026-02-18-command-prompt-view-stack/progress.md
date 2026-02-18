@@ -58,3 +58,11 @@ When dispatching through `handle_key_repo_detail`, the tab-specific handlers (`h
 
 ---
 
+
+### Iteration — Task 4: Full-width Dashboard view
+**Status**: completed
+**Files changed**: `crates/grove-cli/src/tui/mod.rs`, `crates/grove-cli/src/tui/app.rs`, `crates/grove-cli/src/tui/render.rs`, `crates/grove-cli/src/tui/repo_list.rs`, `crates/grove-cli/src/tui/overlays.rs`, `crates/grove-cli/src/tui/hint_bar.rs`, `crates/grove-cli/src/tui/tab_commands.rs`, `crates/grove-cli/src/tui/tests.rs`
+**What was done**: Removed `ActivePane` enum entirely. Introduced `ArgumentInputMode` enum (Inactive/Active) to track overlay state separately from the view stack. Rewrote `render()` to dispatch on `current_view()` — each view now renders full-width. `render_help_overlay` renamed to `render_help_view`; `render_command_output_overlay` renamed to `render_command_output_view`. Removed the 40/60 split layout. Removed `sync_active_pane()`, `active_pane_from_view()` bridge methods. Updated all references in `tab_commands.rs` and `hint_bar.rs` to use `argument_input_mode`. Removed all `active_pane`/`ActivePane` assertions from tests (138 → 133 test assertions; tests pass unchanged in count).
+**Critique findings**: Implementation is clean. `render_repo_detail_view` correctly uses `&mut self` for mutable tab renders. `ArgumentInput` overlay correctly preserved via `ArgumentInputMode` flag without needing the old bridge pattern. Help view renders as a centered popup within the full content area (correct per design notes). Old `active_pane` assertions replaced with existing `current_view()` assertions that were already present in each test.
+**Improvements made**: Fixed unused `Rect` import in `render.rs` and clippy doc_markdown warning on `ArgumentInputMode` comment.
+**Learnings for future iterations**: When `ActivePane` is gone, the bridge `sync_active_pane()` / `active_pane_from_view()` is also gone — all that complexity disappears. Tasks 1-3 accumulated bridge code to ease migration; Task 4 was the payoff where it all gets removed. The `ArgumentInputMode` approach is cleaner than the old bridge. Task 5 (RepoDetail full-width) can now freely rework the tab rendering since `ActivePane.Detail` border color logic is gone.
