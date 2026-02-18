@@ -3118,16 +3118,7 @@ fn cli_command_quit_long_form() {
         "test-workspace".to_string(),
     );
 
-    // Type "quit"
-    for c in "quit".chars() {
-        app.handle_key(KeyCode::Char(':'));
-        let state = app.command_line.as_mut().unwrap();
-        state.buffer = "quit".to_string();
-        state.cursor_pos = 4;
-        break;
-    }
-    // Simpler: use the handle_key_command_line path directly
-    app.command_line = Some(super::CommandLineState {
+    app.command_line = Some(CommandLineState {
         buffer: "quit".to_string(),
         cursor_pos: 4,
     });
