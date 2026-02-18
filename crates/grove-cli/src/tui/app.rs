@@ -278,7 +278,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.view_stack.push(View::Dashboard);
     }
 
-    #[allow(dead_code)] // Used in Task 8
     /// Reset the stack to a single specified view (replaces everything).
     pub(super) fn reset_to_view(&mut self, view: View) {
         self.view_stack.clear();

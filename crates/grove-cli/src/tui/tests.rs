@@ -2921,7 +2921,7 @@ fn command_line_enter_with_empty_buffer_dismisses_silently() {
 }
 
 #[test]
-fn command_line_enter_with_input_dismisses_and_sets_message() {
+fn command_line_enter_with_help_pushes_help_view() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::empty(),
@@ -2940,10 +2940,11 @@ fn command_line_enter_with_input_dismisses_and_sets_message() {
         app.command_line.is_none(),
         "Enter should dismiss command line"
     );
-    // Task 7: non-empty Enter produces a status message (execution in Task 8)
-    assert!(
-        app.status_message.is_some(),
-        "Non-empty Enter should produce a status message"
+    // Task 8: `:help` pushes Help view
+    assert_eq!(
+        *app.current_view(),
+        View::Help,
+        ":help should push Help view"
     );
 }
 
@@ -3073,4 +3074,312 @@ fn command_line_char_insert_at_cursor_mid_buffer() {
     let state = app.command_line.as_ref().unwrap();
     assert_eq!(state.buffer, "abc");
     assert_eq!(state.cursor_pos, 2);
+}
+
+// ===== Task 8: Command execution from command line =====
+
+#[test]
+fn cli_command_help_pushes_help_view() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char('h'));
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    assert_eq!(*app.current_view(), View::Help, ":h should push Help view");
+}
+
+#[test]
+fn cli_command_quit_sets_should_quit() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    assert!(app.should_quit, ":q should quit the application");
+}
+
+#[test]
+fn cli_command_quit_long_form() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Type "quit"
+    for c in "quit".chars() {
+        app.handle_key(KeyCode::Char(':'));
+        let state = app.command_line.as_mut().unwrap();
+        state.buffer = "quit".to_string();
+        state.cursor_pos = 4;
+        break;
+    }
+    // Simpler: use the handle_key_command_line path directly
+    app.command_line = Some(super::CommandLineState {
+        buffer: "quit".to_string(),
+        cursor_pos: 4,
+    });
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.should_quit, ":quit should quit the application");
+}
+
+#[test]
+fn cli_command_refresh_triggers_refresh() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.command_line = Some(super::CommandLineState {
+        buffer: "refresh".to_string(),
+        cursor_pos: 7,
+    });
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    assert!(app.needs_refresh, ":refresh should set needs_refresh");
+    assert!(app.status_message.is_some(), ":refresh should show status");
+}
+
+#[test]
+fn cli_command_unknown_shows_error() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.command_line = Some(super::CommandLineState {
+        buffer: "frobnicate".to_string(),
+        cursor_pos: 10,
+    });
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    let msg = app
+        .status_message
+        .as_ref()
+        .expect("Should have error message");
+    assert!(
+        msg.text.contains("frobnicate"),
+        "Error should mention the unknown command, got: {}",
+        msg.text
+    );
+    assert_eq!(msg.msg_type, MessageType::Error);
+}
+
+#[test]
+fn cli_command_repo_by_index_jumps_to_repo() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.command_line = Some(super::CommandLineState {
+        buffer: "repo 2".to_string(),
+        cursor_pos: 6,
+    });
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    // Index 2 (1-based) = index 1 (0-based)
+    assert_eq!(
+        *app.current_view(),
+        View::RepoDetail(1),
+        ":repo 2 should jump to index 1 (0-based)"
+    );
+    assert_eq!(
+        app.view_stack.len(),
+        1,
+        "reset_to_view should replace stack"
+    );
+}
+
+#[test]
+fn cli_command_repo_by_index_out_of_range_shows_error() {
+    let mut app = App::new(
+        MockRegistry::with_repos(2),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.command_line = Some(super::CommandLineState {
+        buffer: "repo 99".to_string(),
+        cursor_pos: 7,
+    });
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    assert_eq!(
+        *app.current_view(),
+        View::Dashboard,
+        "Should stay on Dashboard for out-of-range index"
+    );
+    let msg = app.status_message.as_ref().expect("Should have error");
+    assert_eq!(msg.msg_type, MessageType::Error);
+}
+
+#[test]
+fn cli_command_repo_by_name_jumps_to_matching_repo() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Repos are named /tmp/repo0, /tmp/repo1, /tmp/repo2
+    app.command_line = Some(super::CommandLineState {
+        buffer: "repo repo1".to_string(),
+        cursor_pos: 10,
+    });
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    assert_eq!(
+        *app.current_view(),
+        View::RepoDetail(1),
+        ":repo repo1 should match /tmp/repo1"
+    );
+}
+
+#[test]
+fn cli_command_repo_no_match_shows_error() {
+    let mut app = App::new(
+        MockRegistry::with_repos(2),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.command_line = Some(super::CommandLineState {
+        buffer: "repo nonexistent".to_string(),
+        cursor_pos: 16,
+    });
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    assert_eq!(*app.current_view(), View::Dashboard);
+    let msg = app.status_message.as_ref().expect("Should have error");
+    assert_eq!(msg.msg_type, MessageType::Error);
+    assert!(msg.text.contains("nonexistent"));
+}
+
+#[test]
+fn cli_command_run_with_no_repo_shows_warning() {
+    // Empty registry — no repo selected
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.command_line = Some(super::CommandLineState {
+        buffer: "run test".to_string(),
+        cursor_pos: 8,
+    });
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    // No repo selected → warning
+    let msg = app.status_message.as_ref().expect("Should have warning");
+    assert_eq!(msg.msg_type, MessageType::Warning);
+}
+
+#[test]
+fn cli_command_run_from_repo_detail_pushes_command_output() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Navigate to RepoDetail first
+    app.push_view(View::RepoDetail(0));
+
+    app.command_line = Some(super::CommandLineState {
+        buffer: "run test".to_string(),
+        cursor_pos: 8,
+    });
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    // Should push CommandOutput on top of RepoDetail
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        ":run should push CommandOutput view"
+    );
+    assert_eq!(
+        app.view_stack,
+        vec![View::Dashboard, View::RepoDetail(0), View::CommandOutput],
+        "Stack should be Dashboard → RepoDetail → CommandOutput"
+    );
+    assert_eq!(
+        app.command_name,
+        Some("test".to_string()),
+        "command_name should be set"
+    );
+}
+
+#[test]
+fn cli_command_run_from_dashboard_uses_selected_repo() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Select repo at index 1 from the dashboard
+    app.list_state.select(Some(1));
+
+    app.command_line = Some(super::CommandLineState {
+        buffer: "run build".to_string(),
+        cursor_pos: 9,
+    });
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        ":run from Dashboard should push CommandOutput"
+    );
+    assert_eq!(app.command_name, Some("build".to_string()));
+}
+
+#[test]
+fn cli_command_state_refreshes_state_query() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // With no state queries selected, :state shows warning
+    app.command_line = Some(super::CommandLineState {
+        buffer: "state".to_string(),
+        cursor_pos: 5,
+    });
+    app.handle_key(KeyCode::Enter);
+
+    assert!(app.command_line.is_none());
+    // refresh_selected_state_query with no query selected shows a warning
+    assert!(
+        app.status_message.is_some(),
+        ":state should produce a status message"
+    );
 }
