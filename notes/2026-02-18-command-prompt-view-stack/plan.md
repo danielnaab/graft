@@ -136,7 +136,7 @@ Key constraints:
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 8: Command execution from command line
-- [ ] Parse and execute commands entered via `:` command line
+- [x] Parse and execute commands entered via `:` command line
 - **Code**: `crates/grove-cli/src/tui/app.rs`, `crates/grove-cli/src/tui/mod.rs`, new `crates/grove-cli/src/tui/command_line.rs`
 - **Design**: `notes/2026-02-18-grove-command-prompt-exploration.md` (Mapping Existing and New Features to Commands)
 - **Acceptance**:
