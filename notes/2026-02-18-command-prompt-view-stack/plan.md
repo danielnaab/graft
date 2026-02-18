@@ -92,7 +92,7 @@ Key constraints:
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 5: Full-width RepoDetail view
-- [ ] Replace tabbed detail pane with single scrollable full-width view
+- [x] Replace tabbed detail pane with single scrollable full-width view
 - **Code**: `crates/grove-cli/src/tui/tab_changes.rs`, `crates/grove-cli/src/tui/tab_state.rs`, `crates/grove-cli/src/tui/tab_commands.rs`, `crates/grove-cli/src/tui/tabs.rs`, `crates/grove-cli/src/tui/render.rs`
 - **Specs**: `docs/specifications/grove/tui-behavior.md` (Detail Pane)
 - **Design**: `notes/2026-02-18-grove-command-prompt-exploration.md` (What Full Width Gives the Repo View)
