@@ -1,6 +1,6 @@
 ---
 status: working
-last-verified: 2026-02-12
+last-verified: 2026-02-18
 owners: [human, agent]
 ---
 
@@ -44,48 +44,73 @@ And command execution is unavailable for that repository
 
 ### Command Picker UI [Slice 7]
 
+The **Commands** section is part of the unified RepoDetail view. Commands are not shown in a separate overlay — they appear inline in the scrollable detail. Selecting and executing a command from the RepoDetail view triggers the argument input dialog.
+
 ```gherkin
-Given a repository is selected with available commands
-When the user presses "x"
-Then a command picker overlay appears
-And shows all available commands with descriptions
-And the first command is selected
+Given a repository is selected and the RepoDetail view is open
+Then the "Commands" section shows all available commands with descriptions
+And the first command is highlighted by default
 ```
 
 ```gherkin
-Given the command picker is displayed
-When the user presses "j" or Down
+Given the RepoDetail view is current
+When the user presses "n"
 Then the selection moves to the next command
 ```
 
 ```gherkin
-Given the command picker is displayed
-When the user presses "k" or Up
+Given the RepoDetail view is current
+When the user presses "p"
 Then the selection moves to the previous command
 ```
 
 ```gherkin
-Given the command picker is displayed
-When the user presses "q" or Esc
-Then the command picker closes
-And no command is executed
-```
-
-```gherkin
-Given a command is selected in the picker
+Given a command is highlighted in the Commands section
 When the user presses Enter
-Then the command picker closes
-And an argument input dialog appears
+Then an argument input dialog appears for that command
 ```
 
 ```gherkin
 Given a repository has no commands defined
-When the user presses "x"
-Then a message is shown: "No commands defined in graft.yaml"
-And the command picker does not appear
+When the RepoDetail view renders
+Then the Commands section shows "No commands defined in graft.yaml"
 ```
 
+### Command Line Execution (`:run`) [Phase 2]
+
+In addition to the `x` → picker → args dialog path, commands can be executed directly via the `:` command line. This is a faster path for users who know the command name.
+
+```gherkin
+Given any view is current
+When the user enters ":run <cmd>" in the command line and presses Enter
+Then the named command is executed in the current repository
+And the CommandOutput view is pushed onto the stack
+```
+
+```gherkin
+Given the RepoDetail view is current for repository R
+When the user enters ":run <cmd> [args]" in the command line
+Then the command is executed in repository R's directory
+```
+
+```gherkin
+Given the Dashboard is current with repository R selected
+When the user enters ":run <cmd> [args]" in the command line
+Then the command is executed in the selected repository R's directory
+```
+
+```gherkin
+Given no repository is in context (empty workspace or no selection)
+When the user enters ":run <cmd>" in the command line
+Then an error message is shown: "No repository selected"
+And no command is executed
+```
+
+Both the `x` picker path and the `:run` command line path use the same underlying execution logic — they are two UI surfaces for the same action.
+
 ### Argument Input [Implemented 2026-02-13]
+
+The argument input dialog is an **overlay** over the current view (not a view itself). It appears after selecting a command via the `x` picker.
 
 ```gherkin
 Given a command has been selected for execution
@@ -137,7 +162,7 @@ When the user presses Enter with valid arguments
 Then arguments are parsed using shell-style syntax (respecting quotes)
 And Grove calls `graft run <command-name> <arg1> <arg2> ...`
 And the argument dialog closes
-And the output pane appears
+And the CommandOutput view is pushed onto the stack
 ```
 
 ```gherkin
@@ -166,7 +191,7 @@ And execution proceeds normally
 Given the argument input dialog is displayed
 When the user presses Esc
 Then the dialog closes without executing
-And focus returns to the repository list
+And focus returns to the current view (not necessarily the Dashboard)
 And the command is not executed
 ```
 
@@ -183,13 +208,13 @@ And stdout and stderr are captured
 ```gherkin
 Given a command is executing
 When output is produced
-Then it is streamed to the output pane in real-time
+Then it is streamed to the CommandOutput view in real-time
 And the user can scroll through output with j/k
 ```
 
 ```gherkin
 Given a command is executing
-When the user presses "q"
+When the user presses "q" or Escape
 Then a confirmation prompt appears
 And asks: "Stop running command?"
 ```
@@ -198,7 +223,7 @@ And asks: "Stop running command?"
 Given a command is executing and user confirms stop
 When the user presses "y" on the confirmation prompt
 Then the subprocess is terminated
-And the output pane closes
+And the CommandOutput view is popped (previous view restored)
 ```
 
 ```gherkin
@@ -212,34 +237,38 @@ And the command continues executing
 Given a command completes successfully (exit code 0)
 When execution finishes
 Then "✓ Command completed successfully" is shown
-And the output pane remains visible
-And the user can press "q" to close it
+And the CommandOutput view remains visible
+And the user can press "q" to close it (pop view)
+And the user can press "Escape" to reset to Dashboard
 ```
 
 ```gherkin
 Given a command fails (exit code non-zero)
 When execution finishes
 Then "✗ Command failed with exit code N" is shown
-And the output pane remains visible with full output
-And the user can press "q" to close it
+And the CommandOutput view remains visible with full output
+And the user can press "q" to close it (pop view)
+And the user can press "Escape" to reset to Dashboard
 ```
 
-### Output Pane [Slice 7]
+### CommandOutput View [Slice 7]
+
+The CommandOutput view is a full-width view on the view stack (not an overlay or side pane). It replaces the previous view's content area while the command runs.
 
 ```gherkin
-Given the output pane is displayed
+Given the CommandOutput view is current
 When output exceeds the visible height
 Then the user can scroll with "j" (down) and "k" (up)
 ```
 
 ```gherkin
-Given the output pane is displayed
+Given the CommandOutput view is current
 When the user scrolls down
 Then scroll is clamped at the end of output
 ```
 
 ```gherkin
-Given the output pane is displayed
+Given the CommandOutput view is current
 When the user scrolls up
 Then scroll is clamped at the beginning (line 0)
 ```
@@ -247,15 +276,36 @@ Then scroll is clamped at the beginning (line 0)
 ```gherkin
 Given a command has finished executing
 When the user presses "q"
-Then the output pane closes
-And focus returns to the repository list
+Then the CommandOutput view is popped
+And the previous view is shown (e.g., RepoDetail or Dashboard)
+```
+
+```gherkin
+Given a command has finished executing
+When the user presses Escape
+Then the view stack resets to Dashboard
 ```
 
 ```gherkin
 Given command output exceeds 10,000 lines
-When rendering the output pane
+When rendering the CommandOutput view
 Then only the most recent 10,000 lines are retained
 And a message indicates "Output limited to last 10,000 lines"
+```
+
+### Navigation from CommandOutput
+
+```gherkin
+Given the CommandOutput view is on the stack preceded by RepoDetail
+When the user presses "q" (command finished)
+Then the stack pops to [Dashboard, RepoDetail]
+And the user can press "q" again to return to Dashboard
+```
+
+```gherkin
+Given the CommandOutput view is on the stack
+When the user presses Escape (command finished)
+Then the stack resets to [Dashboard]
 ```
 
 ## Edge Cases
@@ -264,9 +314,9 @@ And a message indicates "Output limited to last 10,000 lines"
 
 ```gherkin
 Given a repository without graft.yaml
-When the user presses "x"
-Then a message is shown: "No graft.yaml found"
-And no command picker appears
+When the RepoDetail view renders
+Then the Commands section shows "No graft.yaml found"
+And the user can still see changes, commits, and state queries
 ```
 
 ### graft not in PATH
@@ -297,25 +347,45 @@ And the user can manually stop with "q" → "y"
 
 ## Keybindings
 
+### Command Selection in RepoDetail
+
 | Key | Context | Action |
 |-----|---------|--------|
-| x | Repo list focused | Open command picker for selected repo |
-| j, Down | Command picker | Move selection down |
-| k, Up | Command picker | Move selection up |
-| Enter | Command picker | Open argument input dialog |
-| q, Esc | Command picker | Close picker without executing |
+| `n` | RepoDetail (Commands section) | Select next command |
+| `p` | RepoDetail (Commands section) | Select previous command |
+| `Enter` | RepoDetail (command highlighted) | Open argument input dialog |
+
+### Argument Input Overlay
+
+| Key | Context | Action |
+|-----|---------|--------|
 | Char | Argument input | Insert character at cursor position |
-| Backspace | Argument input | Delete character before cursor |
-| Left, Right | Argument input | Move cursor backward/forward |
-| Home, End | Argument input | Jump to start/end of input |
-| Enter | Argument input | Execute command (if parsing valid) |
-| Esc | Argument input | Cancel and return to repo list |
-| j, Down | Output pane | Scroll output down |
-| k, Up | Output pane | Scroll output up |
-| q | Output pane (command running) | Show stop confirmation |
-| q | Output pane (command finished) | Close output pane |
-| y | Stop confirmation | Confirm stop, terminate command |
-| n, Esc | Stop confirmation | Cancel stop, continue command |
+| `Backspace` | Argument input | Delete character before cursor |
+| `Left`, `Right` | Argument input | Move cursor backward/forward |
+| `Home`, `End` | Argument input | Jump to start/end of input |
+| `Enter` | Argument input | Execute command (if parsing valid) |
+| `Esc` | Argument input | Cancel and return to current view |
+
+### CommandOutput View
+
+| Key | Context | Action |
+|-----|---------|--------|
+| `j`, Down | CommandOutput | Scroll output down |
+| `k`, Up | CommandOutput | Scroll output up |
+| `q`, `Esc` | CommandOutput (command running) | Show stop confirmation |
+| `q` | CommandOutput (command finished) | Pop view (return to previous) |
+| `Esc` | CommandOutput (command finished) | Reset to Dashboard |
+| `y` | Stop confirmation | Confirm stop, terminate command |
+| `n`, `Esc` | Stop confirmation | Cancel stop, continue command |
+
+### Command Line (`:run`)
+
+| Key | Context | Action |
+|-----|---------|--------|
+| `:` | Any view | Activate command line |
+| `:run <cmd> [args]` + `Enter` | Command line | Execute named command directly |
+
+See [TUI Behavior](tui-behavior.md) for the full command line keybinding reference.
 
 ## Open Questions
 
@@ -333,6 +403,18 @@ And the user can manually stop with "q" → "y"
 
 ## Decisions
 
+- **2026-02-18**: CommandOutput is a view on the stack, not an overlay
+  - Follows the "everything is a view" architecture from the view stack design
+  - `q` pops back to the previous view (RepoDetail or Dashboard)
+  - `Escape` resets to Dashboard (consistent with all views)
+  - Stop confirmation gates both `q` and `Escape` while command is running
+
+- **2026-02-18**: `:run` command line as direct execution path
+  - Supplements the `x` → picker → args dialog path
+  - Faster for power users who know the command name
+  - Both paths use the same underlying execution logic
+  - Command line path skips the picker and dialog entirely
+
 - **2026-02-12**: Use `x` key for command execution
   - `r` already used for refresh
   - `x` is mnemonic for "execute"
@@ -342,11 +424,6 @@ And the user can manually stop with "q" → "y"
   - Reuses graft's command execution logic
   - No need to duplicate command parsing, env vars, working_dir handling
   - Subprocess approach keeps Grove and graft loosely coupled
-
-- **2026-02-12**: Modal UI for command picker and output
-  - Command picker is full-screen overlay (like help)
-  - Output pane replaces detail pane temporarily
-  - Prevents UI complexity of multiple simultaneous panes
 
 - **2026-02-12**: Manual stop only (no automatic timeout)
   - Long-running commands (builds, tests) should not be killed arbitrarily
@@ -364,8 +441,7 @@ And the user can manually stop with "q" → "y"
   - Arguments parsed using `shell-words` crate (respects quotes, escapes)
   - Empty input allowed (skip arguments)
   - Supports quoted arguments for strings with spaces: `arg1 "arg with spaces"`
-  - Consistent with existing modal UI pattern (Help, CommandPicker)
-  - Fixed: Output pane now clears background properly (no overlay bleed-through)
+  - Consistent with existing modal UI pattern
 
 - **2026-02-13**: Phase 1 UX improvements
   - **Cursor navigation**: Left/Right arrows, Home/End keys for editing anywhere in buffer
@@ -380,3 +456,4 @@ And the user can manually stop with "q" → "y"
 
 - [Grove Vertical Slices (2026-02-06)](../../../notes/2026-02-06-grove-vertical-slices.md) — Slice 7 scope definition
 - [Graft Core Operations Spec](../../graft/core-operations.md) — `graft run` command specification
+- [Grove Command Line and View Stack (2026-02-18)](../../../notes/2026-02-18-grove-command-prompt-exploration.md) — Command line design, `:run` direct execution path

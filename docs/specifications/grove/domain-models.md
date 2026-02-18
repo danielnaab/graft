@@ -336,25 +336,25 @@ CommandState::NotStarted
 // UI shows: "x = Execute command"
 ```
 
-**Output Pane Header** (Running):
+**CommandOutput View Header** (Running):
 ```rust
 CommandState::Running
 // UI shows: "Running: test (j/k: scroll, q: close)"
 ```
 
-**Output Pane Header** (Completed Success):
+**CommandOutput View Header** (Completed Success):
 ```rust
 CommandState::Completed { exit_code: 0 }
 // UI shows: "✓ test: Completed successfully (exit 0) - Press q to close"
 ```
 
-**Output Pane Header** (Completed Failure):
+**CommandOutput View Header** (Completed Failure):
 ```rust
 CommandState::Completed { exit_code: 42 }
 // UI shows: "✗ test: Failed with exit code 42 - Press q to close"
 ```
 
-**Output Pane Header** (Failed):
+**CommandOutput View Header** (Failed):
 ```rust
 CommandState::Failed { error: "graft not found".to_string() }
 // UI shows: "✗ Failed: graft not found - Press q to close"
