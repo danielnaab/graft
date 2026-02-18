@@ -8,6 +8,7 @@ use super::{
     KeyCode, Line, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span,
     StatusMessage, Style, View,
 };
+use crate::state::StateResult;
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// Handle keys when in the `RepoDetail` view.
@@ -254,7 +255,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             for (idx, query) in self.state_queries.iter().enumerate() {
                 if let Some(Some(result)) = self.state_results.get(idx) {
                     let age = result.metadata.time_ago();
-                    let data_summary = result.summary();
+                    let data_summary = crate::state::format_state_summary(result);
                     lines.push(Line::from(vec![
                         Span::styled(
                             format!("  {:<14}", query.name),
@@ -394,7 +395,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Load state queries for the selected repository.
     pub(super) fn load_state_queries(&mut self, repo_path: &str) {
-        use crate::state::{compute_workspace_hash, discover_state_queries, read_latest_cached};
+        use crate::state::{discover_state_queries, read_latest_cached};
         use std::path::Path;
 
         // Clear previous state
@@ -410,19 +411,19 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             Ok(queries) => {
                 self.state_queries = queries;
 
-                let workspace_hash = compute_workspace_hash(&self.workspace_name);
                 let repo_name = Path::new(repo_path)
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("unknown");
 
                 for query in &self.state_queries {
-                    match read_latest_cached(&workspace_hash, repo_name, &query.name) {
-                        Ok(result) => self.state_results.push(Some(result)),
-                        Err(e) => {
-                            log::debug!("No cache for query {}: {e}", query.name);
-                            self.state_results.push(None);
-                        }
+                    if let Some(result) =
+                        read_latest_cached(&self.workspace_name, repo_name, &query.name)
+                    {
+                        self.state_results.push(Some(result));
+                    } else {
+                        log::debug!("No cache for query {}", query.name);
+                        self.state_results.push(None);
                     }
                 }
 
@@ -444,11 +445,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Refresh all state queries for the currently selected repository.
     ///
-    /// Runs each query's command in sequence and reloads the cache. Reports
-    /// overall success/failure in the status bar.
+    /// Executes each query via `sh -c`, captures JSON from stdout, writes to
+    /// cache, and updates the in-memory results directly. Reports overall
+    /// success/failure in the status bar.
     pub(super) fn refresh_state_queries(&mut self) {
-        use std::process::Command;
-
         if self.state_queries.is_empty() {
             self.status_message = Some(StatusMessage::info(
                 "No state queries defined in graft.yaml".to_string(),
@@ -463,51 +463,43 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             return;
         };
 
-        let repo_path = match repos.get(repo_idx) {
-            Some(r) => r.as_path().to_path_buf(),
-            None => return,
+        let Some(repo_path) = repos.get(repo_idx).map(grove_core::RepoPath::as_path) else {
+            return;
         };
+        let repo_path = repo_path.to_path_buf();
 
-        let queries: Vec<(String, String)> = self
+        let repo_name = repo_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let queries: Vec<_> = self
             .state_queries
             .iter()
-            .map(|q| (q.name.clone(), q.run.clone()))
+            .map(|q| (q.name.clone(), q.run.clone(), q.deterministic))
             .collect();
 
         let total = queries.len();
         let mut failed = 0usize;
 
-        for (i, (query_name, run_command)) in queries.iter().enumerate() {
-            let args = match shell_words::split(run_command) {
-                Ok(a) => a,
-                Err(e) => {
-                    log::warn!("Failed to parse command for '{query_name}': {e}");
-                    failed += 1;
-                    continue;
-                }
-            };
-
-            if args.is_empty() {
-                log::warn!("Empty command for query '{query_name}'");
-                failed += 1;
-                continue;
-            }
-
-            match Command::new(&args[0])
-                .args(&args[1..])
-                .current_dir(&repo_path)
-                .output()
-            {
-                Ok(output) if output.status.success() => {
-                    self.reload_state_query_cache(i, &repo_path);
-                }
-                Ok(output) => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    log::warn!("Query '{query_name}' failed: {}", stderr.trim());
-                    failed += 1;
+        for (i, (query_name, run_command, deterministic)) in queries.iter().enumerate() {
+            match execute_state_query_command(run_command, &repo_path) {
+                Ok(raw) => {
+                    let result = raw.finalize(query_name, run_command, *deterministic);
+                    if let Err(e) = graft_common::state::write_cached_state(
+                        &self.workspace_name,
+                        &repo_name,
+                        &result,
+                    ) {
+                        log::warn!("Failed to write cache for '{query_name}': {e}");
+                    }
+                    if i < self.state_results.len() {
+                        self.state_results[i] = Some(result);
+                    }
                 }
                 Err(e) => {
-                    log::warn!("Failed to execute query '{query_name}': {e}");
+                    log::warn!("Query '{query_name}' failed: {e}");
                     failed += 1;
                 }
             }
@@ -526,35 +518,71 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             )))
         };
     }
+}
 
-    /// Reload cache for a specific query index.
-    fn reload_state_query_cache(&mut self, query_index: usize, repo_path: &std::path::Path) {
-        use crate::state::{compute_workspace_hash, read_latest_cached};
+// ===== State query execution =====
 
-        if query_index >= self.state_queries.len() {
-            return;
-        }
+/// Intermediate result from executing a state query command.
+struct RawStateResult {
+    data: serde_json::Value,
+    commit_hash: String,
+}
 
-        let query = &self.state_queries[query_index];
-
-        let workspace_hash = compute_workspace_hash(&self.workspace_name);
-        let repo_name = repo_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown");
-
-        match read_latest_cached(&workspace_hash, repo_name, &query.name) {
-            Ok(result) => {
-                if query_index < self.state_results.len() {
-                    self.state_results[query_index] = Some(result);
-                }
-            }
-            Err(e) => {
-                log::warn!("Failed to reload cache for {}: {e}", query.name);
-                if query_index < self.state_results.len() {
-                    self.state_results[query_index] = None;
-                }
-            }
+impl RawStateResult {
+    fn finalize(self, query_name: &str, run_command: &str, deterministic: bool) -> StateResult {
+        StateResult {
+            metadata: crate::state::StateMetadata {
+                query_name: query_name.to_string(),
+                commit_hash: self.commit_hash,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                command: run_command.to_string(),
+                deterministic,
+            },
+            data: self.data,
         }
     }
+}
+
+/// Execute a state query command via `sh -c` and capture JSON from stdout.
+///
+/// Using a shell matches graft-engine behavior and supports pipes, redirects,
+/// and variable expansion in query commands.
+fn execute_state_query_command(
+    run_command: &str,
+    repo_path: &std::path::Path,
+) -> Result<RawStateResult, String> {
+    use std::process::Command;
+
+    let commit_hash = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map_or_else(
+            || "unknown".to_string(),
+            |o| String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        );
+
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(run_command)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to execute '{run_command}': {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Command failed: {}", stderr.trim()));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let data: serde_json::Value =
+        serde_json::from_str(&stdout).map_err(|e| format!("Invalid JSON output: {e}"))?;
+
+    if !data.is_object() {
+        return Err("Query must output a JSON object".to_string());
+    }
+
+    Ok(RawStateResult { data, commit_hash })
 }
