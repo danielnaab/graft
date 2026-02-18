@@ -48,3 +48,13 @@ When dispatching through `handle_key_repo_detail`, the tab-specific handlers (`h
 
 ---
 
+### Iteration — Task 3: Wire CommandOutput and ArgumentInput through ViewStack
+**Status**: completed
+**Files changed**: `crates/grove-cli/src/tui/overlays.rs`, `crates/grove-cli/src/tui/tests.rs`
+**What was done**: Much of Task 3 was already complete from Tasks 1 & 2 (ArgumentInput intercepted before view dispatch, CommandOutput uses push_view/pop_view). The missing piece was that `Escape` in CommandOutput had no handler — it fell through to `_ => {}`. Added `KeyCode::Esc` to the same match arm as `KeyCode::Char('q')` in `handle_key_command_output`, so both gate behind stop confirmation when running and both pop the view when done. Added 10 new tests covering: push CommandOutput onto stack, q/Esc pop back (to Dashboard and to RepoDetail), q/Esc show confirmation when running, n/Esc dismiss confirmation without popping, ArgumentInput overlay intercept before view dispatch, and ArgumentInput Esc restoring active_pane from view stack.
+**Critique findings**: Implementation is minimal and correct. The spec (`command-execution.md`) doesn't explicitly mention Escape in CommandOutput, but the task acceptance criteria and design intent (q and Esc have symmetric behavior) make it correct. Pop target is the previous view (which may be Dashboard or RepoDetail), not hardcoded to Dashboard — this is architecturally right for the view stack model. All acceptance criteria met.
+**Improvements made**: none needed
+**Learnings for future iterations**: When Task 1 & 2 laid the groundwork well, Task 3 can be a small delta. Check task acceptance criteria carefully against what prior tasks already delivered before assuming a lot remains to be done.
+
+---
+

@@ -67,7 +67,7 @@ Key constraints:
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 3: Wire CommandOutput and ArgumentInput through ViewStack
-- [ ] Route command execution and argument input through the view stack
+- [x] Route command execution and argument input through the view stack
 - **Code**: `crates/grove-cli/src/tui/app.rs`, `crates/grove-cli/src/tui/overlays.rs`, `crates/grove-cli/src/tui/tab_commands.rs`
 - **Specs**: `docs/specifications/grove/command-execution.md`
 - **Acceptance**:
