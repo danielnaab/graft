@@ -167,7 +167,7 @@ Key constraints:
 ## Phase 3: Spec Updates (Task 10)
 
 ### Task 10: Update TUI behavior and command execution specs
-- [ ] Update specs to reflect view stack and command line architecture
+- [x] Update specs to reflect view stack and command line architecture
 - **Files**: `docs/specifications/grove/tui-behavior.md`, `docs/specifications/grove/command-execution.md`
 - **Acceptance**:
   - `tui-behavior.md`: Split-Pane Layout sections replaced with View Stack sections; Dashboard/RepoDetail/Help described as full-width views; Navigation section describes stack semantics (push/pop/reset); Command Line section added; Keybindings table updated with `:`, view-specific keys
