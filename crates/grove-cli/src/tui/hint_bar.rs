@@ -1,6 +1,6 @@
 //! Context-sensitive keybinding hint bar.
 
-use super::{ActivePane, App, DetailTab, RepoDetailProvider, RepoRegistry};
+use super::{ActivePane, App, DetailTab, RepoDetailProvider, RepoRegistry, View};
 
 /// A keybinding hint for the status bar.
 pub(super) struct KeyHint {
@@ -9,11 +9,25 @@ pub(super) struct KeyHint {
 }
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
-    /// Return context-sensitive key hints based on current pane and tab.
+    /// Return context-sensitive key hints based on current view and tab.
     #[allow(clippy::too_many_lines)]
     pub(super) fn current_hints(&self) -> Vec<KeyHint> {
-        match self.active_pane {
-            ActivePane::RepoList => vec![
+        // ArgumentInput is an overlay — show its hints regardless of view stack.
+        if self.active_pane == ActivePane::ArgumentInput {
+            return vec![
+                KeyHint {
+                    key: "Enter",
+                    action: "run",
+                },
+                KeyHint {
+                    key: "Esc",
+                    action: "cancel",
+                },
+            ];
+        }
+
+        match self.current_view() {
+            View::Dashboard => vec![
                 KeyHint {
                     key: "j/k",
                     action: "navigate",
@@ -43,7 +57,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     action: "quit",
                 },
             ],
-            ActivePane::Detail => match self.active_tab {
+            View::RepoDetail(_) => match self.active_tab {
                 DetailTab::Changes => vec![
                     KeyHint {
                         key: "j/k",
@@ -115,21 +129,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     },
                 ],
             },
-            ActivePane::Help => vec![KeyHint {
+            View::Help => vec![KeyHint {
                 key: "any key",
                 action: "close",
             }],
-            ActivePane::ArgumentInput => vec![
-                KeyHint {
-                    key: "Enter",
-                    action: "run",
-                },
-                KeyHint {
-                    key: "Esc",
-                    action: "cancel",
-                },
-            ],
-            ActivePane::CommandOutput => vec![
+            View::CommandOutput => vec![
                 KeyHint {
                     key: "j/k",
                     action: "scroll",

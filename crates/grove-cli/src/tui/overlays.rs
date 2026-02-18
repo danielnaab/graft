@@ -1,9 +1,8 @@
 //! Overlay rendering: help, argument input, command output, stop confirmation.
 
 use super::{
-    ActivePane, Alignment, App, ArgumentInputState, Block, Borders, Clear, Color, CommandState,
-    KeyCode, Line, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span,
-    StatusMessage, Style, Wrap,
+    Alignment, App, ArgumentInputState, Block, Borders, Clear, Color, CommandState, KeyCode, Line,
+    Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span, StatusMessage, Style, Wrap,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -29,13 +28,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 let command_name = state.command_name.clone();
 
                 self.argument_input = None;
-                self.active_pane = ActivePane::CommandOutput;
+                // Push CommandOutput view; clear ArgumentInput pane first so sync works.
+                self.active_pane = self.active_pane_from_view();
+                self.push_view(super::View::CommandOutput);
 
                 self.execute_command_with_args(command_name, args);
             }
             KeyCode::Esc => {
                 self.argument_input = None;
-                self.active_pane = ActivePane::RepoList;
+                // ArgumentInput is an overlay; restore active_pane from view stack.
+                self.active_pane = self.active_pane_from_view();
             }
             KeyCode::Left => {
                 if state.cursor_pos > 0 {
@@ -106,7 +108,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     }
 
                     self.show_stop_confirmation = false;
-                    self.active_pane = ActivePane::RepoList;
+                    self.pop_view();
                     self.output_lines.clear();
                     self.output_scroll = 0;
                     self.command_state = CommandState::NotStarted;
@@ -137,7 +139,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 if matches!(self.command_state, CommandState::Running) {
                     self.show_stop_confirmation = true;
                 } else {
-                    self.active_pane = ActivePane::RepoList;
+                    self.pop_view();
                     self.output_lines.clear();
                     self.output_scroll = 0;
                     self.command_state = CommandState::NotStarted;

@@ -92,16 +92,21 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     }
 
     pub(super) fn handle_key(&mut self, code: KeyCode) {
-        match self.active_pane {
-            ActivePane::RepoList => self.handle_key_repo_list(code),
-            ActivePane::Detail => self.handle_key_detail(code),
-            ActivePane::Help => self.handle_key_help(code),
-            ActivePane::ArgumentInput => self.handle_key_argument_input(code),
-            ActivePane::CommandOutput => self.handle_key_command_output(code),
+        // ArgumentInput is an overlay — intercept before view dispatch.
+        if self.active_pane == ActivePane::ArgumentInput {
+            self.handle_key_argument_input(code);
+            return;
+        }
+
+        match self.current_view() {
+            View::Dashboard => self.handle_key_dashboard(code),
+            View::RepoDetail(_) => self.handle_key_repo_detail(code),
+            View::Help => self.handle_key_help(code),
+            View::CommandOutput => self.handle_key_command_output(code),
         }
     }
 
-    fn handle_key_repo_list(&mut self, code: KeyCode) {
+    fn handle_key_dashboard(&mut self, code: KeyCode) {
         match code {
             KeyCode::Char('q') | KeyCode::Esc => {
                 self.should_quit = true;
@@ -113,9 +118,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.previous();
             }
             KeyCode::Enter | KeyCode::Tab => {
-                if self.list_state.selected().is_some() {
-                    self.active_pane = ActivePane::Detail;
+                if let Some(idx) = self.list_state.selected() {
                     self.active_tab = DetailTab::Changes;
+                    self.push_view(View::RepoDetail(idx));
                 }
             }
             KeyCode::Char('r') => {
@@ -123,34 +128,34 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.status_message = Some(StatusMessage::info("Refreshing..."));
             }
             KeyCode::Char('?') => {
-                self.active_pane = ActivePane::Help;
+                self.push_view(View::Help);
             }
             KeyCode::Char('x') => {
-                if self.list_state.selected().is_some() {
+                if let Some(idx) = self.list_state.selected() {
                     self.load_commands_for_selected_repo();
-                    self.active_pane = ActivePane::Detail;
                     self.active_tab = DetailTab::Commands;
+                    self.push_view(View::RepoDetail(idx));
                 }
             }
             KeyCode::Char('s') => {
-                if self.list_state.selected().is_some() {
+                if let Some(idx) = self.list_state.selected() {
                     self.ensure_state_loaded();
-                    self.active_pane = ActivePane::Detail;
                     self.active_tab = DetailTab::State;
+                    self.push_view(View::RepoDetail(idx));
                 }
             }
             _ => {}
         }
     }
 
-    fn handle_key_detail(&mut self, code: KeyCode) {
+    fn handle_key_repo_detail(&mut self, code: KeyCode) {
         match code {
-            // Global detail keys
+            // Back to dashboard
             KeyCode::Char('q') | KeyCode::Esc | KeyCode::Tab => {
-                self.active_pane = ActivePane::RepoList;
+                self.pop_view();
             }
             KeyCode::Char('?') => {
-                self.active_pane = ActivePane::Help;
+                self.push_view(View::Help);
             }
             // Tab switching by number (with legacy shortcuts merged)
             KeyCode::Char('1') => {
@@ -176,7 +181,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     fn handle_key_help(&mut self, code: KeyCode) {
         match code {
             KeyCode::Char(_) | KeyCode::Esc | KeyCode::Enter | KeyCode::Backspace => {
-                self.active_pane = ActivePane::RepoList;
+                self.pop_view();
             }
             _ => {}
         }
@@ -279,21 +284,18 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     }
 
     // ===== View stack helpers =====
-    // Task 2 will use these; suppress dead-code warnings while additive.
-    #[allow(dead_code)]
+
     /// Returns the current (top-of-stack) view.
     pub(super) fn current_view(&self) -> &View {
         self.view_stack.last().expect("view_stack is never empty")
     }
 
-    #[allow(dead_code)]
     /// Push a view onto the stack and update the `active_pane` bridge.
     pub(super) fn push_view(&mut self, view: View) {
         self.view_stack.push(view);
         self.sync_active_pane();
     }
 
-    #[allow(dead_code)]
     /// Pop the top view from the stack (minimum: Dashboard stays).
     /// Updates the `active_pane` bridge.
     pub(super) fn pop_view(&mut self) {
@@ -303,7 +305,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.sync_active_pane();
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used in Task 6
     /// Reset the stack to just Dashboard.
     pub(super) fn reset_to_dashboard(&mut self) {
         self.view_stack.clear();
@@ -311,7 +313,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.sync_active_pane();
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used in Task 8
     /// Reset the stack to a single specified view (replaces everything).
     pub(super) fn reset_to_view(&mut self, view: View) {
         self.view_stack.clear();
@@ -319,7 +321,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.sync_active_pane();
     }
 
-    #[allow(dead_code)]
     /// Bridge: derive the legacy `ActivePane` value from the current view stack
     /// so that rendering code that still uses `active_pane` continues to work.
     pub(super) fn active_pane_from_view(&self) -> ActivePane {
@@ -331,7 +332,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
-    #[allow(dead_code)]
     /// Sync `active_pane` from the view stack (bridge method).
     fn sync_active_pane(&mut self) {
         // ArgumentInput is an overlay, not a stack view — don't clobber it.

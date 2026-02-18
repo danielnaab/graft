@@ -83,7 +83,6 @@ pub enum ActivePane {
 /// Each variant represents a full-screen content area. Navigation pushes and
 /// pops views; `q` pops, `Escape` resets to Dashboard.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)] // Variants will be constructed in Tasks 2-6
 pub enum View {
     /// The repo list (home view).
     Dashboard,
@@ -113,7 +112,6 @@ pub struct App<R, D> {
     active_pane: ActivePane,
     /// View stack — the top of the stack is the current view.
     /// Invariant: always has at least one element (Dashboard).
-    #[allow(dead_code)] // Task 2 will start dispatching on this
     view_stack: Vec<View>,
     active_tab: DetailTab,
     detail_scroll: usize,

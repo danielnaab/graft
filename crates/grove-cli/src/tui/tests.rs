@@ -431,6 +431,7 @@ fn starts_with_repo_list_focused() {
         "test-workspace".to_string(),
     );
     assert_eq!(app.active_pane, ActivePane::RepoList);
+    assert_eq!(*app.current_view(), View::Dashboard);
     assert_eq!(app.active_tab, DetailTab::Changes);
 }
 
@@ -443,6 +444,7 @@ fn enter_switches_to_detail_pane() {
     );
     app.handle_key(KeyCode::Enter);
     assert_eq!(app.active_pane, ActivePane::Detail);
+    assert_eq!(*app.current_view(), View::RepoDetail(0));
     assert_eq!(app.active_tab, DetailTab::Changes);
 }
 
@@ -455,6 +457,7 @@ fn tab_switches_to_detail_pane() {
     );
     app.handle_key(KeyCode::Tab);
     assert_eq!(app.active_pane, ActivePane::Detail);
+    assert_eq!(*app.current_view(), View::RepoDetail(0));
 }
 
 #[test]
@@ -464,10 +467,11 @@ fn q_in_detail_returns_to_list() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
 
     app.handle_key(KeyCode::Char('q'));
     assert_eq!(app.active_pane, ActivePane::RepoList);
+    assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit, "q in detail should NOT quit the app");
 }
 
@@ -478,10 +482,11 @@ fn esc_in_detail_returns_to_list() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
 
     app.handle_key(KeyCode::Esc);
     assert_eq!(app.active_pane, ActivePane::RepoList);
+    assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit, "Esc in detail should NOT quit the app");
 }
 
@@ -492,11 +497,12 @@ fn enter_in_detail_changes_tab_returns_to_list() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::Changes;
 
     app.handle_key(KeyCode::Enter);
     assert_eq!(app.active_pane, ActivePane::RepoList);
+    assert_eq!(*app.current_view(), View::Dashboard);
 }
 
 #[test]
@@ -506,10 +512,11 @@ fn tab_in_detail_returns_to_list() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
 
     app.handle_key(KeyCode::Tab);
     assert_eq!(app.active_pane, ActivePane::RepoList);
+    assert_eq!(*app.current_view(), View::Dashboard);
 }
 
 // Detail scroll tests
@@ -520,7 +527,7 @@ fn j_in_detail_scrolls_down() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::Changes;
 
     assert_eq!(app.detail_scroll, 0);
@@ -537,7 +544,7 @@ fn k_in_detail_does_not_go_below_zero() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::Changes;
 
     assert_eq!(app.detail_scroll, 0);
@@ -557,6 +564,7 @@ fn navigation_invalidates_detail_cache() {
     app.cached_detail = Some(RepoDetail::empty());
     app.cached_detail_index = Some(0);
 
+    // Navigate in Dashboard view
     app.handle_key(KeyCode::Char('j'));
     assert_eq!(app.list_state.selected(), Some(1));
 
@@ -854,7 +862,7 @@ fn detail_scroll_clamps_to_content_length() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::Changes;
 
     app.ensure_detail_loaded();
@@ -1148,6 +1156,7 @@ fn help_overlay_activates_on_question_mark() {
     );
 
     assert_eq!(app.active_pane, ActivePane::RepoList);
+    assert_eq!(*app.current_view(), View::Dashboard);
 
     app.handle_key(KeyCode::Char('?'));
 
@@ -1155,6 +1164,11 @@ fn help_overlay_activates_on_question_mark() {
         app.active_pane,
         ActivePane::Help,
         "Pressing '?' should activate help overlay"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::Help,
+        "View stack should show Help"
     );
 }
 
@@ -1168,6 +1182,7 @@ fn help_overlay_dismisses_on_printable_key() {
 
     app.handle_key(KeyCode::Char('?'));
     assert_eq!(app.active_pane, ActivePane::Help);
+    assert_eq!(*app.current_view(), View::Help);
 
     app.handle_key(KeyCode::Char('q'));
     assert_eq!(
@@ -1175,6 +1190,7 @@ fn help_overlay_dismisses_on_printable_key() {
         ActivePane::RepoList,
         "Printable key should dismiss help"
     );
+    assert_eq!(*app.current_view(), View::Dashboard);
 }
 
 #[test]
@@ -1187,6 +1203,7 @@ fn help_overlay_dismisses_on_esc() {
 
     app.handle_key(KeyCode::Char('?'));
     assert_eq!(app.active_pane, ActivePane::Help);
+    assert_eq!(*app.current_view(), View::Help);
 
     app.handle_key(KeyCode::Esc);
     assert_eq!(
@@ -1194,6 +1211,7 @@ fn help_overlay_dismisses_on_esc() {
         ActivePane::RepoList,
         "Esc should dismiss help"
     );
+    assert_eq!(*app.current_view(), View::Dashboard);
 }
 
 #[test]
@@ -1356,6 +1374,7 @@ fn x_from_repo_list_navigates_to_commands_tab() {
     app.handle_key(KeyCode::Char('x'));
 
     assert_eq!(app.active_pane, ActivePane::Detail);
+    assert_eq!(*app.current_view(), View::RepoDetail(0));
     assert_eq!(app.active_tab, DetailTab::Commands);
 }
 
@@ -1370,6 +1389,7 @@ fn s_from_repo_list_navigates_to_state_tab() {
     app.handle_key(KeyCode::Char('s'));
 
     assert_eq!(app.active_pane, ActivePane::Detail);
+    assert_eq!(*app.current_view(), View::RepoDetail(0));
     assert_eq!(app.active_tab, DetailTab::State);
 }
 
@@ -1444,7 +1464,7 @@ fn confirmation_dialog_shows_for_running_command() {
     );
 
     app.command_state = CommandState::Running;
-    app.active_pane = ActivePane::CommandOutput;
+    app.push_view(View::CommandOutput);
 
     app.handle_key(KeyCode::Char('q'));
     assert!(
@@ -1462,7 +1482,7 @@ fn confirmation_dialog_not_shown_for_completed_command() {
     );
 
     app.command_state = CommandState::Completed { exit_code: 0 };
-    app.active_pane = ActivePane::CommandOutput;
+    app.push_view(View::CommandOutput);
 
     app.handle_key(KeyCode::Char('q'));
     assert!(
@@ -1474,6 +1494,7 @@ fn confirmation_dialog_not_shown_for_completed_command() {
         ActivePane::RepoList,
         "Should return to repo list"
     );
+    assert_eq!(*app.current_view(), View::Dashboard);
 }
 
 #[test]
@@ -1555,7 +1576,7 @@ fn argument_input_opens_after_command_selected() {
             env: None,
         },
     )];
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::Commands;
     app.command_picker_state.select(Some(0));
 
@@ -1856,7 +1877,7 @@ fn tab_switching_with_number_keys() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
 
     app.handle_key(KeyCode::Char('2'));
     assert_eq!(app.active_tab, DetailTab::State);
@@ -1875,12 +1896,13 @@ fn s_key_switches_to_state_tab_from_detail() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::Changes;
 
     app.handle_key(KeyCode::Char('s'));
 
     assert_eq!(app.active_pane, ActivePane::Detail);
+    assert_eq!(*app.current_view(), View::RepoDetail(0));
     assert_eq!(app.active_tab, DetailTab::State);
 }
 
@@ -1891,12 +1913,13 @@ fn x_key_switches_to_commands_tab_from_detail() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::Changes;
 
     app.handle_key(KeyCode::Char('x'));
 
     assert_eq!(app.active_pane, ActivePane::Detail);
+    assert_eq!(*app.current_view(), View::RepoDetail(0));
     assert_eq!(app.active_tab, DetailTab::Commands);
 }
 
@@ -1909,17 +1932,19 @@ fn q_from_any_tab_returns_to_repo_list() {
     );
 
     // From State tab
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::State;
     app.handle_key(KeyCode::Char('q'));
     assert_eq!(app.active_pane, ActivePane::RepoList);
+    assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit);
 
     // From Commands tab
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::Commands;
     app.handle_key(KeyCode::Char('q'));
     assert_eq!(app.active_pane, ActivePane::RepoList);
+    assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit);
 }
 
@@ -1934,7 +1959,7 @@ fn state_tab_navigation_with_j_key() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::State;
 
     app.state_queries = vec![
@@ -1974,7 +1999,7 @@ fn state_tab_navigation_with_k_key() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::State;
 
     app.state_queries = vec![
@@ -2014,7 +2039,7 @@ fn state_tab_navigation_does_not_move_past_end() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::State;
 
     app.state_queries = vec![
@@ -2054,7 +2079,7 @@ fn state_tab_navigation_does_not_move_before_start() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::State;
 
     app.state_queries = vec![StateQuery {
@@ -2085,7 +2110,7 @@ fn state_tab_navigation_with_arrow_keys() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::State;
 
     app.state_queries = vec![
@@ -2136,7 +2161,7 @@ fn state_tab_handles_empty_queries_gracefully() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::State;
     app.state_queries = Vec::new();
     app.state_results = Vec::new();
@@ -2195,7 +2220,7 @@ fn state_tab_refresh_with_no_selection_shows_warning() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::State;
 
     app.handle_key(KeyCode::Char('r'));
@@ -2307,6 +2332,7 @@ fn hint_bar_shows_repo_list_hints() {
         "test-workspace".to_string(),
     );
 
+    // Dashboard view (default)
     let hints = app.current_hints();
     let keys: Vec<&str> = hints.iter().map(|h| h.key).collect();
 
@@ -2325,7 +2351,7 @@ fn hint_bar_shows_detail_changes_hints() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::Changes;
 
     let hints = app.current_hints();
@@ -2343,7 +2369,7 @@ fn hint_bar_shows_detail_state_hints() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::State;
 
     let hints = app.current_hints();
@@ -2360,7 +2386,7 @@ fn hint_bar_shows_detail_commands_hints() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Detail;
+    app.push_view(View::RepoDetail(0));
     app.active_tab = DetailTab::Commands;
 
     let hints = app.current_hints();
@@ -2377,7 +2403,7 @@ fn hint_bar_shows_help_overlay_hint() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.active_pane = ActivePane::Help;
+    app.push_view(View::Help);
 
     let hints = app.current_hints();
     assert_eq!(hints.len(), 1);
@@ -2425,6 +2451,7 @@ fn empty_workspace_x_does_not_navigate() {
         ActivePane::RepoList,
         "x with no repos should not navigate"
     );
+    assert_eq!(*app.current_view(), View::Dashboard);
 }
 
 #[test]
@@ -2441,4 +2468,5 @@ fn empty_workspace_s_does_not_navigate() {
         ActivePane::RepoList,
         "s with no repos should not navigate"
     );
+    assert_eq!(*app.current_view(), View::Dashboard);
 }

@@ -1,7 +1,7 @@
 //! Changes tab: file changes and recent commits.
 
 use super::{
-    format_file_change_indicator, ActivePane, App, Color, KeyCode, Line, Modifier, Paragraph, Rect,
+    format_file_change_indicator, App, Color, KeyCode, Line, Modifier, Paragraph, Rect,
     RepoDetailProvider, RepoRegistry, Span, Style,
 };
 
@@ -16,7 +16,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.detail_scroll = self.detail_scroll.saturating_sub(1);
             }
             KeyCode::Enter => {
-                self.active_pane = ActivePane::RepoList;
+                self.pop_view();
             }
             _ => {}
         }
