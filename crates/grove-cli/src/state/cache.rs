@@ -10,6 +10,7 @@ use std::path::PathBuf;
 pub use graft_common::state::compute_workspace_hash;
 
 /// Get cache path given a pre-computed workspace hash.
+#[allow(dead_code)]
 fn get_cache_path_from_hash(
     workspace_hash: &str,
     repo_name: &str,
@@ -44,6 +45,7 @@ fn get_query_cache_dir_from_hash(
 /// Read a cached state query result for a specific query and commit.
 ///
 /// Cache location: `~/.cache/graft/{workspace_hash}/{repo_name}/state/{query_name}/{commit_hash}.json`
+#[allow(dead_code)]
 pub fn read_cached_state(
     workspace_hash: &str,
     repo_name: &str,

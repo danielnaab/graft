@@ -78,6 +78,23 @@ pub enum ActivePane {
     CommandOutput,
 }
 
+/// A view in the view stack.
+///
+/// Each variant represents a full-screen content area. Navigation pushes and
+/// pops views; `q` pops, `Escape` resets to Dashboard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)] // Variants will be constructed in Tasks 2-6
+pub enum View {
+    /// The repo list (home view).
+    Dashboard,
+    /// Detail view for a specific repository (index into the registry list).
+    RepoDetail(usize),
+    /// Full-screen command output.
+    CommandOutput,
+    /// Help / keybindings reference.
+    Help,
+}
+
 /// State for argument input dialog.
 #[derive(Debug, Clone)]
 struct ArgumentInputState {
@@ -94,6 +111,10 @@ pub struct App<R, D> {
     list_state: ListState,
     should_quit: bool,
     active_pane: ActivePane,
+    /// View stack — the top of the stack is the current view.
+    /// Invariant: always has at least one element (Dashboard).
+    #[allow(dead_code)] // Task 2 will start dispatching on this
+    view_stack: Vec<View>,
     active_tab: DetailTab,
     detail_scroll: usize,
     cached_detail: Option<RepoDetail>,

@@ -13,5 +13,6 @@ pub struct StateQuery {
     pub timeout: Option<u64>,
 }
 
-// Re-export shared types from graft-common
+// Re-export shared types from graft-common (StateMetadata used in tests)
+#[allow(unused_imports)]
 pub use graft_common::state::{StateMetadata, StateResult};
