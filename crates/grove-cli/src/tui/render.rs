@@ -152,9 +152,19 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.ensure_detail_loaded();
 
         terminal.draw(|frame| {
-            // Clear every cell before drawing so no previous terminal content
-            // bleeds through areas that widgets don't explicitly paint.
-            frame.render_widget(Clear, frame.area());
+            // Paint a solid black background across the entire frame first.
+            //
+            // Ratatui's previous-buffer starts as all Cell::default() (bg:
+            // Color::Reset). Clear also writes Color::Reset, so the diff is
+            // empty on the first frame and no escape codes are sent — meaning
+            // the pre-existing terminal content remains visible. An explicit
+            // Color::Black produces a real diff on the first frame (Reset →
+            // Black), so every cell gets painted. On later frames, unpainted
+            // cells stay black instead of leaking through.
+            frame.render_widget(
+                Block::default().style(Style::default().bg(Color::Black)),
+                frame.area(),
+            );
 
             // Main layout: content area + status bar at bottom
             let main_chunks = Layout::default()
