@@ -105,7 +105,7 @@ Key constraints:
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 6: Escape-goes-home and stack discipline
-- [ ] Implement full navigation semantics: `Escape` resets to dashboard, `q` pops one level
+- [x] Implement full navigation semantics: `Escape` resets to dashboard, `q` pops one level
 - **Code**: `crates/grove-cli/src/tui/app.rs`
 - **Specs**: `docs/specifications/grove/tui-behavior.md` (Focus Management)
 - **Design**: `notes/2026-02-18-grove-command-prompt-exploration.md` (Navigation: Hybrid Stack with Shortcuts)
