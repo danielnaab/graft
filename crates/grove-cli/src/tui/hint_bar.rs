@@ -1,6 +1,6 @@
 //! Context-sensitive keybinding hint bar.
 
-use super::{App, ArgumentInputMode, DetailTab, RepoDetailProvider, RepoRegistry, View};
+use super::{App, ArgumentInputMode, RepoDetailProvider, RepoRegistry, View};
 
 /// A keybinding hint for the status bar.
 pub(super) struct KeyHint {
@@ -9,8 +9,7 @@ pub(super) struct KeyHint {
 }
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
-    /// Return context-sensitive key hints based on current view and tab.
-    #[allow(clippy::too_many_lines)]
+    /// Return context-sensitive key hints based on current view.
     pub(super) fn current_hints(&self) -> Vec<KeyHint> {
         // ArgumentInput is an overlay — show its hints regardless of view stack.
         if self.argument_input_mode == ArgumentInputMode::Active {
@@ -37,14 +36,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     action: "details",
                 },
                 KeyHint {
-                    key: "s",
-                    action: "state",
-                },
-                KeyHint {
-                    key: "x",
-                    action: "commands",
-                },
-                KeyHint {
                     key: "r",
                     action: "refresh",
                 },
@@ -57,78 +48,28 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     action: "quit",
                 },
             ],
-            View::RepoDetail(_) => match self.active_tab {
-                DetailTab::Changes => vec![
-                    KeyHint {
-                        key: "j/k",
-                        action: "scroll",
-                    },
-                    KeyHint {
-                        key: "1-3",
-                        action: "tab",
-                    },
-                    KeyHint {
-                        key: "s",
-                        action: "state",
-                    },
-                    KeyHint {
-                        key: "x",
-                        action: "commands",
-                    },
-                    KeyHint {
-                        key: "Tab",
-                        action: "repos",
-                    },
-                    KeyHint {
-                        key: "q",
-                        action: "back",
-                    },
-                ],
-                DetailTab::State => vec![
-                    KeyHint {
-                        key: "j/k",
-                        action: "navigate",
-                    },
-                    KeyHint {
-                        key: "r",
-                        action: "refresh",
-                    },
-                    KeyHint {
-                        key: "1-3",
-                        action: "tab",
-                    },
-                    KeyHint {
-                        key: "Tab",
-                        action: "repos",
-                    },
-                    KeyHint {
-                        key: "q",
-                        action: "back",
-                    },
-                ],
-                DetailTab::Commands => vec![
-                    KeyHint {
-                        key: "j/k",
-                        action: "navigate",
-                    },
-                    KeyHint {
-                        key: "Enter",
-                        action: "run",
-                    },
-                    KeyHint {
-                        key: "1-3",
-                        action: "tab",
-                    },
-                    KeyHint {
-                        key: "Tab",
-                        action: "repos",
-                    },
-                    KeyHint {
-                        key: "q",
-                        action: "back",
-                    },
-                ],
-            },
+            View::RepoDetail(_) => vec![
+                KeyHint {
+                    key: "j/k",
+                    action: "scroll",
+                },
+                KeyHint {
+                    key: "Enter",
+                    action: "run command",
+                },
+                KeyHint {
+                    key: "r",
+                    action: "refresh state",
+                },
+                KeyHint {
+                    key: "?",
+                    action: "help",
+                },
+                KeyHint {
+                    key: "q",
+                    action: "back",
+                },
+            ],
             View::Help => vec![KeyHint {
                 key: "any key",
                 action: "close",

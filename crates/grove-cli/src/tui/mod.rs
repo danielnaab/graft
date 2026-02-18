@@ -5,12 +5,9 @@ mod command_exec;
 mod hint_bar;
 mod overlays;
 mod render;
+mod repo_detail;
 mod repo_list;
 mod status_bar;
-mod tab_changes;
-mod tab_commands;
-mod tab_state;
-mod tabs;
 
 use anyhow::Result;
 use crossterm::{
@@ -38,7 +35,6 @@ use unicode_width::UnicodeWidthStr;
 
 // Re-export public items
 pub use command_exec::CommandEvent;
-pub use tabs::DetailTab;
 
 // Re-export for integration tests
 #[allow(unused_imports)]
@@ -114,7 +110,6 @@ pub struct App<R, D> {
     view_stack: Vec<View>,
     /// Whether the argument input overlay is shown over the current view.
     argument_input_mode: ArgumentInputMode,
-    active_tab: DetailTab,
     detail_scroll: usize,
     cached_detail: Option<RepoDetail>,
     cached_detail_index: Option<usize>,

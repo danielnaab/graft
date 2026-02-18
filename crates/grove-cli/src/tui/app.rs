@@ -1,8 +1,8 @@
 //! App struct construction, key dispatch, navigation, and data loading.
 
 use super::{
-    App, ArgumentInputMode, CommandState, DetailTab, GraftYamlConfigLoader, KeyCode, ListState,
-    RepoDetail, RepoDetailProvider, RepoRegistry, StatusMessage, View, DEFAULT_MAX_COMMITS,
+    App, ArgumentInputMode, CommandState, GraftYamlConfigLoader, KeyCode, ListState, RepoDetail,
+    RepoDetailProvider, RepoRegistry, StatusMessage, View, DEFAULT_MAX_COMMITS,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -21,7 +21,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             should_quit: false,
             view_stack: vec![View::Dashboard],
             argument_input_mode: ArgumentInputMode::Inactive,
-            active_tab: DetailTab::Changes,
             detail_scroll: 0,
             cached_detail: None,
             cached_detail_index: None,
@@ -117,9 +116,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             KeyCode::Char('k') | KeyCode::Up => {
                 self.previous();
             }
-            KeyCode::Enter | KeyCode::Tab => {
+            // Enter, Tab, 'x', 's' all open RepoDetail (unified view shows all sections)
+            KeyCode::Enter | KeyCode::Tab | KeyCode::Char('x' | 's') => {
                 if let Some(idx) = self.list_state.selected() {
-                    self.active_tab = DetailTab::Changes;
                     self.push_view(View::RepoDetail(idx));
                 }
             }
@@ -130,51 +129,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             KeyCode::Char('?') => {
                 self.push_view(View::Help);
             }
-            KeyCode::Char('x') => {
-                if let Some(idx) = self.list_state.selected() {
-                    self.load_commands_for_selected_repo();
-                    self.active_tab = DetailTab::Commands;
-                    self.push_view(View::RepoDetail(idx));
-                }
-            }
-            KeyCode::Char('s') => {
-                if let Some(idx) = self.list_state.selected() {
-                    self.ensure_state_loaded();
-                    self.active_tab = DetailTab::State;
-                    self.push_view(View::RepoDetail(idx));
-                }
-            }
             _ => {}
-        }
-    }
-
-    fn handle_key_repo_detail(&mut self, code: KeyCode) {
-        match code {
-            // Back to dashboard
-            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Tab => {
-                self.pop_view();
-            }
-            KeyCode::Char('?') => {
-                self.push_view(View::Help);
-            }
-            // Tab switching by number (with legacy shortcuts merged)
-            KeyCode::Char('1') => {
-                self.active_tab = DetailTab::Changes;
-            }
-            KeyCode::Char('2' | 's') => {
-                self.ensure_state_loaded();
-                self.active_tab = DetailTab::State;
-            }
-            KeyCode::Char('3' | 'x') => {
-                self.load_commands_for_selected_repo();
-                self.active_tab = DetailTab::Commands;
-            }
-            // Delegate to active tab handler
-            _ => match self.active_tab {
-                DetailTab::Changes => self.handle_key_changes_tab(code),
-                DetailTab::State => self.handle_key_state_tab(code),
-                DetailTab::Commands => self.handle_key_commands_tab(code),
-            },
         }
     }
 
@@ -270,17 +225,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.cached_detail = Some(detail);
         self.cached_detail_index = Some(index);
         self.detail_scroll = 0;
-    }
-
-    /// Ensure state queries are loaded for the current repo.
-    pub(super) fn ensure_state_loaded(&mut self) {
-        if let Some(selected) = self.list_state.selected() {
-            let repos = self.registry.list_repos();
-            if let Some(repo) = repos.get(selected) {
-                let repo_path_str = repo.as_path().to_str().unwrap_or("");
-                self.load_state_queries(repo_path_str);
-            }
-        }
     }
 
     // ===== View stack helpers =====

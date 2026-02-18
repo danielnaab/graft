@@ -1,8 +1,8 @@
 //! Main render method and layout composition.
 
 use super::{
-    io, App, ArgumentInputMode, Block, Borders, Color, Constraint, CrosstermBackend, DetailTab,
-    Direction, Layout, RepoDetailProvider, RepoRegistry, Result, Style, Terminal, View,
+    io, App, ArgumentInputMode, Constraint, CrosstermBackend, Direction, Layout,
+    RepoDetailProvider, RepoRegistry, Result, Terminal, View,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -61,29 +61,5 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         })?;
 
         Ok(())
-    }
-
-    /// Render the repo detail view (full-width, with tab header).
-    pub(super) fn render_repo_detail_view(
-        &mut self,
-        frame: &mut ratatui::Frame,
-        area: super::Rect,
-    ) {
-        let tab_title = self.render_tab_header();
-
-        let block = Block::default()
-            .title(tab_title)
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
-
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-
-        // Render active tab content
-        match self.active_tab {
-            DetailTab::Changes => self.render_changes_tab(frame, inner),
-            DetailTab::State => self.render_state_tab(frame, inner),
-            DetailTab::Commands => self.render_commands_tab(frame, inner),
-        }
     }
 }

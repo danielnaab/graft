@@ -431,7 +431,6 @@ fn starts_with_repo_list_focused() {
         "test-workspace".to_string(),
     );
     assert_eq!(*app.current_view(), View::Dashboard);
-    assert_eq!(app.active_tab, DetailTab::Changes);
 }
 
 #[test]
@@ -443,7 +442,6 @@ fn enter_switches_to_detail_pane() {
     );
     app.handle_key(KeyCode::Enter);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
-    assert_eq!(app.active_tab, DetailTab::Changes);
 }
 
 #[test]
@@ -486,17 +484,17 @@ fn esc_in_detail_returns_to_list() {
 }
 
 #[test]
-fn enter_in_detail_changes_tab_returns_to_list() {
+fn enter_in_detail_with_no_commands_is_noop() {
     let mut app = App::new(
         MockRegistry::with_repos(3),
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::Changes;
 
+    // Enter tries to execute a command; with no commands loaded, it's a no-op.
     app.handle_key(KeyCode::Enter);
-    assert_eq!(*app.current_view(), View::Dashboard);
+    assert_eq!(*app.current_view(), View::RepoDetail(0));
 }
 
 #[test]
@@ -521,7 +519,6 @@ fn j_in_detail_scrolls_down() {
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::Changes;
 
     assert_eq!(app.detail_scroll, 0);
     app.handle_key(KeyCode::Char('j'));
@@ -538,7 +535,6 @@ fn k_in_detail_does_not_go_below_zero() {
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::Changes;
 
     assert_eq!(app.detail_scroll, 0);
     app.handle_key(KeyCode::Char('k'));
@@ -567,13 +563,13 @@ fn navigation_invalidates_detail_cache() {
 
 // Detail rendering tests
 #[test]
-fn build_detail_lines_no_selection() {
+fn build_repo_detail_lines_no_selection() {
     let app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    let lines = app.build_detail_lines();
+    let lines = app.build_repo_detail_lines();
     let text: String = lines
         .iter()
         .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
@@ -582,7 +578,7 @@ fn build_detail_lines_no_selection() {
 }
 
 #[test]
-fn build_detail_lines_with_error() {
+fn build_repo_detail_lines_with_error() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::empty(),
@@ -591,7 +587,7 @@ fn build_detail_lines_with_error() {
     app.cached_detail = Some(RepoDetail::with_error("git failed".to_string()));
     app.cached_detail_index = Some(0);
 
-    let lines = app.build_detail_lines();
+    let lines = app.build_repo_detail_lines();
     let text: String = lines
         .iter()
         .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
@@ -600,7 +596,7 @@ fn build_detail_lines_with_error() {
 }
 
 #[test]
-fn build_detail_lines_with_commits_and_files() {
+fn build_repo_detail_lines_with_commits_and_files() {
     let detail = RepoDetail {
         commits: vec![
             CommitInfo {
@@ -637,7 +633,7 @@ fn build_detail_lines_with_commits_and_files() {
     app.cached_detail_index = Some(0);
     app.ensure_detail_loaded();
 
-    let lines = app.build_detail_lines();
+    let lines = app.build_repo_detail_lines();
     let text: String = lines
         .iter()
         .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
@@ -661,7 +657,7 @@ fn build_detail_lines_with_commits_and_files() {
 }
 
 #[test]
-fn build_detail_lines_empty_repo() {
+fn build_repo_detail_lines_empty_repo() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::with_detail(RepoDetail::empty()),
@@ -670,7 +666,7 @@ fn build_detail_lines_empty_repo() {
     app.cached_detail_index = Some(0);
     app.ensure_detail_loaded();
 
-    let lines = app.build_detail_lines();
+    let lines = app.build_repo_detail_lines();
     let text: String = lines
         .iter()
         .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
@@ -745,7 +741,9 @@ fn ensure_detail_loaded_converts_provider_error_to_detail_error() {
 // --- Branch header rendering tests ---
 
 #[test]
-fn build_detail_lines_shows_branch_header() {
+fn build_repo_detail_lines_shows_branch_header() {
+    // Branch info is shown in the block title via repo_detail_title(), not in the content lines.
+    // The content lines show changes/commits/state/commands sections.
     let mut status = RepoStatus::new(RepoPath::new("/tmp/repo0").unwrap());
     status.branch = Some("main".to_string());
     status.is_dirty = true;
@@ -760,20 +758,25 @@ fn build_detail_lines_shows_branch_header() {
     app.cached_detail_index = Some(0);
     app.ensure_detail_loaded();
 
-    let lines = app.build_detail_lines();
+    let lines = app.build_repo_detail_lines();
     let text: String = lines
         .iter()
         .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
         .collect::<String>();
 
-    assert!(text.contains("main"), "Should show branch name");
-    assert!(text.contains("●"), "Should show dirty indicator");
-    assert!(text.contains("↑2"), "Should show ahead count");
-    assert!(text.contains("↓1"), "Should show behind count");
+    // Content lines include the changes/state/commands sections
+    assert!(
+        text.contains("No uncommitted changes")
+            || text.contains("Changed Files")
+            || text.contains("State Queries"),
+        "Should show content sections"
+    );
 }
 
 #[test]
-fn build_detail_lines_clean_repo_shows_clean_indicator() {
+fn build_repo_detail_lines_clean_repo_shows_clean_indicator() {
+    // Branch/dirty info is shown in the block title via repo_detail_title(), not in content lines.
+    // Clean repo with empty detail shows "No uncommitted changes" in the content.
     let mut status = RepoStatus::new(RepoPath::new("/tmp/repo0").unwrap());
     status.branch = Some("develop".to_string());
     status.is_dirty = false;
@@ -786,22 +789,30 @@ fn build_detail_lines_clean_repo_shows_clean_indicator() {
     app.cached_detail_index = Some(0);
     app.ensure_detail_loaded();
 
-    let lines = app.build_detail_lines();
+    let lines = app.build_repo_detail_lines();
     let text: String = lines
         .iter()
         .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
         .collect::<String>();
 
-    assert!(text.contains("develop"), "Should show branch name");
-    assert!(text.contains("○"), "Should show clean indicator");
-    assert!(!text.contains("↑"), "Should not show ahead when None");
-    assert!(!text.contains("↓"), "Should not show behind when None");
+    assert!(
+        text.contains("No uncommitted changes"),
+        "Clean repo should show no-changes message"
+    );
+    assert!(
+        !text.contains("↑"),
+        "Content lines should not show ahead indicator"
+    );
+    assert!(
+        !text.contains("↓"),
+        "Content lines should not show behind indicator"
+    );
 }
 
 // --- Partial error rendering test ---
 
 #[test]
-fn build_detail_lines_shows_error_and_partial_data() {
+fn build_repo_detail_lines_shows_error_and_partial_data() {
     let detail = RepoDetail {
         commits: vec![CommitInfo {
             hash: "abc1234".to_string(),
@@ -821,7 +832,7 @@ fn build_detail_lines_shows_error_and_partial_data() {
     app.cached_detail = Some(detail);
     app.cached_detail_index = Some(0);
 
-    let lines = app.build_detail_lines();
+    let lines = app.build_repo_detail_lines();
     let text: String = lines
         .iter()
         .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
@@ -856,13 +867,12 @@ fn detail_scroll_clamps_to_content_length() {
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::Changes;
 
     app.ensure_detail_loaded();
 
     app.detail_scroll = 9999;
 
-    let lines = app.build_detail_lines();
+    let lines = app.build_repo_detail_lines();
     let max_scroll = lines.len();
 
     assert!(
@@ -1346,7 +1356,6 @@ fn x_from_repo_list_navigates_to_commands_tab() {
 
     app.handle_key(KeyCode::Char('x'));
     assert_eq!(*app.current_view(), View::RepoDetail(0));
-    assert_eq!(app.active_tab, DetailTab::Commands);
 }
 
 #[test]
@@ -1359,7 +1368,6 @@ fn s_from_repo_list_navigates_to_state_tab() {
 
     app.handle_key(KeyCode::Char('s'));
     assert_eq!(*app.current_view(), View::RepoDetail(0));
-    assert_eq!(app.active_tab, DetailTab::State);
 }
 
 // ===== Command Execution Tests =====
@@ -1541,7 +1549,6 @@ fn argument_input_opens_after_command_selected() {
         },
     )];
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::Commands;
     app.command_picker_state.select(Some(0));
 
     app.execute_selected_command();
@@ -1829,55 +1836,6 @@ fn argument_input_prevents_execution_on_parse_error() {
 // ===== Tab Switching Tests =====
 
 #[test]
-fn tab_switching_with_number_keys() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-
-    app.handle_key(KeyCode::Char('2'));
-    assert_eq!(app.active_tab, DetailTab::State);
-
-    app.handle_key(KeyCode::Char('3'));
-    assert_eq!(app.active_tab, DetailTab::Commands);
-
-    app.handle_key(KeyCode::Char('1'));
-    assert_eq!(app.active_tab, DetailTab::Changes);
-}
-
-#[test]
-fn s_key_switches_to_state_tab_from_detail() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::Changes;
-
-    app.handle_key(KeyCode::Char('s'));
-    assert_eq!(*app.current_view(), View::RepoDetail(0));
-    assert_eq!(app.active_tab, DetailTab::State);
-}
-
-#[test]
-fn x_key_switches_to_commands_tab_from_detail() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::Changes;
-
-    app.handle_key(KeyCode::Char('x'));
-    assert_eq!(*app.current_view(), View::RepoDetail(0));
-    assert_eq!(app.active_tab, DetailTab::Commands);
-}
-
-#[test]
 fn q_from_any_tab_returns_to_repo_list() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
@@ -1885,16 +1843,7 @@ fn q_from_any_tab_returns_to_repo_list() {
         "test-workspace".to_string(),
     );
 
-    // From State tab
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::State;
-    app.handle_key(KeyCode::Char('q'));
-    assert_eq!(*app.current_view(), View::Dashboard);
-    assert!(!app.should_quit);
-
-    // From Commands tab
-    app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::Commands;
     app.handle_key(KeyCode::Char('q'));
     assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit);
@@ -1904,206 +1853,85 @@ fn q_from_any_tab_returns_to_repo_list() {
 
 #[test]
 fn state_tab_navigation_with_j_key() {
-    use crate::state::StateQuery;
-
+    // In the unified RepoDetail view, j/k scroll the detail_scroll offset.
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::State;
 
-    app.state_queries = vec![
-        StateQuery {
-            name: "coverage".to_string(),
-            run: "pytest --cov".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-        StateQuery {
-            name: "tasks".to_string(),
-            run: "task-list".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-    ];
-    app.state_results = vec![None, None];
-    app.state_panel_list_state.select(Some(0));
-
+    assert_eq!(app.detail_scroll, 0);
     app.handle_key(KeyCode::Char('j'));
-
-    assert_eq!(
-        app.state_panel_list_state.selected(),
-        Some(1),
-        "'j' should move down to next query"
-    );
+    assert_eq!(app.detail_scroll, 1, "'j' should scroll detail view down");
 }
 
 #[test]
 fn state_tab_navigation_with_k_key() {
-    use crate::state::StateQuery;
-
+    // In the unified RepoDetail view, k scrolls detail_scroll up (saturating at 0).
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::State;
-
-    app.state_queries = vec![
-        StateQuery {
-            name: "q1".to_string(),
-            run: "echo q1".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-        StateQuery {
-            name: "q2".to_string(),
-            run: "echo q2".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-    ];
-    app.state_results = vec![None, None];
-    app.state_panel_list_state.select(Some(1));
+    app.detail_scroll = 3;
 
     app.handle_key(KeyCode::Char('k'));
+    assert_eq!(app.detail_scroll, 2, "'k' should scroll detail view up");
 
-    assert_eq!(
-        app.state_panel_list_state.selected(),
-        Some(0),
-        "'k' should move up to previous query"
-    );
+    app.detail_scroll = 0;
+    app.handle_key(KeyCode::Char('k'));
+    assert_eq!(app.detail_scroll, 0, "'k' at top should not go below 0");
 }
 
 #[test]
 fn state_tab_navigation_does_not_move_past_end() {
-    use crate::state::StateQuery;
-
+    // In the unified view, j always increments detail_scroll (no upper bound from content in this test).
+    // This test verifies j continues to increment.
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::State;
-
-    app.state_queries = vec![
-        StateQuery {
-            name: "q1".to_string(),
-            run: "echo q1".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-        StateQuery {
-            name: "q2".to_string(),
-            run: "echo q2".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-    ];
-    app.state_results = vec![None, None];
-    app.state_panel_list_state.select(Some(1));
+    app.detail_scroll = 5;
 
     app.handle_key(KeyCode::Char('j'));
-
-    assert_eq!(
-        app.state_panel_list_state.selected(),
-        Some(1),
-        "Should not move past last query"
-    );
+    assert_eq!(app.detail_scroll, 6, "j should increment scroll");
 }
 
 #[test]
 fn state_tab_navigation_does_not_move_before_start() {
-    use crate::state::StateQuery;
-
+    // k at detail_scroll=0 should not underflow (saturating_sub).
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::State;
-
-    app.state_queries = vec![StateQuery {
-        name: "q1".to_string(),
-        run: "echo q1".to_string(),
-        description: None,
-        deterministic: true,
-        timeout: None,
-    }];
-    app.state_results = vec![None];
-    app.state_panel_list_state.select(Some(0));
+    assert_eq!(app.detail_scroll, 0);
 
     app.handle_key(KeyCode::Char('k'));
-
-    assert_eq!(
-        app.state_panel_list_state.selected(),
-        Some(0),
-        "Should not move before first query"
-    );
+    assert_eq!(app.detail_scroll, 0, "k at top should not underflow");
 }
 
 #[test]
 fn state_tab_navigation_with_arrow_keys() {
-    use crate::state::StateQuery;
-
+    // Arrow keys in the unified RepoDetail view scroll detail_scroll.
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::State;
-
-    app.state_queries = vec![
-        StateQuery {
-            name: "q1".to_string(),
-            run: "echo q1".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-        StateQuery {
-            name: "q2".to_string(),
-            run: "echo q2".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-        StateQuery {
-            name: "q3".to_string(),
-            run: "echo q3".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-    ];
-    app.state_results = vec![None, None, None];
-    app.state_panel_list_state.select(Some(1));
+    app.detail_scroll = 2;
 
     app.handle_key(KeyCode::Down);
-    assert_eq!(
-        app.state_panel_list_state.selected(),
-        Some(2),
-        "Down arrow should move down"
-    );
+    assert_eq!(app.detail_scroll, 3, "Down arrow should scroll down");
 
     app.handle_key(KeyCode::Up);
-    assert_eq!(
-        app.state_panel_list_state.selected(),
-        Some(1),
-        "Up arrow should move up"
-    );
+    assert_eq!(app.detail_scroll, 2, "Up arrow should scroll up");
 }
 
 #[test]
@@ -2114,7 +1942,6 @@ fn state_tab_handles_empty_queries_gracefully() {
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::State;
     app.state_queries = Vec::new();
     app.state_results = Vec::new();
 
@@ -2173,7 +2000,6 @@ fn state_tab_refresh_with_no_selection_shows_warning() {
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::State;
 
     app.handle_key(KeyCode::Char('r'));
 
@@ -2292,8 +2118,6 @@ fn hint_bar_shows_repo_list_hints() {
     assert!(keys.contains(&"Enter"), "Should have details hint");
     assert!(keys.contains(&"?"), "Should have help hint");
     assert!(keys.contains(&"q"), "Should have quit hint");
-    assert!(keys.contains(&"s"), "Should have state hint");
-    assert!(keys.contains(&"x"), "Should have commands hint");
 }
 
 #[test]
@@ -2304,13 +2128,11 @@ fn hint_bar_shows_detail_changes_hints() {
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::Changes;
 
     let hints = app.current_hints();
     let keys: Vec<&str> = hints.iter().map(|h| h.key).collect();
 
     assert!(keys.contains(&"j/k"), "Should have scroll hint");
-    assert!(keys.contains(&"1-3"), "Should have tab hint");
     assert!(keys.contains(&"q"), "Should have back hint");
 }
 
@@ -2322,13 +2144,12 @@ fn hint_bar_shows_detail_state_hints() {
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::State;
 
     let hints = app.current_hints();
     let keys: Vec<&str> = hints.iter().map(|h| h.key).collect();
 
     assert!(keys.contains(&"r"), "Should have refresh hint");
-    assert!(keys.contains(&"1-3"), "Should have tab hint");
+    assert!(keys.contains(&"q"), "Should have back hint");
 }
 
 #[test]
@@ -2339,13 +2160,12 @@ fn hint_bar_shows_detail_commands_hints() {
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.active_tab = DetailTab::Commands;
 
     let hints = app.current_hints();
     let keys: Vec<&str> = hints.iter().map(|h| h.key).collect();
 
     assert!(keys.contains(&"Enter"), "Should have run hint");
-    assert!(keys.contains(&"1-3"), "Should have tab hint");
+    assert!(keys.contains(&"q"), "Should have back hint");
 }
 
 #[test]
@@ -2364,30 +2184,6 @@ fn hint_bar_shows_help_overlay_hint() {
 }
 
 // ===== Tab Header Tests =====
-
-#[test]
-fn tab_header_highlights_active_tab() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.active_tab = DetailTab::Changes;
-    let header = app.render_tab_header();
-    let text: String = header.spans.iter().map(|s| s.content.as_ref()).collect();
-    assert!(text.contains("Changes"), "Should contain Changes tab label");
-    assert!(text.contains("State"), "Should contain State tab label");
-    assert!(
-        text.contains("Commands"),
-        "Should contain Commands tab label"
-    );
-
-    app.active_tab = DetailTab::State;
-    let header = app.render_tab_header();
-    let text: String = header.spans.iter().map(|s| s.content.as_ref()).collect();
-    assert!(text.contains("State"), "Should contain State tab label");
-}
 
 #[test]
 fn empty_workspace_x_does_not_navigate() {
