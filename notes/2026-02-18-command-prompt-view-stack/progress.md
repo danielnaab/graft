@@ -129,3 +129,20 @@ When dispatching through `handle_key_repo_detail`, the tab-specific handlers (`h
 **Critique findings**: Initial spec drafts had inaccuracies: (1) `r` from "any view" was wrong — Dashboard `r` refreshes all repos, RepoDetail `r` refreshes state queries; (2) `x` from Dashboard opens RepoDetail, not a command picker overlay — the command picker overlay no longer exists; (3) command selection uses `n`/`p` in RepoDetail, not the old `j`/`k` command picker. All three were caught and fixed before committing.
 **Improvements made**: Fixed `r` key spec to be view-specific; corrected `x` key Dashboard behavior; updated RepoDetail navigation to `n`/`p`/`Enter` pattern; updated command-execution.md keybinding table and scenario descriptions accordingly.
 **Learnings for future iterations**: When writing spec updates, read the actual implementation code (app.rs key dispatch, repo_detail.rs) — don't rely solely on plan.md descriptions which may describe design intent that was simplified during implementation. The key mapping in `handle_key_dashboard` and `handle_key_repo_detail` is the ground truth for what keys do. All tasks are now complete — the Ralph loop for this plan is done.
+
+---
+
+### Iteration — Critique improvements A–E + accessibility
+**Status**: completed
+**Files changed**: `crates/grove-cli/src/tui/mod.rs`, `app.rs`, `command_line.rs`, `hint_bar.rs`, `overlays.rs`, `render.rs`, `repo_detail.rs`, `status_bar.rs`, `tests.rs`
+**What was done**:
+- **Task A (help view)**: Rewrote `render_help_view` with accurate content for the view stack architecture: Dashboard, RepoDetail, Command Line, and Status Indicators sections. Removed stale tabbed-UI content (1/2/3 tab keys, "switch panes").
+- **Task B (ArgumentInputMode)**: Removed `ArgumentInputMode` enum and `argument_input_mode: ArgumentInputMode` field from `App`. `argument_input: Option<ArgumentInputState>` is now the sole source of truth for overlay state. Eliminated a dual-write invariant and ~25 mode assignment lines.
+- **Task C (state_panel_list_state)**: Removed vestigial `state_panel_list_state: ListState` field (always selected index 0, never navigated). Rewrote `refresh_selected_state_query` → `refresh_state_queries` which loops all queries and reports success/partial failure in plural-aware status messages.
+- **Task D (palette Enter UX)**: Added `takes_args: bool` to `PaletteEntry`. No-arg commands (help, quit, refresh, state) now execute immediately on first Enter from the palette. Commands with required args (repo, run) still fill the buffer for typing. Previously all palette entries required two Enters.
+- **Task E (stale comments)**: Fixed two "Invalidate tab data for lazy reload" comments → "Invalidate cached repo data for lazy reload" in `app.rs`.
+- **Accessibility**: Systematic `DarkGray` text → `Gray`/`White` throughout. `DarkGray` on `Black` background ≈1.7:1 contrast (fails WCAG AA 4.5:1). Upgraded: palette description text, hint bar action text, repo detail secondary text (uncommitted changes, no commits, author/date, state/command empty states, cache age), help view footer, argument dialog help text, stop confirmation secondary text.
+- Added `Esc:home` and `:::command` hints to `CommandOutput` view hint bar.
+**Critique findings**: Three tests needed updating: (1) palette Enter tests expected old fill-buffer behavior — updated to assert immediate execution; (2) `state_tab_refresh_with_no_selection_shows_warning` expected Warning but new function sends Info when no queries defined — test renamed and updated. Also found unused `ListState` import in `repo_detail.rs` after removing `state_panel_list_state`.
+**Improvements made**: Fixed `ListState` unused import; updated 3 tests to match new behavior.
+**Learnings for future iterations**: When removing a field, always grep for its type/name in imports too — `ListState` was imported solely for the removed field. Tests that assert on `msg_type` (Warning vs Info) need updating when the code path changes. The `takes_args` pattern in PaletteEntry is a clean way to distinguish "fill then submit" from "execute immediately" without special-casing by command name.
