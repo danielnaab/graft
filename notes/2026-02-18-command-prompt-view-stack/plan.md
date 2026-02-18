@@ -151,7 +151,7 @@ Key constraints:
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 9: Command palette (`:` with empty input)
-- [ ] Show filterable command palette when command line is empty
+- [x] Show filterable command palette when command line is empty
 - **Code**: `crates/grove-cli/src/tui/command_line.rs`, `crates/grove-cli/src/tui/render.rs`, `crates/grove-cli/src/tui/app.rs`
 - **Design**: `notes/2026-02-18-grove-command-prompt-exploration.md` (Discoverability)
 - **Acceptance**:
