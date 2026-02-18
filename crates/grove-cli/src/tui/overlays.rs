@@ -256,7 +256,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             ]),
             Line::from(""),
             Line::from(Span::styled(
-                "q/Esc to close",
+                "q: close   Esc: home",
                 Style::default().fg(Color::Gray),
             )),
         ];
@@ -353,7 +353,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         if state.buffer.is_empty() {
             return (
                 format!("Will execute: graft run {}", state.command_name),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(Color::Gray),
             );
         }
 

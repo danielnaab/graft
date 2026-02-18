@@ -107,10 +107,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     let mut spans = vec![
                         Span::raw(" "),
                         Span::styled(path_str, Style::default().fg(Color::White)),
-                        Span::styled(
-                            format!(" ── {branch}"),
-                            Style::default().fg(Color::DarkGray),
-                        ),
+                        Span::styled(format!(" ── {branch}"), Style::default().fg(Color::Gray)),
                         Span::styled(dirty, Style::default().fg(dirty_color)),
                     ];
 
@@ -470,10 +467,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             Some(r) => r.as_path().to_path_buf(),
             None => return,
         };
-
-        self.status_message = Some(StatusMessage::info(
-            "Refreshing state queries...".to_string(),
-        ));
 
         let queries: Vec<(String, String)> = self
             .state_queries

@@ -78,10 +78,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     action: "back",
                 },
             ],
-            View::Help => vec![KeyHint {
-                key: "any key",
-                action: "close",
-            }],
+            View::Help => vec![
+                KeyHint {
+                    key: "q",
+                    action: "close",
+                },
+                KeyHint {
+                    key: "Esc",
+                    action: "home",
+                },
+            ],
             View::CommandOutput => vec![
                 KeyHint {
                     key: "j/k",

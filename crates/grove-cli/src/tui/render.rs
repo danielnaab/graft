@@ -87,7 +87,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" Commands ")
-                    .style(Style::default().fg(Color::White).bg(Color::DarkGray)),
+                    .border_style(Style::default().fg(Color::Cyan))
+                    .style(Style::default().fg(Color::White).bg(Color::Black)),
             )
             .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
 

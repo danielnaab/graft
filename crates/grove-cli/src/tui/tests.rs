@@ -2176,9 +2176,11 @@ fn hint_bar_shows_help_overlay_hint() {
     app.push_view(View::Help);
 
     let hints = app.current_hints();
-    assert_eq!(hints.len(), 1);
-    assert_eq!(hints[0].key, "any key");
+    assert_eq!(hints.len(), 2);
+    assert_eq!(hints[0].key, "q");
     assert_eq!(hints[0].action, "close");
+    assert_eq!(hints[1].key, "Esc");
+    assert_eq!(hints[1].action, "home");
 }
 
 // ===== Tab Header Tests =====
