@@ -135,7 +135,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     self.output_scroll -= 1;
                 }
             }
-            KeyCode::Char('q') => {
+            KeyCode::Char('q') | KeyCode::Esc => {
                 if matches!(self.command_state, CommandState::Running) {
                     self.show_stop_confirmation = true;
                 } else {

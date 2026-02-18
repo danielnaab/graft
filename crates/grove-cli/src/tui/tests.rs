@@ -2470,3 +2470,286 @@ fn empty_workspace_s_does_not_navigate() {
     );
     assert_eq!(*app.current_view(), View::Dashboard);
 }
+
+// ===== Task 3: CommandOutput and ArgumentInput View Stack Tests =====
+
+#[test]
+fn command_output_pushes_onto_view_stack() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::CommandOutput);
+
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        "CommandOutput should be on top of view stack"
+    );
+    assert_eq!(
+        app.active_pane,
+        ActivePane::CommandOutput,
+        "active_pane bridge should reflect CommandOutput"
+    );
+    assert_eq!(
+        app.view_stack.len(),
+        2,
+        "Stack should have Dashboard + CommandOutput"
+    );
+}
+
+#[test]
+fn command_output_q_pops_back_to_previous_view() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::CommandOutput);
+    app.command_state = CommandState::Completed { exit_code: 0 };
+
+    app.handle_key(KeyCode::Char('q'));
+
+    assert_eq!(
+        *app.current_view(),
+        View::Dashboard,
+        "q should pop CommandOutput back to Dashboard"
+    );
+    assert_eq!(app.active_pane, ActivePane::RepoList);
+    assert!(
+        !app.should_quit,
+        "Should not quit after popping CommandOutput"
+    );
+}
+
+#[test]
+fn command_output_esc_pops_back_to_previous_view() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::CommandOutput);
+    app.command_state = CommandState::Completed { exit_code: 0 };
+
+    app.handle_key(KeyCode::Esc);
+
+    assert_eq!(
+        *app.current_view(),
+        View::Dashboard,
+        "Esc should pop CommandOutput back to Dashboard"
+    );
+    assert_eq!(app.active_pane, ActivePane::RepoList);
+    assert!(
+        !app.should_quit,
+        "Should not quit after Esc in CommandOutput"
+    );
+}
+
+#[test]
+fn command_output_pops_to_repo_detail_when_launched_from_there() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::RepoDetail(1));
+    app.push_view(View::CommandOutput);
+    app.command_state = CommandState::Completed { exit_code: 0 };
+
+    app.handle_key(KeyCode::Char('q'));
+
+    assert_eq!(
+        *app.current_view(),
+        View::RepoDetail(1),
+        "q should pop CommandOutput back to RepoDetail"
+    );
+    assert_eq!(app.active_pane, ActivePane::Detail);
+}
+
+#[test]
+fn command_output_q_shows_stop_confirmation_when_running() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::CommandOutput);
+    app.command_state = CommandState::Running;
+
+    app.handle_key(KeyCode::Char('q'));
+
+    assert!(
+        app.show_stop_confirmation,
+        "q should show stop confirmation for running command"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        "Should stay on CommandOutput while confirming"
+    );
+}
+
+#[test]
+fn command_output_esc_shows_stop_confirmation_when_running() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::CommandOutput);
+    app.command_state = CommandState::Running;
+
+    app.handle_key(KeyCode::Esc);
+
+    assert!(
+        app.show_stop_confirmation,
+        "Esc should show stop confirmation for running command"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        "Should stay on CommandOutput while confirming stop"
+    );
+}
+
+#[test]
+fn stop_confirmation_n_cancels_and_stays_in_command_output() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::CommandOutput);
+    app.command_state = CommandState::Running;
+    app.show_stop_confirmation = true;
+
+    app.handle_key(KeyCode::Char('n'));
+
+    assert!(
+        !app.show_stop_confirmation,
+        "n should dismiss confirmation dialog"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        "Should remain in CommandOutput after cancelling stop"
+    );
+    assert!(
+        matches!(app.command_state, CommandState::Running),
+        "Command should still be running"
+    );
+}
+
+#[test]
+fn stop_confirmation_esc_cancels_and_stays_in_command_output() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::CommandOutput);
+    app.command_state = CommandState::Running;
+    app.show_stop_confirmation = true;
+
+    app.handle_key(KeyCode::Esc);
+
+    assert!(
+        !app.show_stop_confirmation,
+        "Esc should dismiss confirmation dialog"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        "Should remain in CommandOutput after cancelling stop"
+    );
+    assert!(
+        matches!(app.command_state, CommandState::Running),
+        "Command should still be running"
+    );
+}
+
+#[test]
+fn argument_input_overlay_is_intercepted_before_view_dispatch() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    // Set up ArgumentInput overlay while in RepoDetail view
+    app.push_view(View::RepoDetail(0));
+    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input = Some(ArgumentInputState {
+        buffer: String::new(),
+        cursor_pos: 0,
+        command_name: "test".to_string(),
+    });
+
+    // Press 'q' — in view dispatch this would pop the view, but the overlay
+    // should intercept and treat it as a char input instead
+    // (Actually Esc is the cancel key for argument input, q is just a char)
+    app.handle_key(KeyCode::Char('q'));
+
+    // The ArgumentInput overlay should have handled it (as char input)
+    assert_eq!(
+        *app.current_view(),
+        View::RepoDetail(0),
+        "View should not change — ArgumentInput intercepts before view dispatch"
+    );
+    assert_eq!(
+        app.active_pane,
+        ActivePane::ArgumentInput,
+        "active_pane should remain ArgumentInput"
+    );
+    let state = app.argument_input.as_ref().unwrap();
+    assert_eq!(
+        state.buffer, "q",
+        "q should be added to buffer, not pop the view"
+    );
+}
+
+#[test]
+fn argument_input_esc_restores_view_without_popping_stack() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    // ArgumentInput overlay while in RepoDetail
+    app.push_view(View::RepoDetail(0));
+    app.active_pane = ActivePane::ArgumentInput;
+    app.argument_input = Some(ArgumentInputState {
+        buffer: "some args".to_string(),
+        cursor_pos: 9,
+        command_name: "test".to_string(),
+    });
+
+    app.handle_key(KeyCode::Esc);
+
+    // Should cancel overlay, stay on current view
+    assert_eq!(
+        *app.current_view(),
+        View::RepoDetail(0),
+        "View stack should be unchanged after ArgumentInput Esc"
+    );
+    assert_eq!(
+        app.active_pane,
+        ActivePane::Detail,
+        "active_pane should reflect the underlying view (Detail)"
+    );
+    assert!(
+        app.argument_input.is_none(),
+        "ArgumentInput state should be cleared"
+    );
+}
