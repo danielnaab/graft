@@ -120,7 +120,7 @@ Key constraints:
 ## Phase 2: Command Line (Tasks 7-9)
 
 ### Task 7: Command line input infrastructure (`:` key)
-- [ ] Add command line state and rendering triggered by `:` key
+- [x] Add command line state and rendering triggered by `:` key
 - **Code**: `crates/grove-cli/src/tui/mod.rs`, `crates/grove-cli/src/tui/app.rs`, `crates/grove-cli/src/tui/render.rs`, `crates/grove-cli/src/tui/hint_bar.rs`
 - **Design**: `notes/2026-02-18-grove-command-prompt-exploration.md` (The `:` Command Line)
 - **Acceptance**:
