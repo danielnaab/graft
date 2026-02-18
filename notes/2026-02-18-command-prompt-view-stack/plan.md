@@ -54,7 +54,7 @@ Key constraints:
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 2: Wire key dispatch through ViewStack (Dashboard + RepoDetail)
-- [ ] Change `handle_key()` to dispatch on `current_view()` instead of `active_pane`
+- [x] Change `handle_key()` to dispatch on `current_view()` instead of `active_pane`
 - **Code**: `crates/grove-cli/src/tui/app.rs`, `crates/grove-cli/src/tui/hint_bar.rs`, `crates/grove-cli/src/tui/mod.rs`, `crates/grove-cli/src/tui/tests.rs`
 - **Specs**: `docs/specifications/grove/tui-behavior.md` (Focus Management, Keybindings)
 - **Acceptance**:
