@@ -1,9 +1,8 @@
 //! App struct construction, key dispatch, navigation, and data loading.
 
 use super::{
-    App, ArgumentInputMode, CommandLineState, CommandState, GraftYamlConfigLoader, KeyCode,
-    ListState, RepoDetail, RepoDetailProvider, RepoRegistry, StatusMessage, View,
-    DEFAULT_MAX_COMMITS,
+    App, CommandLineState, CommandState, GraftYamlConfigLoader, KeyCode, ListState, RepoDetail,
+    RepoDetailProvider, RepoRegistry, StatusMessage, View, DEFAULT_MAX_COMMITS,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -21,7 +20,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             list_state,
             should_quit: false,
             view_stack: vec![View::Dashboard],
-            argument_input_mode: ArgumentInputMode::Inactive,
             command_line: None,
             detail_scroll: 0,
             cached_detail: None,
@@ -45,10 +43,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             running_command_pid: None,
             show_stop_confirmation: false,
 
-            // State query panel
+            // State queries
             state_queries: Vec::new(),
             state_results: Vec::new(),
-            state_panel_list_state: ListState::default(),
         }
     }
 
@@ -94,7 +91,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     pub(super) fn handle_key(&mut self, code: KeyCode) {
         // ArgumentInput is an overlay — intercept before view dispatch.
-        if self.argument_input_mode == ArgumentInputMode::Active {
+        if self.argument_input.is_some() {
             self.handle_key_argument_input(code);
             return;
         }
@@ -188,7 +185,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         };
         self.list_state.select(Some(i));
 
-        // Invalidate tab data for lazy reload
+        // Invalidate cached repo data for lazy reload
         self.selected_repo_for_commands = None;
         self.available_commands.clear();
         self.state_queries.clear();
@@ -214,7 +211,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         };
         self.list_state.select(Some(i));
 
-        // Invalidate tab data for lazy reload
+        // Invalidate cached repo data for lazy reload
         self.selected_repo_for_commands = None;
         self.available_commands.clear();
         self.state_queries.clear();

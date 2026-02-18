@@ -89,16 +89,6 @@ struct ArgumentInputState {
     command_name: String,
 }
 
-/// Whether the argument input overlay is currently active.
-///
-/// This is separate from the view stack — `ArgumentInput` is an overlay over
-/// the current view, not a view itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ArgumentInputMode {
-    Inactive,
-    Active,
-}
-
 /// State for the vim-style `:` command line.
 ///
 /// When active, the command line renders at the bottom of the screen
@@ -123,8 +113,6 @@ pub struct App<R, D> {
     /// View stack — the top of the stack is the current view.
     /// Invariant: always has at least one element (Dashboard).
     view_stack: Vec<View>,
-    /// Whether the argument input overlay is shown over the current view.
-    argument_input_mode: ArgumentInputMode,
     /// Active `:` command line state, or `None` when the command line is dismissed.
     command_line: Option<CommandLineState>,
     detail_scroll: usize,
@@ -149,10 +137,9 @@ pub struct App<R, D> {
     running_command_pid: Option<u32>,
     show_stop_confirmation: bool,
 
-    // State query panel
+    // State queries (loaded lazily for the current repo in RepoDetail view)
     state_queries: Vec<crate::state::StateQuery>,
     state_results: Vec<Option<crate::state::StateResult>>,
-    state_panel_list_state: ListState,
 }
 
 pub fn run<R: RepoRegistry, D: RepoDetailProvider>(

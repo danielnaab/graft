@@ -1555,7 +1555,6 @@ fn argument_input_opens_after_command_selected() {
 
     app.execute_selected_command();
 
-    assert_eq!(app.argument_input_mode, ArgumentInputMode::Active);
     assert!(app.argument_input.is_some());
     let state = app.argument_input.as_ref().unwrap();
     assert_eq!(state.command_name, "test");
@@ -1570,7 +1569,6 @@ fn argument_input_buffer_updates_on_char() {
         MockDetailProvider::empty(),
         "test".to_string(),
     );
-    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: String::new(),
         cursor_pos: 0,
@@ -1593,7 +1591,6 @@ fn argument_input_backspace_removes_char() {
         MockDetailProvider::empty(),
         "test".to_string(),
     );
-    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: "test".to_string(),
         cursor_pos: 4,
@@ -1614,7 +1611,6 @@ fn argument_input_escape_cancels() {
         MockDetailProvider::empty(),
         "test".to_string(),
     );
-    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: "some args".to_string(),
         cursor_pos: 9,
@@ -1632,7 +1628,6 @@ fn argument_input_enter_executes_with_args() {
         MockDetailProvider::empty(),
         "test".to_string(),
     );
-    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: "arg1 arg2".to_string(),
         cursor_pos: 9,
@@ -1652,7 +1647,6 @@ fn argument_input_enter_with_empty_buffer_executes_without_args() {
         MockDetailProvider::empty(),
         "test".to_string(),
     );
-    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: String::new(),
         cursor_pos: 0,
@@ -1699,7 +1693,6 @@ fn argument_input_cursor_moves_left() {
         cursor_pos: 4,
         command_name: "cmd".to_string(),
     });
-    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Left);
 
@@ -1718,7 +1711,6 @@ fn argument_input_cursor_moves_right() {
         cursor_pos: 2,
         command_name: "cmd".to_string(),
     });
-    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Right);
 
@@ -1737,7 +1729,6 @@ fn argument_input_cursor_stops_at_boundaries() {
         cursor_pos: 0,
         command_name: "cmd".to_string(),
     });
-    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Left);
     assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 0);
@@ -1760,7 +1751,6 @@ fn argument_input_home_end_keys() {
         cursor_pos: 2,
         command_name: "cmd".to_string(),
     });
-    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Home);
     assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 0);
@@ -1781,7 +1771,6 @@ fn argument_input_inserts_char_at_cursor() {
         cursor_pos: 2,
         command_name: "cmd".to_string(),
     });
-    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Char('X'));
 
@@ -1802,7 +1791,6 @@ fn argument_input_backspace_at_cursor() {
         cursor_pos: 2,
         command_name: "cmd".to_string(),
     });
-    app.argument_input_mode = ArgumentInputMode::Active;
 
     app.handle_key(KeyCode::Backspace);
 
@@ -1823,12 +1811,14 @@ fn argument_input_prevents_execution_on_parse_error() {
         cursor_pos: 15,
         command_name: "cmd".to_string(),
     });
-    app.argument_input_mode = ArgumentInputMode::Active;
     app.selected_repo_for_commands = Some("/tmp/test".to_string());
 
     app.handle_key(KeyCode::Enter);
 
-    assert_eq!(app.argument_input_mode, ArgumentInputMode::Active);
+    assert!(
+        app.argument_input.is_some(),
+        "argument input overlay should still be active"
+    );
 
     assert!(app.status_message.is_some());
     let msg = app.status_message.as_ref().unwrap();
@@ -1952,9 +1942,9 @@ fn state_tab_handles_empty_queries_gracefully() {
     app.handle_key(KeyCode::Down);
     app.handle_key(KeyCode::Up);
 
+    // Just verifying that navigating with an empty query list does not panic
     assert!(
-        app.state_panel_list_state.selected().is_none()
-            || app.state_panel_list_state.selected() == Some(0),
+        app.state_queries.is_empty(),
         "Empty query list should not panic"
     );
 }
@@ -1995,19 +1985,25 @@ fn state_results_match_queries_length() {
 }
 
 #[test]
-fn state_tab_refresh_with_no_selection_shows_warning() {
+fn state_tab_refresh_with_no_queries_shows_info() {
+    // When no state queries are configured, pressing r shows an informational message.
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
+    // state_queries is empty by default
 
     app.handle_key(KeyCode::Char('r'));
 
     assert!(app.status_message.is_some());
     let msg = app.status_message.as_ref().unwrap();
-    assert_eq!(msg.msg_type, MessageType::Warning);
+    assert_eq!(
+        msg.msg_type,
+        MessageType::Info,
+        "No queries defined should produce an Info message"
+    );
 }
 
 #[test]
@@ -2420,7 +2416,6 @@ fn argument_input_overlay_is_intercepted_before_view_dispatch() {
 
     // Set up ArgumentInput overlay while in RepoDetail view
     app.push_view(View::RepoDetail(0));
-    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: String::new(),
         cursor_pos: 0,
@@ -2438,7 +2433,10 @@ fn argument_input_overlay_is_intercepted_before_view_dispatch() {
         View::RepoDetail(0),
         "View should not change — ArgumentInput intercepts before view dispatch"
     );
-    assert_eq!(app.argument_input_mode, ArgumentInputMode::Active);
+    assert!(
+        app.argument_input.is_some(),
+        "argument input overlay should still be active"
+    );
     let state = app.argument_input.as_ref().unwrap();
     assert_eq!(
         state.buffer, "q",
@@ -2456,7 +2454,6 @@ fn argument_input_esc_restores_view_without_popping_stack() {
 
     // ArgumentInput overlay while in RepoDetail
     app.push_view(View::RepoDetail(0));
-    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: "some args".to_string(),
         cursor_pos: 9,
@@ -2899,9 +2896,9 @@ fn command_line_home_end_keys() {
 
 #[test]
 fn command_line_enter_with_empty_buffer_fills_selected_palette_entry() {
-    // When buffer is empty and palette has entries, Enter fills the command line
-    // with the selected entry (instead of dismissing). The first entry is selected
-    // by default (palette_selected = 0).
+    // When buffer is empty and the selected palette entry takes no args,
+    // Enter executes it immediately and closes the command line.
+    // The first palette entry is "help" (takes_args: false).
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::empty(),
@@ -2909,28 +2906,20 @@ fn command_line_enter_with_empty_buffer_fills_selected_palette_entry() {
     );
 
     app.handle_key(KeyCode::Char(':'));
-    // No input — empty buffer, palette shows all commands, first is selected
+    // No input — empty buffer, palette shows all commands, first is selected ("help")
 
     app.handle_key(KeyCode::Enter);
 
-    // Command line should still be open, buffer filled with the first palette entry
+    // No-arg command executes immediately — command line should be dismissed
     assert!(
-        app.command_line.is_some(),
-        "Enter on palette selection should keep command line open"
+        app.command_line.is_none(),
+        "Enter on a no-arg palette entry should close the command line"
     );
-    let state = app.command_line.as_ref().unwrap();
-    // First palette entry is "help"
+    // "help" pushes the Help view
     assert_eq!(
-        state.buffer, "help",
-        "Enter should fill buffer with selected palette entry"
-    );
-    assert_eq!(
-        state.cursor_pos, 4,
-        "Cursor should be at end of filled text"
-    );
-    assert!(
-        app.status_message.is_none(),
-        "Filling from palette should not produce a status message"
+        app.current_view(),
+        &View::Help,
+        "Enter on 'help' palette entry should push the Help view"
     );
 }
 
@@ -3036,7 +3025,6 @@ fn argument_input_blocks_command_line_activation() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.argument_input_mode = ArgumentInputMode::Active;
     app.argument_input = Some(ArgumentInputState {
         buffer: String::new(),
         cursor_pos: 0,
@@ -3409,7 +3397,7 @@ fn cli_command_state_refreshes_state_query() {
     app.handle_key(KeyCode::Enter);
 
     assert!(app.command_line.is_none());
-    // refresh_selected_state_query with no query selected shows a warning
+    // refresh_state_queries with no queries loaded shows a warning
     assert!(
         app.status_message.is_some(),
         ":state should produce a status message"
@@ -3589,6 +3577,7 @@ fn palette_navigation_up_down_arrows_work() {
 
 #[test]
 fn palette_enter_fills_command_line_with_selected_entry() {
+    // "quit" is a no-arg command — Enter executes it immediately.
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::empty(),
@@ -3602,23 +3591,14 @@ fn palette_enter_fills_command_line_with_selected_entry() {
 
     app.handle_key(KeyCode::Enter);
 
-    // Should fill buffer with "quit" and leave command line open
+    // No-arg command executes immediately — command line dismissed and quit triggered
     assert!(
-        app.command_line.is_some(),
-        "Command line should remain open after palette selection"
-    );
-    let state = app.command_line.as_ref().unwrap();
-    assert_eq!(
-        state.buffer, "quit",
-        "Buffer should be filled with selected palette entry"
-    );
-    assert_eq!(
-        state.cursor_pos, 4,
-        "Cursor should be at end of filled text"
+        app.command_line.is_none(),
+        "Command line should be dismissed after executing no-arg palette entry"
     );
     assert!(
-        !app.should_quit,
-        "Should not have quit yet (buffer filled, not submitted)"
+        app.should_quit,
+        "Selecting 'quit' from palette should set should_quit"
     );
 }
 

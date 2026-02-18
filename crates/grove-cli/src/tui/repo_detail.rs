@@ -4,9 +4,9 @@
 //! commands are all shown vertically in a single scrollable view.
 
 use super::{
-    format_file_change_indicator, App, ArgumentInputMode, ArgumentInputState, Block, Borders,
-    Color, GraftYamlLoader, KeyCode, Line, ListState, Modifier, Paragraph, Rect,
-    RepoDetailProvider, RepoRegistry, Span, StatusMessage, Style, View,
+    format_file_change_indicator, App, ArgumentInputState, Block, Borders, Color, GraftYamlLoader,
+    KeyCode, Line, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span,
+    StatusMessage, Style, View,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -33,7 +33,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             }
             // Refresh state queries (r key)
             KeyCode::Char('r') => {
-                self.refresh_selected_state_query();
+                self.refresh_state_queries();
             }
             // Execute selected command
             KeyCode::Enter => {
@@ -188,7 +188,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         if detail.changed_files.is_empty() {
             lines.push(Line::from(Span::styled(
                 "No uncommitted changes",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(Color::Gray),
             )));
         } else {
             lines.push(Line::from(Span::styled(
@@ -213,7 +213,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         if detail.commits.is_empty() {
             lines.push(Line::from(Span::styled(
                 "No commits",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(Color::Gray),
             )));
         } else {
             lines.push(Line::from(Span::styled(
@@ -233,7 +233,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 ]));
                 lines.push(Line::from(Span::styled(
                     format!("       {} - {}", commit.author, commit.relative_date),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(Color::Gray),
                 )));
             }
         }
@@ -251,7 +251,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         if self.state_queries.is_empty() {
             lines.push(Line::from(Span::styled(
                 "  No state queries defined in graft.yaml",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(Color::Gray),
             )));
         } else {
             for (idx, query) in self.state_queries.iter().enumerate() {
@@ -265,16 +265,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                         ),
                         Span::raw("  "),
                         Span::raw(format!("{data_summary:<45}")),
-                        Span::styled(format!("({age})"), Style::default().fg(Color::DarkGray)),
+                        Span::styled(format!("({age})"), Style::default().fg(Color::Gray)),
                     ]));
                 } else {
                     lines.push(Line::from(vec![
                         Span::styled(
                             format!("  {:<14}", query.name),
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(Color::Gray),
                         ),
                         Span::raw("  "),
-                        Span::styled("(no cached data)", Style::default().fg(Color::DarkGray)),
+                        Span::styled("(no cached data)", Style::default().fg(Color::Gray)),
                     ]));
                 }
             }
@@ -293,7 +293,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         if self.available_commands.is_empty() {
             lines.push(Line::from(Span::styled(
                 "  No commands defined in graft.yaml",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(Color::Gray),
             )));
         } else {
             let selected_idx = self.command_picker_state.selected();
@@ -393,7 +393,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             cursor_pos: 0,
             command_name: cmd_name.clone(),
         });
-        self.argument_input_mode = ArgumentInputMode::Active;
     }
 
     /// Load state queries for the selected repository.
@@ -404,7 +403,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         // Clear previous state
         self.state_queries.clear();
         self.state_results.clear();
-        self.state_panel_list_state = ListState::default();
 
         let graft_yaml_path = Path::new(repo_path).join("graft.yaml");
         if !graft_yaml_path.exists() {
@@ -434,12 +432,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 if !self.state_queries.is_empty() && self.state_results.iter().all(Option::is_none)
                 {
                     self.status_message = Some(StatusMessage::info(
-                        "No cached data. Press 'r' to refresh selected query.".to_string(),
+                        "No cached data. Press 'r' to refresh state queries.".to_string(),
                     ));
-                }
-
-                if !self.state_queries.is_empty() {
-                    self.state_panel_list_state.select(Some(0));
                 }
             }
             Err(e) => {
@@ -451,19 +445,19 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
-    /// Refresh the currently selected state query.
-    pub(super) fn refresh_selected_state_query(&mut self) {
+    /// Refresh all state queries for the currently selected repository.
+    ///
+    /// Runs each query's command in sequence and reloads the cache. Reports
+    /// overall success/failure in the status bar.
+    pub(super) fn refresh_state_queries(&mut self) {
         use std::process::Command;
 
-        let Some(selected) = self.state_panel_list_state.selected() else {
-            self.status_message = Some(StatusMessage::warning("No query selected".to_string()));
+        if self.state_queries.is_empty() {
+            self.status_message = Some(StatusMessage::info(
+                "No state queries defined in graft.yaml".to_string(),
+            ));
             return;
-        };
-
-        let (query_name, run_command) = match self.state_queries.get(selected) {
-            Some(q) => (q.name.clone(), q.run.clone()),
-            None => return,
-        };
+        }
 
         let repos = self.registry.list_repos();
         let Some(repo_idx) = self.list_state.selected() else {
@@ -473,59 +467,71 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         };
 
         let repo_path = match repos.get(repo_idx) {
-            Some(r) => r.as_path(),
+            Some(r) => r.as_path().to_path_buf(),
             None => return,
         };
 
-        self.status_message = Some(StatusMessage::info(format!("Refreshing {query_name}...")));
+        self.status_message = Some(StatusMessage::info(
+            "Refreshing state queries...".to_string(),
+        ));
 
-        let args = match shell_words::split(&run_command) {
-            Ok(args) => args,
-            Err(e) => {
-                self.status_message = Some(StatusMessage::error(format!(
-                    "Failed to parse command '{run_command}': {e}"
-                )));
-                return;
+        let queries: Vec<(String, String)> = self
+            .state_queries
+            .iter()
+            .map(|q| (q.name.clone(), q.run.clone()))
+            .collect();
+
+        let total = queries.len();
+        let mut failed = 0usize;
+
+        for (i, (query_name, run_command)) in queries.iter().enumerate() {
+            let args = match shell_words::split(run_command) {
+                Ok(a) => a,
+                Err(e) => {
+                    log::warn!("Failed to parse command for '{query_name}': {e}");
+                    failed += 1;
+                    continue;
+                }
+            };
+
+            if args.is_empty() {
+                log::warn!("Empty command for query '{query_name}'");
+                failed += 1;
+                continue;
             }
-        };
 
-        if args.is_empty() {
-            self.status_message = Some(StatusMessage::error(format!(
-                "Empty command for query '{query_name}'"
-            )));
-            return;
-        }
-
-        let result = Command::new(&args[0])
-            .args(&args[1..])
-            .current_dir(repo_path)
-            .output();
-
-        let success = match result {
-            Ok(output) => {
-                if output.status.success() {
-                    true
-                } else {
+            match Command::new(&args[0])
+                .args(&args[1..])
+                .current_dir(&repo_path)
+                .output()
+            {
+                Ok(output) if output.status.success() => {
+                    self.reload_state_query_cache(i, &repo_path);
+                }
+                Ok(output) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    self.status_message = Some(StatusMessage::error(format!(
-                        "Command failed: {}",
-                        stderr.trim()
-                    )));
-                    false
+                    log::warn!("Query '{query_name}' failed: {}", stderr.trim());
+                    failed += 1;
+                }
+                Err(e) => {
+                    log::warn!("Failed to execute query '{query_name}': {e}");
+                    failed += 1;
                 }
             }
-            Err(e) => {
-                self.status_message = Some(StatusMessage::error(format!(
-                    "Failed to execute '{run_command}': {e}"
-                )));
-                false
-            }
-        };
-
-        if success {
-            self.reload_state_query_cache(selected, repo_path);
-            self.status_message = Some(StatusMessage::success(format!("Refreshed {query_name}")));
         }
+
+        self.status_message = if failed == 0 {
+            Some(StatusMessage::success(format!(
+                "Refreshed {total} state quer{}",
+                if total == 1 { "y" } else { "ies" }
+            )))
+        } else {
+            Some(StatusMessage::warning(format!(
+                "Refreshed {}/{total} state quer{} ({failed} failed)",
+                total - failed,
+                if total == 1 { "y" } else { "ies" }
+            )))
+        };
     }
 
     /// Reload cache for a specific query index.

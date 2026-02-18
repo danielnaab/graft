@@ -1,6 +1,6 @@
 //! Context-sensitive keybinding hint bar.
 
-use super::{App, ArgumentInputMode, RepoDetailProvider, RepoRegistry, View};
+use super::{App, RepoDetailProvider, RepoRegistry, View};
 
 /// A keybinding hint for the status bar.
 pub(super) struct KeyHint {
@@ -12,7 +12,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// Return context-sensitive key hints based on current view.
     pub(super) fn current_hints(&self) -> Vec<KeyHint> {
         // ArgumentInput is an overlay — show its hints regardless of view stack.
-        if self.argument_input_mode == ArgumentInputMode::Active {
+        if self.argument_input.is_some() {
             return vec![
                 KeyHint {
                     key: "Enter",
@@ -90,6 +90,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 KeyHint {
                     key: "q",
                     action: "close",
+                },
+                KeyHint {
+                    key: "Esc",
+                    action: "home",
+                },
+                KeyHint {
+                    key: ":",
+                    action: "command",
                 },
             ],
         }

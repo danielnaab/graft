@@ -11,6 +11,13 @@ pub(super) struct PaletteEntry {
     pub(super) command: &'static str,
     /// Short human-readable description shown in the palette.
     pub(super) description: &'static str,
+    /// Whether this command requires additional arguments after the name.
+    ///
+    /// `false` → pressing `Enter` on this palette entry executes it immediately
+    ///           (no second Enter needed).
+    /// `true`  → pressing `Enter` fills the buffer so the user can type args,
+    ///           then presses `Enter` again to execute.
+    pub(super) takes_args: bool,
 }
 
 /// All known commands, in display order.
@@ -21,26 +28,32 @@ pub(super) const PALETTE_COMMANDS: &[PaletteEntry] = &[
     PaletteEntry {
         command: "help",
         description: "Show keybindings and command reference",
+        takes_args: false,
     },
     PaletteEntry {
         command: "quit",
         description: "Quit Grove",
+        takes_args: false,
     },
     PaletteEntry {
         command: "refresh",
         description: "Refresh all repository statuses",
+        takes_args: false,
     },
     PaletteEntry {
         command: "repo",
         description: "Jump to a repository by name or index",
+        takes_args: true,
     },
     PaletteEntry {
         command: "run",
         description: "Run a graft command in the current repository",
+        takes_args: true,
     },
     PaletteEntry {
         command: "state",
         description: "Refresh state queries for the current repository",
+        takes_args: false,
     },
 ];
 
@@ -147,23 +160,30 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.command_line = None;
             }
             KeyCode::Enter => {
-                // If the palette has a selection and the buffer text exactly
-                // matches the selected entry's prefix (or is empty), fill the
-                // buffer with the selected command and move cursor to end.
-                // Otherwise submit the buffer as-is.
+                // When the buffer is empty and a palette entry is highlighted:
+                //   - No-arg commands (help, quit, refresh, state): execute immediately.
+                //   - Arg commands (repo, run): fill the buffer so the user can type args.
+                // When the buffer has content: submit as-is.
                 let entries = filtered_palette(&state.buffer);
                 let selected = state.palette_selected;
 
                 if !entries.is_empty() && selected < entries.len() && state.buffer.is_empty() {
-                    // Fill command line with selected palette entry.
-                    let command = entries[selected].command;
-                    state.buffer = command.to_string();
-                    state.cursor_pos = command.len();
-                    // Leave command line open so user can add arguments.
+                    let entry = entries[selected];
+                    if entry.takes_args {
+                        // Fill buffer and leave open — user will add arguments, then Enter again.
+                        state.buffer = entry.command.to_string();
+                        state.cursor_pos = entry.command.len();
+                        return;
+                    }
+                    // No-arg command: fill buffer, dismiss, and execute in one keystroke.
+                    let command = entry.command.to_string();
+                    self.command_line = None;
+                    let cmd = parse_command(&command);
+                    self.execute_cli_command(cmd);
                     return;
                 }
 
-                // Normal submit
+                // Normal submit (buffer has content, or palette is empty / filtered out).
                 let buffer = state.buffer.clone();
                 self.command_line = None;
 
@@ -171,7 +191,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     let cmd = parse_command(&buffer);
                     self.execute_cli_command(cmd);
                 }
-                // Empty Enter dismisses command line silently.
+                // Empty Enter with no palette match dismisses the command line silently.
             }
             // Palette navigation: j / Down moves selection down.
             KeyCode::Char('j') | KeyCode::Down => {
@@ -251,8 +271,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.run_command_by_name(&command_name, args);
             }
             CliCommand::State => {
-                // Refresh state for the currently focused repo
-                self.refresh_selected_state_query();
+                // Refresh all state queries for the currently focused repo
+                self.refresh_state_queries();
             }
             CliCommand::Unknown(raw) => {
                 if raw.is_empty() {

@@ -1,9 +1,9 @@
 //! Main render method and layout composition.
 
 use super::{
-    io, App, ArgumentInputMode, Block, Borders, Clear, Color, Constraint, CrosstermBackend,
-    Direction, Layout, Line, List, ListItem, ListState, Paragraph, RepoDetailProvider,
-    RepoRegistry, Result, Span, Style, Terminal, View,
+    io, App, Block, Borders, Clear, Color, Constraint, CrosstermBackend, Direction, Layout, Line,
+    List, ListItem, ListState, Paragraph, RepoDetailProvider, RepoRegistry, Result, Span, Style,
+    Terminal, View,
 };
 use crate::tui::command_line::filtered_palette;
 
@@ -75,7 +75,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     ),
                     Span::styled(
                         format!("  {}", e.description),
-                        Style::default().fg(Color::Gray),
+                        Style::default().fg(Color::White),
                     ),
                 ]);
                 ListItem::new(line)
@@ -180,7 +180,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             }
 
             // --- Overlays rendered on top when active ---
-            if self.argument_input_mode == ArgumentInputMode::Active {
+            if self.argument_input.is_some() {
                 self.render_argument_input_overlay(frame);
             }
 

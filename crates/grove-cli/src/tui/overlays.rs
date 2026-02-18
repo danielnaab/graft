@@ -1,9 +1,8 @@
 //! Overlay rendering: help, argument input, command output, stop confirmation.
 
 use super::{
-    Alignment, App, ArgumentInputMode, ArgumentInputState, Block, Borders, Clear, Color,
-    CommandState, KeyCode, Line, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span,
-    StatusMessage, Style, Wrap,
+    Alignment, App, ArgumentInputState, Block, Borders, Clear, Color, CommandState, KeyCode, Line,
+    Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span, StatusMessage, Style, Wrap,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -30,7 +29,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
                 self.argument_input = None;
                 // Dismiss the overlay, then push CommandOutput view.
-                self.argument_input_mode = ArgumentInputMode::Inactive;
                 self.push_view(super::View::CommandOutput);
 
                 self.execute_command_with_args(command_name, args);
@@ -38,7 +36,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             KeyCode::Esc => {
                 self.argument_input = None;
                 // Dismiss the overlay; underlying view stays unchanged.
-                self.argument_input_mode = ArgumentInputMode::Inactive;
             }
             KeyCode::Left => {
                 if state.cursor_pos > 0 {
@@ -186,42 +183,50 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         let help_text = vec![
             Line::from(Span::styled(
-                format!("Grove v{version} - Help"),
+                format!("Grove v{version} — Help"),
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
             Line::from(Span::styled(
-                "Navigation",
+                "Dashboard",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             )),
-            Line::from("  j, ↓         Move down"),
-            Line::from("  k, ↑         Move up"),
-            Line::from("  Enter, Tab   View repository details / switch panes"),
-            Line::from("  q, Esc       Back / quit"),
+            Line::from("  j/k, ↑↓      Navigate repositories"),
+            Line::from("  Enter/Tab     Open repository detail"),
+            Line::from("  r             Refresh all repository statuses"),
+            Line::from("  q             Quit"),
+            Line::from("  Esc           No-op (already home)"),
             Line::from(""),
             Line::from(Span::styled(
-                "Tabs (Detail Pane)",
+                "Repository Detail",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             )),
-            Line::from("  1            Changes tab (files & commits)"),
-            Line::from("  2, s         State tab (cached queries)"),
-            Line::from("  3, x         Commands tab (graft.yaml commands)"),
+            Line::from("  j/k, ↑↓      Scroll content"),
+            Line::from("  n / p         Select next / previous command"),
+            Line::from("  Enter         Run selected command (opens arg dialog)"),
+            Line::from("  r             Refresh state queries"),
+            Line::from("  q, Tab        Back to Dashboard"),
+            Line::from("  Esc           Go to Dashboard (from any view)"),
             Line::from(""),
             Line::from(Span::styled(
-                "Actions",
+                "Command Line  ( : )",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             )),
-            Line::from("  r            Refresh (repos or selected state query)"),
-            Line::from("  Enter        Execute selected command (Commands tab)"),
-            Line::from("  ?            Show this help"),
+            Line::from("  :help         Show this help"),
+            Line::from("  :quit         Quit Grove"),
+            Line::from("  :refresh      Refresh all repositories"),
+            Line::from("  :repo <n>     Jump to repo (name or 1-based index)"),
+            Line::from("  :run <cmd>    Execute command in current repository"),
+            Line::from("  :state        Refresh state queries"),
+            Line::from("  j/k           Navigate palette  |  Esc: cancel"),
             Line::from(""),
             Line::from(Span::styled(
                 "Status Indicators",
@@ -251,8 +256,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             ]),
             Line::from(""),
             Line::from(Span::styled(
-                "Press any key to close",
-                Style::default().fg(Color::DarkGray),
+                "q/Esc to close",
+                Style::default().fg(Color::Gray),
             )),
         ];
 
@@ -319,7 +324,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         let (preview_text, preview_style) = Self::format_argument_preview(state);
 
-        let help = "← → Home End: navigate  |  Enter: run  |  Esc: cancel";
+        let help = "← →  Home  End: navigate   Enter: run   Esc: cancel";
 
         let content = vec![
             Line::from(""),
@@ -327,7 +332,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             Line::from(""),
             Line::from(preview_text).style(preview_style),
             Line::from(""),
-            Line::from(help).style(Style::default().fg(Color::DarkGray)),
+            Line::from(help).style(Style::default().fg(Color::Gray)),
         ];
 
         let paragraph = Paragraph::new(content)
@@ -473,7 +478,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             Line::from(""),
             Line::from(Span::styled(
                 "This will send SIGTERM to the process.",
-                Style::default().fg(Color::Gray),
+                Style::default().fg(Color::White),
             )),
             Line::from(""),
             Line::from(Span::styled(

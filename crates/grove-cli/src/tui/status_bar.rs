@@ -156,7 +156,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 ));
                 spans.push(Span::styled(
                     format!(":{}", hint.action),
-                    Style::default().fg(Color::Gray),
+                    Style::default().fg(Color::White),
                 ));
                 current_width += hint_width;
             }
