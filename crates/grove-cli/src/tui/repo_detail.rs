@@ -13,9 +13,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// Handle keys when in the `RepoDetail` view.
     pub(super) fn handle_key_repo_detail(&mut self, code: KeyCode) {
         match code {
-            // Back to dashboard
-            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Tab => {
+            // q pops back one level
+            KeyCode::Char('q') | KeyCode::Tab => {
                 self.pop_view();
+            }
+            // Escape goes home (Dashboard) from anywhere
+            KeyCode::Esc => {
+                self.reset_to_dashboard();
             }
             KeyCode::Char('?') => {
                 self.push_view(View::Help);

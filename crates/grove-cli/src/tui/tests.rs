@@ -120,7 +120,7 @@ fn handles_quit_with_q_key() {
 }
 
 #[test]
-fn handles_quit_with_esc_key() {
+fn esc_from_dashboard_does_not_quit() {
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
@@ -129,7 +129,9 @@ fn handles_quit_with_esc_key() {
     assert!(!app.should_quit, "Should not quit initially");
 
     app.handle_key(KeyCode::Esc);
-    assert!(app.should_quit, "Should quit after pressing Esc");
+    // Escape goes home (Dashboard) — already there, so no-op (does not quit)
+    assert!(!app.should_quit, "Esc from Dashboard should NOT quit");
+    assert_eq!(*app.current_view(), View::Dashboard);
 }
 
 // Test 2: Navigation with empty list doesn't panic
@@ -470,7 +472,7 @@ fn q_in_detail_returns_to_list() {
 }
 
 #[test]
-fn esc_in_detail_returns_to_list() {
+fn esc_in_detail_resets_to_dashboard() {
     let mut app = App::new(
         MockRegistry::with_repos(3),
         MockDetailProvider::empty(),
@@ -2473,4 +2475,226 @@ fn argument_input_esc_restores_view_without_popping_stack() {
         app.argument_input.is_none(),
         "ArgumentInput state should be cleared"
     );
+}
+
+// ===== Task 6: Escape-goes-home and stack discipline =====
+
+#[test]
+fn escape_from_deep_stack_resets_to_dashboard() {
+    // Dashboard → RepoDetail → CommandOutput: Esc resets all the way home
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::RepoDetail(1));
+    app.push_view(View::Help);
+    assert_eq!(app.view_stack.len(), 3);
+
+    app.handle_key(KeyCode::Esc);
+
+    assert_eq!(
+        *app.current_view(),
+        View::Dashboard,
+        "Esc from deep stack should reset to Dashboard"
+    );
+    assert_eq!(app.view_stack.len(), 1, "Stack should have only Dashboard");
+    assert!(!app.should_quit);
+}
+
+#[test]
+fn q_in_detail_pops_one_level() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::RepoDetail(0));
+    assert_eq!(app.view_stack.len(), 2);
+
+    app.handle_key(KeyCode::Char('q'));
+
+    assert_eq!(*app.current_view(), View::Dashboard);
+    assert_eq!(app.view_stack.len(), 1);
+    assert!(!app.should_quit, "q in RepoDetail should not quit");
+}
+
+#[test]
+fn q_from_dashboard_quits() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    assert_eq!(*app.current_view(), View::Dashboard);
+
+    app.handle_key(KeyCode::Char('q'));
+    assert!(app.should_quit, "q from Dashboard should quit");
+}
+
+#[test]
+fn esc_from_dashboard_is_noop_not_quit() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    assert_eq!(*app.current_view(), View::Dashboard);
+
+    app.handle_key(KeyCode::Esc);
+    assert!(!app.should_quit, "Esc from Dashboard should not quit");
+    assert_eq!(
+        *app.current_view(),
+        View::Dashboard,
+        "Should remain at Dashboard"
+    );
+}
+
+#[test]
+fn esc_from_help_resets_to_dashboard() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::Help);
+
+    app.handle_key(KeyCode::Esc);
+
+    assert_eq!(*app.current_view(), View::Dashboard);
+    assert!(!app.should_quit);
+}
+
+#[test]
+fn q_from_help_pops_one_level() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::Help);
+
+    app.handle_key(KeyCode::Char('q'));
+
+    assert_eq!(*app.current_view(), View::Dashboard);
+    assert!(!app.should_quit, "q from Help should not quit");
+}
+
+#[test]
+fn esc_from_command_output_resets_to_dashboard() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::RepoDetail(0));
+    app.push_view(View::CommandOutput);
+    app.command_state = CommandState::Completed { exit_code: 0 };
+
+    app.handle_key(KeyCode::Esc);
+
+    assert_eq!(
+        *app.current_view(),
+        View::Dashboard,
+        "Esc from CommandOutput should reset to Dashboard"
+    );
+    assert!(!app.should_quit);
+}
+
+#[test]
+fn q_from_command_output_pops_to_previous_view() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::RepoDetail(0));
+    app.push_view(View::CommandOutput);
+    app.command_state = CommandState::Completed { exit_code: 0 };
+
+    app.handle_key(KeyCode::Char('q'));
+
+    assert_eq!(
+        *app.current_view(),
+        View::RepoDetail(0),
+        "q from CommandOutput should pop to previous view (RepoDetail)"
+    );
+    assert!(!app.should_quit);
+}
+
+#[test]
+fn stop_confirmation_gates_esc_in_command_output() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::CommandOutput);
+    app.command_state = CommandState::Running;
+
+    app.handle_key(KeyCode::Esc);
+
+    assert!(
+        app.show_stop_confirmation,
+        "Esc should show stop confirmation for running command"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        "Should stay in CommandOutput while confirming"
+    );
+}
+
+#[test]
+fn stop_confirmation_gates_q_in_command_output() {
+    let mut app = App::new(
+        MockRegistry::empty(),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::CommandOutput);
+    app.command_state = CommandState::Running;
+
+    app.handle_key(KeyCode::Char('q'));
+
+    assert!(
+        app.show_stop_confirmation,
+        "q should show stop confirmation for running command"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        "Should stay in CommandOutput while confirming"
+    );
+}
+
+#[test]
+fn esc_from_deeply_nested_repo_detail_resets_to_dashboard() {
+    // Stack: Dashboard → RepoDetail(0) → RepoDetail(1) — hypothetically deep
+    // (In practice only one RepoDetail would be on stack, but the escape-goes-home
+    // semantic should clear any depth)
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test".to_string(),
+    );
+
+    app.push_view(View::RepoDetail(0));
+    assert_eq!(app.view_stack.len(), 2);
+
+    app.handle_key(KeyCode::Esc);
+
+    assert_eq!(*app.current_view(), View::Dashboard);
+    assert_eq!(app.view_stack.len(), 1, "All views above Dashboard cleared");
+    assert!(!app.should_quit);
 }

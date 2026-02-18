@@ -107,8 +107,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     fn handle_key_dashboard(&mut self, code: KeyCode) {
         match code {
-            KeyCode::Char('q') | KeyCode::Esc => {
+            KeyCode::Char('q') => {
+                // q from Dashboard quits the application
                 self.should_quit = true;
+            }
+            KeyCode::Esc => {
+                // Escape goes home (already at Dashboard — no-op, but consistent semantics)
+                self.reset_to_dashboard();
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 self.next();
@@ -135,7 +140,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     fn handle_key_help(&mut self, code: KeyCode) {
         match code {
-            KeyCode::Char(_) | KeyCode::Esc | KeyCode::Enter | KeyCode::Backspace => {
+            KeyCode::Esc => {
+                // Escape goes home (Dashboard), even from Help
+                self.reset_to_dashboard();
+            }
+            KeyCode::Char(_) | KeyCode::Enter | KeyCode::Backspace => {
                 self.pop_view();
             }
             _ => {}
@@ -246,7 +255,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
-    #[allow(dead_code)] // Used in Task 6
     /// Reset the stack to just Dashboard.
     pub(super) fn reset_to_dashboard(&mut self) {
         self.view_stack.clear();

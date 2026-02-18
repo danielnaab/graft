@@ -109,13 +109,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     }
 
                     self.show_stop_confirmation = false;
+                    self.clear_command_output_state();
                     self.pop_view();
-                    self.output_lines.clear();
-                    self.output_scroll = 0;
-                    self.command_state = CommandState::NotStarted;
-                    self.command_name = None;
-                    self.output_truncated_start = false;
-                    self.command_event_rx = None;
                 }
                 KeyCode::Char('n' | 'N') | KeyCode::Esc => {
                     self.show_stop_confirmation = false;
@@ -136,22 +131,37 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     self.output_scroll -= 1;
                 }
             }
-            KeyCode::Char('q') | KeyCode::Esc => {
+            KeyCode::Char('q') => {
                 if matches!(self.command_state, CommandState::Running) {
                     self.show_stop_confirmation = true;
                 } else {
+                    // q pops back one level
+                    self.clear_command_output_state();
                     self.pop_view();
-                    self.output_lines.clear();
-                    self.output_scroll = 0;
-                    self.command_state = CommandState::NotStarted;
-                    self.command_name = None;
-                    self.output_truncated_start = false;
-                    self.command_event_rx = None;
-                    self.running_command_pid = None;
+                }
+            }
+            KeyCode::Esc => {
+                if matches!(self.command_state, CommandState::Running) {
+                    self.show_stop_confirmation = true;
+                } else {
+                    // Escape goes home (Dashboard)
+                    self.clear_command_output_state();
+                    self.reset_to_dashboard();
                 }
             }
             _ => {}
         }
+    }
+
+    /// Clear command output state after closing the `CommandOutput` view.
+    fn clear_command_output_state(&mut self) {
+        self.output_lines.clear();
+        self.output_scroll = 0;
+        self.command_state = CommandState::NotStarted;
+        self.command_name = None;
+        self.output_truncated_start = false;
+        self.command_event_rx = None;
+        self.running_command_pid = None;
     }
 
     /// Render the help view as a full-width centered popup.
