@@ -3025,3 +3025,52 @@ fn argument_input_blocks_command_line_activation() {
         "`:` should be appended to argument input buffer"
     );
 }
+
+#[test]
+fn colon_from_help_activates_command_line_not_pop() {
+    // In Help view, `q` and printable chars pop the view.
+    // But `:` should activate command line (intercepted before view dispatch).
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::Help);
+
+    app.handle_key(KeyCode::Char(':'));
+
+    assert!(
+        app.command_line.is_some(),
+        "`:` in Help should activate command line"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::Help,
+        "Help view should remain on stack"
+    );
+}
+
+#[test]
+fn command_line_char_insert_at_cursor_mid_buffer() {
+    // Insert a char in the middle of the buffer via cursor navigation.
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char('a'));
+    app.handle_key(KeyCode::Char('c'));
+    // buffer = "ac", cursor at 2
+
+    app.handle_key(KeyCode::Left);
+    // cursor at 1
+
+    app.handle_key(KeyCode::Char('b'));
+    // buffer should be "abc", cursor at 2
+
+    let state = app.command_line.as_ref().unwrap();
+    assert_eq!(state.buffer, "abc");
+    assert_eq!(state.cursor_pos, 2);
+}
