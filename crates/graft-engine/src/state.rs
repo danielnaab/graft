@@ -10,10 +10,11 @@
 //!     command → JSON output → cache by commit hash
 
 use crate::{GraftError, Result, StateQuery};
+use graft_common::process::{run_to_completion_with_timeout, ProcessConfig};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command as ProcessCommand;
+use std::time::Duration;
 
 // Re-export shared types from graft-common
 pub use graft_common::state::{StateMetadata, StateResult};
@@ -61,46 +62,47 @@ pub fn execute_state_query(
     repo_path: &Path,
     commit_hash: &str,
 ) -> Result<StateResult> {
-    let _timeout_seconds = query.timeout.unwrap_or(300); // Default 5 minutes
+    // Default timeout: 5 minutes, per spec.
+    let timeout_secs = query.timeout.unwrap_or(300);
 
-    // Execute command in repo directory
+    let config = ProcessConfig {
+        command: query.run.clone(),
+        working_dir: repo_path.to_path_buf(),
+        env: None,
+        log_path: None,
+        timeout: Some(Duration::from_secs(timeout_secs)),
+    };
+
+    // Execute command in repo directory via shell to support pipes, redirects, etc.
     // SECURITY: Commands from user's graft.yaml (trusted source).
-    let output = ProcessCommand::new("sh")
-        .arg("-c")
-        .arg(&query.run)
-        .current_dir(repo_path)
-        .output()
+    let output = run_to_completion_with_timeout(&config)
         .map_err(|e| GraftError::CommandExecution(format!("Failed to execute command: {e}")))?;
 
     // Check exit code
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let exit_code = output.status.code().unwrap_or(-1);
-
+    if !output.success {
         let mut error_msg = format!(
-            "State query '{}' failed with exit code {exit_code}",
-            query.name
+            "State query '{}' failed with exit code {}",
+            query.name, output.exit_code
         );
-        if !stderr.is_empty() {
+        if !output.stderr.is_empty() {
             error_msg.push_str("\nstderr: ");
-            error_msg.push_str(&stderr);
+            error_msg.push_str(&output.stderr);
         }
-        if !stdout.is_empty() {
+        if !output.stdout.is_empty() {
             error_msg.push_str("\nstdout: ");
-            error_msg.push_str(&stdout);
+            error_msg.push_str(&output.stdout);
         }
 
         return Err(GraftError::CommandExecution(error_msg));
     }
 
     // Parse JSON output
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let data: Value = serde_json::from_str(&stdout).map_err(|e| {
+    let stdout = &output.stdout;
+    let data: Value = serde_json::from_str(stdout).map_err(|e| {
         let preview = if stdout.len() > 500 {
             &stdout[..500]
         } else {
-            &stdout
+            stdout.as_str()
         };
         GraftError::Validation(format!(
             "State query '{}' output is not valid JSON: {e}\nOutput was: {preview}",
