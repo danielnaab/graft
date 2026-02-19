@@ -4,8 +4,8 @@
 
 use crate::domain::{Command, GraftConfig};
 use crate::error::{GraftError, Result};
+use graft_common::process::{run_to_completion_with_timeout, ProcessConfig};
 use std::path::Path;
-use std::process::Command as ProcessCommand;
 
 /// Result of executing a command.
 #[derive(Debug, Clone)]
@@ -50,31 +50,22 @@ pub fn execute_command(
     // Execute command via shell to support pipes, redirects, etc.
     let shell_cmd = full_command.join(" ");
 
-    // Set environment variables if specified (must be done before spawn)
-    let mut cmd = ProcessCommand::new("sh");
-    cmd.arg("-c").arg(&shell_cmd).current_dir(&working_dir);
+    let config = ProcessConfig {
+        command: shell_cmd,
+        working_dir,
+        env: command.env.clone(),
+        log_path: None,
+        timeout: None,
+    };
 
-    if let Some(env_vars) = &command.env {
-        for (key, value) in env_vars {
-            cmd.env(key, value);
-        }
-    }
-
-    // Use timeout-protected command runner from graft-common
-    let output =
-        graft_common::command::run_command_with_timeout(cmd, "graft command execution", None)
-            .map_err(|e| GraftError::CommandExecution(e.to_string()))?;
-
-    let exit_code = output.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let success = output.status.success();
+    let output = run_to_completion_with_timeout(&config)
+        .map_err(|e| GraftError::CommandExecution(e.to_string()))?;
 
     Ok(CommandResult {
-        exit_code,
-        stdout,
-        stderr,
-        success,
+        exit_code: output.exit_code,
+        stdout: output.stdout,
+        stderr: output.stderr,
+        success: output.success,
     })
 }
 
