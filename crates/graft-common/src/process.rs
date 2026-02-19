@@ -5,6 +5,9 @@
 //!
 //! For blocking use cases, [`run_to_completion`] and [`run_to_completion_with_timeout`] collect
 //! all output synchronously and return a [`ProcessOutput`].
+//!
+//! To register a process in the global [`ProcessRegistry`], use [`ProcessHandle::spawn_registered`]
+//! or the `*_registered` variants of the blocking helpers.
 
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -91,17 +94,29 @@ pub struct ProcessOutput {
 
 /// Handle to a running subprocess.
 ///
-/// Created by [`ProcessHandle::spawn`]. Provides the process PID and the ability to kill it.
-/// Process lifecycle events are delivered over the [`mpsc::Receiver<ProcessEvent>`] returned
-/// alongside the handle.
+/// Created by [`ProcessHandle::spawn`] or [`ProcessHandle::spawn_registered`]. Provides the
+/// process PID and the ability to kill it. Process lifecycle events are delivered over the
+/// [`mpsc::Receiver<ProcessEvent>`] returned alongside the handle.
 ///
-/// Dropping the handle does **not** kill the subprocess — call [`kill`](ProcessHandle::kill)
-/// explicitly if termination is needed on drop.
-#[derive(Debug)]
+/// Dropping the handle does **not** kill the subprocess unless a registry was supplied at spawn
+/// time (in which case a running process is killed and deregistered on drop).
 pub struct ProcessHandle {
     pid: u32,
     child: Arc<Mutex<std::process::Child>>,
     running: Arc<AtomicBool>,
+    /// If `Some`, this process is tracked in the registry and will be deregistered on
+    /// kill or drop.
+    registry: Option<Arc<dyn ProcessRegistry>>,
+}
+
+impl std::fmt::Debug for ProcessHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProcessHandle")
+            .field("pid", &self.pid)
+            .field("running", &self.running.load(Ordering::SeqCst))
+            .field("registry", &self.registry.as_ref().map(|_| "<registry>"))
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProcessHandle {
@@ -113,9 +128,30 @@ impl ProcessHandle {
     /// All `OutputLine` events are guaranteed to arrive before `Completed` or `Failed`.
     ///
     /// If `config.log_path` is set, every output line is also appended to that file.
-    #[allow(clippy::too_many_lines)]
     pub fn spawn(
         config: &ProcessConfig,
+    ) -> Result<(Self, mpsc::Receiver<ProcessEvent>), ProcessError> {
+        Self::spawn_inner(config, None)
+    }
+
+    /// Spawn a subprocess and register it in `registry`.
+    ///
+    /// Behaves like [`spawn`](Self::spawn), plus:
+    /// - Registers a [`ProcessEntry`] with [`ProcessStatus::Running`] immediately after spawn.
+    /// - On process completion or failure, updates the registry entry's status then deregisters.
+    /// - On [`kill`](Self::kill), deregisters the entry.
+    /// - On [`Drop`], if the process is still running, kills it and deregisters.
+    pub fn spawn_registered(
+        config: &ProcessConfig,
+        registry: Arc<dyn ProcessRegistry>,
+    ) -> Result<(Self, mpsc::Receiver<ProcessEvent>), ProcessError> {
+        Self::spawn_inner(config, Some(registry))
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn spawn_inner(
+        config: &ProcessConfig,
+        registry: Option<Arc<dyn ProcessRegistry>>,
     ) -> Result<(Self, mpsc::Receiver<ProcessEvent>), ProcessError> {
         let (tx, rx) = mpsc::channel();
 
@@ -161,6 +197,18 @@ impl ProcessHandle {
             } else {
                 None
             };
+
+        // Register the entry before spawning background threads, so the caller sees
+        // a Running entry as soon as spawn_registered returns.
+        if let Some(ref reg) = registry {
+            let entry = ProcessEntry::new_running(
+                pid,
+                config.command.clone(),
+                Some(config.working_dir.clone()),
+                config.log_path.clone(),
+            );
+            reg.register(entry)?;
+        }
 
         // Deliver Started before the background threads begin emitting OutputLine events.
         let _ = tx.send(ProcessEvent::Started { pid });
@@ -209,12 +257,14 @@ impl ProcessHandle {
             }
         });
 
-        // Monitor thread — polls for exit, joins reader threads, then sends Completed/Failed.
+        // Monitor thread — polls for exit, joins reader threads, then sends Completed/Failed,
+        // and finally updates + deregisters in the registry.
         //
         // Polling with try_wait() lets the kill() method acquire the child lock without
         // contending with a blocking wait() call.
         let child_for_monitor = Arc::clone(&child_arc);
         let running_for_monitor = Arc::clone(&running);
+        let reg_for_monitor = registry.clone();
         drop(thread::spawn(move || {
             loop {
                 let result = {
@@ -232,6 +282,11 @@ impl ProcessHandle {
                         let exit_code = exit_status.code().unwrap_or(-1);
                         let _ = tx.send(ProcessEvent::Completed { exit_code });
                         running_for_monitor.store(false, Ordering::SeqCst);
+                        // Update registry entry to Completed, then deregister.
+                        if let Some(ref reg) = reg_for_monitor {
+                            let _ = reg.update_status(pid, ProcessStatus::Completed { exit_code });
+                            let _ = reg.deregister(pid);
+                        }
                         break;
                     }
                     Ok(None) => {
@@ -245,6 +300,16 @@ impl ProcessHandle {
                             error: e.to_string(),
                         });
                         running_for_monitor.store(false, Ordering::SeqCst);
+                        // Update registry entry to Failed, then deregister.
+                        if let Some(ref reg) = reg_for_monitor {
+                            let _ = reg.update_status(
+                                pid,
+                                ProcessStatus::Failed {
+                                    error: e.to_string(),
+                                },
+                            );
+                            let _ = reg.deregister(pid);
+                        }
                         break;
                     }
                 }
@@ -255,6 +320,7 @@ impl ProcessHandle {
             pid,
             child: child_arc,
             running,
+            registry,
         };
 
         Ok((handle, rx))
@@ -275,11 +341,37 @@ impl ProcessHandle {
     /// Returns an error if the process has already exited or the kill call fails. After a
     /// successful kill the event channel will deliver `Completed { exit_code: -1 }` once
     /// the monitor thread detects the exit (typically within ~10 ms).
+    ///
+    /// If this process was spawned with a registry, it is deregistered regardless of whether
+    /// the kill call succeeded (the process may already have exited).
     pub fn kill(&self) -> Result<(), ProcessError> {
-        let mut child = self.child.lock().unwrap();
-        child
-            .kill()
-            .map_err(|e| ProcessError::KillFailed(e.to_string()))
+        let result = {
+            let mut child = self.child.lock().unwrap();
+            child
+                .kill()
+                .map_err(|e| ProcessError::KillFailed(e.to_string()))
+        };
+        // Always attempt to deregister — process may have already exited and the monitor
+        // thread may have deregistered too, but deregister is a no-op for missing entries.
+        if let Some(ref reg) = self.registry {
+            let _ = reg.deregister(self.pid);
+        }
+        result
+    }
+}
+
+impl Drop for ProcessHandle {
+    /// If the handle was spawned with a registry and the process is still running, kill the
+    /// process and deregister the entry.
+    fn drop(&mut self) {
+        if self.is_running() {
+            if let Some(ref reg) = self.registry {
+                if let Ok(mut child) = self.child.lock() {
+                    let _ = child.kill();
+                }
+                let _ = reg.deregister(self.pid);
+            }
+        }
     }
 }
 
@@ -310,6 +402,41 @@ pub fn run_to_completion_with_timeout(
     });
 
     let (handle, rx) = ProcessHandle::spawn(config)?;
+
+    match timeout {
+        Some(duration) => collect_output_with_timeout(&handle, &rx, duration),
+        None => collect_output(&rx),
+    }
+}
+
+/// Block until the process completes, registering it in `registry` for the duration.
+///
+/// Equivalent to [`run_to_completion`] but the process appears in the registry while running
+/// and is deregistered on completion.
+pub fn run_to_completion_registered(
+    config: &ProcessConfig,
+    registry: Arc<dyn ProcessRegistry>,
+) -> Result<ProcessOutput, ProcessError> {
+    let (_handle, rx) = ProcessHandle::spawn_registered(config, registry)?;
+    collect_output(&rx)
+}
+
+/// Block until the process completes (with timeout), registering it in `registry`.
+///
+/// Combines the behaviour of [`run_to_completion_with_timeout`] and
+/// [`run_to_completion_registered`]. The process is deregistered on completion or timeout.
+pub fn run_to_completion_with_timeout_registered(
+    config: &ProcessConfig,
+    registry: Arc<dyn ProcessRegistry>,
+) -> Result<ProcessOutput, ProcessError> {
+    let timeout = config.timeout.or_else(|| {
+        std::env::var("GRAFT_PROCESS_TIMEOUT_MS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(Duration::from_millis)
+    });
+
+    let (handle, rx) = ProcessHandle::spawn_registered(config, registry)?;
 
     match timeout {
         Some(duration) => collect_output_with_timeout(&handle, &rx, duration),
@@ -1017,5 +1144,146 @@ mod tests {
         child2.kill().unwrap();
         let _ = child1.wait();
         let _ = child2.wait();
+    }
+
+    // ── spawn_registered lifecycle tests ─────────────────────────────────────
+
+    /// Returns an `Arc<dyn ProcessRegistry>` backed by a temp directory.
+    fn make_arc_registry() -> (Arc<dyn ProcessRegistry>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let reg: Arc<dyn ProcessRegistry> =
+            Arc::new(FsProcessRegistry::new(dir.path().to_path_buf()).unwrap());
+        (reg, dir)
+    }
+
+    #[test]
+    fn spawn_registered_shows_running_entry() {
+        let (reg, _dir) = make_arc_registry();
+
+        let (handle, _rx) =
+            ProcessHandle::spawn_registered(&config("sleep 60"), Arc::clone(&reg)).unwrap();
+
+        // Give the process a moment to start (entry is registered before threads start).
+        // The entry should exist immediately after spawn_registered returns.
+        let entry = reg
+            .get(handle.pid())
+            .unwrap()
+            .expect("entry should exist right after spawn");
+        assert_eq!(entry.pid, handle.pid());
+        assert_eq!(entry.status, ProcessStatus::Running);
+        assert!(entry.repo_path.is_some(), "repo_path should be set");
+
+        // Kill to clean up — deregisters as a side effect.
+        handle.kill().unwrap();
+        // Drain events so the monitor thread has time to finish.
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    #[test]
+    fn spawn_registered_completion_deregisters() {
+        let (reg, _dir) = make_arc_registry();
+
+        let (handle, rx) =
+            ProcessHandle::spawn_registered(&config("echo done"), Arc::clone(&reg)).unwrap();
+        let pid = handle.pid();
+
+        // Drain all events — waits until the process exits and the channel closes.
+        let _ = collect_events(rx);
+
+        // The monitor thread deregisters just after sending Completed.
+        // Give it a moment to finish the filesystem operation.
+        thread::sleep(Duration::from_millis(50));
+
+        assert!(
+            reg.get(pid).unwrap().is_none(),
+            "entry should be deregistered after completion"
+        );
+    }
+
+    #[test]
+    fn kill_deregisters_entry() {
+        let (reg, _dir) = make_arc_registry();
+
+        let (handle, rx) =
+            ProcessHandle::spawn_registered(&config("sleep 60"), Arc::clone(&reg)).unwrap();
+        let pid = handle.pid();
+
+        // Entry should be present before kill.
+        assert!(reg.get(pid).unwrap().is_some());
+
+        // kill() deregisters synchronously.
+        handle.kill().unwrap();
+        assert!(
+            reg.get(pid).unwrap().is_none(),
+            "entry should be deregistered after kill"
+        );
+
+        // Drain channel so the monitor thread doesn't linger.
+        let _ = collect_events(rx);
+    }
+
+    #[test]
+    fn drop_kills_and_deregisters_running_process() {
+        let (reg, _dir) = make_arc_registry();
+
+        let pid = {
+            let (handle, _rx) =
+                ProcessHandle::spawn_registered(&config("sleep 60"), Arc::clone(&reg)).unwrap();
+            let pid = handle.pid();
+            // Entry exists while handle is alive.
+            assert!(reg.get(pid).unwrap().is_some());
+            // Drop the handle — should kill the process and deregister.
+            pid
+            // handle dropped here
+        };
+
+        // After drop, the entry should be gone.
+        assert!(
+            reg.get(pid).unwrap().is_none(),
+            "entry should be deregistered on drop"
+        );
+    }
+
+    #[test]
+    fn run_to_completion_registered_deregisters_on_finish() {
+        let (reg, _dir) = make_arc_registry();
+
+        let output = run_to_completion_registered(&config("echo hello"), Arc::clone(&reg)).unwrap();
+        assert!(output.success);
+
+        // Give the monitor thread a moment to deregister.
+        thread::sleep(Duration::from_millis(50));
+
+        // No entries should remain — all deregistered after completion.
+        let active = reg.list_active().unwrap();
+        assert!(
+            active.is_empty(),
+            "registry should be empty after completion"
+        );
+    }
+
+    #[test]
+    fn run_to_completion_with_timeout_registered_deregisters_on_timeout() {
+        let (reg, _dir) = make_arc_registry();
+
+        let cfg = ProcessConfig {
+            command: "sleep 10".to_string(),
+            working_dir: workdir(),
+            env: None,
+            log_path: None,
+            timeout: Some(Duration::from_millis(200)),
+        };
+
+        let result = run_to_completion_with_timeout_registered(&cfg, Arc::clone(&reg));
+        assert!(matches!(result, Err(ProcessError::Timeout)));
+
+        // After timeout, kill() was called which deregisters. Give it a moment.
+        thread::sleep(Duration::from_millis(50));
+
+        let active = reg.list_active().unwrap();
+        assert!(
+            active.is_empty(),
+            "registry should be empty after timeout kill"
+        );
     }
 }

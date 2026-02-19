@@ -14,9 +14,9 @@ pub use command::{run_command_with_timeout, CommandError};
 pub use config::{parse_commands, parse_state_queries, CommandDef, StateQueryDef};
 pub use git::{get_current_commit, git_checkout, git_fetch, git_rev_parse, is_git_repo, GitError};
 pub use process::{
-    run_to_completion, run_to_completion_with_timeout, FsProcessRegistry, ProcessConfig,
-    ProcessEntry, ProcessError, ProcessEvent, ProcessHandle, ProcessOutput, ProcessRegistry,
-    ProcessStatus,
+    run_to_completion, run_to_completion_registered, run_to_completion_with_timeout,
+    run_to_completion_with_timeout_registered, FsProcessRegistry, ProcessConfig, ProcessEntry,
+    ProcessError, ProcessEvent, ProcessHandle, ProcessOutput, ProcessRegistry, ProcessStatus,
 };
 pub use state::{
     compute_workspace_hash, get_cache_path, get_query_cache_dir, invalidate_cached_state,
