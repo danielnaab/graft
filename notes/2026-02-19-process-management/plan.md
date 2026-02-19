@@ -191,7 +191,7 @@ Key constraints:
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 10: Remove deprecated code and clean up exports
-- [ ] Remove old execution paths, update graft-common exports
+- [x] Remove old execution paths, update graft-common exports
 - **Code**: `crates/graft-common/src/command.rs`, `crates/graft-common/src/lib.rs`, `crates/graft-common/src/git.rs`
 - **Design**: `notes/2026-02-19-unified-process-management.md` (What Goes Away)
 - **Acceptance**:

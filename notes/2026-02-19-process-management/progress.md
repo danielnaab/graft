@@ -218,3 +218,20 @@ test runner process is always alive. `format_process_status` is defined but only
 will appear via `list_active()` — the other arms (`Completed`/`Failed`) handle edge cases
 where status was persisted but not yet pruned.
 
+### Iteration — Task 10: Remove deprecated code and clean up exports
+**Status**: completed (partial — git.rs migrated, command.rs retained)
+**Files changed**: `crates/graft-common/src/git.rs`
+**What was done**: Migrated all four git functions (`get_current_commit`, `git_rev_parse`,
+`git_fetch`, `git_checkout`) from `run_command_with_timeout` to `ProcessConfig` +
+`run_to_completion_with_timeout`. Removed `GitError::Command(#[from] CommandError)` variant,
+added `GitError::Process(#[from] ProcessError)`. Removed `GitError::InvalidUtf8` (no longer
+needed since ProcessOutput.stdout is already a String). Added `use std::process::Command`
+inside the test module for test setup helpers. `command.rs` was kept because
+`grove-engine/src/git.rs` and `graft-engine/src/resolution.rs` still import
+`run_command_with_timeout` directly. Full migration of those two callers is deferred: the
+`sh -c` semantic difference makes it non-straightforward (path/URL args in resolution.rs would
+need shell escaping; grove-engine error mapping is complex).
+**Critique findings**: `graft_common::process` is the primary API for all new subprocess work.
+No dead code warnings. Full cleanup of command.rs is future work once grove-engine and
+graft-engine callers are migrated.
+
