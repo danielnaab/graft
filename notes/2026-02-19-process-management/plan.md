@@ -32,14 +32,20 @@ Key constraints:
 
 ## Design decisions made during implementation
 
-(Record design decisions not in the original design doc here)
+- **`spawn` takes `&ProcessConfig`** (not by value): clippy pedantic flags pass-by-value when
+  the value is not consumed. Since ProcessConfig fields are used via borrow, taking a reference
+  avoids unnecessary clones. Callers pass `&config`.
+- **Monitor thread uses `try_wait()` polling** (10ms interval) instead of blocking `wait()`:
+  allows `kill()` to acquire the child mutex without deadlocking against the monitor.
+- **`drop(thread::spawn(...))` for monitor thread**: avoids clippy `let_underscore_must_use`
+  warning on the detached `JoinHandle`.
 
 ---
 
 ## Phase 1: ProcessHandle Foundation (Tasks 1–3)
 
 ### Task 1: ProcessEvent, ProcessHandle with streaming output
-- [ ] Implement ProcessHandle in graft-common with streaming via std threads + mpsc
+- [x] Implement ProcessHandle in graft-common with streaming via std threads + mpsc
 - **Code**: `crates/graft-common/src/process.rs` (new), `crates/graft-common/src/lib.rs`
 - **Design**: `notes/2026-02-19-unified-process-management.md` (ProcessHandle section)
 - **Acceptance**:
