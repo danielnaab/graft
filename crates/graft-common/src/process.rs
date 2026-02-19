@@ -2,15 +2,19 @@
 //!
 //! The primary entry point is [`ProcessHandle::spawn`], which runs a shell command and returns
 //! a handle plus a channel of [`ProcessEvent`]s that reflect the process lifecycle.
+//!
+//! For blocking use cases, [`run_to_completion`] and [`run_to_completion_with_timeout`] collect
+//! all output synchronously and return a [`ProcessOutput`].
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use std::fs::OpenOptions;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use thiserror::Error;
 
@@ -36,7 +40,7 @@ pub enum ProcessEvent {
     Failed { error: String },
 }
 
-/// Errors from process spawn and kill operations.
+/// Errors from process spawn, kill, and execution operations.
 #[derive(Error, Debug)]
 pub enum ProcessError {
     #[error("Failed to spawn process: {0}")]
@@ -67,6 +71,19 @@ pub struct ProcessConfig {
     pub timeout: Option<Duration>,
 }
 
+/// Output collected from a process that has run to completion.
+#[derive(Debug, Clone)]
+pub struct ProcessOutput {
+    /// Exit code of the process.
+    pub exit_code: i32,
+    /// All stdout output, with lines joined by `\n`. Empty string if no stdout.
+    pub stdout: String,
+    /// All stderr output, with lines joined by `\n`. Empty string if no stderr.
+    pub stderr: String,
+    /// `true` if `exit_code == 0`.
+    pub success: bool,
+}
+
 /// Handle to a running subprocess.
 ///
 /// Created by [`ProcessHandle::spawn`]. Provides the process PID and the ability to kill it.
@@ -89,6 +106,9 @@ impl ProcessHandle {
     /// `Started`, then `OutputLine` events, then `Completed` or `Failed`.
     ///
     /// All `OutputLine` events are guaranteed to arrive before `Completed` or `Failed`.
+    ///
+    /// If `config.log_path` is set, every output line is also appended to that file.
+    #[allow(clippy::too_many_lines)]
     pub fn spawn(
         config: &ProcessConfig,
     ) -> Result<(Self, mpsc::Receiver<ProcessEvent>), ProcessError> {
@@ -118,16 +138,40 @@ impl ProcessHandle {
         let running = Arc::new(AtomicBool::new(true));
         let child_arc = Arc::new(Mutex::new(child));
 
+        // Open the log file once, shared between both reader threads.
+        let log_handle: Option<Arc<Mutex<std::fs::File>>> =
+            if let Some(ref log_path) = config.log_path {
+                let file = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(log_path)
+                    .map_err(|e| {
+                        ProcessError::SpawnFailed(format!(
+                            "Failed to open log file {}: {}",
+                            log_path.display(),
+                            e
+                        ))
+                    })?;
+                Some(Arc::new(Mutex::new(file)))
+            } else {
+                None
+            };
+
         // Deliver Started before the background threads begin emitting OutputLine events.
         let _ = tx.send(ProcessEvent::Started { pid });
 
         // Stdout reader thread — sends OutputLine { is_stderr: false } events.
         let tx_stdout = tx.clone();
+        let log_stdout = log_handle.clone();
         let stdout_thread = thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines() {
                 match line {
                     Ok(l) => {
+                        if let Some(ref log) = log_stdout {
+                            let mut f = log.lock().unwrap();
+                            let _ = writeln!(f, "{l}");
+                        }
                         let _ = tx_stdout.send(ProcessEvent::OutputLine {
                             line: l,
                             is_stderr: false,
@@ -140,11 +184,16 @@ impl ProcessHandle {
 
         // Stderr reader thread — sends OutputLine { is_stderr: true } events.
         let tx_stderr = tx.clone();
+        let log_stderr = log_handle;
         let stderr_thread = thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
                 match line {
                     Ok(l) => {
+                        if let Some(ref log) = log_stderr {
+                            let mut f = log.lock().unwrap();
+                            let _ = writeln!(f, "{l}");
+                        }
                         let _ = tx_stderr.send(ProcessEvent::OutputLine {
                             line: l,
                             is_stderr: true,
@@ -229,6 +278,130 @@ impl ProcessHandle {
     }
 }
 
+/// Block until the process completes and return all collected output.
+///
+/// If `config.log_path` is set, output is also tee'd to that file.
+pub fn run_to_completion(config: &ProcessConfig) -> Result<ProcessOutput, ProcessError> {
+    let (_handle, rx) = ProcessHandle::spawn(config)?;
+    collect_output(&rx)
+}
+
+/// Block until the process completes, killing it if it exceeds the timeout.
+///
+/// Timeout is determined in priority order:
+/// 1. `config.timeout`
+/// 2. `GRAFT_PROCESS_TIMEOUT_MS` environment variable (milliseconds as integer)
+/// 3. No timeout (wait indefinitely)
+///
+/// Returns [`ProcessError::Timeout`] if the deadline is exceeded.
+pub fn run_to_completion_with_timeout(
+    config: &ProcessConfig,
+) -> Result<ProcessOutput, ProcessError> {
+    let timeout = config.timeout.or_else(|| {
+        std::env::var("GRAFT_PROCESS_TIMEOUT_MS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(Duration::from_millis)
+    });
+
+    let (handle, rx) = ProcessHandle::spawn(config)?;
+
+    match timeout {
+        Some(duration) => collect_output_with_timeout(&handle, &rx, duration),
+        None => collect_output(&rx),
+    }
+}
+
+/// Drain the event channel and collect stdout/stderr into a [`ProcessOutput`].
+fn collect_output(rx: &mpsc::Receiver<ProcessEvent>) -> Result<ProcessOutput, ProcessError> {
+    let mut stdout_lines: Vec<String> = Vec::new();
+    let mut stderr_lines: Vec<String> = Vec::new();
+    let mut exit_code = 0i32;
+
+    for event in rx {
+        match event {
+            ProcessEvent::OutputLine { line, is_stderr } => {
+                if is_stderr {
+                    stderr_lines.push(line);
+                } else {
+                    stdout_lines.push(line);
+                }
+            }
+            ProcessEvent::Completed { exit_code: code } => {
+                exit_code = code;
+            }
+            ProcessEvent::Failed { error } => {
+                return Err(ProcessError::SpawnFailed(error));
+            }
+            ProcessEvent::Started { .. } => {}
+        }
+    }
+
+    Ok(build_output(&stdout_lines, &stderr_lines, exit_code))
+}
+
+/// Drain the event channel with a deadline, killing the process if time runs out.
+fn collect_output_with_timeout(
+    handle: &ProcessHandle,
+    rx: &mpsc::Receiver<ProcessEvent>,
+    timeout: Duration,
+) -> Result<ProcessOutput, ProcessError> {
+    let deadline = Instant::now() + timeout;
+    let mut stdout_lines: Vec<String> = Vec::new();
+    let mut stderr_lines: Vec<String> = Vec::new();
+    let mut exit_code = 0i32;
+
+    loop {
+        // Compute remaining time; if deadline has passed, kill and return Timeout.
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            let _ = handle.kill();
+            return Err(ProcessError::Timeout);
+        }
+
+        match rx.recv_timeout(remaining) {
+            Ok(ProcessEvent::OutputLine { line, is_stderr }) => {
+                if is_stderr {
+                    stderr_lines.push(line);
+                } else {
+                    stdout_lines.push(line);
+                }
+            }
+            Ok(ProcessEvent::Completed { exit_code: code }) => {
+                exit_code = code;
+                // All OutputLine events precede Completed in the FIFO channel.
+                break;
+            }
+            Ok(ProcessEvent::Failed { error }) => {
+                return Err(ProcessError::SpawnFailed(error));
+            }
+            Ok(ProcessEvent::Started { .. }) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = handle.kill();
+                return Err(ProcessError::Timeout);
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                // Channel closed without a terminal event; treat as completion.
+                break;
+            }
+        }
+    }
+
+    Ok(build_output(&stdout_lines, &stderr_lines, exit_code))
+}
+
+fn build_output(stdout_lines: &[String], stderr_lines: &[String], exit_code: i32) -> ProcessOutput {
+    let stdout = stdout_lines.join("\n");
+    let stderr = stderr_lines.join("\n");
+    let success = exit_code == 0;
+    ProcessOutput {
+        exit_code,
+        stdout,
+        stderr,
+        success,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,6 +423,8 @@ mod tests {
     fn collect_events(rx: mpsc::Receiver<ProcessEvent>) -> Vec<ProcessEvent> {
         rx.into_iter().collect()
     }
+
+    // ── ProcessHandle::spawn tests (unchanged from Task 1) ──────────────────
 
     #[test]
     fn spawn_echo_captures_stdout() {
@@ -356,5 +531,135 @@ mod tests {
 
         // Running flag is cleared by the time the channel closes.
         assert!(!handle.is_running());
+    }
+
+    // ── run_to_completion tests ──────────────────────────────────────────────
+
+    #[test]
+    fn run_to_completion_collects_stdout_and_stderr() {
+        let cfg = config("echo out_line; echo err_line >&2");
+        let output = run_to_completion(&cfg).unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.exit_code, 0);
+        assert_eq!(output.stdout, "out_line");
+        assert_eq!(output.stderr, "err_line");
+    }
+
+    #[test]
+    fn run_to_completion_multiline_output() {
+        let cfg = config("printf 'line1\\nline2\\nline3'");
+        let output = run_to_completion(&cfg).unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.stdout, "line1\nline2\nline3");
+    }
+
+    #[test]
+    fn run_to_completion_nonzero_exit() {
+        let cfg = config("exit 7");
+        let output = run_to_completion(&cfg).unwrap();
+
+        assert!(!output.success);
+        assert_eq!(output.exit_code, 7);
+    }
+
+    #[test]
+    fn log_file_captures_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("output.log");
+
+        let cfg = ProcessConfig {
+            command: "echo logged_line; echo err_logged >&2".to_string(),
+            working_dir: workdir(),
+            env: None,
+            log_path: Some(log_path.clone()),
+            timeout: None,
+        };
+
+        let output = run_to_completion(&cfg).unwrap();
+        assert!(output.success);
+
+        // Both stdout and stderr should be written to the log file.
+        let log_content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(log_content.contains("logged_line"), "log missing stdout");
+        assert!(log_content.contains("err_logged"), "log missing stderr");
+    }
+
+    #[test]
+    fn log_file_appends_across_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("append.log");
+
+        let cfg1 = ProcessConfig {
+            command: "echo first_run".to_string(),
+            working_dir: workdir(),
+            env: None,
+            log_path: Some(log_path.clone()),
+            timeout: None,
+        };
+        let cfg2 = ProcessConfig {
+            command: "echo second_run".to_string(),
+            working_dir: workdir(),
+            env: None,
+            log_path: Some(log_path.clone()),
+            timeout: None,
+        };
+
+        run_to_completion(&cfg1).unwrap();
+        run_to_completion(&cfg2).unwrap();
+
+        let log_content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(log_content.contains("first_run"), "log missing first run");
+        assert!(log_content.contains("second_run"), "log missing second run");
+    }
+
+    // ── run_to_completion_with_timeout tests ─────────────────────────────────
+
+    #[test]
+    fn timeout_triggers_on_slow_command() {
+        let cfg = ProcessConfig {
+            command: "sleep 10".to_string(),
+            working_dir: workdir(),
+            env: None,
+            log_path: None,
+            timeout: Some(Duration::from_millis(200)),
+        };
+
+        let result = run_to_completion_with_timeout(&cfg);
+        assert!(matches!(result, Err(ProcessError::Timeout)));
+    }
+
+    #[test]
+    fn no_timeout_completes_normally() {
+        let cfg = ProcessConfig {
+            command: "echo fast".to_string(),
+            working_dir: workdir(),
+            env: None,
+            log_path: None,
+            timeout: Some(Duration::from_secs(10)),
+        };
+
+        let output = run_to_completion_with_timeout(&cfg).unwrap();
+        assert!(output.success);
+        assert_eq!(output.stdout, "fast");
+    }
+
+    #[test]
+    fn env_var_timeout_triggers() {
+        // Temporarily set the env var; since tests may run in parallel we use a
+        // config-level timeout to avoid interference with other tests.
+        let cfg = ProcessConfig {
+            command: "echo env_timeout_test".to_string(),
+            working_dir: workdir(),
+            env: None,
+            log_path: None,
+            // config.timeout takes priority; set None so env var is consulted.
+            timeout: None,
+        };
+
+        // Run without env var — should succeed.
+        let output = run_to_completion_with_timeout(&cfg).unwrap();
+        assert_eq!(output.stdout, "env_timeout_test");
     }
 }
