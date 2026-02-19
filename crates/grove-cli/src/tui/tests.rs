@@ -3,7 +3,7 @@
 //! These tests verify TUI logic without requiring a real terminal.
 
 use super::*;
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use grove_core::{
     CommitInfo, FileChange, FileChangeStatus, RepoDetail, RepoDetailProvider, RepoPath,
     RepoRegistry, RepoStatus, Result,
@@ -115,7 +115,7 @@ fn handles_quit_with_q_key() {
     );
     assert!(!app.should_quit, "Should not quit initially");
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
     assert!(app.should_quit, "Should quit after pressing 'q'");
 }
 
@@ -128,7 +128,7 @@ fn esc_from_dashboard_does_not_quit() {
     );
     assert!(!app.should_quit, "Should not quit initially");
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
     // Escape goes home (Dashboard) — already there, so no-op (does not quit)
     assert!(!app.should_quit, "Esc from Dashboard should NOT quit");
     assert_eq!(*app.current_view(), View::Dashboard);
@@ -333,9 +333,9 @@ fn ignores_unknown_keybindings() {
     app.list_state.select(Some(1));
 
     // Press unknown keys (note: 'x' and 's' are now valid, so use truly unknown keys)
-    app.handle_key(KeyCode::Char('a'));
-    app.handle_key(KeyCode::Char('z'));
-    app.handle_key(KeyCode::F(1));
+    app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('z'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::F(1), KeyModifiers::NONE);
 
     assert_eq!(
         app.list_state.selected(),
@@ -355,10 +355,10 @@ fn handles_vim_style_navigation() {
     );
     app.list_state.select(Some(0));
 
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(app.list_state.selected(), Some(1), "'j' should move down");
 
-    app.handle_key(KeyCode::Char('k'));
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
     assert_eq!(app.list_state.selected(), Some(0), "'k' should move up");
 }
 
@@ -371,14 +371,14 @@ fn handles_arrow_key_navigation() {
     );
     app.list_state.select(Some(0));
 
-    app.handle_key(KeyCode::Down);
+    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
     assert_eq!(
         app.list_state.selected(),
         Some(1),
         "Down arrow should move down"
     );
 
-    app.handle_key(KeyCode::Up);
+    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
     assert_eq!(
         app.list_state.selected(),
         Some(0),
@@ -442,7 +442,7 @@ fn enter_switches_to_detail_pane() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
 }
 
@@ -453,7 +453,7 @@ fn tab_switches_to_detail_pane() {
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
-    app.handle_key(KeyCode::Tab);
+    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
 }
 
@@ -466,7 +466,7 @@ fn q_in_detail_returns_to_list() {
     );
     app.push_view(View::RepoDetail(0));
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit, "q in detail should NOT quit the app");
 }
@@ -480,7 +480,7 @@ fn esc_in_detail_resets_to_dashboard() {
     );
     app.push_view(View::RepoDetail(0));
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit, "Esc in detail should NOT quit the app");
 }
@@ -495,7 +495,7 @@ fn enter_in_detail_with_no_commands_is_noop() {
     app.push_view(View::RepoDetail(0));
 
     // Enter tries to execute a command; with no commands loaded, it's a no-op.
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
 }
 
@@ -508,7 +508,7 @@ fn tab_in_detail_returns_to_list() {
     );
     app.push_view(View::RepoDetail(0));
 
-    app.handle_key(KeyCode::Tab);
+    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -523,9 +523,9 @@ fn j_in_detail_scrolls_down() {
     app.push_view(View::RepoDetail(0));
 
     assert_eq!(app.detail_scroll, 0);
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(app.detail_scroll, 1);
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(app.detail_scroll, 2);
 }
 
@@ -539,7 +539,7 @@ fn k_in_detail_does_not_go_below_zero() {
     app.push_view(View::RepoDetail(0));
 
     assert_eq!(app.detail_scroll, 0);
-    app.handle_key(KeyCode::Char('k'));
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
     assert_eq!(app.detail_scroll, 0, "Scroll should not go below 0");
 }
 
@@ -556,7 +556,7 @@ fn navigation_invalidates_detail_cache() {
     app.cached_detail_index = Some(0);
 
     // Navigate in Dashboard view
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(app.list_state.selected(), Some(1));
 
     app.ensure_detail_loaded();
@@ -1161,7 +1161,7 @@ fn help_overlay_activates_on_question_mark() {
     );
     assert_eq!(*app.current_view(), View::Dashboard);
 
-    app.handle_key(KeyCode::Char('?'));
+    app.handle_key(KeyCode::Char('?'), KeyModifiers::NONE);
     assert_eq!(
         *app.current_view(),
         View::Help,
@@ -1177,10 +1177,10 @@ fn help_overlay_dismisses_on_printable_key() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char('?'));
+    app.handle_key(KeyCode::Char('?'), KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::Help);
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -1192,10 +1192,10 @@ fn help_overlay_dismisses_on_esc() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char('?'));
+    app.handle_key(KeyCode::Char('?'), KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::Help);
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -1207,10 +1207,10 @@ fn empty_workspace_navigation_does_not_panic() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(app.list_state.selected(), None);
 
-    app.handle_key(KeyCode::Char('k'));
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
     assert_eq!(app.list_state.selected(), None);
 }
 
@@ -1356,7 +1356,7 @@ fn x_from_repo_list_navigates_to_commands_tab() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char('x'));
+    app.handle_key(KeyCode::Char('x'), KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
 }
 
@@ -1368,7 +1368,7 @@ fn s_from_repo_list_navigates_to_state_tab() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char('s'));
+    app.handle_key(KeyCode::Char('s'), KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::RepoDetail(0));
 }
 
@@ -1445,7 +1445,7 @@ fn confirmation_dialog_shows_for_running_command() {
     app.command_state = CommandState::Running;
     app.push_view(View::CommandOutput);
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
     assert!(
         app.show_stop_confirmation,
         "Dialog should show for running command"
@@ -1463,7 +1463,7 @@ fn confirmation_dialog_not_shown_for_completed_command() {
     app.command_state = CommandState::Completed { exit_code: 0 };
     app.push_view(View::CommandOutput);
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
     assert!(
         !app.show_stop_confirmation,
         "Dialog should not show for completed command"
@@ -1558,8 +1558,8 @@ fn argument_input_opens_after_command_selected() {
     assert!(app.argument_input.is_some());
     let state = app.argument_input.as_ref().unwrap();
     assert_eq!(state.command_name, "test");
-    assert!(state.buffer.is_empty());
-    assert_eq!(state.cursor_pos, 0);
+    assert!(state.text.buffer.is_empty());
+    assert_eq!(state.text.cursor_pos, 0);
 }
 
 #[test]
@@ -1570,18 +1570,17 @@ fn argument_input_buffer_updates_on_char() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: String::new(),
-        cursor_pos: 0,
+        text: super::text_buffer::TextBuffer::new(),
         command_name: "test".to_string(),
     });
 
-    app.handle_key(KeyCode::Char('a'));
-    app.handle_key(KeyCode::Char('r'));
-    app.handle_key(KeyCode::Char('g'));
+    app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('g'), KeyModifiers::NONE);
 
     let state = app.argument_input.as_ref().unwrap();
-    assert_eq!(state.buffer, "arg");
-    assert_eq!(state.cursor_pos, 3);
+    assert_eq!(state.text.buffer, "arg");
+    assert_eq!(state.text.cursor_pos, 3);
 }
 
 #[test]
@@ -1592,16 +1591,15 @@ fn argument_input_backspace_removes_char() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: "test".to_string(),
-        cursor_pos: 4,
+        text: super::text_buffer::TextBuffer::with_content("test", 4),
         command_name: "test".to_string(),
     });
 
-    app.handle_key(KeyCode::Backspace);
+    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
 
     let state = app.argument_input.as_ref().unwrap();
-    assert_eq!(state.buffer, "tes");
-    assert_eq!(state.cursor_pos, 3);
+    assert_eq!(state.text.buffer, "tes");
+    assert_eq!(state.text.cursor_pos, 3);
 }
 
 #[test]
@@ -1612,12 +1610,11 @@ fn argument_input_escape_cancels() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: "some args".to_string(),
-        cursor_pos: 9,
+        text: super::text_buffer::TextBuffer::with_content("some args", 9),
         command_name: "test".to_string(),
     });
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
     assert!(app.argument_input.is_none());
 }
 
@@ -1629,13 +1626,12 @@ fn argument_input_enter_executes_with_args() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: "arg1 arg2".to_string(),
-        cursor_pos: 9,
+        text: super::text_buffer::TextBuffer::with_content("arg1 arg2", 9),
         command_name: "test".to_string(),
     });
     app.selected_repo_for_commands = Some("/tmp/test".to_string());
 
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
     assert!(app.argument_input.is_none());
     assert_eq!(app.command_name, Some("test".to_string()));
 }
@@ -1648,13 +1644,12 @@ fn argument_input_enter_with_empty_buffer_executes_without_args() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: String::new(),
-        cursor_pos: 0,
+        text: super::text_buffer::TextBuffer::new(),
         command_name: "test".to_string(),
     });
     app.selected_repo_for_commands = Some("/tmp/test".to_string());
 
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
     assert_eq!(app.command_name, Some("test".to_string()));
 }
 
@@ -1689,14 +1684,13 @@ fn argument_input_cursor_moves_left() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: "test".to_string(),
-        cursor_pos: 4,
+        text: super::text_buffer::TextBuffer::with_content("test", 4),
         command_name: "cmd".to_string(),
     });
 
-    app.handle_key(KeyCode::Left);
+    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
 
-    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 3);
+    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 3);
 }
 
 #[test]
@@ -1707,14 +1701,13 @@ fn argument_input_cursor_moves_right() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: "test".to_string(),
-        cursor_pos: 2,
+        text: super::text_buffer::TextBuffer::with_content("test", 2),
         command_name: "cmd".to_string(),
     });
 
-    app.handle_key(KeyCode::Right);
+    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
 
-    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 3);
+    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 3);
 }
 
 #[test]
@@ -1725,18 +1718,17 @@ fn argument_input_cursor_stops_at_boundaries() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: "test".to_string(),
-        cursor_pos: 0,
+        text: super::text_buffer::TextBuffer::with_content("test", 0),
         command_name: "cmd".to_string(),
     });
 
-    app.handle_key(KeyCode::Left);
-    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 0);
+    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
+    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 0);
 
-    app.argument_input.as_mut().unwrap().cursor_pos = 4;
+    app.argument_input.as_mut().unwrap().text.cursor_pos = 4;
 
-    app.handle_key(KeyCode::Right);
-    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 4);
+    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
+    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 4);
 }
 
 #[test]
@@ -1747,16 +1739,15 @@ fn argument_input_home_end_keys() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: "test".to_string(),
-        cursor_pos: 2,
+        text: super::text_buffer::TextBuffer::with_content("test", 2),
         command_name: "cmd".to_string(),
     });
 
-    app.handle_key(KeyCode::Home);
-    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 0);
+    app.handle_key(KeyCode::Home, KeyModifiers::NONE);
+    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 0);
 
-    app.handle_key(KeyCode::End);
-    assert_eq!(app.argument_input.as_ref().unwrap().cursor_pos, 4);
+    app.handle_key(KeyCode::End, KeyModifiers::NONE);
+    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 4);
 }
 
 #[test]
@@ -1767,16 +1758,15 @@ fn argument_input_inserts_char_at_cursor() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: "test".to_string(),
-        cursor_pos: 2,
+        text: super::text_buffer::TextBuffer::with_content("test", 2),
         command_name: "cmd".to_string(),
     });
 
-    app.handle_key(KeyCode::Char('X'));
+    app.handle_key(KeyCode::Char('X'), KeyModifiers::NONE);
 
     let state = app.argument_input.as_ref().unwrap();
-    assert_eq!(state.buffer, "teXst");
-    assert_eq!(state.cursor_pos, 3);
+    assert_eq!(state.text.buffer, "teXst");
+    assert_eq!(state.text.cursor_pos, 3);
 }
 
 #[test]
@@ -1787,16 +1777,15 @@ fn argument_input_backspace_at_cursor() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: "test".to_string(),
-        cursor_pos: 2,
+        text: super::text_buffer::TextBuffer::with_content("test", 2),
         command_name: "cmd".to_string(),
     });
 
-    app.handle_key(KeyCode::Backspace);
+    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
 
     let state = app.argument_input.as_ref().unwrap();
-    assert_eq!(state.buffer, "tst");
-    assert_eq!(state.cursor_pos, 1);
+    assert_eq!(state.text.buffer, "tst");
+    assert_eq!(state.text.cursor_pos, 1);
 }
 
 #[test]
@@ -1807,13 +1796,12 @@ fn argument_input_prevents_execution_on_parse_error() {
         "test".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: r#"unclosed "quote"#.to_string(),
-        cursor_pos: 15,
+        text: super::text_buffer::TextBuffer::with_content(r#"unclosed "quote"#, 15),
         command_name: "cmd".to_string(),
     });
     app.selected_repo_for_commands = Some("/tmp/test".to_string());
 
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(
         app.argument_input.is_some(),
@@ -1836,7 +1824,7 @@ fn q_from_any_tab_returns_to_repo_list() {
     );
 
     app.push_view(View::RepoDetail(0));
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit);
 }
@@ -1854,7 +1842,7 @@ fn state_tab_navigation_with_j_key() {
     app.push_view(View::RepoDetail(0));
 
     assert_eq!(app.detail_scroll, 0);
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(app.detail_scroll, 1, "'j' should scroll detail view down");
 }
 
@@ -1869,11 +1857,11 @@ fn state_tab_navigation_with_k_key() {
     app.push_view(View::RepoDetail(0));
     app.detail_scroll = 3;
 
-    app.handle_key(KeyCode::Char('k'));
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
     assert_eq!(app.detail_scroll, 2, "'k' should scroll detail view up");
 
     app.detail_scroll = 0;
-    app.handle_key(KeyCode::Char('k'));
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
     assert_eq!(app.detail_scroll, 0, "'k' at top should not go below 0");
 }
 
@@ -1889,7 +1877,7 @@ fn state_tab_navigation_does_not_move_past_end() {
     app.push_view(View::RepoDetail(0));
     app.detail_scroll = 5;
 
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(app.detail_scroll, 6, "j should increment scroll");
 }
 
@@ -1904,7 +1892,7 @@ fn state_tab_navigation_does_not_move_before_start() {
     app.push_view(View::RepoDetail(0));
     assert_eq!(app.detail_scroll, 0);
 
-    app.handle_key(KeyCode::Char('k'));
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
     assert_eq!(app.detail_scroll, 0, "k at top should not underflow");
 }
 
@@ -1919,10 +1907,10 @@ fn state_tab_navigation_with_arrow_keys() {
     app.push_view(View::RepoDetail(0));
     app.detail_scroll = 2;
 
-    app.handle_key(KeyCode::Down);
+    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
     assert_eq!(app.detail_scroll, 3, "Down arrow should scroll down");
 
-    app.handle_key(KeyCode::Up);
+    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
     assert_eq!(app.detail_scroll, 2, "Up arrow should scroll up");
 }
 
@@ -1937,10 +1925,10 @@ fn state_tab_handles_empty_queries_gracefully() {
     app.state_queries = Vec::new();
     app.state_results = Vec::new();
 
-    app.handle_key(KeyCode::Char('j'));
-    app.handle_key(KeyCode::Char('k'));
-    app.handle_key(KeyCode::Down);
-    app.handle_key(KeyCode::Up);
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
 
     // Just verifying that navigating with an empty query list does not panic
     assert!(
@@ -1995,7 +1983,7 @@ fn state_tab_refresh_with_no_queries_shows_info() {
     app.push_view(View::RepoDetail(0));
     // state_queries is empty by default
 
-    app.handle_key(KeyCode::Char('r'));
+    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
 
     assert!(app.status_message.is_some());
     let msg = app.status_message.as_ref().unwrap();
@@ -2193,7 +2181,7 @@ fn empty_workspace_x_does_not_navigate() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char('x'));
+    app.handle_key(KeyCode::Char('x'), KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -2205,7 +2193,7 @@ fn empty_workspace_s_does_not_navigate() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char('s'));
+    app.handle_key(KeyCode::Char('s'), KeyModifiers::NONE);
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
@@ -2244,7 +2232,7 @@ fn command_output_q_pops_back_to_previous_view() {
     app.push_view(View::CommandOutput);
     app.command_state = CommandState::Completed { exit_code: 0 };
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
 
     assert_eq!(
         *app.current_view(),
@@ -2268,7 +2256,7 @@ fn command_output_esc_pops_back_to_previous_view() {
     app.push_view(View::CommandOutput);
     app.command_state = CommandState::Completed { exit_code: 0 };
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     assert_eq!(
         *app.current_view(),
@@ -2293,7 +2281,7 @@ fn command_output_pops_to_repo_detail_when_launched_from_there() {
     app.push_view(View::CommandOutput);
     app.command_state = CommandState::Completed { exit_code: 0 };
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
 
     assert_eq!(
         *app.current_view(),
@@ -2313,7 +2301,7 @@ fn command_output_q_shows_stop_confirmation_when_running() {
     app.push_view(View::CommandOutput);
     app.command_state = CommandState::Running;
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
 
     assert!(
         app.show_stop_confirmation,
@@ -2337,7 +2325,7 @@ fn command_output_esc_shows_stop_confirmation_when_running() {
     app.push_view(View::CommandOutput);
     app.command_state = CommandState::Running;
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     assert!(
         app.show_stop_confirmation,
@@ -2362,7 +2350,7 @@ fn stop_confirmation_n_cancels_and_stays_in_command_output() {
     app.command_state = CommandState::Running;
     app.show_stop_confirmation = true;
 
-    app.handle_key(KeyCode::Char('n'));
+    app.handle_key(KeyCode::Char('n'), KeyModifiers::NONE);
 
     assert!(
         !app.show_stop_confirmation,
@@ -2391,7 +2379,7 @@ fn stop_confirmation_esc_cancels_and_stays_in_command_output() {
     app.command_state = CommandState::Running;
     app.show_stop_confirmation = true;
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     assert!(
         !app.show_stop_confirmation,
@@ -2419,15 +2407,14 @@ fn argument_input_overlay_is_intercepted_before_view_dispatch() {
     // Set up ArgumentInput overlay while in RepoDetail view
     app.push_view(View::RepoDetail(0));
     app.argument_input = Some(ArgumentInputState {
-        buffer: String::new(),
-        cursor_pos: 0,
+        text: super::text_buffer::TextBuffer::new(),
         command_name: "test".to_string(),
     });
 
     // Press 'q' — in view dispatch this would pop the view, but the overlay
     // should intercept and treat it as a char input instead
     // (Actually Esc is the cancel key for argument input, q is just a char)
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
 
     // The ArgumentInput overlay should have handled it (as char input)
     assert_eq!(
@@ -2441,7 +2428,7 @@ fn argument_input_overlay_is_intercepted_before_view_dispatch() {
     );
     let state = app.argument_input.as_ref().unwrap();
     assert_eq!(
-        state.buffer, "q",
+        state.text.buffer, "q",
         "q should be added to buffer, not pop the view"
     );
 }
@@ -2457,12 +2444,11 @@ fn argument_input_esc_restores_view_without_popping_stack() {
     // ArgumentInput overlay while in RepoDetail
     app.push_view(View::RepoDetail(0));
     app.argument_input = Some(ArgumentInputState {
-        buffer: "some args".to_string(),
-        cursor_pos: 9,
+        text: super::text_buffer::TextBuffer::with_content("some args", 9),
         command_name: "test".to_string(),
     });
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     // Should cancel overlay, stay on current view
     assert_eq!(
@@ -2491,7 +2477,7 @@ fn escape_from_deep_stack_resets_to_dashboard() {
     app.push_view(View::Help);
     assert_eq!(app.view_stack.len(), 3);
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     assert_eq!(
         *app.current_view(),
@@ -2513,7 +2499,7 @@ fn q_in_detail_pops_one_level() {
     app.push_view(View::RepoDetail(0));
     assert_eq!(app.view_stack.len(), 2);
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
 
     assert_eq!(*app.current_view(), View::Dashboard);
     assert_eq!(app.view_stack.len(), 1);
@@ -2530,7 +2516,7 @@ fn q_from_dashboard_quits() {
 
     assert_eq!(*app.current_view(), View::Dashboard);
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
     assert!(app.should_quit, "q from Dashboard should quit");
 }
 
@@ -2544,7 +2530,7 @@ fn esc_from_dashboard_is_noop_not_quit() {
 
     assert_eq!(*app.current_view(), View::Dashboard);
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
     assert!(!app.should_quit, "Esc from Dashboard should not quit");
     assert_eq!(
         *app.current_view(),
@@ -2563,7 +2549,7 @@ fn esc_from_help_resets_to_dashboard() {
 
     app.push_view(View::Help);
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit);
@@ -2579,7 +2565,7 @@ fn q_from_help_pops_one_level() {
 
     app.push_view(View::Help);
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
 
     assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit, "q from Help should not quit");
@@ -2597,7 +2583,7 @@ fn esc_from_command_output_resets_to_dashboard() {
     app.push_view(View::CommandOutput);
     app.command_state = CommandState::Completed { exit_code: 0 };
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     assert_eq!(
         *app.current_view(),
@@ -2619,7 +2605,7 @@ fn q_from_command_output_pops_to_previous_view() {
     app.push_view(View::CommandOutput);
     app.command_state = CommandState::Completed { exit_code: 0 };
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
 
     assert_eq!(
         *app.current_view(),
@@ -2640,7 +2626,7 @@ fn stop_confirmation_gates_esc_in_command_output() {
     app.push_view(View::CommandOutput);
     app.command_state = CommandState::Running;
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     assert!(
         app.show_stop_confirmation,
@@ -2664,7 +2650,7 @@ fn stop_confirmation_gates_q_in_command_output() {
     app.push_view(View::CommandOutput);
     app.command_state = CommandState::Running;
 
-    app.handle_key(KeyCode::Char('q'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
 
     assert!(
         app.show_stop_confirmation,
@@ -2691,7 +2677,7 @@ fn esc_from_deeply_nested_repo_detail_resets_to_dashboard() {
     app.push_view(View::RepoDetail(0));
     assert_eq!(app.view_stack.len(), 2);
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     assert_eq!(*app.current_view(), View::Dashboard);
     assert_eq!(app.view_stack.len(), 1, "All views above Dashboard cleared");
@@ -2712,7 +2698,7 @@ fn colon_activates_command_line() {
         "Command line should be inactive initially"
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
 
     assert!(
         app.command_line.is_some(),
@@ -2720,10 +2706,10 @@ fn colon_activates_command_line() {
     );
     let state = app.command_line.as_ref().unwrap();
     assert!(
-        state.buffer.is_empty(),
+        state.text.buffer.is_empty(),
         "Buffer should be empty on activation"
     );
-    assert_eq!(state.cursor_pos, 0, "Cursor should be at position 0");
+    assert_eq!(state.text.cursor_pos, 0, "Cursor should be at position 0");
 }
 
 #[test]
@@ -2735,7 +2721,7 @@ fn colon_activates_command_line_from_repo_detail() {
     );
     app.push_view(View::RepoDetail(0));
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
 
     assert!(
         app.command_line.is_some(),
@@ -2756,10 +2742,10 @@ fn command_line_escape_cancels() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     assert!(app.command_line.is_some());
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none(), "Esc should cancel command line");
     assert_eq!(
@@ -2778,15 +2764,15 @@ fn command_line_char_input_appends_to_buffer() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
-    app.handle_key(KeyCode::Char('h'));
-    app.handle_key(KeyCode::Char('e'));
-    app.handle_key(KeyCode::Char('l'));
-    app.handle_key(KeyCode::Char('p'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('l'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('p'), KeyModifiers::NONE);
 
     let state = app.command_line.as_ref().unwrap();
-    assert_eq!(state.buffer, "help");
-    assert_eq!(state.cursor_pos, 4);
+    assert_eq!(state.text.buffer, "help");
+    assert_eq!(state.text.cursor_pos, 4);
 }
 
 #[test]
@@ -2797,16 +2783,16 @@ fn command_line_backspace_removes_char() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
-    app.handle_key(KeyCode::Char('h'));
-    app.handle_key(KeyCode::Char('e'));
-    app.handle_key(KeyCode::Char('l'));
-    app.handle_key(KeyCode::Char('p'));
-    app.handle_key(KeyCode::Backspace);
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('l'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('p'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
 
     let state = app.command_line.as_ref().unwrap();
-    assert_eq!(state.buffer, "hel");
-    assert_eq!(state.cursor_pos, 3);
+    assert_eq!(state.text.buffer, "hel");
+    assert_eq!(state.text.cursor_pos, 3);
 }
 
 #[test]
@@ -2817,13 +2803,16 @@ fn command_line_backspace_at_start_is_noop() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     // cursor_pos = 0, buffer = ""
-    app.handle_key(KeyCode::Backspace);
+    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
 
     let state = app.command_line.as_ref().unwrap();
-    assert!(state.buffer.is_empty(), "Backspace at start should be noop");
-    assert_eq!(state.cursor_pos, 0);
+    assert!(
+        state.text.buffer.is_empty(),
+        "Backspace at start should be noop"
+    );
+    assert_eq!(state.text.cursor_pos, 0);
 }
 
 #[test]
@@ -2834,20 +2823,20 @@ fn command_line_left_right_cursor_movement() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
-    app.handle_key(KeyCode::Char('a'));
-    app.handle_key(KeyCode::Char('b'));
-    app.handle_key(KeyCode::Char('c'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('b'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('c'), KeyModifiers::NONE);
     // cursor at 3
 
-    app.handle_key(KeyCode::Left);
-    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 2);
+    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 2);
 
-    app.handle_key(KeyCode::Left);
-    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 1);
+    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 1);
 
-    app.handle_key(KeyCode::Right);
-    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 2);
+    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 2);
 }
 
 #[test]
@@ -2858,21 +2847,21 @@ fn command_line_cursor_stops_at_boundaries() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
-    app.handle_key(KeyCode::Char('x'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('x'), KeyModifiers::NONE);
     // cursor at 1, buffer = "x"
 
     // Can't go right past end
-    app.handle_key(KeyCode::Right);
-    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 1);
+    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 1);
 
     // Move to start
-    app.handle_key(KeyCode::Left);
-    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 0);
+    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 0);
 
     // Can't go left past start
-    app.handle_key(KeyCode::Left);
-    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 0);
+    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 0);
 }
 
 #[test]
@@ -2883,17 +2872,17 @@ fn command_line_home_end_keys() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
-    app.handle_key(KeyCode::Char('a'));
-    app.handle_key(KeyCode::Char('b'));
-    app.handle_key(KeyCode::Char('c'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('b'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('c'), KeyModifiers::NONE);
     // cursor at 3
 
-    app.handle_key(KeyCode::Home);
-    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 0);
+    app.handle_key(KeyCode::Home, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 0);
 
-    app.handle_key(KeyCode::End);
-    assert_eq!(app.command_line.as_ref().unwrap().cursor_pos, 3);
+    app.handle_key(KeyCode::End, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 3);
 }
 
 #[test]
@@ -2907,10 +2896,10 @@ fn command_line_enter_with_empty_buffer_fills_selected_palette_entry() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     // No input — empty buffer, palette shows all commands, first is selected ("help")
 
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     // No-arg command executes immediately — command line should be dismissed
     assert!(
@@ -2933,13 +2922,13 @@ fn command_line_enter_with_help_pushes_help_view() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
-    app.handle_key(KeyCode::Char('h'));
-    app.handle_key(KeyCode::Char('e'));
-    app.handle_key(KeyCode::Char('l'));
-    app.handle_key(KeyCode::Char('p'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('l'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('p'), KeyModifiers::NONE);
 
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(
         app.command_line.is_none(),
@@ -2964,14 +2953,14 @@ fn command_line_intercepts_before_view_dispatch() {
     );
     app.push_view(View::RepoDetail(0));
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     let detail_scroll_before = app.detail_scroll;
 
     // Type 'r' (not a palette nav key) — should go to buffer
-    app.handle_key(KeyCode::Char('r'));
+    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
 
     assert_eq!(
-        app.command_line.as_ref().unwrap().buffer,
+        app.command_line.as_ref().unwrap().text.buffer,
         "r",
         "r should be added to command line buffer"
     );
@@ -2980,19 +2969,116 @@ fn command_line_intercepts_before_view_dispatch() {
         "detail_scroll should not change while command line is active"
     );
 
-    // j navigates palette, not view — does NOT add 'j' to buffer
-    let buffer_before = app.command_line.as_ref().unwrap().buffer.clone();
-    app.handle_key(KeyCode::Char('j'));
-    // Since buffer is "r", filtered palette has "refresh" and "repo" and "run".
-    // j moves palette_selected, not buffer.
+    // j inserts into buffer when buffer has content (no longer navigates palette)
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(
-        app.command_line.as_ref().unwrap().buffer,
-        buffer_before,
-        "j should navigate palette, not append to buffer"
+        app.command_line.as_ref().unwrap().text.buffer,
+        "rj",
+        "j should be inserted into buffer when buffer has content"
     );
     assert_eq!(
         app.detail_scroll, detail_scroll_before,
         "detail_scroll should not change while command line is active"
+    );
+}
+
+#[test]
+fn command_line_j_k_insert_when_buffer_has_content() {
+    // When the buffer already has text, j and k should be inserted as characters,
+    // not consumed by palette navigation.
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    // Type "run " then j and k
+    for c in "run ".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+
+    assert_eq!(
+        app.command_line.as_ref().unwrap().text.buffer,
+        "run jk",
+        "j and k should be inserted when buffer has content"
+    );
+}
+
+#[test]
+fn command_line_j_k_navigate_palette_when_buffer_empty() {
+    // When the buffer is empty, j and k should navigate the palette.
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 0);
+
+    // j moves down
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        1,
+        "j should navigate palette down when buffer is empty"
+    );
+    assert!(
+        app.command_line.as_ref().unwrap().text.buffer.is_empty(),
+        "j should not be inserted when buffer is empty"
+    );
+
+    // k moves back up
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        0,
+        "k should navigate palette up when buffer is empty"
+    );
+    assert!(
+        app.command_line.as_ref().unwrap().text.buffer.is_empty(),
+        "k should not be inserted when buffer is empty"
+    );
+}
+
+#[test]
+fn command_line_arrows_navigate_palette_regardless_of_buffer() {
+    // Arrow keys should always navigate the palette, even when buffer has content.
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    // Type "r" — palette shows refresh, repo, run
+    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 0);
+
+    // Down arrow navigates palette
+    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        1,
+        "Down arrow should navigate palette even with buffer content"
+    );
+
+    // Up arrow navigates palette
+    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+    assert_eq!(
+        app.command_line.as_ref().unwrap().palette_selected,
+        0,
+        "Up arrow should navigate palette even with buffer content"
+    );
+
+    // Buffer should remain unchanged
+    assert_eq!(
+        app.command_line.as_ref().unwrap().text.buffer,
+        "r",
+        "Arrow keys should not modify buffer"
     );
 }
 
@@ -3007,8 +3093,8 @@ fn command_line_esc_does_not_affect_view_stack() {
     app.push_view(View::Help);
     // Stack: Dashboard → RepoDetail(0) → Help
 
-    app.handle_key(KeyCode::Char(':'));
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     // Command line Esc only closes command line — does not pop view stack
     assert_eq!(
@@ -3028,12 +3114,11 @@ fn argument_input_blocks_command_line_activation() {
         "test-workspace".to_string(),
     );
     app.argument_input = Some(ArgumentInputState {
-        buffer: String::new(),
-        cursor_pos: 0,
+        text: super::text_buffer::TextBuffer::new(),
         command_name: "test".to_string(),
     });
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
 
     // `:` should be added to argument input buffer, NOT activate command line
     assert!(
@@ -3041,7 +3126,7 @@ fn argument_input_blocks_command_line_activation() {
         "Command line should NOT activate when ArgumentInput is active"
     );
     assert_eq!(
-        app.argument_input.as_ref().unwrap().buffer,
+        app.argument_input.as_ref().unwrap().text.buffer,
         ":",
         "`:` should be appended to argument input buffer"
     );
@@ -3058,7 +3143,7 @@ fn colon_from_help_activates_command_line_not_pop() {
     );
     app.push_view(View::Help);
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
 
     assert!(
         app.command_line.is_some(),
@@ -3080,20 +3165,20 @@ fn command_line_char_insert_at_cursor_mid_buffer() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
-    app.handle_key(KeyCode::Char('a'));
-    app.handle_key(KeyCode::Char('c'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('c'), KeyModifiers::NONE);
     // buffer = "ac", cursor at 2
 
-    app.handle_key(KeyCode::Left);
+    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
     // cursor at 1
 
-    app.handle_key(KeyCode::Char('b'));
+    app.handle_key(KeyCode::Char('b'), KeyModifiers::NONE);
     // buffer should be "abc", cursor at 2
 
     let state = app.command_line.as_ref().unwrap();
-    assert_eq!(state.buffer, "abc");
-    assert_eq!(state.cursor_pos, 2);
+    assert_eq!(state.text.buffer, "abc");
+    assert_eq!(state.text.cursor_pos, 2);
 }
 
 // ===== Task 8: Command execution from command line =====
@@ -3106,9 +3191,9 @@ fn cli_command_help_pushes_help_view() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
-    app.handle_key(KeyCode::Char('h'));
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     assert_eq!(*app.current_view(), View::Help, ":h should push Help view");
@@ -3122,9 +3207,9 @@ fn cli_command_quit_sets_should_quit() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
-    app.handle_key(KeyCode::Char('q'));
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     assert!(app.should_quit, ":q should quit the application");
@@ -3139,11 +3224,12 @@ fn cli_command_quit_long_form() {
     );
 
     app.command_line = Some(CommandLineState {
-        buffer: "quit".to_string(),
-        cursor_pos: 4,
+        text: super::text_buffer::TextBuffer::with_content("quit", 4),
         palette_selected: 0,
+        history_index: None,
+        history_draft: String::new(),
     });
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.should_quit, ":quit should quit the application");
 }
@@ -3157,11 +3243,12 @@ fn cli_command_refresh_triggers_refresh() {
     );
 
     app.command_line = Some(super::CommandLineState {
-        buffer: "refresh".to_string(),
-        cursor_pos: 7,
+        text: super::text_buffer::TextBuffer::with_content("refresh", 7),
         palette_selected: 0,
+        history_index: None,
+        history_draft: String::new(),
     });
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     assert!(app.needs_refresh, ":refresh should set needs_refresh");
@@ -3177,11 +3264,12 @@ fn cli_command_unknown_shows_error() {
     );
 
     app.command_line = Some(super::CommandLineState {
-        buffer: "frobnicate".to_string(),
-        cursor_pos: 10,
+        text: super::text_buffer::TextBuffer::with_content("frobnicate", 10),
         palette_selected: 0,
+        history_index: None,
+        history_draft: String::new(),
     });
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     let msg = app
@@ -3205,11 +3293,12 @@ fn cli_command_repo_by_index_jumps_to_repo() {
     );
 
     app.command_line = Some(super::CommandLineState {
-        buffer: "repo 2".to_string(),
-        cursor_pos: 6,
+        text: super::text_buffer::TextBuffer::with_content("repo 2", 6),
         palette_selected: 0,
+        history_index: None,
+        history_draft: String::new(),
     });
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     // Index 2 (1-based) = index 1 (0-based)
@@ -3234,11 +3323,12 @@ fn cli_command_repo_by_index_out_of_range_shows_error() {
     );
 
     app.command_line = Some(super::CommandLineState {
-        buffer: "repo 99".to_string(),
-        cursor_pos: 7,
+        text: super::text_buffer::TextBuffer::with_content("repo 99", 7),
         palette_selected: 0,
+        history_index: None,
+        history_draft: String::new(),
     });
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     assert_eq!(
@@ -3260,11 +3350,12 @@ fn cli_command_repo_by_name_jumps_to_matching_repo() {
 
     // Repos are named /tmp/repo0, /tmp/repo1, /tmp/repo2
     app.command_line = Some(super::CommandLineState {
-        buffer: "repo repo1".to_string(),
-        cursor_pos: 10,
+        text: super::text_buffer::TextBuffer::with_content("repo repo1", 10),
         palette_selected: 0,
+        history_index: None,
+        history_draft: String::new(),
     });
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     assert_eq!(
@@ -3283,11 +3374,12 @@ fn cli_command_repo_no_match_shows_error() {
     );
 
     app.command_line = Some(super::CommandLineState {
-        buffer: "repo nonexistent".to_string(),
-        cursor_pos: 16,
+        text: super::text_buffer::TextBuffer::with_content("repo nonexistent", 16),
         palette_selected: 0,
+        history_index: None,
+        history_draft: String::new(),
     });
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     assert_eq!(*app.current_view(), View::Dashboard);
@@ -3306,11 +3398,12 @@ fn cli_command_run_with_no_repo_shows_warning() {
     );
 
     app.command_line = Some(super::CommandLineState {
-        buffer: "run test".to_string(),
-        cursor_pos: 8,
+        text: super::text_buffer::TextBuffer::with_content("run test", 8),
         palette_selected: 0,
+        history_index: None,
+        history_draft: String::new(),
     });
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     // No repo selected → warning
@@ -3330,11 +3423,12 @@ fn cli_command_run_from_repo_detail_pushes_command_output() {
     app.push_view(View::RepoDetail(0));
 
     app.command_line = Some(super::CommandLineState {
-        buffer: "run test".to_string(),
-        cursor_pos: 8,
+        text: super::text_buffer::TextBuffer::with_content("run test", 8),
         palette_selected: 0,
+        history_index: None,
+        history_draft: String::new(),
     });
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     // Should push CommandOutput on top of RepoDetail
@@ -3367,11 +3461,12 @@ fn cli_command_run_from_dashboard_uses_selected_repo() {
     app.list_state.select(Some(1));
 
     app.command_line = Some(super::CommandLineState {
-        buffer: "run build".to_string(),
-        cursor_pos: 9,
+        text: super::text_buffer::TextBuffer::with_content("run build", 9),
         palette_selected: 0,
+        history_index: None,
+        history_draft: String::new(),
     });
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     assert_eq!(
@@ -3392,11 +3487,12 @@ fn cli_command_state_refreshes_state_query() {
 
     // With no state queries selected, :state shows warning
     app.command_line = Some(super::CommandLineState {
-        buffer: "state".to_string(),
-        cursor_pos: 5,
+        text: super::text_buffer::TextBuffer::with_content("state", 5),
         palette_selected: 0,
+        history_index: None,
+        history_draft: String::new(),
     });
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(app.command_line.is_none());
     // refresh_state_queries with no queries loaded shows a warning
@@ -3467,17 +3563,17 @@ fn palette_navigation_j_moves_selection_down() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     // palette_selected starts at 0
 
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(
         app.command_line.as_ref().unwrap().palette_selected,
         1,
         "j should move palette selection down"
     );
 
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(
         app.command_line.as_ref().unwrap().palette_selected,
         2,
@@ -3493,13 +3589,13 @@ fn palette_navigation_k_moves_selection_up() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     // Move to index 2 first
-    app.handle_key(KeyCode::Char('j'));
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 2);
 
-    app.handle_key(KeyCode::Char('k'));
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
     assert_eq!(
         app.command_line.as_ref().unwrap().palette_selected,
         1,
@@ -3517,12 +3613,12 @@ fn palette_navigation_j_wraps_from_last_to_first() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     // Move to the last entry
     let last_idx = PALETTE_COMMANDS.len() - 1;
     app.command_line.as_mut().unwrap().palette_selected = last_idx;
 
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(
         app.command_line.as_ref().unwrap().palette_selected,
         0,
@@ -3540,10 +3636,10 @@ fn palette_navigation_k_wraps_from_first_to_last() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     // palette_selected starts at 0
 
-    app.handle_key(KeyCode::Char('k'));
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
     assert_eq!(
         app.command_line.as_ref().unwrap().palette_selected,
         PALETTE_COMMANDS.len() - 1,
@@ -3559,17 +3655,17 @@ fn palette_navigation_up_down_arrows_work() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 0);
 
-    app.handle_key(KeyCode::Down);
+    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
     assert_eq!(
         app.command_line.as_ref().unwrap().palette_selected,
         1,
         "Down arrow should work same as j"
     );
 
-    app.handle_key(KeyCode::Up);
+    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
     assert_eq!(
         app.command_line.as_ref().unwrap().palette_selected,
         0,
@@ -3586,12 +3682,12 @@ fn palette_enter_fills_command_line_with_selected_entry() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     // Navigate to "quit" (index 1 in PALETTE_COMMANDS)
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 1);
 
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     // No-arg command executes immediately — command line dismissed and quit triggered
     assert!(
@@ -3613,14 +3709,14 @@ fn palette_enter_on_filled_buffer_submits_command() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     // Type "quit" manually
-    app.handle_key(KeyCode::Char('q'));
-    app.handle_key(KeyCode::Char('u'));
-    app.handle_key(KeyCode::Char('i'));
-    app.handle_key(KeyCode::Char('t'));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('u'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('i'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('t'), KeyModifiers::NONE);
 
-    app.handle_key(KeyCode::Enter);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(
         app.command_line.is_none(),
@@ -3637,14 +3733,14 @@ fn typing_resets_palette_selection() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     // Navigate palette
-    app.handle_key(KeyCode::Char('j'));
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 2);
 
     // Typing a character should reset selection to 0
-    app.handle_key(KeyCode::Char('r'));
+    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
     assert_eq!(
         app.command_line.as_ref().unwrap().palette_selected,
         0,
@@ -3660,14 +3756,14 @@ fn backspace_resets_palette_selection() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
-    app.handle_key(KeyCode::Char('r'));
-    // Navigate palette in filtered state (3 entries: refresh, repo, run)
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
+    // Navigate palette in filtered state (3 entries: refresh, repo, run) using Down arrow
+    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
     assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 1);
 
     // Backspace should reset selection
-    app.handle_key(KeyCode::Backspace);
+    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
     assert_eq!(
         app.command_line.as_ref().unwrap().palette_selected,
         0,
@@ -3683,12 +3779,12 @@ fn palette_escape_dismisses_command_line() {
         "test-workspace".to_string(),
     );
 
-    app.handle_key(KeyCode::Char(':'));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
     // Navigate palette a bit
-    app.handle_key(KeyCode::Char('j'));
-    app.handle_key(KeyCode::Char('j'));
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
 
-    app.handle_key(KeyCode::Esc);
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
     assert!(
         app.command_line.is_none(),
@@ -3696,4 +3792,447 @@ fn palette_escape_dismisses_command_line() {
     );
     assert_eq!(*app.current_view(), View::Dashboard);
     assert!(!app.should_quit);
+}
+
+// ===== Tab completion tests =====
+
+#[test]
+fn tab_completes_unique_match() {
+    // Typing "he" matches only "help" — Tab should complete fully.
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+
+    // "help" doesn't take args, so no trailing space
+    assert_eq!(
+        app.command_line.as_ref().unwrap().text.buffer,
+        "help",
+        "Tab should complete unique match"
+    );
+}
+
+#[test]
+fn tab_completes_with_trailing_space_for_arg_commands() {
+    // Typing "ru" matches only "run" (takes_args) — Tab adds trailing space.
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('u'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+
+    assert_eq!(
+        app.command_line.as_ref().unwrap().text.buffer,
+        "run ",
+        "Tab should complete with trailing space for commands that take args"
+    );
+}
+
+#[test]
+fn tab_fills_common_prefix_for_multiple_matches() {
+    // Typing "r" matches "refresh", "repo", "run" — common prefix is "r" (no change).
+    // Typing "re" matches "refresh", "repo" — common prefix is "re" (no change).
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
+    // "re" matches "refresh" and "repo" — common prefix is "re"
+    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+
+    assert_eq!(
+        app.command_line.as_ref().unwrap().text.buffer,
+        "re",
+        "Tab should not change buffer when common prefix equals current buffer"
+    );
+}
+
+#[test]
+fn tab_extends_to_common_prefix() {
+    // Typing "st" matches only "state" — single match, completes fully.
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('s'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('t'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+
+    assert_eq!(
+        app.command_line.as_ref().unwrap().text.buffer,
+        "state",
+        "Tab should complete 'st' to 'state'"
+    );
+}
+
+#[test]
+fn tab_noop_on_no_matches() {
+    // Typing "xyz" matches nothing — Tab should do nothing.
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('x'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('y'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('z'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+
+    assert_eq!(
+        app.command_line.as_ref().unwrap().text.buffer,
+        "xyz",
+        "Tab should be noop when no palette matches"
+    );
+}
+
+// ===== Command history tests =====
+
+#[test]
+fn history_saves_on_enter() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Execute "help"
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "help".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert_eq!(app.command_history, vec!["help"]);
+}
+
+#[test]
+fn history_skips_consecutive_duplicates() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Execute "help" twice
+    for _ in 0..2 {
+        app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+        for c in "help".chars() {
+            app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+        }
+        app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    }
+
+    assert_eq!(
+        app.command_history,
+        vec!["help"],
+        "Consecutive duplicate commands should not be saved twice"
+    );
+}
+
+#[test]
+fn history_up_recalls_previous_command() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Execute "help", then open command line and press Up
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "help".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    // Open command line, type something that doesn't match palette (so Up goes to history)
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "xyz".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    // "xyz" matches no palette entries, so Up navigates history
+    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+
+    assert_eq!(
+        app.command_line.as_ref().unwrap().text.buffer,
+        "help",
+        "Up should recall the previous command from history"
+    );
+}
+
+#[test]
+fn history_down_restores_draft() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Execute "help"
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "help".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    // Open command line, type "xyz" (no palette matches)
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "xyz".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+
+    // Up recalls "help"
+    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "help");
+
+    // Down restores draft "xyz"
+    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+    assert_eq!(
+        app.command_line.as_ref().unwrap().text.buffer,
+        "xyz",
+        "Down should restore the draft after navigating through history"
+    );
+}
+
+#[test]
+fn history_multiple_entries() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Execute "help", then "refresh"
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "help".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "refresh".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    // Open command line with "xyz" (no matches)
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "xyz".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+
+    // Up gets "refresh" (most recent)
+    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "refresh");
+
+    // Up again gets "help" (older)
+    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "help");
+
+    // Down gets "refresh" again
+    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "refresh");
+
+    // Down restores draft "xyz"
+    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "xyz");
+}
+
+#[test]
+fn history_typing_resets_index() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Execute "help"
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "help".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    // Open command line with "xyz" (no matches), navigate to history, then type
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "xyz".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "help");
+
+    // Typing resets history browsing
+    app.handle_key(KeyCode::Char('!'), KeyModifiers::NONE);
+    assert!(
+        app.command_line.as_ref().unwrap().history_index.is_none(),
+        "Typing should reset history index"
+    );
+}
+
+// ===== Argument hint tests =====
+
+#[test]
+fn argument_hint_for_run_command() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Set up available commands
+    app.available_commands = vec![
+        (
+            "build".to_string(),
+            grove_core::Command {
+                run: "make build".to_string(),
+                description: None,
+                working_dir: None,
+                env: None,
+            },
+        ),
+        (
+            "test".to_string(),
+            grove_core::Command {
+                run: "make test".to_string(),
+                description: None,
+                working_dir: None,
+                env: None,
+            },
+        ),
+    ];
+
+    // Open command line, type "run t"
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "run t".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+
+    let hint = app.compute_argument_hint();
+    assert_eq!(
+        hint.as_deref(),
+        Some("est"),
+        "Should hint 'est' to complete 'test'"
+    );
+}
+
+#[test]
+fn argument_hint_for_repo_command() {
+    let mut app = App::new(
+        MockRegistry::with_repos(3),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Open command line, type "repo repo1"
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "repo repo".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+
+    // repo names are /tmp/repo0, /tmp/repo1, /tmp/repo2
+    // Partial "repo" matches "repo0", "repo1", "repo2" — first is "repo0"
+    let hint = app.compute_argument_hint();
+    assert_eq!(
+        hint.as_deref(),
+        Some("0"),
+        "Should hint '0' to complete 'repo0'"
+    );
+}
+
+#[test]
+fn argument_hint_none_for_full_match() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.available_commands = vec![(
+        "test".to_string(),
+        grove_core::Command {
+            run: "make test".to_string(),
+            description: None,
+            working_dir: None,
+            env: None,
+        },
+    )];
+
+    // Type "run test" — fully matched, no hint
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "run test".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+
+    let hint = app.compute_argument_hint();
+    assert_eq!(hint, None, "Should not hint when arg is fully matched");
+}
+
+#[test]
+fn argument_hint_none_for_unknown_command() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    // Type "help" — no arg hints for help command
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "help".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+
+    let hint = app.compute_argument_hint();
+    assert_eq!(hint, None, "Should not hint for commands without args");
+}
+
+#[test]
+fn tab_accepts_argument_hint() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+
+    app.available_commands = vec![(
+        "build".to_string(),
+        grove_core::Command {
+            run: "make build".to_string(),
+            description: None,
+            working_dir: None,
+            env: None,
+        },
+    )];
+
+    // Type "run b" — hint should be "uild"
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "run b".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+
+    // Tab accepts the hint
+    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+    assert_eq!(
+        app.command_line.as_ref().unwrap().text.buffer,
+        "run build",
+        "Tab should accept the argument hint"
+    );
 }

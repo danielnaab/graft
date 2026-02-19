@@ -9,10 +9,11 @@ mod render;
 mod repo_detail;
 mod repo_list;
 mod status_bar;
+mod text_buffer;
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -84,8 +85,7 @@ pub enum View {
 /// State for argument input dialog.
 #[derive(Debug, Clone)]
 struct ArgumentInputState {
-    buffer: String,
-    cursor_pos: usize, // Character position (not byte position)
+    text: text_buffer::TextBuffer,
     command_name: String,
 }
 
@@ -98,9 +98,10 @@ struct ArgumentInputState {
 /// buffer is empty or partially typed; `j`/`k` navigate it.
 #[derive(Debug, Clone)]
 struct CommandLineState {
-    buffer: String,
-    cursor_pos: usize,       // Character position (not byte position)
-    palette_selected: usize, // Index into the filtered palette entries
+    text: text_buffer::TextBuffer,
+    palette_selected: usize,      // Index into the filtered palette entries
+    history_index: Option<usize>, // Position in command_history when browsing
+    history_draft: String,        // Saves the user's in-progress input when browsing history
 }
 
 /// Main TUI application state.
@@ -115,6 +116,8 @@ pub struct App<R, D> {
     view_stack: Vec<View>,
     /// Active `:` command line state, or `None` when the command line is dismissed.
     command_line: Option<CommandLineState>,
+    /// Command history (most recent last, bounded at 50).
+    command_history: Vec<String>,
     detail_scroll: usize,
     cached_detail: Option<RepoDetail>,
     cached_detail_index: Option<usize>,
@@ -174,7 +177,7 @@ pub fn run<R: RepoRegistry, D: RepoDetailProvider>(
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    app.handle_key(key.code);
+                    app.handle_key_event(key);
                 }
             }
         }

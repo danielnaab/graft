@@ -1,6 +1,9 @@
 //! Vim-style `:` command line input handling, command parsing, and command palette.
 
-use super::{App, KeyCode, RepoDetailProvider, RepoRegistry, StatusMessage, View};
+use super::{App, KeyCode, KeyModifiers, RepoDetailProvider, RepoRegistry, StatusMessage, View};
+
+/// Maximum number of command history entries to keep.
+const MAX_HISTORY: usize = 50;
 
 // ===== Command palette registry =====
 
@@ -65,6 +68,30 @@ pub(super) fn filtered_palette(filter: &str) -> Vec<&'static PaletteEntry> {
         .iter()
         .filter(|e| e.command.contains(filter.as_str()))
         .collect()
+}
+
+/// Return the longest common prefix of a set of strings.
+///
+/// Returns an empty string if the slice is empty.
+fn longest_common_prefix(strings: &[&str]) -> String {
+    let Some(first) = strings.first() else {
+        return String::new();
+    };
+
+    let mut prefix_len = first.len();
+    for s in &strings[1..] {
+        prefix_len = first
+            .chars()
+            .zip(s.chars())
+            .take(prefix_len)
+            .take_while(|(a, b)| a == b)
+            .count();
+        if prefix_len == 0 {
+            break;
+        }
+    }
+
+    first.chars().take(prefix_len).collect()
 }
 
 // ===== Command parsing =====
@@ -149,10 +176,28 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// cancels; `Enter` either fills from the selected palette entry (when the
     /// palette has a selection and no explicit command is typed) or submits the
     /// buffer as a command; `j`/`k` / Up/Down navigate the palette.
-    pub(super) fn handle_key_command_line(&mut self, code: KeyCode) {
+    #[allow(clippy::too_many_lines)]
+    pub(super) fn handle_key_command_line(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         let Some(state) = &mut self.command_line else {
             return;
         };
+
+        // Handle Ctrl shortcuts first
+        if modifiers.contains(KeyModifiers::CONTROL) {
+            match code {
+                KeyCode::Char('u') => {
+                    state.text.clear();
+                    state.palette_selected = 0;
+                    return;
+                }
+                KeyCode::Char('w') => {
+                    state.text.delete_word_backward();
+                    state.palette_selected = 0;
+                    return;
+                }
+                _ => {}
+            }
+        }
 
         match code {
             KeyCode::Esc => {
@@ -164,46 +209,67 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 //   - No-arg commands (help, quit, refresh, state): execute immediately.
                 //   - Arg commands (repo, run): fill the buffer so the user can type args.
                 // When the buffer has content: submit as-is.
-                let entries = filtered_palette(&state.buffer);
+                let entries = filtered_palette(&state.text.buffer);
                 let selected = state.palette_selected;
 
-                if !entries.is_empty() && selected < entries.len() && state.buffer.is_empty() {
+                if !entries.is_empty() && selected < entries.len() && state.text.buffer.is_empty() {
                     let entry = entries[selected];
                     if entry.takes_args {
                         // Fill buffer and leave open — user will add arguments, then Enter again.
-                        state.buffer = entry.command.to_string();
-                        state.cursor_pos = entry.command.len();
+                        state.text.set(entry.command);
                         return;
                     }
                     // No-arg command: fill buffer, dismiss, and execute in one keystroke.
                     let command = entry.command.to_string();
                     self.command_line = None;
+                    // Save to history (skip consecutive duplicates)
+                    if self
+                        .command_history
+                        .last()
+                        .is_none_or(|last| *last != command)
+                    {
+                        self.command_history.push(command.clone());
+                        if self.command_history.len() > MAX_HISTORY {
+                            self.command_history.remove(0);
+                        }
+                    }
                     let cmd = parse_command(&command);
                     self.execute_cli_command(cmd);
                     return;
                 }
 
                 // Normal submit (buffer has content, or palette is empty / filtered out).
-                let buffer = state.buffer.clone();
+                let buffer = state.text.buffer.clone();
                 self.command_line = None;
 
                 if !buffer.is_empty() {
+                    // Save to history (skip consecutive duplicates)
+                    if self
+                        .command_history
+                        .last()
+                        .is_none_or(|last| *last != buffer)
+                    {
+                        self.command_history.push(buffer.clone());
+                        if self.command_history.len() > MAX_HISTORY {
+                            self.command_history.remove(0);
+                        }
+                    }
                     let cmd = parse_command(&buffer);
                     self.execute_cli_command(cmd);
                 }
                 // Empty Enter with no palette match dismisses the command line silently.
             }
-            // Palette navigation: j / Down moves selection down.
-            KeyCode::Char('j') | KeyCode::Down => {
-                let entries = filtered_palette(&state.buffer);
+            // Palette navigation: j/k only navigate when buffer is empty (browsing mode).
+            // When buffer has content, j/k fall through to Char(c) for text insertion.
+            KeyCode::Char('j') if state.text.buffer.is_empty() => {
+                let entries = filtered_palette(&state.text.buffer);
                 if !entries.is_empty() {
                     let next = state.palette_selected + 1;
                     state.palette_selected = if next >= entries.len() { 0 } else { next };
                 }
             }
-            // Palette navigation: k / Up moves selection up.
-            KeyCode::Char('k') | KeyCode::Up => {
-                let entries = filtered_palette(&state.buffer);
+            KeyCode::Char('k') if state.text.buffer.is_empty() => {
+                let entries = filtered_palette(&state.text.buffer);
                 if !entries.is_empty() {
                     state.palette_selected = if state.palette_selected == 0 {
                         entries.len() - 1
@@ -212,42 +278,230 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     };
                 }
             }
-            KeyCode::Left => {
-                if state.cursor_pos > 0 {
-                    state.cursor_pos -= 1;
+            // Arrow keys: if currently browsing history, continue history navigation.
+            // Otherwise, navigate palette when entries match, or navigate history.
+            KeyCode::Down => {
+                if state.history_index.is_some() {
+                    self.command_line_history_down();
+                } else {
+                    let entries = filtered_palette(&state.text.buffer);
+                    if entries.is_empty() {
+                        self.command_line_history_down();
+                    } else {
+                        let next = state.palette_selected + 1;
+                        state.palette_selected = if next >= entries.len() { 0 } else { next };
+                    }
                 }
+            }
+            KeyCode::Up => {
+                if state.history_index.is_some() {
+                    self.command_line_history_up();
+                } else {
+                    let entries = filtered_palette(&state.text.buffer);
+                    if entries.is_empty() {
+                        self.command_line_history_up();
+                    } else {
+                        state.palette_selected = if state.palette_selected == 0 {
+                            entries.len() - 1
+                        } else {
+                            state.palette_selected - 1
+                        };
+                    }
+                }
+            }
+            KeyCode::Tab => {
+                let entries = filtered_palette(&state.text.buffer);
+                match entries.len() {
+                    1 => {
+                        // Single match: complete fully, add trailing space if takes_args
+                        let entry = entries[0];
+                        let completed = if entry.takes_args {
+                            format!("{} ", entry.command)
+                        } else {
+                            entry.command.to_string()
+                        };
+                        state.text.set(&completed);
+                        state.palette_selected = 0;
+                    }
+                    2.. => {
+                        // Multiple matches: fill longest common prefix
+                        let commands: Vec<&str> = entries.iter().map(|e| e.command).collect();
+                        let prefix = longest_common_prefix(&commands);
+                        if prefix.len() > state.text.buffer.len() {
+                            state.text.set(&prefix);
+                            state.palette_selected = 0;
+                        }
+                    }
+                    _ => {
+                        // No palette matches: try argument hint completion
+                        self.accept_argument_hint();
+                    }
+                }
+            }
+            KeyCode::Left => {
+                state.text.move_left();
             }
             KeyCode::Right => {
-                let char_count = state.buffer.chars().count();
-                if state.cursor_pos < char_count {
-                    state.cursor_pos += 1;
-                }
+                state.text.move_right();
             }
             KeyCode::Home => {
-                state.cursor_pos = 0;
+                state.text.move_home();
             }
             KeyCode::End => {
-                state.cursor_pos = state.buffer.chars().count();
+                state.text.move_end();
             }
-            KeyCode::Char(c) => {
-                let mut chars: Vec<char> = state.buffer.chars().collect();
-                chars.insert(state.cursor_pos, c);
-                state.buffer = chars.into_iter().collect();
-                state.cursor_pos += 1;
-                // Reset palette selection when buffer changes.
+            KeyCode::Delete => {
+                state.text.delete_forward();
                 state.palette_selected = 0;
             }
+            KeyCode::Char(c) => {
+                state.text.insert_char(c);
+                // Reset palette selection and history browsing when buffer changes.
+                state.palette_selected = 0;
+                state.history_index = None;
+            }
             KeyCode::Backspace => {
-                if state.cursor_pos > 0 {
-                    let mut chars: Vec<char> = state.buffer.chars().collect();
-                    chars.remove(state.cursor_pos - 1);
-                    state.buffer = chars.into_iter().collect();
-                    state.cursor_pos -= 1;
-                    // Reset palette selection when buffer changes.
-                    state.palette_selected = 0;
-                }
+                state.text.backspace();
+                // Reset palette selection and history browsing when buffer changes.
+                state.palette_selected = 0;
+                state.history_index = None;
             }
             _ => {}
+        }
+    }
+
+    /// Navigate command history upward (toward older entries).
+    fn command_line_history_up(&mut self) {
+        if self.command_history.is_empty() {
+            return;
+        }
+        let Some(state) = &mut self.command_line else {
+            return;
+        };
+
+        match state.history_index {
+            None => {
+                // First time pressing Up: save current input as draft, show most recent
+                state.history_draft = state.text.buffer.clone();
+                let idx = self.command_history.len() - 1;
+                state.history_index = Some(idx);
+                state.text.set(&self.command_history[idx]);
+            }
+            Some(idx) if idx > 0 => {
+                // Move to older entry
+                let new_idx = idx - 1;
+                state.history_index = Some(new_idx);
+                state.text.set(&self.command_history[new_idx]);
+            }
+            _ => {
+                // Already at oldest entry — no-op
+            }
+        }
+    }
+
+    /// Navigate command history downward (toward newer entries / back to draft).
+    fn command_line_history_down(&mut self) {
+        let Some(state) = &mut self.command_line else {
+            return;
+        };
+
+        let Some(idx) = state.history_index else {
+            return; // Not browsing history
+        };
+
+        if idx + 1 < self.command_history.len() {
+            // Move to newer entry
+            let new_idx = idx + 1;
+            state.history_index = Some(new_idx);
+            state.text.set(&self.command_history[new_idx]);
+        } else {
+            // Past newest: restore draft
+            state.history_index = None;
+            let draft = state.history_draft.clone();
+            state.text.set(&draft);
+        }
+    }
+
+    /// Compute an argument hint for the current command line buffer.
+    ///
+    /// Returns the suffix to display as ghost text after the cursor, or `None`
+    /// if no hint is available. The hint is the portion of the best match that
+    /// extends beyond what the user has already typed.
+    ///
+    /// Hints are available for:
+    /// - `:repo <partial>` — matching repo names from the registry
+    /// - `:run <partial>` — matching command names from `available_commands`
+    pub(super) fn compute_argument_hint(&self) -> Option<String> {
+        let state = self.command_line.as_ref()?;
+        let buffer = &state.text.buffer;
+
+        // Only hint when cursor is at the end (don't hint mid-edit)
+        if state.text.cursor_pos != buffer.chars().count() {
+            return None;
+        }
+
+        let mut parts = buffer.splitn(2, char::is_whitespace);
+        let cmd = parts.next()?.to_ascii_lowercase();
+        let rest = parts.next().unwrap_or("").trim_start();
+
+        match cmd.as_str() {
+            "run" => {
+                if rest.is_empty() || rest.contains(char::is_whitespace) {
+                    return None; // No partial arg or already past the command name
+                }
+                let partial = rest.to_ascii_lowercase();
+                self.available_commands
+                    .iter()
+                    .map(|(name, _)| name.as_str())
+                    .find(|name| name.to_ascii_lowercase().starts_with(&partial))
+                    .and_then(|name| {
+                        let suffix = &name[rest.len()..];
+                        if suffix.is_empty() {
+                            None
+                        } else {
+                            Some(suffix.to_string())
+                        }
+                    })
+            }
+            "repo" => {
+                if rest.is_empty() || rest.contains(char::is_whitespace) {
+                    return None;
+                }
+                let partial = rest.to_ascii_lowercase();
+                let repos = self.registry.list_repos();
+                repos.iter().find_map(|repo| {
+                    let path_str = repo.as_path().display().to_string();
+                    // Use the basename for matching
+                    let basename = path_str.rsplit('/').next().unwrap_or(&path_str);
+                    if basename.to_ascii_lowercase().starts_with(&partial) {
+                        let suffix = &basename[rest.len()..];
+                        if suffix.is_empty() {
+                            None
+                        } else {
+                            Some(suffix.to_string())
+                        }
+                    } else {
+                        None
+                    }
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Accept the current argument hint by appending it to the buffer.
+    ///
+    /// Called when Tab is pressed and there are no palette matches but an
+    /// argument hint is available.
+    pub(super) fn accept_argument_hint(&mut self) {
+        let hint = self.compute_argument_hint();
+        if let Some(suffix) = hint {
+            let Some(state) = &mut self.command_line else {
+                return;
+            };
+            for c in suffix.chars() {
+                state.text.insert_char(c);
+            }
         }
     }
 
@@ -488,5 +742,37 @@ mod tests {
             parse_command(r#"run test "arg with spaces""#),
             CliCommand::Run("test".to_string(), vec!["arg with spaces".to_string()])
         );
+    }
+
+    // ===== longest_common_prefix tests =====
+
+    #[test]
+    fn lcp_empty_slice() {
+        assert_eq!(longest_common_prefix(&[]), "");
+    }
+
+    #[test]
+    fn lcp_single_string() {
+        assert_eq!(longest_common_prefix(&["hello"]), "hello");
+    }
+
+    #[test]
+    fn lcp_common_prefix() {
+        assert_eq!(longest_common_prefix(&["refresh", "repo", "run"]), "r");
+    }
+
+    #[test]
+    fn lcp_full_match() {
+        assert_eq!(longest_common_prefix(&["help", "help"]), "help");
+    }
+
+    #[test]
+    fn lcp_no_common() {
+        assert_eq!(longest_common_prefix(&["abc", "xyz"]), "");
+    }
+
+    #[test]
+    fn lcp_partial() {
+        assert_eq!(longest_common_prefix(&["refresh", "repo"]), "re");
     }
 }

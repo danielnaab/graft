@@ -387,8 +387,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         let (cmd_name, _cmd) = &self.available_commands[cmd_idx];
 
         self.argument_input = Some(ArgumentInputState {
-            buffer: String::new(),
-            cursor_pos: 0,
+            text: super::text_buffer::TextBuffer::new(),
             command_name: cmd_name.clone(),
         });
     }

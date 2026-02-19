@@ -23,7 +23,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             return;
         };
 
-        let entries = filtered_palette(&state.buffer);
+        let entries = filtered_palette(&state.text.buffer);
         if entries.is_empty() {
             return;
         }
@@ -106,9 +106,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             return;
         };
 
-        let chars: Vec<char> = state.buffer.chars().collect();
-        let before_cursor: String = chars[..state.cursor_pos].iter().collect();
-        let after_cursor: String = chars[state.cursor_pos..].iter().collect();
+        let chars: Vec<char> = state.text.buffer.chars().collect();
+        let before_cursor: String = chars[..state.text.cursor_pos].iter().collect();
+        let after_cursor: String = chars[state.text.cursor_pos..].iter().collect();
 
         // Build spans: ":" prompt, text before cursor, cursor block, text after cursor
         let mut spans = vec![
@@ -119,6 +119,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         if after_cursor.is_empty() {
             // Cursor at end: show underscore
             spans.push(Span::styled("_", Style::default().fg(Color::White)));
+
+            // Show argument hint as ghost text after cursor
+            if let Some(hint) = self.compute_argument_hint() {
+                spans.push(Span::styled(hint, Style::default().fg(Color::DarkGray)));
+            }
         } else {
             let mut after_chars = after_cursor.chars();
             let cursor_char = after_chars.next().unwrap_or(' ');

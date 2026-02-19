@@ -1,8 +1,9 @@
 //! App struct construction, key dispatch, navigation, and data loading.
 
 use super::{
-    App, CommandLineState, CommandState, GraftYamlConfigLoader, KeyCode, ListState, RepoDetail,
-    RepoDetailProvider, RepoRegistry, StatusMessage, View, DEFAULT_MAX_COMMITS,
+    App, CommandLineState, CommandState, GraftYamlConfigLoader, KeyCode, KeyEvent, KeyModifiers,
+    ListState, RepoDetail, RepoDetailProvider, RepoRegistry, StatusMessage, View,
+    DEFAULT_MAX_COMMITS,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
@@ -21,6 +22,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             should_quit: false,
             view_stack: vec![View::Dashboard],
             command_line: None,
+            command_history: Vec::new(),
             detail_scroll: 0,
             cached_detail: None,
             cached_detail_index: None,
@@ -89,25 +91,34 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
-    pub(super) fn handle_key(&mut self, code: KeyCode) {
+    /// Top-level key event handler that threads modifiers to overlays.
+    ///
+    /// Called from the event loop with the full `KeyEvent`. Delegates
+    /// to `handle_key` with the extracted code and modifiers.
+    pub(super) fn handle_key_event(&mut self, key: KeyEvent) {
+        self.handle_key(key.code, key.modifiers);
+    }
+
+    pub(super) fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         // ArgumentInput is an overlay — intercept before view dispatch.
         if self.argument_input.is_some() {
-            self.handle_key_argument_input(code);
+            self.handle_key_argument_input(code, modifiers);
             return;
         }
 
         // Command line is an overlay — intercept before view dispatch.
         if self.command_line.is_some() {
-            self.handle_key_command_line(code);
+            self.handle_key_command_line(code, modifiers);
             return;
         }
 
         // `:` activates command line from any view.
         if code == KeyCode::Char(':') {
             self.command_line = Some(CommandLineState {
-                buffer: String::new(),
-                cursor_pos: 0,
+                text: super::text_buffer::TextBuffer::new(),
                 palette_selected: 0,
+                history_index: None,
+                history_draft: String::new(),
             });
             return;
         }

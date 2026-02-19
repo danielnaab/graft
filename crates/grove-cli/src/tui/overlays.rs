@@ -1,22 +1,38 @@
 //! Overlay rendering: help, argument input, command output, stop confirmation.
 
 use super::{
-    Alignment, App, ArgumentInputState, Block, Borders, Clear, Color, CommandState, KeyCode, Line,
-    Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span, StatusMessage, Style, Wrap,
+    Alignment, App, ArgumentInputState, Block, Borders, Clear, Color, CommandState, KeyCode,
+    KeyModifiers, Line, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span,
+    StatusMessage, Style, Wrap,
 };
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// Handle keys in argument input overlay.
-    pub(super) fn handle_key_argument_input(&mut self, code: KeyCode) {
+    pub(super) fn handle_key_argument_input(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         let Some(state) = &mut self.argument_input else {
             return;
         };
 
+        // Handle Ctrl shortcuts first
+        if modifiers.contains(KeyModifiers::CONTROL) {
+            match code {
+                KeyCode::Char('u') => {
+                    state.text.clear();
+                    return;
+                }
+                KeyCode::Char('w') => {
+                    state.text.delete_word_backward();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         match code {
             KeyCode::Enter => {
-                let args = if state.buffer.is_empty() {
+                let args = if state.text.buffer.is_empty() {
                     Vec::new()
-                } else if let Ok(parsed_args) = shell_words::split(&state.buffer) {
+                } else if let Ok(parsed_args) = shell_words::split(&state.text.buffer) {
                     parsed_args
                 } else {
                     self.status_message = Some(StatusMessage::error(
@@ -38,35 +54,25 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 // Dismiss the overlay; underlying view stays unchanged.
             }
             KeyCode::Left => {
-                if state.cursor_pos > 0 {
-                    state.cursor_pos -= 1;
-                }
+                state.text.move_left();
             }
             KeyCode::Right => {
-                let char_count = state.buffer.chars().count();
-                if state.cursor_pos < char_count {
-                    state.cursor_pos += 1;
-                }
+                state.text.move_right();
             }
             KeyCode::Home => {
-                state.cursor_pos = 0;
+                state.text.move_home();
             }
             KeyCode::End => {
-                state.cursor_pos = state.buffer.chars().count();
+                state.text.move_end();
+            }
+            KeyCode::Delete => {
+                state.text.delete_forward();
             }
             KeyCode::Char(c) => {
-                let mut chars: Vec<char> = state.buffer.chars().collect();
-                chars.insert(state.cursor_pos, c);
-                state.buffer = chars.into_iter().collect();
-                state.cursor_pos += 1;
+                state.text.insert_char(c);
             }
             KeyCode::Backspace => {
-                if state.cursor_pos > 0 {
-                    let mut chars: Vec<char> = state.buffer.chars().collect();
-                    chars.remove(state.cursor_pos - 1);
-                    state.buffer = chars.into_iter().collect();
-                    state.cursor_pos -= 1;
-                }
+                state.text.backspace();
             }
             _ => {}
         }
@@ -312,9 +318,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         let title = format!(" Arguments for '{}' ", state.command_name);
 
-        let chars: Vec<char> = state.buffer.chars().collect();
-        let before_cursor: String = chars[..state.cursor_pos].iter().collect();
-        let after_cursor: String = chars[state.cursor_pos..].iter().collect();
+        let chars: Vec<char> = state.text.buffer.chars().collect();
+        let before_cursor: String = chars[..state.text.cursor_pos].iter().collect();
+        let after_cursor: String = chars[state.text.cursor_pos..].iter().collect();
 
         let input_text = if after_cursor.is_empty() {
             format!("> {before_cursor}_")
@@ -324,7 +330,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         let (preview_text, preview_style) = Self::format_argument_preview(state);
 
-        let help = "← →  Home  End: navigate   Enter: run   Esc: cancel";
+        let help = "← → Home End: nav  Ctrl+U: clear  Ctrl+W: del word  Enter: run  Esc: cancel";
 
         let content = vec![
             Line::from(""),
@@ -350,14 +356,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Format the command preview line showing how arguments will be parsed.
     fn format_argument_preview(state: &ArgumentInputState) -> (String, Style) {
-        if state.buffer.is_empty() {
+        if state.text.buffer.is_empty() {
             return (
                 format!("Will execute: graft run {}", state.command_name),
                 Style::default().fg(Color::Gray),
             );
         }
 
-        match shell_words::split(&state.buffer) {
+        match shell_words::split(&state.text.buffer) {
             Ok(args) => {
                 let quoted_args: Vec<String> = args
                     .iter()
