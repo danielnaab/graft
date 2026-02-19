@@ -3,9 +3,8 @@
 //! This module provides shared git primitives used by both graft and grove.
 //! All operations use timeout protection to prevent hangs on network or I/O issues.
 
-use crate::command::{run_command_with_timeout, CommandError};
+use crate::process::{run_to_completion_with_timeout, ProcessConfig, ProcessError};
 use std::path::Path;
-use std::process::Command;
 
 /// Error type for git operations.
 #[derive(thiserror::Error, Debug)]
@@ -13,11 +12,8 @@ pub enum GitError {
     #[error("Git command failed: {0}")]
     CommandFailed(String),
 
-    #[error("Command execution error: {0}")]
-    Command(#[from] CommandError),
-
-    #[error("Invalid UTF-8 in git output: {0}")]
-    InvalidUtf8(#[from] std::string::FromUtf8Error),
+    #[error("Process execution error: {0}")]
+    Process(#[from] ProcessError),
 }
 
 /// Check if a path is a git repository.
@@ -38,20 +34,21 @@ pub fn is_git_repo(path: impl AsRef<Path>) -> bool {
 /// Returns an error if the git command fails or the repository is in an invalid state.
 pub fn get_current_commit(path: impl AsRef<Path>) -> Result<String, GitError> {
     let path = path.as_ref();
-    let mut cmd = Command::new("git");
-    cmd.args(["rev-parse", "HEAD"]).current_dir(path);
-
-    let output = run_command_with_timeout(cmd, "git rev-parse HEAD", None)?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let config = ProcessConfig {
+        command: "git rev-parse HEAD".to_string(),
+        working_dir: path.to_path_buf(),
+        env: None,
+        log_path: None,
+        timeout: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
         return Err(GitError::CommandFailed(format!(
-            "git rev-parse HEAD failed: {stderr}"
+            "git rev-parse HEAD failed: {}",
+            output.stderr
         )));
     }
-
-    let commit = String::from_utf8(output.stdout)?;
-    Ok(commit.trim().to_string())
+    Ok(output.stdout.trim().to_string())
 }
 
 /// Resolve a git ref to a commit hash.
@@ -73,14 +70,16 @@ pub fn git_rev_parse(path: impl AsRef<Path>, git_ref: &str) -> Result<String, Gi
     let refs_to_try = vec![format!("origin/{git_ref}"), git_ref.to_string()];
 
     for ref_name in refs_to_try {
-        let mut cmd = Command::new("git");
-        cmd.args(["rev-parse", &ref_name]).current_dir(path);
-
-        let output = run_command_with_timeout(cmd, "git rev-parse", None)?;
-
-        if output.status.success() {
-            let commit = String::from_utf8(output.stdout)?;
-            return Ok(commit.trim().to_string());
+        let config = ProcessConfig {
+            command: format!("git rev-parse {ref_name}"),
+            working_dir: path.to_path_buf(),
+            env: None,
+            log_path: None,
+            timeout: None,
+        };
+        let output = run_to_completion_with_timeout(&config)?;
+        if output.success {
+            return Ok(output.stdout.trim().to_string());
         }
     }
 
@@ -100,18 +99,20 @@ pub fn git_rev_parse(path: impl AsRef<Path>, git_ref: &str) -> Result<String, Gi
 /// Returns an error if the git command fails.
 pub fn git_fetch(path: impl AsRef<Path>) -> Result<(), GitError> {
     let path = path.as_ref();
-    let mut cmd = Command::new("git");
-    cmd.args(["fetch", "--all"]).current_dir(path);
-
-    let output = run_command_with_timeout(cmd, "git fetch", None)?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let config = ProcessConfig {
+        command: "git fetch --all".to_string(),
+        working_dir: path.to_path_buf(),
+        env: None,
+        log_path: None,
+        timeout: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
         return Err(GitError::CommandFailed(format!(
-            "git fetch failed: {stderr}"
+            "git fetch failed: {}",
+            output.stderr
         )));
     }
-
     Ok(())
 }
 
@@ -127,18 +128,20 @@ pub fn git_fetch(path: impl AsRef<Path>) -> Result<(), GitError> {
 /// Returns an error if the git command fails.
 pub fn git_checkout(path: impl AsRef<Path>, commit: &str) -> Result<(), GitError> {
     let path = path.as_ref();
-    let mut cmd = Command::new("git");
-    cmd.args(["checkout", commit]).current_dir(path);
-
-    let output = run_command_with_timeout(cmd, "git checkout", None)?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let config = ProcessConfig {
+        command: format!("git checkout {commit}"),
+        working_dir: path.to_path_buf(),
+        env: None,
+        log_path: None,
+        timeout: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
         return Err(GitError::CommandFailed(format!(
-            "git checkout failed: {stderr}"
+            "git checkout failed: {}",
+            output.stderr
         )));
     }
-
     Ok(())
 }
 
@@ -146,6 +149,7 @@ pub fn git_checkout(path: impl AsRef<Path>, commit: &str) -> Result<(), GitError
 mod tests {
     use super::*;
     use std::fs;
+    use std::process::Command;
     use tempfile::TempDir;
 
     /// Initialize a git repo with user config and an initial commit.
