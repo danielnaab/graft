@@ -4,6 +4,8 @@ use super::{
     mpsc, supports_unicode, App, CommandState, RepoDetailProvider, RepoRegistry, Sender,
     LINES_TO_DROP, MAX_OUTPUT_LINES,
 };
+use graft_common::process::{ProcessConfig, ProcessEvent, ProcessHandle};
+use std::path::PathBuf;
 
 /// Events from async command execution.
 #[derive(Debug)]
@@ -14,45 +16,16 @@ pub enum CommandEvent {
     Failed(String),
 }
 
-/// Find the graft command, checking uv-managed installation first.
-fn find_graft_command() -> anyhow::Result<String> {
-    let uv_check = std::process::Command::new("uv")
-        .args(["run", "--quiet", "python", "-m", "graft", "--help"])
-        .current_dir("/tmp")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-
-    if let Ok(status) = uv_check {
-        if status.success() {
-            return Ok("uv run python -m graft".to_string());
-        }
-    }
-
-    let system_check = std::process::Command::new("graft")
-        .arg("--help")
-        .current_dir("/tmp")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-
-    if let Ok(status) = system_check {
-        if status.success() {
-            return Ok("graft".to_string());
-        }
-    }
-
-    Err(anyhow::anyhow!(
-        "graft command not found\n\n\
-         Grove requires graft to execute commands.\n\n\
-         Install graft:\n\
-         - Via uv: uv pip install graft\n\
-         - Via pip: pip install graft\n\n\
-         Or ensure graft is in your PATH."
-    ))
-}
-
-/// Spawn a graft command in the background and send output via channel.
+/// Spawn a command defined in graft.yaml in the background and send output via channel.
+///
+/// Loads `graft.yaml` from `{repo_path}/graft.yaml`, looks up `command_name` in the
+/// `commands:` section, and executes the command's `run` shell expression (with any
+/// extra `args` appended) via [`ProcessHandle`]. Bridges [`ProcessEvent`] to
+/// [`CommandEvent`] for the TUI event loop.
+///
+/// On success: emits `Started(pid)`, zero or more `OutputLine(line)` events (stdout and
+/// stderr interleaved), then `Completed(exit_code)`.
+/// On failure (command not found, spawn error): emits `Failed(message)`.
 #[allow(clippy::needless_pass_by_value)]
 pub fn spawn_command(
     command_name: String,
@@ -60,112 +33,72 @@ pub fn spawn_command(
     repo_path: String,
     tx: Sender<CommandEvent>,
 ) {
-    use std::io::{BufRead, BufReader};
-    use std::process::{Command, Stdio};
-
-    let graft_cmd = match find_graft_command() {
-        Ok(cmd) => cmd,
-        Err(e) => {
-            let _ = tx.send(CommandEvent::Failed(e.to_string()));
-            return;
-        }
-    };
-
-    let result = if graft_cmd.starts_with("uv run") {
-        let mut cmd = Command::new("uv");
-        cmd.args(["run", "python", "-m", "graft", "run", &command_name]);
-
-        if !args.is_empty() {
-            cmd.args(&args);
-        }
-
-        cmd.current_dir(&repo_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-    } else {
-        let mut cmd = Command::new(&graft_cmd);
-        cmd.args(["run", &command_name]);
-
-        if !args.is_empty() {
-            cmd.args(&args);
-        }
-
-        cmd.current_dir(&repo_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-    };
-
-    let mut child = match result {
-        Ok(child) => child,
+    // Load commands from graft.yaml.
+    let graft_yaml = PathBuf::from(&repo_path).join("graft.yaml");
+    let commands = match graft_common::parse_commands(&graft_yaml) {
+        Ok(cmds) => cmds,
         Err(e) => {
             let _ = tx.send(CommandEvent::Failed(format!(
-                "Failed to spawn {graft_cmd}: {e}\n\n\
-                 Ensure graft is properly installed and in PATH."
+                "Failed to load graft.yaml: {e}"
             )));
             return;
         }
     };
 
-    let _ = tx.send(CommandEvent::Started(child.id()));
+    let Some(cmd_def) = commands.get(&command_name).cloned() else {
+        let _ = tx.send(CommandEvent::Failed(format!(
+            "Command '{command_name}' not found in graft.yaml"
+        )));
+        return;
+    };
 
-    let stdout = child.stdout.take();
-    let tx_stdout = tx.clone();
-    let stdout_thread = stdout.map(|out| {
-        std::thread::spawn(move || {
-            let reader = BufReader::new(out);
-            for line in reader.lines() {
-                match line {
-                    Ok(line) => {
-                        if tx_stdout.send(CommandEvent::OutputLine(line)).is_err() {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx_stdout.send(CommandEvent::Failed(format!("Read error: {e}")));
-                        break;
-                    }
-                }
-            }
-        })
-    });
+    // Build shell command: `run [args...]`
+    let mut full_parts = vec![cmd_def.run.clone()];
+    full_parts.extend(args);
+    let shell_cmd = full_parts.join(" ");
 
-    let stderr = child.stderr.take();
-    let tx_stderr = tx.clone();
-    let stderr_thread = stderr.map(|err| {
-        std::thread::spawn(move || {
-            let reader = BufReader::new(err);
-            for line in reader.lines() {
-                match line {
-                    Ok(line) => {
-                        if tx_stderr.send(CommandEvent::OutputLine(line)).is_err() {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx_stderr.send(CommandEvent::Failed(format!("Read error: {e}")));
-                        break;
-                    }
-                }
-            }
-        })
-    });
+    // Determine working directory (relative to repo_path if specified).
+    let working_dir = if let Some(ref sub_dir) = cmd_def.working_dir {
+        PathBuf::from(&repo_path).join(sub_dir)
+    } else {
+        PathBuf::from(&repo_path)
+    };
 
-    match child.wait() {
-        Ok(status) => {
-            if let Some(thread) = stdout_thread {
-                let _ = thread.join();
-            }
-            if let Some(thread) = stderr_thread {
-                let _ = thread.join();
-            }
+    let config = ProcessConfig {
+        command: shell_cmd,
+        working_dir,
+        env: cmd_def.env,
+        log_path: None,
+        timeout: None,
+    };
 
-            let exit_code = status.code().unwrap_or(-1);
-            let _ = tx.send(CommandEvent::Completed(exit_code));
-        }
+    let (_handle, rx) = match ProcessHandle::spawn(&config) {
+        Ok(pair) => pair,
         Err(e) => {
-            let _ = tx.send(CommandEvent::Failed(format!("Wait failed: {e}")));
+            let _ = tx.send(CommandEvent::Failed(format!(
+                "Failed to spawn process: {e}"
+            )));
+            return;
+        }
+    };
+
+    // Bridge ProcessEvent → CommandEvent. The channel closes after Completed or Failed.
+    for event in rx {
+        match event {
+            ProcessEvent::Started { pid } => {
+                let _ = tx.send(CommandEvent::Started(pid));
+            }
+            ProcessEvent::OutputLine { line, .. } => {
+                if tx.send(CommandEvent::OutputLine(line)).is_err() {
+                    break;
+                }
+            }
+            ProcessEvent::Completed { exit_code } => {
+                let _ = tx.send(CommandEvent::Completed(exit_code));
+            }
+            ProcessEvent::Failed { error } => {
+                let _ = tx.send(CommandEvent::Failed(error));
+            }
         }
     }
 }
