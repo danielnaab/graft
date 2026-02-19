@@ -26,6 +26,13 @@ purpose: "Append-only progress log for unified process management Ralph loop"
 - **`build_output` takes `&[String]` slices**: Clippy `needless_pass_by_value` rejects
   `Vec<String>` args when only `.join()` (a slice method) is called. Pass `&stdout_lines`
   and `&stderr_lines`; `Vec<String>` coerces to `&[String]` automatically.
+- **Generic-Arc pattern for trait objects**: When a public API needs to accept `Arc<ConcreteType>`
+  but internally stores `Arc<dyn Trait>`, use a generic bound: `pub fn foo<R: Trait + 'static>(r: Arc<R>)`.
+  Inside, coerce via `let dyn_arc: Arc<dyn Trait> = r;`. Avoids callers needing explicit `.as` casts.
+- **`dyn Trait` in `Arc` does not auto-implement `Debug`**: Even if all known implementors do, the
+  trait object `dyn Trait` only implements `Debug` if the trait itself has `Debug` as a supertrait.
+  To derive `Debug` on a struct containing `Arc<dyn Trait>`, either add `Debug` to the trait's
+  supertraits or implement `Debug` manually with `finish_non_exhaustive()` to skip the field.
 
 ---
 
@@ -89,4 +96,28 @@ alongside the registry in test helper; this keeps the directory alive and avoids
 `ProcessRegistry` parameter. The `FsProcessRegistry::default_path()` pattern follows `state.rs` using
 `std::env::var("HOME")`. For dead PID tests, use PID 4_000_000 (above typical Linux default max of 32768
 but below the 4_194_304 hard limit — safe in practice; could use u32::MAX for extra safety).
+
+### Iteration — Task 4: Wire ProcessHandle lifecycle to ProcessRegistry
+**Status**: completed
+**Files changed**: `crates/graft-common/src/process.rs`, `crates/graft-common/src/lib.rs`
+**What was done**: Added `spawn_registered()` (and `run_to_completion_registered()`,
+`run_to_completion_with_timeout_registered()`) that accept `Arc<R: ProcessRegistry + 'static>`.
+Refactored `spawn` into a private `spawn_inner(config, Option<Arc<dyn ProcessRegistry>>)`.
+`spawn_inner` registers the entry before starting background threads, passes a clone of the
+registry `Arc` into the monitor thread (which updates status then deregisters on completion/failure).
+`kill()` deregisters regardless of kill success. `Drop` kills and deregisters if still running.
+Manual `Debug` impl used since `dyn ProcessRegistry` doesn't implement `Debug`. 6 new tests:
+entry visible after spawn, completion deregisters, kill deregisters, drop kills+deregisters,
+`run_to_completion_registered` deregisters, `run_to_completion_with_timeout_registered` deregisters
+on timeout. All 53 graft-common tests pass.
+**Critique findings**: Initial API took `Arc<dyn ProcessRegistry>` which forced callers to explicitly
+upcast concrete registry types. Also `dyn ProcessRegistry` doesn't implement `Debug` so `#[derive(Debug)]`
+couldn't be used on `ProcessHandle`.
+**Improvements made**: Made `spawn_registered` and the two blocking helpers generic over
+`R: ProcessRegistry + 'static`, coercing to `Arc<dyn ProcessRegistry>` internally. Implemented
+manual `Debug` for `ProcessHandle` using `finish_non_exhaustive()`.
+**Learnings for future iterations**: When a function needs to store `Arc<dyn Trait>` internally but
+callers have `Arc<ConcreteType>`, use a generic parameter `<R: Trait + 'static>` and coerce inside:
+`let dyn_arc: Arc<dyn Trait> = concrete_arc;`. `dyn Trait` in an `Arc` does not auto-implement `Debug`
+even if all known implementors do — a manual impl (or `+ Debug` supertrait) is required.
 

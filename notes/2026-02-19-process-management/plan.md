@@ -45,6 +45,14 @@ Key constraints:
   clippy `explicit_iter_loop` prefers the shorter form for `&Receiver`.
 - **`#[allow(clippy::too_many_lines)]` on `spawn`**: the function is inherently long due to
   three thread setups. The allow is targeted on the single function.
+- **`spawn_registered` and `*_registered` helpers are generic over `R: ProcessRegistry + 'static`**:
+  avoids requiring callers to explicitly upcast `Arc<FsProcessRegistry>` to `Arc<dyn ProcessRegistry>`.
+  Internally casts to `Arc<dyn ProcessRegistry>` via unsized coercion in `spawn_inner`.
+- **`ProcessHandle` uses manual `Debug` impl**: `dyn ProcessRegistry` doesn't implement `Debug`,
+  so `#[derive(Debug)]` can't be used. Manual impl uses `finish_non_exhaustive()` and shows
+  registry presence as `Some("<registry>")` or `None`.
+- **Registry registered before background threads start**: ensures a `Running` entry is visible
+  to callers immediately after `spawn_registered` returns, with no race window.
 
 ---
 
@@ -93,7 +101,7 @@ Key constraints:
 ## Phase 2: Registry Integration (Task 4)
 
 ### Task 4: Wire ProcessHandle lifecycle to ProcessRegistry
-- [ ] Auto-register on spawn, deregister on completion/kill/drop
+- [x] Auto-register on spawn, deregister on completion/kill/drop
 - **Code**: `crates/graft-common/src/process.rs`
 - **Design**: `notes/2026-02-19-unified-process-management.md` (ProcessRegistry section)
 - **Acceptance**:
