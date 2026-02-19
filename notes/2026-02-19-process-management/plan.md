@@ -158,7 +158,7 @@ Key constraints:
 - **Bridge note**: Grove's state query types may need a thin adapter to graft-engine types
 
 ### Task 8: grove-cli command execution via ProcessHandle, remove find_graft_command
-- [ ] Replace `spawn_command` + `find_graft_command` with ProcessHandle streaming
+- [x] Replace `spawn_command` + `find_graft_command` with ProcessHandle streaming
 - **Code**: `crates/grove-cli/src/tui/command_exec.rs`, `crates/grove-cli/src/tui/mod.rs`
 - **Specs**: `docs/specifications/grove/command-execution.md`
 - **Design**: `notes/2026-02-19-unified-process-management.md` (Consumer Patterns — grove-cli)

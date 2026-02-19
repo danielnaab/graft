@@ -179,3 +179,24 @@ confirm all fields are `pub` before using struct syntax instead of a constructor
 become dead after removing code — clippy `-D warnings` will flag them. Task 8 is the most invasive
 change: replace `spawn_command` + `find_graft_command` with ProcessHandle streaming.
 
+### Iteration — Task 8: grove-cli command execution via ProcessHandle, remove find_graft_command
+**Status**: completed
+**Files changed**: `crates/grove-cli/src/tui/command_exec.rs`
+**What was done**: Replaced `find_graft_command()` (which probed for `uv run python -m graft` then
+`graft` binary) and the manual 3-thread setup (stdout/stderr reader threads + `child.wait()`) with
+`ProcessHandle::spawn()`. New `spawn_command()` keeps the same public signature (required by
+integration tests); graft.yaml lookup is inside `spawn_command()` via `graft_common::parse_commands()`.
+On command-not-found, sends `CommandEvent::Failed("Command 'xxx' not found in graft.yaml")`.
+Event bridge: `ProcessEvent::Started{pid}` → `CommandEvent::Started(pid)`, `OutputLine{line,..}` →
+`OutputLine(line)` (stderr collapsed), `Completed` → `Completed`, `Failed` → `Failed`.
+Clippy rejected `match` for single-pattern destructuring — used `let Some(...) = ... else {}` instead.
+All 5 integration tests pass; `test_graft_not_in_path_error` (#[ignore]) is now permanently irrelevant.
+**Critique findings**: All acceptance criteria met. Plan said to change `spawn_command` signature to
+`CommandDef`, but that broke integration tests — kept same signature with graft.yaml lookup inside.
+`execute_command_with_args` and `handle_command_events` are unchanged as required.
+**Improvements made**: none needed
+**Learnings for future iterations**: When a plan calls for changing a public API, first check
+whether integration tests depend on the old signature. Clippy `single_match_else` prefers
+`if let Some(...) else {}` over `match` with a single Some arm. Grove no longer requires the
+graft binary to be installed — commands run directly from graft.yaml definitions.
+
