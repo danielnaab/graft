@@ -121,3 +121,22 @@ callers have `Arc<ConcreteType>`, use a generic parameter `<R: Trait + 'static>`
 `let dyn_arc: Arc<dyn Trait> = concrete_arc;`. `dyn Trait` in an `Arc` does not auto-implement `Debug`
 even if all known implementors do — a manual impl (or `+ Debug` supertrait) is required.
 
+### Iteration — Task 5: graft-engine commands via ProcessHandle
+**Status**: completed
+**Files changed**: `crates/graft-engine/src/command.rs`
+**What was done**: Replaced `graft_common::command::run_command_with_timeout` with
+`graft_common::process::run_to_completion_with_timeout` in `execute_command()`. Built a
+`ProcessConfig` from the `Command` definition: `command` (shell command string), `working_dir`,
+`env: command.env.clone()` (both types use `Option<HashMap<String, String>>`), `log_path: None`,
+`timeout: None`. Mapped `ProcessOutput` fields directly to `CommandResult` (no `String::from_utf8_lossy`
+needed since `ProcessOutput` already provides `String`). Removed unused `std::process::Command`
+import. Public API unchanged; all 4 existing tests pass without modification.
+**Critique findings**: All acceptance criteria met. The default timeout behaviour changed from
+5-second hard-coded default (old `command.rs`) to no timeout unless `GRAFT_PROCESS_TIMEOUT_MS`
+env var is set — this is intentional per the design. API surface is clean with 1:1 field mapping.
+**Improvements made**: none needed
+**Learnings for future iterations**: When domain types share the same field types (e.g., both
+`Command.env` and `ProcessConfig.env` are `Option<HashMap<String, String>>`), a direct `.clone()`
+is sufficient — no manual conversion needed. Task 6 (state.rs) is analogous but adds a timeout
+from the `StateQuery` definition.
+

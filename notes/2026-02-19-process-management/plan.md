@@ -118,7 +118,7 @@ Key constraints:
 ## Phase 3: Migrate graft-engine (Tasks 5–6)
 
 ### Task 5: graft-engine commands via ProcessHandle
-- [ ] Replace `run_command_with_timeout` with `run_to_completion_with_timeout` in command.rs
+- [x] Replace `run_command_with_timeout` with `run_to_completion_with_timeout` in command.rs
 - **Code**: `crates/graft-engine/src/command.rs`
 - **Existing**: Currently uses `graft_common::command::run_command_with_timeout` (see lines 64–66)
 - **Acceptance**:
