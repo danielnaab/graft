@@ -107,6 +107,11 @@ When the command is executed
 Then graft uses the default timeout of 300 seconds (5 minutes)
 ```
 
+**Implementation note (2026-02-19)**: Timeout enforcement was declared in this spec from the
+start but was not implemented in the initial graft-engine `state.rs` code (the timeout was
+computed but ignored). This is now fixed — `execute_state_query()` passes the timeout to
+`run_to_completion_with_timeout()` via `ProcessConfig`, which enforces it with process kill.
+
 ### Cache Invalidation [Stage 1]
 
 ```gherkin

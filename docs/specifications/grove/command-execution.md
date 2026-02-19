@@ -200,9 +200,10 @@ And the command is not executed
 ```gherkin
 Given a command has been selected for execution
 When execution begins
-Then Grove calls `graft run <command-name>` as a subprocess
+Then Grove resolves the command definition from graft.yaml via graft-engine library
+And spawns the command's run script directly via ProcessHandle
 And the repository's directory is used as the working directory
-And stdout and stderr are captured
+And stdout and stderr are captured and streamed in real-time
 ```
 
 ```gherkin
@@ -319,15 +320,6 @@ Then the Commands section shows "No graft.yaml found"
 And the user can still see changes, commits, and state queries
 ```
 
-### graft not in PATH
-
-```gherkin
-Given the `graft` command is not available in PATH
-When Grove attempts to execute a command
-Then an error is shown: "graft command not found"
-And suggests installing graft or checking PATH
-```
-
 ### Command execution timeout
 
 ```gherkin
@@ -342,7 +334,7 @@ And the user can manually stop with "q" → "y"
 
 - **Output buffer**: Maximum 10,000 lines retained in memory
 - **No timeout**: Commands can run indefinitely (user can stop manually)
-- **Subprocess**: Uses `std::process::Command` with piped stdout/stderr
+- **Execution**: Uses `ProcessHandle` (graft-common) with piped stdout/stderr; runs `sh -c <run>` directly — no graft binary required in PATH
 - **Working directory**: Command executed in repository root directory
 
 ## Keybindings
@@ -420,10 +412,12 @@ See [TUI Behavior](tui-behavior.md) for the full command line keybinding referen
   - `x` is mnemonic for "execute"
   - Common in vim-style UIs
 
-- **2026-02-12**: Commands executed via `graft run` subprocess
-  - Reuses graft's command execution logic
-  - No need to duplicate command parsing, env vars, working_dir handling
-  - Subprocess approach keeps Grove and graft loosely coupled
+- **2026-02-19**: Commands executed via graft-engine library + ProcessHandle (replaces subprocess)
+  - Grove depends on graft-engine as a library crate (not a CLI subprocess)
+  - graft.yaml is parsed via `graft_common::parse_commands()`
+  - Command runs directly via `ProcessHandle::spawn()` with `sh -c <run>`
+  - graft binary no longer required in PATH at runtime
+  - Supersedes 2026-02-12 decision (subprocess via `graft run`)
 
 - **2026-02-12**: Manual stop only (no automatic timeout)
   - Long-running commands (builds, tests) should not be killed arbitrarily

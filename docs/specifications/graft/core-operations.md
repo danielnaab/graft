@@ -994,6 +994,51 @@ Executing: meta-kb:migrate-v2
 
 ---
 
+### graft ps
+
+**Purpose**: List active processes currently managed by graft.
+
+**Syntax**:
+```bash
+graft ps [options]
+```
+
+**Options**:
+- `--repo <path>`: Filter results to processes associated with the given repository path
+
+**Behavior**:
+1. Open `FsProcessRegistry` at `~/.cache/graft/processes/`
+2. Call `list_active()`, which prunes stale entries for dead PIDs automatically
+3. If `--repo` is given, filter to entries whose `repo_path` matches
+4. Display results; exit 0 even if no processes are found
+
+**Output** (processes active):
+```
+Active processes (2):
+  PID 12345  make test
+    Repository: /home/user/my-project
+    Started:    2026-02-19T10:00:00Z
+    Status:     Running
+
+  PID 67890  pytest tests/ --cov
+    Repository: /home/user/other-project
+    Started:    2026-02-19T09:55:00Z
+    Status:     Running
+```
+
+**Output** (no active processes):
+```
+No active processes.
+```
+
+**Registry path**: `~/.cache/graft/processes/{pid}.json` (created automatically on first use)
+
+**Note**: `graft ps` shows only processes spawned with registry integration enabled (via
+`ProcessHandle::spawn_registered` or `run_to_completion_with_timeout_registered`). Processes
+spawned without registry integration are not listed.
+
+---
+
 ## Operation Flow Diagram
 
 ```
