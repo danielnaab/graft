@@ -8,8 +8,6 @@ use super::{
     KeyCode, Line, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span,
     StatusMessage, Style, View,
 };
-use crate::state::StateResult;
-
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// Handle keys when in the `RepoDetail` view.
     pub(super) fn handle_key_repo_detail(&mut self, code: KeyCode) {
@@ -444,9 +442,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Refresh all state queries for the currently selected repository.
     ///
-    /// Executes each query via `sh -c`, captures JSON from stdout, writes to
-    /// cache, and updates the in-memory results directly. Reports overall
-    /// success/failure in the status bar.
+    /// Executes each query via `graft_engine::execute_state_query`, which uses
+    /// `ProcessHandle` with timeout protection. Writes results to cache and
+    /// updates in-memory results. Reports overall success/failure in the status bar.
     pub(super) fn refresh_state_queries(&mut self) {
         if self.state_queries.is_empty() {
             self.status_message = Some(StatusMessage::info(
@@ -473,32 +471,39 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             .unwrap_or("unknown")
             .to_string();
 
-        let queries: Vec<_> = self
-            .state_queries
-            .iter()
-            .map(|q| (q.name.clone(), q.run.clone(), q.deterministic))
-            .collect();
+        // Resolve HEAD once; fall back to "unknown" so queries still run on bare repos.
+        let commit_hash =
+            graft_common::get_current_commit(&repo_path).unwrap_or_else(|_| "unknown".to_string());
 
+        let queries = self.state_queries.clone();
         let total = queries.len();
         let mut failed = 0usize;
 
-        for (i, (query_name, run_command, deterministic)) in queries.iter().enumerate() {
-            match execute_state_query_command(run_command, &repo_path) {
-                Ok(raw) => {
-                    let result = raw.finalize(query_name, run_command, *deterministic);
+        for (i, query) in queries.iter().enumerate() {
+            let graft_query = graft_engine::StateQuery {
+                name: query.name.clone(),
+                run: query.run.clone(),
+                cache: graft_engine::StateCache {
+                    deterministic: query.deterministic,
+                },
+                timeout: query.timeout,
+            };
+
+            match graft_engine::state::execute_state_query(&graft_query, &repo_path, &commit_hash) {
+                Ok(result) => {
                     if let Err(e) = graft_common::state::write_cached_state(
                         &self.workspace_name,
                         &repo_name,
                         &result,
                     ) {
-                        log::warn!("Failed to write cache for '{query_name}': {e}");
+                        log::warn!("Failed to write cache for '{}': {e}", query.name);
                     }
                     if i < self.state_results.len() {
                         self.state_results[i] = Some(result);
                     }
                 }
                 Err(e) => {
-                    log::warn!("Query '{query_name}' failed: {e}");
+                    log::warn!("Query '{}' failed: {e}", query.name);
                     failed += 1;
                 }
             }
@@ -517,71 +522,4 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             )))
         };
     }
-}
-
-// ===== State query execution =====
-
-/// Intermediate result from executing a state query command.
-struct RawStateResult {
-    data: serde_json::Value,
-    commit_hash: String,
-}
-
-impl RawStateResult {
-    fn finalize(self, query_name: &str, run_command: &str, deterministic: bool) -> StateResult {
-        StateResult {
-            metadata: crate::state::StateMetadata {
-                query_name: query_name.to_string(),
-                commit_hash: self.commit_hash,
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                command: run_command.to_string(),
-                deterministic,
-            },
-            data: self.data,
-        }
-    }
-}
-
-/// Execute a state query command via `sh -c` and capture JSON from stdout.
-///
-/// Using a shell matches graft-engine behavior and supports pipes, redirects,
-/// and variable expansion in query commands.
-fn execute_state_query_command(
-    run_command: &str,
-    repo_path: &std::path::Path,
-) -> Result<RawStateResult, String> {
-    use std::process::Command;
-
-    let commit_hash = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo_path)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map_or_else(
-            || "unknown".to_string(),
-            |o| String::from_utf8_lossy(&o.stdout).trim().to_string(),
-        );
-
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(run_command)
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| format!("Failed to execute '{run_command}': {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Command failed: {}", stderr.trim()));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let data: serde_json::Value =
-        serde_json::from_str(&stdout).map_err(|e| format!("Invalid JSON output: {e}"))?;
-
-    if !data.is_object() {
-        return Err("Query must output a JSON object".to_string());
-    }
-
-    Ok(RawStateResult { data, commit_hash })
 }

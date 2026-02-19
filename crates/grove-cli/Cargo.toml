@@ -14,6 +14,7 @@ path = "src/main.rs"
 grove-core = { workspace = true }
 grove-engine = { workspace = true }
 graft-common = { workspace = true }
+graft-engine = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 ratatui = { workspace = true }
