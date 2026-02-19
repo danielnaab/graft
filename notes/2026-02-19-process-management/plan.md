@@ -39,6 +39,12 @@ Key constraints:
   allows `kill()` to acquire the child mutex without deadlocking against the monitor.
 - **`drop(thread::spawn(...))` for monitor thread**: avoids clippy `let_underscore_must_use`
   warning on the detached `JoinHandle`.
+- **Private helpers take `&mpsc::Receiver` not by value**: clippy pedantic rejects
+  pass-by-value when the value is only used through shared references. `recv_timeout` takes
+  `&self`, so `&Receiver` is sufficient. Use `for event in rx` (not `rx.iter()`) since
+  clippy `explicit_iter_loop` prefers the shorter form for `&Receiver`.
+- **`#[allow(clippy::too_many_lines)]` on `spawn`**: the function is inherently long due to
+  three thread setups. The allow is targeted on the single function.
 
 ---
 
@@ -61,7 +67,7 @@ Key constraints:
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 2: Log capture and sync convenience wrappers
-- [ ] Add log file tee and blocking `run_to_completion` functions
+- [x] Add log file tee and blocking `run_to_completion` functions
 - **Code**: `crates/graft-common/src/process.rs`
 - **Design**: `notes/2026-02-19-unified-process-management.md` (ProcessHandle section)
 - **Acceptance**:
