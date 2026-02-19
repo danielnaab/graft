@@ -68,3 +68,25 @@ channel closes without a terminal event — defensive but harmless.
 (ProcessRegistry) will add `chrono` for ISO 8601 timestamps and `serde`/`serde_json` for
 JSON serialization — both already in graft-common's `[dependencies]`.
 
+### Iteration — Task 3: ProcessRegistry trait and FsProcessRegistry
+**Status**: completed
+**Files changed**: `crates/graft-common/src/process.rs`, `crates/graft-common/src/lib.rs`
+**What was done**: Added `ProcessStatus` enum (Running/Completed/Failed, Serialize+Deserialize+PartialEq),
+`ProcessEntry` struct with `new_running()` constructor (uses `Utc::now().to_rfc3339()` for ISO 8601),
+`ProcessRegistry` trait (`register`, `deregister`, `list_active`, `get`, `update_status`), and
+`FsProcessRegistry` storing `{pid}.json` files. Dead PID detection uses `/proc/{pid}` existence check
+on Linux, conservative `true` on other platforms. Added `ProcessError::RegistryError(String)` for
+serialization failures. Exported all new types from `lib.rs`. 8 new tests: register/get, deregister,
+deregister-noop, update_status, update_status-noop, list_active filtering, dead PID pruning (PID 4_000_000),
+multi-entry listing with real spawned processes. All 47 graft-common tests pass.
+**Critique findings**: All acceptance criteria met. API is clean and ergonomic. Thread safety is
+acceptable since each PID maps to a unique file. `pid_is_alive` using `/proc/{pid}` is simple and
+works correctly on Linux. The `tempdir` fix (returning `(FsProcessRegistry, TempDir)` to keep tempdir
+alive) was needed after initially using the deprecated `into_path()`. No actionable issues found.
+**Improvements made**: Switched from `TempDir::into_path()` (deprecated) to returning the `TempDir`
+alongside the registry in test helper; this keeps the directory alive and avoids the deprecation warning.
+**Learnings for future iterations**: Task 4 will wire `ProcessHandle::spawn` to an optional
+`ProcessRegistry` parameter. The `FsProcessRegistry::default_path()` pattern follows `state.rs` using
+`std::env::var("HOME")`. For dead PID tests, use PID 4_000_000 (above typical Linux default max of 32768
+but below the 4_194_304 hard limit — safe in practice; could use u32::MAX for extra safety).
+

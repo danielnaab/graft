@@ -79,7 +79,7 @@ Key constraints:
 - **Bridge note**: `run_command_with_timeout` in `command.rs` remains untouched — both paths coexist
 
 ### Task 3: ProcessRegistry trait and FsProcessRegistry
-- [ ] Define trait and filesystem implementation with PID liveness pruning
+- [x] Define trait and filesystem implementation with PID liveness pruning
 - **Code**: `crates/graft-common/src/process.rs` (or split into `process/` module directory)
 - **Design**: `notes/2026-02-19-unified-process-management.md` (ProcessRegistry section)
 - **Acceptance**:
