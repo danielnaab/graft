@@ -200,3 +200,21 @@ whether integration tests depend on the old signature. Clippy `single_match_else
 `if let Some(...) else {}` over `match` with a single Some arm. Grove no longer requires the
 graft binary to be installed — commands run directly from graft.yaml definitions.
 
+### Iteration — Task 9: `graft ps` CLI command
+**Status**: completed
+**Files changed**: `crates/graft-cli/Cargo.toml`, `crates/graft-cli/src/main.rs`
+**What was done**: Added `graft ps` subcommand to graft-cli. Added `graft-common` as an
+explicit dependency. Added `Ps { repo: Option<String> }` to the `Commands` enum with
+`--repo` filter. Implemented `ps_command()`→`ps_command_impl(registry_path, repo_filter)` split
+so the core logic is testable without hitting `~/.cache/graft/processes/`. Output shows
+"No active processes." when the list is empty, or "Active processes (N):" with per-entry PID,
+command, repository path, start time, and status. Four unit tests cover: empty registry,
+active entry (using `std::process::id()` as a live PID), matching repo filter, non-matching
+repo filter. Smoke test `graft ps` and `graft ps --repo /path` both work. Full workspace
+tests pass (0 failures).
+**Critique findings**: Split into `ps_command`/`ps_command_impl` is clean and avoids needing
+a mock registry in tests. Using `std::process::id()` as the test PID is reliable since the
+test runner process is always alive. `format_process_status` is defined but only `Running`
+will appear via `list_active()` — the other arms (`Completed`/`Failed`) handle edge cases
+where status was persisted but not yet pruned.
+

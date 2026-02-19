@@ -177,7 +177,7 @@ Key constraints:
 ## Phase 5: Observability and Cleanup (Tasks 9–11)
 
 ### Task 9: `graft ps` CLI command
-- [ ] Add process listing command to graft-cli
+- [x] Add process listing command to graft-cli
 - **Code**: `crates/graft-cli/src/main.rs` (or commands module), `crates/graft-cli/Cargo.toml`
 - **Specs**: `docs/specifications/graft/core-operations.md` (to be updated)
 - **Design**: `notes/2026-02-19-unified-process-management.md` (Consumer Patterns — graft-cli)
