@@ -203,7 +203,7 @@ Key constraints:
   - `cargo fmt --check && cargo clippy -- -D warnings && cargo test` passes
 
 ### Task 11: Update specifications
-- [ ] Update specs to reflect unified process management architecture
+- [x] Update specs to reflect unified process management architecture
 - **Files**: `docs/specifications/grove/command-execution.md`, `docs/specifications/graft/core-operations.md`, `docs/specifications/graft/state-queries.md`
 - **Acceptance**:
   - `command-execution.md`: Remove "graft not in PATH" edge case; document that grove calls graft-engine as library; remove subprocess coupling language

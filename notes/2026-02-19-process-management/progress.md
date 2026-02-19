@@ -235,3 +235,15 @@ need shell escaping; grove-engine error mapping is complex).
 No dead code warnings. Full cleanup of command.rs is future work once grove-engine and
 graft-engine callers are migrated.
 
+### Iteration — Task 11: Update specifications
+**Status**: completed
+**Files changed**: `docs/specifications/grove/command-execution.md`,
+`docs/specifications/graft/core-operations.md`, `docs/specifications/graft/state-queries.md`
+**What was done**: Removed "graft not in PATH" edge case from command-execution.md, updated
+execution Gherkin to reference graft-engine library and ProcessHandle, updated Constraints,
+added 2026-02-19 decision superseding old subprocess approach. Added full `graft ps` spec to
+core-operations.md. Added timeout enforcement implementation note to state-queries.md.
+**Critique findings**: Spec updates are minimal and targeted. graft ps spec matches actual
+implementation exactly. All 11 tasks now complete.
+
+
