@@ -141,10 +141,14 @@ impl ProcessHandle {
     /// - On process completion or failure, updates the registry entry's status then deregisters.
     /// - On [`kill`](Self::kill), deregisters the entry.
     /// - On [`Drop`], if the process is still running, kills it and deregisters.
-    pub fn spawn_registered(
+    ///
+    /// Accepts any `Arc<R>` where `R: ProcessRegistry + 'static`, so callers can pass
+    /// `Arc<FsProcessRegistry>` (or any other concrete type) without explicit upcasting.
+    pub fn spawn_registered<R: ProcessRegistry + 'static>(
         config: &ProcessConfig,
-        registry: Arc<dyn ProcessRegistry>,
+        registry: Arc<R>,
     ) -> Result<(Self, mpsc::Receiver<ProcessEvent>), ProcessError> {
+        let registry: Arc<dyn ProcessRegistry> = registry;
         Self::spawn_inner(config, Some(registry))
     }
 
@@ -413,9 +417,11 @@ pub fn run_to_completion_with_timeout(
 ///
 /// Equivalent to [`run_to_completion`] but the process appears in the registry while running
 /// and is deregistered on completion.
-pub fn run_to_completion_registered(
+///
+/// Accepts any `Arc<R>` where `R: ProcessRegistry + 'static`.
+pub fn run_to_completion_registered<R: ProcessRegistry + 'static>(
     config: &ProcessConfig,
-    registry: Arc<dyn ProcessRegistry>,
+    registry: Arc<R>,
 ) -> Result<ProcessOutput, ProcessError> {
     let (_handle, rx) = ProcessHandle::spawn_registered(config, registry)?;
     collect_output(&rx)
@@ -425,9 +431,11 @@ pub fn run_to_completion_registered(
 ///
 /// Combines the behaviour of [`run_to_completion_with_timeout`] and
 /// [`run_to_completion_registered`]. The process is deregistered on completion or timeout.
-pub fn run_to_completion_with_timeout_registered(
+///
+/// Accepts any `Arc<R>` where `R: ProcessRegistry + 'static`.
+pub fn run_to_completion_with_timeout_registered<R: ProcessRegistry + 'static>(
     config: &ProcessConfig,
-    registry: Arc<dyn ProcessRegistry>,
+    registry: Arc<R>,
 ) -> Result<ProcessOutput, ProcessError> {
     let timeout = config.timeout.or_else(|| {
         std::env::var("GRAFT_PROCESS_TIMEOUT_MS")
@@ -1148,17 +1156,10 @@ mod tests {
 
     // ── spawn_registered lifecycle tests ─────────────────────────────────────
 
-    /// Returns an `Arc<dyn ProcessRegistry>` backed by a temp directory.
-    fn make_arc_registry() -> (Arc<dyn ProcessRegistry>, tempfile::TempDir) {
-        let dir = tempfile::tempdir().unwrap();
-        let reg: Arc<dyn ProcessRegistry> =
-            Arc::new(FsProcessRegistry::new(dir.path().to_path_buf()).unwrap());
-        (reg, dir)
-    }
-
     #[test]
     fn spawn_registered_shows_running_entry() {
-        let (reg, _dir) = make_arc_registry();
+        let (reg, _dir) = make_registry();
+        let reg = Arc::new(reg);
 
         let (handle, _rx) =
             ProcessHandle::spawn_registered(&config("sleep 60"), Arc::clone(&reg)).unwrap();
@@ -1181,7 +1182,8 @@ mod tests {
 
     #[test]
     fn spawn_registered_completion_deregisters() {
-        let (reg, _dir) = make_arc_registry();
+        let (reg, _dir) = make_registry();
+        let reg = Arc::new(reg);
 
         let (handle, rx) =
             ProcessHandle::spawn_registered(&config("echo done"), Arc::clone(&reg)).unwrap();
@@ -1202,7 +1204,8 @@ mod tests {
 
     #[test]
     fn kill_deregisters_entry() {
-        let (reg, _dir) = make_arc_registry();
+        let (reg, _dir) = make_registry();
+        let reg = Arc::new(reg);
 
         let (handle, rx) =
             ProcessHandle::spawn_registered(&config("sleep 60"), Arc::clone(&reg)).unwrap();
@@ -1224,7 +1227,8 @@ mod tests {
 
     #[test]
     fn drop_kills_and_deregisters_running_process() {
-        let (reg, _dir) = make_arc_registry();
+        let (reg, _dir) = make_registry();
+        let reg = Arc::new(reg);
 
         let pid = {
             let (handle, _rx) =
@@ -1246,7 +1250,8 @@ mod tests {
 
     #[test]
     fn run_to_completion_registered_deregisters_on_finish() {
-        let (reg, _dir) = make_arc_registry();
+        let (reg, _dir) = make_registry();
+        let reg = Arc::new(reg);
 
         let output = run_to_completion_registered(&config("echo hello"), Arc::clone(&reg)).unwrap();
         assert!(output.success);
@@ -1264,7 +1269,8 @@ mod tests {
 
     #[test]
     fn run_to_completion_with_timeout_registered_deregisters_on_timeout() {
-        let (reg, _dir) = make_arc_registry();
+        let (reg, _dir) = make_registry();
+        let reg = Arc::new(reg);
 
         let cfg = ProcessConfig {
             command: "sleep 10".to_string(),
