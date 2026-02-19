@@ -10,6 +10,7 @@ name = "graft"
 path = "src/main.rs"
 
 [dependencies]
+graft-common = { workspace = true }
 graft-engine = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }

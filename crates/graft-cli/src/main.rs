@@ -2,6 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use graft_common::{FsProcessRegistry, ProcessRegistry, ProcessStatus};
 use graft_engine::{
     add_dependency_to_config, apply_lock, fetch_all_dependencies, fetch_dependency,
     filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_details,
@@ -154,6 +155,12 @@ enum Commands {
         #[command(subcommand)]
         subcommand: StateCommands,
     },
+    /// List active processes managed by graft
+    Ps {
+        /// Filter by repository path (shows only processes for this repo)
+        #[arg(long)]
+        repo: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -264,6 +271,9 @@ fn main() -> Result<()> {
                 state_invalidate_command(name.as_deref(), all)?;
             }
         },
+        Commands::Ps { repo } => {
+            ps_command(repo.as_deref())?;
+        }
     }
 
     Ok(())
@@ -1979,6 +1989,52 @@ fn state_invalidate_command(name: Option<&str>, all: bool) -> Result<()> {
     Ok(())
 }
 
+fn ps_command(repo_filter: Option<&str>) -> Result<()> {
+    ps_command_impl(FsProcessRegistry::default_path(), repo_filter)
+}
+
+fn ps_command_impl(registry_path: std::path::PathBuf, repo_filter: Option<&str>) -> Result<()> {
+    let registry =
+        FsProcessRegistry::new(registry_path).context("Failed to open process registry")?;
+    let mut entries = registry
+        .list_active()
+        .context("Failed to list active processes")?;
+
+    if let Some(filter) = repo_filter {
+        let filter_path = Path::new(filter);
+        entries.retain(|e| e.repo_path.as_deref() == Some(filter_path));
+    }
+
+    if entries.is_empty() {
+        println!("No active processes.");
+        return Ok(());
+    }
+
+    println!("Active processes ({}):", entries.len());
+    for entry in &entries {
+        let status_str = format_process_status(&entry.status);
+        let repo_str = entry
+            .repo_path
+            .as_deref()
+            .and_then(|p| p.to_str())
+            .unwrap_or("(none)");
+        println!("  PID {}  {}", entry.pid, entry.command);
+        println!("    Repository: {repo_str}");
+        println!("    Started:    {}", entry.start_time);
+        println!("    Status:     {status_str}");
+    }
+
+    Ok(())
+}
+
+fn format_process_status(status: &ProcessStatus) -> String {
+    match status {
+        ProcessStatus::Running => "Running".to_string(),
+        ProcessStatus::Completed { exit_code } => format!("Completed (exit {exit_code})"),
+        ProcessStatus::Failed { error } => format!("Failed: {error}"),
+    }
+}
+
 /// Get current commit hash for a repository.
 fn get_current_commit(repo_path: &Path) -> Result<String> {
     let output = std::process::Command::new("git")
@@ -1994,4 +2050,89 @@ fn get_current_commit(repo_path: &Path) -> Result<String> {
     let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
     Ok(commit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use graft_common::ProcessEntry;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_ps_command_empty_registry() {
+        let dir = tempdir().unwrap();
+        let result = ps_command_impl(dir.path().to_path_buf(), None);
+        assert!(
+            result.is_ok(),
+            "ps_command_impl should succeed with empty registry: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_ps_command_with_active_entry() {
+        let dir = tempdir().unwrap();
+        let pid = std::process::id(); // Current process is always alive.
+        let entry = ProcessEntry {
+            pid,
+            command: "echo test".to_string(),
+            repo_path: Some(PathBuf::from("/tmp/test-repo")),
+            start_time: "2026-02-19T10:00:00Z".to_string(),
+            log_path: None,
+            status: ProcessStatus::Running,
+        };
+        let content = serde_json::to_string(&entry).unwrap();
+        std::fs::write(dir.path().join(format!("{pid}.json")), content).unwrap();
+
+        let result = ps_command_impl(dir.path().to_path_buf(), None);
+        assert!(
+            result.is_ok(),
+            "ps_command_impl should succeed with active entry: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_ps_command_repo_filter_matches() {
+        let dir = tempdir().unwrap();
+        let pid = std::process::id();
+        let repo_path = "/tmp/specific-repo";
+        let entry = ProcessEntry {
+            pid,
+            command: "make test".to_string(),
+            repo_path: Some(PathBuf::from(repo_path)),
+            start_time: "2026-02-19T10:00:00Z".to_string(),
+            log_path: None,
+            status: ProcessStatus::Running,
+        };
+        let content = serde_json::to_string(&entry).unwrap();
+        std::fs::write(dir.path().join(format!("{pid}.json")), content).unwrap();
+
+        let result = ps_command_impl(dir.path().to_path_buf(), Some(repo_path));
+        assert!(
+            result.is_ok(),
+            "ps_command_impl with matching filter should succeed: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_ps_command_repo_filter_no_match() {
+        let dir = tempdir().unwrap();
+        let pid = std::process::id();
+        let entry = ProcessEntry {
+            pid,
+            command: "make test".to_string(),
+            repo_path: Some(PathBuf::from("/tmp/repo-a")),
+            start_time: "2026-02-19T10:00:00Z".to_string(),
+            log_path: None,
+            status: ProcessStatus::Running,
+        };
+        let content = serde_json::to_string(&entry).unwrap();
+        std::fs::write(dir.path().join(format!("{pid}.json")), content).unwrap();
+
+        // Filter does not match; should print "No active processes."
+        let result = ps_command_impl(dir.path().to_path_buf(), Some("/tmp/repo-b"));
+        assert!(
+            result.is_ok(),
+            "ps_command_impl with non-matching filter should succeed: {result:?}"
+        );
+    }
 }
