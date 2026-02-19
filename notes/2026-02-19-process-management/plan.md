@@ -130,7 +130,7 @@ Key constraints:
 - **Bridge note**: Internal rewrite only. External API identical.
 
 ### Task 6: graft-engine state queries via ProcessHandle
-- [ ] Replace direct `.output()` with `run_to_completion_with_timeout` in state.rs
+- [x] Replace direct `.output()` with `run_to_completion_with_timeout` in state.rs
 - **Code**: `crates/graft-engine/src/state.rs`
 - **Existing**: Currently uses `ProcessCommand::new("sh").output()` directly (no timeout)
 - **Acceptance**:

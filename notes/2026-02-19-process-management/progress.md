@@ -140,3 +140,23 @@ env var is set — this is intentional per the design. API surface is clean with
 is sufficient — no manual conversion needed. Task 6 (state.rs) is analogous but adds a timeout
 from the `StateQuery` definition.
 
+### Iteration — Task 6: graft-engine state queries via ProcessHandle
+**Status**: completed
+**Files changed**: `crates/graft-engine/src/state.rs`
+**What was done**: Replaced the bare `ProcessCommand::new("sh").output()` call (which silently
+ignored the timeout field — it was computed into `_timeout_seconds` but never used) with
+`run_to_completion_with_timeout` backed by a `ProcessConfig`. The timeout is now enforced:
+`query.timeout.unwrap_or(300)` seconds (default 5 min per spec). `ProcessOutput` fields
+(`exit_code`, `stdout`, `stderr`, `success`) map 1:1 to the existing error-handling and JSON
+parsing logic. Removed `std::process::Command` import, added `graft_common::process` and
+`std::time::Duration`. All 4 existing state tests pass unchanged.
+**Critique findings**: All acceptance criteria met. The critical bugfix — timeout was declared
+but never enforced — is now resolved. No lossy UTF-8 conversion needed since `ProcessOutput`
+already provides `String`. Preview slicing in the JSON error is byte-based (same as original).
+**Improvements made**: none needed
+**Learnings for future iterations**: Watch for the anti-pattern `let _foo = expr` (underscore
+prefix signals intentionally ignored). In state.rs, `_timeout_seconds` was the tell that timeout
+enforcement was missing. When migrating such code, the gap becomes obvious and easy to fill.
+Task 7 (grove-cli state queries) will add graft-engine as a dependency and replace grove's own
+`sh -c` execution path.
+
