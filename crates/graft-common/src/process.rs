@@ -16,6 +16,8 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Events emitted by a spawned process over the event channel.
@@ -40,7 +42,7 @@ pub enum ProcessEvent {
     Failed { error: String },
 }
 
-/// Errors from process spawn, kill, and execution operations.
+/// Errors from process spawn, kill, execution, and registry operations.
 #[derive(Error, Debug)]
 pub enum ProcessError {
     #[error("Failed to spawn process: {0}")]
@@ -54,6 +56,9 @@ pub enum ProcessError {
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[error("Registry error: {0}")]
+    RegistryError(String),
 }
 
 /// Configuration for spawning a process.
@@ -402,6 +407,214 @@ fn build_output(stdout_lines: &[String], stderr_lines: &[String], exit_code: i32
     }
 }
 
+// ── ProcessRegistry ──────────────────────────────────────────────────────────
+
+/// Status of a registered process.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ProcessStatus {
+    /// Process is currently running.
+    Running,
+    /// Process exited normally.
+    Completed {
+        /// Exit code from the process.
+        exit_code: i32,
+    },
+    /// Process encountered an unexpected error.
+    Failed {
+        /// Error description.
+        error: String,
+    },
+}
+
+/// A record stored in the process registry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessEntry {
+    /// OS process ID.
+    pub pid: u32,
+    /// Shell command that was run.
+    pub command: String,
+    /// Optional path to the repository this process belongs to.
+    pub repo_path: Option<PathBuf>,
+    /// ISO 8601 start timestamp (RFC 3339).
+    pub start_time: String,
+    /// Optional path to the log file where output was captured.
+    pub log_path: Option<PathBuf>,
+    /// Current status of the process.
+    pub status: ProcessStatus,
+}
+
+impl ProcessEntry {
+    /// Create a new `Running` entry with the current timestamp.
+    pub fn new_running(
+        pid: u32,
+        command: impl Into<String>,
+        repo_path: Option<PathBuf>,
+        log_path: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            pid,
+            command: command.into(),
+            repo_path,
+            start_time: Utc::now().to_rfc3339(),
+            log_path,
+            status: ProcessStatus::Running,
+        }
+    }
+}
+
+/// Interface for a global process registry.
+///
+/// Implementors store and retrieve [`ProcessEntry`] records. The default implementation
+/// uses the filesystem; other implementations may use a database or network service.
+pub trait ProcessRegistry: Send + Sync {
+    /// Add or replace a process entry.
+    fn register(&self, entry: ProcessEntry) -> Result<(), ProcessError>;
+
+    /// Remove a process entry. A no-op if the PID is not registered.
+    fn deregister(&self, pid: u32) -> Result<(), ProcessError>;
+
+    /// Return all entries with [`ProcessStatus::Running`] status.
+    ///
+    /// Entries whose PIDs are no longer alive are pruned automatically.
+    fn list_active(&self) -> Result<Vec<ProcessEntry>, ProcessError>;
+
+    /// Return a single entry by PID, or `None` if not registered.
+    fn get(&self, pid: u32) -> Result<Option<ProcessEntry>, ProcessError>;
+
+    /// Update the status of an existing entry. A no-op if the PID is not registered.
+    fn update_status(&self, pid: u32, status: ProcessStatus) -> Result<(), ProcessError>;
+}
+
+/// Filesystem-backed process registry.
+///
+/// Stores each entry as `{pid}.json` in [`base_dir`](FsProcessRegistry::new).
+/// Dead PID entries (process crashed or killed without cleanup) are pruned
+/// automatically on [`list_active`](ProcessRegistry::list_active).
+pub struct FsProcessRegistry {
+    base_dir: PathBuf,
+}
+
+impl FsProcessRegistry {
+    /// Create a new registry backed by `base_dir`.
+    ///
+    /// The directory is created if it doesn't exist.
+    pub fn new(base_dir: PathBuf) -> Result<Self, ProcessError> {
+        std::fs::create_dir_all(&base_dir)?;
+        Ok(Self { base_dir })
+    }
+
+    /// Default process registry directory: `~/.cache/graft/processes/`.
+    pub fn default_path() -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        PathBuf::from(home).join(".cache/graft/processes")
+    }
+
+    fn entry_path(&self, pid: u32) -> PathBuf {
+        self.base_dir.join(format!("{pid}.json"))
+    }
+
+    fn read_entry(&self, pid: u32) -> Result<Option<ProcessEntry>, ProcessError> {
+        let path = self.entry_path(pid);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let content = std::fs::read_to_string(&path)?;
+        let entry = serde_json::from_str(&content).map_err(|e| {
+            ProcessError::RegistryError(format!("Failed to parse entry for PID {pid}: {e}"))
+        })?;
+        Ok(Some(entry))
+    }
+}
+
+/// Return `true` if the given PID corresponds to a running process.
+///
+/// On Linux, checks for the presence of `/proc/{pid}`. On other platforms,
+/// falls back to `true` (conservative: never prune).
+fn pid_is_alive(pid: u32) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::path::Path::new(&format!("/proc/{pid}")).exists()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        true
+    }
+}
+
+impl ProcessRegistry for FsProcessRegistry {
+    fn register(&self, entry: ProcessEntry) -> Result<(), ProcessError> {
+        let path = self.entry_path(entry.pid);
+        let content = serde_json::to_string_pretty(&entry)
+            .map_err(|e| ProcessError::RegistryError(format!("Failed to serialize entry: {e}")))?;
+        std::fs::write(&path, content)?;
+        Ok(())
+    }
+
+    fn deregister(&self, pid: u32) -> Result<(), ProcessError> {
+        let path = self.entry_path(pid);
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        Ok(())
+    }
+
+    fn list_active(&self) -> Result<Vec<ProcessEntry>, ProcessError> {
+        let dir_entries = std::fs::read_dir(&self.base_dir)?;
+        let mut active = Vec::new();
+
+        for dir_entry in dir_entries.flatten() {
+            let path = dir_entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+
+            // Extract PID from filename stem.
+            let pid: u32 = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            if pid == 0 {
+                continue;
+            }
+
+            match self.read_entry(pid)? {
+                Some(entry) if entry.status == ProcessStatus::Running => {
+                    if pid_is_alive(pid) {
+                        active.push(entry);
+                    } else {
+                        // Stale entry: PID is dead but was never cleaned up.
+                        let _ = std::fs::remove_file(&path);
+                    }
+                }
+                _ => {} // Completed/Failed entries excluded from active list.
+            }
+        }
+
+        Ok(active)
+    }
+
+    fn get(&self, pid: u32) -> Result<Option<ProcessEntry>, ProcessError> {
+        self.read_entry(pid)
+    }
+
+    fn update_status(&self, pid: u32, status: ProcessStatus) -> Result<(), ProcessError> {
+        match self.read_entry(pid)? {
+            Some(mut entry) => {
+                entry.status = status;
+                let path = self.entry_path(pid);
+                let content = serde_json::to_string_pretty(&entry).map_err(|e| {
+                    ProcessError::RegistryError(format!("Failed to serialize entry: {e}"))
+                })?;
+                std::fs::write(&path, content)?;
+                Ok(())
+            }
+            None => Ok(()), // Silently ignore update for non-existent entry.
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -661,5 +874,148 @@ mod tests {
         // Run without env var — should succeed.
         let output = run_to_completion_with_timeout(&cfg).unwrap();
         assert_eq!(output.stdout, "env_timeout_test");
+    }
+
+    // ── ProcessRegistry tests ────────────────────────────────────────────────
+
+    fn make_registry() -> (FsProcessRegistry, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let reg = FsProcessRegistry::new(dir.path().to_path_buf()).unwrap();
+        (reg, dir)
+    }
+
+    fn running_entry(pid: u32, command: &str) -> ProcessEntry {
+        ProcessEntry::new_running(pid, command, None, None)
+    }
+
+    #[test]
+    fn register_and_get_entry() {
+        let (reg, _dir) = make_registry();
+        let entry = running_entry(12345, "echo test");
+
+        reg.register(entry.clone()).unwrap();
+
+        let got = reg.get(12345).unwrap().expect("entry should exist");
+        assert_eq!(got.pid, 12345);
+        assert_eq!(got.command, "echo test");
+        assert_eq!(got.status, ProcessStatus::Running);
+    }
+
+    #[test]
+    fn deregister_removes_entry() {
+        let (reg, _dir) = make_registry();
+        reg.register(running_entry(22222, "sleep 60")).unwrap();
+
+        reg.deregister(22222).unwrap();
+
+        assert!(reg.get(22222).unwrap().is_none());
+    }
+
+    #[test]
+    fn deregister_nonexistent_is_noop() {
+        let (reg, _dir) = make_registry();
+        // Should not error even if the PID was never registered.
+        reg.deregister(99999).unwrap();
+    }
+
+    #[test]
+    fn update_status_changes_entry() {
+        let (reg, _dir) = make_registry();
+        reg.register(running_entry(33333, "make test")).unwrap();
+
+        reg.update_status(33333, ProcessStatus::Completed { exit_code: 0 })
+            .unwrap();
+
+        let got = reg.get(33333).unwrap().expect("entry should exist");
+        assert_eq!(got.status, ProcessStatus::Completed { exit_code: 0 });
+    }
+
+    #[test]
+    fn update_status_nonexistent_is_noop() {
+        let (reg, _dir) = make_registry();
+        // Should not error even if the PID was never registered.
+        reg.update_status(44444, ProcessStatus::Completed { exit_code: 0 })
+            .unwrap();
+    }
+
+    #[test]
+    fn list_active_returns_only_running_and_alive() {
+        let (reg, _dir) = make_registry();
+
+        // Use the current process PID — guaranteed to be alive.
+        let my_pid = std::process::id();
+        reg.register(running_entry(my_pid, "current process"))
+            .unwrap();
+
+        // Register a Completed entry — should not appear in list_active.
+        let mut completed = running_entry(55555, "finished command");
+        completed.status = ProcessStatus::Completed { exit_code: 0 };
+        reg.register(completed).unwrap();
+
+        let active = reg.list_active().unwrap();
+        let pids: Vec<u32> = active.iter().map(|e| e.pid).collect();
+
+        assert!(pids.contains(&my_pid), "current process should be active");
+        assert!(
+            !pids.contains(&55555),
+            "completed entry should not be active"
+        );
+    }
+
+    #[test]
+    fn list_active_prunes_dead_pids() {
+        let (reg, _dir) = make_registry();
+
+        // Use an extremely large PID that cannot be running on this system.
+        // Linux max PID is 4_194_304; u32::MAX is safely out of range.
+        // We check /proc/{pid} — this path will not exist.
+        let dead_pid: u32 = 4_000_000;
+        reg.register(running_entry(dead_pid, "ghost process"))
+            .unwrap();
+
+        // Before list_active, the file should exist.
+        assert!(reg.get(dead_pid).unwrap().is_some());
+
+        let active = reg.list_active().unwrap();
+        let pids: Vec<u32> = active.iter().map(|e| e.pid).collect();
+        assert!(!pids.contains(&dead_pid), "dead PID should be pruned");
+
+        // After list_active, the file should be gone.
+        assert!(reg.get(dead_pid).unwrap().is_none());
+    }
+
+    #[test]
+    fn list_active_multiple_running_entries() {
+        let (reg, _dir) = make_registry();
+        let my_pid = std::process::id();
+
+        reg.register(running_entry(my_pid, "cmd-a")).unwrap();
+
+        // Spawn two real processes and register them so we have known-alive PIDs.
+        let mut child1 = std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .unwrap();
+        let mut child2 = std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .unwrap();
+        let pid1 = child1.id();
+        let pid2 = child2.id();
+
+        reg.register(running_entry(pid1, "sleep-a")).unwrap();
+        reg.register(running_entry(pid2, "sleep-b")).unwrap();
+
+        let active = reg.list_active().unwrap();
+        let pids: Vec<u32> = active.iter().map(|e| e.pid).collect();
+        assert!(pids.contains(&my_pid));
+        assert!(pids.contains(&pid1));
+        assert!(pids.contains(&pid2));
+
+        // Clean up child processes.
+        child1.kill().unwrap();
+        child2.kill().unwrap();
+        let _ = child1.wait();
+        let _ = child2.wait();
     }
 }
