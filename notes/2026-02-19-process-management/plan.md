@@ -144,7 +144,7 @@ Key constraints:
 ## Phase 4: Migrate grove-cli (Tasks 7–8)
 
 ### Task 7: grove-cli state queries via graft-engine library
-- [ ] Replace grove's `sh -c` state query execution with `graft_engine::execute_state_query()`
+- [x] Replace grove's `sh -c` state query execution with `graft_engine::execute_state_query()`
 - **Code**: `crates/grove-cli/Cargo.toml`, `crates/grove-cli/src/tui/repo_detail.rs`
 - **Specs**: `docs/specifications/graft/state-queries.md`
 - **Design**: `notes/2026-02-19-unified-process-management.md` (Consumer Patterns — grove-cli)

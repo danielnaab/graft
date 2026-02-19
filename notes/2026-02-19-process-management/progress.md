@@ -160,3 +160,22 @@ enforcement was missing. When migrating such code, the gap becomes obvious and e
 Task 7 (grove-cli state queries) will add graft-engine as a dependency and replace grove's own
 `sh -c` execution path.
 
+### Iteration — Task 7: grove-cli state queries via graft-engine library
+**Status**: completed
+**Files changed**: `crates/grove-cli/Cargo.toml`, `crates/grove-cli/src/tui/repo_detail.rs`
+**What was done**: Added `graft-engine = { workspace = true }` to grove-cli's Cargo.toml.
+In `refresh_state_queries()`, replaced the local `execute_state_query_command()` function
+(which used ad-hoc `sh -c` + custom JSON parsing) with `graft_engine::state::execute_state_query()`.
+Key changes: compute HEAD commit hash once before the loop via `graft_common::get_current_commit()`;
+build `graft_engine::StateQuery` struct literal from grove's `StateQuery` fields (all pub);
+delegate to `graft_engine::state::execute_state_query()`; keep explicit cache write via
+`graft_common::state::write_cached_state()`. Removed `RawStateResult`, `execute_state_query_command()`,
+and the per-query `git rev-parse HEAD` inline call. Also removed unused `use crate::state::StateResult;`.
+**Critique findings**: All acceptance criteria met. Computing commit hash once per refresh (not
+per query) is a net improvement. `GraftError` propagated to log via `.to_string()` is adequate.
+**Improvements made**: none needed
+**Learnings for future iterations**: When adding a crate dependency for struct literal construction,
+confirm all fields are `pub` before using struct syntax instead of a constructor. Unused imports
+become dead after removing code — clippy `-D warnings` will flag them. Task 8 is the most invasive
+change: replace `spawn_command` + `find_graft_command` with ProcessHandle streaming.
+
