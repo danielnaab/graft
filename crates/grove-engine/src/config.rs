@@ -3,6 +3,29 @@
 use grove_core::{ConfigLoader, CoreError, GraftYaml, GraftYamlLoader, Result, WorkspaceConfig};
 use std::fs;
 
+// ===== Local conversion functions for graft-common → grove-core =====
+// Can't use From impls due to orphan rule (neither type is local).
+
+fn convert_arg_type(t: &graft_common::ArgType) -> grove_core::ArgType {
+    match t {
+        graft_common::ArgType::String => grove_core::ArgType::String,
+        graft_common::ArgType::Choice => grove_core::ArgType::Choice,
+        graft_common::ArgType::Flag => grove_core::ArgType::Flag,
+    }
+}
+
+fn convert_arg_def(a: graft_common::ArgDef) -> grove_core::ArgDef {
+    grove_core::ArgDef {
+        name: a.name,
+        arg_type: convert_arg_type(&a.arg_type),
+        description: a.description,
+        required: a.required,
+        default: a.default,
+        options: a.options,
+        positional: a.positional,
+    }
+}
+
 /// YAML-based configuration loader.
 #[derive(Debug)]
 pub struct YamlConfigLoader;
@@ -59,6 +82,9 @@ impl GraftYamlLoader for GraftYamlConfigLoader {
         let commands = commands_map
             .into_iter()
             .map(|(name, def)| {
+                let args = def
+                    .args
+                    .map(|v| v.into_iter().map(convert_arg_def).collect());
                 (
                     name,
                     grove_core::Command {
@@ -66,6 +92,7 @@ impl GraftYamlLoader for GraftYamlConfigLoader {
                         description: def.description,
                         working_dir: def.working_dir,
                         env: def.env,
+                        args,
                     },
                 )
             })

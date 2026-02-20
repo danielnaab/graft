@@ -217,6 +217,33 @@ impl RefreshStats {
     }
 }
 
+/// Argument type for a command argument definition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ArgType {
+    String,
+    Choice,
+    Flag,
+}
+
+/// A single argument definition in a command's `args` schema.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArgDef {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub arg_type: ArgType,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub default: Option<String>,
+    #[serde(default)]
+    pub options: Option<Vec<String>>,
+    #[serde(default)]
+    pub positional: bool,
+}
+
 /// Command from graft.yaml
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
@@ -227,6 +254,8 @@ pub struct Command {
     pub working_dir: Option<String>,
     #[serde(default)]
     pub env: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
+    pub args: Option<Vec<ArgDef>>,
 }
 
 /// Minimal graft.yaml representation (commands section only)

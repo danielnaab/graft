@@ -1424,6 +1424,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "graft-common",
  "graft-engine",
  "serde_json",
  "tempfile",
@@ -1471,6 +1472,7 @@ dependencies = [
  "crossterm",
  "env_logger",
  "graft-common",
+ "graft-engine",
  "grove-core",
  "grove-engine",
  "log",

@@ -200,7 +200,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             }
 
             // --- Overlays rendered on top when active ---
-            if self.argument_input.is_some() {
+            if self.form_input.is_some() {
+                self.render_form_input_overlay(frame);
+            } else if self.argument_input.is_some() {
                 self.render_argument_input_overlay(frame);
             }
 

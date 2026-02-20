@@ -11,7 +11,7 @@ pub mod process;
 pub mod state;
 
 pub use command::{run_command_with_timeout, CommandError};
-pub use config::{parse_commands, parse_state_queries, CommandDef, StateQueryDef};
+pub use config::{parse_commands, parse_state_queries, ArgDef, ArgType, CommandDef, StateQueryDef};
 pub use git::{get_current_commit, git_checkout, git_fetch, git_rev_parse, is_git_repo, GitError};
 pub use process::{
     run_to_completion, run_to_completion_registered, run_to_completion_with_timeout,

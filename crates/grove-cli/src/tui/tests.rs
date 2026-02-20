@@ -1548,6 +1548,7 @@ fn argument_input_opens_after_command_selected() {
             description: Some("Test command".to_string()),
             working_dir: None,
             env: None,
+            args: None,
         },
     )];
     app.push_view(View::RepoDetail(0));
@@ -2065,6 +2066,7 @@ fn navigation_invalidates_tab_data() {
             description: None,
             working_dir: None,
             env: None,
+            args: None,
         },
     )];
 
@@ -4107,6 +4109,7 @@ fn argument_hint_for_run_command() {
                 description: None,
                 working_dir: None,
                 env: None,
+                args: None,
             },
         ),
         (
@@ -4116,6 +4119,7 @@ fn argument_hint_for_run_command() {
                 description: None,
                 working_dir: None,
                 env: None,
+                args: None,
             },
         ),
     ];
@@ -4173,6 +4177,7 @@ fn argument_hint_none_for_full_match() {
             description: None,
             working_dir: None,
             env: None,
+            args: None,
         },
     )];
 
@@ -4219,6 +4224,7 @@ fn tab_accepts_argument_hint() {
             description: None,
             working_dir: None,
             env: None,
+            args: None,
         },
     )];
 
@@ -4234,5 +4240,616 @@ fn tab_accepts_argument_hint() {
         app.command_line.as_ref().unwrap().text.buffer,
         "run build",
         "Tab should accept the argument hint"
+    );
+}
+
+// ===== Form input overlay tests =====
+
+#[test]
+fn form_input_from_schema_initializes_defaults() {
+    let args = vec![
+        grove_core::ArgDef {
+            name: "env".to_string(),
+            arg_type: grove_core::ArgType::Choice,
+            description: Some("Target environment".to_string()),
+            required: true,
+            default: Some("production".to_string()),
+            options: Some(vec!["staging".to_string(), "production".to_string()]),
+            positional: false,
+        },
+        grove_core::ArgDef {
+            name: "tag".to_string(),
+            arg_type: grove_core::ArgType::String,
+            description: None,
+            required: false,
+            default: Some("latest".to_string()),
+            options: None,
+            positional: false,
+        },
+        grove_core::ArgDef {
+            name: "verbose".to_string(),
+            arg_type: grove_core::ArgType::Flag,
+            description: None,
+            required: false,
+            default: Some("true".to_string()),
+            options: None,
+            positional: false,
+        },
+    ];
+
+    let state = FormInputState::from_schema("deploy".to_string(), args);
+    assert_eq!(state.command_name, "deploy");
+    assert_eq!(state.fields.len(), 3);
+    assert_eq!(state.focused, 0);
+
+    // Choice defaults to "production" (index 1)
+    match &state.fields[0].value {
+        FieldValue::Choice(idx) => assert_eq!(*idx, 1),
+        _ => panic!("Expected Choice"),
+    }
+
+    // String defaults to "latest"
+    match &state.fields[1].value {
+        FieldValue::Text(buf) => assert_eq!(buf.buffer, "latest"),
+        _ => panic!("Expected Text"),
+    }
+
+    // Flag defaults to true
+    match &state.fields[2].value {
+        FieldValue::Flag(on) => assert!(*on),
+        _ => panic!("Expected Flag"),
+    }
+}
+
+#[test]
+fn form_input_from_schema_no_defaults() {
+    let args = vec![grove_core::ArgDef {
+        name: "target".to_string(),
+        arg_type: grove_core::ArgType::String,
+        description: None,
+        required: true,
+        default: None,
+        options: None,
+        positional: true,
+    }];
+
+    let state = FormInputState::from_schema("build".to_string(), args);
+    match &state.fields[0].value {
+        FieldValue::Text(buf) => assert!(buf.buffer.is_empty()),
+        _ => panic!("Expected Text"),
+    }
+}
+
+#[test]
+fn form_assemble_args_auto_assembly() {
+    // This tests the assemble_args method via the App impl
+    let fields = vec![
+        FormField {
+            def: grove_core::ArgDef {
+                name: "target".to_string(),
+                arg_type: grove_core::ArgType::String,
+                description: None,
+                required: true,
+                default: None,
+                options: None,
+                positional: true,
+            },
+            value: FieldValue::Text(text_buffer::TextBuffer::with_content("release", 7)),
+        },
+        FormField {
+            def: grove_core::ArgDef {
+                name: "env".to_string(),
+                arg_type: grove_core::ArgType::Choice,
+                description: None,
+                required: true,
+                default: None,
+                options: Some(vec!["staging".to_string(), "production".to_string()]),
+                positional: false,
+            },
+            value: FieldValue::Choice(1),
+        },
+        FormField {
+            def: grove_core::ArgDef {
+                name: "verbose".to_string(),
+                arg_type: grove_core::ArgType::Flag,
+                description: None,
+                required: false,
+                default: None,
+                options: None,
+                positional: false,
+            },
+            value: FieldValue::Flag(true),
+        },
+    ];
+
+    let result = App::<MockRegistry, MockDetailProvider>::assemble_args("./deploy.sh", &fields);
+    assert_eq!(result, "./deploy.sh release --env production --verbose");
+}
+
+#[test]
+fn form_assemble_args_omits_empty_and_false() {
+    let fields = vec![
+        FormField {
+            def: grove_core::ArgDef {
+                name: "tag".to_string(),
+                arg_type: grove_core::ArgType::String,
+                description: None,
+                required: false,
+                default: None,
+                options: None,
+                positional: false,
+            },
+            value: FieldValue::Text(text_buffer::TextBuffer::new()),
+        },
+        FormField {
+            def: grove_core::ArgDef {
+                name: "verbose".to_string(),
+                arg_type: grove_core::ArgType::Flag,
+                description: None,
+                required: false,
+                default: None,
+                options: None,
+                positional: false,
+            },
+            value: FieldValue::Flag(false),
+        },
+    ];
+
+    let result = App::<MockRegistry, MockDetailProvider>::assemble_args("make build", &fields);
+    assert_eq!(result, "make build");
+}
+
+#[test]
+fn form_assemble_args_template_interpolation() {
+    let fields = vec![
+        FormField {
+            def: grove_core::ArgDef {
+                name: "env".to_string(),
+                arg_type: grove_core::ArgType::Choice,
+                description: None,
+                required: true,
+                default: None,
+                options: Some(vec!["staging".to_string(), "production".to_string()]),
+                positional: false,
+            },
+            value: FieldValue::Choice(0),
+        },
+        FormField {
+            def: grove_core::ArgDef {
+                name: "tag".to_string(),
+                arg_type: grove_core::ArgType::String,
+                description: None,
+                required: false,
+                default: None,
+                options: None,
+                positional: false,
+            },
+            value: FieldValue::Text(text_buffer::TextBuffer::with_content("v1.0", 4)),
+        },
+    ];
+
+    let result = App::<MockRegistry, MockDetailProvider>::assemble_args(
+        "deploy --to {env} --version {tag}",
+        &fields,
+    );
+    assert_eq!(result, "deploy --to staging --version v1.0");
+}
+
+#[test]
+fn form_has_placeholders_detection() {
+    assert!(App::<MockRegistry, MockDetailProvider>::has_placeholders(
+        "deploy {env}"
+    ));
+    assert!(App::<MockRegistry, MockDetailProvider>::has_placeholders(
+        "{name} --flag"
+    ));
+    assert!(!App::<MockRegistry, MockDetailProvider>::has_placeholders(
+        "./deploy.sh"
+    ));
+    assert!(!App::<MockRegistry, MockDetailProvider>::has_placeholders(
+        "echo ${HOME}"
+    ));
+    assert!(!App::<MockRegistry, MockDetailProvider>::has_placeholders(
+        "echo {}"
+    ));
+    // Mixed: has both ${env} and {placeholder}
+    assert!(App::<MockRegistry, MockDetailProvider>::has_placeholders(
+        "echo ${HOME} {name}"
+    ));
+    // Brace-like content that's not a valid identifier
+    assert!(!App::<MockRegistry, MockDetailProvider>::has_placeholders(
+        "echo {foo bar}"
+    ));
+}
+
+#[test]
+fn form_validate_required_empty_string_fails() {
+    let state = FormInputState {
+        command_name: "test".to_string(),
+        fields: vec![FormField {
+            def: grove_core::ArgDef {
+                name: "target".to_string(),
+                arg_type: grove_core::ArgType::String,
+                description: None,
+                required: true,
+                default: None,
+                options: None,
+                positional: false,
+            },
+            value: FieldValue::Text(text_buffer::TextBuffer::new()),
+        }],
+        focused: 0,
+    };
+
+    let err = App::<MockRegistry, MockDetailProvider>::validate_form(&state);
+    assert!(err.is_some());
+    assert!(err.unwrap().contains("target"));
+}
+
+#[test]
+fn form_validate_required_choice_passes() {
+    let state = FormInputState {
+        command_name: "test".to_string(),
+        fields: vec![FormField {
+            def: grove_core::ArgDef {
+                name: "env".to_string(),
+                arg_type: grove_core::ArgType::Choice,
+                description: None,
+                required: true,
+                default: None,
+                options: Some(vec!["staging".to_string(), "production".to_string()]),
+                positional: false,
+            },
+            value: FieldValue::Choice(0),
+        }],
+        focused: 0,
+    };
+
+    assert!(App::<MockRegistry, MockDetailProvider>::validate_form(&state).is_none());
+}
+
+#[test]
+fn form_execute_selected_command_shows_form_for_args() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-ws".to_string(),
+    );
+
+    app.selected_repo_for_commands = Some("/tmp/repo0".to_string());
+    app.available_commands = vec![(
+        "deploy".to_string(),
+        grove_core::Command {
+            run: "./deploy.sh".to_string(),
+            description: None,
+            working_dir: None,
+            env: None,
+            args: Some(vec![grove_core::ArgDef {
+                name: "env".to_string(),
+                arg_type: grove_core::ArgType::Choice,
+                description: None,
+                required: true,
+                default: None,
+                options: Some(vec!["staging".to_string(), "production".to_string()]),
+                positional: false,
+            }]),
+        },
+    )];
+    app.command_picker_state.select(Some(0));
+
+    app.execute_selected_command();
+
+    assert!(app.form_input.is_some(), "Should show form for args");
+    assert!(app.argument_input.is_none(), "Should not show free-text");
+}
+
+#[test]
+fn form_execute_selected_command_shows_freetext_for_no_args() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-ws".to_string(),
+    );
+
+    app.selected_repo_for_commands = Some("/tmp/repo0".to_string());
+    app.available_commands = vec![(
+        "test".to_string(),
+        grove_core::Command {
+            run: "cargo test".to_string(),
+            description: None,
+            working_dir: None,
+            env: None,
+            args: None,
+        },
+    )];
+    app.command_picker_state.select(Some(0));
+
+    app.execute_selected_command();
+
+    assert!(app.form_input.is_none(), "Should not show form");
+    assert!(app.argument_input.is_some(), "Should show free-text input");
+}
+
+#[test]
+fn form_key_handling_navigation() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-ws".to_string(),
+    );
+
+    let args = vec![
+        grove_core::ArgDef {
+            name: "a".to_string(),
+            arg_type: grove_core::ArgType::String,
+            description: None,
+            required: false,
+            default: None,
+            options: None,
+            positional: false,
+        },
+        grove_core::ArgDef {
+            name: "b".to_string(),
+            arg_type: grove_core::ArgType::Flag,
+            description: None,
+            required: false,
+            default: None,
+            options: None,
+            positional: false,
+        },
+    ];
+
+    app.form_input = Some(FormInputState::from_schema("test".to_string(), args));
+
+    assert_eq!(app.form_input.as_ref().unwrap().focused, 0);
+
+    // Tab moves to next field
+    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+    assert_eq!(app.form_input.as_ref().unwrap().focused, 1);
+
+    // Tab wraps around
+    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+    assert_eq!(app.form_input.as_ref().unwrap().focused, 0);
+
+    // Down also moves forward
+    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+    assert_eq!(app.form_input.as_ref().unwrap().focused, 1);
+
+    // Up moves backward
+    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+    assert_eq!(app.form_input.as_ref().unwrap().focused, 0);
+
+    // Esc dismisses
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+    assert!(app.form_input.is_none());
+}
+
+#[test]
+fn form_key_handling_flag_toggle() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-ws".to_string(),
+    );
+
+    let args = vec![grove_core::ArgDef {
+        name: "verbose".to_string(),
+        arg_type: grove_core::ArgType::Flag,
+        description: None,
+        required: false,
+        default: None,
+        options: None,
+        positional: false,
+    }];
+
+    app.form_input = Some(FormInputState::from_schema("test".to_string(), args));
+
+    // Initially false
+    match &app.form_input.as_ref().unwrap().fields[0].value {
+        FieldValue::Flag(on) => assert!(!on),
+        _ => panic!("Expected Flag"),
+    }
+
+    // Space toggles
+    app.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
+    match &app.form_input.as_ref().unwrap().fields[0].value {
+        FieldValue::Flag(on) => assert!(on),
+        _ => panic!("Expected Flag"),
+    }
+
+    // Space toggles back
+    app.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
+    match &app.form_input.as_ref().unwrap().fields[0].value {
+        FieldValue::Flag(on) => assert!(!on),
+        _ => panic!("Expected Flag"),
+    }
+}
+
+#[test]
+fn form_key_handling_choice_cycle() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-ws".to_string(),
+    );
+
+    let args = vec![grove_core::ArgDef {
+        name: "env".to_string(),
+        arg_type: grove_core::ArgType::Choice,
+        description: None,
+        required: false,
+        default: None,
+        options: Some(vec![
+            "dev".to_string(),
+            "staging".to_string(),
+            "prod".to_string(),
+        ]),
+        positional: false,
+    }];
+
+    app.form_input = Some(FormInputState::from_schema("test".to_string(), args));
+
+    // Helper to get the current choice index
+    let get_choice = |app: &App<MockRegistry, MockDetailProvider>| -> usize {
+        match &app.form_input.as_ref().unwrap().fields[0].value {
+            FieldValue::Choice(idx) => *idx,
+            _ => panic!("Expected Choice"),
+        }
+    };
+
+    // Initially index 0
+    assert_eq!(get_choice(&app), 0);
+
+    // Right cycles forward
+    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
+    assert_eq!(get_choice(&app), 1);
+
+    // Right again
+    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
+    assert_eq!(get_choice(&app), 2);
+
+    // Right wraps to 0
+    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
+    assert_eq!(get_choice(&app), 0);
+
+    // Left wraps to last
+    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
+    assert_eq!(get_choice(&app), 2);
+}
+
+#[test]
+fn form_key_handling_text_input() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-ws".to_string(),
+    );
+
+    let args = vec![grove_core::ArgDef {
+        name: "tag".to_string(),
+        arg_type: grove_core::ArgType::String,
+        description: None,
+        required: false,
+        default: None,
+        options: None,
+        positional: false,
+    }];
+
+    app.form_input = Some(FormInputState::from_schema("test".to_string(), args));
+
+    // Type some text
+    app.handle_key(KeyCode::Char('v'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('.'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('0'), KeyModifiers::NONE);
+
+    match &app.form_input.as_ref().unwrap().fields[0].value {
+        FieldValue::Text(buf) => assert_eq!(buf.buffer, "v1.0"),
+        _ => panic!("Expected Text"),
+    }
+
+    // Backspace
+    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
+    match &app.form_input.as_ref().unwrap().fields[0].value {
+        FieldValue::Text(buf) => assert_eq!(buf.buffer, "v1."),
+        _ => panic!("Expected Text"),
+    }
+
+    // Ctrl+U clears
+    app.handle_key(KeyCode::Char('u'), KeyModifiers::CONTROL);
+    match &app.form_input.as_ref().unwrap().fields[0].value {
+        FieldValue::Text(buf) => assert!(buf.buffer.is_empty()),
+        _ => panic!("Expected Text"),
+    }
+}
+
+#[test]
+fn form_assemble_args_shell_escapes_special_chars() {
+    let fields = vec![FormField {
+        def: grove_core::ArgDef {
+            name: "msg".to_string(),
+            arg_type: grove_core::ArgType::String,
+            description: None,
+            required: false,
+            default: None,
+            options: None,
+            positional: false,
+        },
+        value: FieldValue::Text(text_buffer::TextBuffer::with_content("hello world", 11)),
+    }];
+
+    let result = App::<MockRegistry, MockDetailProvider>::assemble_args("echo", &fields);
+    // Should shell-escape the value with spaces
+    assert!(
+        result.contains("'hello world'") || result.contains("\"hello world\""),
+        "Should escape value with spaces, got: {result}"
+    );
+}
+
+#[test]
+fn form_assemble_args_notebook_capture_scenario() {
+    // Simulates the real notebook capture command:
+    //   run: "uv run notecap capture"
+    //   args: section (choice, positional), content (string, positional), raw (flag)
+    let fields = vec![
+        FormField {
+            def: grove_core::ArgDef {
+                name: "section".to_string(),
+                arg_type: grove_core::ArgType::Choice,
+                description: Some("Section: Personal or Work".to_string()),
+                required: true,
+                default: None,
+                options: Some(vec!["Personal".to_string(), "Work".to_string()]),
+                positional: true,
+            },
+            value: FieldValue::Choice(0), // "Personal"
+        },
+        FormField {
+            def: grove_core::ArgDef {
+                name: "content".to_string(),
+                arg_type: grove_core::ArgType::String,
+                description: Some("Content to capture".to_string()),
+                required: true,
+                default: None,
+                options: None,
+                positional: true,
+            },
+            value: FieldValue::Text(text_buffer::TextBuffer::with_content("Buy groceries", 13)),
+        },
+        FormField {
+            def: grove_core::ArgDef {
+                name: "raw".to_string(),
+                arg_type: grove_core::ArgType::Flag,
+                description: Some("Skip content sanitization".to_string()),
+                required: false,
+                default: None,
+                options: None,
+                positional: false,
+            },
+            value: FieldValue::Flag(false),
+        },
+    ];
+
+    let result = App::<MockRegistry, MockDetailProvider>::assemble_args(
+        "uv run notecap capture",
+        &fields,
+    );
+    // Expected: positional args first (section, content), flag omitted when false
+    assert_eq!(
+        result, "uv run notecap capture Personal 'Buy groceries'",
+        "Assembled command should match notecap CLI expectations"
+    );
+
+    // Now with --raw enabled
+    let mut fields_with_raw = fields;
+    fields_with_raw[2].value = FieldValue::Flag(true);
+
+    let result_raw = App::<MockRegistry, MockDetailProvider>::assemble_args(
+        "uv run notecap capture",
+        &fields_with_raw,
+    );
+    assert_eq!(
+        result_raw, "uv run notecap capture Personal 'Buy groceries' --raw",
+        "Should append --raw flag when enabled"
     );
 }

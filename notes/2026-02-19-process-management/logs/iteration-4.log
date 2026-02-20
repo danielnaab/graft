@@ -1,0 +1,16 @@
+Task 4 is complete. Here's a summary of what was done:
+
+**Task 4: Wire ProcessHandle lifecycle to ProcessRegistry** ✓
+
+**Implementation**:
+- Added `spawn_registered<R: ProcessRegistry + 'static>(config, Arc<R>)` as a `ProcessHandle` method — registers a `ProcessEntry` before returning, stores the registry in the handle
+- Refactored `spawn` into a private `spawn_inner(config, Option<Arc<dyn ProcessRegistry>>)` shared by both public spawn functions
+- Monitor thread now updates registry status (`Completed`/`Failed`) then deregisters after sending the terminal event
+- `kill()` always deregisters (idempotent) regardless of whether the kill itself succeeded
+- `Drop` impl kills and deregisters if the process is still running and a registry is set
+- Added `run_to_completion_registered` and `run_to_completion_with_timeout_registered` with the same generic-Arc API
+- Manual `Debug` impl since `dyn ProcessRegistry` doesn't implement `Debug`
+
+**6 new tests**: entry visible after spawn, completion deregisters (50ms timing buffer), kill deregisters synchronously, drop kills+deregisters, both blocking helpers deregister on finish/timeout.
+
+**Key learnings captured in Consolidated Patterns**: generic-Arc pattern for trait objects, `dyn Trait` Debug limitation.

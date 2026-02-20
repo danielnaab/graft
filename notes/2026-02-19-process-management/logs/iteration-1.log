@@ -1,0 +1,13 @@
+Task 1 is complete. Here's a summary of what was done:
+
+**Task 1: ProcessHandle with streaming output** — complete
+
+Added `crates/graft-common/src/process.rs` with:
+- `ProcessEvent` enum: `Started { pid }`, `OutputLine { line, is_stderr }`, `Completed { exit_code }`, `Failed { error }`
+- `ProcessError` enum (thiserror): `SpawnFailed`, `KillFailed`, `Timeout`, `IoError`
+- `ProcessConfig` struct: `command`, `working_dir`, `env`, `log_path`, `timeout` (last two unused until Task 2)
+- `ProcessHandle` with `spawn(&config)`, `pid()`, `is_running()`, `kill()`
+
+**Architecture:** Spawn uses `sh -c`, reader threads emit `OutputLine` events via mpsc, monitor thread polls `try_wait()` at 10ms intervals (allowing `kill()` to acquire the child mutex without deadlock), joins both reader threads before emitting `Completed`, then detaches. Five tests pass.
+
+All 423+ tests pass with `cargo fmt --check && cargo clippy -- -D warnings && cargo test`.

@@ -2001,8 +2001,15 @@ fn ps_command_impl(registry_path: std::path::PathBuf, repo_filter: Option<&str>)
         .context("Failed to list active processes")?;
 
     if let Some(filter) = repo_filter {
-        let filter_path = Path::new(filter);
-        entries.retain(|e| e.repo_path.as_deref() == Some(filter_path));
+        let filter_canonical =
+            std::fs::canonicalize(filter).unwrap_or_else(|_| PathBuf::from(filter));
+        entries.retain(|e| {
+            e.repo_path
+                .as_ref()
+                .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
+                .as_deref()
+                == Some(filter_canonical.as_path())
+        });
     }
 
     if entries.is_empty() {
@@ -2133,6 +2140,32 @@ mod tests {
         assert!(
             result.is_ok(),
             "ps_command_impl with non-matching filter should succeed: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_ps_command_repo_filter_trailing_slash() {
+        let dir = tempdir().unwrap();
+        let pid = std::process::id();
+        let repo_path = dir.path().join("my-repo");
+        std::fs::create_dir_all(&repo_path).unwrap();
+        let entry = ProcessEntry {
+            pid,
+            command: "make test".to_string(),
+            repo_path: Some(repo_path.clone()),
+            start_time: "2026-02-20T10:00:00Z".to_string(),
+            log_path: None,
+            status: ProcessStatus::Running,
+        };
+        let content = serde_json::to_string(&entry).unwrap();
+        std::fs::write(dir.path().join(format!("{pid}.json")), content).unwrap();
+
+        // Filter with trailing slash should still match
+        let filter = format!("{}/", repo_path.display());
+        let result = ps_command_impl(dir.path().to_path_buf(), Some(&filter));
+        assert!(
+            result.is_ok(),
+            "ps_command_impl with trailing-slash filter: {result:?}"
         );
     }
 }

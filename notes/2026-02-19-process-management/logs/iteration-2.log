@@ -1,0 +1,17 @@
+Task 2 is complete. Here's a summary of what was done:
+
+**Task 2: Log capture and sync convenience wrappers**
+
+Added to `crates/graft-common/src/process.rs`:
+
+- **Log file tee**: When `config.log_path` is set, both stdout and stderr reader threads write each line to the file via a shared `Arc<Mutex<File>>` opened in append mode
+- **`ProcessOutput`** struct: `exit_code`, `stdout`, `stderr`, `success`
+- **`run_to_completion`**: spawns and blocks, draining the event channel into `ProcessOutput`
+- **`run_to_completion_with_timeout`**: same, but kills the process and returns `ProcessError::Timeout` if deadline exceeded; timeout priority: `config.timeout` → `GRAFT_PROCESS_TIMEOUT_MS` env var → unlimited
+- **9 new tests** all pass; all 39 graft-common tests pass
+
+**New patterns learned** (added to Consolidated Patterns):
+- Private helpers taking `&mpsc::Receiver` (not by value) — clippy `needless_pass_by_value`
+- `for event in rx` preferred over `rx.iter()` — clippy `explicit_iter_loop`
+- `#[allow(clippy::too_many_lines)]` targeted on `spawn` function
+- `build_output` takes `&[String]` slices, not `Vec<String>`

@@ -373,6 +373,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     }
 
     /// Execute the currently selected command.
+    ///
+    /// If the command has an `args` schema, show the form overlay.
+    /// Otherwise, fall back to the free-text argument input.
     pub(super) fn execute_selected_command(&mut self) {
         let Some(cmd_idx) = self.command_picker_state.selected() else {
             return;
@@ -382,8 +385,19 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             return;
         }
 
-        let (cmd_name, _cmd) = &self.available_commands[cmd_idx];
+        let (cmd_name, cmd) = &self.available_commands[cmd_idx];
 
+        if let Some(args) = &cmd.args {
+            if !args.is_empty() {
+                self.form_input = Some(super::FormInputState::from_schema(
+                    cmd_name.clone(),
+                    args.clone(),
+                ));
+                return;
+            }
+        }
+
+        // No schema — existing free-text input
         self.argument_input = Some(ArgumentInputState {
             text: super::text_buffer::TextBuffer::new(),
             command_name: cmd_name.clone(),
@@ -475,11 +489,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         let commit_hash =
             graft_common::get_current_commit(&repo_path).unwrap_or_else(|_| "unknown".to_string());
 
-        let queries = self.state_queries.clone();
-        let total = queries.len();
+        let total = self.state_queries.len();
         let mut failed = 0usize;
 
-        for (i, query) in queries.iter().enumerate() {
+        for (i, query) in self.state_queries.iter().enumerate() {
             let graft_query = graft_engine::StateQuery {
                 name: query.name.clone(),
                 run: query.run.clone(),

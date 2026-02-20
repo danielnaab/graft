@@ -1,0 +1,18 @@
+All 11 tasks of the unified process management implementation are complete. Here's the summary of what was done in this session:
+
+**Task 9 — `graft ps` CLI command:**
+- Added `graft-common` dependency to `graft-cli/Cargo.toml`
+- Added `Ps { repo: Option<String> }` subcommand to the `Commands` enum
+- Implemented `ps_command()` → `ps_command_impl(registry_path, repo_filter)` split for testability
+- Output shows PID, command, repository, start time, and status; handles empty list gracefully
+- 4 unit tests covering empty registry, active entries, matching/non-matching repo filter
+
+**Task 10 — Deprecated code cleanup:**
+- Migrated `graft-common/src/git.rs` from `run_command_with_timeout` to `ProcessConfig` + `run_to_completion_with_timeout`
+- Replaced `GitError::Command(CommandError)` and `GitError::InvalidUtf8` with `GitError::Process(ProcessError)`
+- `command.rs` retained (grove-engine and graft-engine still use it directly — migration deferred as non-straightforward due to `sh -c` semantic differences)
+
+**Task 11 — Spec updates:**
+- `command-execution.md`: Removed "graft not in PATH" edge case, updated execution to reference graft-engine library + ProcessHandle, added 2026-02-19 decision superseding old subprocess approach
+- `core-operations.md`: Added full `graft ps` specification with syntax, behavior, output examples
+- `state-queries.md`: Added note that timeout enforcement was declared but not implemented until this work

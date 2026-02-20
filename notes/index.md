@@ -124,6 +124,20 @@ All artifacts in [2026-02-18-command-prompt-view-stack/](2026-02-18-command-prom
 
 ---
 
+## Unified Process Management (2026-02-19)
+
+Design session: consuming graft as a library from grove, with shared observable process management.
+
+**Active**:
+- [Unified Process Management](2026-02-19-unified-process-management.md) — ProcessHandle, ProcessRegistry, unified execution model
+
+**Relevant code**:
+- `crates/graft-common/` — target location for ProcessHandle and ProcessRegistry
+- `crates/graft-engine/src/command.rs`, `crates/graft-engine/src/state.rs` — current execution paths to unify
+- `crates/grove-cli/src/tui/command_exec.rs` — current grove subprocess spawning to replace
+
+---
+
 ## Adding New Notes
 
 When creating session logs or exploration notes:

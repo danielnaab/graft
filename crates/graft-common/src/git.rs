@@ -1,10 +1,15 @@
 //! Git operations with timeout protection.
 //!
 //! This module provides shared git primitives used by both graft and grove.
-//! All operations use timeout protection to prevent hangs on network or I/O issues.
+//! All operations apply a 30-second default timeout to prevent hangs on network
+//! or I/O issues. The `GRAFT_PROCESS_TIMEOUT_MS` environment variable overrides
+//! this default when set.
 
 use crate::process::{run_to_completion_with_timeout, ProcessConfig, ProcessError};
 use std::path::Path;
+use std::time::Duration;
+
+const GIT_DEFAULT_TIMEOUT_SECS: u64 = 30;
 
 /// Error type for git operations.
 #[derive(thiserror::Error, Debug)]
@@ -39,7 +44,7 @@ pub fn get_current_commit(path: impl AsRef<Path>) -> Result<String, GitError> {
         working_dir: path.to_path_buf(),
         env: None,
         log_path: None,
-        timeout: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
     };
     let output = run_to_completion_with_timeout(&config)?;
     if !output.success {
@@ -75,7 +80,7 @@ pub fn git_rev_parse(path: impl AsRef<Path>, git_ref: &str) -> Result<String, Gi
             working_dir: path.to_path_buf(),
             env: None,
             log_path: None,
-            timeout: None,
+            timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
         };
         let output = run_to_completion_with_timeout(&config)?;
         if output.success {
@@ -104,7 +109,7 @@ pub fn git_fetch(path: impl AsRef<Path>) -> Result<(), GitError> {
         working_dir: path.to_path_buf(),
         env: None,
         log_path: None,
-        timeout: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
     };
     let output = run_to_completion_with_timeout(&config)?;
     if !output.success {
@@ -133,7 +138,7 @@ pub fn git_checkout(path: impl AsRef<Path>, commit: &str) -> Result<(), GitError
         working_dir: path.to_path_buf(),
         env: None,
         log_path: None,
-        timeout: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
     };
     let output = run_to_completion_with_timeout(&config)?;
     if !output.success {

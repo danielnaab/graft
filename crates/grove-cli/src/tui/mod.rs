@@ -89,6 +89,75 @@ struct ArgumentInputState {
     command_name: String,
 }
 
+/// Value for a single form field.
+#[derive(Debug, Clone)]
+enum FieldValue {
+    /// Free-text input (for string type).
+    Text(text_buffer::TextBuffer),
+    /// Selected index into ArgDef.options (for choice type).
+    Choice(usize),
+    /// Toggle on/off (for flag type).
+    Flag(bool),
+}
+
+/// A single field in the schema-driven argument form.
+#[derive(Debug, Clone)]
+struct FormField {
+    def: grove_core::ArgDef,
+    value: FieldValue,
+}
+
+/// State for the schema-driven argument form overlay.
+#[derive(Debug, Clone)]
+struct FormInputState {
+    command_name: String,
+    fields: Vec<FormField>,
+    focused: usize,
+}
+
+impl FormInputState {
+    /// Build a form from an arg schema, pre-populating defaults.
+    fn from_schema(command_name: String, args: Vec<grove_core::ArgDef>) -> Self {
+        let fields = args
+            .into_iter()
+            .map(|def| {
+                let value = match def.arg_type {
+                    grove_core::ArgType::String => {
+                        let mut buf = text_buffer::TextBuffer::new();
+                        if let Some(ref default) = def.default {
+                            buf.set(default);
+                        }
+                        FieldValue::Text(buf)
+                    }
+                    grove_core::ArgType::Choice => {
+                        let idx = def
+                            .default
+                            .as_ref()
+                            .and_then(|d| {
+                                def.options
+                                    .as_ref()
+                                    .and_then(|opts| opts.iter().position(|o| o == d))
+                            })
+                            .unwrap_or(0);
+                        FieldValue::Choice(idx)
+                    }
+                    grove_core::ArgType::Flag => {
+                        let on = def.default.as_ref().is_some_and(|d| d == "true");
+                        FieldValue::Flag(on)
+                    }
+                };
+                FormField { def, value }
+            })
+            .collect();
+
+        Self {
+            command_name,
+            fields,
+            focused: 0,
+        }
+    }
+}
+
 /// State for the vim-style `:` command line.
 ///
 /// When active, the command line renders at the bottom of the screen
@@ -130,6 +199,7 @@ pub struct App<R, D> {
     available_commands: Vec<(String, Command)>,
     selected_repo_for_commands: Option<String>,
     argument_input: Option<ArgumentInputState>,
+    form_input: Option<FormInputState>,
     output_lines: Vec<String>,
     output_scroll: usize,
     output_truncated_start: bool,

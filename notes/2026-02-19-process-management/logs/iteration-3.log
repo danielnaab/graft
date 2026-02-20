@@ -1,0 +1,18 @@
+Task 3 is complete. Here's a summary:
+
+**Task 3: ProcessRegistry trait and FsProcessRegistry — DONE**
+
+**What was implemented:**
+- `ProcessStatus` enum: `Running`, `Completed { exit_code }`, `Failed { error }` — serializable with serde
+- `ProcessEntry` struct: `pid`, `command`, `repo_path`, `start_time` (ISO 8601 via chrono), `log_path`, `status` — with `new_running()` constructor
+- `ProcessRegistry` trait: `register()`, `deregister()`, `list_active()`, `get()`, `update_status()` — `Send + Sync`
+- `FsProcessRegistry`: writes `{pid}.json` files to a configurable base directory; `list_active()` prunes stale entries by checking `/proc/{pid}` existence on Linux
+- `ProcessError::RegistryError(String)` added for JSON serialization failures
+- All new types exported from `lib.rs`
+
+**Tests added (8 new, 47 total in graft-common):**
+- `register_and_get_entry`, `deregister_removes_entry`, `deregister_nonexistent_is_noop`
+- `update_status_changes_entry`, `update_status_nonexistent_is_noop`
+- `list_active_returns_only_running_and_alive`, `list_active_prunes_dead_pids`, `list_active_multiple_running_entries`
+
+All pass with `cargo fmt --check && cargo clippy -- -D warnings && cargo test`.

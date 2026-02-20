@@ -10,6 +10,33 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+/// Argument type for a command argument definition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ArgType {
+    String,
+    Choice,
+    Flag,
+}
+
+/// A single argument definition in a command's `args` schema.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArgDef {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub arg_type: ArgType,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub default: Option<String>,
+    #[serde(default)]
+    pub options: Option<Vec<String>>,
+    #[serde(default)]
+    pub positional: bool,
+}
+
 /// A command definition from graft.yaml.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandDef {
@@ -20,6 +47,8 @@ pub struct CommandDef {
     pub working_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<ArgDef>>,
 }
 
 /// A state query definition from graft.yaml.
@@ -109,11 +138,75 @@ fn parse_command(name: &str, config: &Value) -> Result<CommandDef, String> {
             env
         });
 
+    let args = config
+        .get("args")
+        .and_then(|a| a.as_sequence())
+        .map(|args_seq| {
+            let mut parsed_args = Vec::new();
+            let mut seen_names = std::collections::HashSet::new();
+            for (i, arg_val) in args_seq.iter().enumerate() {
+                match serde_yaml::from_value::<ArgDef>(arg_val.clone()) {
+                    Ok(arg_def) => {
+                        // Validate: choice args must have non-empty options
+                        if arg_def.arg_type == ArgType::Choice {
+                            let has_options = arg_def
+                                .options
+                                .as_ref()
+                                .is_some_and(|opts| !opts.is_empty());
+                            if !has_options {
+                                eprintln!(
+                                    "Warning: Choice arg '{}' in command '{name}' has no options, skipping",
+                                    arg_def.name
+                                );
+                                continue;
+                            }
+                        }
+                        // Validate: flag args cannot be positional
+                        if arg_def.arg_type == ArgType::Flag && arg_def.positional {
+                            eprintln!(
+                                "Warning: Flag arg '{}' in command '{name}' cannot be positional, skipping",
+                                arg_def.name
+                            );
+                            continue;
+                        }
+                        // Validate: no duplicate names
+                        if !seen_names.insert(arg_def.name.clone()) {
+                            eprintln!(
+                                "Warning: Duplicate arg name '{}' in command '{name}', skipping",
+                                arg_def.name
+                            );
+                            continue;
+                        }
+                        // Validate: choice default must exist in options
+                        if arg_def.arg_type == ArgType::Choice {
+                            if let (Some(default), Some(options)) =
+                                (&arg_def.default, &arg_def.options)
+                            {
+                                if !options.contains(default) {
+                                    eprintln!(
+                                        "Warning: Default '{}' for choice arg '{}' in command '{name}' \
+                                         not in options, ignoring default",
+                                        default, arg_def.name
+                                    );
+                                }
+                            }
+                        }
+                        parsed_args.push(arg_def);
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: Failed to parse arg {i} in command '{name}': {e}");
+                    }
+                }
+            }
+            parsed_args
+        });
+
     Ok(CommandDef {
         run,
         description,
         working_dir,
         env,
+        args,
     })
 }
 
@@ -258,6 +351,182 @@ state:
     }
 
     #[test]
+    fn parse_commands_with_no_args_backward_compat() {
+        let yaml_content = r#"
+commands:
+  test:
+    run: "cargo test"
+    description: "Run tests"
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let commands = parse_commands(temp_file.path()).unwrap();
+        let test_cmd = commands.get("test").unwrap();
+        assert!(test_cmd.args.is_none());
+    }
+
+    #[test]
+    fn parse_commands_with_args_schema() {
+        let yaml_content = r#"
+commands:
+  deploy:
+    run: "./deploy.sh"
+    description: "Deploy the application"
+    args:
+      - name: environment
+        type: choice
+        options: [staging, production]
+        required: true
+        description: "Target environment"
+      - name: tag
+        type: string
+        default: latest
+        description: "Version tag to deploy"
+      - name: verbose
+        type: flag
+        description: "Enable verbose output"
+      - name: target
+        type: string
+        positional: true
+        required: true
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let commands = parse_commands(temp_file.path()).unwrap();
+        let deploy = commands.get("deploy").unwrap();
+
+        let args = deploy.args.as_ref().unwrap();
+        assert_eq!(args.len(), 4);
+
+        // Choice arg
+        assert_eq!(args[0].name, "environment");
+        assert_eq!(args[0].arg_type, ArgType::Choice);
+        assert!(args[0].required);
+        assert_eq!(
+            args[0].options.as_ref().unwrap(),
+            &vec!["staging".to_string(), "production".to_string()]
+        );
+        assert_eq!(args[0].description.as_deref(), Some("Target environment"));
+
+        // String arg with default
+        assert_eq!(args[1].name, "tag");
+        assert_eq!(args[1].arg_type, ArgType::String);
+        assert!(!args[1].required);
+        assert_eq!(args[1].default.as_deref(), Some("latest"));
+
+        // Flag arg
+        assert_eq!(args[2].name, "verbose");
+        assert_eq!(args[2].arg_type, ArgType::Flag);
+        assert!(!args[2].required);
+        assert!(!args[2].positional);
+
+        // Positional arg
+        assert_eq!(args[3].name, "target");
+        assert!(args[3].positional);
+        assert!(args[3].required);
+    }
+
+    #[test]
+    fn parse_commands_with_malformed_args_skips_bad_entries() {
+        let yaml_content = r#"
+commands:
+  build:
+    run: "make build"
+    args:
+      - name: target
+        type: string
+      - invalid_key_only: true
+      - name: verbose
+        type: flag
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let commands = parse_commands(temp_file.path()).unwrap();
+        let build_cmd = commands.get("build").unwrap();
+
+        // The malformed entry should be skipped
+        let args = build_cmd.args.as_ref().unwrap();
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[0].name, "target");
+        assert_eq!(args[1].name, "verbose");
+    }
+
+    #[test]
+    fn parse_commands_rejects_choice_without_options() {
+        let yaml_content = r#"
+commands:
+  deploy:
+    run: "./deploy.sh"
+    args:
+      - name: environment
+        type: choice
+      - name: tag
+        type: string
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let commands = parse_commands(temp_file.path()).unwrap();
+        let deploy = commands.get("deploy").unwrap();
+        let args = deploy.args.as_ref().unwrap();
+
+        // Choice without options should be skipped
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0].name, "tag");
+    }
+
+    #[test]
+    fn parse_commands_rejects_positional_flag() {
+        let yaml_content = r#"
+commands:
+  build:
+    run: "make"
+    args:
+      - name: verbose
+        type: flag
+        positional: true
+      - name: target
+        type: string
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let commands = parse_commands(temp_file.path()).unwrap();
+        let build = commands.get("build").unwrap();
+        let args = build.args.as_ref().unwrap();
+
+        // Positional flag should be skipped
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0].name, "target");
+    }
+
+    #[test]
+    fn parse_commands_rejects_duplicate_arg_names() {
+        let yaml_content = r#"
+commands:
+  test:
+    run: "cargo test"
+    args:
+      - name: target
+        type: string
+      - name: target
+        type: string
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let commands = parse_commands(temp_file.path()).unwrap();
+        let test_cmd = commands.get("test").unwrap();
+        let args = test_cmd.args.as_ref().unwrap();
+
+        // Duplicate should be skipped
+        assert_eq!(args.len(), 1);
+    }
+
+    #[test]
     fn parse_state_queries_handles_missing_file() {
         let result = parse_state_queries("/nonexistent/graft.yaml").unwrap();
         assert_eq!(result.len(), 0);
@@ -353,5 +622,46 @@ state:
         let simple = queries.get("simple").unwrap();
         assert_eq!(simple.deterministic, true); // Default when cache field missing
         assert_eq!(simple.timeout, Some(10));
+    }
+
+    #[test]
+    fn parse_notebook_graft_yaml_capture_args() {
+        // Test against the real notebook graft.yaml to verify end-to-end parsing
+        let notebook_path = std::path::PathBuf::from(
+            std::env::var("HOME").unwrap_or_default(),
+        )
+        .join("src/notebook/graft.yaml");
+        if !notebook_path.exists() {
+            // Skip if notebook repo not available
+            return;
+        }
+        let commands = parse_commands(&notebook_path).unwrap();
+        let capture = commands.get("capture").expect("capture command should exist");
+        assert_eq!(capture.run, "uv run notecap capture");
+
+        let args = capture.args.as_ref().expect("capture should have args schema");
+        assert_eq!(args.len(), 3, "Expected 3 args (section, content, raw)");
+
+        // section: choice, positional, required
+        assert_eq!(args[0].name, "section");
+        assert_eq!(args[0].arg_type, ArgType::Choice);
+        assert!(args[0].positional);
+        assert!(args[0].required);
+        assert_eq!(
+            args[0].options.as_ref().unwrap(),
+            &vec!["Personal".to_string(), "Work".to_string()]
+        );
+
+        // content: string, positional, required
+        assert_eq!(args[1].name, "content");
+        assert_eq!(args[1].arg_type, ArgType::String);
+        assert!(args[1].positional);
+        assert!(args[1].required);
+
+        // raw: flag, not positional, not required
+        assert_eq!(args[2].name, "raw");
+        assert_eq!(args[2].arg_type, ArgType::Flag);
+        assert!(!args[2].positional);
+        assert!(!args[2].required);
     }
 }

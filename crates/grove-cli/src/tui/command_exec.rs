@@ -103,6 +103,63 @@ pub fn spawn_command(
     }
 }
 
+/// Spawn a pre-assembled shell command in the background.
+///
+/// Unlike `spawn_command`, this does not re-read graft.yaml or look up a command name.
+/// The caller has already assembled the full shell command (from the form overlay).
+/// `working_dir_override` and `env` are forwarded from the original `CommandDef`.
+#[allow(clippy::needless_pass_by_value)]
+pub fn spawn_command_assembled(
+    shell_cmd: String,
+    repo_path: String,
+    working_dir_override: Option<String>,
+    env: Option<std::collections::HashMap<String, String>>,
+    tx: Sender<CommandEvent>,
+) {
+    let working_dir = if let Some(ref sub_dir) = working_dir_override {
+        PathBuf::from(&repo_path).join(sub_dir)
+    } else {
+        PathBuf::from(&repo_path)
+    };
+
+    let config = ProcessConfig {
+        command: shell_cmd,
+        working_dir,
+        env,
+        log_path: None,
+        timeout: None,
+    };
+
+    let (_handle, rx) = match ProcessHandle::spawn(&config) {
+        Ok(pair) => pair,
+        Err(e) => {
+            let _ = tx.send(CommandEvent::Failed(format!(
+                "Failed to spawn process: {e}"
+            )));
+            return;
+        }
+    };
+
+    for event in rx {
+        match event {
+            ProcessEvent::Started { pid } => {
+                let _ = tx.send(CommandEvent::Started(pid));
+            }
+            ProcessEvent::OutputLine { line, .. } => {
+                if tx.send(CommandEvent::OutputLine(line)).is_err() {
+                    break;
+                }
+            }
+            ProcessEvent::Completed { exit_code } => {
+                let _ = tx.send(CommandEvent::Completed(exit_code));
+            }
+            ProcessEvent::Failed { error } => {
+                let _ = tx.send(CommandEvent::Failed(error));
+            }
+        }
+    }
+}
+
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// Handle incoming command output events.
     pub(super) fn handle_command_events(&mut self) {
@@ -167,6 +224,38 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         if should_close {
             self.command_event_rx = None;
         }
+    }
+
+    /// Execute a command with a pre-assembled shell command string (from form overlay).
+    ///
+    /// Unlike `execute_command_with_args`, this passes the already-assembled shell
+    /// command directly to `spawn_command_assembled`, skipping arg splitting.
+    /// The `working_dir` and `env` from the original command definition are forwarded.
+    pub(super) fn execute_command_assembled(
+        &mut self,
+        command_name: String,
+        shell_cmd: String,
+        working_dir: Option<String>,
+        env: Option<std::collections::HashMap<String, String>>,
+    ) {
+        let Some(repo_path) = &self.selected_repo_for_commands else {
+            return;
+        };
+
+        let (tx, rx) = mpsc::channel();
+        self.command_event_rx = Some(rx);
+
+        self.command_name = Some(command_name);
+        self.command_state = CommandState::Running;
+        self.output_lines.clear();
+        self.output_scroll = 0;
+        self.output_truncated_start = false;
+        self.running_command_pid = None;
+
+        let repo_path_clone = repo_path.clone();
+        std::thread::spawn(move || {
+            spawn_command_assembled(shell_cmd, repo_path_clone, working_dir, env, tx);
+        });
     }
 
     /// Execute command with provided arguments.
