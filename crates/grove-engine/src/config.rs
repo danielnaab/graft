@@ -72,11 +72,16 @@ impl Default for GraftYamlConfigLoader {
 
 impl GraftYamlLoader for GraftYamlConfigLoader {
     fn load_graft(&self, graft_path: &str) -> Result<GraftYaml> {
-        // Use shared parser from graft-common
-        let commands_map =
-            graft_common::parse_commands(graft_path).map_err(|e| CoreError::InvalidConfig {
+        // Read the file once and parse both sections from the same content.
+        let content = fs::read_to_string(graft_path).map_err(|e| CoreError::InvalidConfig {
+            details: format!("Failed to read graft.yaml '{graft_path}': {e}"),
+        })?;
+
+        let commands_map = graft_common::parse_commands_from_str(&content).map_err(|e| {
+            CoreError::InvalidConfig {
                 details: format!("Failed to parse graft.yaml commands: {e}"),
-            })?;
+            }
+        })?;
 
         // Convert CommandDef to grove_core::Command
         let commands = commands_map
@@ -98,7 +103,13 @@ impl GraftYamlLoader for GraftYamlConfigLoader {
             })
             .collect();
 
-        Ok(GraftYaml { commands })
+        let dependency_names =
+            graft_common::parse_dependency_names_from_str(&content).unwrap_or_default();
+
+        Ok(GraftYaml {
+            commands,
+            dependency_names,
+        })
     }
 }
 
@@ -372,5 +383,47 @@ repositories:
                 "Default should be empty tags"
             );
         }
+    }
+
+    #[test]
+    fn load_graft_populates_dependency_names() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(
+            file,
+            r#"
+commands:
+  test:
+    run: "cargo test"
+dependencies:
+  notebook: "https://github.com/user/notebook#main"
+  tools: "https://github.com/user/tools#v1"
+"#
+        )
+        .unwrap();
+
+        let loader = GraftYamlConfigLoader::new();
+        let config = loader.load_graft(file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.commands.len(), 1);
+        assert_eq!(config.dependency_names, vec!["notebook", "tools"]);
+    }
+
+    #[test]
+    fn load_graft_empty_dependency_names_when_no_deps() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(
+            file,
+            r#"
+commands:
+  test:
+    run: "cargo test"
+"#
+        )
+        .unwrap();
+
+        let loader = GraftYamlConfigLoader::new();
+        let config = loader.load_graft(file.path().to_str().unwrap()).unwrap();
+
+        assert!(config.dependency_names.is_empty());
     }
 }

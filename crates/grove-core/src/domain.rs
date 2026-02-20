@@ -258,11 +258,13 @@ pub struct Command {
     pub args: Option<Vec<ArgDef>>,
 }
 
-/// Minimal graft.yaml representation (commands section only)
+/// Minimal graft.yaml representation (commands + dependency names).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraftYaml {
     #[serde(default)]
     pub commands: std::collections::HashMap<String, Command>,
+    #[serde(default)]
+    pub dependency_names: Vec<String>,
 }
 
 /// State of a running command

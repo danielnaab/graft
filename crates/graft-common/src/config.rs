@@ -62,6 +62,15 @@ pub struct StateQueryDef {
     pub timeout: Option<u64>,
 }
 
+/// Read a YAML file, returning an empty string if the file doesn't exist.
+fn read_yaml_file(path: impl AsRef<Path>) -> Result<String, String> {
+    let path = path.as_ref();
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    fs::read_to_string(path).map_err(|e| format!("Failed to read graft.yaml: {e}"))
+}
+
 /// Parse commands section from graft.yaml.
 ///
 /// Returns a `HashMap` of command name to command definition.
@@ -69,18 +78,21 @@ pub struct StateQueryDef {
 pub fn parse_commands(
     graft_yaml_path: impl AsRef<Path>,
 ) -> Result<HashMap<String, CommandDef>, String> {
-    let path = graft_yaml_path.as_ref();
+    let content = read_yaml_file(graft_yaml_path)?;
+    parse_commands_from_str(&content)
+}
 
-    // Return empty if file doesn't exist
-    if !path.exists() {
+/// Parse commands from a graft.yaml content string.
+///
+/// Like [`parse_commands`] but operates on an already-read string,
+/// avoiding a redundant file read when multiple sections are needed.
+pub fn parse_commands_from_str(content: &str) -> Result<HashMap<String, CommandDef>, String> {
+    if content.is_empty() {
         return Ok(HashMap::new());
     }
 
-    let content =
-        fs::read_to_string(path).map_err(|e| format!("Failed to read graft.yaml: {e}"))?;
-
     let yaml: Value =
-        serde_yaml::from_str(&content).map_err(|e| format!("Failed to parse graft.yaml: {e}"))?;
+        serde_yaml::from_str(content).map_err(|e| format!("Failed to parse graft.yaml: {e}"))?;
 
     let mut commands = HashMap::new();
 
@@ -208,6 +220,45 @@ fn parse_command(name: &str, config: &Value) -> Result<CommandDef, String> {
         env,
         args,
     })
+}
+
+/// Parse dependency names from graft.yaml.
+///
+/// Returns the keys from the `dependencies` (or `deps`) section.
+/// Returns an empty `Vec` if the file doesn't exist or has no dependency section.
+pub fn parse_dependency_names(graft_yaml_path: impl AsRef<Path>) -> Result<Vec<String>, String> {
+    let content = read_yaml_file(graft_yaml_path)?;
+    parse_dependency_names_from_str(&content)
+}
+
+/// Parse dependency names from a graft.yaml content string.
+///
+/// Like [`parse_dependency_names`] but operates on an already-read string,
+/// avoiding a redundant file read when multiple sections are needed.
+pub fn parse_dependency_names_from_str(content: &str) -> Result<Vec<String>, String> {
+    if content.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let yaml: Value =
+        serde_yaml::from_str(content).map_err(|e| format!("Failed to parse graft.yaml: {e}"))?;
+
+    let mut names = Vec::new();
+
+    let deps_section = yaml.get("dependencies").or_else(|| yaml.get("deps"));
+
+    if let Some(deps) = deps_section {
+        if let Some(mapping) = deps.as_mapping() {
+            for key in mapping.keys() {
+                if let Some(name) = key.as_str() {
+                    names.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    names.sort();
+    Ok(names)
 }
 
 /// Parse state queries section from graft.yaml.
@@ -666,5 +717,88 @@ state:
         assert_eq!(args[2].arg_type, ArgType::Flag);
         assert!(!args[2].positional);
         assert!(!args[2].required);
+    }
+
+    #[test]
+    fn parse_dependency_names_handles_missing_file() {
+        let result = parse_dependency_names("/nonexistent/graft.yaml").unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_dependency_names_from_dependencies_section() {
+        let yaml_content = r#"
+apiVersion: graft/v0
+dependencies:
+  notebook: "https://github.com/user/notebook#main"
+  tools: "https://github.com/user/tools#v1"
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let names = parse_dependency_names(temp_file.path()).unwrap();
+        assert_eq!(names, vec!["notebook", "tools"]);
+    }
+
+    #[test]
+    fn parse_dependency_names_from_deps_section() {
+        let yaml_content = r#"
+apiVersion: graft/v0
+deps:
+  alpha: "https://github.com/user/alpha#main"
+  beta: "https://github.com/user/beta#main"
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let names = parse_dependency_names(temp_file.path()).unwrap();
+        assert_eq!(names, vec!["alpha", "beta"]);
+    }
+
+    #[test]
+    fn parse_dependency_names_prefers_dependencies_over_deps() {
+        let yaml_content = r#"
+apiVersion: graft/v0
+dependencies:
+  from_deps: "https://github.com/user/from_deps#main"
+deps:
+  from_short: "https://github.com/user/from_short#main"
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let names = parse_dependency_names(temp_file.path()).unwrap();
+        // Should use "dependencies" since it's checked first
+        assert_eq!(names, vec!["from_deps"]);
+    }
+
+    #[test]
+    fn parse_dependency_names_returns_empty_when_no_deps() {
+        let yaml_content = r#"
+apiVersion: graft/v0
+commands:
+  test:
+    run: "cargo test"
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let names = parse_dependency_names(temp_file.path()).unwrap();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn parse_dependency_names_returns_sorted() {
+        let yaml_content = r#"
+dependencies:
+  zebra: "https://example.com/zebra#main"
+  alpha: "https://example.com/alpha#main"
+  middle: "https://example.com/middle#main"
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let names = parse_dependency_names(temp_file.path()).unwrap();
+        assert_eq!(names, vec!["alpha", "middle", "zebra"]);
     }
 }

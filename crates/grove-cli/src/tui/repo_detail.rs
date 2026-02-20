@@ -364,6 +364,18 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         };
 
         self.available_commands = graft_config.commands.into_iter().collect();
+
+        // Load commands from dependencies (qualified as dep:cmd)
+        for dep_name in &graft_config.dependency_names {
+            let dep_graft_path = format!("{repo_path}/.graft/{dep_name}/graft.yaml");
+            if let Ok(dep_config) = self.graft_loader.load_graft(&dep_graft_path) {
+                for (cmd_name, cmd) in dep_config.commands {
+                    let qualified = format!("{dep_name}:{cmd_name}");
+                    self.available_commands.push((qualified, cmd));
+                }
+            }
+        }
+
         self.available_commands.sort_by(|a, b| a.0.cmp(&b.0));
         self.selected_repo_for_commands = Some(repo_path);
 
