@@ -4,7 +4,7 @@ mod state;
 mod tui;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use grove_core::{ConfigLoader, RepoRegistry};
 use grove_engine::{GitoxideStatus, WorkspaceRegistry, YamlConfigLoader};
 
@@ -18,12 +18,15 @@ struct Cli {
         short,
         long,
         env = "GROVE_WORKSPACE",
-        default_value = "~/.config/grove/workspace.yaml"
+        default_value = "~/.config/grove/workspace.yaml",
+        value_hint = clap::ValueHint::FilePath
     )]
     workspace: String,
 }
 
 fn main() -> Result<()> {
+    clap_complete::CompleteEnv::with_factory(Cli::command).complete();
+
     // Initialize logger (RUST_LOG env var controls verbosity)
     env_logger::init();
 

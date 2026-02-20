@@ -17,6 +17,7 @@ graft-common = { workspace = true }
 graft-engine = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
+clap_complete = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 shellexpand = { workspace = true }

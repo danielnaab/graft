@@ -367,8 +367,62 @@ graft meta-kb:build
 - [ADR 0004: Atomic Upgrades](specifications/decisions/decision-0004-atomic-upgrades.md) - snapshot and rollback behavior
 - [ADR 0007: Flat-Only Dependencies](specifications/decisions/decision-0007-flat-only-dependencies.md) - dependency resolution model
 
+## Shell Completion
+
+Both `graft` and `grove` support dynamic shell completion. Completions are generated at tab-press time, so they reflect your current `graft.yaml` and `graft.lock` (dependency names, command names, state query names).
+
+### Setup
+
+Add one line to your shell config:
+
+**Bash** (`~/.bashrc`):
+```bash
+source <(COMPLETE=bash graft)
+source <(COMPLETE=bash grove)
+```
+
+**Zsh** (`~/.zshrc`):
+```bash
+source <(COMPLETE=zsh graft)
+source <(COMPLETE=zsh grove)
+```
+
+**Fish** (`~/.config/fish/completions/`):
+```fish
+COMPLETE=fish graft | source  # save as graft.fish
+COMPLETE=fish grove | source  # save as grove.fish
+```
+
+**PowerShell** (`$PROFILE`):
+```powershell
+COMPLETE=powershell graft | Invoke-Expression
+COMPLETE=powershell grove | Invoke-Expression
+```
+
+**Elvish** (`~/.elvish/rc.elv`):
+```elvish
+eval (E:COMPLETE=elvish graft | slurp)
+eval (E:COMPLETE=elvish grove | slurp)
+```
+
+### What Completes
+
+| Argument | Completes from |
+|----------|---------------|
+| Dependency names (`status`, `changes`, `fetch`, `sync`, `apply`, `upgrade`, `remove`) | `graft.yaml` deps + `graft.lock` deps (union) |
+| Command names (`run`) | `graft.yaml` commands + `dep:command` from dependency configs |
+| State query names (`state query`, `state invalidate`) | `graft.yaml` state queries |
+| `--format` | `text`, `json` |
+| `--repo` (ps) | Directory paths |
+| `--workspace` (grove) | File paths |
+
+---
+
+## Implementation Notes
+
 **Rust Implementation (Primary):**
 - Command Dispatch: `crates/graft-cli/src/main.rs` (clap command definitions)
+- Dynamic Completers: `crates/graft-cli/src/completers.rs` (dep names, commands, state queries)
 - Command Execution: `crates/graft-engine/src/command.rs` (dep:cmd implementation)
 - Core Operations: `crates/graft-engine/src/` (resolve, apply, upgrade, sync, validate)
 - Git Operations: `crates/graft-common/src/git.rs` (timeout-protected git ops)

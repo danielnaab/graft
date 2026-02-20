@@ -1,7 +1,10 @@
 //! Graft CLI: semantic dependency manager.
 
+mod completers;
+
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::engine::ArgValueCompleter;
 use graft_common::{FsProcessRegistry, ProcessRegistry, ProcessStatus};
 use graft_engine::{
     add_dependency_to_config, apply_lock, fetch_all_dependencies, fetch_dependency,
@@ -13,6 +16,13 @@ use graft_engine::{
     validate_config_schema, validate_integrity, write_lock_file,
 };
 use std::path::{Path, PathBuf};
+
+/// Output format for commands that support structured output.
+#[derive(Clone, Debug, clap::ValueEnum)]
+enum OutputFormat {
+    Text,
+    Json,
+}
 
 #[derive(Parser)]
 #[command(name = "graft")]
@@ -28,15 +38,17 @@ enum Commands {
     /// Show status of dependencies
     Status {
         /// Optional dependency name to show status for
+        #[arg(add = ArgValueCompleter::new(completers::complete_dep_names))]
         dep_name: Option<String>,
 
-        /// Output format (text or json)
-        #[arg(long, default_value = "text")]
-        format: String,
+        /// Output format
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
     },
     /// List changes for a dependency
     Changes {
         /// Dependency name
+        #[arg(add = ArgValueCompleter::new(completers::complete_dep_names))]
         dep_name: String,
 
         /// Filter by change type (breaking, feature, fix, etc.)
@@ -47,18 +59,18 @@ enum Commands {
         #[arg(long)]
         breaking: bool,
 
-        /// Output format (text or json)
-        #[arg(long, default_value = "text")]
-        format: String,
+        /// Output format
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
     },
     /// Show details of a specific change
     Show {
         /// Dependency and ref in format "dep-name@ref" (e.g., "meta-kb@v2.0.0")
         dep_ref: String,
 
-        /// Output format (text or json)
-        #[arg(long, default_value = "text")]
-        format: String,
+        /// Output format
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
     },
     /// Validate graft configuration and integrity
     Validate {
@@ -74,25 +86,28 @@ enum Commands {
         #[arg(long)]
         integrity: bool,
 
-        /// Output format (text or json)
-        #[arg(long, default_value = "text")]
-        format: String,
+        /// Output format
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
     },
     /// Resolve dependencies specified in graft.yaml
     Resolve,
     /// Fetch updates from remote repositories
     Fetch {
         /// Optional dependency name to fetch (fetches all if not specified)
+        #[arg(add = ArgValueCompleter::new(completers::complete_dep_names))]
         dep_name: Option<String>,
     },
     /// Sync dependencies to match lock file state
     Sync {
         /// Optional dependency name to sync (syncs all if not specified)
+        #[arg(add = ArgValueCompleter::new(completers::complete_dep_names))]
         dep_name: Option<String>,
     },
     /// Apply dependency version to lock file without migrations
     Apply {
         /// Dependency name
+        #[arg(add = ArgValueCompleter::new(completers::complete_dep_names))]
         dep_name: String,
 
         /// Target ref to apply (e.g., "main", "v1.0.0")
@@ -102,6 +117,7 @@ enum Commands {
     /// Upgrade dependency to new version with migrations
     Upgrade {
         /// Dependency name
+        #[arg(add = ArgValueCompleter::new(completers::complete_dep_names))]
         dep_name: String,
 
         /// Target ref to upgrade to (e.g., "v2.0.0")
@@ -135,6 +151,7 @@ enum Commands {
     /// Remove a dependency from graft.yaml
     Remove {
         /// Dependency name to remove
+        #[arg(add = ArgValueCompleter::new(completers::complete_dep_names))]
         name: String,
 
         /// Keep files in .graft/<name>/ instead of deleting
@@ -144,6 +161,7 @@ enum Commands {
     /// Execute a command from graft.yaml
     Run {
         /// Command name or dep:command (e.g., "test" or "meta-kb:migrate")
+        #[arg(add = ArgValueCompleter::new(completers::complete_run_commands))]
         command: Option<String>,
 
         /// Arguments to pass to the command
@@ -158,7 +176,7 @@ enum Commands {
     /// List active processes managed by graft
     Ps {
         /// Filter by repository path (shows only processes for this repo)
-        #[arg(long)]
+        #[arg(long, value_hint = clap::ValueHint::DirPath)]
         repo: Option<String>,
     },
 }
@@ -170,6 +188,7 @@ enum StateCommands {
     /// Execute a state query
     Query {
         /// Query name to execute
+        #[arg(add = ArgValueCompleter::new(completers::complete_state_names))]
         name: String,
 
         /// Force refresh (ignore cache)
@@ -187,6 +206,7 @@ enum StateCommands {
     /// Invalidate cached state
     Invalidate {
         /// Query name to invalidate (omit for all)
+        #[arg(add = ArgValueCompleter::new(completers::complete_state_names))]
         name: Option<String>,
 
         /// Invalidate all queries
@@ -196,6 +216,8 @@ enum StateCommands {
 }
 
 fn main() -> Result<()> {
+    clap_complete::CompleteEnv::with_factory(Cli::command).complete();
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -279,22 +301,18 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn status_command(dep_name: Option<&str>, format: &str) -> Result<()> {
-    // Validate format
-    if format != "text" && format != "json" {
-        bail!("Invalid format '{format}'. Must be 'text' or 'json'");
-    }
-
+fn status_command(dep_name: Option<&str>, format: &OutputFormat) -> Result<()> {
     let lock_path = Path::new("graft.lock");
 
     // Check if lock file exists
     if !lock_path.exists() {
-        if format == "json" {
-            println!("{{\"dependencies\":{{}}}}");
-        } else {
-            eprintln!("No dependencies found in graft.lock");
-            eprintln!();
-            eprintln!("Run 'graft resolve' to resolve dependencies first.");
+        match format {
+            OutputFormat::Json => println!("{{\"dependencies\":{{}}}}"),
+            OutputFormat::Text => {
+                eprintln!("No dependencies found in graft.lock");
+                eprintln!();
+                eprintln!("Run 'graft resolve' to resolve dependencies first.");
+            }
         }
         return Ok(());
     }
@@ -307,27 +325,33 @@ fn status_command(dep_name: Option<&str>, format: &str) -> Result<()> {
         let status = get_dependency_status(&lock_file, name);
 
         if let Some(s) = status {
-            if format == "json" {
-                let json = serde_json::json!({
-                    "name": s.name,
-                    "current_ref": s.current_ref,
-                    "commit": s.commit.as_str(),
-                    "consumed_at": s.consumed_at,
-                });
-                println!("{}", serde_json::to_string_pretty(&json)?);
-            } else {
-                println!("{}: {}", s.name, s.current_ref);
-                println!("  Commit: {}...", &s.commit.as_str()[..7]);
-                println!("  Consumed: {}", s.consumed_at);
+            match format {
+                OutputFormat::Json => {
+                    let json = serde_json::json!({
+                        "name": s.name,
+                        "current_ref": s.current_ref,
+                        "commit": s.commit.as_str(),
+                        "consumed_at": s.consumed_at,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&json)?);
+                }
+                OutputFormat::Text => {
+                    println!("{}: {}", s.name, s.current_ref);
+                    println!("  Commit: {}...", &s.commit.as_str()[..7]);
+                    println!("  Consumed: {}", s.consumed_at);
+                }
             }
         } else {
-            if format == "json" {
-                let json = serde_json::json!({
-                    "error": format!("Dependency '{name}' not found in graft.lock")
-                });
-                println!("{}", serde_json::to_string_pretty(&json)?);
-            } else {
-                eprintln!("Error: Dependency '{name}' not found in graft.lock");
+            match format {
+                OutputFormat::Json => {
+                    let json = serde_json::json!({
+                        "error": format!("Dependency '{name}' not found in graft.lock")
+                    });
+                    println!("{}", serde_json::to_string_pretty(&json)?);
+                }
+                OutputFormat::Text => {
+                    eprintln!("Error: Dependency '{name}' not found in graft.lock");
+                }
             }
             std::process::exit(1);
         }
@@ -336,40 +360,44 @@ fn status_command(dep_name: Option<&str>, format: &str) -> Result<()> {
         let statuses = get_all_status(&lock_file);
 
         if statuses.is_empty() {
-            if format == "json" {
-                println!("{{\"dependencies\":{{}}}}");
-            } else {
-                eprintln!("No dependencies found in graft.lock");
-                eprintln!();
-                eprintln!("Run 'graft resolve' to resolve dependencies first.");
+            match format {
+                OutputFormat::Json => println!("{{\"dependencies\":{{}}}}"),
+                OutputFormat::Text => {
+                    eprintln!("No dependencies found in graft.lock");
+                    eprintln!();
+                    eprintln!("Run 'graft resolve' to resolve dependencies first.");
+                }
             }
             return Ok(());
         }
 
-        if format == "json" {
-            let mut deps_map = serde_json::Map::new();
-            for (name, status) in &statuses {
-                let status_obj = serde_json::json!({
-                    "current_ref": status.current_ref,
-                    "commit": status.commit.as_str(),
-                    "consumed_at": status.consumed_at,
+        match format {
+            OutputFormat::Json => {
+                let mut deps_map = serde_json::Map::new();
+                for (name, status) in &statuses {
+                    let status_obj = serde_json::json!({
+                        "current_ref": status.current_ref,
+                        "commit": status.commit.as_str(),
+                        "consumed_at": status.consumed_at,
+                    });
+                    deps_map.insert(name.clone(), status_obj);
+                }
+                let json = serde_json::json!({
+                    "dependencies": deps_map
                 });
-                deps_map.insert(name.clone(), status_obj);
+                println!("{}", serde_json::to_string_pretty(&json)?);
             }
-            let json = serde_json::json!({
-                "dependencies": deps_map
-            });
-            println!("{}", serde_json::to_string_pretty(&json)?);
-        } else {
-            println!("Dependencies:");
-            for status in statuses.values() {
-                println!(
-                    "  {}: {} (commit: {}..., consumed: {})",
-                    status.name,
-                    status.current_ref,
-                    &status.commit.as_str()[..7],
-                    status.consumed_at
-                );
+            OutputFormat::Text => {
+                println!("Dependencies:");
+                for status in statuses.values() {
+                    println!(
+                        "  {}: {} (commit: {}..., consumed: {})",
+                        status.name,
+                        status.current_ref,
+                        &status.commit.as_str()[..7],
+                        status.consumed_at
+                    );
+                }
             }
         }
     }
@@ -382,13 +410,8 @@ fn changes_command(
     dep_name: &str,
     change_type: Option<&str>,
     breaking_only: bool,
-    format: &str,
+    format: &OutputFormat,
 ) -> Result<()> {
-    // Validate format
-    if format != "text" && format != "json" {
-        bail!("Invalid format '{format}'. Must be 'text' or 'json'");
-    }
-
     // Validate type and breaking are not both specified
     if breaking_only && change_type.is_some() {
         bail!("Cannot specify both --type and --breaking");
@@ -398,16 +421,19 @@ fn changes_command(
     let dep_path = PathBuf::from(".graft").join(dep_name).join("graft.yaml");
 
     if !dep_path.exists() {
-        if format == "json" {
-            let json = serde_json::json!({
-                "error": format!("Dependency configuration not found: {}", dep_path.display()),
-                "suggestion": format!("Check that {dep_name} is resolved in .graft/")
-            });
-            println!("{}", serde_json::to_string_pretty(&json)?);
-        } else {
-            eprintln!("Error: Dependency configuration not found");
-            eprintln!("  Path: {}", dep_path.display());
-            eprintln!("  Suggestion: Check that {dep_name} is resolved in .graft/");
+        match format {
+            OutputFormat::Json => {
+                let json = serde_json::json!({
+                    "error": format!("Dependency configuration not found: {}", dep_path.display()),
+                    "suggestion": format!("Check that {dep_name} is resolved in .graft/")
+                });
+                println!("{}", serde_json::to_string_pretty(&json)?);
+            }
+            OutputFormat::Text => {
+                eprintln!("Error: Dependency configuration not found");
+                eprintln!("  Path: {}", dep_path.display());
+                eprintln!("  Suggestion: Check that {dep_name} is resolved in .graft/");
+            }
         }
         std::process::exit(1);
     }
@@ -434,81 +460,86 @@ fn changes_command(
             change_type.unwrap_or_default()
         };
 
-        if format == "json" {
-            let json = serde_json::json!({
-                "dependency": dep_name,
-                "changes": [],
-                "message": format!("No {filter_desc}changes found")
-            });
-            println!("{}", serde_json::to_string_pretty(&json)?);
-        } else {
-            println!("No {filter_desc}changes found for {dep_name}");
+        match format {
+            OutputFormat::Json => {
+                let json = serde_json::json!({
+                    "dependency": dep_name,
+                    "changes": [],
+                    "message": format!("No {filter_desc}changes found")
+                });
+                println!("{}", serde_json::to_string_pretty(&json)?);
+            }
+            OutputFormat::Text => {
+                println!("No {filter_desc}changes found for {dep_name}");
+            }
         }
         return Ok(());
     }
 
-    if format == "json" {
-        let changes_list: Vec<_> = changes
-            .iter()
-            .map(|c| {
-                serde_json::json!({
-                    "ref": c.ref_name,
-                    "type": c.change_type,
-                    "description": c.description,
-                    "migration": c.migration,
-                    "verify": c.verify,
+    match format {
+        OutputFormat::Json => {
+            let changes_list: Vec<_> = changes
+                .iter()
+                .map(|c| {
+                    serde_json::json!({
+                        "ref": c.ref_name,
+                        "type": c.change_type,
+                        "description": c.description,
+                        "migration": c.migration,
+                        "verify": c.verify,
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        let json = serde_json::json!({
-            "dependency": dep_name,
-            "changes": changes_list
-        });
-        println!("{}", serde_json::to_string_pretty(&json)?);
-    } else {
-        // Text output
-        let header = if breaking_only {
-            format!("Breaking changes for {dep_name}:")
-        } else if let Some(t) = change_type {
-            format!(
-                "{} changes for {dep_name}:",
-                t.chars().next().unwrap().to_uppercase().collect::<String>() + &t[1..]
-            )
-        } else {
-            format!("Changes for {dep_name}:")
-        };
-
-        println!("{header}");
-        println!();
-
-        for change in &changes {
-            // Ref and type
-            let type_str = change
-                .change_type
-                .as_ref()
-                .map(|t| format!("({t})"))
-                .unwrap_or_default();
-            println!("{} {type_str}", change.ref_name);
-
-            // Description
-            if let Some(desc) = &change.description {
-                println!("  {desc}");
-            }
-
-            // Migration/verification info
-            if change.migration.is_some() || change.verify.is_some() {
-                if let Some(mig) = &change.migration {
-                    println!("  Migration: {mig}");
-                }
-                if let Some(ver) = &change.verify {
-                    println!("  Verify: {ver}");
-                }
+            let json = serde_json::json!({
+                "dependency": dep_name,
+                "changes": changes_list
+            });
+            println!("{}", serde_json::to_string_pretty(&json)?);
+        }
+        OutputFormat::Text => {
+            let header = if breaking_only {
+                format!("Breaking changes for {dep_name}:")
+            } else if let Some(t) = change_type {
+                format!(
+                    "{} changes for {dep_name}:",
+                    t.chars().next().unwrap().to_uppercase().collect::<String>() + &t[1..]
+                )
             } else {
-                println!("  No migration required");
-            }
+                format!("Changes for {dep_name}:")
+            };
 
+            println!("{header}");
             println!();
+
+            for change in &changes {
+                // Ref and type
+                let type_str = change
+                    .change_type
+                    .as_ref()
+                    .map(|t| format!("({t})"))
+                    .unwrap_or_default();
+                println!("{} {type_str}", change.ref_name);
+
+                // Description
+                if let Some(desc) = &change.description {
+                    println!("  {desc}");
+                }
+
+                // Migration/verification info
+                if change.migration.is_some() || change.verify.is_some() {
+                    if let Some(mig) = &change.migration {
+                        println!("  Migration: {mig}");
+                    }
+                    if let Some(ver) = &change.verify {
+                        println!("  Verify: {ver}");
+                    }
+                } else {
+                    println!("  No migration required");
+                }
+
+                println!();
+            }
         }
     }
 
@@ -516,12 +547,7 @@ fn changes_command(
 }
 
 #[allow(clippy::too_many_lines)]
-fn show_command(dep_ref: &str, format: &str) -> Result<()> {
-    // Validate format
-    if format != "text" && format != "json" {
-        bail!("Invalid format '{format}'. Must be 'text' or 'json'");
-    }
-
+fn show_command(dep_ref: &str, format: &OutputFormat) -> Result<()> {
     // Parse dep_name@ref format
     let Some((dep_name, ref_name)) = dep_ref.split_once('@') else {
         bail!("Invalid format. Use 'dep-name@ref' (e.g., 'meta-kb@v2.0.0')");
@@ -531,16 +557,19 @@ fn show_command(dep_ref: &str, format: &str) -> Result<()> {
     let dep_path = PathBuf::from(".graft").join(dep_name).join("graft.yaml");
 
     if !dep_path.exists() {
-        if format == "json" {
-            let json = serde_json::json!({
-                "error": format!("Dependency configuration not found: {}", dep_path.display()),
-                "suggestion": format!("Check that {dep_name} is resolved in .graft/")
-            });
-            println!("{}", serde_json::to_string_pretty(&json)?);
-        } else {
-            eprintln!("Error: Dependency configuration not found");
-            eprintln!("  Path: {}", dep_path.display());
-            eprintln!("  Suggestion: Check that {dep_name} is resolved in .graft/");
+        match format {
+            OutputFormat::Json => {
+                let json = serde_json::json!({
+                    "error": format!("Dependency configuration not found: {}", dep_path.display()),
+                    "suggestion": format!("Check that {dep_name} is resolved in .graft/")
+                });
+                println!("{}", serde_json::to_string_pretty(&json)?);
+            }
+            OutputFormat::Text => {
+                eprintln!("Error: Dependency configuration not found");
+                eprintln!("  Path: {}", dep_path.display());
+                eprintln!("  Suggestion: Check that {dep_name} is resolved in .graft/");
+            }
         }
         std::process::exit(1);
     }
@@ -551,98 +580,103 @@ fn show_command(dep_ref: &str, format: &str) -> Result<()> {
 
     // Get change details
     let Some(details) = get_change_details(&config, ref_name) else {
-        if format == "json" {
-            let json = serde_json::json!({
-                "error": format!("Change {ref_name} not found for {dep_name}"),
-                "suggestion": format!("Run 'graft changes {dep_name}' to see available changes")
-            });
-            println!("{}", serde_json::to_string_pretty(&json)?);
-        } else {
-            eprintln!("Error: Change {ref_name} not found for {dep_name}");
-            eprintln!("  Run 'graft changes {dep_name}' to see available changes");
+        match format {
+            OutputFormat::Json => {
+                let json = serde_json::json!({
+                    "error": format!("Change {ref_name} not found for {dep_name}"),
+                    "suggestion": format!("Run 'graft changes {dep_name}' to see available changes")
+                });
+                println!("{}", serde_json::to_string_pretty(&json)?);
+            }
+            OutputFormat::Text => {
+                eprintln!("Error: Change {ref_name} not found for {dep_name}");
+                eprintln!("  Run 'graft changes {dep_name}' to see available changes");
+            }
         }
         std::process::exit(1);
     };
 
-    if format == "json" {
-        let mut output = serde_json::json!({
-            "dependency": dep_name,
-            "ref": ref_name,
-            "type": details.change.change_type,
-            "description": details.change.description,
-        });
-
-        // Add migration details if present
-        if let Some(cmd) = &details.migration_command {
-            output["migration"] = serde_json::json!({
-                "name": cmd.name,
-                "command": cmd.run,
-                "description": cmd.description,
-                "working_dir": cmd.working_dir,
+    match format {
+        OutputFormat::Json => {
+            let mut output = serde_json::json!({
+                "dependency": dep_name,
+                "ref": ref_name,
+                "type": details.change.change_type,
+                "description": details.change.description,
             });
-        } else {
-            output["migration"] = serde_json::Value::Null;
-        }
 
-        // Add verification details if present
-        if let Some(cmd) = &details.verify_command {
-            output["verify"] = serde_json::json!({
-                "name": cmd.name,
-                "command": cmd.run,
-                "description": cmd.description,
-                "working_dir": cmd.working_dir,
-            });
-        } else {
-            output["verify"] = serde_json::Value::Null;
-        }
-
-        println!("{}", serde_json::to_string_pretty(&output)?);
-    } else {
-        // Text output
-        println!("Change: {dep_name}@{ref_name}");
-        println!();
-
-        // Display type
-        if let Some(t) = &details.change.change_type {
-            println!("Type: {t}");
-        }
-
-        // Display description
-        if let Some(desc) = &details.change.description {
-            println!("Description: {desc}");
-            println!();
-        }
-
-        // Display migration details
-        if let Some(cmd) = &details.migration_command {
-            println!("Migration: {}", cmd.name);
-            println!("  Command: {}", cmd.run);
-            if let Some(desc) = &cmd.description {
-                println!("  Description: {desc}");
+            // Add migration details if present
+            if let Some(cmd) = &details.migration_command {
+                output["migration"] = serde_json::json!({
+                    "name": cmd.name,
+                    "command": cmd.run,
+                    "description": cmd.description,
+                    "working_dir": cmd.working_dir,
+                });
+            } else {
+                output["migration"] = serde_json::Value::Null;
             }
-            if let Some(wd) = &cmd.working_dir {
-                println!("  Working directory: {wd}");
-            }
-            println!();
-        }
 
-        // Display verification details
-        if let Some(cmd) = &details.verify_command {
-            println!("Verification: {}", cmd.name);
-            println!("  Command: {}", cmd.run);
-            if let Some(desc) = &cmd.description {
-                println!("  Description: {desc}");
+            // Add verification details if present
+            if let Some(cmd) = &details.verify_command {
+                output["verify"] = serde_json::json!({
+                    "name": cmd.name,
+                    "command": cmd.run,
+                    "description": cmd.description,
+                    "working_dir": cmd.working_dir,
+                });
+            } else {
+                output["verify"] = serde_json::Value::Null;
             }
-            if let Some(wd) = &cmd.working_dir {
-                println!("  Working directory: {wd}");
-            }
-            println!();
-        }
 
-        // Show if no migration/verification required
-        if details.migration_command.is_none() && details.verify_command.is_none() {
-            println!("No migration or verification required");
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Text => {
+            println!("Change: {dep_name}@{ref_name}");
             println!();
+
+            // Display type
+            if let Some(t) = &details.change.change_type {
+                println!("Type: {t}");
+            }
+
+            // Display description
+            if let Some(desc) = &details.change.description {
+                println!("Description: {desc}");
+                println!();
+            }
+
+            // Display migration details
+            if let Some(cmd) = &details.migration_command {
+                println!("Migration: {}", cmd.name);
+                println!("  Command: {}", cmd.run);
+                if let Some(desc) = &cmd.description {
+                    println!("  Description: {desc}");
+                }
+                if let Some(wd) = &cmd.working_dir {
+                    println!("  Working directory: {wd}");
+                }
+                println!();
+            }
+
+            // Display verification details
+            if let Some(cmd) = &details.verify_command {
+                println!("Verification: {}", cmd.name);
+                println!("  Command: {}", cmd.run);
+                if let Some(desc) = &cmd.description {
+                    println!("  Description: {desc}");
+                }
+                if let Some(wd) = &cmd.working_dir {
+                    println!("  Working directory: {wd}");
+                }
+                println!();
+            }
+
+            // Show if no migration/verification required
+            if details.migration_command.is_none() && details.verify_command.is_none() {
+                println!("No migration or verification required");
+                println!();
+            }
         }
     }
 
@@ -654,13 +688,8 @@ fn validate_command(
     config_only: bool,
     lock_only: bool,
     integrity_only: bool,
-    format: &str,
+    format: &OutputFormat,
 ) -> Result<()> {
-    // Validate format
-    if format != "text" && format != "json" {
-        bail!("Invalid format '{format}'. Must be 'text' or 'json'");
-    }
-
     // Validate flag combinations
     let flags_set = [config_only, lock_only, integrity_only]
         .iter()
@@ -669,6 +698,8 @@ fn validate_command(
     if flags_set > 1 {
         bail!("--config, --lock, and --integrity are mutually exclusive");
     }
+
+    let is_text = matches!(format, OutputFormat::Text);
 
     // Determine what to validate based on flags
     let validate_config = config_only || flags_set == 0;
@@ -686,7 +717,7 @@ fn validate_command(
 
     // Validate graft.yaml
     if validate_config {
-        if format == "text" {
+        if is_text {
             println!("Validating graft.yaml...");
         }
 
@@ -700,7 +731,7 @@ fn validate_command(
                 .unwrap()
                 .push(serde_json::Value::String(error_msg.to_string()));
 
-            if format == "text" {
+            if is_text {
                 eprintln!("  ✗ {error_msg}");
                 println!();
             }
@@ -710,7 +741,7 @@ fn validate_command(
                     let errors = validate_config_schema(&config);
 
                     if errors.is_empty() {
-                        if format == "text" {
+                        if is_text {
                             println!("  ✓ Schema is valid");
                             println!();
                         }
@@ -723,11 +754,11 @@ fn validate_command(
                                 .unwrap()
                                 .push(serde_json::Value::String(error.message.clone()));
 
-                            if format == "text" {
+                            if is_text {
                                 eprintln!("  ✗ {}", error.message);
                             }
                         }
-                        if format == "text" {
+                        if is_text {
                             println!();
                         }
                     }
@@ -741,7 +772,7 @@ fn validate_command(
                         .unwrap()
                         .push(serde_json::Value::String(error_msg.clone()));
 
-                    if format == "text" {
+                    if is_text {
                         eprintln!("  ✗ {error_msg}");
                         println!();
                     }
@@ -752,7 +783,7 @@ fn validate_command(
 
     // Validate graft.lock
     if validate_lock {
-        if format == "text" {
+        if is_text {
             println!("Validating graft.lock...");
         }
 
@@ -761,7 +792,7 @@ fn validate_command(
             let warning_msg = "graft.lock not found (run 'graft resolve' to create)";
             all_warnings.push(warning_msg.to_string());
 
-            if format == "text" {
+            if is_text {
                 println!("  ⚠ {warning_msg}");
                 println!();
             }
@@ -772,11 +803,11 @@ fn validate_command(
                         let warning_msg = "graft.lock is empty";
                         all_warnings.push(warning_msg.to_string());
 
-                        if format == "text" {
+                        if is_text {
                             println!("  ⚠ {warning_msg}");
                             println!();
                         }
-                    } else if format == "text" {
+                    } else if is_text {
                         println!("  ✓ Schema is valid");
                         println!();
                     }
@@ -790,7 +821,7 @@ fn validate_command(
                         .unwrap()
                         .push(serde_json::Value::String(error_msg.clone()));
 
-                    if format == "text" {
+                    if is_text {
                         eprintln!("  ✗ {error_msg}");
                         println!();
                     }
@@ -801,7 +832,7 @@ fn validate_command(
 
     // Validate integrity (.graft/ matches lock file)
     if validate_integrity_mode {
-        if format == "text" {
+        if is_text {
             println!("Validating integrity...");
         }
 
@@ -811,7 +842,7 @@ fn validate_command(
             all_errors.push(error_msg.to_string());
             json_integrity["valid"] = serde_json::Value::Bool(false);
 
-            if format == "text" {
+            if is_text {
                 eprintln!("  ✗ graft.lock not found");
                 println!();
             }
@@ -822,7 +853,7 @@ fn validate_command(
                         let warning_msg = "graft.lock is empty";
                         all_warnings.push(warning_msg.to_string());
 
-                        if format == "text" {
+                        if is_text {
                             println!("  ⚠ {warning_msg}");
                             println!();
                         }
@@ -833,14 +864,14 @@ fn validate_command(
                         // Process results
                         for result in &results {
                             if result.valid {
-                                if format == "text" {
+                                if is_text {
                                     println!("  ✓ {}: {}", result.name, result.message);
                                 }
                             } else {
                                 integrity_failed = true;
                                 json_integrity["valid"] = serde_json::Value::Bool(false);
 
-                                if format == "text" {
+                                if is_text {
                                     eprintln!("  ✗ {}: {}", result.name, result.message);
                                 }
                             }
@@ -862,7 +893,7 @@ fn validate_command(
                             all_errors.push("Integrity check failed".to_string());
                         }
 
-                        if format == "text" {
+                        if is_text {
                             println!();
                         }
                     }
@@ -872,7 +903,7 @@ fn validate_command(
                     all_errors.push(error_msg.clone());
                     json_integrity["valid"] = serde_json::Value::Bool(false);
 
-                    if format == "text" {
+                    if is_text {
                         eprintln!("  ✗ {error_msg}");
                         println!();
                     }
@@ -882,46 +913,48 @@ fn validate_command(
     }
 
     // Output summary
-    if format == "json" {
-        let mut output = serde_json::json!({});
+    match format {
+        OutputFormat::Json => {
+            let mut output = serde_json::json!({});
 
-        if validate_config {
-            output["config"] = json_config;
-        }
-        if validate_lock {
-            output["lock"] = json_lock;
-        }
-        if validate_integrity_mode {
-            output["integrity"] = json_integrity;
-        }
-
-        // Overall status
-        let overall = if all_errors.is_empty() {
-            "passed"
-        } else {
-            "failed"
-        };
-        output["overall"] = serde_json::Value::String(overall.to_string());
-
-        println!("{}", serde_json::to_string_pretty(&output)?);
-    } else {
-        // Text summary
-        if !all_errors.is_empty() {
-            let error_count = all_errors.len();
-            let warning_count = all_warnings.len();
-
-            if warning_count > 0 {
-                eprintln!(
-                    "Validation failed with {error_count} error(s) and {warning_count} warning(s)"
-                );
-            } else {
-                eprintln!("Validation failed with {error_count} error(s)");
+            if validate_config {
+                output["config"] = json_config;
             }
-        } else if !all_warnings.is_empty() {
-            let warning_count = all_warnings.len();
-            println!("Validation passed with {warning_count} warning(s)");
-        } else {
-            println!("Validation successful");
+            if validate_lock {
+                output["lock"] = json_lock;
+            }
+            if validate_integrity_mode {
+                output["integrity"] = json_integrity;
+            }
+
+            // Overall status
+            let overall = if all_errors.is_empty() {
+                "passed"
+            } else {
+                "failed"
+            };
+            output["overall"] = serde_json::Value::String(overall.to_string());
+
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Text => {
+            if !all_errors.is_empty() {
+                let error_count = all_errors.len();
+                let warning_count = all_warnings.len();
+
+                if warning_count > 0 {
+                    eprintln!(
+                        "Validation failed with {error_count} error(s) and {warning_count} warning(s)"
+                    );
+                } else {
+                    eprintln!("Validation failed with {error_count} error(s)");
+                }
+            } else if !all_warnings.is_empty() {
+                let warning_count = all_warnings.len();
+                println!("Validation passed with {warning_count} warning(s)");
+            } else {
+                println!("Validation successful");
+            }
         }
     }
 
@@ -2141,6 +2174,12 @@ mod tests {
             result.is_ok(),
             "ps_command_impl with non-matching filter should succeed: {result:?}"
         );
+    }
+
+    #[test]
+    fn test_cli_debug_assert() {
+        // Verify the augmented Command (with completers) is valid
+        Cli::command().debug_assert();
     }
 
     #[test]

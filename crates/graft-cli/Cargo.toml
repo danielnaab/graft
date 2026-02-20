@@ -13,6 +13,7 @@ path = "src/main.rs"
 graft-common = { workspace = true }
 graft-engine = { workspace = true }
 clap = { workspace = true }
+clap_complete = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 

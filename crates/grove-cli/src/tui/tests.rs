@@ -4830,10 +4830,8 @@ fn form_assemble_args_notebook_capture_scenario() {
         },
     ];
 
-    let result = App::<MockRegistry, MockDetailProvider>::assemble_args(
-        "uv run notecap capture",
-        &fields,
-    );
+    let result =
+        App::<MockRegistry, MockDetailProvider>::assemble_args("uv run notecap capture", &fields);
     // Expected: positional args first (section, content), flag omitted when false
     assert_eq!(
         result, "uv run notecap capture Personal 'Buy groceries'",

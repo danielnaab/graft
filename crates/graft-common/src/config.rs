@@ -627,19 +627,22 @@ state:
     #[test]
     fn parse_notebook_graft_yaml_capture_args() {
         // Test against the real notebook graft.yaml to verify end-to-end parsing
-        let notebook_path = std::path::PathBuf::from(
-            std::env::var("HOME").unwrap_or_default(),
-        )
-        .join("src/notebook/graft.yaml");
+        let notebook_path = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
+            .join("src/notebook/graft.yaml");
         if !notebook_path.exists() {
             // Skip if notebook repo not available
             return;
         }
         let commands = parse_commands(&notebook_path).unwrap();
-        let capture = commands.get("capture").expect("capture command should exist");
+        let capture = commands
+            .get("capture")
+            .expect("capture command should exist");
         assert_eq!(capture.run, "uv run notecap capture");
 
-        let args = capture.args.as_ref().expect("capture should have args schema");
+        let args = capture
+            .args
+            .as_ref()
+            .expect("capture should have args schema");
         assert_eq!(args.len(), 3, "Expected 3 args (section, content, raw)");
 
         // section: choice, positional, required
