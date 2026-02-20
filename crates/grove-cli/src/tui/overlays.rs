@@ -213,9 +213,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             )),
-            Line::from("  j/k, ↑↓      Scroll content"),
-            Line::from("  n / p         Select next / previous command"),
-            Line::from("  Enter         Run selected command (opens arg dialog)"),
+            Line::from("  j/k, ↑↓      Navigate items"),
+            Line::from("  Enter         Run command (when selected)"),
             Line::from("  r             Refresh state queries"),
             Line::from("  q, Tab        Back to Dashboard"),
             Line::from("  Esc           Go to Dashboard (from any view)"),

@@ -1,14 +1,80 @@
-//! `RepoDetail` view: unified scrollable view with all sections.
+//! `RepoDetail` view: unified cursor-driven view with all sections.
 //!
-//! Replaces the tabbed detail pane — changes, commits, state queries, and
-//! commands are all shown vertically in a single scrollable view.
+//! A single cursor moves through all selectable items (file changes, commits,
+//! state queries, commands) across all sections. Section headers and blank
+//! lines are skipped by the cursor.
 
 use super::{
-    format_file_change_indicator, App, ArgumentInputState, Block, Borders, Color, GraftYamlLoader,
-    KeyCode, Line, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry, Span,
-    StatusMessage, Style, View,
+    format_file_change_indicator, App, ArgumentInputState, Block, Borders, Color, DetailItem,
+    GraftYamlLoader, KeyCode, Line, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry,
+    Span, StatusMessage, Style, View,
 };
+
+/// Pairs rendered lines with their corresponding `detail_items` index.
+///
+/// `item_indices[i]` is `Some(idx)` when line `i` is part of selectable item
+/// `detail_items[idx]`, or `None` for headers / blank separators.
+struct LineMapping {
+    lines: Vec<Line<'static>>,
+    item_indices: Vec<Option<usize>>,
+}
+
+impl LineMapping {
+    fn new() -> Self {
+        Self {
+            lines: Vec::new(),
+            item_indices: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, line: Line<'static>, item_idx: Option<usize>) {
+        self.lines.push(line);
+        self.item_indices.push(item_idx);
+    }
+}
+
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
+    // ===== Cursor infrastructure =====
+
+    /// Rebuild the flat item list from current data.
+    ///
+    /// Visual order: file changes, commits, state queries, commands.
+    /// Clamps cursor to valid range.
+    pub(super) fn rebuild_detail_items(&mut self) {
+        self.detail_items.clear();
+
+        if let Some(detail) = &self.cached_detail {
+            for i in 0..detail.changed_files.len() {
+                self.detail_items.push(DetailItem::FileChange(i));
+            }
+            for i in 0..detail.commits.len() {
+                self.detail_items.push(DetailItem::Commit(i));
+            }
+        }
+
+        for i in 0..self.state_queries.len() {
+            self.detail_items.push(DetailItem::StateQuery(i));
+        }
+
+        for i in 0..self.available_commands.len() {
+            self.detail_items.push(DetailItem::Command(i));
+        }
+
+        // Clamp cursor
+        if self.detail_items.is_empty() {
+            self.detail_cursor = 0;
+        } else if self.detail_cursor >= self.detail_items.len() {
+            self.detail_cursor = self.detail_items.len() - 1;
+        }
+    }
+
+    /// Returns the item currently under the cursor, if any.
+    pub(super) fn current_detail_item(&self) -> Option<&DetailItem> {
+        self.detail_items.get(self.detail_cursor)
+    }
+
+    // ===== Key handling =====
+
     /// Handle keys when in the `RepoDetail` view.
     pub(super) fn handle_key_repo_detail(&mut self, code: KeyCode) {
         match code {
@@ -23,39 +89,33 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             KeyCode::Char('?') => {
                 self.push_view(View::Help);
             }
-            // Scroll the unified detail view
+            // Move cursor down
             KeyCode::Char('j') | KeyCode::Down => {
-                self.detail_scroll = self.detail_scroll.saturating_add(1);
+                if !self.detail_items.is_empty() && self.detail_cursor + 1 < self.detail_items.len()
+                {
+                    self.detail_cursor += 1;
+                }
             }
+            // Move cursor up
             KeyCode::Char('k') | KeyCode::Up => {
-                self.detail_scroll = self.detail_scroll.saturating_sub(1);
+                self.detail_cursor = self.detail_cursor.saturating_sub(1);
             }
             // Refresh state queries (r key)
             KeyCode::Char('r') => {
                 self.refresh_state_queries();
             }
-            // Execute selected command
+            // Execute selected command (silent no-op on non-command items)
             KeyCode::Enter => {
                 self.execute_selected_command();
-            }
-            // Navigate command picker forward/back
-            KeyCode::Char('n') => {
-                let i = self.command_picker_state.selected().unwrap_or(0);
-                if i + 1 < self.available_commands.len() {
-                    self.command_picker_state.select(Some(i + 1));
-                }
-            }
-            KeyCode::Char('p') => {
-                let i = self.command_picker_state.selected().unwrap_or(0);
-                if i > 0 {
-                    self.command_picker_state.select(Some(i - 1));
-                }
             }
             _ => {}
         }
     }
 
-    /// Render the full-width `RepoDetail` view.
+    // ===== Rendering =====
+
+    /// Render the full-width `RepoDetail` view with cursor highlight and auto-scroll.
+    #[allow(clippy::cast_possible_truncation)]
     pub(super) fn render_repo_detail_view(&mut self, frame: &mut ratatui::Frame, area: Rect) {
         // Load data needed for sections (lazy, cached)
         self.load_commands_for_selected_repo();
@@ -71,15 +131,48 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let lines = self.build_repo_detail_lines();
+        let mut mapping = self.build_line_mapping();
+
+        // Apply cursor highlight by replacing lines in-place
+        let highlight_style = Style::default().bg(Color::DarkGray);
+        for i in 0..mapping.lines.len() {
+            if mapping.item_indices[i] == Some(self.detail_cursor) && !self.detail_items.is_empty()
+            {
+                let line = std::mem::take(&mut mapping.lines[i]);
+                mapping.lines[i] = line.patch_style(highlight_style);
+            }
+        }
+
+        // Auto-scroll to keep cursor visible
+        let inner_height = inner.height as usize;
+        if !self.detail_items.is_empty() {
+            let cursor_first = mapping
+                .item_indices
+                .iter()
+                .position(|idx| *idx == Some(self.detail_cursor));
+            let cursor_last = mapping
+                .item_indices
+                .iter()
+                .rposition(|idx| *idx == Some(self.detail_cursor));
+
+            if let (Some(first), Some(last)) = (cursor_first, cursor_last) {
+                // Scroll down if cursor is below viewport
+                if last >= self.detail_scroll + inner_height {
+                    self.detail_scroll = last.saturating_sub(inner_height - 1);
+                }
+                // Scroll up if cursor is above viewport
+                if first < self.detail_scroll {
+                    self.detail_scroll = first;
+                }
+            }
+        }
 
         // Clamp scroll to content height
-        let inner_height = inner.height as usize;
-        let max_scroll = lines.len().saturating_sub(inner_height);
-        let clamped_scroll = self.detail_scroll.min(max_scroll);
+        let max_scroll = mapping.lines.len().saturating_sub(inner_height);
+        self.detail_scroll = self.detail_scroll.min(max_scroll);
 
-        let paragraph =
-            Paragraph::new(lines).scroll((u16::try_from(clamped_scroll).unwrap_or(u16::MAX), 0));
+        let paragraph = Paragraph::new(mapping.lines)
+            .scroll((u16::try_from(self.detail_scroll).unwrap_or(u16::MAX), 0));
 
         frame.render_widget(paragraph, inner);
     }
@@ -141,180 +234,241 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         ))
     }
 
-    /// Build all lines for the unified detail view.
+    /// Build all lines for the unified detail view (used by tests that only need lines).
+    #[cfg(test)]
     pub(super) fn build_repo_detail_lines(&self) -> Vec<Line<'static>> {
-        let mut lines: Vec<Line<'static>> = Vec::new();
-
-        // Section 1: Changed Files + Recent Commits
-        self.append_changes_section(&mut lines);
-
-        lines.push(Line::from(""));
-
-        // Section 2: State Queries
-        self.append_state_section(&mut lines);
-
-        lines.push(Line::from(""));
-
-        // Section 3: Commands
-        self.append_commands_section(&mut lines);
-
-        lines
+        self.build_line_mapping().lines
     }
 
-    /// Append changed files and recent commits.
-    fn append_changes_section(&self, lines: &mut Vec<Line<'static>>) {
+    /// Build the line mapping that pairs each rendered line with its item index.
+    fn build_line_mapping(&self) -> LineMapping {
+        let mut m = LineMapping::new();
+        let mut item_counter: usize = 0;
+
+        // Section 1: Changed Files + Recent Commits
+        self.append_changes_section_mapped(&mut m, &mut item_counter);
+
+        m.push(Line::from(""), None);
+
+        // Section 2: State Queries
+        self.append_state_section_mapped(&mut m, &mut item_counter);
+
+        m.push(Line::from(""), None);
+
+        // Section 3: Commands
+        self.append_commands_section_mapped(&mut m, &mut item_counter);
+
+        m
+    }
+
+    /// Append changed files and recent commits with item mapping.
+    fn append_changes_section_mapped(&self, m: &mut LineMapping, item_idx: &mut usize) {
         let Some(detail) = &self.cached_detail else {
-            lines.push(Line::from(Span::styled(
-                "No repository selected",
-                Style::default().fg(Color::Gray),
-            )));
+            m.push(
+                Line::from(Span::styled(
+                    "No repository selected",
+                    Style::default().fg(Color::Gray),
+                )),
+                None,
+            );
             return;
         };
 
         // Show error as warning if present (but continue rendering partial data)
         if let Some(error) = &detail.error {
-            lines.push(Line::from(Span::styled(
-                format!("Error: {error}"),
-                Style::default().fg(Color::Red),
-            )));
-            lines.push(Line::from(""));
+            m.push(
+                Line::from(Span::styled(
+                    format!("Error: {error}"),
+                    Style::default().fg(Color::Red),
+                )),
+                None,
+            );
+            m.push(Line::from(""), None);
         }
 
         // Changed files
         if detail.changed_files.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "No uncommitted changes",
-                Style::default().fg(Color::Gray),
-            )));
+            m.push(
+                Line::from(Span::styled(
+                    "No uncommitted changes",
+                    Style::default().fg(Color::Gray),
+                )),
+                None,
+            );
         } else {
-            lines.push(Line::from(Span::styled(
-                format!("Changed Files ({})", detail.changed_files.len()),
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )));
+            m.push(
+                Line::from(Span::styled(
+                    format!("Changed Files ({})", detail.changed_files.len()),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                None,
+            );
 
             for change in &detail.changed_files {
                 let (indicator, color) = format_file_change_indicator(&change.status);
-                lines.push(Line::from(vec![
-                    Span::styled(format!("  {indicator} "), Style::default().fg(color)),
-                    Span::styled(change.path.clone(), Style::default().fg(Color::White)),
-                ]));
+                m.push(
+                    Line::from(vec![
+                        Span::styled(format!("  {indicator} "), Style::default().fg(color)),
+                        Span::styled(change.path.clone(), Style::default().fg(Color::White)),
+                    ]),
+                    Some(*item_idx),
+                );
+                *item_idx += 1;
             }
         }
 
-        lines.push(Line::from(""));
+        m.push(Line::from(""), None);
 
         // Recent commits
         if detail.commits.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "No commits",
-                Style::default().fg(Color::Gray),
-            )));
+            m.push(
+                Line::from(Span::styled("No commits", Style::default().fg(Color::Gray))),
+                None,
+            );
         } else {
-            lines.push(Line::from(Span::styled(
-                format!("Recent Commits ({})", detail.commits.len()),
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            )));
+            m.push(
+                Line::from(Span::styled(
+                    format!("Recent Commits ({})", detail.commits.len()),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                None,
+            );
 
             for commit in &detail.commits {
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("  {} ", commit.hash),
-                        Style::default().fg(Color::Yellow),
-                    ),
-                    Span::styled(commit.subject.clone(), Style::default().fg(Color::White)),
-                ]));
-                lines.push(Line::from(Span::styled(
-                    format!("       {} - {}", commit.author, commit.relative_date),
-                    Style::default().fg(Color::Gray),
-                )));
+                // First line: hash + subject (selectable)
+                m.push(
+                    Line::from(vec![
+                        Span::styled(
+                            format!("  {} ", commit.hash),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                        Span::styled(commit.subject.clone(), Style::default().fg(Color::White)),
+                    ]),
+                    Some(*item_idx),
+                );
+                // Second line: author + date (same item)
+                m.push(
+                    Line::from(Span::styled(
+                        format!("       {} - {}", commit.author, commit.relative_date),
+                        Style::default().fg(Color::Gray),
+                    )),
+                    Some(*item_idx),
+                );
+                *item_idx += 1;
             }
         }
     }
 
-    /// Append state queries section.
-    fn append_state_section(&self, lines: &mut Vec<Line<'static>>) {
-        lines.push(Line::from(Span::styled(
-            "State Queries",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )));
+    /// Append state queries section with item mapping.
+    fn append_state_section_mapped(&self, m: &mut LineMapping, item_idx: &mut usize) {
+        m.push(
+            Line::from(Span::styled(
+                "State Queries",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            None,
+        );
 
         if self.state_queries.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "  No state queries defined in graft.yaml",
-                Style::default().fg(Color::Gray),
-            )));
+            m.push(
+                Line::from(Span::styled(
+                    "  No state queries defined in graft.yaml",
+                    Style::default().fg(Color::Gray),
+                )),
+                None,
+            );
         } else {
             for (idx, query) in self.state_queries.iter().enumerate() {
                 if let Some(Some(result)) = self.state_results.get(idx) {
                     let age = result.metadata.time_ago();
                     let data_summary = crate::state::format_state_summary(result);
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            format!("  {:<14}", query.name),
-                            Style::default().fg(Color::Cyan),
-                        ),
-                        Span::raw("  "),
-                        Span::raw(format!("{data_summary:<45}")),
-                        Span::styled(format!("({age})"), Style::default().fg(Color::Gray)),
-                    ]));
+                    m.push(
+                        Line::from(vec![
+                            Span::styled(
+                                format!("  {:<14}", query.name),
+                                Style::default().fg(Color::Cyan),
+                            ),
+                            Span::raw("  "),
+                            Span::raw(format!("{data_summary:<45}")),
+                            Span::styled(format!("({age})"), Style::default().fg(Color::Gray)),
+                        ]),
+                        Some(*item_idx),
+                    );
                 } else {
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            format!("  {:<14}", query.name),
-                            Style::default().fg(Color::Gray),
-                        ),
-                        Span::raw("  "),
-                        Span::styled("(no cached data)", Style::default().fg(Color::Gray)),
-                    ]));
+                    m.push(
+                        Line::from(vec![
+                            Span::styled(
+                                format!("  {:<14}", query.name),
+                                Style::default().fg(Color::Gray),
+                            ),
+                            Span::raw("  "),
+                            Span::styled("(no cached data)", Style::default().fg(Color::Gray)),
+                        ]),
+                        Some(*item_idx),
+                    );
                 }
+                *item_idx += 1;
             }
         }
     }
 
-    /// Append commands section.
-    fn append_commands_section(&self, lines: &mut Vec<Line<'static>>) {
-        lines.push(Line::from(Span::styled(
-            "Commands",
-            Style::default()
-                .fg(Color::Magenta)
-                .add_modifier(Modifier::BOLD),
-        )));
+    /// Append commands section with item mapping.
+    fn append_commands_section_mapped(&self, m: &mut LineMapping, item_idx: &mut usize) {
+        m.push(
+            Line::from(Span::styled(
+                "Commands",
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            None,
+        );
 
         if self.available_commands.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "  No commands defined in graft.yaml",
-                Style::default().fg(Color::Gray),
-            )));
+            m.push(
+                Line::from(Span::styled(
+                    "  No commands defined in graft.yaml",
+                    Style::default().fg(Color::Gray),
+                )),
+                None,
+            );
         } else {
-            let selected_idx = self.command_picker_state.selected();
             for (i, (name, cmd)) in self.available_commands.iter().enumerate() {
                 let desc = cmd.description.as_deref().unwrap_or("");
-                let is_selected = selected_idx == Some(i);
+                let is_selected =
+                    self.detail_items.get(self.detail_cursor) == Some(&DetailItem::Command(i));
                 if is_selected {
-                    lines.push(Line::from(vec![
-                        Span::styled("▶ ", Style::default().fg(Color::Cyan)),
-                        Span::styled(
-                            format!("{name:<20} {desc}"),
-                            Style::default()
-                                .fg(Color::White)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                    ]));
+                    m.push(
+                        Line::from(vec![
+                            Span::styled("▶ ", Style::default().fg(Color::Cyan)),
+                            Span::styled(
+                                format!("{name:<20} {desc}"),
+                                Style::default()
+                                    .fg(Color::White)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ]),
+                        Some(*item_idx),
+                    );
                 } else {
-                    lines.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(
-                            format!("{name:<20} {desc}"),
-                            Style::default().fg(Color::White),
-                        ),
-                    ]));
+                    m.push(
+                        Line::from(vec![
+                            Span::raw("  "),
+                            Span::styled(
+                                format!("{name:<20} {desc}"),
+                                Style::default().fg(Color::White),
+                            ),
+                        ]),
+                        Some(*item_idx),
+                    );
                 }
+                *item_idx += 1;
             }
         }
     }
@@ -327,6 +481,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 if let Some(repo) = repos.get(selected) {
                     let repo_path_str = repo.as_path().to_str().unwrap_or("").to_string();
                     self.load_state_queries(&repo_path_str);
+                    self.rebuild_detail_items();
                 }
             }
         }
@@ -359,6 +514,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 )));
                 self.available_commands.clear();
                 self.selected_repo_for_commands = Some(repo_path);
+                self.rebuild_detail_items();
                 return;
             }
         };
@@ -378,19 +534,18 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         self.available_commands.sort_by(|a, b| a.0.cmp(&b.0));
         self.selected_repo_for_commands = Some(repo_path);
-
-        if !self.available_commands.is_empty() {
-            self.command_picker_state.select(Some(0));
-        }
+        self.rebuild_detail_items();
     }
 
     /// Execute the currently selected command.
     ///
     /// If the command has an `args` schema, show the form overlay.
     /// Otherwise, fall back to the free-text argument input.
+    /// Silent no-op when cursor is not on a Command item.
     pub(super) fn execute_selected_command(&mut self) {
-        let Some(cmd_idx) = self.command_picker_state.selected() else {
-            return;
+        let cmd_idx = match self.current_detail_item() {
+            Some(DetailItem::Command(idx)) => *idx,
+            _ => return,
         };
 
         if cmd_idx >= self.available_commands.len() {
@@ -533,6 +688,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 }
             }
         }
+
+        self.rebuild_detail_items();
 
         self.status_message = if failed == 0 {
             Some(StatusMessage::success(format!(

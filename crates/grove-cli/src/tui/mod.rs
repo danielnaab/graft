@@ -82,6 +82,18 @@ pub enum View {
     Help,
 }
 
+/// An item in the flat detail-view cursor list.
+///
+/// Each variant maps to one selectable row in the unified `RepoDetail` view.
+/// Section headers and blank lines are *not* items — the cursor skips them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DetailItem {
+    FileChange(usize),
+    Commit(usize),
+    StateQuery(usize),
+    Command(usize),
+}
+
 /// State for argument input dialog.
 #[derive(Debug, Clone)]
 struct ArgumentInputState {
@@ -194,8 +206,11 @@ pub struct App<R, D> {
     status_message: Option<StatusMessage>,
     needs_refresh: bool,
 
+    // Unified cursor for detail view
+    detail_cursor: usize,
+    detail_items: Vec<DetailItem>,
+
     // Command execution state
-    command_picker_state: ListState,
     available_commands: Vec<(String, Command)>,
     selected_repo_for_commands: Option<String>,
     argument_input: Option<ArgumentInputState>,

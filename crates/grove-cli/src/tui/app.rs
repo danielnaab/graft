@@ -30,8 +30,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             status_message: None,
             needs_refresh: false,
 
+            // Unified cursor for detail view
+            detail_cursor: 0,
+            detail_items: Vec::new(),
+
             // Command execution state
-            command_picker_state: ListState::default(),
             available_commands: Vec::new(),
             selected_repo_for_commands: None,
             argument_input: None,
@@ -79,6 +82,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
             self.cached_detail = None;
             self.cached_detail_index = None;
+            self.detail_items.clear();
+            self.detail_cursor = 0;
             self.needs_refresh = false;
         }
     }
@@ -267,6 +272,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.cached_detail = Some(detail);
         self.cached_detail_index = Some(index);
         self.detail_scroll = 0;
+        self.detail_cursor = 0;
+        self.rebuild_detail_items();
     }
 
     // ===== View stack helpers =====

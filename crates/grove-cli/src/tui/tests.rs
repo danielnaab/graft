@@ -512,35 +512,57 @@ fn tab_in_detail_returns_to_list() {
     assert_eq!(*app.current_view(), View::Dashboard);
 }
 
-// Detail scroll tests
+// Detail cursor tests
 #[test]
-fn j_in_detail_scrolls_down() {
+fn j_in_detail_moves_cursor_down() {
+    let detail = RepoDetail {
+        changed_files: vec![
+            FileChange {
+                path: "a.txt".to_string(),
+                status: FileChangeStatus::Modified,
+            },
+            FileChange {
+                path: "b.txt".to_string(),
+                status: FileChangeStatus::Added,
+            },
+        ],
+        commits: vec![],
+        error: None,
+    };
     let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(detail),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
+    app.ensure_detail_loaded();
 
-    assert_eq!(app.detail_scroll, 0);
+    assert_eq!(app.detail_cursor, 0);
     app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.detail_scroll, 1);
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.detail_scroll, 2);
+    assert_eq!(app.detail_cursor, 1);
 }
 
 #[test]
 fn k_in_detail_does_not_go_below_zero() {
+    let detail = RepoDetail {
+        changed_files: vec![FileChange {
+            path: "a.txt".to_string(),
+            status: FileChangeStatus::Modified,
+        }],
+        commits: vec![],
+        error: None,
+    };
     let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(detail),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
+    app.ensure_detail_loaded();
 
-    assert_eq!(app.detail_scroll, 0);
+    assert_eq!(app.detail_cursor, 0);
     app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(app.detail_scroll, 0, "Scroll should not go below 0");
+    assert_eq!(app.detail_cursor, 0, "Cursor should not go below 0");
 }
 
 // Cache invalidation tests
@@ -859,27 +881,55 @@ fn build_repo_detail_lines_shows_error_and_partial_data() {
     );
 }
 
-// --- Scroll clamping test ---
+// --- Cursor clamping test ---
 
 #[test]
-fn detail_scroll_clamps_to_content_length() {
+fn rebuild_detail_items_clamps_cursor_when_data_shrinks() {
+    let detail = RepoDetail {
+        changed_files: vec![
+            FileChange {
+                path: "a.txt".to_string(),
+                status: FileChangeStatus::Modified,
+            },
+            FileChange {
+                path: "b.txt".to_string(),
+                status: FileChangeStatus::Added,
+            },
+            FileChange {
+                path: "c.txt".to_string(),
+                status: FileChangeStatus::Deleted,
+            },
+        ],
+        commits: vec![],
+        error: None,
+    };
     let mut app = App::new(
         MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
+        MockDetailProvider::with_detail(detail),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-
     app.ensure_detail_loaded();
 
-    app.detail_scroll = 9999;
+    // Cursor at last item (index 2)
+    app.detail_cursor = 2;
+    assert_eq!(app.detail_items.len(), 3);
 
-    let lines = app.build_repo_detail_lines();
-    let max_scroll = lines.len();
+    // Simulate data shrinking (e.g. after refresh, only 1 file change)
+    app.cached_detail = Some(RepoDetail {
+        changed_files: vec![FileChange {
+            path: "a.txt".to_string(),
+            status: FileChangeStatus::Modified,
+        }],
+        commits: vec![],
+        error: None,
+    });
+    app.rebuild_detail_items();
 
-    assert!(
-        app.detail_scroll > max_scroll,
-        "Pre-condition: scroll should exceed content before clamping"
+    assert_eq!(app.detail_items.len(), 1);
+    assert_eq!(
+        app.detail_cursor, 0,
+        "Cursor should be clamped to last valid index"
     );
 }
 
@@ -1552,7 +1602,8 @@ fn argument_input_opens_after_command_selected() {
         },
     )];
     app.push_view(View::RepoDetail(0));
-    app.command_picker_state.select(Some(0));
+    app.detail_items = vec![DetailItem::Command(0)];
+    app.detail_cursor = 0;
 
     app.execute_selected_command();
 
@@ -1834,85 +1885,164 @@ fn q_from_any_tab_returns_to_repo_list() {
 
 #[test]
 fn state_tab_navigation_with_j_key() {
-    // In the unified RepoDetail view, j/k scroll the detail_scroll offset.
+    // In the unified RepoDetail view, j/k move the detail_cursor.
+    let detail = RepoDetail {
+        changed_files: vec![
+            FileChange {
+                path: "a.txt".to_string(),
+                status: FileChangeStatus::Modified,
+            },
+            FileChange {
+                path: "b.txt".to_string(),
+                status: FileChangeStatus::Added,
+            },
+        ],
+        commits: vec![],
+        error: None,
+    };
     let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(detail),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
+    app.ensure_detail_loaded();
 
-    assert_eq!(app.detail_scroll, 0);
+    assert_eq!(app.detail_cursor, 0);
     app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.detail_scroll, 1, "'j' should scroll detail view down");
+    assert_eq!(
+        app.detail_cursor, 1,
+        "'j' should move cursor down in detail view"
+    );
 }
 
 #[test]
 fn state_tab_navigation_with_k_key() {
-    // In the unified RepoDetail view, k scrolls detail_scroll up (saturating at 0).
+    // In the unified RepoDetail view, k moves cursor up (saturating at 0).
+    let detail = RepoDetail {
+        changed_files: vec![
+            FileChange {
+                path: "a.txt".to_string(),
+                status: FileChangeStatus::Modified,
+            },
+            FileChange {
+                path: "b.txt".to_string(),
+                status: FileChangeStatus::Added,
+            },
+        ],
+        commits: vec![],
+        error: None,
+    };
     let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(detail),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.detail_scroll = 3;
+    app.ensure_detail_loaded();
+
+    app.detail_cursor = 1;
 
     app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(app.detail_scroll, 2, "'k' should scroll detail view up");
+    assert_eq!(
+        app.detail_cursor, 0,
+        "'k' should move cursor up in detail view"
+    );
 
-    app.detail_scroll = 0;
     app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(app.detail_scroll, 0, "'k' at top should not go below 0");
+    assert_eq!(app.detail_cursor, 0, "'k' at top should not go below 0");
 }
 
 #[test]
 fn state_tab_navigation_does_not_move_past_end() {
-    // In the unified view, j always increments detail_scroll (no upper bound from content in this test).
-    // This test verifies j continues to increment.
+    // j should not move cursor past the last item.
+    let detail = RepoDetail {
+        changed_files: vec![FileChange {
+            path: "a.txt".to_string(),
+            status: FileChangeStatus::Modified,
+        }],
+        commits: vec![],
+        error: None,
+    };
     let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(detail),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.detail_scroll = 5;
+    app.ensure_detail_loaded();
+
+    assert_eq!(app.detail_items.len(), 1);
+    assert_eq!(app.detail_cursor, 0);
 
     app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.detail_scroll, 6, "j should increment scroll");
+    assert_eq!(
+        app.detail_cursor, 0,
+        "j should not move past last item when only 1 item exists"
+    );
 }
 
 #[test]
 fn state_tab_navigation_does_not_move_before_start() {
-    // k at detail_scroll=0 should not underflow (saturating_sub).
+    // k at detail_cursor=0 should not underflow (saturating_sub).
+    let detail = RepoDetail {
+        changed_files: vec![FileChange {
+            path: "a.txt".to_string(),
+            status: FileChangeStatus::Modified,
+        }],
+        commits: vec![],
+        error: None,
+    };
     let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(detail),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    assert_eq!(app.detail_scroll, 0);
+    app.ensure_detail_loaded();
+
+    assert_eq!(app.detail_cursor, 0);
 
     app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(app.detail_scroll, 0, "k at top should not underflow");
+    assert_eq!(app.detail_cursor, 0, "k at top should not underflow");
 }
 
 #[test]
 fn state_tab_navigation_with_arrow_keys() {
-    // Arrow keys in the unified RepoDetail view scroll detail_scroll.
+    // Arrow keys in the unified RepoDetail view move the cursor.
+    let detail = RepoDetail {
+        changed_files: vec![
+            FileChange {
+                path: "a.txt".to_string(),
+                status: FileChangeStatus::Modified,
+            },
+            FileChange {
+                path: "b.txt".to_string(),
+                status: FileChangeStatus::Added,
+            },
+            FileChange {
+                path: "c.txt".to_string(),
+                status: FileChangeStatus::Deleted,
+            },
+        ],
+        commits: vec![],
+        error: None,
+    };
     let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(detail),
         "test-workspace".to_string(),
     );
     app.push_view(View::RepoDetail(0));
-    app.detail_scroll = 2;
+    app.ensure_detail_loaded();
+
+    assert_eq!(app.detail_cursor, 0);
 
     app.handle_key(KeyCode::Down, KeyModifiers::NONE);
-    assert_eq!(app.detail_scroll, 3, "Down arrow should scroll down");
+    assert_eq!(app.detail_cursor, 1, "Down arrow should move cursor down");
 
     app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-    assert_eq!(app.detail_scroll, 2, "Up arrow should scroll up");
+    assert_eq!(app.detail_cursor, 0, "Up arrow should move cursor up");
 }
 
 #[test]
@@ -2149,10 +2279,27 @@ fn hint_bar_shows_detail_commands_hints() {
     );
     app.push_view(View::RepoDetail(0));
 
+    // With cursor on a command, Enter:run should be shown
+    app.available_commands = vec![(
+        "test".to_string(),
+        grove_core::Command {
+            run: "cargo test".to_string(),
+            description: None,
+            working_dir: None,
+            env: None,
+            args: None,
+        },
+    )];
+    app.detail_items = vec![DetailItem::Command(0)];
+    app.detail_cursor = 0;
+
     let hints = app.current_hints();
     let keys: Vec<&str> = hints.iter().map(|h| h.key).collect();
 
-    assert!(keys.contains(&"Enter"), "Should have run hint");
+    assert!(
+        keys.contains(&"Enter"),
+        "Should have run hint when on command"
+    );
     assert!(keys.contains(&"q"), "Should have back hint");
 }
 
@@ -4535,7 +4682,8 @@ fn form_execute_selected_command_shows_form_for_args() {
             }]),
         },
     )];
-    app.command_picker_state.select(Some(0));
+    app.detail_items = vec![DetailItem::Command(0)];
+    app.detail_cursor = 0;
 
     app.execute_selected_command();
 
@@ -4562,7 +4710,8 @@ fn form_execute_selected_command_shows_freetext_for_no_args() {
             args: None,
         },
     )];
-    app.command_picker_state.select(Some(0));
+    app.detail_items = vec![DetailItem::Command(0)];
+    app.detail_cursor = 0;
 
     app.execute_selected_command();
 
@@ -4849,5 +4998,195 @@ fn form_assemble_args_notebook_capture_scenario() {
     assert_eq!(
         result_raw, "uv run notecap capture Personal 'Buy groceries' --raw",
         "Should append --raw flag when enabled"
+    );
+}
+
+// ===== Cursor model tests =====
+
+#[test]
+fn cursor_moves_across_section_boundaries() {
+    let detail = RepoDetail {
+        changed_files: vec![FileChange {
+            path: "a.txt".to_string(),
+            status: FileChangeStatus::Modified,
+        }],
+        commits: vec![CommitInfo {
+            hash: "abc1234".to_string(),
+            subject: "Initial commit".to_string(),
+            author: "Alice".to_string(),
+            relative_date: "2 days ago".to_string(),
+        }],
+        error: None,
+    };
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(detail),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+    app.ensure_detail_loaded();
+
+    // Should have FileChange(0), Commit(0)
+    assert_eq!(app.detail_items.len(), 2);
+    assert_eq!(app.detail_items[0], DetailItem::FileChange(0));
+    assert_eq!(app.detail_items[1], DetailItem::Commit(0));
+
+    // j from file change should go to commit
+    assert_eq!(app.detail_cursor, 0);
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(app.detail_cursor, 1);
+}
+
+#[test]
+fn enter_is_noop_on_file_change() {
+    let detail = RepoDetail {
+        changed_files: vec![FileChange {
+            path: "a.txt".to_string(),
+            status: FileChangeStatus::Modified,
+        }],
+        commits: vec![],
+        error: None,
+    };
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(detail),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+    app.ensure_detail_loaded();
+
+    assert_eq!(app.detail_cursor, 0);
+    assert!(matches!(
+        app.current_detail_item(),
+        Some(DetailItem::FileChange(0))
+    ));
+
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    // Should remain in RepoDetail, no overlay opened
+    assert_eq!(*app.current_view(), View::RepoDetail(0));
+    assert!(app.argument_input.is_none());
+    assert!(app.form_input.is_none());
+}
+
+#[test]
+fn enter_executes_when_cursor_on_command() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+    app.available_commands = vec![(
+        "build".to_string(),
+        grove_core::Command {
+            run: "cargo build".to_string(),
+            description: None,
+            working_dir: None,
+            env: None,
+            args: None,
+        },
+    )];
+    app.detail_items = vec![DetailItem::Command(0)];
+    app.detail_cursor = 0;
+
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(
+        app.argument_input.is_some(),
+        "Enter on command should open argument input"
+    );
+}
+
+#[test]
+fn cursor_does_not_exceed_max() {
+    let detail = RepoDetail {
+        changed_files: vec![
+            FileChange {
+                path: "a.txt".to_string(),
+                status: FileChangeStatus::Modified,
+            },
+            FileChange {
+                path: "b.txt".to_string(),
+                status: FileChangeStatus::Added,
+            },
+        ],
+        commits: vec![],
+        error: None,
+    };
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(detail),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+    app.ensure_detail_loaded();
+
+    assert_eq!(app.detail_items.len(), 2);
+
+    // Move to last item
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(app.detail_cursor, 1);
+
+    // Try to move past the end
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(
+        app.detail_cursor, 1,
+        "Cursor should not exceed detail_items.len() - 1"
+    );
+}
+
+#[test]
+fn dynamic_hints_show_enter_run_on_command() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+    app.available_commands = vec![(
+        "test".to_string(),
+        grove_core::Command {
+            run: "cargo test".to_string(),
+            description: None,
+            working_dir: None,
+            env: None,
+            args: None,
+        },
+    )];
+    app.detail_items = vec![DetailItem::Command(0)];
+    app.detail_cursor = 0;
+
+    let hints = app.current_hints();
+    let has_enter_run = hints.iter().any(|h| h.key == "Enter" && h.action == "run");
+    assert!(
+        has_enter_run,
+        "Hint bar should include Enter:run when cursor is on a command"
+    );
+}
+
+#[test]
+fn dynamic_hints_exclude_enter_run_on_file_change() {
+    let detail = RepoDetail {
+        changed_files: vec![FileChange {
+            path: "a.txt".to_string(),
+            status: FileChangeStatus::Modified,
+        }],
+        commits: vec![],
+        error: None,
+    };
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(detail),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+    app.ensure_detail_loaded();
+
+    let hints = app.current_hints();
+    let has_enter = hints.iter().any(|h| h.key == "Enter");
+    assert!(
+        !has_enter,
+        "Hint bar should NOT include Enter when cursor is on a file change"
     );
 }

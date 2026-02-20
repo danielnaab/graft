@@ -1,6 +1,6 @@
 //! Context-sensitive keybinding hint bar.
 
-use super::{App, RepoDetailProvider, RepoRegistry, View};
+use super::{App, DetailItem, RepoDetailProvider, RepoRegistry, View};
 
 /// A keybinding hint for the status bar.
 pub(super) struct KeyHint {
@@ -52,32 +52,37 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     action: "quit",
                 },
             ],
-            View::RepoDetail(_) => vec![
-                KeyHint {
+            View::RepoDetail(_) => {
+                let mut hints = vec![KeyHint {
                     key: "j/k",
-                    action: "scroll",
-                },
-                KeyHint {
-                    key: "Enter",
-                    action: "run command",
-                },
-                KeyHint {
-                    key: "r",
-                    action: "refresh state",
-                },
-                KeyHint {
-                    key: ":",
-                    action: "command",
-                },
-                KeyHint {
-                    key: "?",
-                    action: "help",
-                },
-                KeyHint {
-                    key: "q",
-                    action: "back",
-                },
-            ],
+                    action: "navigate",
+                }];
+                if matches!(self.current_detail_item(), Some(DetailItem::Command(_))) {
+                    hints.push(KeyHint {
+                        key: "Enter",
+                        action: "run",
+                    });
+                }
+                hints.extend([
+                    KeyHint {
+                        key: "r",
+                        action: "refresh state",
+                    },
+                    KeyHint {
+                        key: ":",
+                        action: "command",
+                    },
+                    KeyHint {
+                        key: "?",
+                        action: "help",
+                    },
+                    KeyHint {
+                        key: "q",
+                        action: "back",
+                    },
+                ]);
+                hints
+            }
             View::Help => vec![
                 KeyHint {
                     key: "q",
