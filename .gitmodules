@@ -10,3 +10,6 @@
 [submodule ".graft/living-specifications"]
 	path = .graft/living-specifications
 	url = https://github.com/danielnaab/living-specifications.git
+[submodule ".graft/software-factory"]
+	path = .graft/software-factory
+	url = https://github.com/danielnaab/software-factory.git

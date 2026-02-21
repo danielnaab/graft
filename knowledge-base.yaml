@@ -22,6 +22,9 @@ imports:
   - kind: local
     path: ../living-specifications
     entrypoint: knowledge-base.yaml
+  - kind: local
+    path: ../software-factory
+    entrypoint: knowledge-base.yaml
 
 components:
   - name: graft-common

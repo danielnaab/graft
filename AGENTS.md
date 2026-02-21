@@ -147,6 +147,7 @@ Declared in [`graft.yaml`](graft.yaml), cloned to `.graft/` via `graft resolve`:
 | [python-starter](.graft/python-starter/) | Python clean architecture patterns and template | [knowledge-base.yaml](.graft/python-starter/knowledge-base.yaml) |
 | [rust-starter](.graft/rust-starter/) | Rust architecture patterns and template | [knowledge-base.yaml](.graft/rust-starter/knowledge-base.yaml) |
 | [living-specifications](.graft/living-specifications/) | Living spec methodology: format, principles, writing guide | [knowledge-base.yaml](.graft/living-specifications/knowledge-base.yaml) |
+| [software-factory](.graft/software-factory/) | Reusable patterns for agent-authored codebase evolution | [knowledge-base.yaml](.graft/software-factory/knowledge-base.yaml) |
 
 ## Meta-KB policies
 

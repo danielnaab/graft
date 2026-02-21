@@ -4,3 +4,4 @@ deps:
   meta-knowledge-base: "https://github.com/danielnaab/meta-knowledge-base.git#main"
   rust-starter: "https://github.com/danielnaab/rust-starter.git#main"
   living-specifications: "https://github.com/danielnaab/living-specifications.git#main"
+  software-factory: "https://github.com/danielnaab/software-factory.git#main"
