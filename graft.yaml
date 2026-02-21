@@ -5,3 +5,26 @@ deps:
   rust-starter: "https://github.com/danielnaab/rust-starter.git#main"
   living-specifications: "https://github.com/danielnaab/living-specifications.git#main"
   software-factory: "https://github.com/danielnaab/software-factory.git#main"
+
+commands:
+  plan:
+    run: "cat"
+    description: "Render planning prompt with project state"
+    stdin:
+      template: .graft/software-factory/templates/plan.md
+    context:
+      - verify
+      - changes
+
+state:
+  verify:
+    run: "bash -c 'echo \"## Format\"; cargo fmt --check 2>&1 | head -20; echo; echo \"## Lint\"; cargo clippy -- -D warnings 2>&1 | head -30; echo; echo \"## Tests\"; cargo test 2>&1 | tail -20' | jq -Rs '{raw: .}'"
+    cache:
+      deterministic: true
+    timeout: 120
+
+  changes:
+    run: "bash -c 'echo \"## Recent Commits\"; git log --oneline -10; echo; echo \"## Uncommitted Changes\"; git diff --stat' | jq -Rs '{raw: .}'"
+    cache:
+      deterministic: false
+    timeout: 30
