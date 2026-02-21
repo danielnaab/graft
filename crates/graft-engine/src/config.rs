@@ -2,7 +2,7 @@
 
 use crate::{
     Change, Command, DependencySpec, GitRef, GitUrl, GraftConfig, GraftError, Metadata, Result,
-    StateCache, StateQuery,
+    StateCache, StateQuery, StdinSource,
 };
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -142,6 +142,37 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
                         }
                     }
                     command.env = Some(env);
+                }
+            }
+
+            // Parse stdin (optional)
+            if let Some(stdin_value) = cmd_obj.get(Value::String("stdin".to_string())) {
+                if let Some(literal) = stdin_value.as_str() {
+                    command.stdin = Some(StdinSource::Literal(literal.to_string()));
+                } else if let Some(mapping) = stdin_value.as_mapping() {
+                    if let Some(tmpl_path) = mapping
+                        .get(Value::String("template".to_string()))
+                        .and_then(|v| v.as_str())
+                    {
+                        let engine = mapping
+                            .get(Value::String("engine".to_string()))
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+                        command.stdin = Some(StdinSource::Template {
+                            path: tmpl_path.to_string(),
+                            engine,
+                        });
+                    }
+                }
+            }
+
+            // Parse context (optional)
+            if let Some(ctx_value) = cmd_obj.get(Value::String("context".to_string())) {
+                if let Some(seq) = ctx_value.as_sequence() {
+                    command.context = seq
+                        .iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect();
                 }
             }
 
@@ -560,5 +591,161 @@ commands:
 "#;
         let result = parse_graft_yaml_str(yaml, "test.yaml");
         assert!(result.is_err());
+    }
+
+    // ── stdin and context parsing tests ──────────────────────────────────────
+
+    #[test]
+    fn parses_command_with_stdin_literal() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  gen:
+    run: "cat"
+    stdin: "hello"
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let cmd = config.get_command("gen").unwrap();
+        assert_eq!(cmd.stdin, Some(StdinSource::Literal("hello".to_string())));
+    }
+
+    #[test]
+    fn parses_command_with_stdin_template() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  gen:
+    run: "cat"
+    stdin:
+      template: "f.md"
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let cmd = config.get_command("gen").unwrap();
+        match &cmd.stdin {
+            Some(StdinSource::Template { path, engine }) => {
+                assert_eq!(path, "f.md");
+                assert_eq!(*engine, None);
+            }
+            other => panic!("expected Template, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_command_with_stdin_template_and_engine() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  gen:
+    run: "cat"
+    stdin:
+      template: "f.md"
+      engine: "tera"
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let cmd = config.get_command("gen").unwrap();
+        match &cmd.stdin {
+            Some(StdinSource::Template { path, engine }) => {
+                assert_eq!(path, "f.md");
+                assert_eq!(*engine, Some("tera".to_string()));
+            }
+            other => panic!("expected Template with engine, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_command_with_context() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  gen:
+    run: "echo ok"
+    context:
+      - coverage
+state:
+  coverage:
+    run: "echo 87.5"
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let cmd = config.get_command("gen").unwrap();
+        assert_eq!(cmd.context, vec!["coverage".to_string()]);
+    }
+
+    #[test]
+    fn parses_command_without_stdin_or_context() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  test:
+    run: "cargo test"
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let cmd = config.get_command("test").unwrap();
+        assert_eq!(cmd.stdin, None);
+        assert!(cmd.context.is_empty());
+    }
+
+    #[test]
+    fn rejects_context_referencing_missing_state() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  gen:
+    run: "echo ok"
+    context:
+      - missing
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, GraftError::ConfigValidation { .. }));
+        assert!(
+            err.to_string().contains("missing"),
+            "error should mention 'missing': {err}"
+        );
+    }
+
+    #[test]
+    fn parses_command_with_stdin_and_context() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  gen:
+    run: "report-tool"
+    stdin: "literal text"
+    context:
+      - coverage
+state:
+  coverage:
+    run: "echo 87.5"
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let cmd = config.get_command("gen").unwrap();
+        assert_eq!(
+            cmd.stdin,
+            Some(StdinSource::Literal("literal text".to_string()))
+        );
+        assert_eq!(cmd.context, vec!["coverage".to_string()]);
+    }
+
+    #[test]
+    fn parses_command_with_stdin_template_engine_none() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  gen:
+    run: "cat"
+    stdin:
+      template: "raw.txt"
+      engine: "none"
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let cmd = config.get_command("gen").unwrap();
+        match &cmd.stdin {
+            Some(StdinSource::Template { path, engine }) => {
+                assert_eq!(path, "raw.txt");
+                assert_eq!(*engine, Some("none".to_string()));
+            }
+            other => panic!("expected Template with engine none, got: {:?}", other),
+        }
     }
 }

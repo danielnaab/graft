@@ -55,6 +55,16 @@ commands:
     description: string           # Optional: human-readable description
     working_dir: string           # Optional: working directory (default: consumer root)
     env: object                   # Optional: environment variables
+    stdin: string | object        # Optional: text piped to stdin (literal or template)
+    context: list[string]         # Optional: state query names to resolve before running
+
+# State query definitions (see State Queries spec)
+state:
+  <query-name>:
+    run: string                   # Required: command outputting JSON
+    cache:                        # Optional: cache configuration
+      deterministic: bool         # Default: true
+    timeout: integer              # Optional: seconds (default: 300)
 
 # Dependencies (for Graft-aware dependencies)
 dependencies:
@@ -184,6 +194,9 @@ commands:
     working_dir: string    # Optional: working directory
     env:                   # Optional: environment variables
       KEY: value
+    stdin: string | object # Optional: text piped to stdin
+    context:               # Optional: state query names
+      - string
 ```
 
 **Command Name Constraints**:
@@ -254,6 +267,70 @@ working_dir: "src/"
 env:
   NODE_ENV: "production"
   MIGRATION_DRY_RUN: "false"
+```
+
+#### stdin (optional)
+**Type**: `string | object`
+
+**Description**: Text to pipe to the command's stdin. Supports three forms:
+
+1. **Literal string** — piped as-is, no template evaluation.
+2. **Template object** — `{ template: "<path>" }` — rendered with the default template engine (tera).
+3. **Template with engine override** — `{ template: "<path>", engine: "tera" | "none" }`.
+
+**Default**: None (stdin is not connected).
+
+**Constraints**:
+- Literal text must not be empty.
+- Template path must be relative (no leading `/`).
+- Template path must not be empty.
+- Engine must be `tera` or `none`.
+
+**Examples**:
+```yaml
+# Literal string
+stdin: "Hello, world!"
+
+# Template file (default engine: tera)
+stdin:
+  template: "templates/prompt.md"
+
+# Template file with explicit engine
+stdin:
+  template: "templates/report.md"
+  engine: tera
+
+# Raw template (no rendering)
+stdin:
+  template: "templates/raw.txt"
+  engine: none
+```
+
+#### context (optional)
+**Type**: `list[string]`
+
+**Description**: State query names to resolve before running the command. Each entry must correspond to a key in the `state:` section.
+
+Resolved state values are exposed to the command in two ways:
+- **Environment variables**: `GRAFT_STATE_<NAME>` (uppercase, hyphens replaced with underscores)
+- **Template variables**: `{{ state.<name> }}` (available when `stdin` uses a template)
+
+**Default**: Empty list.
+
+**Constraints**:
+- Each entry must exist in the `state:` section (cross-validated at parse time).
+- Empty entries are rejected.
+
+**Examples**:
+```yaml
+# Single context entry
+context:
+  - coverage
+
+# Multiple context entries
+context:
+  - coverage
+  - test-results
 ```
 
 ### Command Examples
@@ -542,6 +619,21 @@ commands:
     run: "cat CHANGELOG.md"
     description: "Display changelog"
 
+  generate-report:
+    run: "report-tool generate"
+    description: "Generate coverage report from template"
+    stdin:
+      template: "templates/report.md"
+      engine: tera
+    context:
+      - coverage
+
+state:
+  coverage:
+    run: "pytest --cov --cov-report=json --quiet | jq '.totals.percent_covered'"
+    cache:
+      deterministic: true
+
 dependencies:
   meta-knowledge-base:
     source: "git@github.com:org/meta-kb.git"
@@ -583,6 +675,39 @@ def validate_graft_yaml(config: dict) -> list[str]:
             for cmd_name, cmd_data in config['commands'].items():
                 if 'run' not in cmd_data:
                     errors.append(f"Command '{cmd_name}': missing required 'run' field")
+
+                # Validate stdin field
+                if 'stdin' in cmd_data:
+                    stdin = cmd_data['stdin']
+                    if isinstance(stdin, dict):
+                        if 'template' not in stdin:
+                            errors.append(f"Command '{cmd_name}': stdin object must have 'template' field")
+                        if 'engine' in stdin and stdin['engine'] not in ('tera', 'none'):
+                            errors.append(f"Command '{cmd_name}': unsupported engine '{stdin['engine']}'")
+                    elif not isinstance(stdin, str):
+                        errors.append(f"Command '{cmd_name}': stdin must be string or object")
+
+                # Validate context entries reference state section
+                if 'context' in cmd_data:
+                    if not isinstance(cmd_data['context'], list):
+                        errors.append(f"Command '{cmd_name}': context must be a list")
+                    else:
+                        state_keys = set(config.get('state', {}).keys())
+                        for entry in cmd_data['context']:
+                            if entry not in state_keys:
+                                errors.append(
+                                    f"Command '{cmd_name}': context entry '{entry}' "
+                                    f"not found in state section"
+                                )
+
+    # Validate state section
+    if 'state' in config:
+        if not isinstance(config['state'], dict):
+            errors.append("'state' must be an object")
+        else:
+            for query_name, query_data in config['state'].items():
+                if 'run' not in query_data:
+                    errors.append(f"State query '{query_name}': missing required 'run' field")
 
     # Validate dependencies section
     if 'dependencies' in config:

@@ -164,6 +164,10 @@ enum Commands {
         #[arg(add = ArgValueCompleter::new(completers::complete_run_commands))]
         command: Option<String>,
 
+        /// Show rendered stdin without executing the command
+        #[arg(long)]
+        dry_run: bool,
+
         /// Arguments to pass to the command
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -274,8 +278,12 @@ fn main() -> Result<()> {
         Commands::Remove { name, keep_files } => {
             remove_command(&name, keep_files)?;
         }
-        Commands::Run { command, args } => {
-            run_command(command.as_deref(), &args)?;
+        Commands::Run {
+            command,
+            dry_run,
+            args,
+        } => {
+            run_command(command.as_deref(), dry_run, &args)?;
         }
         Commands::State { subcommand } => match subcommand {
             StateCommands::List => {
@@ -1631,7 +1639,7 @@ fn find_graft_yaml() -> Option<PathBuf> {
 }
 
 #[allow(clippy::too_many_lines)]
-fn run_command(command_name: Option<&str>, args: &[String]) -> Result<()> {
+fn run_command(command_name: Option<&str>, dry_run: bool, args: &[String]) -> Result<()> {
     // No command specified - list available commands
     let Some(command_name) = command_name else {
         let Some(config_path) = find_graft_yaml() else {
@@ -1670,14 +1678,14 @@ fn run_command(command_name: Option<&str>, args: &[String]) -> Result<()> {
         run_dependency_command(dep_name, cmd_name, args)?;
     } else {
         // Execute from current repo
-        run_current_repo_command(command_name, args)?;
+        run_current_repo_command(command_name, dry_run, args)?;
     }
 
     Ok(())
 }
 
 #[allow(clippy::too_many_lines)]
-fn run_current_repo_command(command_name: &str, args: &[String]) -> Result<()> {
+fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) -> Result<()> {
     // Find graft.yaml
     let Some(graft_yaml_path) = find_graft_yaml() else {
         eprintln!("Error: No graft.yaml found in current directory or parent directories");
@@ -1708,7 +1716,78 @@ fn run_current_repo_command(command_name: &str, args: &[String]) -> Result<()> {
         std::process::exit(1);
     };
 
-    // Display what we're running
+    // Determine base directory relative to graft.yaml's location
+    let base_dir = graft_yaml_path.parent().unwrap_or(Path::new("."));
+
+    // Determine repo name for state caching
+    let repo_name = base_dir
+        .canonicalize()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Handle dry-run mode
+    if dry_run {
+        if cmd.stdin.is_some() {
+            let rendered = graft_engine::resolve_command_stdin(
+                cmd, &config, base_dir, &repo_name, &repo_name, false,
+            )?;
+            if let Some(text) = rendered {
+                print!("{text}");
+            }
+        } else {
+            // No stdin: print the command that would execute
+            let full_command = if args.is_empty() {
+                cmd.run.clone()
+            } else {
+                format!("{} {}", cmd.run, args.join(" "))
+            };
+            println!("{full_command}");
+        }
+        return Ok(());
+    }
+
+    // Use context-aware execution if command has stdin or context
+    if cmd.needs_context() {
+        // Display what we're running
+        println!("\nExecuting: {command_name}");
+        if let Some(desc) = &cmd.description {
+            println!("  {desc}");
+        }
+        println!("  Command: {}", cmd.run);
+        if !cmd.context.is_empty() {
+            println!("  Context: {}", cmd.context.join(", "));
+        }
+        if cmd.stdin.is_some() {
+            println!("  Stdin: (template/literal)");
+        }
+        if !args.is_empty() {
+            println!("  Arguments: {}", args.join(" "));
+        }
+        println!();
+
+        let result = graft_engine::execute_command_with_context(
+            cmd, &config, base_dir, args, &repo_name, &repo_name, false,
+        )?;
+
+        // Print stdout/stderr
+        if !result.stdout.is_empty() {
+            println!("{}", result.stdout);
+        }
+        if !result.stderr.is_empty() {
+            eprintln!("{}", result.stderr);
+        }
+
+        if !result.success {
+            eprintln!("\n✗ Command failed with exit code {}", result.exit_code);
+            std::process::exit(result.exit_code);
+        }
+
+        println!("\n✓ Command completed successfully");
+        return Ok(());
+    }
+
+    // Display what we're running (plain command)
     println!("\nExecuting: {command_name}");
     if let Some(desc) = &cmd.description {
         println!("  {desc}");
@@ -1722,8 +1801,7 @@ fn run_current_repo_command(command_name: &str, args: &[String]) -> Result<()> {
     }
     println!();
 
-    // Determine working directory relative to graft.yaml's location
-    let base_dir = graft_yaml_path.parent().unwrap_or(Path::new("."));
+    // Determine working directory
     let working_dir = if let Some(ref cmd_dir) = cmd.working_dir {
         base_dir.join(cmd_dir)
     } else {

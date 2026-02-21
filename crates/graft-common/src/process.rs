@@ -77,6 +77,8 @@ pub struct ProcessConfig {
     pub log_path: Option<PathBuf>,
     /// Optional timeout; the process is killed if it exceeds this duration.
     pub timeout: Option<Duration>,
+    /// Optional text piped to the subprocess's stdin.
+    pub stdin: Option<String>,
 }
 
 /// Output collected from a process that has run to completion.
@@ -172,9 +174,25 @@ impl ProcessHandle {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
+        if config.stdin.is_some() {
+            cmd.stdin(Stdio::piped());
+        }
+
         let mut child = cmd
             .spawn()
             .map_err(|e| ProcessError::SpawnFailed(e.to_string()))?;
+
+        // Write stdin data if provided, then close the pipe.
+        if let Some(ref stdin_text) = config.stdin {
+            if let Some(mut stdin_pipe) = child.stdin.take() {
+                let text = stdin_text.clone();
+                // Write in a separate thread to avoid blocking if the child's buffer fills.
+                thread::spawn(move || {
+                    let _ = stdin_pipe.write_all(text.as_bytes());
+                    // stdin_pipe is dropped here, closing the pipe.
+                });
+            }
+        }
 
         let pid = child.id();
         let stdout = child.stdout.take().expect("stdout was piped");
@@ -765,6 +783,7 @@ mod tests {
             env: None,
             log_path: None,
             timeout: None,
+            stdin: None,
         }
     }
 
@@ -851,6 +870,7 @@ mod tests {
             env: None,
             log_path: None,
             timeout: None,
+            stdin: None,
         });
 
         assert!(result.is_err());
@@ -923,6 +943,7 @@ mod tests {
             env: None,
             log_path: Some(log_path.clone()),
             timeout: None,
+            stdin: None,
         };
 
         let output = run_to_completion(&cfg).unwrap();
@@ -945,6 +966,7 @@ mod tests {
             env: None,
             log_path: Some(log_path.clone()),
             timeout: None,
+            stdin: None,
         };
         let cfg2 = ProcessConfig {
             command: "echo second_run".to_string(),
@@ -952,6 +974,7 @@ mod tests {
             env: None,
             log_path: Some(log_path.clone()),
             timeout: None,
+            stdin: None,
         };
 
         run_to_completion(&cfg1).unwrap();
@@ -972,6 +995,7 @@ mod tests {
             env: None,
             log_path: None,
             timeout: Some(Duration::from_millis(200)),
+            stdin: None,
         };
 
         let result = run_to_completion_with_timeout(&cfg);
@@ -986,6 +1010,7 @@ mod tests {
             env: None,
             log_path: None,
             timeout: Some(Duration::from_secs(10)),
+            stdin: None,
         };
 
         let output = run_to_completion_with_timeout(&cfg).unwrap();
@@ -1004,6 +1029,7 @@ mod tests {
             log_path: None,
             // config.timeout takes priority; set None so env var is consulted.
             timeout: None,
+            stdin: None,
         };
 
         // Run without env var — should succeed.
@@ -1278,6 +1304,7 @@ mod tests {
             env: None,
             log_path: None,
             timeout: Some(Duration::from_millis(200)),
+            stdin: None,
         };
 
         let result = run_to_completion_with_timeout_registered(&cfg, Arc::clone(&reg));
@@ -1291,5 +1318,67 @@ mod tests {
             active.is_empty(),
             "registry should be empty after timeout kill"
         );
+    }
+
+    // ── stdin piping tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn stdin_piped_to_subprocess() {
+        let cfg = ProcessConfig {
+            command: "cat".to_string(),
+            working_dir: workdir(),
+            env: None,
+            log_path: None,
+            timeout: Some(Duration::from_secs(5)),
+            stdin: Some("hello".to_string()),
+        };
+        let output = run_to_completion_with_timeout(&cfg).unwrap();
+        assert!(output.success);
+        assert_eq!(output.stdout, "hello");
+    }
+
+    #[test]
+    fn stdin_none_does_not_pipe() {
+        let cfg = ProcessConfig {
+            command: "echo ok".to_string(),
+            working_dir: workdir(),
+            env: None,
+            log_path: None,
+            timeout: Some(Duration::from_secs(5)),
+            stdin: None,
+        };
+        let output = run_to_completion_with_timeout(&cfg).unwrap();
+        assert!(output.success);
+        assert_eq!(output.stdout, "ok");
+    }
+
+    #[test]
+    fn stdin_multiline_piped_correctly() {
+        let cfg = ProcessConfig {
+            command: "cat".to_string(),
+            working_dir: workdir(),
+            env: None,
+            log_path: None,
+            timeout: Some(Duration::from_secs(5)),
+            stdin: Some("a\nb\nc".to_string()),
+        };
+        let output = run_to_completion_with_timeout(&cfg).unwrap();
+        assert!(output.success);
+        assert_eq!(output.stdout, "a\nb\nc");
+    }
+
+    #[test]
+    fn stdin_ignored_by_command_does_not_hang() {
+        let cfg = ProcessConfig {
+            command: "echo ok".to_string(),
+            working_dir: workdir(),
+            env: None,
+            log_path: None,
+            timeout: Some(Duration::from_secs(5)),
+            stdin: Some("ignored input".to_string()),
+        };
+        let output = run_to_completion_with_timeout(&cfg).unwrap();
+        assert!(output.success);
+        assert_eq!(output.stdout, "ok");
     }
 }

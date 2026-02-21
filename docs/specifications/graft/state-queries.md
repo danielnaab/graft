@@ -216,6 +216,54 @@ State queries in graft.yaml:
   lint-report     (cached for abc123)
 ```
 
+## State-Command Integration
+
+State queries can be referenced by commands via the `context:` field in command definitions.
+This enables commands to use state query results as environment variables and template variables.
+
+### Context Resolution
+
+```gherkin
+Given a command has context entries ["coverage", "test-results"]
+And the state section defines both "coverage" and "test-results" queries
+When the user runs the command
+Then graft executes each context state query before the command
+And exposes results as environment variables GRAFT_STATE_COVERAGE and GRAFT_STATE_TEST_RESULTS
+And exposes results as template variables {{ state.coverage }} and {{ state.test-results }}
+```
+
+### Context Validation
+
+```gherkin
+Given a command has context entry "missing-query"
+And the state section does not define "missing-query"
+When graft parses the graft.yaml
+Then graft returns a validation error
+And the error references the command name and the missing context entry
+```
+
+### Stdin with Context
+
+```gherkin
+Given a command has stdin defined as a template
+And the command has context entries
+When the user runs the command
+Then graft resolves context state queries first
+And renders the stdin template with context results as template variables
+And pipes the rendered text to the command's stdin
+```
+
+### Dry-Run Rendering
+
+```gherkin
+Given a command has stdin and context defined
+When the user runs the command with --dry-run
+Then graft resolves context state queries
+And renders the stdin template
+And prints the resolved configuration (command, env vars, rendered stdin)
+And does NOT execute the command
+```
+
 ## Edge Cases
 
 ### No graft.yaml
@@ -463,6 +511,11 @@ state:  # NEW
   - Default: 300 seconds (5 minutes)
   - Prevents runaway queries from hanging indefinitely
   - Documented in domain model (`StateQuery.timeout`)
+
+- **2026-02-21**: State-Command Integration section added
+  - Commands can reference state queries via `context:` field
+  - Resolved state exposed as env vars (GRAFT_STATE_<NAME>) and template vars ({{ state.<name> }})
+  - Cross-validation: context entries must exist in state section
 
 ## Sources
 

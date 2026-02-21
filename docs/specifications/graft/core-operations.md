@@ -896,17 +896,28 @@ Processing 15 files...
 **Syntax**:
 ```bash
 graft run <command-name> [args...]
+graft run <command-name> --dry-run  # Show what would be executed
 graft run                           # List available commands
 ```
+
+**Options**:
+- `--dry-run`: Show what would be executed without running the command. Resolves context, renders stdin templates, and prints the resolved command configuration. Does not execute the command.
 
 **Behavior**:
 1. Search for graft.yaml in current directory, then parent directories (like git)
 2. Parse `commands` section from graft.yaml
 3. If no arguments provided, list available commands and exit
 4. If command name provided, find command definition
-5. Execute in current directory context
-6. Pass through stdout/stderr in real-time
-7. Exit with command's exit code
+5. If command has `context:` entries, resolve each state query and expose results as:
+   - Environment variables: `GRAFT_STATE_<NAME>` (uppercase, hyphens → underscores)
+   - Template variables: `{{ state.<name> }}` (for stdin template rendering)
+6. If command has `stdin:`, prepare the text:
+   - Literal: use as-is
+   - Template: render with the specified engine (or tera by default), injecting context variables
+7. If `--dry-run`: print resolved configuration (command, env, stdin text) and exit
+8. Execute in current directory context, piping stdin text if present
+9. Pass through stdout/stderr in real-time
+10. Exit with command's exit code
 
 **Command Resolution**:
 - If `<command-name>` contains `:`, parse as `<dep>:<cmd>` and execute dependency command
@@ -979,6 +990,31 @@ $ graft run meta-kb:migrate-v2
 Executing: meta-kb:migrate-v2
   Command: npx jscodeshift -t codemods/v2.js src/
 ...
+```
+
+**Example** (dry-run with context and stdin):
+```bash
+$ graft run generate-report --dry-run
+
+Dry run: generate-report
+  Command: report-tool generate
+  Context:
+    coverage: 87.5
+  Stdin (rendered from templates/report.md):
+    # Coverage Report
+    Current coverage: 87.5%
+  Environment:
+    GRAFT_STATE_COVERAGE=87.5
+```
+
+**Example** (dry-run for simple command):
+```bash
+$ graft run test --dry-run
+
+Dry run: test
+  Command: cargo test
+  No stdin
+  No context
 ```
 
 **Error Cases**:
@@ -1099,5 +1135,10 @@ spawned without registry integration are not listed.
   - Added `graft sync` operation
   - Added `graft inspect` operation
   - Added references to Decision 0007
+
+- **2026-02-21**: Added stdin/context/dry-run to graft run
+  - `--dry-run` option resolves context and renders stdin without executing
+  - Context resolution: state queries resolved and exposed as env vars
+  - Stdin piping: literal or template text piped to command process
 
 - **2026-01-01**: Initial draft

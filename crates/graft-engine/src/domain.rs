@@ -294,6 +294,18 @@ impl Change {
     }
 }
 
+/// Source for text piped to a command's stdin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StdinSource {
+    /// Literal text, piped as-is (no template evaluation).
+    Literal(String),
+    /// Template file, evaluated with a template engine.
+    Template {
+        path: String,
+        engine: Option<String>,
+    },
+}
+
 /// An executable command defined in a dependency's graft.yaml.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
@@ -306,6 +318,12 @@ pub struct Command {
     pub working_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
+    /// Optional stdin source (literal text or template file).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdin: Option<StdinSource>,
+    /// State query names to resolve before running the command.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context: Vec<String>,
 }
 
 impl Command {
@@ -355,6 +373,8 @@ impl Command {
             description: None,
             working_dir: None,
             env: None,
+            stdin: None,
+            context: Vec::new(),
         })
     }
 
@@ -376,8 +396,25 @@ impl Command {
         self
     }
 
+    #[must_use]
+    pub fn with_stdin(mut self, stdin: StdinSource) -> Self {
+        self.stdin = Some(stdin);
+        self
+    }
+
+    #[must_use]
+    pub fn with_context(mut self, context: Vec<String>) -> Self {
+        self.context = context;
+        self
+    }
+
     pub fn has_env_vars(&self) -> bool {
         self.env.as_ref().is_some_and(|e| !e.is_empty())
+    }
+
+    /// Returns true if this command uses stdin or context (needs context-aware execution).
+    pub fn needs_context(&self) -> bool {
+        self.stdin.is_some() || !self.context.is_empty()
     }
 
     fn validate(&self) -> Result<()> {
@@ -404,6 +441,52 @@ impl Command {
             {
                 return Err(GraftError::Validation(format!(
                     "command '{}': working_dir must be relative, not absolute",
+                    self.name
+                )));
+            }
+        }
+
+        // Validate stdin source
+        if let Some(ref stdin) = self.stdin {
+            match stdin {
+                StdinSource::Literal(text) => {
+                    if text.is_empty() {
+                        return Err(GraftError::Validation(format!(
+                            "command '{}': stdin literal text cannot be empty",
+                            self.name
+                        )));
+                    }
+                }
+                StdinSource::Template { path, engine } => {
+                    if path.is_empty() {
+                        return Err(GraftError::Validation(format!(
+                            "command '{}': stdin template path cannot be empty",
+                            self.name
+                        )));
+                    }
+                    if path.starts_with('/') {
+                        return Err(GraftError::Validation(format!(
+                            "command '{}': stdin template path must be relative, not absolute",
+                            self.name
+                        )));
+                    }
+                    if let Some(eng) = engine {
+                        if !matches!(eng.as_str(), "tera" | "none") {
+                            return Err(GraftError::Validation(format!(
+                                "command '{}': unsupported template engine '{}'. Supported: tera, none",
+                                self.name, eng
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Validate context entries
+        for entry in &self.context {
+            if entry.is_empty() {
+                return Err(GraftError::Validation(format!(
+                    "command '{}': context entry cannot be empty",
                     self.name
                 )));
             }
@@ -611,6 +694,17 @@ impl GraftConfig {
         // Validate commands
         for command in self.commands.values() {
             command.validate()?;
+
+            // Cross-validate: context entries must exist in state queries
+            for ctx_entry in &command.context {
+                if !self.state.contains_key(ctx_entry) {
+                    return Err(GraftError::ConfigValidation {
+                        path: "graft.yaml".to_string(),
+                        field: format!("commands.{}.context", command.name),
+                        reason: format!("context entry '{ctx_entry}' not found in state section"),
+                    });
+                }
+            }
         }
 
         Ok(())
@@ -992,5 +1086,155 @@ mod tests {
         let removed = lock.remove("meta-kb");
         assert_eq!(removed, Some(entry));
         assert!(lock.get("meta-kb").is_none());
+    }
+
+    // ── StdinSource and Command stdin/context tests ─────────────────────────
+
+    #[test]
+    fn command_with_stdin_literal_passes_validation() {
+        let cmd = Command::new("gen", "echo ok")
+            .unwrap()
+            .with_stdin(StdinSource::Literal("hello".to_string()));
+        let config = GraftConfig::new("graft/v0")
+            .unwrap()
+            .add_command("gen".to_string(), cmd);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn command_rejects_empty_stdin_literal() {
+        let cmd = Command::new("gen", "echo ok")
+            .unwrap()
+            .with_stdin(StdinSource::Literal(String::new()));
+        let config = GraftConfig::new("graft/v0")
+            .unwrap()
+            .add_command("gen".to_string(), cmd);
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("stdin literal text cannot be empty"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn command_rejects_empty_stdin_template_path() {
+        let cmd = Command::new("gen", "echo ok")
+            .unwrap()
+            .with_stdin(StdinSource::Template {
+                path: String::new(),
+                engine: None,
+            });
+        let config = GraftConfig::new("graft/v0")
+            .unwrap()
+            .add_command("gen".to_string(), cmd);
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("stdin template path cannot be empty"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn command_rejects_absolute_stdin_template_path() {
+        let cmd = Command::new("gen", "echo ok")
+            .unwrap()
+            .with_stdin(StdinSource::Template {
+                path: "/absolute/path.md".to_string(),
+                engine: None,
+            });
+        let config = GraftConfig::new("graft/v0")
+            .unwrap()
+            .add_command("gen".to_string(), cmd);
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("stdin template path must be relative"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn command_rejects_unsupported_template_engine() {
+        let cmd = Command::new("gen", "echo ok")
+            .unwrap()
+            .with_stdin(StdinSource::Template {
+                path: "t.md".to_string(),
+                engine: Some("jinja2".to_string()),
+            });
+        let config = GraftConfig::new("graft/v0")
+            .unwrap()
+            .add_command("gen".to_string(), cmd);
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.to_string().contains("unsupported template engine"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn command_accepts_none_template_engine() {
+        let cmd = Command::new("gen", "echo ok")
+            .unwrap()
+            .with_stdin(StdinSource::Template {
+                path: "t.md".to_string(),
+                engine: Some("none".to_string()),
+            });
+        let config = GraftConfig::new("graft/v0")
+            .unwrap()
+            .add_command("gen".to_string(), cmd);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn command_with_context_passes_when_state_exists() {
+        let cmd = Command::new("gen", "echo ok")
+            .unwrap()
+            .with_context(vec!["coverage".to_string()]);
+        let query = StateQuery::new("coverage", "pytest --cov").unwrap();
+        let config = GraftConfig::new("graft/v0")
+            .unwrap()
+            .add_command("gen".to_string(), cmd)
+            .add_state_query("coverage".to_string(), query);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn command_rejects_context_entry_not_in_state() {
+        let cmd = Command::new("gen", "echo ok")
+            .unwrap()
+            .with_context(vec!["missing".to_string()]);
+        let config = GraftConfig::new("graft/v0")
+            .unwrap()
+            .add_command("gen".to_string(), cmd);
+        let err = config.validate().unwrap_err();
+        assert!(matches!(err, GraftError::ConfigValidation { .. }));
+        assert!(
+            err.to_string().contains("missing"),
+            "error should mention 'missing': {err}"
+        );
+    }
+
+    #[test]
+    fn command_needs_context_true_when_stdin_set() {
+        let cmd = Command::new("gen", "echo ok")
+            .unwrap()
+            .with_stdin(StdinSource::Literal("hello".to_string()));
+        assert!(cmd.needs_context());
+    }
+
+    #[test]
+    fn command_needs_context_true_when_context_set() {
+        let cmd = Command::new("gen", "echo ok")
+            .unwrap()
+            .with_context(vec!["coverage".to_string()]);
+        assert!(cmd.needs_context());
+    }
+
+    #[test]
+    fn command_needs_context_without_stdin_or_context() {
+        let cmd = Command::new("gen", "echo ok").unwrap();
+        assert!(!cmd.needs_context());
     }
 }

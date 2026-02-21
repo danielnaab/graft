@@ -71,6 +71,7 @@ pub fn execute_state_query(
         env: None,
         log_path: None,
         timeout: Some(Duration::from_secs(timeout_secs)),
+        stdin: None,
     };
 
     // Execute command in repo directory via shell to support pipes, redirects, etc.

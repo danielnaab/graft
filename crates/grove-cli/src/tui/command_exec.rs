@@ -86,6 +86,7 @@ pub fn spawn_command(
         env: cmd_def.env,
         log_path: None,
         timeout: None,
+        stdin: None,
     };
 
     let (_handle, rx) = match ProcessHandle::spawn(&config) {
@@ -144,6 +145,7 @@ pub fn spawn_command_assembled(
         env,
         log_path: None,
         timeout: None,
+        stdin: None,
     };
 
     let (_handle, rx) = match ProcessHandle::spawn(&config) {

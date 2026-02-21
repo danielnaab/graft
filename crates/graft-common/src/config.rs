@@ -37,6 +37,18 @@ pub struct ArgDef {
     pub positional: bool,
 }
 
+/// Source for text piped to a command's stdin (shared definition).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StdinDef {
+    /// Literal text, piped as-is (no template evaluation).
+    Literal(String),
+    /// Template file, evaluated with a template engine.
+    Template {
+        path: String,
+        engine: Option<String>,
+    },
+}
+
 /// A command definition from graft.yaml.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandDef {
@@ -49,6 +61,10 @@ pub struct CommandDef {
     pub env: Option<HashMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<ArgDef>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdin: Option<StdinDef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<Vec<String>>,
 }
 
 /// A state query definition from graft.yaml.
@@ -213,13 +229,55 @@ fn parse_command(name: &str, config: &Value) -> Result<CommandDef, String> {
             parsed_args
         });
 
+    let stdin = parse_stdin_def(config);
+    let context = parse_context_def(config);
+
     Ok(CommandDef {
         run,
         description,
         working_dir,
         env,
         args,
+        stdin,
+        context,
     })
+}
+
+/// Parse an optional `stdin:` field from a command YAML value.
+fn parse_stdin_def(config: &Value) -> Option<StdinDef> {
+    config.get("stdin").and_then(|stdin_value| {
+        if let Some(literal) = stdin_value.as_str() {
+            Some(StdinDef::Literal(literal.to_string()))
+        } else if let Some(mapping) = stdin_value.as_mapping() {
+            mapping
+                .get(Value::String("template".to_string()))
+                .and_then(|v| v.as_str())
+                .map(|tmpl_path| {
+                    let engine = mapping
+                        .get(Value::String("engine".to_string()))
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    StdinDef::Template {
+                        path: tmpl_path.to_string(),
+                        engine,
+                    }
+                })
+        } else {
+            None
+        }
+    })
+}
+
+/// Parse an optional `context:` field from a command YAML value.
+fn parse_context_def(config: &Value) -> Option<Vec<String>> {
+    config
+        .get("context")
+        .and_then(|ctx_value| ctx_value.as_sequence())
+        .map(|seq| {
+            seq.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
 }
 
 /// Parse dependency names from graft.yaml.
@@ -800,5 +858,89 @@ dependencies:
 
         let names = parse_dependency_names(temp_file.path()).unwrap();
         assert_eq!(names, vec!["alpha", "middle", "zebra"]);
+    }
+
+    // ── stdin and context parsing tests ──────────────────────────────────────
+
+    #[test]
+    fn parse_commands_with_stdin_literal() {
+        let yaml_content = r#"
+commands:
+  gen:
+    run: "cat"
+    stdin: "text"
+"#;
+        let commands = parse_commands_from_str(yaml_content).unwrap();
+        let cmd = commands.get("gen").unwrap();
+        assert_eq!(cmd.stdin, Some(StdinDef::Literal("text".to_string())));
+    }
+
+    #[test]
+    fn parse_commands_with_stdin_template() {
+        let yaml_content = r#"
+commands:
+  gen:
+    run: "cat"
+    stdin:
+      template: "r.md"
+"#;
+        let commands = parse_commands_from_str(yaml_content).unwrap();
+        let cmd = commands.get("gen").unwrap();
+        match &cmd.stdin {
+            Some(StdinDef::Template { path, engine }) => {
+                assert_eq!(path, "r.md");
+                assert_eq!(*engine, None);
+            }
+            other => panic!("expected Template, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_commands_with_stdin_template_and_engine() {
+        let yaml_content = r#"
+commands:
+  gen:
+    run: "cat"
+    stdin:
+      template: "r.md"
+      engine: "tera"
+"#;
+        let commands = parse_commands_from_str(yaml_content).unwrap();
+        let cmd = commands.get("gen").unwrap();
+        match &cmd.stdin {
+            Some(StdinDef::Template { path, engine }) => {
+                assert_eq!(path, "r.md");
+                assert_eq!(*engine, Some("tera".to_string()));
+            }
+            other => panic!("expected Template with engine, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_commands_with_context_list() {
+        let yaml_content = r#"
+commands:
+  gen:
+    run: "echo ok"
+    context:
+      - a
+      - b
+"#;
+        let commands = parse_commands_from_str(yaml_content).unwrap();
+        let cmd = commands.get("gen").unwrap();
+        assert_eq!(cmd.context, Some(vec!["a".to_string(), "b".to_string()]));
+    }
+
+    #[test]
+    fn parse_commands_without_stdin_or_context() {
+        let yaml_content = r#"
+commands:
+  test:
+    run: "cargo test"
+"#;
+        let commands = parse_commands_from_str(yaml_content).unwrap();
+        let cmd = commands.get("test").unwrap();
+        assert_eq!(cmd.stdin, None);
+        assert_eq!(cmd.context, None);
     }
 }

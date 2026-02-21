@@ -16,6 +16,7 @@ pub mod query;
 pub mod resolution;
 pub mod snapshot;
 pub mod state;
+pub mod template;
 pub mod validation;
 
 // Re-export domain types and errors at crate root
@@ -23,7 +24,10 @@ pub use domain::*;
 pub use error::{GraftError, Result};
 
 // Re-export commonly used functions
-pub use command::{execute_command, execute_command_by_name, CommandResult};
+pub use command::{
+    execute_command, execute_command_by_name, execute_command_with_context, resolve_command_stdin,
+    CommandResult,
+};
 pub use config::parse_graft_yaml;
 pub use lock::{parse_lock_file, write_lock_file};
 pub use management::{
@@ -46,6 +50,7 @@ pub use state::{
     execute_state_query, get_cache_path, get_state, invalidate_cached_state, list_state_queries,
     read_cached_state, write_cached_state, StateMetadata, StateQueryStatus, StateResult,
 };
+pub use template::{render_template, resolve_stdin, TemplateContext};
 pub use validation::{
     validate_config_schema, validate_integrity, IntegrityResult, ValidationError,
 };

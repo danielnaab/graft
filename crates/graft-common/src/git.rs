@@ -45,6 +45,7 @@ pub fn get_current_commit(path: impl AsRef<Path>) -> Result<String, GitError> {
         env: None,
         log_path: None,
         timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
     };
     let output = run_to_completion_with_timeout(&config)?;
     if !output.success {
@@ -81,6 +82,7 @@ pub fn git_rev_parse(path: impl AsRef<Path>, git_ref: &str) -> Result<String, Gi
             env: None,
             log_path: None,
             timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+            stdin: None,
         };
         let output = run_to_completion_with_timeout(&config)?;
         if output.success {
@@ -110,6 +112,7 @@ pub fn git_fetch(path: impl AsRef<Path>) -> Result<(), GitError> {
         env: None,
         log_path: None,
         timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
     };
     let output = run_to_completion_with_timeout(&config)?;
     if !output.success {
@@ -139,6 +142,7 @@ pub fn git_checkout(path: impl AsRef<Path>, commit: &str) -> Result<(), GitError
         env: None,
         log_path: None,
         timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
     };
     let output = run_to_completion_with_timeout(&config)?;
     if !output.success {
