@@ -22,6 +22,7 @@ fn convert_arg_def(a: graft_common::ArgDef) -> grove_core::ArgDef {
         required: a.required,
         default: a.default,
         options: a.options,
+        options_from: a.options_from,
         positional: a.positional,
     }
 }

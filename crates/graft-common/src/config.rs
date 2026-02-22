@@ -33,6 +33,9 @@ pub struct ArgDef {
     pub default: Option<String>,
     #[serde(default)]
     pub options: Option<Vec<String>>,
+    /// State query name whose results dynamically populate `options` at form-open time.
+    #[serde(default)]
+    pub options_from: Option<String>,
     #[serde(default)]
     pub positional: bool,
 }
@@ -175,15 +178,16 @@ fn parse_command(name: &str, config: &Value) -> Result<CommandDef, String> {
             for (i, arg_val) in args_seq.iter().enumerate() {
                 match serde_yaml::from_value::<ArgDef>(arg_val.clone()) {
                     Ok(arg_def) => {
-                        // Validate: choice args must have non-empty options
+                        // Validate: choice args must have non-empty options or options_from
                         if arg_def.arg_type == ArgType::Choice {
                             let has_options = arg_def
                                 .options
                                 .as_ref()
                                 .is_some_and(|opts| !opts.is_empty());
-                            if !has_options {
+                            let has_options_from = arg_def.options_from.is_some();
+                            if !has_options && !has_options_from {
                                 eprintln!(
-                                    "Warning: Choice arg '{}' in command '{name}' has no options, skipping",
+                                    "Warning: Choice arg '{}' in command '{name}' has no options or options_from, skipping",
                                     arg_def.name
                                 );
                                 continue;
@@ -585,6 +589,37 @@ commands:
         // Choice without options should be skipped
         assert_eq!(args.len(), 1);
         assert_eq!(args[0].name, "tag");
+    }
+
+    #[test]
+    fn parse_commands_accepts_choice_with_options_from() {
+        let yaml_content = r#"
+commands:
+  iterate:
+    run: "bash scripts/iterate.sh"
+    args:
+      - name: slice
+        type: choice
+        description: "Slice to iterate on"
+        required: true
+        positional: true
+        options_from: slices
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let commands = parse_commands(temp_file.path()).unwrap();
+        let iterate = commands.get("iterate").unwrap();
+        let args = iterate.args.as_ref().unwrap();
+
+        // Choice with options_from (no static options) should be accepted
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0].name, "slice");
+        assert_eq!(args[0].arg_type, ArgType::Choice);
+        assert!(args[0].options.is_none());
+        assert_eq!(args[0].options_from.as_deref(), Some("slices"));
+        assert!(args[0].positional);
+        assert!(args[0].required);
     }
 
     #[test]

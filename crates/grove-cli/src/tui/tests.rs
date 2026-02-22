@@ -4403,6 +4403,7 @@ fn form_input_from_schema_initializes_defaults() {
             default: Some("production".to_string()),
             options: Some(vec!["staging".to_string(), "production".to_string()]),
             positional: false,
+            options_from: None,
         },
         grove_core::ArgDef {
             name: "tag".to_string(),
@@ -4412,6 +4413,7 @@ fn form_input_from_schema_initializes_defaults() {
             default: Some("latest".to_string()),
             options: None,
             positional: false,
+            options_from: None,
         },
         grove_core::ArgDef {
             name: "verbose".to_string(),
@@ -4421,6 +4423,7 @@ fn form_input_from_schema_initializes_defaults() {
             default: Some("true".to_string()),
             options: None,
             positional: false,
+            options_from: None,
         },
     ];
 
@@ -4458,6 +4461,7 @@ fn form_input_from_schema_no_defaults() {
         default: None,
         options: None,
         positional: true,
+        options_from: None,
     }];
 
     let state = FormInputState::from_schema("build".to_string(), args);
@@ -4480,6 +4484,7 @@ fn form_assemble_args_auto_assembly() {
                 default: None,
                 options: None,
                 positional: true,
+                options_from: None,
             },
             value: FieldValue::Text(text_buffer::TextBuffer::with_content("release", 7)),
         },
@@ -4492,6 +4497,7 @@ fn form_assemble_args_auto_assembly() {
                 default: None,
                 options: Some(vec!["staging".to_string(), "production".to_string()]),
                 positional: false,
+                options_from: None,
             },
             value: FieldValue::Choice(1),
         },
@@ -4504,6 +4510,7 @@ fn form_assemble_args_auto_assembly() {
                 default: None,
                 options: None,
                 positional: false,
+                options_from: None,
             },
             value: FieldValue::Flag(true),
         },
@@ -4525,6 +4532,7 @@ fn form_assemble_args_omits_empty_and_false() {
                 default: None,
                 options: None,
                 positional: false,
+                options_from: None,
             },
             value: FieldValue::Text(text_buffer::TextBuffer::new()),
         },
@@ -4537,6 +4545,7 @@ fn form_assemble_args_omits_empty_and_false() {
                 default: None,
                 options: None,
                 positional: false,
+                options_from: None,
             },
             value: FieldValue::Flag(false),
         },
@@ -4558,6 +4567,7 @@ fn form_assemble_args_template_interpolation() {
                 default: None,
                 options: Some(vec!["staging".to_string(), "production".to_string()]),
                 positional: false,
+                options_from: None,
             },
             value: FieldValue::Choice(0),
         },
@@ -4570,6 +4580,7 @@ fn form_assemble_args_template_interpolation() {
                 default: None,
                 options: None,
                 positional: false,
+                options_from: None,
             },
             value: FieldValue::Text(text_buffer::TextBuffer::with_content("v1.0", 4)),
         },
@@ -4622,6 +4633,7 @@ fn form_validate_required_empty_string_fails() {
                 default: None,
                 options: None,
                 positional: false,
+                options_from: None,
             },
             value: FieldValue::Text(text_buffer::TextBuffer::new()),
         }],
@@ -4646,6 +4658,7 @@ fn form_validate_required_choice_passes() {
                 default: None,
                 options: Some(vec!["staging".to_string(), "production".to_string()]),
                 positional: false,
+                options_from: None,
             },
             value: FieldValue::Choice(0),
         }],
@@ -4679,6 +4692,7 @@ fn form_execute_selected_command_shows_form_for_args() {
                 default: None,
                 options: Some(vec!["staging".to_string(), "production".to_string()]),
                 positional: false,
+                options_from: None,
             }]),
         },
     )];
@@ -4736,6 +4750,7 @@ fn form_key_handling_navigation() {
             default: None,
             options: None,
             positional: false,
+            options_from: None,
         },
         grove_core::ArgDef {
             name: "b".to_string(),
@@ -4745,6 +4760,7 @@ fn form_key_handling_navigation() {
             default: None,
             options: None,
             positional: false,
+            options_from: None,
         },
     ];
 
@@ -4789,6 +4805,7 @@ fn form_key_handling_flag_toggle() {
         default: None,
         options: None,
         positional: false,
+        options_from: None,
     }];
 
     app.form_input = Some(FormInputState::from_schema("test".to_string(), args));
@@ -4834,6 +4851,7 @@ fn form_key_handling_choice_cycle() {
             "prod".to_string(),
         ]),
         positional: false,
+        options_from: None,
     }];
 
     app.form_input = Some(FormInputState::from_schema("test".to_string(), args));
@@ -4882,6 +4900,7 @@ fn form_key_handling_text_input() {
         default: None,
         options: None,
         positional: false,
+        options_from: None,
     }];
 
     app.form_input = Some(FormInputState::from_schema("test".to_string(), args));
@@ -4923,6 +4942,7 @@ fn form_assemble_args_shell_escapes_special_chars() {
             default: None,
             options: None,
             positional: false,
+            options_from: None,
         },
         value: FieldValue::Text(text_buffer::TextBuffer::with_content("hello world", 11)),
     }];
@@ -4950,6 +4970,7 @@ fn form_assemble_args_notebook_capture_scenario() {
                 default: None,
                 options: Some(vec!["Personal".to_string(), "Work".to_string()]),
                 positional: true,
+                options_from: None,
             },
             value: FieldValue::Choice(0), // "Personal"
         },
@@ -4962,6 +4983,7 @@ fn form_assemble_args_notebook_capture_scenario() {
                 default: None,
                 options: None,
                 positional: true,
+                options_from: None,
             },
             value: FieldValue::Text(text_buffer::TextBuffer::with_content("Buy groceries", 13)),
         },
@@ -4974,6 +4996,7 @@ fn form_assemble_args_notebook_capture_scenario() {
                 default: None,
                 options: None,
                 positional: false,
+                options_from: None,
             },
             value: FieldValue::Flag(false),
         },

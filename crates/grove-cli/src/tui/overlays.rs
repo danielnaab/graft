@@ -578,7 +578,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 FieldValue::Text(buf) if buf.buffer.trim().is_empty() => {
                     return Some(format!("Required field '{}' is empty", field.def.name));
                 }
-                // Choice always has a selection, Flag is always valid
+                FieldValue::Choice(_) if field.def.options.as_ref().is_none_or(Vec::is_empty) => {
+                    return Some(format!(
+                        "No options available for '{}' — refresh state queries with 'r'",
+                        field.def.name
+                    ));
+                }
                 _ => {}
             }
         }

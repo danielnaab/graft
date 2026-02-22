@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Iterate command: read a slice plan and output a prompt for the next unchecked step.
 #
-# Usage: bash scripts/iterate.sh slices/<slug>
+# Usage: bash scripts/iterate.sh <slug>
+#        bash scripts/iterate.sh slices/<slug>
 #
+# Accepts a bare slug (e.g. "my-feature") or a full path (e.g. "slices/my-feature").
 # Reads the slice's plan.md, identifies the next unchecked step, and outputs
 # a focused implementation prompt with project context.
 
@@ -32,6 +34,13 @@ SLICE_DIR="$1"
 
 # Strip trailing slash
 SLICE_DIR="${SLICE_DIR%/}"
+
+# Accept bare slug: prepend slices/ if not already a path
+case "$SLICE_DIR" in
+  slices/*) ;;
+  *) SLICE_DIR="slices/$SLICE_DIR" ;;
+esac
+
 PLAN_FILE="$SLICE_DIR/plan.md"
 
 if [ ! -f "$PLAN_FILE" ]; then

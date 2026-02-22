@@ -240,6 +240,9 @@ pub struct ArgDef {
     pub default: Option<String>,
     #[serde(default)]
     pub options: Option<Vec<String>>,
+    /// State query name whose results dynamically populate `options` at form-open time.
+    #[serde(default)]
+    pub options_from: Option<String>,
     #[serde(default)]
     pub positional: bool,
 }

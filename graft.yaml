@@ -20,6 +20,13 @@ commands:
   iterate:
     run: "bash scripts/iterate.sh"
     description: "Generate implementation prompt for next step of a slice"
+    args:
+      - name: slice
+        type: choice
+        description: "Slice to iterate on"
+        required: true
+        positional: true
+        options_from: slices
 
 state:
   slices:

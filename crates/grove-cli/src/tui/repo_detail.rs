@@ -556,10 +556,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         if let Some(args) = &cmd.args {
             if !args.is_empty() {
-                self.form_input = Some(super::FormInputState::from_schema(
-                    cmd_name.clone(),
-                    args.clone(),
-                ));
+                let mut form = super::FormInputState::from_schema(cmd_name.clone(), args.clone());
+                self.inject_dynamic_options(&mut form);
+                self.form_input = Some(form);
                 return;
             }
         }
@@ -569,6 +568,40 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             text: super::text_buffer::TextBuffer::new(),
             command_name: cmd_name.clone(),
         });
+    }
+
+    /// Inject dynamic options from state query results into form fields
+    /// that have `options_from` set.
+    fn inject_dynamic_options(&self, form: &mut super::FormInputState) {
+        for field in &mut form.fields {
+            let Some(query_name) = &field.def.options_from else {
+                continue;
+            };
+
+            // Find the state query index by name
+            let query_idx = self
+                .state_queries
+                .iter()
+                .position(|q| q.name == *query_name);
+
+            let Some(idx) = query_idx else {
+                continue;
+            };
+
+            // Get the cached result
+            let Some(Some(result)) = self.state_results.get(idx) else {
+                continue;
+            };
+
+            let options = extract_options_from_state(&result.data, query_name);
+            if !options.is_empty() {
+                field.def.options = Some(options);
+                // Reset choice index to 0
+                if matches!(field.value, super::FieldValue::Choice(_)) {
+                    field.value = super::FieldValue::Choice(0);
+                }
+            }
+        }
     }
 
     /// Load state queries for the selected repository.
@@ -704,5 +737,135 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 if total == 1 { "y" } else { "ies" }
             )))
         };
+    }
+}
+
+/// Extract option strings from a state query JSON result.
+///
+/// Supports two shapes:
+/// 1. Top-level array: `[{slug: "a"}, ...]` or `["a", "b"]`
+/// 2. Object with array field matching query name: `{slices: [{slug: "a"}, ...]}`
+///
+/// For objects in the array, tries `slug`, then `name`, then `path` fields.
+/// Extract a display string from a single JSON array element.
+///
+/// For strings, returns the value directly. For objects, tries `slug`, then
+/// `name`, then `path`.
+fn extract_option(item: &serde_json::Value) -> Option<String> {
+    if let Some(s) = item.as_str() {
+        return Some(s.to_string());
+    }
+    if let Some(obj) = item.as_object() {
+        for key in &["slug", "name", "path"] {
+            if let Some(val) = obj.get(*key).and_then(|v| v.as_str()) {
+                return Some(val.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn extract_options_from_state(data: &serde_json::Value, query_name: &str) -> Vec<String> {
+    let arr: &[serde_json::Value] = if let Some(arr) = data.as_array() {
+        arr
+    } else if let Some(obj) = data.as_object() {
+        match obj.get(query_name).and_then(|v| v.as_array()) {
+            Some(a) => a,
+            None => return Vec::new(),
+        }
+    } else {
+        return Vec::new();
+    };
+
+    arr.iter().filter_map(extract_option).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_options_from_state;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_slugs_from_slices_query_shape() {
+        // Real list-slices.sh output shape
+        let data = json!({
+            "slices": [
+                {"path": "slices/foo/plan.md", "status": "draft", "slug": "foo", "steps_total": 3, "steps_done": 1},
+                {"path": "slices/bar/plan.md", "status": "done", "slug": "bar", "steps_total": 2, "steps_done": 2}
+            ],
+            "counts": {"draft": 1, "done": 1}
+        });
+        let opts = extract_options_from_state(&data, "slices");
+        assert_eq!(opts, vec!["foo", "bar"]);
+    }
+
+    #[test]
+    fn extracts_from_plain_string_array() {
+        let data = json!(["alpha", "beta", "gamma"]);
+        let opts = extract_options_from_state(&data, "anything");
+        assert_eq!(opts, vec!["alpha", "beta", "gamma"]);
+    }
+
+    #[test]
+    fn extracts_name_when_no_slug() {
+        let data = json!({
+            "items": [
+                {"name": "first"},
+                {"name": "second"}
+            ]
+        });
+        let opts = extract_options_from_state(&data, "items");
+        assert_eq!(opts, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn extracts_path_as_last_resort() {
+        let data = json!({
+            "files": [
+                {"path": "/tmp/a"},
+                {"path": "/tmp/b"}
+            ]
+        });
+        let opts = extract_options_from_state(&data, "files");
+        assert_eq!(opts, vec!["/tmp/a", "/tmp/b"]);
+    }
+
+    #[test]
+    fn prefers_slug_over_name_over_path() {
+        let data = json!([
+            {"slug": "s", "name": "n", "path": "p"}
+        ]);
+        let opts = extract_options_from_state(&data, "x");
+        assert_eq!(opts, vec!["s"]);
+    }
+
+    #[test]
+    fn returns_empty_for_missing_key() {
+        let data = json!({"other": [{"slug": "a"}]});
+        let opts = extract_options_from_state(&data, "slices");
+        assert!(opts.is_empty());
+    }
+
+    #[test]
+    fn returns_empty_for_empty_data() {
+        let opts = extract_options_from_state(&json!(null), "slices");
+        assert!(opts.is_empty());
+
+        let opts = extract_options_from_state(&json!({}), "slices");
+        assert!(opts.is_empty());
+
+        let opts = extract_options_from_state(&json!([]), "slices");
+        assert!(opts.is_empty());
+    }
+
+    #[test]
+    fn skips_objects_with_no_recognized_fields() {
+        let data = json!([
+            {"slug": "good"},
+            {"unrelated": "bad"},
+            {"name": "also_good"}
+        ]);
+        let opts = extract_options_from_state(&data, "x");
+        assert_eq!(opts, vec!["good", "also_good"]);
     }
 }
