@@ -55,9 +55,11 @@ for file in $files; do
     status="draft"
   fi
 
-  # Count checkboxes
-  steps_total=$(grep -cE '^\s*- \[[ x]\]' "$file" 2>/dev/null || echo 0)
-  steps_done=$(grep -cE '^\s*- \[x\]' "$file" 2>/dev/null || echo 0)
+  # Count checkboxes (grep -c exits 1 when count is 0, so use `|| true`)
+  steps_total=$(grep -cE '^\s*- \[[ x]\]' "$file" 2>/dev/null || true)
+  steps_done=$(grep -cE '^\s*- \[x\]' "$file" 2>/dev/null || true)
+  : "${steps_total:=0}"
+  : "${steps_done:=0}"
 
   # Extract slug from parent directory name
   slug=$(basename "$(dirname "$file")")
