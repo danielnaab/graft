@@ -3,7 +3,7 @@
 # Produces JSON: { format, lint, tests }
 #
 # Runs all three checks regardless of individual failures.
-# Output is truncated to keep state query results a reasonable size.
+# On success: compact summary. On failure: first N lines of output.
 
 MAX_LINES=40
 
@@ -16,11 +16,29 @@ lint_exit=$?
 test_output=$(cargo test 2>&1)
 test_exit=$?
 
-# Truncate to first N lines (where errors appear) for format and lint.
-# Truncate to last N lines (where the summary appears) for tests.
-fmt_output=$(echo "$fmt_output" | head -n "$MAX_LINES")
-lint_output=$(echo "$lint_output" | head -n "$MAX_LINES")
-test_output=$(echo "$test_output" | tail -n "$MAX_LINES")
+# On success, produce a compact summary.
+# On failure, keep the first N lines where errors appear.
+if [ $fmt_exit -eq 0 ]; then
+  fmt_output="OK"
+else
+  fmt_output=$(echo "$fmt_output" | head -n "$MAX_LINES")
+fi
+
+if [ $lint_exit -eq 0 ]; then
+  lint_output="OK"
+else
+  lint_output=$(echo "$lint_output" | head -n "$MAX_LINES")
+fi
+
+if [ $test_exit -eq 0 ]; then
+  # Sum passed/failed/ignored counts across all crates into one line.
+  total_passed=$(echo "$test_output" | grep -oP '\d+ passed' | awk '{s+=$1} END {print s+0}')
+  total_failed=$(echo "$test_output" | grep -oP '\d+ failed' | awk '{s+=$1} END {print s+0}')
+  total_ignored=$(echo "$test_output" | grep -oP '\d+ ignored' | awk '{s+=$1} END {print s+0}')
+  test_output="OK. ${total_passed} passed, ${total_failed} failed, ${total_ignored} ignored"
+else
+  test_output=$(echo "$test_output" | head -n "$MAX_LINES")
+fi
 
 jq -n \
   --arg format "$fmt_output" \

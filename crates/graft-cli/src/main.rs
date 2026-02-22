@@ -1749,22 +1749,22 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
 
     // Use context-aware execution if command has stdin or context
     if cmd.needs_context() {
-        // Display what we're running
-        println!("\nExecuting: {command_name}");
+        // Display what we're running (stderr so stdout is clean for piping)
+        eprintln!("\nExecuting: {command_name}");
         if let Some(desc) = &cmd.description {
-            println!("  {desc}");
+            eprintln!("  {desc}");
         }
-        println!("  Command: {}", cmd.run);
+        eprintln!("  Command: {}", cmd.run);
         if !cmd.context.is_empty() {
-            println!("  Context: {}", cmd.context.join(", "));
+            eprintln!("  Context: {}", cmd.context.join(", "));
         }
         if cmd.stdin.is_some() {
-            println!("  Stdin: (template/literal)");
+            eprintln!("  Stdin: (template/literal)");
         }
         if !args.is_empty() {
-            println!("  Arguments: {}", args.join(" "));
+            eprintln!("  Arguments: {}", args.join(" "));
         }
-        println!();
+        eprintln!();
 
         let result = graft_engine::execute_command_with_context(
             cmd, &config, base_dir, args, &repo_name, &repo_name, false,
@@ -1783,23 +1783,23 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
             std::process::exit(result.exit_code);
         }
 
-        println!("\n✓ Command completed successfully");
+        eprintln!("\n✓ Command completed successfully");
         return Ok(());
     }
 
-    // Display what we're running (plain command)
-    println!("\nExecuting: {command_name}");
+    // Display what we're running (stderr so stdout is clean for piping)
+    eprintln!("\nExecuting: {command_name}");
     if let Some(desc) = &cmd.description {
-        println!("  {desc}");
+        eprintln!("  {desc}");
     }
-    println!("  Command: {}", cmd.run);
+    eprintln!("  Command: {}", cmd.run);
     if !args.is_empty() {
-        println!("  Arguments: {}", args.join(" "));
+        eprintln!("  Arguments: {}", args.join(" "));
     }
     if let Some(ref wd) = cmd.working_dir {
-        println!("  Working directory: {wd}");
+        eprintln!("  Working directory: {wd}");
     }
-    println!();
+    eprintln!();
 
     // Determine working directory
     let working_dir = if let Some(ref cmd_dir) = cmd.working_dir {
@@ -1850,13 +1850,13 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
     // Check exit code
     if !status.success() {
         let exit_code = status.code().unwrap_or(1);
-        println!();
+        eprintln!();
         eprintln!("✗ Command failed with exit code {exit_code}");
         std::process::exit(exit_code);
     }
 
-    println!();
-    println!("✓ Command completed successfully");
+    eprintln!();
+    eprintln!("✓ Command completed successfully");
 
     Ok(())
 }
@@ -1893,19 +1893,19 @@ fn run_dependency_command(dep_name: &str, command_name: &str, args: &[String]) -
         std::process::exit(1);
     };
 
-    // Display what we're running
-    println!("\nExecuting: {dep_name}:{command_name}");
+    // Display what we're running (stderr so stdout is clean for piping)
+    eprintln!("\nExecuting: {dep_name}:{command_name}");
     if let Some(desc) = &cmd.description {
-        println!("  {desc}");
+        eprintln!("  {desc}");
     }
-    println!("  Command: {}", cmd.run);
+    eprintln!("  Command: {}", cmd.run);
     if !args.is_empty() {
-        println!("  Arguments: {}", args.join(" "));
+        eprintln!("  Arguments: {}", args.join(" "));
     }
     if let Some(ref wd) = cmd.working_dir {
-        println!("  Working directory: {wd}");
+        eprintln!("  Working directory: {wd}");
     }
-    println!();
+    eprintln!();
 
     // Determine working directory
     // For dependency commands, execute in consumer's context (current directory)
@@ -1949,13 +1949,13 @@ fn run_dependency_command(dep_name: &str, command_name: &str, args: &[String]) -
     // Check exit code
     if !status.success() {
         let exit_code = status.code().unwrap_or(1);
-        println!();
+        eprintln!();
         eprintln!("✗ Command failed with exit code {exit_code}");
         std::process::exit(exit_code);
     }
 
-    println!();
-    println!("✓ Command completed successfully");
+    eprintln!();
+    eprintln!("✓ Command completed successfully");
 
     Ok(())
 }
