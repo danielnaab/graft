@@ -15,8 +15,15 @@ commands:
     context:
       - verify
       - changes
+      - slices
 
 state:
+  slices:
+    run: "bash scripts/list-slices.sh"
+    cache:
+      deterministic: false
+    timeout: 10
+
   verify:
     run: "bash scripts/verify.sh"
     cache:

@@ -17,6 +17,7 @@ This repo contains two components in a shared Rust workspace:
 | `docs/` | Implementation documentation (architecture overview, guides, ADRs) |
 | `docs/grove/` | Grove implementation and planning docs |
 | `notes/` | Time-bounded exploration notes ([index](notes/index.md)) |
+| `slices/` | Slice files — living plan documents (`draft` → `accepted` → `in-progress` → `done`) |
 | `.graft/` | Dependencies managed via `graft resolve` |
 | `knowledge-base.yaml` | KB structure declaration |
 
@@ -88,6 +89,7 @@ You may write to:
 - `tests/**` - Python test code
 - `docs/**` - Implementation documentation
 - `notes/**` - Time-bounded development notes
+- `slices/**` - Slice files (living plan documents)
 
 Never write to:
 - `docs/specifications/**` - Canonical specs (requires explicit spec-change workflow)

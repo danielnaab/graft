@@ -87,6 +87,8 @@ sources:
       note: "Grove planning docs (roadmap, slices) - working documents"
     - path: "notes/**"
       note: "Time-bounded exploration and session logs"
+    - path: "slices/**"
+      note: "Slice files — living plan documents with lifecycle status (draft → accepted → in-progress → done)"
 
 rules:
   lifecycle:
@@ -94,5 +96,5 @@ rules:
   provenance:
     requiredFor: ["factual-claims", "operational-guidance"]
   writes:
-    allow: ["src/**", "crates/**", "tests/**", "docs/**", "notes/**"]
+    allow: ["src/**", "crates/**", "tests/**", "docs/**", "notes/**", "slices/**"]
     deny: ["docs/specifications/**", "secrets/**", "config/prod/**"]
