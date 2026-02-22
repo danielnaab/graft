@@ -770,17 +770,28 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
 
         // Load dependency state queries (with script paths pre-resolved to absolute)
-        if let Ok(dep_names) = graft_common::parse_dependency_names(&graft_yaml_path) {
-            for dep_name in &dep_names {
-                let dep_graft_path =
-                    Path::new(repo_path).join(format!(".graft/{dep_name}/graft.yaml"));
-                if let Ok(mut dep_queries) = discover_state_queries(&dep_graft_path) {
-                    let dep_dir = Path::new(repo_path).join(format!(".graft/{dep_name}"));
-                    for query in &mut dep_queries {
-                        query.run = graft_engine::resolve_script_in_command(&query.run, &dep_dir);
+        match graft_common::parse_dependency_names(&graft_yaml_path) {
+            Ok(dep_names) => {
+                for dep_name in &dep_names {
+                    let dep_graft_path =
+                        Path::new(repo_path).join(format!(".graft/{dep_name}/graft.yaml"));
+                    match discover_state_queries(&dep_graft_path) {
+                        Ok(mut dep_queries) => {
+                            let dep_dir = Path::new(repo_path).join(format!(".graft/{dep_name}"));
+                            for query in &mut dep_queries {
+                                query.run =
+                                    graft_engine::resolve_script_in_command(&query.run, &dep_dir);
+                            }
+                            self.state_queries.extend(dep_queries);
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to load state queries from dep '{dep_name}': {e}");
+                        }
                     }
-                    self.state_queries.extend(dep_queries);
                 }
+            }
+            Err(e) => {
+                log::warn!("Failed to parse dependency names: {e}");
             }
         }
 

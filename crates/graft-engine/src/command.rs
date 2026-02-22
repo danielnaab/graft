@@ -275,8 +275,8 @@ pub fn resolve_command_stdin(
 /// Resolve state queries referenced in a command's `context` field.
 ///
 /// State query scripts execute in `ctx.consumer_dir` (the consumer's repo root).
-/// Note: state query `run:` fields are passed as-is — script path resolution
-/// for state queries is not yet implemented (only command `run:` fields are resolved).
+/// For dependency commands, state query `run:` fields have script paths resolved
+/// from `ctx.source_dir` (same heuristic as command `run:` fields).
 fn resolve_state_queries(
     command: &Command,
     config: &GraftConfig,
@@ -295,8 +295,22 @@ fn resolve_state_queries(
                 ))
             })?;
 
+            // Resolve script paths in the state query's run field for dep commands
+            let resolved_query = if ctx.is_dependency() {
+                let resolved_run = resolve_script_in_command(&query.run, &ctx.source_dir);
+                if resolved_run == query.run {
+                    None
+                } else {
+                    let mut q = query.clone();
+                    q.run = resolved_run;
+                    Some(q)
+                }
+            } else {
+                None
+            };
+
             let result = get_state(
-                query,
+                resolved_query.as_ref().unwrap_or(query),
                 &ctx.workspace_name,
                 &ctx.repo_name,
                 &ctx.consumer_dir,
@@ -752,5 +766,60 @@ mod tests {
         let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
         assert!(result.success);
         assert!(result.stdout.contains("hello-local"));
+    }
+
+    #[test]
+    fn dep_context_resolves_state_query_script_path() {
+        use crate::domain::{StateCache, StateQuery};
+        use std::process::Command as StdCommand;
+
+        let dep_dir = tempfile::tempdir().unwrap();
+        let consumer_dir = tempfile::tempdir().unwrap();
+
+        // consumer_dir needs to be a git repo (for get_current_commit)
+        StdCommand::new("git")
+            .args(["init"])
+            .current_dir(consumer_dir.path())
+            .output()
+            .unwrap();
+        StdCommand::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .current_dir(consumer_dir.path())
+            .output()
+            .unwrap();
+
+        // Create a state query script in the dep directory
+        let scripts_dir = dep_dir.path().join("scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(
+            scripts_dir.join("query.sh"),
+            "#!/bin/bash\necho '{\"from\": \"dep\"}'",
+        )
+        .unwrap();
+
+        // Command that references the state query
+        let mut command = Command::new("test", "cat").unwrap();
+        command.context = vec!["myquery".to_string()];
+
+        // Config with the state query
+        let mut config = GraftConfig::new("graft/v0").unwrap();
+        let query = StateQuery::new("myquery", "bash scripts/query.sh")
+            .unwrap()
+            .with_cache(StateCache {
+                deterministic: false,
+                ttl: None,
+            });
+        config.state.insert("myquery".to_string(), query);
+
+        let ctx =
+            CommandContext::dependency(dep_dir.path(), consumer_dir.path(), "ws", "repo", false);
+
+        // execute_command_with_context should resolve the state query script from source_dir
+        let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
+        assert!(
+            result.success,
+            "State query script should be found and executed. stderr: {}",
+            result.stderr
+        );
     }
 }

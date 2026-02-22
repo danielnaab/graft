@@ -176,6 +176,13 @@ impl ProcessHandle {
 
         if config.stdin.is_some() {
             cmd.stdin(Stdio::piped());
+        } else {
+            // Close stdin so commands like `cat` get immediate EOF instead of
+            // blocking on the terminal. This function is only used for captured,
+            // non-interactive execution (state queries, git ops, piped commands).
+            // Interactive commands use std::process::Command directly with
+            // inherited stdin via .status().
+            cmd.stdin(Stdio::null());
         }
 
         let mut child = cmd
