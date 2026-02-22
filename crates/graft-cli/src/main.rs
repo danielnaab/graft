@@ -1675,7 +1675,7 @@ fn run_command(command_name: Option<&str>, dry_run: bool, args: &[String]) -> Re
             bail!("Error: Invalid command format: '{command_name}'\n  Expected format: <dependency>:<command>");
         }
 
-        run_dependency_command(dep_name, cmd_name, args)?;
+        run_dependency_command(dep_name, cmd_name, dry_run, args)?;
     } else {
         // Execute from current repo
         run_current_repo_command(command_name, dry_run, args)?;
@@ -1726,12 +1726,12 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
         .unwrap_or_else(|| "unknown".to_string());
 
+    let cmd_ctx = graft_engine::CommandContext::local(base_dir, &repo_name, &repo_name, false);
+
     // Handle dry-run mode
     if dry_run {
         if cmd.stdin.is_some() {
-            let rendered = graft_engine::resolve_command_stdin(
-                cmd, &config, base_dir, &repo_name, &repo_name, false, args,
-            )?;
+            let rendered = graft_engine::resolve_command_stdin(cmd, &config, &cmd_ctx, args)?;
             if let Some(text) = rendered {
                 print!("{text}");
             }
@@ -1766,9 +1766,7 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
         }
         eprintln!();
 
-        let result = graft_engine::execute_command_with_context(
-            cmd, &config, base_dir, args, &repo_name, &repo_name, false,
-        )?;
+        let result = graft_engine::execute_command_with_context(cmd, &config, &cmd_ctx, args)?;
 
         // Print stdout/stderr
         if !result.stdout.is_empty() {
@@ -1862,22 +1860,38 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
 }
 
 #[allow(clippy::too_many_lines)]
-fn run_dependency_command(dep_name: &str, command_name: &str, args: &[String]) -> Result<()> {
-    // Find dependency's graft.yaml
-    let dep_path = PathBuf::from(".graft").join(dep_name).join("graft.yaml");
+fn run_dependency_command(
+    dep_name: &str,
+    command_name: &str,
+    dry_run: bool,
+    args: &[String],
+) -> Result<()> {
+    // Find consumer's graft.yaml (for finding the consumer repo root)
+    let Some(consumer_graft_path) = find_graft_yaml() else {
+        eprintln!("Error: No graft.yaml found in current directory or parent directories");
+        std::process::exit(1);
+    };
+    let consumer_dir = consumer_graft_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
 
-    if !dep_path.exists() {
+    // Find dependency's graft.yaml
+    let dep_dir = consumer_dir.join(".graft").join(dep_name);
+    let dep_yaml_path = dep_dir.join("graft.yaml");
+
+    if !dep_yaml_path.exists() {
         eprintln!(
             "Error: Dependency configuration not found: {}",
-            dep_path.display()
+            dep_yaml_path.display()
         );
         eprintln!("  Suggestion: Check that {dep_name} is resolved in .graft/");
         std::process::exit(1);
     }
 
     // Parse dependency's graft.yaml
-    let config = parse_graft_yaml(&dep_path)
-        .with_context(|| format!("Failed to parse {}", dep_path.display()))?;
+    let config = parse_graft_yaml(&dep_yaml_path)
+        .with_context(|| format!("Failed to parse {}", dep_yaml_path.display()))?;
 
     // Check if command exists
     let Some(cmd) = config.commands.get(command_name) else {
@@ -1893,69 +1907,78 @@ fn run_dependency_command(dep_name: &str, command_name: &str, args: &[String]) -
         std::process::exit(1);
     };
 
+    // Determine repo name for state caching
+    let repo_name = consumer_dir
+        .canonicalize()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Build dependency command context: source_dir = dep dir, consumer_dir = repo root
+    let cmd_ctx = graft_engine::CommandContext::dependency(
+        &dep_dir,
+        &consumer_dir,
+        &repo_name,
+        &repo_name,
+        false,
+    );
+
+    // Handle dry-run mode
+    if dry_run {
+        if cmd.stdin.is_some() {
+            let rendered = graft_engine::resolve_command_stdin(cmd, &config, &cmd_ctx, args)?;
+            if let Some(text) = rendered {
+                print!("{text}");
+            }
+        } else {
+            // No stdin: print the command that would execute (with script resolution)
+            let resolved_run =
+                graft_engine::resolve_script_in_command(&cmd.run, &cmd_ctx.source_dir);
+            let full_command = if args.is_empty() {
+                resolved_run
+            } else {
+                format!("{resolved_run} {}", args.join(" "))
+            };
+            println!("{full_command}");
+        }
+        return Ok(());
+    }
+
     // Display what we're running (stderr so stdout is clean for piping)
     eprintln!("\nExecuting: {dep_name}:{command_name}");
     if let Some(desc) = &cmd.description {
         eprintln!("  {desc}");
     }
     eprintln!("  Command: {}", cmd.run);
+    if !cmd.context.is_empty() {
+        eprintln!("  Context: {}", cmd.context.join(", "));
+    }
+    if cmd.stdin.is_some() {
+        eprintln!("  Stdin: (template/literal)");
+    }
     if !args.is_empty() {
         eprintln!("  Arguments: {}", args.join(" "));
     }
-    if let Some(ref wd) = cmd.working_dir {
-        eprintln!("  Working directory: {wd}");
-    }
+    eprintln!("  Source: .graft/{dep_name}/");
     eprintln!();
 
-    // Determine working directory
-    // For dependency commands, execute in consumer's context (current directory)
-    // unless command has working_dir specified
-    let working_dir = if let Some(ref cmd_dir) = cmd.working_dir {
-        PathBuf::from(cmd_dir)
-    } else {
-        PathBuf::from(".")
-    };
+    // Use context-aware execution (handles stdin, context, script resolution, GRAFT_DEP_DIR)
+    let result = graft_engine::execute_command_with_context(cmd, &config, &cmd_ctx, args)?;
 
-    // Build full command with args
-    let full_command = if args.is_empty() {
-        cmd.run.clone()
-    } else {
-        format!("{} {}", cmd.run, args.join(" "))
-    };
-
-    // Set up environment variables
-    let mut process_cmd = std::process::Command::new("sh");
-    process_cmd
-        .arg("-c")
-        .arg(&full_command)
-        .current_dir(&working_dir);
-
-    // Add environment variables if specified
-    if let Some(env_vars) = &cmd.env {
-        for (key, value) in env_vars {
-            process_cmd.env(key, value);
-        }
+    // Print stdout/stderr
+    if !result.stdout.is_empty() {
+        println!("{}", result.stdout);
+    }
+    if !result.stderr.is_empty() {
+        eprintln!("{}", result.stderr);
     }
 
-    // Execute command with output streaming
-    let status = process_cmd.status().with_context(|| {
-        format!(
-            "Failed to execute command '{}' in directory '{}'",
-            cmd.run,
-            working_dir.display()
-        )
-    })?;
-
-    // Check exit code
-    if !status.success() {
-        let exit_code = status.code().unwrap_or(1);
-        eprintln!();
-        eprintln!("✗ Command failed with exit code {exit_code}");
-        std::process::exit(exit_code);
+    if !result.success {
+        eprintln!("\n✗ Command failed with exit code {}", result.exit_code);
+        std::process::exit(result.exit_code);
     }
 
-    eprintln!();
-    eprintln!("✓ Command completed successfully");
+    eprintln!("\n✓ Command completed successfully");
 
     Ok(())
 }

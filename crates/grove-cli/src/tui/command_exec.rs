@@ -89,21 +89,22 @@ pub fn spawn_command(
     tx: Sender<CommandEvent>,
 ) {
     // Parse qualified command name (dep:cmd vs local)
-    let (graft_yaml, lookup_name, base_dir) = if let Some((dep, cmd)) = command_name.split_once(':')
-    {
-        // Dependency command: load from .graft/<dep>/graft.yaml
-        let path = PathBuf::from(&repo_path)
-            .join(".graft")
-            .join(dep)
-            .join("graft.yaml");
-        let dir = PathBuf::from(&repo_path).join(".graft").join(dep);
-        (path, cmd.to_string(), dir)
-    } else {
-        // Local command
-        let path = PathBuf::from(&repo_path).join("graft.yaml");
-        let dir = PathBuf::from(&repo_path);
-        (path, command_name.clone(), dir)
-    };
+    // For dep commands: scripts/templates live in source_dir (.graft/<dep>/),
+    // but commands execute in consumer_dir (the repo root).
+    let (graft_yaml, lookup_name, source_dir, consumer_dir) =
+        if let Some((dep, cmd)) = command_name.split_once(':') {
+            let path = PathBuf::from(&repo_path)
+                .join(".graft")
+                .join(dep)
+                .join("graft.yaml");
+            let src = PathBuf::from(&repo_path).join(".graft").join(dep);
+            let consumer = PathBuf::from(&repo_path);
+            (path, cmd.to_string(), src, consumer)
+        } else {
+            let path = PathBuf::from(&repo_path).join("graft.yaml");
+            let dir = PathBuf::from(&repo_path);
+            (path, command_name.clone(), dir.clone(), dir)
+        };
 
     // Load commands from graft.yaml.
     let commands = match graft_common::parse_commands(&graft_yaml) {
@@ -123,17 +124,33 @@ pub fn spawn_command(
         return;
     };
 
+    // Resolve script paths: rewrite relative paths to absolute in source_dir
+    let resolved_run = graft_engine::resolve_script_in_command(&cmd_def.run, &source_dir);
+
     // Build shell command: `run [args...]`
     let args_clone = args.clone();
-    let mut full_parts = vec![cmd_def.run.clone()];
+    let mut full_parts = vec![resolved_run];
     full_parts.extend(args);
     let shell_cmd = full_parts.join(" ");
 
-    // Determine working directory (relative to base_dir if specified).
+    // Working directory: defaults to consumer_dir (repo root), with working_dir
+    // relative to consumer_dir
     let working_dir = if let Some(ref sub_dir) = cmd_def.working_dir {
-        base_dir.join(sub_dir)
+        consumer_dir.join(sub_dir)
     } else {
-        base_dir
+        consumer_dir.clone()
+    };
+
+    // Inject GRAFT_DEP_DIR for dependency commands
+    let env = if source_dir == consumer_dir {
+        cmd_def.env
+    } else {
+        let mut env_map = cmd_def.env.unwrap_or_default();
+        env_map.insert(
+            "GRAFT_DEP_DIR".to_string(),
+            source_dir.to_string_lossy().to_string(),
+        );
+        Some(env_map)
     };
 
     let logging = prepare_run_logging(run_ctx.as_ref());
@@ -141,7 +158,7 @@ pub fn spawn_command(
     let config = ProcessConfig {
         command: shell_cmd.clone(),
         working_dir,
-        env: cmd_def.env,
+        env,
         log_path: logging.as_ref().map(|l| l.log_path.clone()),
         timeout: None,
         stdin: None,
@@ -312,8 +329,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// command directly to `spawn_command_assembled`, skipping arg splitting.
     /// The `working_dir` and `env` from the original command definition are forwarded.
     ///
-    /// For dependency commands (`dep:cmd`), the base directory is resolved to
-    /// `.graft/<dep>/` so that `working_dir` is relative to the dep directory.
+    /// For both local and dependency commands, the base directory is the consumer's
+    /// repo root (commands always execute in the consumer's context).
     pub(super) fn execute_command_assembled(
         &mut self,
         command_name: String,
@@ -325,16 +342,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             return;
         };
 
-        // Compute the effective base directory: for dep:cmd, use .graft/<dep>/
-        let base_dir = if let Some((dep, _)) = command_name.split_once(':') {
-            PathBuf::from(repo_path)
-                .join(".graft")
-                .join(dep)
-                .display()
-                .to_string()
-        } else {
-            repo_path.clone()
-        };
+        // Always use the consumer's repo root as base directory
+        let base_dir = repo_path.clone();
 
         let run_ctx = self.build_run_context(repo_path, &command_name);
 
@@ -467,7 +476,7 @@ commands:
     }
 
     #[test]
-    fn spawn_command_dep_uses_dep_working_dir() {
+    fn spawn_command_dep_uses_consumer_working_dir() {
         let repo = setup_repo("commands: {}");
         setup_dep(
             repo.path(),
@@ -481,8 +490,8 @@ commands:
 
         let events = collect_events("mylib:pwd", vec![], repo.path().to_str().unwrap());
 
-        // The working directory should be .graft/mylib/
-        let expected_dir = repo.path().join(".graft").join("mylib");
+        // The working directory should be the consumer's repo root (not .graft/mylib/)
+        let expected_dir = repo.path();
         assert!(events.iter().any(|e| matches!(
             e,
             CommandEvent::OutputLine(s) if s.trim() == expected_dir.to_str().unwrap()
@@ -492,27 +501,67 @@ commands:
     #[test]
     fn spawn_command_dep_with_working_dir_override() {
         let repo = setup_repo("commands: {}");
-        let dep_dir = repo.path().join(".graft").join("mylib");
-        let sub_dir = dep_dir.join("subdir");
+        // Create subdir under the repo root (not the dep dir)
+        let sub_dir = repo.path().join("subdir");
         fs::create_dir_all(&sub_dir).unwrap();
-        fs::write(
-            dep_dir.join("graft.yaml"),
+        setup_dep(
+            repo.path(),
+            "mylib",
             r#"
 commands:
   pwd:
     run: "pwd"
     working_dir: "subdir"
 "#,
-        )
-        .unwrap();
+        );
 
         let events = collect_events("mylib:pwd", vec![], repo.path().to_str().unwrap());
 
-        // working_dir should resolve relative to .graft/mylib/, not repo root
+        // working_dir should resolve relative to consumer dir (repo root)
         assert!(events.iter().any(|e| matches!(
             e,
             CommandEvent::OutputLine(s) if s.trim() == sub_dir.to_str().unwrap()
         )));
+    }
+
+    #[test]
+    fn spawn_command_dep_sets_graft_dep_dir() {
+        let repo = setup_repo("commands: {}");
+        setup_dep(
+            repo.path(),
+            "mylib",
+            r#"
+commands:
+  env:
+    run: "printenv GRAFT_DEP_DIR"
+"#,
+        );
+
+        let events = collect_events("mylib:env", vec![], repo.path().to_str().unwrap());
+
+        let expected_dep_dir = repo.path().join(".graft").join("mylib");
+        assert!(events.iter().any(|e| matches!(
+            e,
+            CommandEvent::OutputLine(s) if s.trim() == expected_dep_dir.to_str().unwrap()
+        )));
+    }
+
+    #[test]
+    fn spawn_command_local_no_graft_dep_dir() {
+        let repo = setup_repo(
+            r#"
+commands:
+  env:
+    run: "printenv GRAFT_DEP_DIR || echo NOT_SET"
+"#,
+        );
+
+        let events = collect_events("env", vec![], repo.path().to_str().unwrap());
+
+        // For local commands, GRAFT_DEP_DIR should not be set
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, CommandEvent::OutputLine(s) if s.contains("NOT_SET"))));
     }
 
     #[test]
@@ -526,18 +575,16 @@ commands:
     }
 
     #[test]
-    fn spawn_command_assembled_uses_base_dir() {
+    fn spawn_command_assembled_uses_consumer_dir() {
         let repo = setup_repo("commands: {}");
         setup_dep(repo.path(), "lib", "commands: {}");
 
-        let dep_dir = repo.path().join(".graft").join("lib");
         let (tx, rx) = mpsc::channel();
 
-        // Simulate what execute_command_assembled does for dep commands:
-        // pass the dep directory as repo_path (base_dir)
+        // execute_command_assembled now always uses the consumer's repo root
         spawn_command_assembled(
             "pwd".to_string(),
-            dep_dir.display().to_string(),
+            repo.path().display().to_string(),
             None,
             None,
             None,
@@ -547,7 +594,7 @@ commands:
         let events: Vec<_> = rx.into_iter().collect();
         assert!(events.iter().any(|e| matches!(
             e,
-            CommandEvent::OutputLine(s) if s.trim() == dep_dir.to_str().unwrap()
+            CommandEvent::OutputLine(s) if s.trim() == repo.path().to_str().unwrap()
         )));
     }
 }

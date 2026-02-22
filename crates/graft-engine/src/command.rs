@@ -8,7 +8,7 @@ use crate::state::get_state;
 use crate::template::{resolve_stdin, TemplateContext};
 use graft_common::process::{run_to_completion_with_timeout, ProcessConfig};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Result of executing a command.
 #[derive(Debug, Clone)]
@@ -21,6 +21,67 @@ pub struct CommandResult {
     pub stderr: String,
     /// Whether the command succeeded (exit code 0)
     pub success: bool,
+}
+
+/// Execution context for a command, carrying dual-path resolution.
+///
+/// `source_dir` is where the command's scripts and templates live (the dep directory
+/// for dep commands, or the repo root for local commands).
+///
+/// `consumer_dir` is the consumer's repo root — where commands execute, where git
+/// state lives, and where `repo_path` template variable points.
+///
+/// For local commands, both paths are the same directory.
+#[derive(Debug, Clone)]
+pub struct CommandContext {
+    /// Where scripts and templates live (dep dir or repo root).
+    pub source_dir: PathBuf,
+    /// Consumer's repo root — working directory for commands and git ops.
+    pub consumer_dir: PathBuf,
+    /// Workspace name for state caching.
+    pub workspace_name: String,
+    /// Repo name for state caching.
+    pub repo_name: String,
+    /// Whether to force-refresh state queries (ignore cache).
+    pub refresh: bool,
+}
+
+impl CommandContext {
+    /// Create a context for a local command (source and consumer are the same directory).
+    pub fn local(base_dir: &Path, workspace_name: &str, repo_name: &str, refresh: bool) -> Self {
+        Self {
+            source_dir: base_dir.to_path_buf(),
+            consumer_dir: base_dir.to_path_buf(),
+            workspace_name: workspace_name.to_string(),
+            repo_name: repo_name.to_string(),
+            refresh,
+        }
+    }
+
+    /// Create a context for a dependency command.
+    ///
+    /// `dep_dir` is where the dep's scripts/templates live (e.g., `.graft/<dep>/`).
+    /// `consumer_dir` is the consumer's repo root.
+    pub fn dependency(
+        dep_dir: &Path,
+        consumer_dir: &Path,
+        workspace_name: &str,
+        repo_name: &str,
+        refresh: bool,
+    ) -> Self {
+        Self {
+            source_dir: dep_dir.to_path_buf(),
+            consumer_dir: consumer_dir.to_path_buf(),
+            workspace_name: workspace_name.to_string(),
+            repo_name: repo_name.to_string(),
+            refresh,
+        }
+    }
+
+    /// Whether this is a dependency context (`source_dir` differs from `consumer_dir`).
+    pub fn is_dependency(&self) -> bool {
+        self.source_dir != self.consumer_dir
+    }
 }
 
 /// Execute a dependency-defined command.
@@ -81,43 +142,22 @@ pub fn execute_command(
 /// 3. If `command.stdin` is present, renders the template with built-in + state variables
 /// 4. Pipes the rendered text to the subprocess's stdin
 ///
+/// Path resolution uses `CommandContext`:
+/// - Template files → resolved from `ctx.source_dir`
+/// - State query working dir → `ctx.consumer_dir`
+/// - Git operations → `ctx.consumer_dir`
+/// - Command working dir → defaults to `ctx.consumer_dir`
+/// - Template `repo_path` variable → `ctx.consumer_dir`
+///
 /// For commands without stdin/context, use `execute_command()` instead (or this works too).
-#[allow(clippy::too_many_arguments)]
 pub fn execute_command_with_context(
     command: &Command,
     config: &GraftConfig,
-    base_dir: &Path,
+    ctx: &CommandContext,
     args: &[String],
-    workspace_name: &str,
-    repo_name: &str,
-    refresh: bool,
 ) -> Result<CommandResult> {
-    // Step 1: Resolve state queries from context
-    let mut state_results: HashMap<String, serde_json::Value> = HashMap::new();
-
-    if !command.context.is_empty() {
-        let commit_hash = graft_common::get_current_commit(base_dir)
-            .map_err(|e| GraftError::CommandExecution(format!("Failed to get commit hash: {e}")))?;
-
-        for ctx_name in &command.context {
-            let query = config.state.get(ctx_name).ok_or_else(|| {
-                GraftError::CommandExecution(format!(
-                    "Context entry '{ctx_name}' not found in state section"
-                ))
-            })?;
-
-            let result = get_state(
-                query,
-                workspace_name,
-                repo_name,
-                base_dir,
-                &commit_hash,
-                refresh,
-            )?;
-
-            state_results.insert(ctx_name.clone(), result.data);
-        }
-    }
+    // Step 1: Resolve state queries from context (git ops use consumer_dir)
+    let state_results = resolve_state_queries(command, config, ctx)?;
 
     // Step 2: Build env vars from state results
     let mut merged_env: HashMap<String, String> = command.env.clone().unwrap_or_default();
@@ -129,16 +169,32 @@ pub fn execute_command_with_context(
         merged_env.insert(env_key, json_str);
     }
 
+    // Inject GRAFT_DEP_DIR for dependency commands
+    if ctx.is_dependency() {
+        merged_env.insert(
+            "GRAFT_DEP_DIR".to_string(),
+            ctx.source_dir.to_string_lossy().to_string(),
+        );
+    }
+
     // Step 3: Resolve stdin (if present)
+    // Template files resolve from source_dir; template context repo_path = consumer_dir
     let rendered_stdin = if let Some(ref stdin_source) = command.stdin {
-        let git_branch = get_git_branch(base_dir).unwrap_or_else(|_| "unknown".to_string());
-        let commit_hash =
-            graft_common::get_current_commit(base_dir).unwrap_or_else(|_| "unknown".to_string());
+        let git_branch =
+            get_git_branch(&ctx.consumer_dir).unwrap_or_else(|_| "unknown".to_string());
+        let commit_hash = graft_common::get_current_commit(&ctx.consumer_dir)
+            .unwrap_or_else(|_| "unknown".to_string());
 
-        let template_ctx =
-            TemplateContext::new(base_dir, &commit_hash, &git_branch, &state_results, args);
+        let template_ctx = TemplateContext::new(
+            &ctx.consumer_dir,
+            &commit_hash,
+            &git_branch,
+            &state_results,
+            args,
+        );
 
-        let rendered = resolve_stdin(stdin_source, base_dir, &template_ctx)?;
+        // Template file paths resolve from source_dir
+        let rendered = resolve_stdin(stdin_source, &ctx.source_dir, &template_ctx)?;
         Some(rendered)
     } else {
         None
@@ -146,18 +202,14 @@ pub fn execute_command_with_context(
 
     // Step 4: Build and execute command
     // When stdin is configured, args are consumed by the template (not appended to command)
-    let mut full_command = vec![command.run.clone()];
-    if command.stdin.is_none() {
-        full_command.extend(args.iter().cloned());
-    }
+    let shell_cmd = build_shell_command(command, &ctx.source_dir, args);
 
+    // Working dir defaults to consumer_dir
     let working_dir = if let Some(ref cmd_dir) = command.working_dir {
-        base_dir.join(cmd_dir)
+        ctx.consumer_dir.join(cmd_dir)
     } else {
-        base_dir.to_path_buf()
+        ctx.consumer_dir.clone()
     };
-
-    let shell_cmd = full_command.join(" ");
 
     let env = if merged_env.is_empty() {
         None
@@ -188,24 +240,52 @@ pub fn execute_command_with_context(
 /// Resolve a command's stdin to rendered text (for dry-run mode).
 ///
 /// Returns the rendered stdin text, or None if the command has no stdin.
+/// Template files resolve from `ctx.source_dir`; template `repo_path` = `ctx.consumer_dir`.
 pub fn resolve_command_stdin(
     command: &Command,
     config: &GraftConfig,
-    base_dir: &Path,
-    workspace_name: &str,
-    repo_name: &str,
-    refresh: bool,
+    ctx: &CommandContext,
     args: &[String],
 ) -> Result<Option<String>> {
     if command.stdin.is_none() {
         return Ok(None);
     }
 
-    // Resolve state queries from context
+    // Resolve state queries from context (git ops use consumer_dir)
+    let state_results = resolve_state_queries(command, config, ctx)?;
+
+    let stdin_source = command.stdin.as_ref().unwrap();
+    let git_branch = get_git_branch(&ctx.consumer_dir).unwrap_or_else(|_| "unknown".to_string());
+    let commit_hash = graft_common::get_current_commit(&ctx.consumer_dir)
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    let template_ctx = TemplateContext::new(
+        &ctx.consumer_dir,
+        &commit_hash,
+        &git_branch,
+        &state_results,
+        args,
+    );
+
+    // Template file paths resolve from source_dir
+    let rendered = resolve_stdin(stdin_source, &ctx.source_dir, &template_ctx)?;
+    Ok(Some(rendered))
+}
+
+/// Resolve state queries referenced in a command's `context` field.
+///
+/// State query scripts execute in `ctx.consumer_dir` (the consumer's repo root).
+/// Script paths in state query `run:` fields are resolved from `ctx.source_dir`
+/// when running in dependency mode.
+fn resolve_state_queries(
+    command: &Command,
+    config: &GraftConfig,
+    ctx: &CommandContext,
+) -> Result<HashMap<String, serde_json::Value>> {
     let mut state_results: HashMap<String, serde_json::Value> = HashMap::new();
 
     if !command.context.is_empty() {
-        let commit_hash = graft_common::get_current_commit(base_dir)
+        let commit_hash = graft_common::get_current_commit(&ctx.consumer_dir)
             .map_err(|e| GraftError::CommandExecution(format!("Failed to get commit hash: {e}")))?;
 
         for ctx_name in &command.context {
@@ -217,27 +297,67 @@ pub fn resolve_command_stdin(
 
             let result = get_state(
                 query,
-                workspace_name,
-                repo_name,
-                base_dir,
+                &ctx.workspace_name,
+                &ctx.repo_name,
+                &ctx.consumer_dir,
                 &commit_hash,
-                refresh,
+                ctx.refresh,
             )?;
 
             state_results.insert(ctx_name.clone(), result.data);
         }
     }
 
-    let stdin_source = command.stdin.as_ref().unwrap();
-    let git_branch = get_git_branch(base_dir).unwrap_or_else(|_| "unknown".to_string());
-    let commit_hash =
-        graft_common::get_current_commit(base_dir).unwrap_or_else(|_| "unknown".to_string());
+    Ok(state_results)
+}
 
-    let template_ctx =
-        TemplateContext::new(base_dir, &commit_hash, &git_branch, &state_results, args);
+/// Resolve a script path in a command's `run:` field.
+///
+/// For commands matching `<interpreter> <relative-path> [args]` where the path
+/// exists in `source_dir`, rewrites the path to absolute so the script is found
+/// even when the working directory is the consumer's repo root.
+///
+/// Returns the (possibly rewritten) shell command string.
+pub fn resolve_script_in_command(run: &str, source_dir: &Path) -> String {
+    let parts: Vec<&str> = run.splitn(3, char::is_whitespace).collect();
 
-    let rendered = resolve_stdin(stdin_source, base_dir, &template_ctx)?;
-    Ok(Some(rendered))
+    if parts.len() < 2 {
+        return run.to_string();
+    }
+
+    let script_path = Path::new(parts[1]);
+
+    // Only rewrite relative paths (not absolute, not bare commands like "cat")
+    if script_path.is_absolute() || !script_path.to_string_lossy().contains('/') {
+        return run.to_string();
+    }
+
+    // Check if the script exists in source_dir
+    let resolved = source_dir.join(script_path);
+    if resolved.exists() {
+        let abs_path = resolved.to_string_lossy();
+        if parts.len() == 3 {
+            format!("{} {} {}", parts[0], abs_path, parts[2])
+        } else {
+            format!("{} {}", parts[0], abs_path)
+        }
+    } else {
+        run.to_string()
+    }
+}
+
+/// Build the shell command string, resolving script paths for dependency commands.
+///
+/// When stdin is configured, args are consumed by the template (not appended to command).
+fn build_shell_command(command: &Command, source_dir: &Path, args: &[String]) -> String {
+    let resolved_run = resolve_script_in_command(&command.run, source_dir);
+
+    let mut full_command = vec![resolved_run];
+    if command.stdin.is_none() {
+        full_command.extend(args.iter().cloned());
+    }
+
+    full_command.join(" ")
 }
 
 /// Get current git branch name.
@@ -378,5 +498,259 @@ mod tests {
             shell_cmd2, "echo ok extra args",
             "args should be appended when stdin is absent"
         );
+    }
+
+    #[test]
+    fn resolve_script_rewrites_relative_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let scripts_dir = dir.path().join("scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(scripts_dir.join("foo.sh"), "#!/bin/bash\necho hi").unwrap();
+
+        let result = resolve_script_in_command("bash scripts/foo.sh", dir.path());
+        let expected = format!("bash {}/scripts/foo.sh", dir.path().display());
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn resolve_script_preserves_trailing_args() {
+        let dir = tempfile::tempdir().unwrap();
+        let scripts_dir = dir.path().join("scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(scripts_dir.join("foo.sh"), "").unwrap();
+
+        let result = resolve_script_in_command("bash scripts/foo.sh --verbose -n", dir.path());
+        let expected = format!("bash {}/scripts/foo.sh --verbose -n", dir.path().display());
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn resolve_script_noop_for_absolute_path() {
+        let result = resolve_script_in_command("bash /usr/bin/script.sh", Path::new("/tmp"));
+        assert_eq!(result, "bash /usr/bin/script.sh");
+    }
+
+    #[test]
+    fn resolve_script_noop_for_bare_command() {
+        let result = resolve_script_in_command("cat", Path::new("/tmp"));
+        assert_eq!(result, "cat");
+    }
+
+    #[test]
+    fn resolve_script_noop_for_non_path_arg() {
+        // "echo hello" — "hello" has no `/`, so it's not treated as a path
+        let result = resolve_script_in_command("echo hello", Path::new("/tmp"));
+        assert_eq!(result, "echo hello");
+    }
+
+    #[test]
+    fn resolve_script_noop_when_file_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = resolve_script_in_command("bash scripts/missing.sh", dir.path());
+        assert_eq!(result, "bash scripts/missing.sh");
+    }
+
+    #[test]
+    fn resolve_script_noop_when_source_equals_consumer() {
+        // When source_dir == consumer_dir (local command), relative paths work as-is
+        let dir = tempfile::tempdir().unwrap();
+        let scripts_dir = dir.path().join("scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(scripts_dir.join("foo.sh"), "").unwrap();
+
+        // The function still resolves, but in the local case, source_dir == consumer_dir
+        // so rewriting is harmless (same directory). The caller can skip calling this
+        // for local commands, but the function itself always resolves.
+        let result = resolve_script_in_command("bash scripts/foo.sh", dir.path());
+        assert!(result.contains("scripts/foo.sh"));
+    }
+
+    #[test]
+    fn command_context_local_has_same_dirs() {
+        let ctx = CommandContext::local(Path::new("/repo"), "ws", "repo", false);
+        assert_eq!(ctx.source_dir, ctx.consumer_dir);
+        assert!(!ctx.is_dependency());
+    }
+
+    #[test]
+    fn command_context_dependency_has_different_dirs() {
+        let ctx = CommandContext::dependency(
+            Path::new("/repo/.graft/dep"),
+            Path::new("/repo"),
+            "ws",
+            "repo",
+            false,
+        );
+        assert_ne!(ctx.source_dir, ctx.consumer_dir);
+        assert!(ctx.is_dependency());
+    }
+
+    #[test]
+    fn build_shell_command_resolves_script_for_dep() {
+        let dir = tempfile::tempdir().unwrap();
+        let scripts_dir = dir.path().join("scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(scripts_dir.join("plan.sh"), "").unwrap();
+
+        let command = Command::new("plan", "bash scripts/plan.sh").unwrap();
+        let result = build_shell_command(&command, dir.path(), &[]);
+        assert!(result.starts_with("bash "));
+        assert!(result.contains(&dir.path().display().to_string()));
+    }
+
+    #[test]
+    fn build_shell_command_appends_args_without_stdin() {
+        let command = Command::new("test", "echo ok").unwrap();
+        let args = vec!["--flag".to_string()];
+        let result = build_shell_command(&command, Path::new("/tmp"), &args);
+        assert_eq!(result, "echo ok --flag");
+    }
+
+    #[test]
+    fn build_shell_command_no_args_with_stdin() {
+        use crate::domain::StdinSource;
+        let command = Command::new("gen", "claude")
+            .unwrap()
+            .with_stdin(StdinSource::Literal("prompt".to_string()));
+        let args = vec!["extra".to_string()];
+        let result = build_shell_command(&command, Path::new("/tmp"), &args);
+        assert_eq!(result, "claude");
+    }
+
+    // --- Integration-style tests for dep command context ---
+
+    #[test]
+    fn dep_context_template_resolves_from_source_dir() {
+        use crate::domain::StdinSource;
+
+        // Set up separate source_dir (dep) and consumer_dir
+        let dep_dir = tempfile::tempdir().unwrap();
+        let consumer_dir = tempfile::tempdir().unwrap();
+
+        // Template lives in the dep directory
+        std::fs::write(
+            dep_dir.path().join("prompt.md"),
+            "Hello from {{ repo_name }}!",
+        )
+        .unwrap();
+
+        let command = Command::new("gen", "cat")
+            .unwrap()
+            .with_stdin(StdinSource::Template {
+                path: "prompt.md".to_string(),
+                engine: None,
+            });
+
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx =
+            CommandContext::dependency(dep_dir.path(), consumer_dir.path(), "ws", "repo", false);
+
+        // resolve_command_stdin should find the template in source_dir (dep dir)
+        let rendered = resolve_command_stdin(&command, &config, &ctx, &[]).unwrap();
+        assert!(rendered.is_some());
+        // repo_name comes from consumer_dir, not source_dir
+        let consumer_name = consumer_dir.path().file_name().unwrap().to_str().unwrap();
+        assert!(
+            rendered.as_ref().unwrap().contains(consumer_name),
+            "Expected consumer repo name '{}' in rendered output: {:?}",
+            consumer_name,
+            rendered,
+        );
+    }
+
+    #[test]
+    fn dep_context_executes_in_consumer_dir() {
+        let dep_dir = tempfile::tempdir().unwrap();
+        let consumer_dir = tempfile::tempdir().unwrap();
+
+        // Write graft.yaml to dep dir (not needed for execute_command_with_context directly)
+        let command = Command::new("pwd", "pwd").unwrap();
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx =
+            CommandContext::dependency(dep_dir.path(), consumer_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
+        assert!(result.success);
+        // pwd should output consumer_dir, not dep_dir
+        assert!(
+            result
+                .stdout
+                .trim()
+                .ends_with(consumer_dir.path().file_name().unwrap().to_str().unwrap()),
+            "Expected consumer dir in pwd output, got: {}",
+            result.stdout.trim()
+        );
+    }
+
+    #[test]
+    fn dep_context_sets_graft_dep_dir_env() {
+        let dep_dir = tempfile::tempdir().unwrap();
+        let consumer_dir = tempfile::tempdir().unwrap();
+
+        let command = Command::new("env", "printenv GRAFT_DEP_DIR").unwrap();
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx =
+            CommandContext::dependency(dep_dir.path(), consumer_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
+        assert!(result.success);
+        assert_eq!(
+            result.stdout.trim(),
+            dep_dir.path().to_str().unwrap(),
+            "GRAFT_DEP_DIR should point to the dep directory"
+        );
+    }
+
+    #[test]
+    fn local_context_no_graft_dep_dir_env() {
+        let base_dir = tempfile::tempdir().unwrap();
+
+        let command = Command::new("env", "printenv GRAFT_DEP_DIR || echo NOT_SET").unwrap();
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx = CommandContext::local(base_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
+        assert!(result.success);
+        assert!(
+            result.stdout.contains("NOT_SET"),
+            "GRAFT_DEP_DIR should not be set for local commands"
+        );
+    }
+
+    #[test]
+    fn dep_context_resolves_script_path() {
+        let dep_dir = tempfile::tempdir().unwrap();
+        let consumer_dir = tempfile::tempdir().unwrap();
+
+        // Create a script in the dep directory
+        let scripts_dir = dep_dir.path().join("scripts");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(scripts_dir.join("hello.sh"), "#!/bin/bash\necho dep-hello").unwrap();
+
+        let command = Command::new("hello", "bash scripts/hello.sh").unwrap();
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx =
+            CommandContext::dependency(dep_dir.path(), consumer_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
+        assert!(result.success, "Script should be found and executed");
+        assert!(
+            result.stdout.contains("dep-hello"),
+            "Script from dep dir should run successfully"
+        );
+    }
+
+    #[test]
+    fn local_context_unchanged_regression() {
+        // Verify local commands still work identically
+        let base_dir = tempfile::tempdir().unwrap();
+
+        let command = Command::new("greet", "echo hello-local").unwrap();
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx = CommandContext::local(base_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
+        assert!(result.success);
+        assert!(result.stdout.contains("hello-local"));
     }
 }
