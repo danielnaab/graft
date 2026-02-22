@@ -17,6 +17,10 @@ commands:
       - changes
       - slices
 
+  iterate:
+    run: "bash scripts/iterate.sh"
+    description: "Generate implementation prompt for next step of a slice"
+
 state:
   slices:
     run: "bash scripts/list-slices.sh"
