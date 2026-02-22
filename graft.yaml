@@ -18,14 +18,14 @@ commands:
 
 state:
   verify:
-    run: "bash -c 'echo \"## Format\"; cargo fmt --check 2>&1 | head -20; echo; echo \"## Lint\"; cargo clippy -- -D warnings 2>&1 | head -30; echo; echo \"## Tests\"; cargo test 2>&1 | tail -20' | jq -Rs '{raw: .}'"
+    run: "bash -c 'fmt=$(cargo fmt --check 2>&1 | head -20); lint=$(cargo clippy -- -D warnings 2>&1 | head -30); tests=$(cargo test 2>&1 | tail -20); jq -n --arg format \"$fmt\" --arg lint \"$lint\" --arg tests \"$tests\" \"{format: \\$format, lint: \\$lint, tests: \\$tests}\"'"
     cache:
       deterministic: true
       ttl: 120
     timeout: 120
 
   changes:
-    run: "bash -c 'echo \"## Recent Commits\"; git log --oneline -10; echo; echo \"## Uncommitted Changes\"; git diff --stat' | jq -Rs '{raw: .}'"
+    run: "bash -c 'commits=$(git log --oneline -10); diff=$(git diff --stat); jq -n --arg commits \"$commits\" --arg diff \"$diff\" \"{commits: \\$commits, diff: \\$diff}\"'"
     cache:
       deterministic: false
     timeout: 30

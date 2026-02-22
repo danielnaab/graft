@@ -320,6 +320,20 @@ mod tests {
     }
 
     #[test]
+    fn render_state_json_encode() {
+        let ctx = test_context();
+        let result = render_template(
+            "{{ state.coverage | json_encode() }}",
+            "test",
+            &ctx,
+        )
+        .unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed["percent_covered"], 85.5);
+        assert_eq!(parsed["total_lines"], 1000);
+    }
+
+    #[test]
     fn args_conditional_guard() {
         // With args
         let args = vec!["my task".to_string()];
