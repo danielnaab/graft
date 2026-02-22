@@ -28,6 +28,17 @@ commands:
         positional: true
         options_from: slices
 
+  implement:
+    run: "bash scripts/iterate.sh {slice} | claude -p --dangerously-skip-permissions"
+    description: "Implement next slice step with Claude Code"
+    args:
+      - name: slice
+        type: choice
+        description: "Slice to implement"
+        required: true
+        positional: true
+        options_from: slices
+
 state:
   slices:
     run: "bash scripts/list-slices.sh"
