@@ -25,6 +25,51 @@ pub enum CommandEvent {
     Failed(String),
 }
 
+/// Prepared run-logging state returned by [`prepare_run_logging`].
+struct RunLogging {
+    log_path: PathBuf,
+    log_file: String,
+    start_time: String,
+    ctx: RunContext,
+}
+
+/// Compute the log path, create the parent directory, and capture the start
+/// timestamp. Returns `None` when `run_ctx` is `None` (logging disabled).
+fn prepare_run_logging(run_ctx: Option<&RunContext>) -> Option<RunLogging> {
+    let ctx = run_ctx?;
+    let (path, file, ts) = run_log_path(&ctx.workspace, &ctx.repo, &ctx.command);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    Some(RunLogging {
+        log_path: path,
+        log_file: file,
+        start_time: ts.to_rfc3339(),
+        ctx: ctx.clone(),
+    })
+}
+
+/// Write a `RunMeta` sidecar after a command completes or fails.
+fn write_run_completion_meta(
+    logging: &RunLogging,
+    args: &[String],
+    shell_cmd: &str,
+    exit_code: Option<i32>,
+) {
+    let meta = RunMeta {
+        command: logging.ctx.command.clone(),
+        args: args.to_vec(),
+        shell_cmd: shell_cmd.to_string(),
+        start_time: logging.start_time.clone(),
+        end_time: Some(chrono::Utc::now().to_rfc3339()),
+        exit_code,
+        log_file: logging.log_file.clone(),
+    };
+    if let Err(e) = write_run_meta(&logging.ctx.workspace, &logging.ctx.repo, &meta) {
+        log::warn!("Failed to write run metadata: {e}");
+    }
+}
+
 /// Spawn a command defined in graft.yaml in the background and send output via channel.
 ///
 /// Loads `graft.yaml` from `{repo_path}/graft.yaml`, looks up `command_name` in the
@@ -91,22 +136,13 @@ pub fn spawn_command(
         base_dir
     };
 
-    // Compute log path if run context is provided.
-    let (log_path, log_file, run_meta_ctx) = if let Some(ref ctx) = run_ctx {
-        let (path, file) = run_log_path(&ctx.workspace, &ctx.repo, &ctx.command);
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        (Some(path), Some(file), Some(ctx.clone()))
-    } else {
-        (None, None, None)
-    };
+    let logging = prepare_run_logging(run_ctx.as_ref());
 
     let config = ProcessConfig {
         command: shell_cmd.clone(),
         working_dir,
         env: cmd_def.env,
-        log_path,
+        log_path: logging.as_ref().map(|l| l.log_path.clone()),
         timeout: None,
         stdin: None,
     };
@@ -121,42 +157,8 @@ pub fn spawn_command(
         }
     };
 
-    let start_time = chrono::Utc::now().to_rfc3339();
-
     // Bridge ProcessEvent → CommandEvent. The channel closes after Completed or Failed.
-    for event in rx {
-        match event {
-            ProcessEvent::Started { pid } => {
-                let _ = tx.send(CommandEvent::Started(pid));
-            }
-            ProcessEvent::OutputLine { line, .. } => {
-                if tx.send(CommandEvent::OutputLine(line)).is_err() {
-                    break;
-                }
-            }
-            ProcessEvent::Completed { exit_code } => {
-                // Write run metadata sidecar.
-                if let (Some(ctx), Some(log_file)) = (&run_meta_ctx, &log_file) {
-                    let meta = RunMeta {
-                        command: ctx.command.clone(),
-                        args: args_clone.clone(),
-                        shell_cmd: shell_cmd.clone(),
-                        start_time: start_time.clone(),
-                        end_time: Some(chrono::Utc::now().to_rfc3339()),
-                        exit_code: Some(exit_code),
-                        log_file: log_file.clone(),
-                    };
-                    if let Err(e) = write_run_meta(&ctx.workspace, &ctx.repo, &meta) {
-                        log::warn!("Failed to write run metadata: {e}");
-                    }
-                }
-                let _ = tx.send(CommandEvent::Completed(exit_code));
-            }
-            ProcessEvent::Failed { error } => {
-                let _ = tx.send(CommandEvent::Failed(error));
-            }
-        }
-    }
+    bridge_events(rx, tx, logging.as_ref(), &args_clone, &shell_cmd);
 }
 
 /// Spawn a pre-assembled shell command in the background.
@@ -179,22 +181,13 @@ pub fn spawn_command_assembled(
         PathBuf::from(&repo_path)
     };
 
-    // Compute log path if run context is provided.
-    let (log_path, log_file, run_meta_ctx) = if let Some(ref ctx) = run_ctx {
-        let (path, file) = run_log_path(&ctx.workspace, &ctx.repo, &ctx.command);
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        (Some(path), Some(file), Some(ctx.clone()))
-    } else {
-        (None, None, None)
-    };
+    let logging = prepare_run_logging(run_ctx.as_ref());
 
     let config = ProcessConfig {
         command: shell_cmd.clone(),
         working_dir,
         env,
-        log_path,
+        log_path: logging.as_ref().map(|l| l.log_path.clone()),
         timeout: None,
         stdin: None,
     };
@@ -209,8 +202,18 @@ pub fn spawn_command_assembled(
         }
     };
 
-    let start_time = chrono::Utc::now().to_rfc3339();
+    bridge_events(rx, tx, logging.as_ref(), &[], &shell_cmd);
+}
 
+/// Bridge `ProcessEvent` to `CommandEvent`, writing run metadata on completion.
+#[allow(clippy::needless_pass_by_value)]
+fn bridge_events(
+    rx: mpsc::Receiver<ProcessEvent>,
+    tx: Sender<CommandEvent>,
+    logging: Option<&RunLogging>,
+    args: &[String],
+    shell_cmd: &str,
+) {
     for event in rx {
         match event {
             ProcessEvent::Started { pid } => {
@@ -222,24 +225,15 @@ pub fn spawn_command_assembled(
                 }
             }
             ProcessEvent::Completed { exit_code } => {
-                // Write run metadata sidecar.
-                if let (Some(ctx), Some(log_file)) = (&run_meta_ctx, &log_file) {
-                    let meta = RunMeta {
-                        command: ctx.command.clone(),
-                        args: vec![],
-                        shell_cmd: shell_cmd.clone(),
-                        start_time: start_time.clone(),
-                        end_time: Some(chrono::Utc::now().to_rfc3339()),
-                        exit_code: Some(exit_code),
-                        log_file: log_file.clone(),
-                    };
-                    if let Err(e) = write_run_meta(&ctx.workspace, &ctx.repo, &meta) {
-                        log::warn!("Failed to write run metadata: {e}");
-                    }
+                if let Some(l) = logging {
+                    write_run_completion_meta(l, args, shell_cmd, Some(exit_code));
                 }
                 let _ = tx.send(CommandEvent::Completed(exit_code));
             }
             ProcessEvent::Failed { error } => {
+                if let Some(l) = logging {
+                    write_run_completion_meta(l, args, shell_cmd, None);
+                }
                 let _ = tx.send(CommandEvent::Failed(error));
             }
         }
@@ -385,12 +379,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Build a `RunContext` for run logging from the current workspace and repo path.
     fn build_run_context(&self, repo_path: &str, command_name: &str) -> Option<RunContext> {
-        let repo_name = std::path::Path::new(repo_path)
-            .file_name()
-            .and_then(|n| n.to_str())?;
         Some(RunContext {
             workspace: self.workspace_name.clone(),
-            repo: repo_name.to_string(),
+            repo: graft_common::repo_name_from_path(repo_path).to_string(),
             command: command_name.to_string(),
         })
     }

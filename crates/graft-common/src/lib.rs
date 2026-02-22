@@ -11,6 +11,45 @@ pub mod process;
 pub mod runs;
 pub mod state;
 
+use chrono::{DateTime, Utc};
+
+/// Format an RFC 3339 timestamp as a human-readable "time ago" string.
+///
+/// Returns `"just now"`, `"{n}m ago"`, `"{n}h ago"`, or `"{n}d ago"`.
+/// Returns `"unknown"` when the timestamp cannot be parsed.
+pub fn format_time_ago(rfc3339: &str) -> String {
+    match DateTime::parse_from_rfc3339(rfc3339) {
+        Ok(parsed) => {
+            let ts = parsed.with_timezone(&Utc);
+            let duration = Utc::now().signed_duration_since(ts);
+
+            if duration.num_seconds() < 60 {
+                "just now".to_string()
+            } else if duration.num_minutes() < 60 {
+                let mins = duration.num_minutes();
+                format!("{mins}m ago")
+            } else if duration.num_hours() < 24 {
+                let hours = duration.num_hours();
+                format!("{hours}h ago")
+            } else {
+                let days = duration.num_days();
+                format!("{days}d ago")
+            }
+        }
+        Err(_) => "unknown".to_string(),
+    }
+}
+
+/// Extract the repo name (last path component) from a path string.
+///
+/// Returns `"unknown"` when the path has no final component.
+pub fn repo_name_from_path(path: &str) -> &str {
+    std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+}
+
 pub use command::{run_command_with_timeout, CommandError};
 pub use config::{
     parse_commands, parse_commands_from_str, parse_dependency_names,

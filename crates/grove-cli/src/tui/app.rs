@@ -52,6 +52,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             // State queries
             state_queries: Vec::new(),
             state_results: Vec::new(),
+            state_loaded: false,
 
             // Recent runs
             recent_runs: Vec::new(),
@@ -216,6 +217,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.available_commands.clear();
         self.state_queries.clear();
         self.state_results.clear();
+        self.state_loaded = false;
         self.recent_runs.clear();
     }
 
@@ -243,6 +245,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.available_commands.clear();
         self.state_queries.clear();
         self.state_results.clear();
+        self.state_loaded = false;
         self.recent_runs.clear();
     }
 

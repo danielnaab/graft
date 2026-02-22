@@ -229,6 +229,8 @@ pub struct App<R, D> {
     // State queries (loaded lazily for the current repo in RepoDetail view)
     state_queries: Vec<crate::state::StateQuery>,
     state_results: Vec<Option<crate::state::StateResult>>,
+    /// Whether state queries and runs have been loaded for the current repo.
+    state_loaded: bool,
 
     // Recent command runs (loaded lazily for the current repo)
     recent_runs: Vec<graft_common::RunMeta>,

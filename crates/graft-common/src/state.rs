@@ -30,26 +30,7 @@ impl StateMetadata {
 
     /// Get human-readable time ago string.
     pub fn time_ago(&self) -> String {
-        match self.timestamp_parsed() {
-            Some(ts) => {
-                let now = Utc::now();
-                let duration = now.signed_duration_since(ts);
-
-                if duration.num_seconds() < 60 {
-                    "just now".to_string()
-                } else if duration.num_minutes() < 60 {
-                    let mins = duration.num_minutes();
-                    format!("{mins}m ago")
-                } else if duration.num_hours() < 24 {
-                    let hours = duration.num_hours();
-                    format!("{hours}h ago")
-                } else {
-                    let days = duration.num_days();
-                    format!("{days}d ago")
-                }
-            }
-            None => "unknown".to_string(),
-        }
+        crate::format_time_ago(&self.timestamp)
     }
 }
 

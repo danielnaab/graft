@@ -38,7 +38,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Rebuild the flat item list from current data.
     ///
-    /// Visual order: file changes, commits, state queries, commands.
+    /// Visual order: file changes, commits, state queries, recent runs, commands.
     /// Clamps cursor to valid range.
     pub(super) fn rebuild_detail_items(&mut self) {
         self.detail_items.clear();
@@ -543,15 +543,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
-    /// Ensure state queries and recent runs are loaded for the current repo (lazy, only if empty).
+    /// Ensure state queries and recent runs are loaded for the current repo (lazy, once per repo).
     fn ensure_state_loaded_if_needed(&mut self) {
-        if self.state_queries.is_empty() {
+        if !self.state_loaded {
             if let Some(selected) = self.list_state.selected() {
                 let repos = self.registry.list_repos();
                 if let Some(repo) = repos.get(selected) {
                     let repo_path_str = repo.as_path().to_str().unwrap_or("").to_string();
                     self.load_state_queries(&repo_path_str);
                     self.load_recent_runs(&repo_path_str);
+                    self.state_loaded = true;
                     self.rebuild_detail_items();
                 }
             }
@@ -560,11 +561,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Load recent runs for the selected repository.
     fn load_recent_runs(&mut self, repo_path: &str) {
-        let repo_name = std::path::Path::new(repo_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown");
-        self.recent_runs = graft_common::list_runs(&self.workspace_name, repo_name);
+        let repo_name = graft_common::repo_name_from_path(repo_path);
+        self.recent_runs = graft_common::list_runs(&self.workspace_name, repo_name, 50);
     }
 
     /// Load commands for the currently selected repository (cached).
@@ -617,11 +615,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.rebuild_detail_items();
     }
 
-    /// Execute the currently selected command.
-    ///
-    /// If the command has an `args` schema, show the form overlay.
-    /// Otherwise, fall back to the free-text argument input.
-    /// Silent no-op when cursor is not on a Command item.
     /// Open a past run's log file in the `CommandOutput` view (read-only).
     fn open_run_log(&mut self, run_idx: usize) {
         let Some(run) = self.recent_runs.get(run_idx) else {
@@ -633,10 +626,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             None => return,
         };
 
-        let repo_name = std::path::Path::new(&repo_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown");
+        let repo_name = graft_common::repo_name_from_path(&repo_path);
 
         let log_content =
             graft_common::read_run_log(&self.workspace_name, repo_name, &run.log_file);
@@ -654,11 +644,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             self.output_lines.push("(no log file found)".to_string());
         }
 
-        // Show run info in header
+        // Show run info in header.
+        // For runs with no exit code (interrupted), use exit_code -1 rather than
+        // Running, which would trigger the stop-confirmation dialog on quit.
         self.command_name = Some(format!("Run: {} ({})", run.command, run.time_ago()));
-        self.command_state = match run.exit_code {
-            Some(code) => CommandState::Completed { exit_code: code },
-            None => CommandState::Running,
+        self.command_state = CommandState::Completed {
+            exit_code: run.exit_code.unwrap_or(-1),
         };
         self.command_event_rx = None;
         self.running_command_pid = None;
@@ -666,6 +657,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.push_view(View::CommandOutput);
     }
 
+    /// Execute the currently selected command.
+    ///
+    /// If the command has an `args` schema, show the form overlay.
+    /// Otherwise, fall back to the free-text argument input.
+    /// Silent no-op when cursor is not on a Command item.
     pub(super) fn execute_selected_command(&mut self) {
         let cmd_idx = match self.current_detail_item() {
             Some(DetailItem::Command(idx)) => *idx,
@@ -746,10 +742,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             Ok(queries) => {
                 self.state_queries = queries;
 
-                let repo_name = Path::new(repo_path)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown");
+                let repo_name = graft_common::repo_name_from_path(repo_path);
 
                 for query in &self.state_queries {
                     if let Some(result) =
@@ -803,11 +796,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         };
         let repo_path = repo_path.to_path_buf();
 
-        let repo_name = repo_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let repo_name =
+            graft_common::repo_name_from_path(repo_path.to_str().unwrap_or("unknown")).to_string();
 
         // Resolve HEAD once; fall back to "unknown" so queries still run on bare repos.
         let commit_hash =

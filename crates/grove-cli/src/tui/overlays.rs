@@ -168,11 +168,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         // Reload recent runs so any new run from this session is visible.
         if let Some(repo_path) = &self.selected_repo_for_commands {
-            let repo_name = std::path::Path::new(repo_path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown");
-            self.recent_runs = graft_common::list_runs(&self.workspace_name, repo_name);
+            let repo_name = graft_common::repo_name_from_path(repo_path);
+            self.recent_runs = graft_common::list_runs(&self.workspace_name, repo_name, 50);
             self.rebuild_detail_items();
         }
     }

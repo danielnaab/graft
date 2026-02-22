@@ -42,26 +42,7 @@ impl RunMeta {
 
     /// Human-readable time-ago string for the start time.
     pub fn time_ago(&self) -> String {
-        match self.start_time_parsed() {
-            Some(ts) => {
-                let now = Utc::now();
-                let duration = now.signed_duration_since(ts);
-
-                if duration.num_seconds() < 60 {
-                    "just now".to_string()
-                } else if duration.num_minutes() < 60 {
-                    let mins = duration.num_minutes();
-                    format!("{mins}m ago")
-                } else if duration.num_hours() < 24 {
-                    let hours = duration.num_hours();
-                    format!("{hours}h ago")
-                } else {
-                    let days = duration.num_days();
-                    format!("{days}d ago")
-                }
-            }
-            None => "unknown".to_string(),
-        }
+        crate::format_time_ago(&self.start_time)
     }
 
     /// Short display string for the exit status.
@@ -89,8 +70,9 @@ pub fn get_run_log_dir(workspace_name: &str, repo_name: &str) -> PathBuf {
 }
 
 /// Generate a timestamped file stem for a run (e.g. "20260222-153000-implement").
-pub fn run_file_stem(command_name: &str) -> String {
-    let now = Utc::now();
+///
+/// Accepts an explicit timestamp so the caller can reuse it for `RunMeta.start_time`.
+pub fn run_file_stem(command_name: &str, now: DateTime<Utc>) -> String {
     let ts = now.format("%Y%m%d-%H%M%S");
     // Sanitize command name for filesystem
     let safe_name: String = command_name
@@ -107,15 +89,20 @@ pub fn run_file_stem(command_name: &str) -> String {
 }
 
 /// Compute the log file path for a new run.
+///
+/// Returns `(full_path, log_filename, start_time)` — the `start_time` is the same
+/// instant used for the filename, so callers can store it in `RunMeta.start_time`
+/// without clock skew.
 pub fn run_log_path(
     workspace_name: &str,
     repo_name: &str,
     command_name: &str,
-) -> (PathBuf, String) {
+) -> (PathBuf, String, DateTime<Utc>) {
+    let now = Utc::now();
     let dir = get_run_log_dir(workspace_name, repo_name);
-    let stem = run_file_stem(command_name);
+    let stem = run_file_stem(command_name, now);
     let log_file = format!("{stem}.log");
-    (dir.join(&log_file), log_file)
+    (dir.join(&log_file), log_file, now)
 }
 
 /// Write run metadata to the sidecar JSON file.
@@ -135,8 +122,10 @@ pub fn write_run_meta(
     fs::write(&meta_path, content)
 }
 
-/// List all runs for a repo, sorted newest-first.
-pub fn list_runs(workspace_name: &str, repo_name: &str) -> Vec<RunMeta> {
+/// List runs for a repo, sorted newest-first, capped at `limit`.
+///
+/// Pass `0` for unlimited results.
+pub fn list_runs(workspace_name: &str, repo_name: &str, limit: usize) -> Vec<RunMeta> {
     let dir = get_run_log_dir(workspace_name, repo_name);
     if !dir.exists() {
         return Vec::new();
@@ -166,6 +155,9 @@ pub fn list_runs(workspace_name: &str, repo_name: &str) -> Vec<RunMeta> {
 
     // Sort newest-first by start_time (lexicographic on ISO 8601 works)
     runs.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+    if limit > 0 {
+        runs.truncate(limit);
+    }
     runs
 }
 
@@ -207,14 +199,14 @@ mod tests {
 
     #[test]
     fn run_file_stem_format() {
-        let stem = run_file_stem("implement");
+        let stem = run_file_stem("implement", Utc::now());
         assert!(stem.ends_with("-implement"));
         assert!(stem.len() > 20);
     }
 
     #[test]
     fn run_file_stem_sanitizes_colons() {
-        let stem = run_file_stem("dep:command");
+        let stem = run_file_stem("dep:command", Utc::now());
         assert!(stem.ends_with("-dep-command"));
         assert!(!stem.contains(':'));
     }
@@ -234,7 +226,7 @@ mod tests {
 
             write_run_meta(ws, "repo", &meta).unwrap();
 
-            let runs = list_runs(ws, "repo");
+            let runs = list_runs(ws, "repo", 0);
             assert_eq!(runs.len(), 1);
             assert_eq!(runs[0].command, "test");
             assert_eq!(runs[0].exit_code, Some(0));
@@ -266,7 +258,7 @@ mod tests {
             write_run_meta(ws, "repo", &meta_old).unwrap();
             write_run_meta(ws, "repo", &meta_new).unwrap();
 
-            let runs = list_runs(ws, "repo");
+            let runs = list_runs(ws, "repo", 0);
             assert_eq!(runs.len(), 2);
             assert_eq!(runs[0].command, "new");
             assert_eq!(runs[1].command, "old");
@@ -276,7 +268,7 @@ mod tests {
     #[test]
     fn list_runs_handles_missing_directory() {
         with_temp_home(|ws, _lock| {
-            let runs = list_runs(ws, "nonexistent");
+            let runs = list_runs(ws, "nonexistent", 0);
             assert!(runs.is_empty());
         });
     }
