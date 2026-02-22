@@ -91,6 +91,7 @@ pub(crate) enum DetailItem {
     FileChange(usize),
     Commit(usize),
     StateQuery(usize),
+    Run(usize),
     Command(usize),
 }
 
@@ -228,6 +229,9 @@ pub struct App<R, D> {
     // State queries (loaded lazily for the current repo in RepoDetail view)
     state_queries: Vec<crate::state::StateQuery>,
     state_results: Vec<Option<crate::state::StateResult>>,
+
+    // Recent command runs (loaded lazily for the current repo)
+    recent_runs: Vec<graft_common::RunMeta>,
 }
 
 pub fn run<R: RepoRegistry, D: RepoDetailProvider>(

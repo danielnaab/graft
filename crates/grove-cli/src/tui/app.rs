@@ -52,6 +52,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             // State queries
             state_queries: Vec::new(),
             state_results: Vec::new(),
+
+            // Recent runs
+            recent_runs: Vec::new(),
         }
     }
 
@@ -213,6 +216,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.available_commands.clear();
         self.state_queries.clear();
         self.state_results.clear();
+        self.recent_runs.clear();
     }
 
     pub(super) fn previous(&mut self) {
@@ -239,6 +243,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.available_commands.clear();
         self.state_queries.clear();
         self.state_results.clear();
+        self.recent_runs.clear();
     }
 
     /// Load detail for the currently selected repo if not already cached.

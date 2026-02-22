@@ -5,9 +5,9 @@
 //! lines are skipped by the cursor.
 
 use super::{
-    format_file_change_indicator, App, ArgumentInputState, Block, Borders, Color, DetailItem,
-    GraftYamlLoader, KeyCode, Line, Modifier, Paragraph, Rect, RepoDetailProvider, RepoRegistry,
-    Span, StatusMessage, Style, View,
+    format_file_change_indicator, App, ArgumentInputState, Block, Borders, Color, CommandState,
+    DetailItem, GraftYamlLoader, KeyCode, Line, Modifier, Paragraph, Rect, RepoDetailProvider,
+    RepoRegistry, Span, StatusMessage, Style, View,
 };
 
 /// Pairs rendered lines with their corresponding `detail_items` index.
@@ -54,6 +54,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         for i in 0..self.state_queries.len() {
             self.detail_items.push(DetailItem::StateQuery(i));
+        }
+
+        for i in 0..self.recent_runs.len() {
+            self.detail_items.push(DetailItem::Run(i));
         }
 
         for i in 0..self.available_commands.len() {
@@ -104,10 +108,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             KeyCode::Char('r') => {
                 self.refresh_state_queries();
             }
-            // Execute selected command (silent no-op on non-command items)
-            KeyCode::Enter => {
-                self.execute_selected_command();
-            }
+            // Execute selected command or open run log
+            KeyCode::Enter => match self.current_detail_item() {
+                Some(DetailItem::Run(idx)) => {
+                    let idx = *idx;
+                    self.open_run_log(idx);
+                }
+                _ => {
+                    self.execute_selected_command();
+                }
+            },
             _ => {}
         }
     }
@@ -255,7 +265,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         m.push(Line::from(""), None);
 
-        // Section 3: Commands
+        // Section 3: Recent Runs
+        self.append_runs_section_mapped(&mut m, &mut item_counter);
+
+        m.push(Line::from(""), None);
+
+        // Section 4: Commands
         self.append_commands_section_mapped(&mut m, &mut item_counter);
 
         m
@@ -418,6 +433,61 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
+    /// Append recent runs section with item mapping.
+    fn append_runs_section_mapped(&self, m: &mut LineMapping, item_idx: &mut usize) {
+        m.push(
+            Line::from(Span::styled(
+                "Recent Runs",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            None,
+        );
+
+        if self.recent_runs.is_empty() {
+            m.push(
+                Line::from(Span::styled(
+                    "  No command runs recorded yet",
+                    Style::default().fg(Color::Gray),
+                )),
+                None,
+            );
+        } else {
+            for (i, run) in self.recent_runs.iter().enumerate() {
+                let status_color = match run.exit_code {
+                    Some(0) => Color::Green,
+                    Some(_) => Color::Red,
+                    None => Color::Yellow,
+                };
+                let is_selected =
+                    self.detail_items.get(self.detail_cursor) == Some(&DetailItem::Run(i));
+                let prefix = if is_selected { "▶ " } else { "  " };
+                let style = if is_selected {
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+
+                m.push(
+                    Line::from(vec![
+                        Span::styled(prefix, Style::default().fg(Color::Cyan)),
+                        Span::styled(format!("{:<20}", run.command), style),
+                        Span::styled(
+                            format!("{:<10}", run.status_display()),
+                            Style::default().fg(status_color),
+                        ),
+                        Span::styled(run.time_ago(), Style::default().fg(Color::Gray)),
+                    ]),
+                    Some(*item_idx),
+                );
+                *item_idx += 1;
+            }
+        }
+    }
+
     /// Append commands section with item mapping.
     fn append_commands_section_mapped(&self, m: &mut LineMapping, item_idx: &mut usize) {
         m.push(
@@ -473,7 +543,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
-    /// Ensure state queries are loaded for the current repo (lazy, only if empty).
+    /// Ensure state queries and recent runs are loaded for the current repo (lazy, only if empty).
     fn ensure_state_loaded_if_needed(&mut self) {
         if self.state_queries.is_empty() {
             if let Some(selected) = self.list_state.selected() {
@@ -481,10 +551,20 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 if let Some(repo) = repos.get(selected) {
                     let repo_path_str = repo.as_path().to_str().unwrap_or("").to_string();
                     self.load_state_queries(&repo_path_str);
+                    self.load_recent_runs(&repo_path_str);
                     self.rebuild_detail_items();
                 }
             }
         }
+    }
+
+    /// Load recent runs for the selected repository.
+    fn load_recent_runs(&mut self, repo_path: &str) {
+        let repo_name = std::path::Path::new(repo_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+        self.recent_runs = graft_common::list_runs(&self.workspace_name, repo_name);
     }
 
     /// Load commands for the currently selected repository (cached).
@@ -542,6 +622,50 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// If the command has an `args` schema, show the form overlay.
     /// Otherwise, fall back to the free-text argument input.
     /// Silent no-op when cursor is not on a Command item.
+    /// Open a past run's log file in the `CommandOutput` view (read-only).
+    fn open_run_log(&mut self, run_idx: usize) {
+        let Some(run) = self.recent_runs.get(run_idx) else {
+            return;
+        };
+
+        let repo_path = match &self.selected_repo_for_commands {
+            Some(p) => p.clone(),
+            None => return,
+        };
+
+        let repo_name = std::path::Path::new(&repo_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+
+        let log_content =
+            graft_common::read_run_log(&self.workspace_name, repo_name, &run.log_file);
+
+        // Load log content into output view
+        self.output_lines.clear();
+        self.output_scroll = 0;
+        self.output_truncated_start = false;
+
+        if let Some(content) = log_content {
+            for line in content.lines() {
+                self.output_lines.push(line.to_string());
+            }
+        } else {
+            self.output_lines.push("(no log file found)".to_string());
+        }
+
+        // Show run info in header
+        self.command_name = Some(format!("Run: {} ({})", run.command, run.time_ago()));
+        self.command_state = match run.exit_code {
+            Some(code) => CommandState::Completed { exit_code: code },
+            None => CommandState::Running,
+        };
+        self.command_event_rx = None;
+        self.running_command_pid = None;
+
+        self.push_view(View::CommandOutput);
+    }
+
     pub(super) fn execute_selected_command(&mut self) {
         let cmd_idx = match self.current_detail_item() {
             Some(DetailItem::Command(idx)) => *idx,

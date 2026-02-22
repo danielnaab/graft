@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 created: 2026-02-22
 ---
 
@@ -36,17 +36,17 @@ Storage layout mirrors the state cache: `~/.cache/graft/{workspace-hash}/{repo}/
   - **Done when** — `spawn_command` and `spawn_command_assembled` compute a log path from workspace/repo/command name, pass it to `ProcessConfig`, and after completion write a `RunMeta` sidecar; running a command in grove produces files in `~/.cache/graft/.../runs/`
   - **Files** — `crates/grove-cli/src/tui/command_exec.rs`, `crates/grove-cli/src/tui/mod.rs`
 
-- [ ] **Add run discovery module to grove-cli**
+- [x] **Add run discovery module to grove-cli**
   - **Delivers** — a module that scans the runs directory and returns a list of recent runs with metadata
   - **Done when** — `discover_runs(workspace, repo) -> Vec<RunMeta>` returns runs sorted newest-first, handles missing directory gracefully, tested
-  - **Files** — `crates/grove-cli/src/runs.rs`, `crates/grove-cli/src/lib.rs`
+  - **Files** — Satisfied by `graft_common::list_runs()` from step 1; no separate grove-cli module needed
 
-- [ ] **Add Runs section to repo detail view**
+- [x] **Add Runs section to repo detail view**
   - **Delivers** — a "Recent Runs" section between State Queries and Commands showing past runs with timestamp, command name, and exit status
   - **Done when** — runs appear in the detail view, cursor can select them, detail_items includes a `Run(usize)` variant, runs are loaded lazily like state queries
   - **Files** — `crates/grove-cli/src/tui/repo_detail.rs`, `crates/grove-cli/src/tui/mod.rs`
 
-- [ ] **Open run log in CommandOutput view**
+- [x] **Open run log in CommandOutput view**
   - **Delivers** — pressing Enter on a run loads its log file into the CommandOutput view for scrollable review
   - **Done when** — selecting a run opens output view with the log contents, header shows "Run: {command} ({timestamp})", exit code is shown, q returns to repo detail
   - **Files** — `crates/grove-cli/src/tui/repo_detail.rs`, `crates/grove-cli/src/tui/overlays.rs`
