@@ -1684,6 +1684,22 @@ fn run_command(command_name: Option<&str>, dry_run: bool, args: &[String]) -> Re
     Ok(())
 }
 
+/// Build a shell command string by substituting `{name}` placeholders or appending args.
+///
+/// `run` should already have script paths resolved (via `resolve_script_in_command`)
+/// if needed. If placeholders are found, args fill them in order with shell escaping.
+/// Otherwise, args are appended space-separated.
+fn build_command_with_args(run: &str, args: &[String]) -> String {
+    let (substituted, had_placeholders) = graft_engine::substitute_placeholders(run, args);
+    if had_placeholders {
+        substituted
+    } else if args.is_empty() {
+        run.to_string()
+    } else {
+        format!("{run} {}", args.join(" "))
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) -> Result<()> {
     // Find graft.yaml
@@ -1737,16 +1753,7 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
             }
         } else {
             // No stdin: print the command that would execute
-            let (substituted, had_placeholders) =
-                graft_engine::substitute_placeholders(&cmd.run, args);
-            let full_command = if had_placeholders {
-                substituted
-            } else if args.is_empty() {
-                cmd.run.clone()
-            } else {
-                format!("{} {}", cmd.run, args.join(" "))
-            };
-            println!("{full_command}");
+            println!("{}", build_command_with_args(&cmd.run, args));
         }
         return Ok(());
     }
@@ -1820,14 +1827,7 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
     }
 
     // Build full command with args (substitute placeholders or append)
-    let (substituted, had_placeholders) = graft_engine::substitute_placeholders(&cmd.run, args);
-    let full_command = if had_placeholders {
-        substituted
-    } else if args.is_empty() {
-        cmd.run.clone()
-    } else {
-        format!("{} {}", cmd.run, args.join(" "))
-    };
+    let full_command = build_command_with_args(&cmd.run, args);
 
     // Set up environment variables
     let mut process_cmd = std::process::Command::new("sh");
@@ -1941,16 +1941,7 @@ fn run_dependency_command(
             // No stdin: print the command that would execute (with script resolution)
             let resolved_run =
                 graft_engine::resolve_script_in_command(&cmd.run, &cmd_ctx.source_dir);
-            let (substituted, had_placeholders) =
-                graft_engine::substitute_placeholders(&resolved_run, args);
-            let full_command = if had_placeholders {
-                substituted
-            } else if args.is_empty() {
-                resolved_run
-            } else {
-                format!("{resolved_run} {}", args.join(" "))
-            };
-            println!("{full_command}");
+            println!("{}", build_command_with_args(&resolved_run, args));
         }
         return Ok(());
     }
@@ -1998,15 +1989,7 @@ fn run_dependency_command(
 
     // Simple commands: stream output directly for real-time feedback
     let resolved_run = graft_engine::resolve_script_in_command(&cmd.run, &cmd_ctx.source_dir);
-    let (substituted, had_placeholders) =
-        graft_engine::substitute_placeholders(&resolved_run, args);
-    let full_command = if had_placeholders {
-        substituted
-    } else if args.is_empty() {
-        resolved_run
-    } else {
-        format!("{resolved_run} {}", args.join(" "))
-    };
+    let full_command = build_command_with_args(&resolved_run, args);
 
     let working_dir = if let Some(ref cmd_dir) = cmd.working_dir {
         cmd_ctx.consumer_dir.join(cmd_dir)

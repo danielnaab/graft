@@ -4595,29 +4595,15 @@ fn form_assemble_args_template_interpolation() {
 
 #[test]
 fn form_has_placeholders_detection() {
-    assert!(App::<MockRegistry, MockDetailProvider>::has_placeholders(
-        "deploy {env}"
-    ));
-    assert!(App::<MockRegistry, MockDetailProvider>::has_placeholders(
-        "{name} --flag"
-    ));
-    assert!(!App::<MockRegistry, MockDetailProvider>::has_placeholders(
-        "./deploy.sh"
-    ));
-    assert!(!App::<MockRegistry, MockDetailProvider>::has_placeholders(
-        "echo ${HOME}"
-    ));
-    assert!(!App::<MockRegistry, MockDetailProvider>::has_placeholders(
-        "echo {}"
-    ));
+    assert!(graft_engine::has_placeholders("deploy {env}"));
+    assert!(graft_engine::has_placeholders("{name} --flag"));
+    assert!(!graft_engine::has_placeholders("./deploy.sh"));
+    assert!(!graft_engine::has_placeholders("echo ${HOME}"));
+    assert!(!graft_engine::has_placeholders("echo {}"));
     // Mixed: has both ${env} and {placeholder}
-    assert!(App::<MockRegistry, MockDetailProvider>::has_placeholders(
-        "echo ${HOME} {name}"
-    ));
+    assert!(graft_engine::has_placeholders("echo ${HOME} {name}"));
     // Brace-like content that's not a valid identifier
-    assert!(!App::<MockRegistry, MockDetailProvider>::has_placeholders(
-        "echo {foo bar}"
-    ));
+    assert!(!graft_engine::has_placeholders("echo {foo bar}"));
 }
 
 #[test]

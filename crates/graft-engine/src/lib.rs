@@ -25,8 +25,9 @@ pub use error::{GraftError, Result};
 
 // Re-export commonly used functions
 pub use command::{
-    execute_command, execute_command_by_name, execute_command_with_context, resolve_command_stdin,
-    resolve_script_in_command, substitute_placeholders, CommandContext, CommandResult,
+    execute_command, execute_command_by_name, execute_command_with_context, has_placeholders,
+    resolve_command_stdin, resolve_script_in_command, substitute_named_placeholders,
+    substitute_placeholders, CommandContext, CommandResult,
 };
 pub use config::parse_graft_yaml;
 pub use lock::{parse_lock_file, write_lock_file};

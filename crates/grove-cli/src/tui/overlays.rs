@@ -600,11 +600,22 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// Assemble a shell command string from form field values.
     ///
     /// Two modes:
-    /// - **Template interpolation**: if `run` contains `{name}` placeholders, replace them.
+    /// - **Template interpolation**: if `run` contains `{name}` placeholders, replace them
+    ///   with shell-escaped field values (via `graft_engine::substitute_named_placeholders`).
     /// - **Auto-assembly** (default): append positional args, then named `--flag` / `--key val`.
     pub(super) fn assemble_args(run: &str, fields: &[super::FormField]) -> String {
-        if Self::has_placeholders(run) {
-            return Self::interpolate_template(run, fields);
+        if graft_engine::has_placeholders(run) {
+            let named_args: Vec<(String, String)> = fields
+                .iter()
+                .filter_map(|field| {
+                    Self::field_value_as_string(field).map(|val| (field.def.name.clone(), val))
+                })
+                .collect();
+            let refs: Vec<(&str, &str)> = named_args
+                .iter()
+                .map(|(n, v)| (n.as_str(), v.as_str()))
+                .collect();
+            return graft_engine::substitute_named_placeholders(run, &refs).0;
         }
 
         let mut parts = vec![run.to_string()];
@@ -641,53 +652,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
 
         parts.join(" ")
-    }
-
-    /// Check if `run` contains `{name}` placeholders (but not `${env_var}`).
-    pub(super) fn has_placeholders(run: &str) -> bool {
-        let chars: Vec<char> = run.chars().collect();
-        let mut i = 0;
-        while i < chars.len() {
-            if chars[i] == '{' {
-                // Skip ${...} (shell env var syntax)
-                if i > 0 && chars[i - 1] == '$' {
-                    i += 1;
-                    continue;
-                }
-                // Scan for closing `}`
-                let start = i + 1;
-                let mut end = start;
-                while end < chars.len() && chars[end] != '}' {
-                    end += 1;
-                }
-                if end < chars.len() && end > start {
-                    let inner: String = chars[start..end].iter().collect();
-                    if inner
-                        .chars()
-                        .all(|ch| ch.is_alphanumeric() || ch == '_' || ch == '-')
-                    {
-                        return true;
-                    }
-                }
-                i = end + 1;
-            } else {
-                i += 1;
-            }
-        }
-        false
-    }
-
-    /// Replace `{name}` placeholders in `run` with shell-escaped field values.
-    fn interpolate_template(run: &str, fields: &[super::FormField]) -> String {
-        let mut result = run.to_string();
-        for field in fields {
-            let placeholder = format!("{{{}}}", field.def.name);
-            if let Some(val) = Self::field_value_as_string(field) {
-                let escaped = shell_words::quote(&val);
-                result = result.replace(&placeholder, &escaped);
-            }
-        }
-        result
     }
 
     /// Extract the string value of a field (for assembly/interpolation).

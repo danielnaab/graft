@@ -382,11 +382,16 @@ fn build_shell_command(command: &Command, source_dir: &Path, args: &[String]) ->
     full_command.join(" ")
 }
 
-/// Replace `{name}` placeholders in a command string with arg values.
+/// Check whether a command string contains `{name}` placeholders.
 ///
-/// Placeholders are `{identifier}` patterns where the identifier contains only
-/// alphanumeric characters, underscores, or hyphens. Shell variable syntax `${VAR}`
-/// is explicitly excluded.
+/// Returns `true` if at least one `{identifier}` pattern is found (excluding
+/// `${VAR}` shell variable syntax). Identifiers may contain alphanumeric
+/// characters, underscores, or hyphens.
+pub fn has_placeholders(run: &str) -> bool {
+    scan_placeholders(run, &mut |_| None::<&str>).1
+}
+
+/// Replace `{name}` placeholders positionally with shell-escaped arg values.
 ///
 /// Args are consumed in order: the first placeholder gets `args[0]`, the second
 /// gets `args[1]`, etc. Extra args beyond the number of placeholders are ignored.
@@ -394,10 +399,45 @@ fn build_shell_command(command: &Command, source_dir: &Path, args: &[String]) ->
 ///
 /// Returns the substituted string and whether any placeholders were found.
 pub fn substitute_placeholders(run: &str, args: &[String]) -> (String, bool) {
+    let mut arg_index = 0;
+    scan_placeholders(run, &mut |_name| {
+        if arg_index < args.len() {
+            let val = &args[arg_index];
+            arg_index += 1;
+            Some(val.as_str())
+        } else {
+            None
+        }
+    })
+}
+
+/// Replace `{name}` placeholders by name with shell-escaped values.
+///
+/// Each placeholder `{foo}` is looked up in `named_args` by matching the first
+/// element of each pair. Unmatched placeholders are left as-is.
+///
+/// Returns the substituted string and whether any placeholders were found.
+pub fn substitute_named_placeholders(run: &str, named_args: &[(&str, &str)]) -> (String, bool) {
+    scan_placeholders(run, &mut |name| {
+        named_args.iter().find(|(n, _)| *n == name).map(|(_, v)| *v)
+    })
+}
+
+/// Core placeholder scanner.
+///
+/// Scans `run` for `{identifier}` patterns (excluding `${VAR}` shell syntax).
+/// For each placeholder found, calls `lookup(name)`:
+/// - `Some(value)` → substituted with `shell_words::quote(value)`
+/// - `None` → left as-is (`{name}`)
+///
+/// Returns the result string and whether any placeholders were found.
+fn scan_placeholders<'a>(
+    run: &str,
+    lookup: &mut impl FnMut(&str) -> Option<&'a str>,
+) -> (String, bool) {
     let chars: Vec<char> = run.chars().collect();
     let mut result = String::with_capacity(run.len());
     let mut i = 0;
-    let mut arg_index = 0;
     let mut found_any = false;
 
     while i < chars.len() {
@@ -421,11 +461,10 @@ pub fn substitute_placeholders(run: &str, args: &[String]) -> (String, bool) {
                     .all(|ch| ch.is_alphanumeric() || ch == '_' || ch == '-')
                 {
                     found_any = true;
-                    if arg_index < args.len() {
-                        result.push_str(&args[arg_index]);
-                        arg_index += 1;
+                    if let Some(value) = lookup(&inner) {
+                        let escaped = shell_words::quote(value);
+                        result.push_str(&escaped);
                     } else {
-                        // No arg for this placeholder — leave as-is
                         result.push('{');
                         result.push_str(&inner);
                         result.push('}');
@@ -704,6 +743,66 @@ mod tests {
         let (result, found) = substitute_placeholders("deploy {env}", &[]);
         assert!(found);
         assert_eq!(result, "deploy {env}");
+    }
+
+    #[test]
+    fn substitute_escapes_values_with_spaces() {
+        let (result, found) = substitute_placeholders("deploy {env}", &["my environment".into()]);
+        assert!(found);
+        assert_eq!(result, "deploy 'my environment'");
+    }
+
+    #[test]
+    fn substitute_escapes_shell_metacharacters() {
+        let (result, found) = substitute_placeholders("echo {msg}", &["hello; rm -rf /".into()]);
+        assert!(found);
+        assert_eq!(result, "echo 'hello; rm -rf /'");
+    }
+
+    #[test]
+    fn has_placeholders_detects_simple() {
+        assert!(has_placeholders("bash {slice}"));
+        assert!(has_placeholders("deploy {env} {tag}"));
+        assert!(has_placeholders("{name}"));
+    }
+
+    #[test]
+    fn has_placeholders_skips_shell_vars() {
+        assert!(!has_placeholders("echo ${HOME}"));
+        assert!(!has_placeholders("${FOO} ${BAR}"));
+    }
+
+    #[test]
+    fn has_placeholders_rejects_non_identifiers() {
+        assert!(!has_placeholders("echo {}"));
+        assert!(!has_placeholders("echo {foo bar}"));
+        assert!(!has_placeholders("echo hello"));
+    }
+
+    #[test]
+    fn substitute_named_replaces_by_name() {
+        let (result, found) = substitute_named_placeholders(
+            "deploy {env} --tag {tag}",
+            &[("tag", "v1.2"), ("env", "staging")],
+        );
+        assert!(found);
+        assert_eq!(result, "deploy staging --tag v1.2");
+    }
+
+    #[test]
+    fn substitute_named_escapes_values() {
+        let (result, found) =
+            substitute_named_placeholders("echo {msg}", &[("msg", "hello world")]);
+        assert!(found);
+        assert_eq!(result, "echo 'hello world'");
+    }
+
+    #[test]
+    fn substitute_named_leaves_unmatched() {
+        let (result, found) =
+            substitute_named_placeholders("deploy {env} {tag}", &[("env", "staging")]);
+        assert!(found);
+        assert_eq!(result, "deploy staging {tag}");
     }
 
     #[test]
