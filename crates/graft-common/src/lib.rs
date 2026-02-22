@@ -8,6 +8,7 @@ pub mod command;
 pub mod config;
 pub mod git;
 pub mod process;
+pub mod runs;
 pub mod state;
 
 pub use command::{run_command_with_timeout, CommandError};
@@ -21,6 +22,9 @@ pub use process::{
     run_to_completion, run_to_completion_registered, run_to_completion_with_timeout,
     run_to_completion_with_timeout_registered, FsProcessRegistry, ProcessConfig, ProcessEntry,
     ProcessError, ProcessEvent, ProcessHandle, ProcessOutput, ProcessRegistry, ProcessStatus,
+};
+pub use runs::{
+    get_run_log_dir, list_runs, read_run_log, run_file_stem, run_log_path, write_run_meta, RunMeta,
 };
 pub use state::{
     compute_workspace_hash, get_cache_path, get_query_cache_dir, invalidate_cached_state,
