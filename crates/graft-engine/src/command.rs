@@ -360,11 +360,19 @@ pub fn resolve_script_in_command(run: &str, source_dir: &Path) -> String {
     }
 }
 
-/// Build the shell command string, resolving script paths for dependency commands.
+/// Build the shell command string, resolving script paths and placeholders.
 ///
-/// When stdin is configured, args are consumed by the template (not appended to command).
+/// If the `run` field contains `{name}` placeholders (excluding `${VAR}` shell syntax),
+/// they are replaced with arg values in order. Otherwise, args are appended to the
+/// command (unless stdin is configured, in which case args go to the template).
 fn build_shell_command(command: &Command, source_dir: &Path, args: &[String]) -> String {
     let resolved_run = resolve_script_in_command(&command.run, source_dir);
+
+    let (substituted, had_placeholders) = substitute_placeholders(&resolved_run, args);
+
+    if had_placeholders {
+        return substituted;
+    }
 
     let mut full_command = vec![resolved_run];
     if command.stdin.is_none() {
@@ -372,6 +380,69 @@ fn build_shell_command(command: &Command, source_dir: &Path, args: &[String]) ->
     }
 
     full_command.join(" ")
+}
+
+/// Replace `{name}` placeholders in a command string with arg values.
+///
+/// Placeholders are `{identifier}` patterns where the identifier contains only
+/// alphanumeric characters, underscores, or hyphens. Shell variable syntax `${VAR}`
+/// is explicitly excluded.
+///
+/// Args are consumed in order: the first placeholder gets `args[0]`, the second
+/// gets `args[1]`, etc. Extra args beyond the number of placeholders are ignored.
+/// Placeholders without a corresponding arg value are left as-is.
+///
+/// Returns the substituted string and whether any placeholders were found.
+pub fn substitute_placeholders(run: &str, args: &[String]) -> (String, bool) {
+    let chars: Vec<char> = run.chars().collect();
+    let mut result = String::with_capacity(run.len());
+    let mut i = 0;
+    let mut arg_index = 0;
+    let mut found_any = false;
+
+    while i < chars.len() {
+        if chars[i] == '{' {
+            // Skip ${...} (shell env var syntax)
+            if i > 0 && chars[i - 1] == '$' {
+                result.push('{');
+                i += 1;
+                continue;
+            }
+            // Scan for closing `}`
+            let start = i + 1;
+            let mut end = start;
+            while end < chars.len() && chars[end] != '}' {
+                end += 1;
+            }
+            if end < chars.len() && end > start {
+                let inner: String = chars[start..end].iter().collect();
+                if inner
+                    .chars()
+                    .all(|ch| ch.is_alphanumeric() || ch == '_' || ch == '-')
+                {
+                    found_any = true;
+                    if arg_index < args.len() {
+                        result.push_str(&args[arg_index]);
+                        arg_index += 1;
+                    } else {
+                        // No arg for this placeholder — leave as-is
+                        result.push('{');
+                        result.push_str(&inner);
+                        result.push('}');
+                    }
+                    i = end + 1;
+                    continue;
+                }
+            }
+            result.push('{');
+            i += 1;
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
+    }
+
+    (result, found_any)
 }
 
 /// Get current git branch name.
@@ -577,6 +648,69 @@ mod tests {
         // for local commands, but the function itself always resolves.
         let result = resolve_script_in_command("bash scripts/foo.sh", dir.path());
         assert!(result.contains("scripts/foo.sh"));
+    }
+
+    // --- Placeholder substitution tests ---
+
+    #[test]
+    fn substitute_replaces_single_placeholder() {
+        let (result, found) =
+            substitute_placeholders("bash scripts/iterate.sh {slice}", &["my-feature".into()]);
+        assert!(found);
+        assert_eq!(result, "bash scripts/iterate.sh my-feature");
+    }
+
+    #[test]
+    fn substitute_replaces_embedded_placeholder() {
+        let (result, found) = substitute_placeholders(
+            "bash scripts/iterate.sh {slice} | claude -p",
+            &["session-resume".into()],
+        );
+        assert!(found);
+        assert_eq!(result, "bash scripts/iterate.sh session-resume | claude -p");
+    }
+
+    #[test]
+    fn substitute_replaces_multiple_placeholders() {
+        let (result, found) =
+            substitute_placeholders("deploy {env} {tag}", &["staging".into(), "v1.2".into()]);
+        assert!(found);
+        assert_eq!(result, "deploy staging v1.2");
+    }
+
+    #[test]
+    fn substitute_skips_shell_vars() {
+        let (result, found) = substitute_placeholders("echo ${HOME} {name}", &["world".into()]);
+        assert!(found);
+        assert_eq!(result, "echo ${HOME} world");
+    }
+
+    #[test]
+    fn substitute_no_placeholders_returns_unchanged() {
+        let (result, found) = substitute_placeholders("echo hello", &["extra".into()]);
+        assert!(!found);
+        assert_eq!(result, "echo hello");
+    }
+
+    #[test]
+    fn substitute_leaves_unmatched_placeholders() {
+        let (result, found) = substitute_placeholders("deploy {env} {tag}", &["staging".into()]);
+        assert!(found);
+        assert_eq!(result, "deploy staging {tag}");
+    }
+
+    #[test]
+    fn substitute_handles_empty_args() {
+        let (result, found) = substitute_placeholders("deploy {env}", &[]);
+        assert!(found);
+        assert_eq!(result, "deploy {env}");
+    }
+
+    #[test]
+    fn build_shell_command_substitutes_placeholders() {
+        let command = Command::new("impl", "bash scripts/iterate.sh {slice} | claude -p").unwrap();
+        let result = build_shell_command(&command, Path::new("/tmp"), &["my-slice".into()]);
+        assert_eq!(result, "bash scripts/iterate.sh my-slice | claude -p");
     }
 
     #[test]

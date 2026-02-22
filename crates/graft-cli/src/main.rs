@@ -1737,7 +1737,11 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
             }
         } else {
             // No stdin: print the command that would execute
-            let full_command = if args.is_empty() {
+            let (substituted, had_placeholders) =
+                graft_engine::substitute_placeholders(&cmd.run, args);
+            let full_command = if had_placeholders {
+                substituted
+            } else if args.is_empty() {
                 cmd.run.clone()
             } else {
                 format!("{} {}", cmd.run, args.join(" "))
@@ -1815,8 +1819,11 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
         std::process::exit(1);
     }
 
-    // Build full command with args
-    let full_command = if args.is_empty() {
+    // Build full command with args (substitute placeholders or append)
+    let (substituted, had_placeholders) = graft_engine::substitute_placeholders(&cmd.run, args);
+    let full_command = if had_placeholders {
+        substituted
+    } else if args.is_empty() {
         cmd.run.clone()
     } else {
         format!("{} {}", cmd.run, args.join(" "))
@@ -1934,7 +1941,11 @@ fn run_dependency_command(
             // No stdin: print the command that would execute (with script resolution)
             let resolved_run =
                 graft_engine::resolve_script_in_command(&cmd.run, &cmd_ctx.source_dir);
-            let full_command = if args.is_empty() {
+            let (substituted, had_placeholders) =
+                graft_engine::substitute_placeholders(&resolved_run, args);
+            let full_command = if had_placeholders {
+                substituted
+            } else if args.is_empty() {
                 resolved_run
             } else {
                 format!("{resolved_run} {}", args.join(" "))
@@ -1987,7 +1998,11 @@ fn run_dependency_command(
 
     // Simple commands: stream output directly for real-time feedback
     let resolved_run = graft_engine::resolve_script_in_command(&cmd.run, &cmd_ctx.source_dir);
-    let full_command = if args.is_empty() {
+    let (substituted, had_placeholders) =
+        graft_engine::substitute_placeholders(&resolved_run, args);
+    let full_command = if had_placeholders {
+        substituted
+    } else if args.is_empty() {
         resolved_run
     } else {
         format!("{resolved_run} {}", args.join(" "))
