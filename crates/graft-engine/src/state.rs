@@ -154,7 +154,16 @@ pub fn get_state(
     if !refresh && query.cache.deterministic {
         if let Some(cached) = read_cached_state(workspace_name, repo_name, &query.name, commit_hash)
         {
-            return Ok(cached);
+            // If TTL is configured, check if cache has expired
+            if let Some(ttl_secs) = query.cache.ttl {
+                if is_cache_expired(&cached.metadata.timestamp, ttl_secs) {
+                    // Cache expired, fall through to re-execute
+                } else {
+                    return Ok(cached);
+                }
+            } else {
+                return Ok(cached);
+            }
         }
     }
 
@@ -167,6 +176,18 @@ pub fn get_state(
     }
 
     Ok(result)
+}
+
+/// Check if a cached result has expired based on its timestamp and the TTL.
+fn is_cache_expired(timestamp: &str, ttl_secs: u64) -> bool {
+    let Ok(cached_time) = chrono::DateTime::parse_from_rfc3339(timestamp) else {
+        // If we can't parse the timestamp, treat as expired
+        return true;
+    };
+
+    let now = chrono::Utc::now();
+    let age = now.signed_duration_since(cached_time);
+    age.num_seconds() > i64::try_from(ttl_secs).unwrap_or(i64::MAX)
 }
 
 /// List all state queries with cache status.
@@ -210,6 +231,7 @@ mod tests {
             .unwrap()
             .with_cache(StateCache {
                 deterministic: true,
+                ttl: None,
             });
 
         let result = execute_state_query(&query, Path::new("/tmp"), "abc123").unwrap();
@@ -250,5 +272,68 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("got array"));
+    }
+
+    #[test]
+    fn test_is_cache_expired() {
+        // Fresh timestamp (1 second ago) with 120s TTL -> not expired
+        let fresh = chrono::Utc::now()
+            .checked_sub_signed(chrono::Duration::seconds(1))
+            .unwrap()
+            .to_rfc3339();
+        assert!(!is_cache_expired(&fresh, 120));
+
+        // Old timestamp (200 seconds ago) with 120s TTL -> expired
+        let old = chrono::Utc::now()
+            .checked_sub_signed(chrono::Duration::seconds(200))
+            .unwrap()
+            .to_rfc3339();
+        assert!(is_cache_expired(&old, 120));
+
+        // Unparseable timestamp -> expired
+        assert!(is_cache_expired("not-a-timestamp", 120));
+    }
+
+    #[test]
+    fn test_ttl_expired_cache_is_skipped() {
+        // Create a synthetic cached result with an old timestamp
+        let workspace = "test-ws";
+        let repo = "test-repo-ttl";
+        let query_name = "ttl-test";
+        let commit = "abc123";
+
+        // Write a cached result with an old timestamp
+        let old_timestamp = chrono::Utc::now()
+            .checked_sub_signed(chrono::Duration::seconds(200))
+            .unwrap()
+            .to_rfc3339();
+
+        let old_result = StateResult {
+            metadata: StateMetadata {
+                query_name: query_name.to_string(),
+                commit_hash: commit.to_string(),
+                timestamp: old_timestamp,
+                command: "echo '{\"old\": true}'".to_string(),
+                deterministic: true,
+            },
+            data: serde_json::json!({"old": true}),
+        };
+
+        let _ = write_cached_state(workspace, repo, &old_result);
+
+        // Create a query with TTL of 120s and a command that returns new data
+        let query = StateQuery::new(query_name, "echo '{\"fresh\": true}'")
+            .unwrap()
+            .with_cache(StateCache {
+                deterministic: true,
+                ttl: Some(120),
+            });
+
+        // get_state should skip the expired cache and re-execute
+        let result = get_state(&query, workspace, repo, Path::new("/tmp"), commit, false).unwrap();
+
+        // Result should be from the fresh execution, not the old cache
+        assert_eq!(result.data["fresh"], true);
+        assert!(result.data.get("old").is_none());
     }
 }

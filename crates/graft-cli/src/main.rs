@@ -1730,7 +1730,7 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
     if dry_run {
         if cmd.stdin.is_some() {
             let rendered = graft_engine::resolve_command_stdin(
-                cmd, &config, base_dir, &repo_name, &repo_name, false,
+                cmd, &config, base_dir, &repo_name, &repo_name, false, args,
             )?;
             if let Some(text) = rendered {
                 print!("{text}");

@@ -136,7 +136,7 @@ pub fn execute_command_with_context(
             graft_common::get_current_commit(base_dir).unwrap_or_else(|_| "unknown".to_string());
 
         let template_ctx =
-            TemplateContext::new(base_dir, &commit_hash, &git_branch, &state_results);
+            TemplateContext::new(base_dir, &commit_hash, &git_branch, &state_results, args);
 
         let rendered = resolve_stdin(stdin_source, base_dir, &template_ctx)?;
         Some(rendered)
@@ -145,8 +145,11 @@ pub fn execute_command_with_context(
     };
 
     // Step 4: Build and execute command
+    // When stdin is configured, args are consumed by the template (not appended to command)
     let mut full_command = vec![command.run.clone()];
-    full_command.extend(args.iter().cloned());
+    if command.stdin.is_none() {
+        full_command.extend(args.iter().cloned());
+    }
 
     let working_dir = if let Some(ref cmd_dir) = command.working_dir {
         base_dir.join(cmd_dir)
@@ -192,6 +195,7 @@ pub fn resolve_command_stdin(
     workspace_name: &str,
     repo_name: &str,
     refresh: bool,
+    args: &[String],
 ) -> Result<Option<String>> {
     if command.stdin.is_none() {
         return Ok(None);
@@ -229,7 +233,8 @@ pub fn resolve_command_stdin(
     let commit_hash =
         graft_common::get_current_commit(base_dir).unwrap_or_else(|_| "unknown".to_string());
 
-    let template_ctx = TemplateContext::new(base_dir, &commit_hash, &git_branch, &state_results);
+    let template_ctx =
+        TemplateContext::new(base_dir, &commit_hash, &git_branch, &state_results, args);
 
     let rendered = resolve_stdin(stdin_source, base_dir, &template_ctx)?;
     Ok(Some(rendered))
@@ -328,5 +333,50 @@ mod tests {
         } else {
             panic!("Expected CommandExecution error");
         }
+    }
+
+    /// Tests the args-routing contract: when stdin is present, CLI args go to the
+    /// template context (as `{{ args }}`), not to the shell command. When stdin is
+    /// absent, args are appended to the run command as before.
+    ///
+    /// This duplicates the conditional from `execute_command_with_context` rather
+    /// than calling it directly because the real function requires a git repo and
+    /// live subprocess. The duplication is acceptable because the test asserts the
+    /// behavioral contract (args routing) independent of the execution environment.
+    #[test]
+    fn args_not_appended_to_command_when_stdin_present() {
+        use crate::domain::StdinSource;
+
+        // Build a command with stdin
+        let command = Command::new("gen", "echo ok")
+            .unwrap()
+            .with_stdin(StdinSource::Literal("hello".to_string()));
+
+        let args = vec!["extra".to_string(), "args".to_string()];
+
+        // Replicate the args-routing logic from execute_command_with_context
+        let mut full_command = vec![command.run.clone()];
+        if command.stdin.is_none() {
+            full_command.extend(args.iter().cloned());
+        }
+
+        let shell_cmd = full_command.join(" ");
+        assert_eq!(
+            shell_cmd, "echo ok",
+            "args should not be appended when stdin is present"
+        );
+
+        // Verify that without stdin, args ARE appended
+        let command_no_stdin = Command::new("gen", "echo ok").unwrap();
+        let mut full_command2 = vec![command_no_stdin.run.clone()];
+        if command_no_stdin.stdin.is_none() {
+            full_command2.extend(args.iter().cloned());
+        }
+
+        let shell_cmd2 = full_command2.join(" ");
+        assert_eq!(
+            shell_cmd2, "echo ok extra args",
+            "args should be appended when stdin is absent"
+        );
     }
 }

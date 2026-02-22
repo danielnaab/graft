@@ -58,11 +58,15 @@ Templates currently have access to built-in variables (`repo_name`, `git_branch`
 
 This is a small, focused engine change. The template renderer already uses Tera context injection; adding one more variable is straightforward.
 
+**Resolution (2026-02-21)**: Implemented. `TemplateContext::new()` now accepts `args: &[String]`, joins them into a single string, and injects `{{ args }}` into the Tera context. When `stdin:` is present, args are consumed by the template and NOT appended to the `run:` command. See `crates/graft-engine/src/template.rs` and `crates/graft-engine/src/command.rs`. Documented in [ADR 008](../docs/decisions/008-template-args-and-ttl-cache.md).
+
 ### Deterministic cache for working-tree queries
 
 `deterministic: true` caches by commit hash, which is wrong for queries that inspect the working tree (uncommitted changes, formatting status). The only alternative is `deterministic: false` which disables caching entirely.
 
 A middle ground would be useful: cache keyed by commit hash + working tree dirty state, or a short TTL. The current Stage 1 comment in `domain.rs` notes TTL is not yet implemented.
+
+**Resolution (2026-02-21)**: Implemented. `StateCache` now has an optional `ttl: Option<u64>` field (seconds). When set alongside `deterministic: true`, cached results expire after the TTL even if the commit hash matches. Parsed from `cache.ttl` in graft.yaml and checked against file modification time in `crates/graft-engine/src/state.rs`. Documented in [ADR 008](../docs/decisions/008-template-args-and-ttl-cache.md).
 
 ## Related
 

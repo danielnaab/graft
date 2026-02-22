@@ -21,6 +21,7 @@ state:
     run: "bash -c 'echo \"## Format\"; cargo fmt --check 2>&1 | head -20; echo; echo \"## Lint\"; cargo clippy -- -D warnings 2>&1 | head -30; echo; echo \"## Tests\"; cargo test 2>&1 | tail -20' | jq -Rs '{raw: .}'"
     cache:
       deterministic: true
+      ttl: 120
     timeout: 120
 
   changes:

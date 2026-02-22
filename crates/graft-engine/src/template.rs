@@ -22,6 +22,7 @@ impl TemplateContext {
         commit_hash: &str,
         git_branch: &str,
         state_results: &HashMap<String, serde_json::Value>,
+        args: &[String],
     ) -> Self {
         let mut ctx = tera::Context::new();
 
@@ -39,6 +40,11 @@ impl TemplateContext {
 
         // State variables under the `state` namespace
         ctx.insert("state", state_results);
+
+        // CLI args (only when non-empty, so {% if args is defined %} works)
+        if !args.is_empty() {
+            ctx.insert("args", &args.join(" "));
+        }
 
         Self { inner: ctx }
     }
@@ -101,6 +107,10 @@ mod tests {
     use std::path::PathBuf;
 
     fn test_context() -> TemplateContext {
+        test_context_with_args(&[])
+    }
+
+    fn test_context_with_args(args: &[String]) -> TemplateContext {
         let mut state = HashMap::new();
         state.insert(
             "coverage".to_string(),
@@ -116,6 +126,7 @@ mod tests {
             "abc123def456",
             "main",
             &state,
+            args,
         )
     }
 
@@ -179,7 +190,7 @@ mod tests {
             "items".to_string(),
             serde_json::json!({"list": ["a", "b", "c"]}),
         );
-        let ctx = TemplateContext::new(Path::new("/tmp/repo"), "abc", "main", &state);
+        let ctx = TemplateContext::new(Path::new("/tmp/repo"), "abc", "main", &state, &[]);
 
         let template = "{% for item in state.items.list %}{{ item }},{% endfor %}";
         let result = render_template(template, "test", &ctx).unwrap();
@@ -283,8 +294,43 @@ mod tests {
     #[test]
     fn context_with_empty_state() {
         let state = HashMap::new();
-        let ctx = TemplateContext::new(Path::new("/tmp/repo"), "abc", "main", &state);
+        let ctx = TemplateContext::new(Path::new("/tmp/repo"), "abc", "main", &state, &[]);
         let result = render_template("Branch: {{ git_branch }}", "test", &ctx).unwrap();
         assert_eq!(result, "Branch: main");
+    }
+
+    #[test]
+    fn render_args_in_template() {
+        let args = vec![
+            "implement".to_string(),
+            "auth".to_string(),
+            "feature".to_string(),
+        ];
+        let ctx = test_context_with_args(&args);
+        let result = render_template("Task: {{ args }}", "test", &ctx).unwrap();
+        assert_eq!(result, "Task: implement auth feature");
+    }
+
+    #[test]
+    fn empty_args_not_defined() {
+        let ctx = test_context_with_args(&[]);
+        let result = render_template("{{ args }}", "test", &ctx);
+        // args is undefined, so Tera will error on direct access
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn args_conditional_guard() {
+        // With args
+        let args = vec!["my task".to_string()];
+        let ctx = test_context_with_args(&args);
+        let template = "{% if args is defined %}Task: {{ args }}{% endif %}";
+        let result = render_template(template, "test", &ctx).unwrap();
+        assert_eq!(result, "Task: my task");
+
+        // Without args
+        let ctx = test_context_with_args(&[]);
+        let result = render_template(template, "test", &ctx).unwrap();
+        assert_eq!(result, "");
     }
 }

@@ -418,7 +418,11 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
                     .and_then(serde_yaml::Value::as_bool)
                     .unwrap_or(true);
 
-                query.cache = StateCache { deterministic };
+                let ttl = cache_obj
+                    .get(Value::String("ttl".to_string()))
+                    .and_then(serde_yaml::Value::as_u64);
+
+                query.cache = StateCache { deterministic, ttl };
             }
 
             // Parse timeout (optional)
@@ -668,6 +672,25 @@ state:
         let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
         let cmd = config.get_command("gen").unwrap();
         assert_eq!(cmd.context, vec!["coverage".to_string()]);
+    }
+
+    #[test]
+    fn parses_state_query_with_ttl() {
+        let yaml = r#"
+apiVersion: graft/v0
+state:
+  verify:
+    run: "cargo test"
+    cache:
+      deterministic: true
+      ttl: 120
+    timeout: 60
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let query = config.state.get("verify").unwrap();
+        assert!(query.cache.deterministic);
+        assert_eq!(query.cache.ttl, Some(120));
+        assert_eq!(query.timeout, Some(60));
     }
 
     #[test]

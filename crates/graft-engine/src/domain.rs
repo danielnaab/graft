@@ -499,15 +499,19 @@ impl Command {
 /// Cache configuration for a state query.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateCache {
-    /// If true, cache is keyed by commit hash and valid indefinitely.
-    /// If false, cache has TTL (not implemented in Stage 1).
+    /// If true, cache is keyed by commit hash and valid indefinitely (unless TTL is set).
     pub deterministic: bool,
+    /// Optional time-to-live in seconds. When set, cached results older than this
+    /// are re-executed even if the commit hash matches.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<u64>,
 }
 
 impl Default for StateCache {
     fn default() -> Self {
         Self {
             deterministic: true,
+            ttl: None,
         }
     }
 }
@@ -566,6 +570,12 @@ impl StateQuery {
     #[must_use]
     pub fn with_cache(mut self, cache: StateCache) -> Self {
         self.cache = cache;
+        self
+    }
+
+    #[must_use]
+    pub fn with_ttl(mut self, ttl: u64) -> Self {
+        self.cache.ttl = Some(ttl);
         self
     }
 
@@ -1236,5 +1246,36 @@ mod tests {
     fn command_needs_context_without_stdin_or_context() {
         let cmd = Command::new("gen", "echo ok").unwrap();
         assert!(!cmd.needs_context());
+    }
+
+    #[test]
+    fn state_cache_with_ttl_round_trips_serde() {
+        let cache = StateCache {
+            deterministic: true,
+            ttl: Some(120),
+        };
+        let yaml = serde_yaml::to_string(&cache).unwrap();
+        let parsed: StateCache = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(parsed.deterministic, true);
+        assert_eq!(parsed.ttl, Some(120));
+
+        // Without TTL
+        let cache_no_ttl = StateCache {
+            deterministic: true,
+            ttl: None,
+        };
+        let yaml2 = serde_yaml::to_string(&cache_no_ttl).unwrap();
+        assert!(!yaml2.contains("ttl"), "ttl should be skipped when None");
+        let parsed2: StateCache = serde_yaml::from_str(&yaml2).unwrap();
+        assert_eq!(parsed2.ttl, None);
+    }
+
+    #[test]
+    fn state_query_with_ttl_builder() {
+        let query = StateQuery::new("verify", "cargo test")
+            .unwrap()
+            .with_ttl(120);
+        assert_eq!(query.cache.ttl, Some(120));
+        assert!(query.cache.deterministic); // default
     }
 }

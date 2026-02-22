@@ -665,6 +665,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 run: query.run.clone(),
                 cache: graft_engine::StateCache {
                     deterministic: query.deterministic,
+                    ttl: None,
                 },
                 timeout: query.timeout,
             };
