@@ -5,7 +5,16 @@ use super::{
     LINES_TO_DROP, MAX_OUTPUT_LINES,
 };
 use graft_common::process::{ProcessConfig, ProcessEvent, ProcessHandle};
+use graft_common::runs::{run_log_path, write_run_meta, RunMeta};
 use std::path::PathBuf;
+
+/// Context for run logging — carries workspace/repo/command identity.
+#[derive(Debug, Clone)]
+pub struct RunContext {
+    pub workspace: String,
+    pub repo: String,
+    pub command: String,
+}
 
 /// Events from async command execution.
 #[derive(Debug)]
@@ -31,6 +40,7 @@ pub fn spawn_command(
     command_name: String,
     args: Vec<String>,
     repo_path: String,
+    run_ctx: Option<RunContext>,
     tx: Sender<CommandEvent>,
 ) {
     // Parse qualified command name (dep:cmd vs local)
@@ -69,6 +79,7 @@ pub fn spawn_command(
     };
 
     // Build shell command: `run [args...]`
+    let args_clone = args.clone();
     let mut full_parts = vec![cmd_def.run.clone()];
     full_parts.extend(args);
     let shell_cmd = full_parts.join(" ");
@@ -80,11 +91,22 @@ pub fn spawn_command(
         base_dir
     };
 
+    // Compute log path if run context is provided.
+    let (log_path, log_file, run_meta_ctx) = if let Some(ref ctx) = run_ctx {
+        let (path, file) = run_log_path(&ctx.workspace, &ctx.repo, &ctx.command);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        (Some(path), Some(file), Some(ctx.clone()))
+    } else {
+        (None, None, None)
+    };
+
     let config = ProcessConfig {
-        command: shell_cmd,
+        command: shell_cmd.clone(),
         working_dir,
         env: cmd_def.env,
-        log_path: None,
+        log_path,
         timeout: None,
         stdin: None,
     };
@@ -99,6 +121,8 @@ pub fn spawn_command(
         }
     };
 
+    let start_time = chrono::Utc::now().to_rfc3339();
+
     // Bridge ProcessEvent → CommandEvent. The channel closes after Completed or Failed.
     for event in rx {
         match event {
@@ -111,6 +135,21 @@ pub fn spawn_command(
                 }
             }
             ProcessEvent::Completed { exit_code } => {
+                // Write run metadata sidecar.
+                if let (Some(ctx), Some(log_file)) = (&run_meta_ctx, &log_file) {
+                    let meta = RunMeta {
+                        command: ctx.command.clone(),
+                        args: args_clone.clone(),
+                        shell_cmd: shell_cmd.clone(),
+                        start_time: start_time.clone(),
+                        end_time: Some(chrono::Utc::now().to_rfc3339()),
+                        exit_code: Some(exit_code),
+                        log_file: log_file.clone(),
+                    };
+                    if let Err(e) = write_run_meta(&ctx.workspace, &ctx.repo, &meta) {
+                        log::warn!("Failed to write run metadata: {e}");
+                    }
+                }
                 let _ = tx.send(CommandEvent::Completed(exit_code));
             }
             ProcessEvent::Failed { error } => {
@@ -131,6 +170,7 @@ pub fn spawn_command_assembled(
     repo_path: String,
     working_dir_override: Option<String>,
     env: Option<std::collections::HashMap<String, String>>,
+    run_ctx: Option<RunContext>,
     tx: Sender<CommandEvent>,
 ) {
     let working_dir = if let Some(ref sub_dir) = working_dir_override {
@@ -139,11 +179,22 @@ pub fn spawn_command_assembled(
         PathBuf::from(&repo_path)
     };
 
+    // Compute log path if run context is provided.
+    let (log_path, log_file, run_meta_ctx) = if let Some(ref ctx) = run_ctx {
+        let (path, file) = run_log_path(&ctx.workspace, &ctx.repo, &ctx.command);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        (Some(path), Some(file), Some(ctx.clone()))
+    } else {
+        (None, None, None)
+    };
+
     let config = ProcessConfig {
-        command: shell_cmd,
+        command: shell_cmd.clone(),
         working_dir,
         env,
-        log_path: None,
+        log_path,
         timeout: None,
         stdin: None,
     };
@@ -158,6 +209,8 @@ pub fn spawn_command_assembled(
         }
     };
 
+    let start_time = chrono::Utc::now().to_rfc3339();
+
     for event in rx {
         match event {
             ProcessEvent::Started { pid } => {
@@ -169,6 +222,21 @@ pub fn spawn_command_assembled(
                 }
             }
             ProcessEvent::Completed { exit_code } => {
+                // Write run metadata sidecar.
+                if let (Some(ctx), Some(log_file)) = (&run_meta_ctx, &log_file) {
+                    let meta = RunMeta {
+                        command: ctx.command.clone(),
+                        args: vec![],
+                        shell_cmd: shell_cmd.clone(),
+                        start_time: start_time.clone(),
+                        end_time: Some(chrono::Utc::now().to_rfc3339()),
+                        exit_code: Some(exit_code),
+                        log_file: log_file.clone(),
+                    };
+                    if let Err(e) = write_run_meta(&ctx.workspace, &ctx.repo, &meta) {
+                        log::warn!("Failed to write run metadata: {e}");
+                    }
+                }
                 let _ = tx.send(CommandEvent::Completed(exit_code));
             }
             ProcessEvent::Failed { error } => {
@@ -274,6 +342,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             repo_path.clone()
         };
 
+        let run_ctx = self.build_run_context(repo_path, &command_name);
+
         let (tx, rx) = mpsc::channel();
         self.command_event_rx = Some(rx);
 
@@ -285,7 +355,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.running_command_pid = None;
 
         std::thread::spawn(move || {
-            spawn_command_assembled(shell_cmd, base_dir, working_dir, env, tx);
+            spawn_command_assembled(shell_cmd, base_dir, working_dir, env, run_ctx, tx);
         });
     }
 
@@ -294,6 +364,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         let Some(repo_path) = &self.selected_repo_for_commands else {
             return;
         };
+
+        let run_ctx = self.build_run_context(repo_path, &command_name);
 
         let (tx, rx) = mpsc::channel();
         self.command_event_rx = Some(rx);
@@ -307,8 +379,20 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         let repo_path_clone = repo_path.clone();
         std::thread::spawn(move || {
-            spawn_command(command_name, args, repo_path_clone, tx);
+            spawn_command(command_name, args, repo_path_clone, run_ctx, tx);
         });
+    }
+
+    /// Build a `RunContext` for run logging from the current workspace and repo path.
+    fn build_run_context(&self, repo_path: &str, command_name: &str) -> Option<RunContext> {
+        let repo_name = std::path::Path::new(repo_path)
+            .file_name()
+            .and_then(|n| n.to_str())?;
+        Some(RunContext {
+            workspace: self.workspace_name.clone(),
+            repo: repo_name.to_string(),
+            command: command_name.to_string(),
+        })
     }
 }
 
@@ -336,7 +420,13 @@ mod tests {
     /// Collect all events from spawn_command into a Vec.
     fn collect_events(command_name: &str, args: Vec<String>, repo_path: &str) -> Vec<CommandEvent> {
         let (tx, rx) = mpsc::channel();
-        spawn_command(command_name.to_string(), args, repo_path.to_string(), tx);
+        spawn_command(
+            command_name.to_string(),
+            args,
+            repo_path.to_string(),
+            None,
+            tx,
+        );
         rx.into_iter().collect()
     }
 
@@ -457,6 +547,7 @@ commands:
         spawn_command_assembled(
             "pwd".to_string(),
             dep_dir.display().to_string(),
+            None,
             None,
             None,
             tx,

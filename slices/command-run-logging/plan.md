@@ -31,7 +31,7 @@ Storage layout mirrors the state cache: `~/.cache/graft/{workspace-hash}/{repo}/
   - **Done when** — `get_run_log_dir(workspace, repo) -> PathBuf`, `RunMeta` struct with serde, `write_run_meta()` and `list_runs()` work with unit tests
   - **Files** — `crates/graft-common/src/runs.rs`, `crates/graft-common/src/lib.rs`
 
-- [ ] **Wire log_path in grove command_exec**
+- [x] **Wire log_path in grove command_exec**
   - **Delivers** — every command spawned by grove writes output to a timestamped log file
   - **Done when** — `spawn_command` and `spawn_command_assembled` compute a log path from workspace/repo/command name, pass it to `ProcessConfig`, and after completion write a `RunMeta` sidecar; running a command in grove produces files in `~/.cache/graft/.../runs/`
   - **Files** — `crates/grove-cli/src/tui/command_exec.rs`, `crates/grove-cli/src/tui/mod.rs`

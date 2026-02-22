@@ -36,7 +36,7 @@ commands:
 
     // Spawn in thread to avoid blocking
     std::thread::spawn(move || {
-        spawn_command("test-hello".to_string(), Vec::new(), repo_path, tx);
+        spawn_command("test-hello".to_string(), Vec::new(), repo_path, None, tx);
     });
 
     // Assert: Collect output and verify
@@ -116,7 +116,13 @@ commands:
     let repo_path = temp_dir.path().to_string_lossy().to_string();
 
     std::thread::spawn(move || {
-        spawn_command("nonexistent-command".to_string(), Vec::new(), repo_path, tx);
+        spawn_command(
+            "nonexistent-command".to_string(),
+            Vec::new(),
+            repo_path,
+            None,
+            tx,
+        );
     });
 
     // Assert: Should get failure or non-zero exit
@@ -180,7 +186,13 @@ commands:
     let repo_path = temp_dir.path().to_string_lossy().to_string();
 
     std::thread::spawn(move || {
-        spawn_command("failing-command".to_string(), Vec::new(), repo_path, tx);
+        spawn_command(
+            "failing-command".to_string(),
+            Vec::new(),
+            repo_path,
+            None,
+            tx,
+        );
     });
 
     // Assert: Should complete with exit code 42
@@ -241,7 +253,7 @@ commands:
     let repo_path = temp_dir.path().to_string_lossy().to_string();
 
     std::thread::spawn(move || {
-        spawn_command("multiline".to_string(), Vec::new(), repo_path, tx);
+        spawn_command("multiline".to_string(), Vec::new(), repo_path, None, tx);
     });
 
     // Collect all output
@@ -311,6 +323,7 @@ commands:
             "echo-args".to_string(),
             vec!["arg1".to_string(), "arg2".to_string(), "arg3".to_string()],
             repo_path,
+            None,
             tx,
         );
     });
@@ -377,6 +390,7 @@ fn test_graft_not_in_path_error() {
         "test".to_string(),
         Vec::new(),
         temp_dir.path().to_string_lossy().to_string(),
+        None,
         tx,
     );
 
