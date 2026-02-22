@@ -275,8 +275,8 @@ pub fn resolve_command_stdin(
 /// Resolve state queries referenced in a command's `context` field.
 ///
 /// State query scripts execute in `ctx.consumer_dir` (the consumer's repo root).
-/// Script paths in state query `run:` fields are resolved from `ctx.source_dir`
-/// when running in dependency mode.
+/// Note: state query `run:` fields are passed as-is — script path resolution
+/// for state queries is not yet implemented (only command `run:` fields are resolved).
 fn resolve_state_queries(
     command: &Command,
     config: &GraftConfig,

@@ -1959,23 +1959,76 @@ fn run_dependency_command(
     if !args.is_empty() {
         eprintln!("  Arguments: {}", args.join(" "));
     }
+    if let Some(ref wd) = cmd.working_dir {
+        eprintln!("  Working directory: {wd}");
+    }
     eprintln!("  Source: .graft/{dep_name}/");
     eprintln!();
 
-    // Use context-aware execution (handles stdin, context, script resolution, GRAFT_DEP_DIR)
-    let result = graft_engine::execute_command_with_context(cmd, &config, &cmd_ctx, args)?;
+    // Commands with stdin/context need captured execution (for template rendering)
+    if cmd.needs_context() {
+        let result = graft_engine::execute_command_with_context(cmd, &config, &cmd_ctx, args)?;
 
-    // Print stdout/stderr
-    if !result.stdout.is_empty() {
-        println!("{}", result.stdout);
-    }
-    if !result.stderr.is_empty() {
-        eprintln!("{}", result.stderr);
+        if !result.stdout.is_empty() {
+            println!("{}", result.stdout);
+        }
+        if !result.stderr.is_empty() {
+            eprintln!("{}", result.stderr);
+        }
+
+        if !result.success {
+            eprintln!("\n✗ Command failed with exit code {}", result.exit_code);
+            std::process::exit(result.exit_code);
+        }
+
+        eprintln!("\n✓ Command completed successfully");
+        return Ok(());
     }
 
-    if !result.success {
-        eprintln!("\n✗ Command failed with exit code {}", result.exit_code);
-        std::process::exit(result.exit_code);
+    // Simple commands: stream output directly for real-time feedback
+    let resolved_run = graft_engine::resolve_script_in_command(&cmd.run, &cmd_ctx.source_dir);
+    let full_command = if args.is_empty() {
+        resolved_run
+    } else {
+        format!("{resolved_run} {}", args.join(" "))
+    };
+
+    let working_dir = if let Some(ref cmd_dir) = cmd.working_dir {
+        cmd_ctx.consumer_dir.join(cmd_dir)
+    } else {
+        cmd_ctx.consumer_dir.clone()
+    };
+
+    let mut process_cmd = std::process::Command::new("sh");
+    process_cmd
+        .arg("-c")
+        .arg(&full_command)
+        .current_dir(&working_dir);
+
+    // Add environment variables
+    if let Some(env_vars) = &cmd.env {
+        for (key, value) in env_vars {
+            process_cmd.env(key, value);
+        }
+    }
+    // Inject GRAFT_DEP_DIR for dependency commands
+    process_cmd.env(
+        "GRAFT_DEP_DIR",
+        cmd_ctx.source_dir.to_string_lossy().as_ref(),
+    );
+
+    let status = process_cmd.status().with_context(|| {
+        format!(
+            "Failed to execute command '{}' in directory '{}'",
+            cmd.run,
+            working_dir.display()
+        )
+    })?;
+
+    if !status.success() {
+        let exit_code = status.code().unwrap_or(1);
+        eprintln!("\n✗ Command failed with exit code {exit_code}");
+        std::process::exit(exit_code);
     }
 
     eprintln!("\n✓ Command completed successfully");
