@@ -8,7 +8,27 @@
 
 set -euo pipefail
 
-SLICE_DIR="${1:?Usage: graft run iterate slices/<slug>}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# No args: list available slices
+if [ $# -eq 0 ]; then
+  slices_json=$("$SCRIPT_DIR/list-slices.sh")
+  count=$(echo "$slices_json" | jq '.slices | length')
+
+  if [ "$count" -eq 0 ]; then
+    echo "No slices found. Run \`graft run plan\` to create one." >&2
+    exit 1
+  fi
+
+  echo "Available slices:" >&2
+  echo "" >&2
+  echo "$slices_json" | jq -r '.slices[] | "  \(.slug)  (\(.status), \(.steps_done)/\(.steps_total) steps)"' >&2
+  echo "" >&2
+  echo "Usage: graft run iterate slices/<slug>" >&2
+  exit 1
+fi
+
+SLICE_DIR="$1"
 
 # Strip trailing slash
 SLICE_DIR="${SLICE_DIR%/}"
@@ -20,7 +40,6 @@ if [ ! -f "$PLAN_FILE" ]; then
 fi
 
 # Read slice metadata via read-slice.sh
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 slice_json=$("$SCRIPT_DIR/read-slice.sh" "$SLICE_DIR")
 
 status=$(echo "$slice_json" | jq -r '.status')
