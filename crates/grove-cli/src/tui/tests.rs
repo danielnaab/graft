@@ -5188,6 +5188,170 @@ fn dynamic_hints_show_enter_run_on_command() {
     );
 }
 
+// ===== State Query Expand/Collapse Tests =====
+
+#[test]
+fn enter_on_state_query_toggles_expanded() {
+    use crate::state::{StateMetadata, StateQuery, StateResult};
+    use serde_json::json;
+
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail {
+            changed_files: vec![],
+            commits: vec![],
+            error: None,
+        }),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+    app.ensure_detail_loaded();
+
+    // Set up a state query with data
+    app.state_queries = vec![StateQuery {
+        name: "verify".to_string(),
+        run: "echo test".to_string(),
+        description: None,
+        deterministic: true,
+        timeout: None,
+    }];
+    app.state_results = vec![Some(StateResult {
+        metadata: StateMetadata {
+            query_name: "verify".to_string(),
+            commit_hash: "abc".to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            command: "echo test".to_string(),
+            deterministic: true,
+        },
+        data: json!({"format": "OK", "lint": "OK", "tests": "OK"}),
+    })];
+    app.rebuild_detail_items();
+
+    // Navigate cursor to the state query item
+    let sq_pos = app
+        .detail_items
+        .iter()
+        .position(|item| matches!(item, DetailItem::StateQuery(0)))
+        .expect("StateQuery(0) should be in detail_items");
+    app.detail_cursor = sq_pos;
+
+    // Initially not expanded
+    assert!(
+        app.expanded_state_queries.is_empty(),
+        "Should start collapsed"
+    );
+
+    // Press Enter to expand
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(
+        app.expanded_state_queries.contains(&0),
+        "Enter should expand state query"
+    );
+
+    // Press Enter again to collapse
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(
+        app.expanded_state_queries.is_empty(),
+        "Second Enter should collapse"
+    );
+}
+
+#[test]
+fn expanded_state_query_adds_lines_to_detail_view() {
+    use crate::state::{StateMetadata, StateQuery, StateResult};
+    use serde_json::json;
+
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail {
+            changed_files: vec![],
+            commits: vec![],
+            error: None,
+        }),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+    app.ensure_detail_loaded();
+
+    app.state_queries = vec![StateQuery {
+        name: "verify".to_string(),
+        run: "echo test".to_string(),
+        description: None,
+        deterministic: true,
+        timeout: None,
+    }];
+    app.state_results = vec![Some(StateResult {
+        metadata: StateMetadata {
+            query_name: "verify".to_string(),
+            commit_hash: "abc".to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            command: "echo test".to_string(),
+            deterministic: true,
+        },
+        data: json!({"format": "OK", "lint": "OK", "tests": "OK"}),
+    })];
+    app.rebuild_detail_items();
+
+    let collapsed_lines = app.build_repo_detail_lines().len();
+
+    // Expand the state query
+    app.expanded_state_queries.insert(0);
+
+    let expanded_lines = app.build_repo_detail_lines().len();
+    assert!(
+        expanded_lines > collapsed_lines,
+        "Expanding should add lines: collapsed={collapsed_lines}, expanded={expanded_lines}"
+    );
+    // 3 fields means 3 extra lines
+    assert_eq!(
+        expanded_lines - collapsed_lines,
+        3,
+        "Should add one line per field"
+    );
+}
+
+#[test]
+fn hint_bar_shows_expand_for_state_query() {
+    use crate::state::StateQuery;
+
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail {
+            changed_files: vec![],
+            commits: vec![],
+            error: None,
+        }),
+        "test-workspace".to_string(),
+    );
+    app.push_view(View::RepoDetail(0));
+    app.ensure_detail_loaded();
+
+    app.state_queries = vec![StateQuery {
+        name: "q".to_string(),
+        run: "echo".to_string(),
+        description: None,
+        deterministic: true,
+        timeout: None,
+    }];
+    app.state_results = vec![None];
+    app.rebuild_detail_items();
+
+    // Move cursor to state query
+    let sq_pos = app
+        .detail_items
+        .iter()
+        .position(|item| matches!(item, DetailItem::StateQuery(_)))
+        .expect("should have a StateQuery item");
+    app.detail_cursor = sq_pos;
+
+    let hints = app.current_hints();
+    let actions: Vec<&str> = hints.iter().map(|h| h.action).collect();
+    assert!(
+        actions.contains(&"expand/collapse"),
+        "Hints should include expand/collapse for state query, got: {actions:?}"
+    );
+}
+
 #[test]
 fn dynamic_hints_exclude_enter_run_on_file_change() {
     let detail = RepoDetail {

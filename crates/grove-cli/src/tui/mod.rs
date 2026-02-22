@@ -30,6 +30,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
     Terminal,
 };
+use std::collections::HashSet;
 use std::io;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
@@ -229,6 +230,8 @@ pub struct App<R, D> {
     // State queries (loaded lazily for the current repo in RepoDetail view)
     state_queries: Vec<crate::state::StateQuery>,
     state_results: Vec<Option<crate::state::StateResult>>,
+    /// Which state query indices are expanded to show full data.
+    expanded_state_queries: HashSet<usize>,
     /// Whether state queries and runs have been loaded for the current repo.
     state_loaded: bool,
 

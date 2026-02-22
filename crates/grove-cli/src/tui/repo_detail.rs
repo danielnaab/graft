@@ -108,8 +108,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             KeyCode::Char('r') => {
                 self.refresh_state_queries();
             }
-            // Execute selected command or open run log
+            // Execute selected command, open run log, or toggle state query expand
             KeyCode::Enter => match self.current_detail_item() {
+                Some(DetailItem::StateQuery(idx)) => {
+                    let idx = *idx;
+                    if !self.expanded_state_queries.remove(&idx) {
+                        self.expanded_state_queries.insert(idx);
+                    }
+                }
                 Some(DetailItem::Run(idx)) => {
                     let idx = *idx;
                     self.open_run_log(idx);
@@ -400,13 +406,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             );
         } else {
             for (idx, query) in self.state_queries.iter().enumerate() {
+                let is_expanded = self.expanded_state_queries.contains(&idx);
+                let chevron = if is_expanded { "▾" } else { "▸" };
+
                 if let Some(Some(result)) = self.state_results.get(idx) {
                     let age = result.metadata.time_ago();
                     let data_summary = crate::state::format_state_summary(result);
                     m.push(
                         Line::from(vec![
                             Span::styled(
-                                format!("  {:<14}", query.name),
+                                format!("  {chevron} {:<12}", query.name),
                                 Style::default().fg(Color::Cyan),
                             ),
                             Span::raw("  "),
@@ -415,11 +424,18 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                         ]),
                         Some(*item_idx),
                     );
+
+                    // Render expanded data lines (not part of cursor highlight)
+                    if is_expanded {
+                        for line in format_state_expanded_lines(&result.data) {
+                            m.push(line, None);
+                        }
+                    }
                 } else {
                     m.push(
                         Line::from(vec![
                             Span::styled(
-                                format!("  {:<14}", query.name),
+                                format!("  {chevron} {:<12}", query.name),
                                 Style::default().fg(Color::Gray),
                             ),
                             Span::raw("  "),
@@ -724,7 +740,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
-    /// Load state queries for the selected repository.
+    /// Load state queries for the selected repository (root + dependencies).
     pub(super) fn load_state_queries(&mut self, repo_path: &str) {
         use crate::state::{discover_state_queries, read_latest_cached};
         use std::path::Path;
@@ -732,42 +748,57 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         // Clear previous state
         self.state_queries.clear();
         self.state_results.clear();
+        self.expanded_state_queries.clear();
 
         let graft_yaml_path = Path::new(repo_path).join("graft.yaml");
         if !graft_yaml_path.exists() {
             return;
         }
 
+        // Load root state queries
         match discover_state_queries(&graft_yaml_path) {
             Ok(queries) => {
                 self.state_queries = queries;
-
-                let repo_name = graft_common::repo_name_from_path(repo_path);
-
-                for query in &self.state_queries {
-                    if let Some(result) =
-                        read_latest_cached(&self.workspace_name, repo_name, &query.name)
-                    {
-                        self.state_results.push(Some(result));
-                    } else {
-                        log::debug!("No cache for query {}", query.name);
-                        self.state_results.push(None);
-                    }
-                }
-
-                if !self.state_queries.is_empty() && self.state_results.iter().all(Option::is_none)
-                {
-                    self.status_message = Some(StatusMessage::info(
-                        "No cached data. Press 'r' to refresh state queries.".to_string(),
-                    ));
-                }
             }
             Err(e) => {
                 log::warn!("Failed to discover state queries: {e}");
                 self.status_message = Some(StatusMessage::error(format!(
                     "Failed to load state queries: {e}"
                 )));
+                return;
             }
+        }
+
+        // Load dependency state queries (with script paths pre-resolved to absolute)
+        if let Ok(dep_names) = graft_common::parse_dependency_names(&graft_yaml_path) {
+            for dep_name in &dep_names {
+                let dep_graft_path =
+                    Path::new(repo_path).join(format!(".graft/{dep_name}/graft.yaml"));
+                if let Ok(mut dep_queries) = discover_state_queries(&dep_graft_path) {
+                    let dep_dir = Path::new(repo_path).join(format!(".graft/{dep_name}"));
+                    for query in &mut dep_queries {
+                        query.run = graft_engine::resolve_script_in_command(&query.run, &dep_dir);
+                    }
+                    self.state_queries.extend(dep_queries);
+                }
+            }
+        }
+
+        // Load cached results for all queries
+        let repo_name = graft_common::repo_name_from_path(repo_path);
+        for query in &self.state_queries {
+            if let Some(result) = read_latest_cached(&self.workspace_name, repo_name, &query.name) {
+                self.state_results.push(Some(result));
+            } else {
+                log::debug!("No cache for query {}", query.name);
+                self.state_results.push(None);
+            }
+        }
+
+        if !self.state_queries.is_empty() && self.state_results.iter().all(Option::is_none) {
+            self.status_message = Some(StatusMessage::info(
+                "No cached data. Press 'r' to refresh state queries.".to_string(),
+            ));
         }
     }
 
@@ -879,6 +910,118 @@ fn extract_option(item: &serde_json::Value) -> Option<String> {
     None
 }
 
+/// Format a JSON value as colored `Line`s for the expanded state query view.
+fn format_state_expanded_lines(data: &serde_json::Value) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+
+    match data {
+        serde_json::Value::Object(obj) => {
+            for (key, value) in obj {
+                if let serde_json::Value::Array(arr) = value {
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("      {key}"), Style::default().fg(Color::Cyan)),
+                        Span::styled(": ", Style::default().fg(Color::Gray)),
+                        Span::styled(
+                            format!("[{} items]", arr.len()),
+                            Style::default().fg(Color::Gray),
+                        ),
+                    ]));
+                    for (i, item) in arr.iter().enumerate().take(20) {
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("        [{i}] "),
+                                Style::default().fg(Color::Gray),
+                            ),
+                            Span::styled(
+                                format_value_compact(item),
+                                Style::default().fg(Color::White),
+                            ),
+                        ]));
+                    }
+                    if arr.len() > 20 {
+                        lines.push(Line::from(Span::styled(
+                            format!("        ... and {} more", arr.len() - 20),
+                            Style::default().fg(Color::Gray),
+                        )));
+                    }
+                } else {
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("      {key}"), Style::default().fg(Color::Cyan)),
+                        Span::styled(": ", Style::default().fg(Color::Gray)),
+                        Span::styled(
+                            format_value_compact(value),
+                            Style::default().fg(Color::White),
+                        ),
+                    ]));
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for (i, item) in arr.iter().enumerate().take(30) {
+                lines.push(Line::from(vec![
+                    Span::styled(format!("      [{i}] "), Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format_value_compact(item),
+                        Style::default().fg(Color::White),
+                    ),
+                ]));
+            }
+            if arr.len() > 30 {
+                lines.push(Line::from(Span::styled(
+                    format!("      ... and {} more", arr.len() - 30),
+                    Style::default().fg(Color::Gray),
+                )));
+            }
+        }
+        other => {
+            lines.push(Line::from(Span::styled(
+                format!("      {}", format_value_compact(other)),
+                Style::default().fg(Color::White),
+            )));
+        }
+    }
+
+    lines
+}
+
+/// Maximum length for a compact value before truncation.
+const MAX_COMPACT_LEN: usize = 80;
+
+/// Format a JSON value compactly for a single line.
+///
+/// Strings are quoted for clarity. Long values are truncated.
+fn format_value_compact(value: &serde_json::Value) -> String {
+    let raw = match value {
+        serde_json::Value::String(s) => format!("\"{s}\""),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Object(obj) => {
+            let pairs: Vec<String> = obj
+                .iter()
+                .map(|(k, v)| format!("{k}: {}", format_value_compact(v)))
+                .collect();
+            format!("{{{}}}", pairs.join(", "))
+        }
+        serde_json::Value::Array(arr) => {
+            let items: Vec<String> = arr.iter().map(format_value_compact).collect();
+            format!("[{}]", items.join(", "))
+        }
+    };
+    truncate_str(&raw, MAX_COMPACT_LEN)
+}
+
+/// Truncate a string to `max_len` chars, appending `...` if truncated.
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        let mut truncated = s[..max_len.saturating_sub(3)].to_string();
+        truncated.push_str("...");
+        truncated
+    }
+}
+
 fn extract_options_from_state(data: &serde_json::Value, query_name: &str) -> Vec<String> {
     let arr: &[serde_json::Value] = if let Some(arr) = data.as_array() {
         arr
@@ -896,7 +1039,9 @@ fn extract_options_from_state(data: &serde_json::Value, query_name: &str) -> Vec
 
 #[cfg(test)]
 mod tests {
-    use super::extract_options_from_state;
+    use super::{
+        extract_options_from_state, format_state_expanded_lines, format_value_compact, truncate_str,
+    };
     use serde_json::json;
 
     #[test]
@@ -981,5 +1126,86 @@ mod tests {
         ]);
         let opts = extract_options_from_state(&data, "x");
         assert_eq!(opts, vec!["good", "also_good"]);
+    }
+
+    // ===== format_value_compact tests =====
+
+    #[test]
+    fn compact_quotes_strings() {
+        let v = json!("hello");
+        assert_eq!(format_value_compact(&v), "\"hello\"");
+    }
+
+    #[test]
+    fn compact_formats_numbers_and_bools() {
+        assert_eq!(format_value_compact(&json!(42)), "42");
+        assert_eq!(format_value_compact(&json!(true)), "true");
+        assert_eq!(format_value_compact(&json!(null)), "null");
+    }
+
+    #[test]
+    fn compact_formats_flat_object() {
+        let v = json!({"a": 1});
+        let s = format_value_compact(&v);
+        assert!(s.contains("a: 1"), "got: {s}");
+    }
+
+    #[test]
+    fn compact_truncates_long_values() {
+        // Build a value that will exceed MAX_COMPACT_LEN
+        let long_str = "x".repeat(100);
+        let v = json!(long_str);
+        let s = format_value_compact(&v);
+        assert!(
+            s.len() <= super::MAX_COMPACT_LEN,
+            "should be truncated, len={}",
+            s.len()
+        );
+        assert!(s.ends_with("..."), "should end with ellipsis: {s}");
+    }
+
+    // ===== format_state_expanded_lines tests =====
+
+    #[test]
+    fn expanded_flat_object_has_key_per_line() {
+        let data = json!({"format": "OK", "lint": "OK", "tests": "OK"});
+        let lines = format_state_expanded_lines(&data);
+        assert_eq!(lines.len(), 3, "one line per key");
+    }
+
+    #[test]
+    fn expanded_array_shows_indexed_items() {
+        let data = json!(["a", "b", "c"]);
+        let lines = format_state_expanded_lines(&data);
+        assert_eq!(lines.len(), 3);
+    }
+
+    #[test]
+    fn expanded_object_with_nested_array() {
+        let data = json!({"items": [1, 2, 3], "count": 3});
+        let lines = format_state_expanded_lines(&data);
+        // "count: 3" + "items: [3 items]" + 3 array items = 5 lines
+        assert_eq!(lines.len(), 5);
+    }
+
+    #[test]
+    fn expanded_null_produces_single_line() {
+        let lines = format_state_expanded_lines(&json!(null));
+        assert_eq!(lines.len(), 1);
+    }
+
+    // ===== truncate_str tests =====
+
+    #[test]
+    fn truncate_short_string_unchanged() {
+        assert_eq!(truncate_str("abc", 10), "abc");
+    }
+
+    #[test]
+    fn truncate_long_string_adds_ellipsis() {
+        let s = "a".repeat(20);
+        let t = truncate_str(&s, 10);
+        assert_eq!(t.len(), 10);
+        assert!(t.ends_with("..."));
     }
 }

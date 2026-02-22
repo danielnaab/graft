@@ -10,6 +10,7 @@ pub(super) struct KeyHint {
 
 impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// Return context-sensitive key hints based on current view.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn current_hints(&self) -> Vec<KeyHint> {
         // ArgumentInput is an overlay — show its hints regardless of view stack.
         if self.argument_input.is_some() {
@@ -57,11 +58,26 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     key: "j/k",
                     action: "navigate",
                 }];
-                if matches!(self.current_detail_item(), Some(DetailItem::Command(_))) {
-                    hints.push(KeyHint {
-                        key: "Enter",
-                        action: "run",
-                    });
+                match self.current_detail_item() {
+                    Some(DetailItem::Command(_)) => {
+                        hints.push(KeyHint {
+                            key: "Enter",
+                            action: "run",
+                        });
+                    }
+                    Some(DetailItem::StateQuery(_)) => {
+                        hints.push(KeyHint {
+                            key: "Enter",
+                            action: "expand/collapse",
+                        });
+                    }
+                    Some(DetailItem::Run(_)) => {
+                        hints.push(KeyHint {
+                            key: "Enter",
+                            action: "view log",
+                        });
+                    }
+                    _ => {}
                 }
                 hints.extend([
                     KeyHint {

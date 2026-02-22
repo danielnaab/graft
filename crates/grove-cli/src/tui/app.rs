@@ -52,6 +52,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             // State queries
             state_queries: Vec::new(),
             state_results: Vec::new(),
+            expanded_state_queries: std::collections::HashSet::new(),
             state_loaded: false,
 
             // Recent runs
