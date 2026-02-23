@@ -138,6 +138,20 @@ Design session: consuming graft as a library from grove, with shared observable 
 
 ---
 
+## Command Output State Mapping (2026-02-23)
+
+Design exploration of multi-step graft processes: how commands compose, where
+Grove fits, and a new primitive where command outputs are first-class state.
+
+**Active**:
+- [Command Output State Mapping](2026-02-23-command-output-state-mapping.md) — Grove/Claude two-layer model, state mapping primitive, build-system analogy, open questions
+
+**Relates to**:
+- [Agentic Orchestration](2026-02-18-grove-agentic-orchestration.md) — Grove as dispatch board
+- [Unified Process Management](2026-02-19-unified-process-management.md) — execution substrate this sits above
+
+---
+
 ## Adding New Notes
 
 When creating session logs or exploration notes:
