@@ -6,7 +6,67 @@ deps:
   living-specifications: "https://github.com/danielnaab/living-specifications.git#main"
   software-factory: "https://github.com/danielnaab/software-factory.git#main"
 
+commands:
+  plan:
+    run: "cat"
+    description: "Render planning prompt with project state"
+    stdin:
+      template: .graft/software-factory/templates/plan.md
+    context:
+      - changes
+      - slices
+      - verify
+
+  iterate:
+    run: "bash .graft/software-factory/scripts/iterate.sh"
+    description: "Generate implementation prompt for next step of a slice"
+    args:
+      - name: slice
+        type: choice
+        description: "Slice to iterate on"
+        required: true
+        positional: true
+        options_from: slices
+
+  implement:
+    run: "bash .graft/software-factory/scripts/implement.sh {slice}"
+    description: "Implement next slice step with Claude Code"
+    args:
+      - name: slice
+        type: choice
+        description: "Slice to implement"
+        required: true
+        positional: true
+        options_from: slices
+
+  resume:
+    run: "bash .graft/software-factory/scripts/resume.sh {slice}"
+    description: "Resume the last implement session for a slice"
+    args:
+      - name: slice
+        type: choice
+        description: "Slice to resume"
+        required: true
+        positional: true
+        options_from: slices
+
+  verify:
+    run: "bash scripts/verify.sh"
+    description: "Run project verification (format, lint, tests)"
+
 state:
+  slices:
+    run: "bash .graft/software-factory/scripts/list-slices.sh"
+    cache:
+      deterministic: false
+    timeout: 10
+
+  changes:
+    run: "bash -c 'commits=$(git log --oneline -10); diff=$(git diff --stat); jq -n --arg commits \"$commits\" --arg diff \"$diff\" \"{commits: \\$commits, diff: \\$diff}\"'"
+    cache:
+      deterministic: false
+    timeout: 30
+
   verify:
     run: "bash scripts/verify.sh"
     cache:
