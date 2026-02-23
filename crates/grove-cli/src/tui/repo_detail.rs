@@ -1045,7 +1045,16 @@ fn extract_options_from_state(data: &serde_json::Value, query_name: &str) -> Vec
         return Vec::new();
     };
 
-    arr.iter().filter_map(extract_option).collect()
+    arr.iter()
+        .filter(|item| {
+            // Skip items explicitly marked as done (e.g. completed slices).
+            item.as_object()
+                .and_then(|obj| obj.get("status"))
+                .and_then(|v| v.as_str())
+                != Some("done")
+        })
+        .filter_map(extract_option)
+        .collect()
 }
 
 #[cfg(test)]
@@ -1057,7 +1066,7 @@ mod tests {
 
     #[test]
     fn extracts_slugs_from_slices_query_shape() {
-        // Real list-slices.sh output shape
+        // Real list-slices.sh output shape — done slice is filtered out.
         let data = json!({
             "slices": [
                 {"path": "slices/foo/plan.md", "status": "draft", "slug": "foo", "steps_total": 3, "steps_done": 1},
@@ -1066,7 +1075,29 @@ mod tests {
             "counts": {"draft": 1, "done": 1}
         });
         let opts = extract_options_from_state(&data, "slices");
-        assert_eq!(opts, vec!["foo", "bar"]);
+        assert_eq!(opts, vec!["foo"]);
+    }
+
+    #[test]
+    fn filters_out_done_slices() {
+        let data = json!({
+            "slices": [
+                {"slug": "alpha", "status": "draft"},
+                {"slug": "beta",  "status": "in_progress"},
+                {"slug": "gamma", "status": "done"},
+                {"slug": "delta", "status": "accepted"},
+            ]
+        });
+        let opts = extract_options_from_state(&data, "slices");
+        assert_eq!(opts, vec!["alpha", "beta", "delta"]);
+    }
+
+    #[test]
+    fn items_without_status_field_are_kept() {
+        // Generic option lists (not slices) should pass through unchanged.
+        let data = json!(["alpha", "beta", "gamma"]);
+        let opts = extract_options_from_state(&data, "anything");
+        assert_eq!(opts, vec!["alpha", "beta", "gamma"]);
     }
 
     #[test]
