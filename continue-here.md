@@ -1,15 +1,15 @@
 ---
 status: living
 purpose: "Session handoff - always reflects current state"
-updated: 2026-02-16
+updated: 2026-02-23
 archive_policy: "Snapshot before major milestones, keep latest"
 ---
 
 # Continue Development Here
 
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-02-23
 **Branch**: `main`
-**Status**: Production ready. Workspace unification complete.
+**Status**: Production ready. Software factory operational. Active design work on command output state mapping.
 
 ---
 
@@ -84,10 +84,10 @@ cargo run -p grove-cli -- status
 ## Recent Changes
 
 **Latest commits** (most recent first):
-1. Workspace unification complete (Tasks 1-10)
-2. Rust rewrite complete (14 tasks, full parity)
-3. Grove Slice 1 comprehensive review (Phase 2)
-4. Grove Slice 1 implementation and improvements
+1. Wire software-factory commands into graft.yaml; move state mapping slices here
+2. Add command-state-declarations and command-output-state-capture slices
+3. Design note: command output state mapping and Grove workflow operationalization
+4. Software factory: session resume, shared lib, verification step
 
 Run `git log --oneline -10` for complete history.
 
@@ -194,12 +194,7 @@ uv run ruff check src/ tests/
 ## Current Metrics
 
 ### Rust (Primary)
-- **Tests**: 423 passing across workspace
-  - graft-common: 24 tests (command, git, state, config)
-  - graft-engine: 54 tests
-  - grove-engine: 40 tests
-  - graft-cli: integration tests
-  - grove-cli: integration tests
+- **Tests**: 74 passing across workspace
 - **Type Safety**: Enforced by Rust compiler
 - **Linting**: All clippy checks passing (pre-existing TUI warnings documented)
 
@@ -277,20 +272,51 @@ graft/
 
 ---
 
+## Software Factory
+
+The software factory at `.graft/software-factory/` is operational. Factory
+commands are wired directly into `graft.yaml` so you can run them from the
+repo root:
+
+```bash
+graft run plan "description of what to build"   # generate a slice plan
+graft run iterate <slice>                        # preview next step prompt
+graft run implement <slice>                      # run Claude on next step
+graft run resume <slice>                         # resume last Claude session
+graft run verify                                 # run verification
+```
+
+Slices for graft/grove work live in `slices/`. Factory-internal slices
+(changes to scripts/templates in `.graft/software-factory/`) live in
+`.graft/software-factory/slices/`.
+
+## Active Slices
+
+```bash
+graft state query slices   # see all slices and progress
+```
+
+| Slice | Status | Steps |
+|-------|--------|-------|
+| `command-state-declarations` | draft | 0/2 |
+| `command-output-state-capture` | draft | 0/4 |
+| `command-run-logging` | done | 5/5 |
+| `iterate-command` | done | 3/3 |
+
+Start here: `graft run implement command-state-declarations`
+
 ## Next Steps
 
-### Immediate
-- Complete meta-KB documentation compliance (Tasks 12-16)
-- Write ADR for workspace unification (Task 15)
-- Final verification and cleanup (Task 16)
+### Active design work
+- **Command output state mapping** — commands declare `writes:`/`reads:` so
+  data dependencies are explicit and Grove can derive execution order.
+  Design note: [notes/2026-02-23-command-output-state-mapping.md](notes/2026-02-23-command-output-state-mapping.md)
+- Implement `command-state-declarations` slice first (structural foundation),
+  then `command-output-state-capture` (runtime behavior + factory migration)
 
-### Future Work
-- Performance profiling and optimization
-- Progress bars for long operations
-- Bash completion scripts
-- Additional grove slices (workspace operations)
-
-See [tasks.md](tasks.md) and [notes/2026-02-16-workspace-unification/plan.md](notes/2026-02-16-workspace-unification/plan.md) for details.
+### Longer horizon
+- Grove workflow operationalization: Grove as the layer that crystallizes
+  proven ad-hoc Claude usage patterns into deterministic sequences
 
 ---
 
