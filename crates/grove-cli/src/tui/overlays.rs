@@ -503,13 +503,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.execute_command_assembled(command_name, shell_cmd, working_dir, env);
                 return;
             }
-            KeyCode::Tab | KeyCode::Down => {
+            KeyCode::Tab => {
                 if !state.fields.is_empty() {
                     state.focused = (state.focused + 1) % state.fields.len();
                 }
                 return;
             }
-            KeyCode::BackTab | KeyCode::Up => {
+            KeyCode::BackTab => {
                 if !state.fields.is_empty() {
                     state.focused = if state.focused == 0 {
                         state.fields.len() - 1
@@ -518,6 +518,27 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     };
                 }
                 return;
+            }
+            // Down/Up navigate between fields for text/flag fields, but cycle
+            // within options for choice fields (handled by per-field code below).
+            KeyCode::Down | KeyCode::Up => {
+                let is_choice = state
+                    .fields
+                    .get(state.focused)
+                    .is_some_and(|f| matches!(f.value, FieldValue::Choice(_)));
+                if !is_choice && !state.fields.is_empty() {
+                    if code == KeyCode::Down {
+                        state.focused = (state.focused + 1) % state.fields.len();
+                    } else {
+                        state.focused = if state.focused == 0 {
+                            state.fields.len() - 1
+                        } else {
+                            state.focused - 1
+                        };
+                    }
+                    return;
+                }
+                // Choice field: fall through to per-field handler.
             }
             _ => {}
         }
@@ -553,14 +574,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 let option_count = field.def.options.as_ref().map_or(0, Vec::len);
                 if option_count > 0 {
                     match code {
-                        KeyCode::Left | KeyCode::Char('h') => {
+                        KeyCode::Up | KeyCode::Left | KeyCode::Char('k' | 'h') => {
                             *idx = if *idx == 0 {
                                 option_count - 1
                             } else {
                                 *idx - 1
                             };
                         }
-                        KeyCode::Right | KeyCode::Char('l') => {
+                        KeyCode::Down | KeyCode::Right | KeyCode::Char('j' | 'l') => {
                             *idx = (*idx + 1) % option_count;
                         }
                         _ => {}
@@ -682,10 +703,15 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             return;
         };
 
-        // Calculate dialog height: 1 header + 1 blank + fields (2 lines each + 1 for desc) + 1 blank + 1 footer + 2 border
+        // Calculate dialog height: 1 blank + fields (1 label line + N option lines for
+        // Choice, else 1 widget line; plus 1 optional desc line) + 1 blank + 1 footer + 2 border.
         let mut content_lines: usize = 0;
         for field in &state.fields {
-            content_lines += 1; // label + widget line
+            content_lines += 1; // label line
+            if let FieldValue::Choice(_) = &field.value {
+                // One line per option instead of one wide horizontal line.
+                content_lines += field.def.options.as_ref().map_or(0, Vec::len);
+            }
             if field.def.description.is_some() {
                 content_lines += 1; // description line
             }
@@ -732,7 +758,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
             let mut spans = vec![Span::styled(label, label_style)];
 
-            // Widget rendering
+            // Widget rendering.  Choice fields are rendered vertically (one option
+            // per line); all others append their widget to the label spans line.
             match &field.value {
                 FieldValue::Text(buf) => {
                     let widget_width = inner_width.saturating_sub(label_width + 4);
@@ -757,22 +784,36 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                         Style::default().fg(Color::Gray)
                     };
                     spans.push(Span::styled(display_val, text_style));
+                    lines.push(Line::from(spans));
                 }
                 FieldValue::Choice(selected_idx) => {
+                    // Label line (without options).
+                    lines.push(Line::from(spans));
+                    // One line per option, indented under the label.
+                    let indent = " ".repeat(label_width + 4);
                     if let Some(options) = &field.def.options {
                         for (oi, opt) in options.iter().enumerate() {
-                            let marker = if oi == *selected_idx { "●" } else { "○" };
-                            let opt_style = if is_focused && oi == *selected_idx {
+                            let is_selected = oi == *selected_idx;
+                            let marker = if is_selected { "● " } else { "  " };
+                            let opt_style = if is_focused && is_selected {
                                 Style::default()
                                     .fg(Color::Cyan)
                                     .add_modifier(Modifier::BOLD)
-                            } else if oi == *selected_idx {
+                            } else if is_selected {
                                 Style::default().fg(Color::White)
                             } else {
-                                Style::default().fg(Color::Gray)
+                                Style::default().fg(Color::DarkGray)
                             };
-                            spans.push(Span::styled(format!("{marker} {opt}  "), opt_style));
+                            lines.push(Line::from(Span::styled(
+                                format!("{indent}{marker}{opt}"),
+                                opt_style,
+                            )));
                         }
+                    } else {
+                        lines.push(Line::from(Span::styled(
+                            format!("{indent}(no options — refresh with r)"),
+                            Style::default().fg(Color::DarkGray),
+                        )));
                     }
                 }
                 FieldValue::Flag(on) => {
@@ -783,12 +824,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                         Style::default().fg(Color::White)
                     };
                     spans.push(Span::styled(marker.to_string(), flag_style));
+                    lines.push(Line::from(spans));
                 }
             }
 
-            lines.push(Line::from(spans));
-
-            // Description line
+            // Description line (applies to all field types).
             if let Some(desc) = &field.def.description {
                 let indent = " ".repeat(label_width + 2);
                 lines.push(Line::from(Span::styled(
@@ -800,7 +840,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "  \u{2191}\u{2193}/Tab: navigate  \u{2190}\u{2192}/Space: edit  Enter: run  Esc: cancel",
+            "  Tab: next field  j/k: select option  Enter: run  Esc: cancel",
             Style::default().fg(Color::Gray),
         )));
 
