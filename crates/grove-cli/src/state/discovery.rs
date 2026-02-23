@@ -55,12 +55,12 @@ state:
 
         let coverage = queries.iter().find(|q| q.name == "coverage").unwrap();
         assert_eq!(coverage.run, "pytest --cov");
-        assert_eq!(coverage.deterministic, true);
+        assert!(coverage.deterministic);
         assert_eq!(coverage.timeout, Some(60));
 
         let tasks = queries.iter().find(|q| q.name == "tasks").unwrap();
         assert_eq!(tasks.run, "task-tracker status");
-        assert_eq!(tasks.deterministic, false);
+        assert!(!tasks.deterministic);
         assert_eq!(tasks.timeout, Some(30));
     }
 
@@ -93,7 +93,7 @@ state:
 
         let queries = discover_state_queries(temp_file.path()).unwrap();
         assert_eq!(queries.len(), 1);
-        assert_eq!(queries[0].deterministic, true); // Default
+        assert!(queries[0].deterministic); // Default
         assert_eq!(queries[0].timeout, None);
     }
 }

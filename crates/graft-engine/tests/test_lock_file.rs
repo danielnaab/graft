@@ -28,7 +28,7 @@ fn test_parse_repo_lock_file() {
     for dep_name in expected_deps {
         let entry = lock
             .get(dep_name)
-            .unwrap_or_else(|| panic!("Expected dependency '{}' not found", dep_name));
+            .unwrap_or_else(|| panic!("Expected dependency '{dep_name}' not found"));
 
         // Validate entry fields are non-empty
         assert!(!entry.source.as_str().is_empty());
@@ -75,7 +75,7 @@ fn test_round_trip_repo_lock() {
     for (name, original_entry) in &original_lock.dependencies {
         let parsed_entry = parsed_lock
             .get(name)
-            .unwrap_or_else(|| panic!("Dependency '{}' missing after round-trip", name));
+            .unwrap_or_else(|| panic!("Dependency '{name}' missing after round-trip"));
 
         assert_eq!(original_entry.source.as_str(), parsed_entry.source.as_str());
         assert_eq!(

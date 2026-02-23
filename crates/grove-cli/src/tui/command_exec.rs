@@ -403,7 +403,7 @@ mod tests {
     use tempfile::TempDir;
 
     /// Helper: create a graft.yaml with the given YAML content inside a temp directory.
-    /// Returns the TempDir (caller must hold it to keep the directory alive).
+    /// Returns the `TempDir` (caller must hold it to keep the directory alive).
     fn setup_repo(yaml: &str) -> TempDir {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("graft.yaml"), yaml).unwrap();
@@ -417,7 +417,7 @@ mod tests {
         fs::write(dep_dir.join("graft.yaml"), yaml).unwrap();
     }
 
-    /// Collect all events from spawn_command into a Vec.
+    /// Collect all events from `spawn_command` into a Vec.
     fn collect_events(command_name: &str, args: Vec<String>, repo_path: &str) -> Vec<CommandEvent> {
         let (tx, rx) = mpsc::channel();
         spawn_command(

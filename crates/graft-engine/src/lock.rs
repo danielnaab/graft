@@ -225,10 +225,10 @@ dependencies:
 
     #[test]
     fn parse_lock_file_str_rejects_invalid_api_version() {
-        let yaml = r#"
+        let yaml = r"
 apiVersion: v1
 dependencies: {}
-"#;
+";
 
         assert!(parse_lock_file_str(yaml, "test.lock").is_err());
     }

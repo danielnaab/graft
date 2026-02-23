@@ -705,13 +705,13 @@ state:
         let coverage = queries.get("coverage").unwrap();
         assert_eq!(coverage.run, "pytest --cov");
         assert_eq!(coverage.description.as_deref(), Some("Run coverage"));
-        assert_eq!(coverage.deterministic, true);
+        assert!(coverage.deterministic);
         assert_eq!(coverage.timeout, Some(60));
 
         let tasks = queries.get("tasks").unwrap();
         assert_eq!(tasks.run, "task-tracker status");
         assert!(tasks.description.is_none());
-        assert_eq!(tasks.deterministic, false);
+        assert!(!tasks.deterministic);
         assert_eq!(tasks.timeout, Some(30));
     }
 
@@ -746,7 +746,7 @@ state:
         assert_eq!(queries.len(), 1);
 
         let simple = queries.get("simple").unwrap();
-        assert_eq!(simple.deterministic, true); // Default
+        assert!(simple.deterministic); // Default
         assert_eq!(simple.timeout, None);
     }
 
@@ -764,7 +764,7 @@ state:
 
         let queries = parse_state_queries(temp_file.path()).unwrap();
         let simple = queries.get("simple").unwrap();
-        assert_eq!(simple.deterministic, true); // Default when cache field missing
+        assert!(simple.deterministic); // Default when cache field missing
         assert_eq!(simple.timeout, Some(10));
     }
 
@@ -926,7 +926,7 @@ commands:
                 assert_eq!(path, "r.md");
                 assert_eq!(*engine, None);
             }
-            other => panic!("expected Template, got: {:?}", other),
+            other => panic!("expected Template, got: {other:?}"),
         }
     }
 
@@ -947,7 +947,7 @@ commands:
                 assert_eq!(path, "r.md");
                 assert_eq!(*engine, Some("tera".to_string()));
             }
-            other => panic!("expected Template with engine, got: {:?}", other),
+            other => panic!("expected Template with engine, got: {other:?}"),
         }
     }
 

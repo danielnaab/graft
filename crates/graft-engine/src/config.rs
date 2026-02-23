@@ -474,9 +474,9 @@ mod tests {
 
     #[test]
     fn parses_minimal_config() {
-        let yaml = r#"
+        let yaml = r"
 apiVersion: graft/v0
-"#;
+";
         let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
         assert_eq!(config.api_version, "graft/v0");
         assert!(config.dependencies.is_empty());
@@ -574,12 +574,12 @@ commands:
 
     #[test]
     fn validates_migration_commands_exist() {
-        let yaml = r#"
+        let yaml = r"
 apiVersion: graft/v0
 changes:
   v1.0.0:
     migration: missing-command
-"#;
+";
         let result = parse_graft_yaml_str(yaml, "test.yaml");
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -598,9 +598,9 @@ deps:
 
     #[test]
     fn rejects_invalid_api_version() {
-        let yaml = r#"
+        let yaml = r"
 apiVersion: v1
-"#;
+";
         let result = parse_graft_yaml_str(yaml, "test.yaml");
         assert!(result.is_err());
     }
@@ -650,7 +650,7 @@ commands:
                 assert_eq!(path, "f.md");
                 assert_eq!(*engine, None);
             }
-            other => panic!("expected Template, got: {:?}", other),
+            other => panic!("expected Template, got: {other:?}"),
         }
     }
 
@@ -672,7 +672,7 @@ commands:
                 assert_eq!(path, "f.md");
                 assert_eq!(*engine, Some("tera".to_string()));
             }
-            other => panic!("expected Template with engine, got: {:?}", other),
+            other => panic!("expected Template with engine, got: {other:?}"),
         }
     }
 
@@ -825,7 +825,7 @@ commands:
                 assert_eq!(path, "raw.txt");
                 assert_eq!(*engine, Some("none".to_string()));
             }
-            other => panic!("expected Template with engine none, got: {:?}", other),
+            other => panic!("expected Template with engine none, got: {other:?}"),
         }
     }
 }

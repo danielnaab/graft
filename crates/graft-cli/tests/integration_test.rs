@@ -28,7 +28,7 @@ fn run_graft(args: &[&str], cwd: &Path) -> std::process::Output {
         let cargo_exe = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
         Command::new(&cargo_exe)
             .args(["build", "-p", "graft-cli"])
-            .current_dir(&repo_root())
+            .current_dir(repo_root())
             .output()
             .expect("Failed to build graft binary");
 
@@ -50,7 +50,7 @@ fn run_graft(args: &[&str], cwd: &Path) -> std::process::Output {
 /// Helper to check if command succeeded
 fn assert_success(output: &std::process::Output, context: &str) {
     if !output.status.success() {
-        eprintln!("Command failed: {}", context);
+        eprintln!("Command failed: {context}");
         eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
         eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
         panic!(
@@ -301,7 +301,7 @@ deps:
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let combined = format!("{}{}", stdout, stderr);
+    let combined = format!("{stdout}{stderr}");
 
     // Should mention rollback
     assert!(
@@ -309,8 +309,7 @@ deps:
             || combined.contains("Rollback")
             || combined.contains("rolled back")
             || combined.contains("restored"),
-        "Output should mention rollback: {}",
-        combined
+        "Output should mention rollback: {combined}"
     );
 
     // Verify dependency is still at v1.0.0 (rollback succeeded)
@@ -448,9 +447,9 @@ fn test_add_and_remove_commands() {
     init_git_repo(&consumer_dir, "Consumer");
 
     // Create minimal graft.yaml
-    let graft_yaml = r#"apiVersion: graft/v0
+    let graft_yaml = r"apiVersion: graft/v0
 deps: {}
-"#;
+";
     fs::write(consumer_dir.join("graft.yaml"), graft_yaml).expect("Failed to write graft.yaml");
 
     // Add dependency

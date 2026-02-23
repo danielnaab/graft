@@ -20,10 +20,7 @@ fn parses_repository_graft_yaml() {
 
     // Skip test if file doesn't exist (e.g., in minimal test environment)
     if !graft_yaml_path.exists() {
-        eprintln!(
-            "Skipping test: graft.yaml not found at {:?}",
-            graft_yaml_path
-        );
+        eprintln!("Skipping test: graft.yaml not found at {graft_yaml_path:?}");
         return;
     }
 

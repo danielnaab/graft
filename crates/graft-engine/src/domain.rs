@@ -1303,7 +1303,7 @@ mod tests {
     fn command_rejects_empty_writes_entry() {
         let cmd = Command::new("implement", "bash scripts/implement.sh")
             .unwrap()
-            .with_writes(vec!["".to_string()]);
+            .with_writes(vec![String::new()]);
         assert!(cmd.validate().is_err());
         let err = cmd.validate().unwrap_err().to_string();
         assert!(err.contains("writes entry cannot be empty"));
@@ -1313,7 +1313,7 @@ mod tests {
     fn command_rejects_empty_reads_entry() {
         let cmd = Command::new("resume", "bash scripts/resume.sh")
             .unwrap()
-            .with_reads(vec!["".to_string()]);
+            .with_reads(vec![String::new()]);
         assert!(cmd.validate().is_err());
         let err = cmd.validate().unwrap_err().to_string();
         assert!(err.contains("reads entry cannot be empty"));
@@ -1334,7 +1334,7 @@ mod tests {
         };
         let yaml = serde_yaml::to_string(&cache).unwrap();
         let parsed: StateCache = serde_yaml::from_str(&yaml).unwrap();
-        assert_eq!(parsed.deterministic, true);
+        assert!(parsed.deterministic);
         assert_eq!(parsed.ttl, Some(120));
 
         // Without TTL

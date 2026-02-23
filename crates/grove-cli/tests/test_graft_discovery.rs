@@ -7,7 +7,7 @@ fn test_graft_command_available() {
 
     // Try uv-managed (use --help since graft doesn't have --version)
     let uv_result = std::process::Command::new("uv")
-        .args(&["run", "--quiet", "python", "-m", "graft", "--help"])
+        .args(["run", "--quiet", "python", "-m", "graft", "--help"])
         .output();
 
     // Try system graft
@@ -54,7 +54,7 @@ commands:
 
     // Try executing via uv first (development mode)
     let uv_result = std::process::Command::new("uv")
-        .args(&["run", "python", "-m", "graft", "run", "test-echo"])
+        .args(["run", "python", "-m", "graft", "run", "test-echo"])
         .current_dir(temp_dir.path())
         .output();
 
@@ -63,8 +63,7 @@ commands:
             let stdout = String::from_utf8_lossy(&output.stdout);
             assert!(
                 stdout.contains("Discovery test passed"),
-                "Expected output to contain 'Discovery test passed', got: {}",
-                stdout
+                "Expected output to contain 'Discovery test passed', got: {stdout}"
             );
             println!("✓ uv-managed graft run works");
             return; // Success!
@@ -73,7 +72,7 @@ commands:
 
     // Fall back to system graft
     let system_result = std::process::Command::new("graft")
-        .args(&["run", "test-echo"])
+        .args(["run", "test-echo"])
         .current_dir(temp_dir.path())
         .output();
 
@@ -86,8 +85,7 @@ commands:
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
             stdout.contains("Discovery test passed"),
-            "Expected output to contain 'Discovery test passed', got: {}",
-            stdout
+            "Expected output to contain 'Discovery test passed', got: {stdout}"
         );
         println!("✓ System graft run works");
         return; // Success!

@@ -157,7 +157,7 @@ mod tests {
                 assert_eq!(operation, "sleep test");
                 assert_eq!(timeout_ms, 100);
             }
-            other => panic!("Expected Timeout error, got: {:?}", other),
+            other => panic!("Expected Timeout error, got: {other:?}"),
         }
     }
 
@@ -170,7 +170,7 @@ mod tests {
             CommandError::SpawnError { operation, .. } => {
                 assert_eq!(operation, "nonexistent");
             }
-            other => panic!("Expected SpawnError, got: {:?}", other),
+            other => panic!("Expected SpawnError, got: {other:?}"),
         }
     }
 
@@ -199,7 +199,7 @@ mod tests {
             CommandError::Timeout { timeout_ms, .. } => {
                 assert_eq!(timeout_ms, 200);
             }
-            other => panic!("Expected Timeout, got: {:?}", other),
+            other => panic!("Expected Timeout, got: {other:?}"),
         }
     }
 }
