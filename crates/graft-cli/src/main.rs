@@ -2091,12 +2091,6 @@ fn state_query_command(name: &str, refresh: bool, raw: bool, pretty: bool) -> Re
     // Parse config
     let config = parse_graft_yaml(&graft_path)?;
 
-    // Find the query
-    let query = config
-        .state
-        .get(name)
-        .context(format!("State query '{name}' not found in graft.yaml"))?;
-
     // Get repository path
     let repo_path = graft_path
         .parent()
@@ -2111,31 +2105,41 @@ fn state_query_command(name: &str, refresh: bool, raw: bool, pretty: bool) -> Re
         .and_then(|n| n.to_str())
         .context("Failed to get repository name")?;
 
-    // Execute query (with caching)
-    let result = get_state(
-        query,
-        repo_name,
-        repo_name,
-        repo_path,
-        &commit_hash,
-        refresh,
-    )?;
-
-    // Output results
-    if raw {
-        // Just output the data
-        if pretty {
-            println!("{}", serde_json::to_string_pretty(&result.data)?);
-        } else {
-            println!("{}", serde_json::to_string(&result.data)?);
+    // Resolve: configured state query first, then run-state store
+    let data = if let Some(query) = config.state.get(name) {
+        let result = get_state(
+            query,
+            repo_name,
+            repo_name,
+            repo_path,
+            &commit_hash,
+            refresh,
+        )?;
+        if raw {
+            if pretty {
+                println!("{}", serde_json::to_string_pretty(&result.data)?);
+            } else {
+                println!("{}", serde_json::to_string(&result.data)?);
+            }
+            return Ok(());
         }
-    } else {
-        // Output with metadata
         if pretty {
             println!("{}", serde_json::to_string_pretty(&result)?);
         } else {
             println!("{}", serde_json::to_string(&result)?);
         }
+        return Ok(());
+    } else if let Some(value) = graft_engine::get_run_state_entry(name, repo_path) {
+        value
+    } else {
+        bail!("State '{name}' not found in graft.yaml state section or run-state store");
+    };
+
+    // Output run-state data (no metadata wrapper for run-state entries)
+    if pretty {
+        println!("{}", serde_json::to_string_pretty(&data)?);
+    } else {
+        println!("{}", serde_json::to_string(&data)?);
     }
 
     Ok(())

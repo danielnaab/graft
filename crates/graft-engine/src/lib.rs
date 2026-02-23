@@ -48,8 +48,9 @@ pub use resolution::{
 };
 pub use snapshot::SnapshotManager;
 pub use state::{
-    execute_state_query, get_cache_path, get_state, invalidate_cached_state, list_state_queries,
-    read_cached_state, write_cached_state, StateMetadata, StateQueryStatus, StateResult,
+    execute_state_query, get_cache_path, get_run_state_entry, get_state, invalidate_cached_state,
+    list_state_queries, read_cached_state, write_cached_state, StateMetadata, StateQueryStatus,
+    StateResult,
 };
 pub use template::{render_template, resolve_stdin, TemplateContext};
 pub use validation::{

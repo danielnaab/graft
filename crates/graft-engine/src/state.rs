@@ -190,6 +190,19 @@ fn is_cache_expired(timestamp: &str, ttl_secs: u64) -> bool {
     age.num_seconds() > i64::try_from(ttl_secs).unwrap_or(i64::MAX)
 }
 
+/// Read a run-state entry from `.graft/run-state/<name>.json` in the consumer repo.
+///
+/// Returns the parsed JSON value if the file exists and is valid JSON, otherwise `None`.
+/// This is the read side of the run-state store written by commands with `writes:` declarations.
+pub fn get_run_state_entry(name: &str, consumer_dir: &Path) -> Option<serde_json::Value> {
+    let state_file = consumer_dir
+        .join(".graft")
+        .join("run-state")
+        .join(format!("{name}.json"));
+    let content = std::fs::read_to_string(&state_file).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
 /// List all state queries with cache status.
 pub fn list_state_queries<S: ::std::hash::BuildHasher>(
     queries: &HashMap<String, StateQuery, S>,

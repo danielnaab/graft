@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-02-23
 ---
 
@@ -57,7 +57,7 @@ it writes `session` state that `resume` reads — replacing the ad-hoc
 
 ## Steps
 
-- [ ] **Inject GRAFT_STATE_DIR and implement write-side persistence**
+- [x] **Inject GRAFT_STATE_DIR and implement write-side persistence**
   - **Delivers** — commands can write named state that graft tracks
   - **Done when** — `execute_command_with_context` injects `GRAFT_STATE_DIR`
     pointing to `<consumer_root>/.graft/run-state/`; after a successful
@@ -67,7 +67,7 @@ it writes `session` state that `resume` reads — replacing the ad-hoc
     the written value is readable from the state map
   - **Files** — `crates/graft-engine/src/command.rs`
 
-- [ ] **Make run-state queryable as first-class state**
+- [x] **Make run-state queryable as first-class state**
   - **Delivers** — written state is accessible in templates and via CLI
   - **Done when** — `get_state()` in `state.rs` checks the run-state store
     before executing a configured state query (run-state takes precedence);
@@ -77,7 +77,7 @@ it writes `session` state that `resume` reads — replacing the ad-hoc
   - **Files** — `crates/graft-engine/src/state.rs`,
     `crates/graft-engine/src/command.rs`
 
-- [ ] **Enforce reads: preconditions before execution**
+- [x] **Enforce reads: preconditions before execution**
   - **Delivers** — missing dependencies produce clear errors rather than
     silent wrong behavior
   - **Done when** — before executing any command with non-empty `reads`,
@@ -89,7 +89,7 @@ it writes `session` state that `resume` reads — replacing the ad-hoc
   - **Files** — `crates/graft-engine/src/command.rs`,
     `crates/graft-engine/src/config.rs` (for the reverse lookup)
 
-- [ ] **Migrate factory implement/resume to use run-state**
+- [x] **Migrate factory implement/resume to use run-state**
   - **Delivers** — a concrete end-to-end example replacing ad-hoc .session files
   - **Done when** — `implement.sh` writes session ID to
     `$GRAFT_STATE_DIR/session.json` instead of `slices/<slug>/.session`;

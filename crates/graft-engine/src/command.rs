@@ -4,7 +4,7 @@
 
 use crate::domain::{Command, GraftConfig};
 use crate::error::{GraftError, Result};
-use crate::state::get_state;
+use crate::state::{get_run_state_entry, get_state};
 use crate::template::{resolve_stdin, TemplateContext};
 use graft_common::process::{run_to_completion_with_timeout, ProcessConfig};
 use std::collections::HashMap;
@@ -21,6 +21,9 @@ pub struct CommandResult {
     pub stderr: String,
     /// Whether the command succeeded (exit code 0)
     pub success: bool,
+    /// State written by the command, keyed by name from `writes:`.
+    /// Populated only for commands executed via `execute_command_with_context`.
+    pub written_state: HashMap<String, serde_json::Value>,
 }
 
 /// Execution context for a command, carrying dual-path resolution.
@@ -131,6 +134,7 @@ pub fn execute_command(
         stdout: output.stdout,
         stderr: output.stderr,
         success: output.success,
+        written_state: HashMap::new(),
     })
 }
 
@@ -156,6 +160,32 @@ pub fn execute_command_with_context(
     ctx: &CommandContext,
     args: &[String],
 ) -> Result<CommandResult> {
+    // Prepare the run-state directory
+    let run_state_dir = ctx.consumer_dir.join(".graft").join("run-state");
+    std::fs::create_dir_all(&run_state_dir).map_err(|e| {
+        GraftError::CommandExecution(format!(
+            "Failed to create run-state directory '{}': {e}",
+            run_state_dir.display()
+        ))
+    })?;
+
+    // Enforce reads: preconditions before executing
+    for reads_name in &command.reads {
+        let state_file = run_state_dir.join(format!("{reads_name}.json"));
+        if !state_file.exists() {
+            let producer = config
+                .commands
+                .values()
+                .find(|c| c.writes.contains(reads_name))
+                .map(|c| format!(" (produced by: {})", c.name))
+                .unwrap_or_default();
+            return Err(GraftError::CommandExecution(format!(
+                "command '{}' requires state '{}'{producer}",
+                command.name, reads_name
+            )));
+        }
+    }
+
     // Step 1: Resolve state queries from context (git ops use consumer_dir)
     let state_results = resolve_state_queries(command, config, ctx)?;
 
@@ -168,6 +198,12 @@ pub fn execute_command_with_context(
             .map_err(|e| GraftError::CommandExecution(format!("Failed to serialize state: {e}")))?;
         merged_env.insert(env_key, json_str);
     }
+
+    // Inject GRAFT_STATE_DIR pointing to the run-state store
+    merged_env.insert(
+        "GRAFT_STATE_DIR".to_string(),
+        run_state_dir.to_string_lossy().to_string(),
+    );
 
     // Inject GRAFT_DEP_DIR for dependency commands
     if ctx.is_dependency() {
@@ -229,11 +265,25 @@ pub fn execute_command_with_context(
     let output = run_to_completion_with_timeout(&process_config)
         .map_err(|e| GraftError::CommandExecution(e.to_string()))?;
 
+    // Read back any state written by the command
+    let mut written_state = HashMap::new();
+    if output.success {
+        for name in &command.writes {
+            let state_file = run_state_dir.join(format!("{name}.json"));
+            if let Ok(content) = std::fs::read_to_string(&state_file) {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                    written_state.insert(name.clone(), value);
+                }
+            }
+        }
+    }
+
     Ok(CommandResult {
         exit_code: output.exit_code,
         stdout: output.stdout,
         stderr: output.stderr,
         success: output.success,
+        written_state,
     })
 }
 
@@ -289,36 +339,39 @@ fn resolve_state_queries(
             .map_err(|e| GraftError::CommandExecution(format!("Failed to get commit hash: {e}")))?;
 
         for ctx_name in &command.context {
-            let query = config.state.get(ctx_name).ok_or_else(|| {
-                GraftError::CommandExecution(format!(
-                    "Context entry '{ctx_name}' not found in state section"
-                ))
-            })?;
-
-            // Resolve script paths in the state query's run field for dep commands
-            let resolved_query = if ctx.is_dependency() {
-                let resolved_run = resolve_script_in_command(&query.run, &ctx.source_dir);
-                if resolved_run == query.run {
-                    None
+            if let Some(query) = config.state.get(ctx_name) {
+                // Resolve script paths in the state query's run field for dep commands
+                let resolved_query = if ctx.is_dependency() {
+                    let resolved_run = resolve_script_in_command(&query.run, &ctx.source_dir);
+                    if resolved_run == query.run {
+                        None
+                    } else {
+                        let mut q = query.clone();
+                        q.run = resolved_run;
+                        Some(q)
+                    }
                 } else {
-                    let mut q = query.clone();
-                    q.run = resolved_run;
-                    Some(q)
-                }
+                    None
+                };
+
+                let result = get_state(
+                    resolved_query.as_ref().unwrap_or(query),
+                    &ctx.workspace_name,
+                    &ctx.repo_name,
+                    &ctx.consumer_dir,
+                    &commit_hash,
+                    ctx.refresh,
+                )?;
+
+                state_results.insert(ctx_name.clone(), result.data);
+            } else if let Some(value) = get_run_state_entry(ctx_name, &ctx.consumer_dir) {
+                // Fall back to run-state store
+                state_results.insert(ctx_name.clone(), value);
             } else {
-                None
-            };
-
-            let result = get_state(
-                resolved_query.as_ref().unwrap_or(query),
-                &ctx.workspace_name,
-                &ctx.repo_name,
-                &ctx.consumer_dir,
-                &commit_hash,
-                ctx.refresh,
-            )?;
-
-            state_results.insert(ctx_name.clone(), result.data);
+                return Err(GraftError::CommandExecution(format!(
+                    "Context entry '{ctx_name}' not found in state section or run-state store"
+                )));
+            }
         }
     }
 
@@ -999,6 +1052,169 @@ mod tests {
         let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
         assert!(result.success);
         assert!(result.stdout.contains("hello-local"));
+    }
+
+    // --- Run-state / GRAFT_STATE_DIR tests (command-output-state-capture) ---
+
+    #[test]
+    fn graft_state_dir_is_injected_into_command_env() {
+        let consumer_dir = tempfile::tempdir().unwrap();
+        let command = Command::new("env", "printenv GRAFT_STATE_DIR").unwrap();
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx = CommandContext::local(consumer_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
+        assert!(result.success);
+        let graft_state_dir = result.stdout.trim();
+        assert!(
+            graft_state_dir.ends_with(".graft/run-state"),
+            "GRAFT_STATE_DIR should end with .graft/run-state, got: {graft_state_dir}"
+        );
+    }
+
+    #[test]
+    fn written_state_is_captured_after_successful_run() {
+        let consumer_dir = tempfile::tempdir().unwrap();
+        let mut command = Command::new(
+            "write-state",
+            r#"sh -c 'echo "{\"id\":\"abc123\"}" > "$GRAFT_STATE_DIR/session.json"'"#,
+        )
+        .unwrap();
+        command.writes = vec!["session".to_string()];
+
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx = CommandContext::local(consumer_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
+        assert!(result.success);
+        assert_eq!(
+            result
+                .written_state
+                .get("session")
+                .and_then(|v| v.get("id")),
+            Some(&serde_json::json!("abc123")),
+            "written_state should contain the session value"
+        );
+    }
+
+    #[test]
+    fn written_state_not_captured_on_failure() {
+        let consumer_dir = tempfile::tempdir().unwrap();
+        let mut command = Command::new(
+            "write-then-fail",
+            r#"sh -c 'echo "{\"id\":\"abc\"}" > "$GRAFT_STATE_DIR/session.json"; exit 1'"#,
+        )
+        .unwrap();
+        command.writes = vec!["session".to_string()];
+
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx = CommandContext::local(consumer_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
+        assert!(!result.success);
+        assert!(
+            result.written_state.is_empty(),
+            "written_state should be empty on command failure"
+        );
+    }
+
+    #[test]
+    fn reads_enforcement_fails_when_state_missing() {
+        let consumer_dir = tempfile::tempdir().unwrap();
+        let mut command = Command::new("resume", "echo ok").unwrap();
+        command.reads = vec!["session".to_string()];
+
+        // Config with an implement command that writes session
+        let mut config = GraftConfig::new("graft/v0").unwrap();
+        let mut producer = Command::new("implement", "echo implement").unwrap();
+        producer.writes = vec!["session".to_string()];
+        config.commands.insert("implement".to_string(), producer);
+
+        let ctx = CommandContext::local(consumer_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("requires state 'session'"),
+            "Error should mention missing state, got: {err}"
+        );
+        assert!(
+            err.contains("implement"),
+            "Error should name the producing command, got: {err}"
+        );
+    }
+
+    #[test]
+    fn reads_enforcement_succeeds_when_state_exists() {
+        let consumer_dir = tempfile::tempdir().unwrap();
+
+        // Pre-create the run-state file
+        let run_state_dir = consumer_dir.path().join(".graft").join("run-state");
+        std::fs::create_dir_all(&run_state_dir).unwrap();
+        std::fs::write(
+            run_state_dir.join("session.json"),
+            r#"{"id":"pre-existing"}"#,
+        )
+        .unwrap();
+
+        let mut command = Command::new("resume", "echo ok").unwrap();
+        command.reads = vec!["session".to_string()];
+
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx = CommandContext::local(consumer_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
+        assert!(
+            result.success,
+            "Command should succeed when reads are satisfied"
+        );
+    }
+
+    #[test]
+    fn context_falls_back_to_run_state_when_no_configured_query() {
+        use std::process::Command as StdCommand;
+
+        let consumer_dir = tempfile::tempdir().unwrap();
+
+        // Initialize a git repo (required for commit hash resolution when context is non-empty)
+        StdCommand::new("git")
+            .args(["init"])
+            .current_dir(consumer_dir.path())
+            .output()
+            .unwrap();
+        StdCommand::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .current_dir(consumer_dir.path())
+            .output()
+            .unwrap();
+
+        // Pre-create a run-state entry
+        let run_state_dir = consumer_dir.path().join(".graft").join("run-state");
+        std::fs::create_dir_all(&run_state_dir).unwrap();
+        std::fs::write(
+            run_state_dir.join("session.json"),
+            r#"{"id":"from-run-state"}"#,
+        )
+        .unwrap();
+
+        // Command with `context: [session]` but no configured state query for it.
+        let mut command = Command::new("use-state", "printenv GRAFT_STATE_SESSION").unwrap();
+        command.context = vec!["session".to_string()];
+
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx = CommandContext::local(consumer_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]).unwrap();
+        assert!(
+            result.success,
+            "Command should succeed when context resolves from run-state"
+        );
+        assert!(
+            result.stdout.contains("from-run-state"),
+            "GRAFT_STATE_SESSION should contain the run-state value, got: {}",
+            result.stdout
+        );
     }
 
     #[test]
