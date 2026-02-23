@@ -141,6 +141,17 @@ impl RepoStatus {
     }
 }
 
+/// Display metadata for a repository entry in the Grove UI.
+///
+/// Separates display-layer concerns from the git-status domain type.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EntryDisplayMeta {
+    /// Nesting depth: 0 = top-level declared repo, 1 = graft dep.
+    pub depth: usize,
+    /// Commits this dep is ahead of the locked commit (0 = at lock, None = N/A).
+    pub ahead_of_lock: Option<usize>,
+}
+
 /// Status of a changed file in the working tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileChangeStatus {
@@ -285,7 +296,7 @@ mod tests {
 
     #[test]
     fn workspace_name_rejects_empty() {
-        assert!(WorkspaceName::new("".to_string()).is_err());
+        assert!(WorkspaceName::new(String::new()).is_err());
         assert!(WorkspaceName::new("  ".to_string()).is_err());
     }
 

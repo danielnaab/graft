@@ -1,6 +1,8 @@
 //! Trait definitions (ports) for Grove.
 
-use crate::domain::{GraftYaml, RefreshStats, RepoDetail, RepoPath, RepoStatus, WorkspaceConfig};
+use crate::domain::{
+    EntryDisplayMeta, GraftYaml, RefreshStats, RepoDetail, RepoPath, RepoStatus, WorkspaceConfig,
+};
 use crate::error::Result;
 
 /// Capability to load workspace configuration.
@@ -33,6 +35,14 @@ pub trait RepoRegistry {
     ///
     /// Returns statistics about the refresh operation (successful/failed counts).
     fn refresh_all(&mut self) -> Result<RefreshStats>;
+
+    /// Get display metadata (depth, lock staleness) for a repo entry.
+    ///
+    /// Returns `EntryDisplayMeta::default()` (depth=0, no lock staleness) unless
+    /// overridden — appropriate for declared repos and mock implementations.
+    fn get_display_meta(&self, _repo_path: &RepoPath) -> EntryDisplayMeta {
+        EntryDisplayMeta::default()
+    }
 }
 
 /// Capability to load graft.yaml files.

@@ -67,14 +67,12 @@ impl GitoxideStatus {
 
         let repo_path = RepoPath::new(&repo_path.display().to_string())?;
 
-        Ok(RepoStatus {
-            path: repo_path,
-            branch,
-            is_dirty,
-            ahead,
-            behind,
-            error: None,
-        })
+        let mut status = RepoStatus::new(repo_path);
+        status.branch = branch;
+        status.is_dirty = is_dirty;
+        status.ahead = ahead;
+        status.behind = behind;
+        Ok(status)
     }
 
     /// Check if working tree is dirty using git status --porcelain
@@ -243,6 +241,23 @@ impl GitStatusTrait for GitoxideStatus {
     fn get_status(&self, repo_path: &RepoPath) -> Result<RepoStatus> {
         Self::query_status(repo_path.as_path())
     }
+}
+
+/// Count how many commits a dep is ahead of the locked commit.
+///
+/// Runs `git rev-list <locked_commit>..HEAD --count` in `dep_path`.
+/// Returns `None` on any error (e.g. unknown commit, shallow clone).
+/// Returns `Some(0)` if HEAD equals the locked commit.
+pub(crate) fn count_commits_ahead_of_lock(dep_path: &Path, locked_commit: &str) -> Option<usize> {
+    let mut cmd = Command::new("git");
+    cmd.args(["rev-list", &format!("{locked_commit}..HEAD"), "--count"])
+        .current_dir(dep_path);
+
+    run_git_with_timeout(cmd, "rev-list lock ahead count")
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| s.trim().parse::<usize>().ok())
 }
 
 impl RepoDetailProvider for GitoxideStatus {

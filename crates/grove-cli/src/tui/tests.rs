@@ -226,7 +226,7 @@ fn formats_error_status_correctly() {
     let mut status = RepoStatus::new(RepoPath::new("/tmp/broken-repo").unwrap());
     status.error = Some("Failed to open repository".to_string());
 
-    let line = format_repo_line(path.clone(), Some(&status), 80);
+    let line = format_repo_line(path.clone(), Some(&status), 80, 0, None);
 
     assert_eq!(
         line.spans.len(),
@@ -252,7 +252,7 @@ fn formats_complete_status_with_all_fields() {
     status.ahead = Some(3);
     status.behind = Some(2);
 
-    let line = format_repo_line(path.clone(), Some(&status), 80);
+    let line = format_repo_line(path.clone(), Some(&status), 80, 0, None);
 
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
@@ -272,7 +272,7 @@ fn formats_clean_status_correctly() {
     status.ahead = None;
     status.behind = None;
 
-    let line = format_repo_line(path, Some(&status), 80);
+    let line = format_repo_line(path, Some(&status), 80, 0, None);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(text.contains("[develop]"), "Should contain branch name");
@@ -298,7 +298,7 @@ fn formats_detached_head_state() {
     status.branch = None;
     status.is_dirty = false;
 
-    let line = format_repo_line(path, Some(&status), 80);
+    let line = format_repo_line(path, Some(&status), 80, 0, None);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(
@@ -311,7 +311,7 @@ fn formats_detached_head_state() {
 #[test]
 fn formats_loading_state() {
     let path = "/tmp/loading-repo".to_string();
-    let line = format_repo_line(path.clone(), None, 80);
+    let line = format_repo_line(path.clone(), None, 80, 0, None);
 
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
@@ -395,7 +395,7 @@ fn hides_zero_ahead_behind_counts() {
     status.ahead = Some(0);
     status.behind = Some(0);
 
-    let line = format_repo_line(path, Some(&status), 80);
+    let line = format_repo_line(path, Some(&status), 80, 0, None);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(
@@ -416,7 +416,7 @@ fn shows_nonzero_ahead_behind_counts() {
     status.ahead = Some(5);
     status.behind = Some(3);
 
-    let line = format_repo_line(path, Some(&status), 80);
+    let line = format_repo_line(path, Some(&status), 80, 0, None);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(text.contains("↑5"), "Should show ahead count of 5");
@@ -1042,7 +1042,7 @@ fn format_repo_line_shows_branch_when_space_allows() {
     status.branch = Some("main".to_string());
     status.is_dirty = true;
 
-    let line = format_repo_line(path, Some(&status), 80);
+    let line = format_repo_line(path, Some(&status), 80, 0, None);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(
@@ -1058,7 +1058,7 @@ fn format_repo_line_drops_branch_when_path_would_be_too_short() {
     status.branch = Some("feature-branch-with-long-name".to_string());
     status.is_dirty = true;
 
-    let line = format_repo_line(path, Some(&status), 20);
+    let line = format_repo_line(path, Some(&status), 20, 0, None);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(
@@ -1075,7 +1075,7 @@ fn format_repo_line_drops_branch_when_path_uses_prefix_truncation() {
     status.branch = Some("main".to_string());
     status.is_dirty = false;
 
-    let line = format_repo_line(path, Some(&status), 18);
+    let line = format_repo_line(path, Some(&status), 18, 0, None);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(
@@ -1091,7 +1091,7 @@ fn format_repo_line_unicode_path_uses_width_not_len() {
     status.branch = Some("main".to_string());
     status.is_dirty = true;
 
-    let line = format_repo_line(path, Some(&status), 40);
+    let line = format_repo_line(path, Some(&status), 40, 0, None);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(
@@ -1109,7 +1109,7 @@ fn format_repo_line_preserves_ahead_behind_when_dropping_branch() {
     status.ahead = Some(4);
     status.behind = Some(2);
 
-    let line = format_repo_line(path, Some(&status), 22);
+    let line = format_repo_line(path, Some(&status), 22, 0, None);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(
@@ -1128,7 +1128,7 @@ fn format_repo_line_shows_basename_only_in_very_tight_space() {
     status.branch = Some("main".to_string());
     status.is_dirty = true;
 
-    let line = format_repo_line(path, Some(&status), 12);
+    let line = format_repo_line(path, Some(&status), 12, 0, None);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
 
     assert!(
@@ -1166,7 +1166,7 @@ fn verify_overhead_calculation_is_accurate() {
     status.behind = Some(2);
 
     let pane_width = 50;
-    let line = format_repo_line(path, Some(&status), pane_width);
+    let line = format_repo_line(path, Some(&status), pane_width, 0, None);
 
     let actual_width: usize = line.spans.iter().map(|s| s.content.width()).sum();
 
@@ -1283,7 +1283,7 @@ fn status_message_not_expired_immediately() {
 #[test]
 fn status_message_expires_after_three_seconds() {
     let mut msg = StatusMessage::warning("Test");
-    msg.shown_at = Instant::now() - Duration::from_secs(4);
+    msg.shown_at = Instant::now().checked_sub(Duration::from_secs(4)).unwrap();
     assert!(msg.is_expired(), "Message should expire after 3 seconds");
 }
 
@@ -1352,7 +1352,7 @@ fn clear_expired_status_message_removes_old_messages() {
     );
 
     let mut old_msg = StatusMessage::info("Old message");
-    old_msg.shown_at = Instant::now() - Duration::from_secs(4);
+    old_msg.shown_at = Instant::now().checked_sub(Duration::from_secs(4)).unwrap();
     app.status_message = Some(old_msg);
 
     app.clear_expired_status_message();
@@ -2155,12 +2155,11 @@ fn state_tab_shows_cache_age_formatting() {
         data: json!({"lines": 85}),
     })];
 
-    if let Some(Some(result)) = app.state_results.get(0) {
+    if let Some(Some(result)) = app.state_results.first() {
         let age = result.metadata.time_ago();
         assert!(
             age.contains("m ago") || age.contains("just now"),
-            "Cache age should be formatted, got: {}",
-            age
+            "Cache age should be formatted, got: {age}"
         );
     }
 }
@@ -5361,5 +5360,107 @@ fn dynamic_hints_exclude_enter_run_on_file_change() {
     assert!(
         !has_enter,
         "Hint bar should NOT include Enter when cursor is on a file change"
+    );
+}
+
+// --- Depth indent and lock staleness rendering tests ---
+
+#[test]
+fn format_repo_line_depth_one_prepends_tree_connector() {
+    let path = "/tmp/repo/.graft/software-factory".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("main".to_string());
+    status.is_dirty = false;
+
+    let line = format_repo_line(path, Some(&status), 80, 1, None);
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    assert!(
+        text.starts_with("  ├─ "),
+        "Depth-1 entry should start with tree connector, got: {text:?}"
+    );
+    assert!(text.contains("[main]"), "Should still show branch");
+}
+
+#[test]
+fn format_repo_line_depth_zero_has_no_indent() {
+    let path = "/tmp/repo".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("main".to_string());
+
+    let line = format_repo_line(path, Some(&status), 80, 0, None);
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    assert!(
+        !text.starts_with("  ├─ "),
+        "Depth-0 entry should not have tree connector, got: {text:?}"
+    );
+}
+
+#[test]
+fn format_repo_line_shows_lock_staleness_when_ahead() {
+    let path = "/tmp/repo".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("main".to_string());
+    status.is_dirty = false;
+
+    let line = format_repo_line(path, Some(&status), 80, 1, Some(3));
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    assert!(
+        text.contains("⊛+3"),
+        "Should show lock staleness indicator, got: {text:?}"
+    );
+}
+
+#[test]
+fn format_repo_line_hides_lock_indicator_when_at_lock() {
+    let path = "/tmp/repo".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("main".to_string());
+
+    let line = format_repo_line(path, Some(&status), 80, 1, Some(0));
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    assert!(
+        !text.contains("⊛"),
+        "Should not show lock indicator when at exact lock commit, got: {text:?}"
+    );
+}
+
+#[test]
+fn format_repo_line_hides_lock_indicator_when_none() {
+    let path = "/tmp/repo".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("main".to_string());
+
+    let line = format_repo_line(path, Some(&status), 80, 1, None);
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    assert!(
+        !text.contains("⊛"),
+        "Should not show lock indicator when ahead_of_lock is None"
+    );
+}
+
+#[test]
+fn format_repo_line_lock_staleness_space_is_separate_span() {
+    // Verify the space before ⊛+N is a separate Span (consistent with ahead/behind pattern),
+    // not embedded in the lock text itself.
+    let path = "/tmp/repo".to_string();
+    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
+    status.branch = Some("main".to_string());
+
+    let line = format_repo_line(path, Some(&status), 80, 0, Some(2));
+    let lock_span = line.spans.iter().find(|s| s.content.contains("⊛+2"));
+    assert!(
+        lock_span.is_some(),
+        "Should have a span containing ⊛+2, got: {:?}",
+        line.spans
+    );
+    let lock_content = lock_span.unwrap().content.as_ref();
+    assert!(
+        !lock_content.starts_with(' '),
+        "Lock span itself should not start with a space (space is a separate span), got: {lock_content:?}"
     );
 }

@@ -120,7 +120,15 @@ pub(crate) fn format_file_change_indicator(status: &FileChangeStatus) -> (&'stat
     }
 }
 
+/// Tree connector prefix for nested graft deps (depth > 0).
+const INDENT_PREFIX: &str = "  ├─ ";
+/// Display columns consumed by `INDENT_PREFIX` (2 spaces + ├ + ─ + 1 space = 5 cols).
+const INDENT_WIDTH: u16 = 5;
+
 /// Format a repository status line for display in the TUI.
+///
+/// `depth` and `ahead_of_lock` come from `RepoRegistry::get_display_meta()` rather
+/// than from `RepoStatus`, keeping git-status data separate from display metadata.
 ///
 /// Returns `Line<'static>` because all data is owned (no borrowing from input parameters).
 /// The 'static lifetime indicates the Line owns its data, not that it's statically allocated.
@@ -133,6 +141,45 @@ pub(crate) fn format_repo_line(
     path: String,
     status: Option<&RepoStatus>,
     pane_width: u16,
+    depth: usize,
+    ahead_of_lock: Option<usize>,
+) -> Line<'static> {
+    // Verify constant is in sync with the prefix string (catches edits to INDENT_PREFIX).
+    debug_assert_eq!(
+        INDENT_PREFIX.width(),
+        INDENT_WIDTH as usize,
+        "INDENT_WIDTH is out of sync with INDENT_PREFIX display width"
+    );
+
+    // Effective pane width after accounting for depth indent.
+    let effective_width = if depth > 0 {
+        pane_width.saturating_sub(INDENT_WIDTH)
+    } else {
+        pane_width
+    };
+
+    let mut line = format_repo_line_inner(&path, status, effective_width, ahead_of_lock);
+
+    if depth > 0 {
+        line.spans.insert(
+            0,
+            Span::styled(
+                INDENT_PREFIX,
+                Style::default().add_modifier(Modifier::DIM),
+            ),
+        );
+    }
+
+    line
+}
+
+/// Inner formatting logic, operating on the effective (post-indent) pane width.
+#[allow(clippy::too_many_lines, clippy::single_match_else)]
+fn format_repo_line_inner(
+    path: &str,
+    status: Option<&RepoStatus>,
+    pane_width: u16,
+    ahead_of_lock: Option<usize>,
 ) -> Line<'static> {
     match status {
         Some(status) => {
@@ -141,7 +188,7 @@ pub(crate) fn format_repo_line(
                 let error_text = format!("[error: {error_msg}]");
                 let overhead = 2 + 1 + error_text.width() + 3;
                 let max_path_width = (pane_width as usize).saturating_sub(overhead);
-                let compacted_path = compact_path(&path, max_path_width);
+                let compacted_path = compact_path(path, max_path_width);
 
                 let error_color = if error_msg.contains("timed out") {
                     Color::Yellow
@@ -180,18 +227,27 @@ pub(crate) fn format_repo_line(
                     .map(|n| format!("↓{n}"))
                     .unwrap_or_default();
 
+                // Lock staleness indicator (consistent with ahead/behind: space pushed separately).
+                let lock_text = match ahead_of_lock {
+                    Some(n) if n > 0 => format!("⊛+{n}"),
+                    _ => String::new(),
+                };
+
                 // Calculate status width WITHOUT branch (for tight space fallback)
-                let mut minimal_status_width = 1 + 1; // space + dirty
+                let mut minimal_status_width = 1 + 1; // space + dirty indicator
                 if !ahead_text.is_empty() {
                     minimal_status_width += 1 + ahead_text.width(); // space + ahead
                 }
                 if !behind_text.is_empty() {
                     minimal_status_width += 1 + behind_text.width(); // space + behind
                 }
+                if !lock_text.is_empty() {
+                    minimal_status_width += 1 + lock_text.width(); // space + lock
+                }
 
                 if pane_width < 15 {
                     // Very tight: show just basename
-                    let basename = extract_basename(&path);
+                    let basename = extract_basename(path);
                     let overhead = 2 + minimal_status_width + 3;
                     let max_basename_width = (pane_width as usize).saturating_sub(overhead);
 
@@ -217,6 +273,11 @@ pub(crate) fn format_repo_line(
                         spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
                     }
 
+                    if !lock_text.is_empty() {
+                        spans.push(Span::raw(" "));
+                        spans.push(Span::styled(lock_text, Style::default().fg(Color::Yellow)));
+                    }
+
                     Line::from(spans)
                 } else {
                     // Calculate status width WITH branch
@@ -226,7 +287,7 @@ pub(crate) fn format_repo_line(
                     let max_path_width_with_branch =
                         (pane_width as usize).saturating_sub(overhead_with_branch);
                     let compacted_path_with_branch =
-                        compact_path(&path, max_path_width_with_branch);
+                        compact_path(path, max_path_width_with_branch);
 
                     let use_branch = !compacted_path_with_branch.starts_with("[..]")
                         && compacted_path_with_branch.width() >= 8;
@@ -253,12 +314,20 @@ pub(crate) fn format_repo_line(
                             spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
                         }
 
+                        if !lock_text.is_empty() {
+                            spans.push(Span::raw(" "));
+                            spans.push(Span::styled(
+                                lock_text,
+                                Style::default().fg(Color::Yellow),
+                            ));
+                        }
+
                         Line::from(spans)
                     } else {
                         let overhead_without_branch = 2 + minimal_status_width + 3;
                         let max_path_width =
                             (pane_width as usize).saturating_sub(overhead_without_branch);
-                        let compacted_path = compact_path(&path, max_path_width);
+                        let compacted_path = compact_path(path, max_path_width);
 
                         let mut spans = vec![
                             Span::styled(compacted_path, Style::default().fg(Color::White)),
@@ -276,6 +345,14 @@ pub(crate) fn format_repo_line(
                             spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
                         }
 
+                        if !lock_text.is_empty() {
+                            spans.push(Span::raw(" "));
+                            spans.push(Span::styled(
+                                lock_text,
+                                Style::default().fg(Color::Yellow),
+                            ));
+                        }
+
                         Line::from(spans)
                     }
                 }
@@ -285,7 +362,7 @@ pub(crate) fn format_repo_line(
             let loading_text = "[loading...]";
             let overhead = 2 + 1 + loading_text.width() + 3;
             let max_path_width = (pane_width as usize).saturating_sub(overhead);
-            let compacted_path = compact_path(&path, max_path_width);
+            let compacted_path = compact_path(path, max_path_width);
 
             Line::from(vec![
                 Span::styled(compacted_path, Style::default().fg(Color::White)),
@@ -352,10 +429,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 .iter()
                 .map(|repo_path| {
                     let status = self.registry.get_status(repo_path);
+                    let meta = self.registry.get_display_meta(repo_path);
                     let line = format_repo_line(
                         repo_path.as_path().display().to_string(),
                         status,
                         pane_width,
+                        meta.depth,
+                        meta.ahead_of_lock,
                     );
                     ListItem::new(line)
                 })
