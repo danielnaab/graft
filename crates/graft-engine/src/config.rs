@@ -176,6 +176,26 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
                 }
             }
 
+            // Parse writes (optional)
+            if let Some(writes_value) = cmd_obj.get(Value::String("writes".to_string())) {
+                if let Some(seq) = writes_value.as_sequence() {
+                    command.writes = seq
+                        .iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect();
+                }
+            }
+
+            // Parse reads (optional)
+            if let Some(reads_value) = cmd_obj.get(Value::String("reads".to_string())) {
+                if let Some(seq) = reads_value.as_sequence() {
+                    command.reads = seq
+                        .iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect();
+                }
+            }
+
             config.commands.insert(name.to_string(), command);
         }
     }
@@ -672,6 +692,43 @@ state:
         let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
         let cmd = config.get_command("gen").unwrap();
         assert_eq!(cmd.context, vec!["coverage".to_string()]);
+    }
+
+    #[test]
+    fn parses_command_with_writes_and_reads() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  implement:
+    run: "bash scripts/implement.sh"
+    writes:
+      - session
+  resume:
+    run: "bash scripts/resume.sh"
+    reads:
+      - session
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let implement = config.get_command("implement").unwrap();
+        assert_eq!(implement.writes, vec!["session".to_string()]);
+        assert!(implement.reads.is_empty());
+        let resume = config.get_command("resume").unwrap();
+        assert_eq!(resume.reads, vec!["session".to_string()]);
+        assert!(resume.writes.is_empty());
+    }
+
+    #[test]
+    fn command_writes_reads_absent_gives_empty_vecs() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  plain:
+    run: "echo ok"
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let cmd = config.get_command("plain").unwrap();
+        assert!(cmd.writes.is_empty());
+        assert!(cmd.reads.is_empty());
     }
 
     #[test]

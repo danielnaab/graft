@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-02-23
 ---
 
@@ -43,7 +43,7 @@ both correctly is what matters.
 
 ## Steps
 
-- [ ] **Add writes/reads fields to Command struct and validate**
+- [x] **Add writes/reads fields to Command struct and validate**
   - **Delivers** — the schema accepts and validates the new fields
   - **Done when** — `Command` has `pub writes: Vec<String>` and `pub reads:
     Vec<String>` (both `#[serde(default)]`); `Command::validate()` rejects
@@ -52,7 +52,7 @@ both correctly is what matters.
     successfully and one with an empty-string entry returns an error
   - **Files** — `crates/graft-engine/src/domain.rs`
 
-- [ ] **Parse writes/reads from graft.yaml**
+- [x] **Parse writes/reads from graft.yaml**
   - **Delivers** — real configs can use the new fields
   - **Done when** — `parse_graft_yaml_str` in `config.rs` parses `writes:` and
     `reads:` from command objects using the same sequence-of-strings pattern as

@@ -324,6 +324,12 @@ pub struct Command {
     /// State query names to resolve before running the command.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context: Vec<String>,
+    /// State names this command produces after running.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub writes: Vec<String>,
+    /// State names this command requires to exist before running.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reads: Vec<String>,
 }
 
 impl Command {
@@ -375,6 +381,8 @@ impl Command {
             env: None,
             stdin: None,
             context: Vec::new(),
+            writes: Vec::new(),
+            reads: Vec::new(),
         })
     }
 
@@ -405,6 +413,18 @@ impl Command {
     #[must_use]
     pub fn with_context(mut self, context: Vec<String>) -> Self {
         self.context = context;
+        self
+    }
+
+    #[must_use]
+    pub fn with_writes(mut self, writes: Vec<String>) -> Self {
+        self.writes = writes;
+        self
+    }
+
+    #[must_use]
+    pub fn with_reads(mut self, reads: Vec<String>) -> Self {
+        self.reads = reads;
         self
     }
 
@@ -487,6 +507,26 @@ impl Command {
             if entry.is_empty() {
                 return Err(GraftError::Validation(format!(
                     "command '{}': context entry cannot be empty",
+                    self.name
+                )));
+            }
+        }
+
+        // Validate writes entries
+        for entry in &self.writes {
+            if entry.is_empty() {
+                return Err(GraftError::Validation(format!(
+                    "command '{}': writes entry cannot be empty",
+                    self.name
+                )));
+            }
+        }
+
+        // Validate reads entries
+        for entry in &self.reads {
+            if entry.is_empty() {
+                return Err(GraftError::Validation(format!(
+                    "command '{}': reads entry cannot be empty",
                     self.name
                 )));
             }
@@ -1246,6 +1286,44 @@ mod tests {
     fn command_needs_context_without_stdin_or_context() {
         let cmd = Command::new("gen", "echo ok").unwrap();
         assert!(!cmd.needs_context());
+    }
+
+    #[test]
+    fn command_with_writes_and_reads_validates() {
+        let cmd = Command::new("implement", "bash scripts/implement.sh")
+            .unwrap()
+            .with_writes(vec!["session".to_string()])
+            .with_reads(vec!["config".to_string()]);
+        assert!(cmd.validate().is_ok());
+        assert_eq!(cmd.writes, vec!["session"]);
+        assert_eq!(cmd.reads, vec!["config"]);
+    }
+
+    #[test]
+    fn command_rejects_empty_writes_entry() {
+        let cmd = Command::new("implement", "bash scripts/implement.sh")
+            .unwrap()
+            .with_writes(vec!["".to_string()]);
+        assert!(cmd.validate().is_err());
+        let err = cmd.validate().unwrap_err().to_string();
+        assert!(err.contains("writes entry cannot be empty"));
+    }
+
+    #[test]
+    fn command_rejects_empty_reads_entry() {
+        let cmd = Command::new("resume", "bash scripts/resume.sh")
+            .unwrap()
+            .with_reads(vec!["".to_string()]);
+        assert!(cmd.validate().is_err());
+        let err = cmd.validate().unwrap_err().to_string();
+        assert!(err.contains("reads entry cannot be empty"));
+    }
+
+    #[test]
+    fn command_writes_reads_default_empty() {
+        let cmd = Command::new("plain", "echo ok").unwrap();
+        assert!(cmd.writes.is_empty());
+        assert!(cmd.reads.is_empty());
     }
 
     #[test]
