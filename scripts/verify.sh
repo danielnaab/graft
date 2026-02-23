@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # State query: verification status for graft.yaml state.verify
-# Produces JSON: { format, lint, tests }
+# Produces JSON: { format, lint, tests, smoke }
 #
-# Runs all three checks regardless of individual failures.
+# Runs all checks regardless of individual failures.
 # On success: compact summary. On failure: first N lines of output.
 
 MAX_LINES=40
@@ -10,11 +10,16 @@ MAX_LINES=40
 fmt_output=$(cargo fmt --all --check 2>&1)
 fmt_exit=$?
 
-lint_output=$(cargo clippy -- -D warnings 2>&1)
+# --all-targets ensures test code (cfg(test) blocks) is also linted
+lint_output=$(cargo clippy --all-targets -- -D warnings 2>&1)
 lint_exit=$?
 
 test_output=$(cargo test 2>&1)
 test_exit=$?
+
+# Smoke test: real-world integration check (loads graft.yaml, resolves state)
+smoke_output=$(cargo run -p graft-cli -- status 2>&1)
+smoke_exit=$?
 
 # On success, produce a compact summary.
 # On failure, keep the first N lines where errors appear.
@@ -40,8 +45,15 @@ else
   test_output=$(echo "$test_output" | head -n "$MAX_LINES")
 fi
 
+if [ $smoke_exit -eq 0 ]; then
+  smoke_output="OK"
+else
+  smoke_output=$(echo "$smoke_output" | head -n "$MAX_LINES")
+fi
+
 jq -n \
   --arg format "$fmt_output" \
   --arg lint "$lint_output" \
   --arg tests "$test_output" \
-  '{format: $format, lint: $lint, tests: $tests}'
+  --arg smoke "$smoke_output" \
+  '{format: $format, lint: $lint, tests: $tests, smoke: $smoke}'

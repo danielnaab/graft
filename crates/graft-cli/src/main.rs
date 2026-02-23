@@ -1843,6 +1843,11 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
         }
     }
 
+    // Set up run-state: create dir, enforce reads:, inject GRAFT_STATE_DIR.
+    // Done for all streaming commands so scripts can always rely on GRAFT_STATE_DIR.
+    let run_state_dir = graft_engine::setup_run_state(cmd, &config, base_dir)?;
+    process_cmd.env("GRAFT_STATE_DIR", run_state_dir.to_string_lossy().as_ref());
+
     // Execute command with output streaming
     let status = process_cmd.status().with_context(|| {
         format!(
@@ -2014,6 +2019,11 @@ fn run_dependency_command(
         "GRAFT_DEP_DIR",
         cmd_ctx.source_dir.to_string_lossy().as_ref(),
     );
+
+    // Set up run-state: create dir, enforce reads:, inject GRAFT_STATE_DIR.
+    // Done for all streaming commands so scripts can always rely on GRAFT_STATE_DIR.
+    let run_state_dir = graft_engine::setup_run_state(cmd, &config, &cmd_ctx.consumer_dir)?;
+    process_cmd.env("GRAFT_STATE_DIR", run_state_dir.to_string_lossy().as_ref());
 
     let status = process_cmd.status().with_context(|| {
         format!(

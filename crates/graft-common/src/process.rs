@@ -827,7 +827,7 @@ mod tests {
         // Last event is Completed with exit code 0.
         match events.last().unwrap() {
             ProcessEvent::Completed { exit_code } => assert_eq!(*exit_code, 0),
-            other => panic!("expected Completed, got: {:?}", other),
+            other => panic!("expected Completed, got: {other:?}"),
         }
     }
 
@@ -865,7 +865,7 @@ mod tests {
 
         match events.last().unwrap() {
             ProcessEvent::Completed { exit_code } => assert_eq!(*exit_code, 42),
-            other => panic!("expected Completed, got: {:?}", other),
+            other => panic!("expected Completed, got: {other:?}"),
         }
     }
 
@@ -1175,10 +1175,10 @@ mod tests {
         reg.register(running_entry(pid2, "sleep-b")).unwrap();
 
         let active = reg.list_active().unwrap();
-        let pids: Vec<u32> = active.iter().map(|e| e.pid).collect();
-        assert!(pids.contains(&my_pid));
-        assert!(pids.contains(&pid1));
-        assert!(pids.contains(&pid2));
+        let active_pids: Vec<u32> = active.iter().map(|e| e.pid).collect();
+        assert!(active_pids.contains(&my_pid));
+        assert!(active_pids.contains(&pid1));
+        assert!(active_pids.contains(&pid2));
 
         // Clean up child processes.
         child1.kill().unwrap();

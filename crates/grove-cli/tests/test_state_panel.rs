@@ -51,7 +51,7 @@ state:
         .iter()
         .find(|q| q.name == "coverage")
         .expect("Coverage query not found");
-    assert_eq!(coverage.deterministic, true);
+    assert!(coverage.deterministic);
     assert_eq!(coverage.timeout, Some(60));
     assert_eq!(
         coverage.description,
@@ -63,7 +63,7 @@ state:
         .iter()
         .find(|q| q.name == "tasks")
         .expect("Tasks query not found");
-    assert_eq!(tasks.deterministic, false);
+    assert!(!tasks.deterministic);
     assert_eq!(tasks.timeout, None);
 }
 
@@ -97,9 +97,9 @@ fn discover_handles_malformed_yaml() {
 
     fs::write(
         &graft_yaml,
-        r#"
+        r"
 invalid: [ yaml syntax
-"#,
+",
     )
     .unwrap();
 
@@ -115,7 +115,7 @@ fn discover_handles_missing_run_field() {
 
     fs::write(
         &graft_yaml,
-        r#"
+        r"
 apiVersion: graft/v1beta1
 name: test-repo
 
@@ -123,7 +123,7 @@ state:
   incomplete:
     cache:
       deterministic: true
-"#,
+",
     )
     .unwrap();
 
@@ -169,7 +169,7 @@ fn read_cached_state_from_file() {
     fs::create_dir_all(&cache_dir).unwrap();
 
     // Write cache file
-    let cache_file = cache_dir.join(format!("{}.json", commit_hash));
+    let cache_file = cache_dir.join(format!("{commit_hash}.json"));
     let result = StateResult {
         metadata: StateMetadata {
             query_name: "coverage".to_string(),
@@ -267,9 +267,11 @@ fn read_all_cached_returns_sorted_by_time() {
     fs::create_dir_all(&cache_dir).unwrap();
 
     // Create multiple cache files with different timestamps
-    let commits = vec!["aaa", "bbb", "ccc"];
+    let commits = ["aaa", "bbb", "ccc"];
     for (i, commit) in commits.iter().enumerate() {
-        let timestamp = (chrono::Utc::now() - chrono::Duration::hours((3 - i) as i64)).to_rfc3339();
+        let timestamp = (chrono::Utc::now()
+            - chrono::Duration::hours(i64::try_from(3 - i).unwrap_or(0)))
+        .to_rfc3339();
 
         let result = StateResult {
             metadata: StateMetadata {
@@ -283,7 +285,7 @@ fn read_all_cached_returns_sorted_by_time() {
         };
 
         fs::write(
-            cache_dir.join(format!("{}.json", commit)),
+            cache_dir.join(format!("{commit}.json")),
             serde_json::to_string(&result).unwrap(),
         )
         .unwrap();

@@ -125,14 +125,14 @@ mod tests {
         let mut file = NamedTempFile::new().unwrap();
         writeln!(
             file,
-            r#"
+            r"
 name: test-workspace
 repositories:
   - path: /tmp/repo1
     tags: [rust, cli]
   - path: /tmp/repo2
     tags: []
-"#
+"
         )
         .unwrap();
 
@@ -173,8 +173,7 @@ repositories:
 
         assert!(
             result.is_err(),
-            "Should reject empty workspace name, got: {:?}",
-            result
+            "Should reject empty workspace name, got: {result:?}"
         );
 
         // Verify it's the right kind of error
@@ -271,7 +270,7 @@ repositories:
 
         // Tilde should be expanded
         assert!(
-            !repo_path.as_path().to_string_lossy().starts_with("~"),
+            !repo_path.as_path().to_string_lossy().starts_with('~'),
             "Tilde should be expanded, got: {}",
             repo_path.as_path().display()
         );
@@ -368,16 +367,15 @@ repositories:
         // Should error because tags field is required in the struct
         // (unless it has #[serde(default)])
         // Let's test the actual behavior
-        if result.is_err() {
+        if let Err(err) = result {
             // Tags field is required
-            let err_msg = result.unwrap_err().to_string();
+            let err_msg = err.to_string();
             assert!(
                 err_msg.contains("missing") || err_msg.contains("tags"),
                 "Error should mention missing tags field"
             );
-        } else {
+        } else if let Ok(config) = result {
             // Tags field has a default
-            let config = result.unwrap();
             assert_eq!(
                 config.repositories[0].tags.len(),
                 0,

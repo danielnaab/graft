@@ -58,12 +58,9 @@ commands:
                 break;
             }
             Ok(CommandEvent::Failed(msg)) => {
-                panic!("Command failed: {}", msg);
+                panic!("Command failed: {msg}");
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Keep waiting
-                continue;
-            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 break;
             }
@@ -74,15 +71,13 @@ commands:
     assert_eq!(
         exit_code,
         Some(0),
-        "Command should complete successfully. Output: {:?}",
-        output_lines
+        "Command should complete successfully. Output: {output_lines:?}"
     );
     assert!(
         output_lines
             .iter()
             .any(|line| line.contains("Hello from graft")),
-        "Output should contain expected text. Got: {:?}",
-        output_lines
+        "Output should contain expected text. Got: {output_lines:?}"
     );
 
     // Verify we got the graft output format (shows command execution)
@@ -132,15 +127,13 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(CommandEvent::Started(_)) => {
-                // Process started, continue
-            }
+            Ok(CommandEvent::Started(_) | CommandEvent::OutputLine(_))
+            | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(CommandEvent::Failed(msg)) => {
                 // Graft should report command not found
                 assert!(
                     msg.contains("not found") || msg.contains("Command"),
-                    "Error should mention command not found: {}",
-                    msg
+                    "Error should mention command not found: {msg}"
                 );
                 got_failure = true;
                 break;
@@ -151,10 +144,6 @@ commands:
                 got_failure = true;
                 break;
             }
-            Ok(CommandEvent::OutputLine(_)) => {
-                // Keep collecting
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
@@ -169,7 +158,7 @@ fn test_command_execution_failure() {
     let graft_yaml = temp_dir.path().join("graft.yaml");
     fs::write(
         &graft_yaml,
-        r#"apiVersion: graft/v1beta1
+        r"apiVersion: graft/v1beta1
 name: test-repo
 description: Test repository
 
@@ -177,7 +166,7 @@ commands:
   failing-command:
     run: exit 42
     description: Command that fails
-"#,
+",
     )
     .unwrap();
 
@@ -202,22 +191,17 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(CommandEvent::Started(_)) => {
-                // Process started, continue
-            }
+            Ok(CommandEvent::Started(_) | CommandEvent::OutputLine(_))
+            | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(CommandEvent::Completed(code)) => {
                 exit_code = Some(code);
                 break;
             }
             Ok(CommandEvent::Failed(msg)) => {
                 // Also acceptable - might fail before getting exit code
-                println!("Got failure: {}", msg);
+                println!("Got failure: {msg}");
                 break;
             }
-            Ok(CommandEvent::OutputLine(_)) => {
-                // Keep collecting
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
@@ -264,9 +248,7 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(CommandEvent::Started(_)) => {
-                // Process started, continue
-            }
+            Ok(CommandEvent::Started(_)) | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(CommandEvent::OutputLine(line)) => {
                 output_lines.push(line);
             }
@@ -275,9 +257,8 @@ commands:
                 break;
             }
             Ok(CommandEvent::Failed(msg)) => {
-                panic!("Command failed: {}", msg);
+                panic!("Command failed: {msg}");
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
@@ -290,8 +271,7 @@ commands:
         output_text.contains("Line 1")
             && output_text.contains("Line 2")
             && output_text.contains("Line 3"),
-        "Should capture all three lines. Got: {:?}",
-        output_lines
+        "Should capture all three lines. Got: {output_lines:?}"
     );
 }
 
@@ -302,7 +282,7 @@ fn test_command_with_arguments_passed_to_subprocess() {
     let graft_yaml = temp_dir.path().join("graft.yaml");
     fs::write(
         &graft_yaml,
-        r#"apiVersion: graft/v1beta1
+        r"apiVersion: graft/v1beta1
 name: test-repo
 description: Test repository
 
@@ -310,7 +290,7 @@ commands:
   echo-args:
     run: echo
     description: Echo arguments
-"#,
+",
     )
     .unwrap();
 
@@ -336,7 +316,7 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(CommandEvent::Started(_)) => continue,
+            Ok(CommandEvent::Started(_)) | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(CommandEvent::OutputLine(line)) => {
                 output_lines.push(line);
             }
@@ -345,9 +325,8 @@ commands:
                 break;
             }
             Ok(CommandEvent::Failed(msg)) => {
-                panic!("Command failed: {}", msg);
+                panic!("Command failed: {msg}");
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
@@ -356,20 +335,18 @@ commands:
     assert_eq!(
         exit_code,
         Some(0),
-        "Command should complete successfully. Output: {:?}",
-        output_lines
+        "Command should complete successfully. Output: {output_lines:?}"
     );
 
     let combined = output_lines.join("\n");
     assert!(
         combined.contains("arg1") && combined.contains("arg2") && combined.contains("arg3"),
-        "Output should contain all arguments. Got: {}",
-        combined
+        "Output should contain all arguments. Got: {combined}"
     );
 }
 
 #[test]
-#[ignore] // Only run if user explicitly removes graft from PATH
+#[ignore = "Requires graft not in PATH; run with --ignored after removing from PATH"]
 fn test_graft_not_in_path_error() {
     // This test verifies the error when graft is not installed
     // Skip if graft IS installed (test would pass incorrectly)
@@ -403,15 +380,11 @@ fn test_graft_not_in_path_error() {
             Ok(CommandEvent::Failed(msg)) => {
                 assert!(
                     msg.contains("graft") && msg.contains("not found"),
-                    "Error should mention graft not found: {}",
-                    msg
+                    "Error should mention graft not found: {msg}"
                 );
                 break;
             }
-            other => panic!(
-                "Expected Failed event with graft not found, got: {:?}",
-                other
-            ),
+            other => panic!("Expected Failed event with graft not found, got: {other:?}"),
         }
     }
 }

@@ -138,6 +138,78 @@ pub fn execute_command(
     })
 }
 
+/// Set up the run-state directory and enforce `reads:` preconditions.
+///
+/// Creates `.graft/run-state/` in `consumer_dir` if it doesn't exist.
+/// For each name in `command.reads`, verifies the corresponding JSON file
+/// exists **and contains valid JSON** before returning. Missing or malformed
+/// state produces a clear error naming which command produces that state.
+///
+/// Returns the path to the run-state directory. Call this before executing any
+/// command that may use the run-state store (writes, reads, or streaming).
+pub fn setup_run_state(
+    command: &Command,
+    config: &GraftConfig,
+    consumer_dir: &Path,
+) -> Result<PathBuf> {
+    let run_state_dir = consumer_dir.join(".graft").join("run-state");
+    std::fs::create_dir_all(&run_state_dir).map_err(|e| {
+        GraftError::CommandExecution(format!(
+            "Failed to create run-state directory '{}': {e}",
+            run_state_dir.display()
+        ))
+    })?;
+
+    for reads_name in &command.reads {
+        let state_file = run_state_dir.join(format!("{reads_name}.json"));
+        if !state_file.exists() {
+            let producer = config
+                .commands
+                .values()
+                .find(|c| c.writes.contains(reads_name))
+                .map(|c| format!(" (produced by: {})", c.name))
+                .unwrap_or_default();
+            return Err(GraftError::CommandExecution(format!(
+                "command '{}' requires state '{}'{producer}",
+                command.name, reads_name
+            )));
+        }
+        // Validate the file contains well-formed JSON
+        let content = std::fs::read_to_string(&state_file).map_err(|e| {
+            GraftError::CommandExecution(format!(
+                "Failed to read state file '{}': {e}",
+                state_file.display()
+            ))
+        })?;
+        serde_json::from_str::<serde_json::Value>(&content).map_err(|e| {
+            GraftError::CommandExecution(format!("State '{reads_name}' contains invalid JSON: {e}"))
+        })?;
+    }
+
+    Ok(run_state_dir)
+}
+
+/// Read back state files written by a command after successful execution.
+///
+/// For each name in `command.writes`, reads `<run_state_dir>/<name>.json`
+/// and returns parsed values. Silently skips files that don't exist or
+/// contain malformed JSON — the command may have chosen not to write them.
+pub fn capture_written_state(
+    command: &Command,
+    run_state_dir: &Path,
+) -> HashMap<String, serde_json::Value> {
+    let mut written_state = HashMap::new();
+    for name in &command.writes {
+        let state_file = run_state_dir.join(format!("{name}.json"));
+        if let Ok(content) = std::fs::read_to_string(&state_file) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                written_state.insert(name.clone(), value);
+            }
+        }
+    }
+    written_state
+}
+
 /// Execute a command with context/stdin support.
 ///
 /// This function handles commands that have `stdin:` and/or `context:` fields:
@@ -145,6 +217,10 @@ pub fn execute_command(
 /// 2. Builds env vars: `GRAFT_STATE_<UPPER_NAME>=<json>` for each resolved state query
 /// 3. If `command.stdin` is present, renders the template with built-in + state variables
 /// 4. Pipes the rendered text to the subprocess's stdin
+///
+/// Also manages the run-state store for all commands (not only those with
+/// stdin/context): `GRAFT_STATE_DIR` is always injected, `reads:` preconditions
+/// are always enforced, and `writes:` state is captured after successful runs.
 ///
 /// Path resolution uses `CommandContext`:
 /// - Template files → resolved from `ctx.source_dir`
@@ -160,31 +236,8 @@ pub fn execute_command_with_context(
     ctx: &CommandContext,
     args: &[String],
 ) -> Result<CommandResult> {
-    // Prepare the run-state directory
-    let run_state_dir = ctx.consumer_dir.join(".graft").join("run-state");
-    std::fs::create_dir_all(&run_state_dir).map_err(|e| {
-        GraftError::CommandExecution(format!(
-            "Failed to create run-state directory '{}': {e}",
-            run_state_dir.display()
-        ))
-    })?;
-
-    // Enforce reads: preconditions before executing
-    for reads_name in &command.reads {
-        let state_file = run_state_dir.join(format!("{reads_name}.json"));
-        if !state_file.exists() {
-            let producer = config
-                .commands
-                .values()
-                .find(|c| c.writes.contains(reads_name))
-                .map(|c| format!(" (produced by: {})", c.name))
-                .unwrap_or_default();
-            return Err(GraftError::CommandExecution(format!(
-                "command '{}' requires state '{}'{producer}",
-                command.name, reads_name
-            )));
-        }
-    }
+    // Set up run-state directory and enforce reads: preconditions
+    let run_state_dir = setup_run_state(command, config, &ctx.consumer_dir)?;
 
     // Step 1: Resolve state queries from context (git ops use consumer_dir)
     let state_results = resolve_state_queries(command, config, ctx)?;
@@ -266,17 +319,11 @@ pub fn execute_command_with_context(
         .map_err(|e| GraftError::CommandExecution(e.to_string()))?;
 
     // Read back any state written by the command
-    let mut written_state = HashMap::new();
-    if output.success {
-        for name in &command.writes {
-            let state_file = run_state_dir.join(format!("{name}.json"));
-            if let Ok(content) = std::fs::read_to_string(&state_file) {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
-                    written_state.insert(name.clone(), value);
-                }
-            }
-        }
-    }
+    let written_state = if output.success {
+        capture_written_state(command, &run_state_dir)
+    } else {
+        HashMap::new()
+    };
 
     Ok(CommandResult {
         exit_code: output.exit_code,
@@ -649,7 +696,7 @@ mod tests {
             .unwrap()
             .with_stdin(StdinSource::Literal("hello".to_string()));
 
-        let args = vec!["extra".to_string(), "args".to_string()];
+        let args = ["extra".to_string(), "args".to_string()];
 
         // Replicate the args-routing logic from execute_command_with_context
         let mut full_command = vec![command.run.clone()];
@@ -952,9 +999,7 @@ mod tests {
         let consumer_name = consumer_dir.path().file_name().unwrap().to_str().unwrap();
         assert!(
             rendered.as_ref().unwrap().contains(consumer_name),
-            "Expected consumer repo name '{}' in rendered output: {:?}",
-            consumer_name,
-            rendered,
+            "Expected consumer repo name '{consumer_name}' in rendered output: {rendered:?}",
         );
     }
 
@@ -1055,6 +1100,18 @@ mod tests {
     }
 
     // --- Run-state / GRAFT_STATE_DIR tests (command-output-state-capture) ---
+
+    #[test]
+    fn setup_run_state_creates_directory() {
+        let consumer_dir = tempfile::tempdir().unwrap();
+        let command = Command::new("test", "echo ok").unwrap();
+        let config = GraftConfig::new("graft/v0").unwrap();
+
+        let run_state_dir = setup_run_state(&command, &config, consumer_dir.path()).unwrap();
+
+        assert!(run_state_dir.exists(), "run-state dir should be created");
+        assert!(run_state_dir.ends_with(".graft/run-state"));
+    }
 
     #[test]
     fn graft_state_dir_is_injected_into_command_env() {
@@ -1168,6 +1225,30 @@ mod tests {
         assert!(
             result.success,
             "Command should succeed when reads are satisfied"
+        );
+    }
+
+    #[test]
+    fn reads_enforcement_fails_on_invalid_json() {
+        let consumer_dir = tempfile::tempdir().unwrap();
+
+        // Pre-create a state file with malformed JSON
+        let run_state_dir = consumer_dir.path().join(".graft").join("run-state");
+        std::fs::create_dir_all(&run_state_dir).unwrap();
+        std::fs::write(run_state_dir.join("session.json"), "not valid json").unwrap();
+
+        let mut command = Command::new("resume", "echo ok").unwrap();
+        command.reads = vec!["session".to_string()];
+
+        let config = GraftConfig::new("graft/v0").unwrap();
+        let ctx = CommandContext::local(consumer_dir.path(), "ws", "repo", false);
+
+        let result = execute_command_with_context(&command, &config, &ctx, &[]);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("invalid JSON"),
+            "Error should mention invalid JSON, got: {err}"
         );
     }
 
