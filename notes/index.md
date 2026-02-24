@@ -152,6 +152,22 @@ Grove fits, and a new primitive where command outputs are first-class state.
 
 ---
 
+## Sequence Primitives and Workflow Slices (2026-02-24)
+
+Resolves the four open questions from the state mapping session. Critiques
+proposed vertical slices (sequences, dependency graph, resumability). Decides
+to start with Grove run-state observability rather than committing to a
+sequence primitive prematurely.
+
+**Active**:
+- [Sequence Primitives Exploration](2026-02-24-sequence-primitives-exploration.md) — open question resolutions, slice proposals, critique, decision
+
+**Relates to**:
+- [Command Output State Mapping](2026-02-23-command-output-state-mapping.md) — predecessor (this session resolves its open questions)
+- [Agentic Orchestration](2026-02-18-grove-agentic-orchestration.md) — dispatch board, sessions
+
+---
+
 ## Adding New Notes
 
 When creating session logs or exploration notes:

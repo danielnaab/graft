@@ -298,21 +298,35 @@ graft state query slices   # see all slices and progress
 
 | Slice | Status | Steps |
 |-------|--------|-------|
-| `command-state-declarations` | draft | 0/2 |
-| `command-output-state-capture` | draft | 0/4 |
+| `grove-run-state-view` | ready | 0/4 |
+| `sequence-declarations` | draft | — |
+| `dependency-graph` | draft | — |
+| `sequence-resumability` | draft | — |
+| `command-state-declarations` | done | 2/2 |
+| `command-output-state-capture` | done | 4/4 |
 | `command-run-logging` | done | 5/5 |
 | `iterate-command` | done | 3/3 |
 
-Start here: `graft run implement command-state-declarations`
+Start here: `graft run implement grove-run-state-view`
 
 ## Next Steps
 
-### Active design work
-- **Command output state mapping** — commands declare `writes:`/`reads:` so
-  data dependencies are explicit and Grove can derive execution order.
-  Design note: [notes/2026-02-23-command-output-state-mapping.md](notes/2026-02-23-command-output-state-mapping.md)
-- Implement `command-state-declarations` slice first (structural foundation),
-  then `command-output-state-capture` (runtime behavior + factory migration)
+### Ready to implement
+- **Grove run-state view** — show `.graft/run-state/` entries in Grove's repo
+  detail: state name, JSON content, producer/consumer commands. Standalone
+  slice, no new primitives needed.
+
+### Draft (open questions to resolve)
+- **Sequence declarations** — named command sequences in graft.yaml. Open:
+  argument passing model, whether this should be a primitive vs shell composition.
+- **Dependency graph** — first-class `state → producer` map. Open: whether any
+  consumer needs this beyond inline validation.
+- **Sequence resumability** — skip completed steps on re-run. Blocked on
+  sequence-declarations.
+
+Design notes:
+- [Sequence primitives exploration](notes/2026-02-24-sequence-primitives-exploration.md) — resolved open questions, slice critique
+- [Command output state mapping](notes/2026-02-23-command-output-state-mapping.md) — two-layer model, state mapping primitive
 
 ### Longer horizon
 - Grove workflow operationalization: Grove as the layer that crystallizes
