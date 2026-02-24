@@ -93,6 +93,7 @@ pub(crate) enum DetailItem {
     Commit(usize),
     StateQuery(usize),
     Run(usize),
+    RunState(usize),
     Command(usize),
 }
 
@@ -237,6 +238,15 @@ pub struct App<R, D> {
 
     // Recent command runs (loaded lazily for the current repo)
     recent_runs: Vec<graft_common::RunMeta>,
+
+    // Run-state entries (loaded lazily for the current repo)
+    run_state_entries: Vec<(String, serde_json::Value)>,
+    /// Which run-state entry indices are expanded to show full JSON.
+    expanded_run_state: HashSet<usize>,
+    /// Producer map: run-state name → command name that writes it.
+    run_state_producers: std::collections::HashMap<String, String>,
+    /// Consumer map: run-state name → list of command names that read it.
+    run_state_consumers: std::collections::HashMap<String, Vec<String>>,
 }
 
 pub fn run<R: RepoRegistry, D: RepoDetailProvider>(

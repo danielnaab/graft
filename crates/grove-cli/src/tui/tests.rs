@@ -1599,6 +1599,7 @@ fn argument_input_opens_after_command_selected() {
             working_dir: None,
             env: None,
             args: None,
+            ..Default::default()
         },
     )];
     app.push_view(View::RepoDetail(0));
@@ -2196,6 +2197,7 @@ fn navigation_invalidates_tab_data() {
             working_dir: None,
             env: None,
             args: None,
+            ..Default::default()
         },
     )];
 
@@ -2287,6 +2289,7 @@ fn hint_bar_shows_detail_commands_hints() {
             working_dir: None,
             env: None,
             args: None,
+            ..Default::default()
         },
     )];
     app.detail_items = vec![DetailItem::Command(0)];
@@ -4256,6 +4259,7 @@ fn argument_hint_for_run_command() {
                 working_dir: None,
                 env: None,
                 args: None,
+                ..Default::default()
             },
         ),
         (
@@ -4266,6 +4270,7 @@ fn argument_hint_for_run_command() {
                 working_dir: None,
                 env: None,
                 args: None,
+                ..Default::default()
             },
         ),
     ];
@@ -4324,6 +4329,7 @@ fn argument_hint_none_for_full_match() {
             working_dir: None,
             env: None,
             args: None,
+            ..Default::default()
         },
     )];
 
@@ -4371,6 +4377,7 @@ fn tab_accepts_argument_hint() {
             working_dir: None,
             env: None,
             args: None,
+            ..Default::default()
         },
     )];
 
@@ -4679,6 +4686,7 @@ fn form_execute_selected_command_shows_form_for_args() {
                 positional: false,
                 options_from: None,
             }]),
+            ..Default::default()
         },
     )];
     app.detail_items = vec![DetailItem::Command(0)];
@@ -4707,6 +4715,7 @@ fn form_execute_selected_command_shows_freetext_for_no_args() {
             working_dir: None,
             env: None,
             args: None,
+            ..Default::default()
         },
     )];
     app.detail_items = vec![DetailItem::Command(0)];
@@ -5093,6 +5102,7 @@ fn enter_executes_when_cursor_on_command() {
             working_dir: None,
             env: None,
             args: None,
+            ..Default::default()
         },
     )];
     app.detail_items = vec![DetailItem::Command(0)];
@@ -5160,6 +5170,7 @@ fn dynamic_hints_show_enter_run_on_command() {
             working_dir: None,
             env: None,
             args: None,
+            ..Default::default()
         },
     )];
     app.detail_items = vec![DetailItem::Command(0)];
@@ -5463,4 +5474,202 @@ fn format_repo_line_lock_staleness_space_is_separate_span() {
         !lock_content.starts_with(' '),
         "Lock span itself should not start with a space (space is a separate span), got: {lock_content:?}"
     );
+}
+
+// ===== Run State section rendering tests =====
+
+fn lines_to_text(lines: &[ratatui::text::Line]) -> String {
+    lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[test]
+fn run_state_section_shows_placeholder_when_empty() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
+    );
+    app.cached_detail_index = Some(0);
+    // run_state_entries is empty by default
+    app.rebuild_detail_items();
+
+    let lines = app.build_repo_detail_lines();
+    let text = lines_to_text(&lines);
+    assert!(text.contains("Run State"), "Should show section header");
+    assert!(
+        text.contains("No run state"),
+        "Should show empty placeholder"
+    );
+}
+
+#[test]
+fn run_state_section_shows_entries_with_collapsed_chevron() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
+    );
+    app.cached_detail_index = Some(0);
+    app.run_state_entries = vec![
+        ("session".to_string(), serde_json::json!({"id": "abc123"})),
+        ("config".to_string(), serde_json::json!({"env": "prod"})),
+    ];
+    app.rebuild_detail_items();
+
+    let lines = app.build_repo_detail_lines();
+    let text = lines_to_text(&lines);
+    assert!(text.contains("Run State"), "Should show section header");
+    assert!(text.contains("session"), "Should show first entry name");
+    assert!(text.contains("config"), "Should show second entry name");
+    assert!(text.contains('▸'), "Should show collapsed chevron");
+    assert!(
+        !text.contains("No run state"),
+        "Should not show placeholder"
+    );
+}
+
+#[test]
+fn run_state_entry_shows_producer_label() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
+    );
+    app.cached_detail_index = Some(0);
+    app.run_state_entries = vec![("session".to_string(), serde_json::json!({"id": "abc"}))];
+    app.run_state_producers
+        .insert("session".to_string(), "login".to_string());
+    app.rebuild_detail_items();
+
+    let lines = app.build_repo_detail_lines();
+    let text = lines_to_text(&lines);
+    assert!(text.contains("← login"), "Should show producer label");
+}
+
+#[test]
+fn run_state_entry_without_producer_shows_no_arrow() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
+    );
+    app.cached_detail_index = Some(0);
+    app.run_state_entries = vec![("session".to_string(), serde_json::json!({"id": "abc"}))];
+    // run_state_producers left empty
+    app.rebuild_detail_items();
+
+    let lines = app.build_repo_detail_lines();
+    let text = lines_to_text(&lines);
+    assert!(
+        !text.contains("←"),
+        "Should not show arrow when no producer"
+    );
+}
+
+#[test]
+fn run_state_enter_toggles_expand() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
+    );
+    app.cached_detail_index = Some(0);
+    app.run_state_entries = vec![("session".to_string(), serde_json::json!({"id": "abc123"}))];
+    app.push_view(View::RepoDetail(0));
+    app.rebuild_detail_items();
+
+    // Position cursor on the RunState item
+    app.detail_cursor = app
+        .detail_items
+        .iter()
+        .position(|i| matches!(i, DetailItem::RunState(0)))
+        .expect("RunState(0) should exist");
+
+    let collapsed_lines = app.build_repo_detail_lines().len();
+    assert!(
+        !app.expanded_run_state.contains(&0),
+        "Should start collapsed"
+    );
+
+    // Press Enter — should expand
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(
+        app.expanded_run_state.contains(&0),
+        "Should be expanded after Enter"
+    );
+    let expanded_lines = app.build_repo_detail_lines().len();
+    assert!(
+        expanded_lines > collapsed_lines,
+        "Expanded view should have more lines"
+    );
+
+    // Press Enter again — should collapse
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(
+        !app.expanded_run_state.contains(&0),
+        "Should collapse after second Enter"
+    );
+    assert_eq!(
+        app.build_repo_detail_lines().len(),
+        collapsed_lines,
+        "Line count should return to collapsed count"
+    );
+}
+
+#[test]
+fn run_state_expanded_shows_json_and_consumers() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
+    );
+    app.cached_detail_index = Some(0);
+    app.run_state_entries = vec![(
+        "session".to_string(),
+        serde_json::json!({"id": "abc", "env": "prod"}),
+    )];
+    app.run_state_consumers
+        .insert("session".to_string(), vec!["deploy".to_string()]);
+    app.expanded_run_state.insert(0);
+    app.rebuild_detail_items();
+
+    let lines = app.build_repo_detail_lines();
+    let text = lines_to_text(&lines);
+    assert!(text.contains("id"), "Should show JSON key in expanded view");
+    assert!(
+        text.contains("reads: deploy"),
+        "Should show consumer in expanded view"
+    );
+    assert!(text.contains('▾'), "Should show expanded chevron");
+}
+
+#[test]
+fn run_state_cursor_navigates_across_entries() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
+    );
+    app.cached_detail_index = Some(0);
+    app.run_state_entries = vec![
+        ("alpha".to_string(), serde_json::json!({})),
+        ("beta".to_string(), serde_json::json!({})),
+    ];
+    app.rebuild_detail_items();
+
+    // Cursor should be able to reach both RunState items
+    let has_alpha = app
+        .detail_items
+        .iter()
+        .any(|i| matches!(i, DetailItem::RunState(0)));
+    let has_beta = app
+        .detail_items
+        .iter()
+        .any(|i| matches!(i, DetailItem::RunState(1)));
+    assert!(has_alpha, "RunState(0) should be in detail_items");
+    assert!(has_beta, "RunState(1) should be in detail_items");
 }

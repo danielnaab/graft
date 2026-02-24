@@ -259,7 +259,7 @@ pub struct ArgDef {
 }
 
 /// Command from graft.yaml
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
     pub run: String,
     #[serde(default)]
@@ -270,6 +270,12 @@ pub struct Command {
     pub env: Option<std::collections::HashMap<String, String>>,
     #[serde(default)]
     pub args: Option<Vec<ArgDef>>,
+    /// State names this command produces after running.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub writes: Vec<String>,
+    /// State names this command requires to exist before running.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reads: Vec<String>,
 }
 
 /// Minimal graft.yaml representation (commands + dependency names).

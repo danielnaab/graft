@@ -1,5 +1,5 @@
 ---
-status: ready
+status: done
 created: 2026-02-24
 ---
 
@@ -46,7 +46,7 @@ add a listing function or enumerate the directory inline.
 
 ## Steps
 
-- [ ] **Add RunState variant and data fields to App**
+- [x] **Add RunState variant and data fields to App**
   - **Delivers** — structural foundation for the new section
   - **Done when** — `DetailItem::RunState(usize)` variant exists; `App` has
     `run_state_entries: Vec<(String, serde_json::Value)>` and
@@ -56,7 +56,7 @@ add a listing function or enumerate the directory inline.
   - **Files** — `crates/grove-cli/src/tui/mod.rs`, `crates/grove-cli/src/tui/app.rs`,
     `crates/grove-cli/src/tui/repo_detail.rs`
 
-- [ ] **Load run-state entries for the selected repo**
+- [x] **Load run-state entries for the selected repo**
   - **Delivers** — run-state data is populated when a repo is viewed
   - **Done when** — `load_run_state_entries()` reads `.graft/run-state/` in the
     selected repo, collects `(name, value)` pairs sorted alphabetically, and is
@@ -65,7 +65,7 @@ add a listing function or enumerate the directory inline.
     gracefully (empty vec)
   - **Files** — `crates/grove-cli/src/tui/repo_detail.rs`
 
-- [ ] **Render the Run State section**
+- [x] **Render the Run State section**
   - **Delivers** — run-state entries visible in the repo detail view
   - **Done when** — `append_run_state_section_mapped()` renders a "Run State"
     header (blue, bold) and one row per entry showing
@@ -75,7 +75,7 @@ add a listing function or enumerate the directory inline.
     Runs and Commands in `build_line_mapping()`
   - **Files** — `crates/grove-cli/src/tui/repo_detail.rs`
 
-- [ ] **Handle Enter to expand/collapse run-state entries**
+- [x] **Handle Enter to expand/collapse run-state entries**
   - **Delivers** — full JSON inspection without leaving the view
   - **Done when** — Enter on a `RunState` item toggles `expanded_run_state`;
     expanded entries show JSON lines via `format_state_expanded_lines` (same

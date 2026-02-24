@@ -68,6 +68,12 @@ pub struct CommandDef {
     pub stdin: Option<StdinDef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<Vec<String>>,
+    /// State names this command produces after running.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub writes: Vec<String>,
+    /// State names this command requires to exist before running.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reads: Vec<String>,
 }
 
 /// A state query definition from graft.yaml.
@@ -235,6 +241,8 @@ fn parse_command(name: &str, config: &Value) -> Result<CommandDef, String> {
 
     let stdin = parse_stdin_def(config);
     let context = parse_context_def(config);
+    let writes = parse_string_list_field(config, "writes");
+    let reads = parse_string_list_field(config, "reads");
 
     Ok(CommandDef {
         run,
@@ -244,6 +252,8 @@ fn parse_command(name: &str, config: &Value) -> Result<CommandDef, String> {
         args,
         stdin,
         context,
+        writes,
+        reads,
     })
 }
 
@@ -282,6 +292,21 @@ fn parse_context_def(config: &Value) -> Option<Vec<String>> {
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect()
         })
+}
+
+/// Parse a named YAML field that is a list of strings (e.g. `writes:` or `reads:`).
+///
+/// Returns an empty `Vec` when the field is absent or not a sequence.
+fn parse_string_list_field(config: &Value, field: &str) -> Vec<String> {
+    config
+        .get(field)
+        .and_then(|v| v.as_sequence())
+        .map(|seq| {
+            seq.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Parse dependency names from graft.yaml.

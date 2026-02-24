@@ -57,6 +57,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
             // Recent runs
             recent_runs: Vec::new(),
+
+            // Run-state entries
+            run_state_entries: Vec::new(),
+            expanded_run_state: std::collections::HashSet::new(),
+            run_state_producers: std::collections::HashMap::new(),
+            run_state_consumers: std::collections::HashMap::new(),
         }
     }
 
@@ -90,6 +96,18 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             self.detail_items.clear();
             self.detail_cursor = 0;
             self.needs_refresh = false;
+
+            // Invalidate all lazily-loaded repo data so it is reloaded on next render.
+            self.selected_repo_for_commands = None;
+            self.available_commands.clear();
+            self.state_queries.clear();
+            self.state_results.clear();
+            self.state_loaded = false;
+            self.recent_runs.clear();
+            self.run_state_entries.clear();
+            self.expanded_run_state.clear();
+            self.run_state_producers.clear();
+            self.run_state_consumers.clear();
         }
     }
 
@@ -220,6 +238,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.state_results.clear();
         self.state_loaded = false;
         self.recent_runs.clear();
+        self.run_state_entries.clear();
+        self.expanded_run_state.clear();
+        self.run_state_producers.clear();
+        self.run_state_consumers.clear();
     }
 
     pub(super) fn previous(&mut self) {
@@ -248,6 +270,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.state_results.clear();
         self.state_loaded = false;
         self.recent_runs.clear();
+        self.run_state_entries.clear();
+        self.expanded_run_state.clear();
+        self.run_state_producers.clear();
+        self.run_state_consumers.clear();
     }
 
     /// Load detail for the currently selected repo if not already cached.

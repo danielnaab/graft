@@ -99,6 +99,8 @@ impl GraftYamlLoader for GraftYamlConfigLoader {
                         working_dir: def.working_dir,
                         env: def.env,
                         args,
+                        writes: def.writes,
+                        reads: def.reads,
                     },
                 )
             })

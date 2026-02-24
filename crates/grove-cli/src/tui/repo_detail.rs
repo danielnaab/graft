@@ -38,7 +38,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Rebuild the flat item list from current data.
     ///
-    /// Visual order: file changes, commits, state queries, recent runs, commands.
+    /// Visual order: file changes, commits, state queries, recent runs, run-state entries, commands.
     /// Clamps cursor to valid range.
     pub(super) fn rebuild_detail_items(&mut self) {
         self.detail_items.clear();
@@ -58,6 +58,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         for i in 0..self.recent_runs.len() {
             self.detail_items.push(DetailItem::Run(i));
+        }
+
+        for i in 0..self.run_state_entries.len() {
+            self.detail_items.push(DetailItem::RunState(i));
         }
 
         for i in 0..self.available_commands.len() {
@@ -119,6 +123,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 Some(DetailItem::Run(idx)) => {
                     let idx = *idx;
                     self.open_run_log(idx);
+                }
+                Some(DetailItem::RunState(idx)) => {
+                    let idx = *idx;
+                    if !self.expanded_run_state.remove(&idx) {
+                        self.expanded_run_state.insert(idx);
+                    }
                 }
                 _ => {
                     self.execute_selected_command();
@@ -276,7 +286,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         m.push(Line::from(""), None);
 
-        // Section 4: Commands
+        // Section 4: Run State entries
+        self.append_run_state_section_mapped(&mut m, &mut item_counter);
+
+        m.push(Line::from(""), None);
+
+        // Section 5: Commands
         self.append_commands_section_mapped(&mut m, &mut item_counter);
 
         m
@@ -504,6 +519,77 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
+    /// Append run-state entries section with item mapping.
+    ///
+    /// Shows a "Run State" header (blue, bold) followed by one row per entry:
+    /// `"  ▸ {name:<12}  {summary:<40} (← {producer})"`.
+    /// Empty state shows a gray "No run state" placeholder.
+    fn append_run_state_section_mapped(&self, m: &mut LineMapping, item_idx: &mut usize) {
+        m.push(
+            Line::from(Span::styled(
+                "Run State",
+                Style::default()
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            None,
+        );
+
+        if self.run_state_entries.is_empty() {
+            m.push(
+                Line::from(Span::styled(
+                    "  No run state",
+                    Style::default().fg(Color::Gray),
+                )),
+                None,
+            );
+            return;
+        }
+
+        for (idx, (name, value)) in self.run_state_entries.iter().enumerate() {
+            let is_expanded = self.expanded_run_state.contains(&idx);
+            let chevron = if is_expanded { "▾" } else { "▸" };
+            let summary = truncate_str(&format_value_compact(value), 40);
+            let producer = self.run_state_producers.get(name.as_str());
+
+            let mut spans = vec![
+                Span::styled(
+                    format!("  {chevron} {name:<12}  "),
+                    Style::default().fg(Color::White),
+                ),
+                Span::styled(format!("{summary:<40}"), Style::default().fg(Color::White)),
+            ];
+            if let Some(prod) = producer {
+                spans.push(Span::styled(
+                    format!(" (← {prod})"),
+                    Style::default().fg(Color::Gray),
+                ));
+            }
+            m.push(Line::from(spans), Some(*item_idx));
+
+            // Render expanded JSON lines (non-selectable)
+            if is_expanded {
+                for line in format_state_expanded_lines(value) {
+                    m.push(line, None);
+                }
+                // Show consumers if any
+                if let Some(consumers) = self.run_state_consumers.get(name.as_str()) {
+                    if !consumers.is_empty() {
+                        m.push(
+                            Line::from(Span::styled(
+                                format!("  reads: {}", consumers.join(", ")),
+                                Style::default().fg(Color::Gray),
+                            )),
+                            None,
+                        );
+                    }
+                }
+            }
+
+            *item_idx += 1;
+        }
+    }
+
     /// Append commands section with item mapping.
     fn append_commands_section_mapped(&self, m: &mut LineMapping, item_idx: &mut usize) {
         m.push(
@@ -568,6 +654,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     let repo_path_str = repo.as_path().to_str().unwrap_or("").to_string();
                     self.load_state_queries(&repo_path_str);
                     self.load_recent_runs(&repo_path_str);
+                    self.load_run_state_entries(&repo_path_str);
                     self.state_loaded = true;
                     self.rebuild_detail_items();
                 }
@@ -579,6 +666,48 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     fn load_recent_runs(&mut self, repo_path: &str) {
         let repo_name = graft_common::repo_name_from_path(repo_path);
         self.recent_runs = graft_common::list_runs(&self.workspace_name, repo_name, 50);
+    }
+
+    /// Load run-state entries from `.graft/run-state/` in the selected repository.
+    ///
+    /// Enumerates all `*.json` files in the directory, parses them, and stores
+    /// `(name, value)` pairs sorted alphabetically by name. Missing directory is
+    /// handled gracefully (results in an empty list).
+    ///
+    /// Producer/consumer maps are built separately in
+    /// `load_commands_for_selected_repo()` from `available_commands`.
+    fn load_run_state_entries(&mut self, repo_path: &str) {
+        use std::path::Path;
+
+        self.run_state_entries.clear();
+
+        let run_state_dir = Path::new(repo_path).join(".graft").join("run-state");
+        let Ok(read_dir) = std::fs::read_dir(&run_state_dir) else {
+            return; // Directory absent or unreadable — treat as empty
+        };
+
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(name) = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
+                continue;
+            };
+            self.run_state_entries.push((name, value));
+        }
+
+        self.run_state_entries.sort_by(|a, b| a.0.cmp(&b.0));
     }
 
     /// Load commands for the currently selected repository (cached).
@@ -627,6 +756,24 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
 
         self.available_commands.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // Rebuild producer/consumer maps from the now-complete available_commands.
+        // This covers both root and dep commands since available_commands includes both.
+        self.run_state_producers.clear();
+        self.run_state_consumers.clear();
+        for (cmd_name, cmd) in &self.available_commands {
+            for state_name in &cmd.writes {
+                self.run_state_producers
+                    .insert(state_name.clone(), cmd_name.clone());
+            }
+            for state_name in &cmd.reads {
+                self.run_state_consumers
+                    .entry(state_name.clone())
+                    .or_default()
+                    .push(cmd_name.clone());
+            }
+        }
+
         self.selected_repo_for_commands = Some(repo_path);
         self.rebuild_detail_items();
     }
