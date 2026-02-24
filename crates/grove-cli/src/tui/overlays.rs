@@ -495,17 +495,28 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
                 let (cmd_run, working_dir, env) = cmd_info.unwrap_or_default();
 
-                // Resolve relative script paths for dep commands (dep:cmd).
-                // source_dir is the dep directory for dep commands, repo root otherwise.
-                let resolved_run = if let Some(repo_path) = &self.selected_repo_for_commands {
-                    let source_dir = if let Some((dep, _)) = state.command_name.split_once(':') {
-                        std::path::PathBuf::from(repo_path).join(".graft").join(dep)
+                // Resolve relative script paths and inject GRAFT_DEP_DIR for dep commands.
+                let (resolved_run, env) = if let Some(repo_path) = &self.selected_repo_for_commands
+                {
+                    if let Some((dep, _)) = state.command_name.split_once(':') {
+                        let source_dir =
+                            std::path::PathBuf::from(repo_path).join(".graft").join(dep);
+                        let resolved =
+                            graft_engine::resolve_script_in_command(&cmd_run, &source_dir);
+                        let mut env_map = env.unwrap_or_default();
+                        env_map.insert(
+                            "GRAFT_DEP_DIR".to_string(),
+                            source_dir.to_string_lossy().to_string(),
+                        );
+                        (resolved, Some(env_map))
                     } else {
-                        std::path::PathBuf::from(repo_path)
-                    };
-                    graft_engine::resolve_script_in_command(&cmd_run, &source_dir)
+                        let source_dir = std::path::PathBuf::from(repo_path);
+                        let resolved =
+                            graft_engine::resolve_script_in_command(&cmd_run, &source_dir);
+                        (resolved, env)
+                    }
                 } else {
-                    cmd_run
+                    (cmd_run, env)
                 };
 
                 let shell_cmd = Self::assemble_args(&resolved_run, &state.fields);

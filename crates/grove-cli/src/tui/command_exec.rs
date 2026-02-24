@@ -141,15 +141,21 @@ pub fn spawn_command(
         consumer_dir.clone()
     };
 
-    // Inject GRAFT_DEP_DIR for dependency commands
-    let env = if source_dir == consumer_dir {
-        cmd_def.env
-    } else {
+    // Inject GRAFT_STATE_DIR (always) and GRAFT_DEP_DIR (dep commands only)
+    let env = {
         let mut env_map = cmd_def.env.unwrap_or_default();
+        let run_state_dir = consumer_dir.join(".graft").join("run-state");
+        let _ = std::fs::create_dir_all(&run_state_dir);
         env_map.insert(
-            "GRAFT_DEP_DIR".to_string(),
-            source_dir.to_string_lossy().to_string(),
+            "GRAFT_STATE_DIR".to_string(),
+            run_state_dir.to_string_lossy().to_string(),
         );
+        if source_dir != consumer_dir {
+            env_map.insert(
+                "GRAFT_DEP_DIR".to_string(),
+                source_dir.to_string_lossy().to_string(),
+            );
+        }
         Some(env_map)
     };
 
@@ -192,10 +198,23 @@ pub fn spawn_command_assembled(
     run_ctx: Option<RunContext>,
     tx: Sender<CommandEvent>,
 ) {
+    let consumer_dir = PathBuf::from(&repo_path);
     let working_dir = if let Some(ref sub_dir) = working_dir_override {
-        PathBuf::from(&repo_path).join(sub_dir)
+        consumer_dir.join(sub_dir)
     } else {
-        PathBuf::from(&repo_path)
+        consumer_dir.clone()
+    };
+
+    // Inject GRAFT_STATE_DIR into the environment
+    let env = {
+        let mut env_map = env.unwrap_or_default();
+        let run_state_dir = consumer_dir.join(".graft").join("run-state");
+        let _ = std::fs::create_dir_all(&run_state_dir);
+        env_map.insert(
+            "GRAFT_STATE_DIR".to_string(),
+            run_state_dir.to_string_lossy().to_string(),
+        );
+        Some(env_map)
     };
 
     let logging = prepare_run_logging(run_ctx.as_ref());
