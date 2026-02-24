@@ -5542,7 +5542,7 @@ fn run_state_entry_shows_producer_label() {
     app.cached_detail_index = Some(0);
     app.run_state_entries = vec![("session".to_string(), serde_json::json!({"id": "abc"}))];
     app.run_state_producers
-        .insert("session".to_string(), "login".to_string());
+        .insert("session".to_string(), vec!["login".to_string()]);
     app.rebuild_detail_items();
 
     let lines = app.build_repo_detail_lines();
@@ -5672,4 +5672,133 @@ fn run_state_cursor_navigates_across_entries() {
         .any(|i| matches!(i, DetailItem::RunState(1)));
     assert!(has_alpha, "RunState(0) should be in detail_items");
     assert!(has_beta, "RunState(1) should be in detail_items");
+}
+
+#[test]
+fn run_state_multiple_producers_shown_joined() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
+    );
+    app.cached_detail_index = Some(0);
+    app.run_state_entries = vec![("session".to_string(), serde_json::json!({"id": "abc"}))];
+    app.run_state_producers.insert(
+        "session".to_string(),
+        vec!["login".to_string(), "refresh".to_string()],
+    );
+    app.rebuild_detail_items();
+
+    let lines = app.build_repo_detail_lines();
+    let text = lines_to_text(&lines);
+    assert!(
+        text.contains("login, refresh") || text.contains("login") && text.contains("refresh"),
+        "Should show both producer names, got: {text}"
+    );
+    assert!(
+        text.contains("←"),
+        "Should show arrow with multiple producers"
+    );
+}
+
+#[test]
+fn run_state_long_name_is_truncated() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
+    );
+    app.cached_detail_index = Some(0);
+    // Name longer than 12 chars should be truncated with "..."
+    app.run_state_entries = vec![("very-long-state-name".to_string(), serde_json::json!({}))];
+    app.rebuild_detail_items();
+
+    let lines = app.build_repo_detail_lines();
+    let text = lines_to_text(&lines);
+    assert!(
+        !text.contains("very-long-state-name"),
+        "Full long name should not appear verbatim"
+    );
+    assert!(text.contains("..."), "Truncated name should end with '...'");
+    assert!(
+        text.contains("very-lon"),
+        "Truncated prefix should be present"
+    );
+}
+
+#[test]
+fn run_state_jk_moves_cursor_across_entries() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
+    );
+    app.cached_detail_index = Some(0);
+    app.run_state_entries = vec![
+        ("alpha".to_string(), serde_json::json!({})),
+        ("beta".to_string(), serde_json::json!({})),
+        ("gamma".to_string(), serde_json::json!({})),
+    ];
+    app.push_view(View::RepoDetail(0));
+    app.rebuild_detail_items();
+
+    // Position cursor on first RunState item
+    app.detail_cursor = app
+        .detail_items
+        .iter()
+        .position(|i| matches!(i, DetailItem::RunState(0)))
+        .expect("RunState(0) should exist");
+
+    assert_eq!(
+        app.current_detail_item(),
+        Some(&DetailItem::RunState(0)),
+        "Should start on RunState(0)"
+    );
+
+    // Press j — should move to RunState(1)
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(
+        app.current_detail_item(),
+        Some(&DetailItem::RunState(1)),
+        "j should move to RunState(1)"
+    );
+
+    // Press j again — should move to RunState(2)
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(
+        app.current_detail_item(),
+        Some(&DetailItem::RunState(2)),
+        "j should move to RunState(2)"
+    );
+
+    // Press k — should move back to RunState(1)
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+    assert_eq!(
+        app.current_detail_item(),
+        Some(&DetailItem::RunState(1)),
+        "k should move back to RunState(1)"
+    );
+}
+
+#[test]
+fn run_state_dep_qualified_producer_shown() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::with_detail(RepoDetail::empty()),
+        "test-workspace".to_string(),
+    );
+    app.cached_detail_index = Some(0);
+    app.run_state_entries = vec![("session".to_string(), serde_json::json!({"id": "x"}))];
+    // Dep-qualified producer name: "notebook:login"
+    app.run_state_producers
+        .insert("session".to_string(), vec!["notebook:login".to_string()]);
+    app.rebuild_detail_items();
+
+    let lines = app.build_repo_detail_lines();
+    let text = lines_to_text(&lines);
+    assert!(
+        text.contains("notebook:login"),
+        "Should show dep-qualified producer name, got: {text}"
+    );
+    assert!(text.contains("←"), "Should show arrow for dep producer");
 }

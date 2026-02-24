@@ -243,8 +243,8 @@ pub struct App<R, D> {
     run_state_entries: Vec<(String, serde_json::Value)>,
     /// Which run-state entry indices are expanded to show full JSON.
     expanded_run_state: HashSet<usize>,
-    /// Producer map: run-state name → command name that writes it.
-    run_state_producers: std::collections::HashMap<String, String>,
+    /// Producer map: run-state name → list of command names that write it.
+    run_state_producers: std::collections::HashMap<String, Vec<String>>,
     /// Consumer map: run-state name → list of command names that read it.
     run_state_consumers: std::collections::HashMap<String, Vec<String>>,
 }

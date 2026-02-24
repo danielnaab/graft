@@ -550,20 +550,23 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             let is_expanded = self.expanded_run_state.contains(&idx);
             let chevron = if is_expanded { "▾" } else { "▸" };
             let summary = truncate_str(&format_value_compact(value), 40);
-            let producer = self.run_state_producers.get(name.as_str());
+            let display_name = truncate_str(name, 12);
+            let producers = self.run_state_producers.get(name.as_str());
 
             let mut spans = vec![
                 Span::styled(
-                    format!("  {chevron} {name:<12}  "),
+                    format!("  {chevron} {display_name:<12}  "),
                     Style::default().fg(Color::White),
                 ),
                 Span::styled(format!("{summary:<40}"), Style::default().fg(Color::White)),
             ];
-            if let Some(prod) = producer {
-                spans.push(Span::styled(
-                    format!(" (← {prod})"),
-                    Style::default().fg(Color::Gray),
-                ));
+            if let Some(prods) = producers {
+                if !prods.is_empty() {
+                    spans.push(Span::styled(
+                        format!(" (← {})", prods.join(", ")),
+                        Style::default().fg(Color::Gray),
+                    ));
+                }
             }
             m.push(Line::from(spans), Some(*item_idx));
 
@@ -698,11 +701,22 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             else {
                 continue;
             };
-            let Ok(content) = std::fs::read_to_string(&path) else {
-                continue;
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    log::debug!("run-state: skipping {}: read error: {e}", path.display());
+                    continue;
+                }
             };
-            let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
-                continue;
+            let value = match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(v) => v,
+                Err(e) => {
+                    log::debug!(
+                        "run-state: skipping {}: JSON parse error: {e}",
+                        path.display()
+                    );
+                    continue;
+                }
             };
             self.run_state_entries.push((name, value));
         }
@@ -764,7 +778,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         for (cmd_name, cmd) in &self.available_commands {
             for state_name in &cmd.writes {
                 self.run_state_producers
-                    .insert(state_name.clone(), cmd_name.clone());
+                    .entry(state_name.clone())
+                    .or_default()
+                    .push(cmd_name.clone());
             }
             for state_name in &cmd.reads {
                 self.run_state_consumers
@@ -1084,7 +1100,7 @@ fn format_state_expanded_lines(data: &serde_json::Value) -> Vec<Line<'static>> {
                             Style::default().fg(Color::Gray),
                         ),
                     ]));
-                    for (i, item) in arr.iter().enumerate().take(20) {
+                    for (i, item) in arr.iter().enumerate().take(MAX_EXPANDED_ARRAY_ITEMS) {
                         lines.push(Line::from(vec![
                             Span::styled(
                                 format!("        [{i}] "),
@@ -1096,9 +1112,12 @@ fn format_state_expanded_lines(data: &serde_json::Value) -> Vec<Line<'static>> {
                             ),
                         ]));
                     }
-                    if arr.len() > 20 {
+                    if arr.len() > MAX_EXPANDED_ARRAY_ITEMS {
                         lines.push(Line::from(Span::styled(
-                            format!("        ... and {} more", arr.len() - 20),
+                            format!(
+                                "        ... and {} more",
+                                arr.len() - MAX_EXPANDED_ARRAY_ITEMS
+                            ),
                             Style::default().fg(Color::Gray),
                         )));
                     }
@@ -1115,7 +1134,7 @@ fn format_state_expanded_lines(data: &serde_json::Value) -> Vec<Line<'static>> {
             }
         }
         serde_json::Value::Array(arr) => {
-            for (i, item) in arr.iter().enumerate().take(30) {
+            for (i, item) in arr.iter().enumerate().take(MAX_EXPANDED_TOP_ITEMS) {
                 lines.push(Line::from(vec![
                     Span::styled(format!("      [{i}] "), Style::default().fg(Color::Gray)),
                     Span::styled(
@@ -1124,9 +1143,9 @@ fn format_state_expanded_lines(data: &serde_json::Value) -> Vec<Line<'static>> {
                     ),
                 ]));
             }
-            if arr.len() > 30 {
+            if arr.len() > MAX_EXPANDED_TOP_ITEMS {
                 lines.push(Line::from(Span::styled(
-                    format!("      ... and {} more", arr.len() - 30),
+                    format!("      ... and {} more", arr.len() - MAX_EXPANDED_TOP_ITEMS),
                     Style::default().fg(Color::Gray),
                 )));
             }
@@ -1144,6 +1163,12 @@ fn format_state_expanded_lines(data: &serde_json::Value) -> Vec<Line<'static>> {
 
 /// Maximum length for a compact value before truncation.
 const MAX_COMPACT_LEN: usize = 80;
+
+/// Maximum number of array items shown when a nested array is expanded in an object entry.
+const MAX_EXPANDED_ARRAY_ITEMS: usize = 20;
+
+/// Maximum number of top-level items shown when a root array is expanded.
+const MAX_EXPANDED_TOP_ITEMS: usize = 30;
 
 /// Format a JSON value compactly for a single line.
 ///
@@ -1169,12 +1194,14 @@ fn format_value_compact(value: &serde_json::Value) -> String {
     truncate_str(&raw, MAX_COMPACT_LEN)
 }
 
-/// Truncate a string to `max_len` chars, appending `...` if truncated.
+/// Truncate a string to `max_len` Unicode scalar values, appending `...` if truncated.
 fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
+    if s.chars().count() <= max_len {
         s.to_string()
     } else {
-        let mut truncated = s[..max_len.saturating_sub(3)].to_string();
+        let cut = max_len.saturating_sub(3);
+        let end = s.char_indices().nth(cut).map_or(s.len(), |(i, _)| i);
+        let mut truncated = s[..end].to_string();
         truncated.push_str("...");
         truncated
     }
