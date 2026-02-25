@@ -163,10 +163,7 @@ pub(crate) fn format_repo_line(
     if depth > 0 {
         line.spans.insert(
             0,
-            Span::styled(
-                INDENT_PREFIX,
-                Style::default().add_modifier(Modifier::DIM),
-            ),
+            Span::styled(INDENT_PREFIX, Style::default().add_modifier(Modifier::DIM)),
         );
     }
 
@@ -286,8 +283,7 @@ fn format_repo_line_inner(
                     let overhead_with_branch = 2 + full_status_width + 3;
                     let max_path_width_with_branch =
                         (pane_width as usize).saturating_sub(overhead_with_branch);
-                    let compacted_path_with_branch =
-                        compact_path(path, max_path_width_with_branch);
+                    let compacted_path_with_branch = compact_path(path, max_path_width_with_branch);
 
                     let use_branch = !compacted_path_with_branch.starts_with("[..]")
                         && compacted_path_with_branch.width() >= 8;
@@ -316,10 +312,7 @@ fn format_repo_line_inner(
 
                         if !lock_text.is_empty() {
                             spans.push(Span::raw(" "));
-                            spans.push(Span::styled(
-                                lock_text,
-                                Style::default().fg(Color::Yellow),
-                            ));
+                            spans.push(Span::styled(lock_text, Style::default().fg(Color::Yellow)));
                         }
 
                         Line::from(spans)
@@ -347,10 +340,7 @@ fn format_repo_line_inner(
 
                         if !lock_text.is_empty() {
                             spans.push(Span::raw(" "));
-                            spans.push(Span::styled(
-                                lock_text,
-                                Style::default().fg(Color::Yellow),
-                            ));
+                            spans.push(Span::styled(lock_text, Style::default().fg(Color::Yellow)));
                         }
 
                         Line::from(spans)

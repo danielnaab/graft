@@ -1,73 +1,103 @@
 ---
-status: draft
+status: accepted
 created: 2026-02-24
-resolve_before_implementing:
-  - "Argument passing: union from steps, explicit on sequence, or pass-through?"
-  - "Top-level `sequences:` key vs compound commands (list of refs in `run:`)?"
-  - "Is this worth the complexity vs shell `&&` composition?"
 ---
 
-# Declare named command sequences in graft.yaml
+# Declare and run named command sequences in graft.yaml
 
 ## Story
 
-Multi-step command flows (implement then verify, plan then implement then verify)
-are currently composed ad-hoc in shell. The sequence is invisible to graft and
-Grove — there's no way to name it, re-run it, or observe its progress. This
-slice adds a `sequences:` declaration to graft.yaml so multi-step flows are
-first-class.
+Multi-step command flows (implement then verify, plan then review) are currently
+composed ad-hoc in shell scripts that are invisible to graft, unobservable in
+grove, and must be rewritten for each new workflow. This slice adds a `sequences:`
+section to graft.yaml so multi-step flows are named, validated, and runnable as
+first-class graft primitives — showing up in grove's Commands section alongside
+single commands.
 
-## Open Questions
+## Approach
 
-**Argument passing.** `implement` takes `{slice}` (choice, positional).
-`verify` takes nothing. A sequence `[implement, verify]` needs to accept `slice`
-and route it to `implement` only. Options:
+Add `sequences:` as a new top-level key in `graft.yaml`, parsed by graft-common
+and represented in grove-core as a `Sequence` domain type. A sequence declares an
+ordered list of command references (`steps`) and its own `args:` that are passed
+through to every step (steps ignore args they don't accept — "pass-all" semantics).
+`graft run <sequence-name> [args]` resolves the sequence, validates that all
+referenced commands exist, and executes them in order via the existing
+`execute_command_by_name`. First failure stops the sequence.
 
-1. Sequence declares its own `args:`, steps reference them — most explicit, most verbose
-2. Union args from all steps, pass to each (steps ignore unknown args) — simple but fragile at scale
-3. Each step in the sequence specifies its arg bindings — workflow-engine territory
+The sequence executor writes `sequence-state.json` to `$GRAFT_STATE_DIR` at the
+start of each step, giving grove live visibility into which step is running. When
+all steps succeed, `sequence-state.json` records `phase: complete`. Grove's
+existing Run State section picks this up without code changes.
 
-**Primitive shape.** Two alternatives to a new `sequences:` top-level key:
+In grove, sequences appear in the Commands section rendered with a `»` prefix on
+their name. Executing a sequence works identically to executing a command — Enter
+shows the args form, which calls `graft run <sequence-name>` with the assembled
+args. No new `DetailItem` variant is needed in this slice.
 
-- **Compound commands**: a command's `run:` can be a list of command names
-  instead of a shell string. No new config key, but overloads `run:` semantics.
-- **Shell composition**: just use `graft run X && graft run Y` in a regular
-  command. Zero framework changes, but graft-calling-graft is inelegant and
-  prevents resumability.
-
-**Value proposition.** Visibility (named in config), resumability (graft tracks
-progress), Grove observability (pipeline state). If Grove run-state view
-(separate slice) provides sufficient observability without sequences, the
-urgency drops.
-
-## Approach (tentative)
-
-Add `sequences:` as a sibling to `commands:` and `state:` in graft.yaml:
-
-```yaml
-sequences:
-  build:
-    description: "Implement and verify a slice"
-    steps: [implement, verify]
-    args:
-      - name: slice
-        type: choice
-        options_from: slices
-```
-
-`graft run build my-slice` executes `implement my-slice` then `verify`, stopping
-on first failure (exit non-zero).
-
-Parsing in `config.rs`, new `Sequence` struct in `domain.rs`. Execution in
-`command.rs` — iterate steps, call `execute_command_with_context` for each.
+Design decisions (resolved from the prior draft):
+- **Argument passing**: "pass-all" — sequence declares `args:`, all are forwarded to
+  every step; steps ignore unknown args via their own arg parsing
+- **Shape**: new `sequences:` top-level key, not overloaded `run:` lists
+- **Retry**: not in this slice — basic sequential execution only; retry comes in
+  `sequence-retry`
 
 ## Acceptance Criteria
 
-- A sequence in graft.yaml is parsed and validated (all referenced commands exist)
-- `graft run <sequence> [args]` executes steps in order, stopping on failure
-- Arguments are passed to steps that accept them
+- A `sequences:` block in graft.yaml is parsed without error; unknown fields are
+  rejected; all referenced command names are validated at parse time
+- `graft run <sequence-name> [args]` executes all steps in order, printing each
+  step's output as it runs; a non-zero exit from any step stops the sequence and
+  exits with the same code
+- Args declared on the sequence are passed to each step; steps that don't accept
+  a given arg ignore it without error
+- `sequence-state.json` is written to `$GRAFT_STATE_DIR` at the start of each step
+  with `{sequence, step, step_index, step_count, phase: "running"}` and updated
+  to `{phase: "complete"}` when all steps succeed or `{phase: "failed", step}` on
+  failure
+- Grove's Commands section shows sequences prefixed with `»` and they are
+  executable via Enter exactly like single commands
+- A sequence that references a nonexistent command is rejected at parse time with a
+  clear error naming the missing command
 - `cargo test` passes with no regressions
 
 ## Steps
 
-TBD — resolve open questions first.
+- [ ] **Parse sequences: section in graft-common and grove-core**
+  - **Delivers** — graft.yaml files can declare sequences without parse errors;
+    the domain type is available for the execution layer
+  - **Done when** — `graft-common` parses `sequences:` from graft.yaml into a
+    `HashMap<String, SequenceDef>` where `SequenceDef` has `steps: Vec<String>`,
+    `description: Option<String>`, and `args: Vec<ArgDef>`; `grove-core` defines
+    a `Sequence` struct mirroring `Command` for display purposes; `GraftConfig`
+    gains a `sequences` field; a unit test parses a graft.yaml with a two-step
+    sequence and asserts correct field values; referencing a non-existent command
+    produces a validation error
+  - **Files** — `crates/graft-common/src/config.rs`,
+    `crates/grove-core/src/domain.rs`
+
+- [ ] **Execute sequences in graft-engine with live state writing**
+  - **Delivers** — `graft run <sequence-name>` works end-to-end; sequence progress
+    is observable in grove via `sequence-state.json`
+  - **Done when** — a new `execute_sequence(config, sequence_name, base_dir, args)`
+    function in `graft-engine` iterates steps, calls `execute_command_by_name` for
+    each, writes `sequence-state.json` to `$GRAFT_STATE_DIR` before each step and
+    on completion/failure; `execute_command_by_name` is extended to try sequences
+    if the name isn't found in `config.commands`; a unit test executes a two-step
+    sequence of `echo` commands and asserts both run in order; a test asserts that
+    a failing step stops the sequence
+  - **Files** — `crates/graft-engine/src/sequence.rs` (new),
+    `crates/graft-engine/src/command.rs`
+
+- [ ] **Show sequences in grove Commands section**
+  - **Delivers** — sequences are discoverable in grove and executable via Enter
+  - **Done when** — `load_commands_for_selected_repo()` in `repo_detail.rs` also
+    loads sequences from the parsed config (root + deps) and appends them to
+    `available_commands` with names prefixed `» `; sequences appear in the
+    Commands section below single commands; selecting a sequence and pressing Enter
+    shows the args form (or executes directly if no args); `graft run
+    » sequence-name` is NOT the actual call — the `» ` prefix is stripped before
+    calling `execute_command_with_args`; the loaded sequences come from
+    `graft_loader.load_graft()` which now returns them via `GraftConfig.sequences`;
+    existing command tests continue to pass
+  - **Files** — `crates/grove-cli/src/tui/repo_detail.rs`,
+    `crates/grove-engine/src/config.rs`

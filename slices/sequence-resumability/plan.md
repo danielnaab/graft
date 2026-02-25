@@ -1,8 +1,14 @@
 ---
 status: draft
 created: 2026-02-24
+depends_on: [sequence-declarations]
+note: >
+  Not superseded by sequence-retry. sequence-retry handles automatic retry
+  within a single run (verify fails → recovery → retry). This slice handles
+  crash recovery: if a sequence is killed mid-run, re-running should skip
+  steps whose writes-state already exists rather than starting over from
+  scratch. Lower priority — resolve sequence-declarations first.
 resolve_before_implementing:
-  - "Depends on sequence-declarations — implement that first"
   - "Skip-if-writes-exist vs explicit progress tracking?"
   - "Should skipped steps log a message or be silent?"
 ---
