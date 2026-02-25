@@ -104,6 +104,22 @@ struct ArgumentInputState {
     command_name: String,
 }
 
+/// State for the checkpoint approval overlay.
+///
+/// Shown when the focused run-state entry is a checkpoint in `awaiting-review` phase.
+/// The overlay prompts the user to approve (`a`) or reject (`r`) the checkpoint.
+#[derive(Debug, Clone)]
+struct ApprovalOverlayState {
+    /// Name of the sequence that created the checkpoint (e.g. `implement-verified`).
+    sequence: String,
+    /// The approve command name as it appears in `available_commands` (e.g. `software-factory:approve`).
+    approve_cmd: String,
+    /// The reject command name (e.g. `software-factory:reject`).
+    reject_cmd: String,
+    /// Human-readable message from checkpoint.json.
+    message: String,
+}
+
 /// Value for a single form field.
 #[derive(Debug, Clone)]
 enum FieldValue {
@@ -216,6 +232,7 @@ pub struct App<R, D> {
     // Command execution state
     available_commands: Vec<(String, Command)>,
     selected_repo_for_commands: Option<String>,
+    approval_overlay: Option<ApprovalOverlayState>,
     argument_input: Option<ArgumentInputState>,
     form_input: Option<FormInputState>,
     output_lines: Vec<String>,

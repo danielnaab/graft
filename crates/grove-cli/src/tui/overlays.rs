@@ -881,6 +881,91 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         frame.render_widget(paragraph, dialog_area);
     }
 
+    /// Handle keys in the approval overlay.
+    ///
+    /// `a` → approve, push `CommandOutput`, execute approve command, reload run-state.
+    /// `r` → reject, same with reject command.
+    /// `Esc` → dismiss without action.
+    pub(super) fn handle_key_approval_overlay(&mut self, code: KeyCode) {
+        let Some(state) = self.approval_overlay.clone() else {
+            return;
+        };
+
+        match code {
+            KeyCode::Char('a') => {
+                self.approval_overlay = None;
+                self.push_view(super::View::CommandOutput);
+                self.execute_command_with_args(state.approve_cmd, vec![]);
+                self.state_loaded = false;
+                self.run_state_entries.clear();
+            }
+            KeyCode::Char('r') => {
+                self.approval_overlay = None;
+                self.push_view(super::View::CommandOutput);
+                self.execute_command_with_args(state.reject_cmd, vec![]);
+                self.state_loaded = false;
+                self.run_state_entries.clear();
+            }
+            KeyCode::Esc => {
+                self.approval_overlay = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// Render the approval overlay as a centered modal.
+    ///
+    /// Displays the sequence name, message, and `a`/`r`/`Esc` keybindings.
+    /// Follows the same centered-popup pattern as `render_stop_confirmation_dialog`.
+    pub(super) fn render_approval_overlay(&self, frame: &mut ratatui::Frame) {
+        let Some(state) = &self.approval_overlay else {
+            return;
+        };
+
+        let dialog_width = 64;
+        let dialog_height = 9;
+
+        let area = frame.area();
+        let x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
+        let y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
+
+        let dialog_area = Rect::new(x, y, dialog_width, dialog_height);
+
+        frame.render_widget(Clear, dialog_area);
+
+        let text = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("Sequence '{}' completed.", state.sequence),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                state.message.as_str(),
+                Style::default().fg(Color::White),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "a = Approve   r = Reject   Esc = Cancel",
+                Style::default().fg(Color::Cyan),
+            )),
+        ];
+
+        let dialog = Paragraph::new(text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow))
+                    .title(" Review Checkpoint ")
+                    .style(Style::default().bg(Color::Black)),
+            )
+            .alignment(Alignment::Center);
+
+        frame.render_widget(dialog, dialog_area);
+    }
+
     /// Render the stop confirmation dialog as a centered popup.
     #[allow(clippy::unused_self)]
     pub(super) fn render_stop_confirmation_dialog(&self, frame: &mut ratatui::Frame) {

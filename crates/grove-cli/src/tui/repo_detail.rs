@@ -126,7 +126,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 }
                 Some(DetailItem::RunState(idx)) => {
                     let idx = *idx;
-                    if !self.expanded_run_state.remove(&idx) {
+                    // If this is a pending checkpoint, open the approval overlay instead of expanding.
+                    if self.is_pending_checkpoint(idx) {
+                        self.open_approval_overlay(idx);
+                    } else if !self.expanded_run_state.remove(&idx) {
                         self.expanded_run_state.insert(idx);
                     }
                 }
@@ -547,18 +550,39 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
 
         for (idx, (name, value)) in self.run_state_entries.iter().enumerate() {
+            let is_pending_cp = is_checkpoint_awaiting_review(name, value);
             let is_expanded = self.expanded_run_state.contains(&idx);
             let chevron = if is_expanded { "▾" } else { "▸" };
             let summary = truncate_str(&format_value_compact(value), 40);
             let display_name = truncate_str(name, 12);
             let producers = self.run_state_producers.get(name.as_str());
 
+            // Pending checkpoints use "! " prefix and Yellow/Bold styling.
+            let (prefix, name_style) = if is_pending_cp {
+                (
+                    "! ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else {
+                ("  ", Style::default().fg(Color::White))
+            };
+
+            let summary_style = if is_pending_cp {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
             let mut spans = vec![
                 Span::styled(
-                    format!("  {chevron} {display_name:<12}  "),
-                    Style::default().fg(Color::White),
+                    format!("{prefix}{chevron} {display_name:<12}  "),
+                    name_style,
                 ),
-                Span::styled(format!("{summary:<40}"), Style::default().fg(Color::White)),
+                Span::styled(format!("{summary:<40}"), summary_style),
             ];
             if let Some(prods) = producers {
                 if !prods.is_empty() {
@@ -1086,6 +1110,68 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             )))
         };
     }
+
+    /// Return `true` if run-state entry at `idx` is a pending checkpoint.
+    pub(super) fn is_pending_checkpoint(&self, idx: usize) -> bool {
+        if let Some((name, value)) = self.run_state_entries.get(idx) {
+            return is_checkpoint_awaiting_review(name, value);
+        }
+        false
+    }
+
+    /// Open the approval overlay for the run-state entry at `idx`.
+    ///
+    /// Looks up the approve/reject commands from `available_commands` by scanning
+    /// for command names that end with ":approve" and ":reject". Falls back to
+    /// bare "approve"/"reject" if no qualified names are found.
+    pub(super) fn open_approval_overlay(&mut self, idx: usize) {
+        let Some((_, value)) = self.run_state_entries.get(idx) else {
+            return;
+        };
+
+        let sequence = value
+            .get("sequence")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let message = value
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Sequence complete.")
+            .to_string();
+
+        // Find approve/reject command names from available_commands
+        let approve_cmd = self
+            .available_commands
+            .iter()
+            .find(|(name, _)| name.ends_with(":approve") || name == "approve")
+            .map_or_else(|| "approve".to_string(), |(name, _)| name.clone());
+
+        let reject_cmd = self
+            .available_commands
+            .iter()
+            .find(|(name, _)| name.ends_with(":reject") || name == "reject")
+            .map_or_else(|| "reject".to_string(), |(name, _)| name.clone());
+
+        self.approval_overlay = Some(super::ApprovalOverlayState {
+            sequence,
+            approve_cmd,
+            reject_cmd,
+            message,
+        });
+    }
+}
+
+/// Return true if the run-state entry is a checkpoint in "awaiting-review" phase.
+fn is_checkpoint_awaiting_review(name: &str, value: &serde_json::Value) -> bool {
+    if name != "checkpoint" {
+        return false;
+    }
+    value
+        .get("phase")
+        .and_then(|v| v.as_str())
+        .is_some_and(|phase| phase == "awaiting-review")
 }
 
 /// Extract option strings from a state query JSON result.

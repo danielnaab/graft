@@ -12,6 +12,24 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// Return context-sensitive key hints based on current view.
     #[allow(clippy::too_many_lines)]
     pub(super) fn current_hints(&self) -> Vec<KeyHint> {
+        // Approval overlay — show its hints regardless of view stack.
+        if self.approval_overlay.is_some() {
+            return vec![
+                KeyHint {
+                    key: "a",
+                    action: "approve",
+                },
+                KeyHint {
+                    key: "r",
+                    action: "reject",
+                },
+                KeyHint {
+                    key: "Esc",
+                    action: "cancel",
+                },
+            ];
+        }
+
         // ArgumentInput is an overlay — show its hints regardless of view stack.
         if self.argument_input.is_some() {
             return vec![
@@ -76,6 +94,20 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                             key: "Enter",
                             action: "view log",
                         });
+                    }
+                    Some(DetailItem::RunState(idx)) => {
+                        let idx = *idx;
+                        if self.is_pending_checkpoint(idx) {
+                            hints.push(KeyHint {
+                                key: "Enter",
+                                action: "review checkpoint",
+                            });
+                        } else {
+                            hints.push(KeyHint {
+                                key: "Enter",
+                                action: "expand/collapse",
+                            });
+                        }
                     }
                     _ => {}
                 }

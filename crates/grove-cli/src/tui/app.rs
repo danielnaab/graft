@@ -37,6 +37,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             // Command execution state
             available_commands: Vec::new(),
             selected_repo_for_commands: None,
+            approval_overlay: None,
             argument_input: None,
             form_input: None,
             output_lines: Vec::new(),
@@ -129,6 +130,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     }
 
     pub(super) fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        // Approval overlay — intercept before all other handlers.
+        if self.approval_overlay.is_some() {
+            self.handle_key_approval_overlay(code);
+            return;
+        }
+
         // Form overlay — intercept before argument input and view dispatch.
         if self.form_input.is_some() {
             self.handle_key_form_input(code, modifiers);
