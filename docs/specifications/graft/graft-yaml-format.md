@@ -66,6 +66,19 @@ state:
       deterministic: bool         # Default: true
     timeout: integer              # Optional: seconds (default: 300)
 
+# Sequence definitions (multi-step command pipelines)
+sequences:
+  <sequence-name>:
+    description: string           # Optional: human-readable summary
+    steps:                        # Required: ordered command names
+      - <command-name>
+    args: list[ArgDef]            # Optional: argument declarations (same schema as commands)
+    on_step_fail:                 # Optional: retry on named step failure
+      step: string                # Required: step that triggers recovery
+      recovery: string            # Required: recovery command name
+      max: integer                # Required: max retry iterations
+    checkpoint: bool              # Optional: write checkpoint.json on success (default: false)
+
 # Dependencies (for Graft-aware dependencies)
 dependencies:
   <dep-name>:
@@ -520,6 +533,227 @@ fi
 
 ---
 
+## Section: sequences
+
+Defines multi-step command pipelines that the `graft run` tool can execute. Each sequence
+chains named commands in order, shares arguments across all steps, and can optionally
+retry on step failure or write a checkpoint gate when all steps succeed.
+
+**Name Constraints**: Same as commands — no `:` character.
+
+### Structure
+
+```yaml
+sequences:
+  <sequence-name>:
+    description: string              # Optional: human-readable summary
+    steps:                           # Required: ordered list of command names
+      - <command-name>
+      - <command-name>
+    args:                            # Optional: positional/choice arg declarations
+      - name: string
+        type: string | choice | flag
+        description: string          # Optional
+        required: bool               # Default: false
+        positional: bool             # Default: false
+        options: [string]            # Required when type: choice
+        options_from: string         # Optional: state query name for dynamic options
+    on_step_fail:                    # Optional: retry configuration
+      step: string                   # Required: which step name triggers recovery
+      recovery: string               # Required: command name to run before retry
+      max: integer                   # Required: maximum retry iterations
+    checkpoint: bool                 # Optional: write checkpoint.json on success (default: false)
+```
+
+### Fields
+
+#### steps (required)
+**Type**: `list[string]`
+
+**Description**: Ordered list of command names to execute. Each entry must match a key
+in the same `commands:` section. Commands are executed left-to-right; if any step exits
+non-zero the sequence stops (unless `on_step_fail` is configured for that step).
+
+**Semantics**: "Pass-all" args — every positional argument given to `graft run <seq>
+<arg>` is forwarded to every step. Steps that ignore extra positional args are unaffected.
+
+**Constraints**:
+- Minimum 1 step.
+- Each step name must exist in the `commands:` section at parse time.
+
+**Example**:
+```yaml
+steps:
+  - build
+  - test
+  - deploy
+```
+
+#### description (optional)
+**Type**: `string`
+
+**Description**: Human-readable summary shown in `graft run --list` output and in Grove's
+Commands section (prefixed with `» `).
+
+**Example**:
+```yaml
+description: "Build, test, and deploy to staging"
+```
+
+#### args (optional)
+**Type**: `list[ArgDef]`
+
+**Description**: Declares positional or choice arguments accepted by this sequence. Same
+schema as `args:` on individual commands. Declared args drive the Grove form-input overlay
+when the sequence is invoked interactively.
+
+**Example**:
+```yaml
+args:
+  - name: slice
+    type: choice
+    description: "Which slice to implement"
+    required: true
+    positional: true
+    options_from: slices
+```
+
+#### on_step_fail (optional)
+**Type**: `object`
+
+**Description**: Configures automatic retry with a recovery command when a specific step
+fails. If the named step exits non-zero, graft runs the `recovery` command (passing the
+same args), then re-runs the failed step — up to `max` times. If the recovery command
+itself exits non-zero, the sequence aborts immediately without retrying.
+
+Only one step may be configured for retry per sequence. Steps not named in `on_step_fail`
+cause immediate sequence failure.
+
+**Fields**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `step` | `string` | Yes | Name of the step that triggers recovery on failure |
+| `recovery` | `string` | Yes | Command name to run before each retry |
+| `max` | `integer` | Yes | Maximum number of retry iterations (not counting the initial attempt) |
+
+**Example**:
+```yaml
+on_step_fail:
+  step: verify
+  recovery: resume
+  max: 3
+```
+
+`sequence-state.json` transitions: `running → retrying (with iteration count) →
+complete | failed`.
+
+#### checkpoint (optional)
+**Type**: `bool`
+
+**Default**: `false`
+
+**Description**: When `true`, writes `.graft/run-state/checkpoint.json` after all steps
+complete successfully. The checkpoint pauses automated orchestration until an explicit
+approve/reject command is run. Useful for human-review gates in automated pipelines.
+
+**checkpoint.json schema**:
+```json
+{
+  "phase": "awaiting-review",
+  "sequence": "<sequence-name>",
+  "args": { "<arg-name>": "<arg-value>" },
+  "message": "Sequence '<name>' completed successfully. Awaiting review.",
+  "created_at": "<RFC 3339 timestamp>"
+}
+```
+
+After calling `graft run <dep>:approve`, the file is updated to `{"phase": "approved"}`.
+After `graft run <dep>:reject`, it becomes `{"phase": "rejected"}`.
+
+**Example**:
+```yaml
+checkpoint: true
+```
+
+### Sequence Examples
+
+#### Simple build-test pipeline
+
+```yaml
+commands:
+  build:
+    run: "cargo build"
+    description: "Compile the project"
+  test:
+    run: "cargo test"
+    description: "Run all tests"
+
+sequences:
+  ci:
+    description: "Build then test"
+    steps:
+      - build
+      - test
+```
+
+#### Implement-verify with retry and checkpoint
+
+This is the canonical `implement-verified` pattern used in software-factory workflows:
+an AI agent implements a slice, then a verification step checks correctness. If verify
+fails, a `resume` command re-runs the agent with failure context before retrying verify.
+A checkpoint gate requires human review before the result is accepted.
+
+```yaml
+commands:
+  implement:
+    run: "claude --resume -p $GRAFT_STATE_DIR/session.json"
+    description: "Run AI agent implementation step"
+    args:
+      - name: slice
+        type: choice
+        positional: true
+        required: true
+        options_from: slices
+
+  verify:
+    run: "./scripts/verify.sh"
+    description: "Verify implementation correctness"
+    writes: [verify]
+
+  resume:
+    run: "./scripts/resume.sh"
+    description: "Resume agent with failure context"
+    reads: [verify]
+    args:
+      - name: slice
+        type: choice
+        positional: true
+        required: true
+        options_from: slices
+
+sequences:
+  implement-verified:
+    description: "Implement next slice step and verify, retrying on verify failure"
+    steps:
+      - implement
+      - verify
+    args:
+      - name: slice
+        type: choice
+        description: "Slice to implement"
+        required: true
+        positional: true
+        options_from: slices
+    on_step_fail:
+      step: verify
+      recovery: resume
+      max: 3
+    checkpoint: true
+```
+
+---
+
 ## Section: dependencies
 
 Declares dependencies on other Graft-enabled modules (optional).
@@ -633,6 +867,13 @@ state:
     run: "pytest --cov --cov-report=json --quiet | jq '.totals.percent_covered'"
     cache:
       deterministic: true
+
+sequences:
+  test-and-report:
+    description: "Run tests then generate coverage report"
+    steps:
+      - verify-v2
+      - generate-report
 
 dependencies:
   meta-knowledge-base:

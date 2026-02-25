@@ -490,6 +490,197 @@ deps: {}
     );
 }
 
+/// Test 8: Sequence dispatch in current repo
+///
+/// Verifies that `graft run <seq-name>` routes through `execute_sequence` (not
+/// command lookup), running all steps in declaration order.
+#[test]
+fn test_sequence_dispatch_current_repo() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let workspace = temp_dir.path();
+
+    init_git_repo(workspace, "Sequence dispatch test");
+
+    // graft.yaml with two echo commands and a sequence that chains them.
+    let graft_yaml = r#"apiVersion: graft/v0
+commands:
+  step-a:
+    run: "echo step_a_output"
+    description: "First step"
+  step-b:
+    run: "echo step_b_output"
+    description: "Second step"
+sequences:
+  greet:
+    description: "Run step-a then step-b"
+    steps:
+      - step-a
+      - step-b
+"#;
+    fs::write(workspace.join("graft.yaml"), graft_yaml).expect("Failed to write graft.yaml");
+
+    let output = run_graft(&["run", "greet"], workspace);
+    assert_success(&output, "graft run greet (sequence)");
+
+    // Progress messages go to stderr; stdout is captured internally by the executor.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("greet: step-a"),
+        "Sequence should log step-a progress: {stderr}"
+    );
+    assert!(
+        stderr.contains("greet: step-b"),
+        "Sequence should log step-b progress: {stderr}"
+    );
+    assert!(
+        stderr.contains("completed successfully"),
+        "Sequence should report completion: {stderr}"
+    );
+
+    // sequence-state.json is ONLY written by the sequence executor (not command dispatch).
+    let state_file = workspace
+        .join(".graft")
+        .join("run-state")
+        .join("sequence-state.json");
+    assert!(
+        state_file.exists(),
+        "sequence-state.json must be written by the sequence executor"
+    );
+    let state_json = fs::read_to_string(&state_file).expect("Failed to read sequence-state.json");
+    assert!(
+        state_json.contains("\"greet\""),
+        "sequence-state.json must name the sequence: {state_json}"
+    );
+}
+
+/// Test 9: Sequence dispatch via a resolved dependency
+///
+/// Verifies that `graft run <dep>:<seq-name>` routes through the dependency
+/// sequence dispatch path, not the command lookup path.
+#[test]
+fn test_sequence_dispatch_dependency() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let workspace = temp_dir.path();
+
+    // Dependency with a command and a one-step sequence.
+    let dep_dir = workspace.join("dep-with-seq");
+    fs::create_dir(&dep_dir).expect("Failed to create dep dir");
+    init_git_repo(&dep_dir, "Dep with sequence");
+
+    let dep_graft_yaml = r#"apiVersion: graft/v0
+commands:
+  hello:
+    run: "echo hello_from_dep"
+    description: "Echo hello"
+sequences:
+  dep-greet:
+    description: "Greet via dep sequence"
+    steps:
+      - hello
+"#;
+    fs::write(dep_dir.join("graft.yaml"), dep_graft_yaml).expect("Failed to write dep graft.yaml");
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&dep_dir)
+        .output()
+        .expect("Failed to git add");
+    Command::new("git")
+        .args(["commit", "-m", "Add graft.yaml with sequence"])
+        .current_dir(&dep_dir)
+        .output()
+        .expect("Failed to commit");
+
+    // Consumer that resolves the dependency.
+    let consumer_dir = workspace.join("consumer");
+    fs::create_dir(&consumer_dir).expect("Failed to create consumer dir");
+    init_git_repo(&consumer_dir, "Consumer");
+
+    let consumer_graft_yaml = format!(
+        "apiVersion: graft/v0\ndeps:\n  dep-with-seq: \"file://{}#main\"\n",
+        dep_dir.display()
+    );
+    fs::write(consumer_dir.join("graft.yaml"), &consumer_graft_yaml)
+        .expect("Failed to write consumer graft.yaml");
+
+    let resolve_output = run_graft(&["resolve"], &consumer_dir);
+    assert_success(&resolve_output, "graft resolve");
+
+    // Run the sequence from the dependency.
+    let output = run_graft(&["run", "dep-with-seq:dep-greet"], &consumer_dir);
+    assert_success(
+        &output,
+        "graft run dep-with-seq:dep-greet (dependency sequence)",
+    );
+
+    // Progress messages from the sequence executor go to stderr.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("dep-greet: hello"),
+        "Dependency sequence should log the hello step: {stderr}"
+    );
+    assert!(
+        stderr.contains("completed successfully"),
+        "Dependency sequence should report completion: {stderr}"
+    );
+
+    // sequence-state.json written in the consumer's .graft/run-state/ directory.
+    let state_file = consumer_dir
+        .join(".graft")
+        .join("run-state")
+        .join("sequence-state.json");
+    assert!(
+        state_file.exists(),
+        "sequence-state.json must exist after dependency sequence completes"
+    );
+}
+
+/// Test 10: Unknown command/sequence shows helpful error listing both
+///
+/// Verifies that when a command name is not found, graft exits non-zero and
+/// prints the available commands and sequences on stderr.
+#[test]
+fn test_unknown_command_lists_commands_and_sequences() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let workspace = temp_dir.path();
+
+    init_git_repo(workspace, "Error listing test");
+
+    let graft_yaml = r#"apiVersion: graft/v0
+commands:
+  build:
+    run: "echo building"
+    description: "Build project"
+sequences:
+  ci:
+    description: "Run CI pipeline"
+    steps:
+      - build
+"#;
+    fs::write(workspace.join("graft.yaml"), graft_yaml).expect("Failed to write graft.yaml");
+
+    let output = run_graft(&["run", "nonexistent-cmd"], workspace);
+
+    assert!(
+        !output.status.success(),
+        "Running a nonexistent command should fail"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("nonexistent-cmd"),
+        "Error should name the missing command: {stderr}"
+    );
+    // Should list available commands AND sequences.
+    assert!(
+        stderr.contains("build") || stderr.contains("commands"),
+        "Error should list available commands: {stderr}"
+    );
+    assert!(
+        stderr.contains("ci") || stderr.contains("sequences"),
+        "Error should list available sequences: {stderr}"
+    );
+}
+
 /// Test 7: Fetch and sync commands
 #[test]
 fn test_fetch_and_sync_commands() {
