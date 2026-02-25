@@ -73,8 +73,71 @@ pub fn execute_sequence(
         None,
     )?;
 
+    // Write checkpoint.json if checkpoint: true is set on this sequence
+    if seq_def.checkpoint == Some(true) {
+        write_checkpoint_json(&run_state_dir, sequence_name, args)?;
+    }
+
     eprintln!("\n✓ Sequence '{sequence_name}' completed successfully");
     Ok(0)
+}
+
+/// Write checkpoint.json to the run-state directory for sequences with `checkpoint: true`.
+///
+/// The checkpoint file signals that the sequence is awaiting review before proceeding.
+/// Format: `{"phase": "awaiting-review", "sequence": "...", "args": {...}, "message": "...", "created_at": "..."}`
+pub fn write_checkpoint_json(
+    run_state_dir: &std::path::Path,
+    sequence: &str,
+    args: &[String],
+) -> Result<()> {
+    let checkpoint_file = run_state_dir.join("checkpoint.json");
+    let tmp_file = run_state_dir.join("checkpoint.json.tmp");
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+
+    // Build args object from positional args (key=value pairs or positional indices)
+    let mut args_map = serde_json::Map::new();
+    for (i, arg) in args.iter().enumerate() {
+        if let Some((k, v)) = arg.split_once('=') {
+            args_map.insert(k.to_string(), serde_json::json!(v));
+        } else {
+            args_map.insert(i.to_string(), serde_json::json!(arg));
+        }
+    }
+
+    let obj = serde_json::json!({
+        "phase": "awaiting-review",
+        "sequence": sequence,
+        "args": args_map,
+        "message": "Sequence complete. Review and approve or reject to continue.",
+        "created_at": created_at,
+    });
+
+    // Atomic write: write to .tmp then rename
+    {
+        let mut file = std::fs::File::create(&tmp_file).map_err(|e| {
+            GraftError::CommandExecution(format!(
+                "Failed to write checkpoint.json.tmp '{}': {e}",
+                tmp_file.display()
+            ))
+        })?;
+        serde_json::to_writer_pretty(&mut file, &obj).map_err(|e| {
+            GraftError::CommandExecution(format!("Failed to serialize checkpoint: {e}"))
+        })?;
+        writeln!(file).map_err(|e| {
+            GraftError::CommandExecution(format!("Failed to write checkpoint.json.tmp: {e}"))
+        })?;
+    }
+
+    std::fs::rename(&tmp_file, &checkpoint_file).map_err(|e| {
+        GraftError::CommandExecution(format!(
+            "Failed to rename checkpoint.json.tmp to checkpoint.json: {e}"
+        ))
+    })?;
+
+    eprintln!("\n⏸  Checkpoint written. Review and approve/reject to continue.");
+    Ok(())
 }
 
 /// Execute a single step, with retry logic if `on_step_fail` is configured for this step.
@@ -504,5 +567,106 @@ mod tests {
 
         // Should not have retried (only 1 recovery attempt)
         let _ = out_file; // referenced to avoid unused warning
+    }
+
+    #[test]
+    fn checkpoint_true_writes_checkpoint_json() {
+        let tmp = TempDir::new().unwrap();
+
+        let mut config = make_echo_config(&[("echo-step", "echo hello")]);
+
+        let seq = graft_common::SequenceDef {
+            steps: vec!["echo-step".to_string()],
+            description: None,
+            args: vec![],
+            on_step_fail: None,
+            checkpoint: Some(true),
+        };
+        config.sequences.insert("checkpoint-seq".to_string(), seq);
+
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "checkpoint-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let checkpoint_file = tmp
+            .path()
+            .join(".graft")
+            .join("run-state")
+            .join("checkpoint.json");
+        assert!(
+            checkpoint_file.exists(),
+            "checkpoint.json should be written when checkpoint: true"
+        );
+
+        let content = std::fs::read_to_string(&checkpoint_file).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(parsed["phase"], "awaiting-review");
+        assert_eq!(parsed["sequence"], "checkpoint-seq");
+        assert!(parsed["created_at"].is_string());
+        assert!(parsed["message"].is_string());
+    }
+
+    #[test]
+    fn checkpoint_false_does_not_write_checkpoint_json() {
+        let tmp = TempDir::new().unwrap();
+
+        let mut config = make_echo_config(&[("echo-step", "echo hello")]);
+
+        let seq = graft_common::SequenceDef {
+            steps: vec!["echo-step".to_string()],
+            description: None,
+            args: vec![],
+            on_step_fail: None,
+            checkpoint: None,
+        };
+        config
+            .sequences
+            .insert("no-checkpoint-seq".to_string(), seq);
+
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "no-checkpoint-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let checkpoint_file = tmp
+            .path()
+            .join(".graft")
+            .join("run-state")
+            .join("checkpoint.json");
+        assert!(
+            !checkpoint_file.exists(),
+            "checkpoint.json should NOT be written when checkpoint is not set"
+        );
+    }
+
+    #[test]
+    fn checkpoint_not_written_on_failure() {
+        let tmp = TempDir::new().unwrap();
+
+        let mut config = make_echo_config(&[("fail-step", "exit 1")]);
+
+        let seq = graft_common::SequenceDef {
+            steps: vec!["fail-step".to_string()],
+            description: None,
+            args: vec![],
+            on_step_fail: None,
+            checkpoint: Some(true),
+        };
+        config
+            .sequences
+            .insert("fail-checkpoint-seq".to_string(), seq);
+
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "fail-checkpoint-seq", &ctx, &[]).unwrap();
+        assert_ne!(exit_code, 0);
+
+        let checkpoint_file = tmp
+            .path()
+            .join(".graft")
+            .join("run-state")
+            .join("checkpoint.json");
+        assert!(
+            !checkpoint_file.exists(),
+            "checkpoint.json should NOT be written when sequence fails"
+        );
     }
 }
