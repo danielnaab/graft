@@ -66,8 +66,10 @@ failure context into the Claude resume prompt.
   - **Delivers** — a failing verify (or any named step) triggers the retry cycle
     automatically
   - **Done when** — when a step named in `on_step_fail.step` exits non-zero, the
-    executor runs `on_step_fail.recovery` command (with the same args) and retries
-    the failed step; `sequence-state.json` is updated to `{phase: "retrying",
+    executor runs `on_step_fail.recovery` command with the same args as the
+    sequence (not the failed step's args — `verify` has no args, but `resume`
+    needs `slice`) and retries the failed step; `sequence-state.json` is updated
+    to `{phase: "retrying",
     step, iteration}` before each retry attempt; after `max` retries,
     `sequence-state.json` is set to `{phase: "failed", step, iterations_attempted}`
     and the sequence exits non-zero; a unit test runs a sequence where the
@@ -88,3 +90,18 @@ failure context into the Claude resume prompt.
     section showing current phase; the old `ralph.sh` script in the notes folder
     is no longer the primary workflow path (it can remain as a reference)
   - **Files** — `.graft/software-factory/graft.yaml`
+
+- [ ] **Update resume.sh to inject verify.json failure context**
+  - **Delivers** — Claude receives a structured failure summary when resumed after
+    a verify failure, rather than resuming with no context about what went wrong
+  - **Done when** — `resume.sh` checks whether `$GRAFT_STATE_DIR/verify.json`
+    exists and contains any failing field (any value that is not `"OK"` and does
+    not start with `"OK"`); if failures are present, it assembles a failure prompt
+    summarising the failing checks (FORMAT / LINT / TESTS / SMOKE sections) and
+    calls `claude --resume "$session_id" -p "$failure_prompt" --dangerously-skip-permissions`;
+    if no failures are found or `verify.json` is absent, it resumes without `-p`
+    (preserving current behaviour for direct `graft run software-factory:resume`
+    calls); both code paths exit with Claude's exit code; end-to-end manual test:
+    break a test, run `implement-verified`, observe Claude's resume turn includes
+    the test failure output
+  - **Files** — `.graft/software-factory/scripts/resume.sh`

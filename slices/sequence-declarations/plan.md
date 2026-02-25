@@ -35,8 +35,12 @@ shows the args form, which calls `graft run <sequence-name>` with the assembled
 args. No new `DetailItem` variant is needed in this slice.
 
 Design decisions (resolved from the prior draft):
-- **Argument passing**: "pass-all" — sequence declares `args:`, all are forwarded to
-  every step; steps ignore unknown args via their own arg parsing
+- **Argument passing**: "pass-all" — sequence declares `args:`; all args are made
+  available to each step for `{name}` template substitution. Steps whose `run:`
+  template does not include a `{slice}` placeholder simply don't receive that value —
+  no extra positional args are appended to the command line. This means `verify`
+  (`run: "bash scripts/verify.sh"`) never sees the `slice` arg; `implement`
+  (`run: "bash scripts/implement.sh {slice}"`) receives it correctly.
 - **Shape**: new `sequences:` top-level key, not overloaded `run:` lists
 - **Retry**: not in this slice — basic sequential execution only; retry comes in
   `sequence-retry`
@@ -82,9 +86,11 @@ Design decisions (resolved from the prior draft):
     function in `graft-engine` iterates steps, calls `execute_command_by_name` for
     each, writes `sequence-state.json` to `$GRAFT_STATE_DIR` before each step and
     on completion/failure; `execute_command_by_name` is extended to try sequences
-    if the name isn't found in `config.commands`; a unit test executes a two-step
-    sequence of `echo` commands and asserts both run in order; a test asserts that
-    a failing step stops the sequence
+    if the name isn't found in `config.commands`; the `sequence-state.json` payload
+    always includes the sequence name as `"sequence": "<name>"` so grove can derive
+    the producer annotation by reading the file itself (rather than a `writes:` map);
+    a unit test executes a two-step sequence of `echo` commands and asserts both run
+    in order; a test asserts that a failing step stops the sequence
   - **Files** — `crates/graft-engine/src/sequence.rs` (new),
     `crates/graft-engine/src/command.rs`
 
@@ -92,12 +98,17 @@ Design decisions (resolved from the prior draft):
   - **Delivers** — sequences are discoverable in grove and executable via Enter
   - **Done when** — `load_commands_for_selected_repo()` in `repo_detail.rs` also
     loads sequences from the parsed config (root + deps) and appends them to
-    `available_commands` with names prefixed `» `; sequences appear in the
-    Commands section below single commands; selecting a sequence and pressing Enter
-    shows the args form (or executes directly if no args); `graft run
-    » sequence-name` is NOT the actual call — the `» ` prefix is stripped before
-    calling `execute_command_with_args`; the loaded sequences come from
-    `graft_loader.load_graft()` which now returns them via `GraftConfig.sequences`;
-    existing command tests continue to pass
+    `available_commands` with names prefixed `» `; sequences are stored as
+    `(String, Command)` pairs using the existing `Command` type — no new
+    `DetailItem` variant is introduced; selecting a sequence and pressing Enter
+    shows the args form (or executes directly if no args); the `» ` prefix is
+    stripped before calling `execute_command_with_args` so the actual graft call is
+    `graft run <sequence-name>` not `graft run » <sequence-name>`; sequences appear
+    in the Commands section below single commands; when a run-state entry named
+    `sequence-state` is present, grove reads its `"sequence"` field and displays it
+    as the producer annotation (e.g., `(← implement-verified)`) — this is handled
+    in the run-state rendering path, not via the runs/writes producer map; the
+    loaded sequences come from `graft_loader.load_graft()` which now returns them
+    via `GraftConfig.sequences`; existing command tests continue to pass
   - **Files** — `crates/grove-cli/src/tui/repo_detail.rs`,
     `crates/grove-engine/src/config.rs`

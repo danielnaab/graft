@@ -15,20 +15,24 @@ for downstream commands.
 
 ## Approach
 
-Two small changes: update `verify.sh` to write its result to
-`$GRAFT_STATE_DIR/verify.json` before printing to stdout (the existing output is
-unchanged — we just also persist it), and add `writes: [verify]` to the `verify`
-command in software-factory's `graft.yaml`. Grove's existing run-state loader
-picks up `verify.json` automatically — no Rust changes required. The producer
-annotation `(← software-factory:verify)` will appear automatically once `writes:`
-is declared.
+Three small changes: fix the consumer's `scripts/verify.sh` to exit non-zero
+when any check fails (currently the final `jq` command always exits 0 regardless
+of test failures, making it useless as a gate); update the software-factory's
+`verify.sh` wrapper to capture the consumer's output and write it to
+`$GRAFT_STATE_DIR/verify.json`; and add `writes: [verify]` to the `verify`
+command in software-factory's `graft.yaml`.
+
+Grove's existing run-state loader picks up `verify.json` automatically — no Rust
+changes required. The producer annotation `(← software-factory:verify)` appears
+automatically once `writes:` is declared.
 
 This is a foundational slice: it makes verify output visible in grove and
-referenceable in subsequent workflow slices (specifically the loop condition in
-`sequence-retry` and template access for failure context).
+referenceable in subsequent workflow slices (specifically the exit-code gate in
+`sequence-retry` and template access for failure context in `resume.sh`).
 
 ## Acceptance Criteria
 
+- `verify` exits non-zero when any check fails (format, lint, tests, or smoke)
 - After `graft run software-factory:verify`, a `verify` entry appears in grove's
   Run State section showing `{format, lint, tests, smoke}` with producer annotation
 - The existing stdout output of `verify.sh` is unchanged — nothing that currently
@@ -43,11 +47,24 @@ referenceable in subsequent workflow slices (specifically the loop condition in
 
 ## Steps
 
+- [ ] **Fix consumer verify.sh to exit non-zero on check failures**
+  - **Delivers** — verify is a proper gating mechanism; the sequence executor can
+    detect failure via exit code and trigger retries
+  - **Done when** — `scripts/verify.sh` computes an `overall_exit` from the
+    individual check exit codes (`fmt_exit`, `lint_exit`, `test_exit`, `smoke_exit`)
+    and calls `exit $overall_exit` after the `jq -n` output; the JSON result is
+    always produced regardless of exit code (persistence is unconditional); a
+    broken test or lint error causes the script to exit 1 while still writing valid
+    JSON; `cargo test` continues to pass
+  - **Files** — `scripts/verify.sh`
+
 - [ ] **Write verify result to run-state before printing**
   - **Delivers** — verify output is persisted and observable in grove
-  - **Done when** — `verify.sh` writes its JSON result to
-    `$GRAFT_STATE_DIR/verify.json` (using `mkdir -p` to ensure the directory
-    exists) and then prints the same JSON to stdout; running
+  - **Done when** — `.graft/software-factory/scripts/verify.sh` captures the
+    consumer script's output with `result=$(bash "$VERIFY_SCRIPT"); rc=$?`, writes
+    it with `mkdir -p "$GRAFT_STATE_DIR" && printf '%s\n' "$result" > "$GRAFT_STATE_DIR/verify.json"`,
+    then prints the same JSON to stdout (`printf '%s\n' "$result"`) and exits with
+    the consumer's exit code (`exit $rc`); running
     `graft run software-factory:verify` and opening grove shows a `verify` entry
     in the Run State section; the entry expands to show `format`, `lint`, `tests`,
     and `smoke` fields; a verify that fails still writes the file
