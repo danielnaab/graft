@@ -29,9 +29,10 @@ The software-factory gets an `implement-verified` sequence wired directly in its
 `resume`, max `3`. This replaces the ralph loop for the standard feature development
 cycle and serves as the canonical end-to-end test of the primitive.
 
-`verify.json` (from the `verify-captures-state` slice) is available to the recovery
-command via `$GRAFT_STATE_DIR/verify.json` — `resume.sh` can cat it to inject
-failure context into the Claude resume prompt.
+`verify.json` (from the `verify-captures-state` slice) is available at
+`$GRAFT_STATE_DIR/verify.json`. Step 4 of this slice updates `resume.sh` to
+read it automatically and inject a structured failure summary into the Claude
+`--resume` call — no manual catting required.
 
 ## Acceptance Criteria
 
@@ -54,13 +55,15 @@ failure context into the Claude resume prompt.
   - **Delivers** — sequences can declare retry semantics in graft.yaml
   - **Done when** — `SequenceDef` gains an optional `on_step_fail: OnStepFail`
     field where `OnStepFail` has `step: String`, `recovery: String`, and
-    `max: u32` (default 3); graft-common parses this from graft.yaml; validation
-    rejects an `on_step_fail.step` value that isn't in the sequence's `steps` list;
-    validation rejects an `on_step_fail.recovery` that doesn't name an existing
-    command; a unit test asserts a valid `on_step_fail` block parses correctly and
-    an invalid step name produces an error
-  - **Files** — `crates/graft-common/src/config.rs`,
-    `crates/grove-core/src/domain.rs`
+    `max: u32` (default 3); `max` means the number of retry attempts after the
+    initial failure — `max: 3` allows 1 initial run + 3 retries = 4 total step
+    executions; graft-common parses this from graft.yaml; validation rejects an
+    `on_step_fail.step` value that isn't in the sequence's `steps` list; validation
+    rejects an `on_step_fail.recovery` that doesn't name an existing command in
+    the same graft.yaml (local commands only, not dep-qualified names); a unit test
+    asserts a valid `on_step_fail` block parses correctly and an invalid step name
+    produces an error
+  - **Files** — `crates/graft-common/src/config.rs`
 
 - [ ] **Implement retry logic in the sequence executor**
   - **Delivers** — a failing verify (or any named step) triggers the retry cycle
@@ -68,17 +71,20 @@ failure context into the Claude resume prompt.
   - **Done when** — when a step named in `on_step_fail.step` exits non-zero, the
     executor runs `on_step_fail.recovery` command with the same args as the
     sequence (not the failed step's args — `verify` has no args, but `resume`
-    needs `slice`) and retries the failed step; `sequence-state.json` is updated
-    to `{phase: "retrying", step, iteration}` before each retry attempt; after
-    `max` retries, `sequence-state.json` is set to
-    `{phase: "failed", step, iterations_attempted}` and the sequence exits
-    non-zero; **test fixture pattern**: use a counter file in a temp dir — the
-    "check" step script reads a counter, increments it, exits 1 if the counter is
-    ≤ N, exits 0 otherwise; this gives deterministic per-invocation failure
-    behaviour without mocking; a test runs a sequence where the check step fails
-    twice then succeeds and asserts: `iteration == 2` in state, recovery script
-    ran twice (assert counter file value), sequence exits 0; a test asserts clean
-    failure after `max` retries
+    needs `slice`) and retries the failed step; if the recovery command itself
+    exits non-zero, the sequence aborts immediately with a clear error message
+    (`"Recovery command '<name>' failed (exit N); aborting"`) — a broken
+    recovery indicates misconfiguration, not a transient failure, so further
+    retries are skipped; `sequence-state.json` is updated to
+    `{phase: "retrying", step, iteration}` before each retry attempt; after `max`
+    retries the sequence sets `{phase: "failed", step, iterations_attempted}` and
+    exits non-zero with `"Step '<name>' failed after <max> retry attempts (<max+1>
+    total runs)"`; **test fixture**: counter file in a temp dir — step script reads
+    counter, increments, exits 1 if counter ≤ N, exits 0 otherwise; a test runs a
+    sequence where the check step fails twice then succeeds: assert `iteration == 2`,
+    recovery ran twice, sequence exits 0; a test asserts clean failure after `max`
+    retries; a test asserts recovery-command failure aborts immediately without
+    further retries
   - **Files** — `crates/graft-engine/src/sequence.rs`
 
 - [ ] **Wire implement-verified sequence in software-factory**

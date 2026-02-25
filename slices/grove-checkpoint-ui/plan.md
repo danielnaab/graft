@@ -101,19 +101,29 @@ mechanism by checking how other parts of the TUI invalidate cached state.
     │  [Esc] Cancel                                       │
     └──────────────────────────────────────────────────────┘
     ```
-    `handle_key_approval_overlay()` handles: `a` → calls
-    `self.execute_command_with_args("software-factory:approve", &[])`, clears
-    `approval_overlay`, and sets `self.state_loaded = false` to trigger run-state
-    reload; `r` → same with `"software-factory:reject"`; `Esc` → clears
-    `approval_overlay` only; in `handle_key_repo_detail()`, the Enter branch for a
-    `RunState(idx)` item checks `is_pending_checkpoint(idx)` — if true, reads
-    `sequence` and `args["slice"]` from the entry's JSON (falling back to empty
-    string if absent) to populate `ApprovalOverlayState`, then sets
-    `self.approval_overlay = Some(...)` instead of toggling expand; `render()` calls
-    `render_approval_overlay()` when `approval_overlay.is_some()` (drawn on top,
-    same layer as stop-confirmation dialog)
+    `handle_key_approval_overlay()` handles: `a` → `self.push_view(View::CommandOutput)`,
+    then `self.execute_command_with_args("software-factory:approve".to_string(), vec![])`,
+    then `self.approval_overlay = None`, then `self.state_loaded = false` (so
+    run-state reloads when the user returns from CommandOutput); `r` → same with
+    `"software-factory:reject"`; `Esc` → `self.approval_overlay = None` only; the
+    `push_view` before `execute_command_with_args` is mandatory — `execute_command_with_args`
+    only spawns a background thread; without pushing the view the user sees no
+    output; in `handle_key_repo_detail()`, the Enter branch for a `RunState(idx)`
+    item checks `is_pending_checkpoint(idx)` — if true, reads `sequence` and
+    `args["slice"]` from the entry's JSON (falling back to empty string if absent)
+    to populate `ApprovalOverlayState`, then sets `self.approval_overlay = Some(...)`
+    instead of toggling expand; `render()` calls `render_approval_overlay()` when
+    `approval_overlay.is_some()` (drawn on top, same layer as stop-confirmation
+    dialog); **`handle_key()` intercept in `mod.rs`**: add
+    `if self.approval_overlay.is_some() { self.handle_key_approval_overlay(code); return; }`
+    in `handle_key()` in `mod.rs`, following the same pattern as `form_input` and
+    `argument_input` guards — this prevents key events from reaching
+    `handle_key_repo_detail()` while the overlay is visible, which would otherwise
+    cause keys like `j`/`k` to move the cursor and `Enter` to expand items
+    simultaneously with the overlay interaction
   - **Files** — `crates/grove-cli/src/tui/overlays.rs`,
-    `crates/grove-cli/src/tui/repo_detail.rs`
+    `crates/grove-cli/src/tui/repo_detail.rs`,
+    `crates/grove-cli/src/tui/mod.rs`
 
 - [ ] **Update hint_bar.rs for pending checkpoint items**
   - **Delivers** — the hint bar communicates that Enter opens a review modal for

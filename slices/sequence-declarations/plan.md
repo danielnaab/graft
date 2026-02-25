@@ -85,13 +85,16 @@ Design decisions (resolved from the prior draft):
     is observable in grove via `sequence-state.json`
   - **Done when** — a new `execute_sequence(config, sequence_name, base_dir, args)`
     function in `graft-engine` iterates steps, calls `execute_command_by_name` for
-    each, writes `sequence-state.json` to `$GRAFT_STATE_DIR` before each step and
-    on completion/failure; `execute_command_by_name` is extended to try sequences
-    if the name isn't found in `config.commands`; the `sequence-state.json` payload
-    always includes the sequence name as `"sequence": "<name>"` so grove can derive
-    the producer annotation by reading the file itself (rather than a `writes:` map);
-    a unit test executes a two-step sequence of `echo` commands and asserts both run
-    in order; a test asserts that a failing step stops the sequence
+    each; the executor writes `sequence-state.json` to the state dir path it
+    receives from graft's own config/context (not by reading the `$GRAFT_STATE_DIR`
+    env var — that env var is for shell scripts; Rust code uses the path from
+    graft's configuration directly); `execute_command_by_name` is extended to check
+    `config.sequences` when the name is not found in `config.commands` — commands
+    take precedence; the `sequence-state.json` payload always includes
+    `"sequence": "<name>"` so grove can derive the producer annotation from the
+    file itself; a unit test executes a two-step sequence of `echo` commands and
+    asserts both outputs appear in order; a test asserts that a failing first step
+    stops the sequence and writes `{phase: "failed"}`
   - **Files** — `crates/graft-engine/src/sequence.rs` (new),
     `crates/graft-engine/src/command.rs`
 
@@ -112,9 +115,11 @@ Design decisions (resolved from the prior draft):
     (e.g., `(← implement-verified)`) — this is handled in the run-state rendering
     path, not via the runs/writes producer map; the loaded sequences come from
     `graft_loader.load_graft()` which now returns them via `GraftConfig.sequences`;
-    **note**: `graft run <sequence-name>` dispatch assumes the graft-cli's
-    `run` subcommand reaches `execute_command_by_name` — verify the CLI entry point
-    in `crates/graft-cli` passes the full config (with sequences) to the engine;
+    **note**: `graft run <sequence-name>` dispatch assumes the graft-cli's `run`
+    subcommand reaches `execute_command_by_name` and that the full config (including
+    `sequences`) is loaded and passed to the engine — verify this path in
+    `crates/graft-cli`; if the CLI resolves command names before dispatching to the
+    engine, it must also be updated to recognise sequence names;
     existing command tests continue to pass
   - **Files** — `crates/grove-cli/src/tui/repo_detail.rs`,
     `crates/grove-engine/src/config.rs`

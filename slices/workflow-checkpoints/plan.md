@@ -26,8 +26,13 @@ slice from the checkpoint file itself — they require no positional arguments.
 `approve` transitions the checkpoint to `{phase: "approved"}` (atomic `.tmp`+`mv`).
 `reject` transitions it to `{phase: "rejected"}`. Neither deletes the file — phase
 history is preserved, and grove's visual treatment (the `!` overlay) only fires for
-`awaiting-review`. The next `implement-verified` run overwrites `checkpoint.json`
-with a fresh `awaiting-review` entry.
+`awaiting-review`. A subsequent successful `implement-verified` run overwrites `checkpoint.json`
+with a fresh `awaiting-review` entry. If `implement-verified` fails (max retries
+exceeded), it exits non-zero and does not write `checkpoint.json` — the previous
+`phase: approved` or `phase: rejected` entry remains on disk as inert JSON, which
+grove renders as a normal (non-`!`) run-state entry. This is acceptable: the stale
+entry records what happened last, and running `implement-verified` again on success
+will overwrite it.
 
 **`message` field**: the executor writes a generic message ("Sequence `<name>`
 complete.") since it does not have retry iteration count available at checkpoint-write
