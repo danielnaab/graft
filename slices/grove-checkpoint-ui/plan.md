@@ -39,8 +39,12 @@ Three targeted changes to the grove TUI:
    view hint bar would imply they work there, which they do not.
 
 `approve` and `reject` run as graft commands (no args) via the existing
-`execute_command_with_args` path; the CommandOutput view shows their output;
-run-state reloads on exit.
+`execute_command_with_args` path; the CommandOutput view shows their output.
+After the command returns and the overlay is cleared, run-state must reload
+so the `!` entry transitions to normal JSON: set `self.state_loaded = false`
+in the overlay key handler after calling `execute_command_with_args`, so that
+the next render cycle triggers a fresh load. Verify this is the correct reload
+mechanism by checking how other parts of the TUI invalidate cached state.
 
 ## Acceptance Criteria
 
@@ -98,13 +102,13 @@ run-state reloads on exit.
     └──────────────────────────────────────────────────────┘
     ```
     `handle_key_approval_overlay()` handles: `a` → calls
-    `self.execute_command_with_args("software-factory:approve", &[])` and clears
-    `approval_overlay`; `r` → calls
-    `self.execute_command_with_args("software-factory:reject", &[])` and clears
-    `approval_overlay`; `Esc` → clears `approval_overlay`; in
-    `handle_key_repo_detail()`, the Enter branch for a `RunState(idx)` item checks
-    `is_pending_checkpoint(idx)` — if true, reads the `sequence` and `args.slice`
-    fields from the entry's JSON to populate `ApprovalOverlayState`, then sets
+    `self.execute_command_with_args("software-factory:approve", &[])`, clears
+    `approval_overlay`, and sets `self.state_loaded = false` to trigger run-state
+    reload; `r` → same with `"software-factory:reject"`; `Esc` → clears
+    `approval_overlay` only; in `handle_key_repo_detail()`, the Enter branch for a
+    `RunState(idx)` item checks `is_pending_checkpoint(idx)` — if true, reads
+    `sequence` and `args["slice"]` from the entry's JSON (falling back to empty
+    string if absent) to populate `ApprovalOverlayState`, then sets
     `self.approval_overlay = Some(...)` instead of toggling expand; `render()` calls
     `render_approval_overlay()` when `approval_overlay.is_some()` (drawn on top,
     same layer as stop-confirmation dialog)

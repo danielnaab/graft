@@ -61,13 +61,18 @@ referenceable in subsequent workflow slices (specifically the exit-code gate in
 - [ ] **Write verify result to run-state before printing**
   - **Delivers** — verify output is persisted and observable in grove
   - **Done when** — `.graft/software-factory/scripts/verify.sh` captures the
-    consumer script's output with `result=$(bash "$VERIFY_SCRIPT"); rc=$?`, writes
-    it with `mkdir -p "$GRAFT_STATE_DIR" && printf '%s\n' "$result" > "$GRAFT_STATE_DIR/verify.json"`,
-    then prints the same JSON to stdout (`printf '%s\n' "$result"`) and exits with
-    the consumer's exit code (`exit $rc`); running
-    `graft run software-factory:verify` and opening grove shows a `verify` entry
-    in the Run State section; the entry expands to show `format`, `lint`, `tests`,
-    and `smoke` fields; a verify that fails still writes the file
+    consumer script's output with `result=$(bash "$VERIFY_SCRIPT"); rc=$?`; it
+    writes to `$GRAFT_STATE_DIR/verify.json` **only when `$GRAFT_STATE_DIR` is set
+    and nonempty** (`if [ -n "${GRAFT_STATE_DIR:-}" ]; then mkdir -p "$GRAFT_STATE_DIR" && printf '%s\n' "$result" > "$GRAFT_STATE_DIR/verify.json"; fi`);
+    this guard is necessary because `state: verify` also runs `verify.sh` (state
+    queries do not inject `$GRAFT_STATE_DIR`), and the script must not fail when
+    called from that path; it then prints the same JSON to stdout
+    (`printf '%s\n' "$result"`) and exits with the consumer's exit code (`exit $rc`);
+    running `graft run software-factory:verify` and opening grove shows a `verify`
+    entry in the Run State section; the entry expands to show `format`, `lint`,
+    `tests`, and `smoke` fields; a verify that fails still writes the file; running
+    `graft state query verify` does NOT write or update `verify.json` (state queries
+    are read-only)
   - **Files** — `.graft/software-factory/scripts/verify.sh`
 
 - [ ] **Declare writes: [verify] on the verify command**

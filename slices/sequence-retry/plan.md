@@ -69,12 +69,15 @@ failure context into the Claude resume prompt.
     executor runs `on_step_fail.recovery` command with the same args as the
     sequence (not the failed step's args — `verify` has no args, but `resume`
     needs `slice`) and retries the failed step; `sequence-state.json` is updated
-    to `{phase: "retrying",
-    step, iteration}` before each retry attempt; after `max` retries,
-    `sequence-state.json` is set to `{phase: "failed", step, iterations_attempted}`
-    and the sequence exits non-zero; a unit test runs a sequence where the
-    check step fails twice then succeeds and asserts: correct iteration count in
-    state, recovery command ran twice, sequence exits 0; a test asserts clean
+    to `{phase: "retrying", step, iteration}` before each retry attempt; after
+    `max` retries, `sequence-state.json` is set to
+    `{phase: "failed", step, iterations_attempted}` and the sequence exits
+    non-zero; **test fixture pattern**: use a counter file in a temp dir — the
+    "check" step script reads a counter, increments it, exits 1 if the counter is
+    ≤ N, exits 0 otherwise; this gives deterministic per-invocation failure
+    behaviour without mocking; a test runs a sequence where the check step fails
+    twice then succeeds and asserts: `iteration == 2` in state, recovery script
+    ran twice (assert counter file value), sequence exits 0; a test asserts clean
     failure after `max` retries
   - **Files** — `crates/graft-engine/src/sequence.rs`
 
@@ -97,11 +100,13 @@ failure context into the Claude resume prompt.
   - **Done when** — `resume.sh` checks whether `$GRAFT_STATE_DIR/verify.json`
     exists and contains any failing field (any value that is not `"OK"` and does
     not start with `"OK"`); if failures are present, it assembles a failure prompt
-    summarising the failing checks (FORMAT / LINT / TESTS / SMOKE sections) and
-    calls `claude --resume "$session_id" -p "$failure_prompt" --dangerously-skip-permissions`;
-    if no failures are found or `verify.json` is absent, it resumes without `-p`
-    (preserving current behaviour for direct `graft run software-factory:resume`
-    calls); both code paths exit with Claude's exit code; end-to-end manual test:
-    break a test, run `implement-verified`, observe Claude's resume turn includes
-    the test failure output
+    summarising the failing checks (FORMAT / LINT / TESTS / SMOKE sections);
+    **assumption to verify before coding**: does `claude --resume "$session_id" -p "$failure_prompt"` work with both flags simultaneously? If yes, use that form; if
+    `--resume` ignores `-p`, use stdin piping:
+    `printf '%s' "$failure_prompt" | claude --resume "$session_id" --dangerously-skip-permissions`;
+    if no failures are found or `verify.json` is absent, resumes without extra
+    prompt (preserving current behaviour for direct
+    `graft run software-factory:resume` calls); both code paths exit with Claude's
+    exit code; end-to-end manual test: break a test, run `implement-verified`,
+    observe Claude's resume turn references the test failure output
   - **Files** — `.graft/software-factory/scripts/resume.sh`

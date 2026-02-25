@@ -72,10 +72,11 @@ Design decisions (resolved from the prior draft):
   - **Done when** — `graft-common` parses `sequences:` from graft.yaml into a
     `HashMap<String, SequenceDef>` where `SequenceDef` has `steps: Vec<String>`,
     `description: Option<String>`, and `args: Vec<ArgDef>`; `grove-core` defines
-    a `Sequence` struct mirroring `Command` for display purposes; `GraftConfig`
-    gains a `sequences` field; a unit test parses a graft.yaml with a two-step
-    sequence and asserts correct field values; referencing a non-existent command
-    produces a validation error
+    a `Sequence` struct with `name: String`, `description: Option<String>`, and
+    `args: Vec<ArgDef>` — identical shape to `Command` but a distinct type for
+    domain clarity; `GraftConfig` gains a `sequences` field; a unit test parses a
+    graft.yaml with a two-step sequence and asserts correct field values; referencing
+    a non-existent command produces a validation error
   - **Files** — `crates/graft-common/src/config.rs`,
     `crates/grove-core/src/domain.rs`
 
@@ -97,18 +98,23 @@ Design decisions (resolved from the prior draft):
 - [ ] **Show sequences in grove Commands section**
   - **Delivers** — sequences are discoverable in grove and executable via Enter
   - **Done when** — `load_commands_for_selected_repo()` in `repo_detail.rs` also
-    loads sequences from the parsed config (root + deps) and appends them to
-    `available_commands` with names prefixed `» `; sequences are stored as
-    `(String, Command)` pairs using the existing `Command` type — no new
-    `DetailItem` variant is introduced; selecting a sequence and pressing Enter
-    shows the args form (or executes directly if no args); the `» ` prefix is
-    stripped before calling `execute_command_with_args` so the actual graft call is
-    `graft run <sequence-name>` not `graft run » <sequence-name>`; sequences appear
-    in the Commands section below single commands; when a run-state entry named
-    `sequence-state` is present, grove reads its `"sequence"` field and displays it
-    as the producer annotation (e.g., `(← implement-verified)`) — this is handled
-    in the run-state rendering path, not via the runs/writes producer map; the
-    loaded sequences come from `graft_loader.load_graft()` which now returns them
-    via `GraftConfig.sequences`; existing command tests continue to pass
+    loads sequences from the parsed config (root + deps); each `Sequence` is
+    converted to a `Command` value (mapping `name`, `description`, `args`) and
+    appended to `available_commands` with the display name prefixed `» ` — no new
+    `DetailItem` variant is introduced; the conversion is a simple struct-to-struct
+    mapping since `Sequence` and `Command` have the same fields; selecting a
+    sequence and pressing Enter shows the args form (or executes directly if no
+    args); the `» ` prefix is stripped before calling `execute_command_with_args`
+    so the actual graft call is `graft run <sequence-name>` not
+    `graft run » <sequence-name>`; sequences appear in the Commands section below
+    single commands; when a run-state entry named `sequence-state` is present,
+    grove reads its `"sequence"` field and displays it as the producer annotation
+    (e.g., `(← implement-verified)`) — this is handled in the run-state rendering
+    path, not via the runs/writes producer map; the loaded sequences come from
+    `graft_loader.load_graft()` which now returns them via `GraftConfig.sequences`;
+    **note**: `graft run <sequence-name>` dispatch assumes the graft-cli's
+    `run` subcommand reaches `execute_command_by_name` — verify the CLI entry point
+    in `crates/graft-cli` passes the full config (with sequences) to the engine;
+    existing command tests continue to pass
   - **Files** — `crates/grove-cli/src/tui/repo_detail.rs`,
     `crates/grove-engine/src/config.rs`
