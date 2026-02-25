@@ -109,9 +109,32 @@ impl GraftYamlLoader for GraftYamlConfigLoader {
         let dependency_names =
             graft_common::parse_dependency_names_from_str(&content).unwrap_or_default();
 
+        let sequences_map = graft_common::parse_sequences_from_str(&content).map_err(|e| {
+            CoreError::InvalidConfig {
+                details: format!("Failed to parse graft.yaml sequences: {e}"),
+            }
+        })?;
+
+        let sequences = sequences_map
+            .into_iter()
+            .map(|(name, def)| {
+                let args = if def.args.is_empty() {
+                    None
+                } else {
+                    Some(def.args.into_iter().map(convert_arg_def).collect())
+                };
+                grove_core::Sequence {
+                    name,
+                    description: def.description,
+                    args,
+                }
+            })
+            .collect::<Vec<_>>();
+
         Ok(GraftYaml {
             commands,
             dependency_names,
+            sequences,
         })
     }
 }

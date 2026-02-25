@@ -14,6 +14,7 @@ pub mod management;
 pub mod mutation;
 pub mod query;
 pub mod resolution;
+pub mod sequence;
 pub mod snapshot;
 pub mod state;
 pub mod template;
@@ -46,6 +47,7 @@ pub use resolution::{
     resolve_dependency, sync_all_dependencies, sync_dependency, FetchResult, ResolutionResult,
     SyncResult,
 };
+pub use sequence::{execute_sequence, write_sequence_state};
 pub use snapshot::SnapshotManager;
 pub use state::{
     execute_state_query, get_cache_path, get_run_state_entry, get_state, invalidate_cached_state,

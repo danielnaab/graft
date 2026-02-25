@@ -52,11 +52,7 @@ pub struct WorkspaceRegistry<G> {
 impl<G: GitStatus> WorkspaceRegistry<G> {
     pub fn new(config: WorkspaceConfig, git_status: G) -> Self {
         // Pre-populate display_order from config so rendering works before first refresh.
-        let display_order = config
-            .repositories
-            .iter()
-            .map(|r| r.path.clone())
-            .collect();
+        let display_order = config.repositories.iter().map(|r| r.path.clone()).collect();
         Self {
             config,
             git_status,
@@ -81,10 +77,7 @@ impl<G: GitStatus> RepoRegistry for WorkspaceRegistry<G> {
     }
 
     fn get_display_meta(&self, repo_path: &RepoPath) -> EntryDisplayMeta {
-        self.entry_meta
-            .get(repo_path)
-            .cloned()
-            .unwrap_or_default()
+        self.entry_meta.get(repo_path).cloned().unwrap_or_default()
     }
 
     fn refresh_all(&mut self) -> Result<RefreshStats> {
@@ -132,9 +125,7 @@ impl<G: GitStatus> RepoRegistry for WorkspaceRegistry<G> {
             let graft_yaml_path = repo_path.as_path().join("graft.yaml");
             let dep_names = std::fs::read_to_string(&graft_yaml_path)
                 .ok()
-                .and_then(|content| {
-                    graft_common::parse_dependency_names_from_str(&content).ok()
-                })
+                .and_then(|content| graft_common::parse_dependency_names_from_str(&content).ok())
                 .unwrap_or_default();
 
             if dep_names.is_empty() {
@@ -170,11 +161,9 @@ impl<G: GitStatus> RepoRegistry for WorkspaceRegistry<G> {
                 };
 
                 // Compute lock staleness using dep_repo_path (consistently tilde-expanded).
-                let ahead_of_lock = locked_commits
-                    .get(dep_name)
-                    .and_then(|commit| {
-                        count_commits_ahead_of_lock(dep_repo_path.as_path(), commit)
-                    });
+                let ahead_of_lock = locked_commits.get(dep_name).and_then(|commit| {
+                    count_commits_ahead_of_lock(dep_repo_path.as_path(), commit)
+                });
 
                 self.status_cache.insert(dep_repo_path.clone(), dep_status);
                 self.entry_meta.insert(
@@ -340,7 +329,11 @@ mod tests {
         let dep_path = repo_dir.join(".graft").join("my-dep");
         let dep_path_str = dep_path.display().to_string();
         assert!(
-            repos[1].as_path().display().to_string().contains(&dep_path_str)
+            repos[1]
+                .as_path()
+                .display()
+                .to_string()
+                .contains(&dep_path_str)
                 || repos[1].as_path() == dep_path.as_path(),
             "Second entry should be the dep path"
         );

@@ -57,3 +57,6 @@ jq -n \
   --arg tests "$test_output" \
   --arg smoke "$smoke_output" \
   '{format: $format, lint: $lint, tests: $tests, smoke: $smoke}'
+
+overall_exit=$(( fmt_exit | lint_exit | test_exit | smoke_exit ))
+exit $overall_exit

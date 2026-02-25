@@ -1712,26 +1712,6 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
     let config =
         parse_graft_yaml(&graft_yaml_path).context("Failed to parse current repo graft.yaml")?;
 
-    // Check if command exists
-    let Some(cmd) = config.commands.get(command_name) else {
-        eprintln!(
-            "Error: Command '{command_name}' not found in {}",
-            graft_yaml_path.display()
-        );
-
-        if config.commands.is_empty() {
-            eprintln!("  No commands defined in graft.yaml");
-        } else {
-            eprintln!("\nAvailable commands:");
-            for (name, command) in &config.commands {
-                let desc = command.description.as_deref().unwrap_or("");
-                eprintln!("  {name}  {desc}");
-            }
-        }
-
-        std::process::exit(1);
-    };
-
     // Determine base directory relative to graft.yaml's location
     let base_dir = graft_yaml_path.parent().unwrap_or(Path::new("."));
 
@@ -1741,6 +1721,45 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
         .ok()
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
         .unwrap_or_else(|| "unknown".to_string());
+
+    // Check if it's a sequence (checked before command lookup)
+    if config.sequences.contains_key(command_name) {
+        let cmd_ctx = graft_engine::CommandContext::local(base_dir, &repo_name, &repo_name, false);
+        let exit_code = graft_engine::execute_sequence(&config, command_name, &cmd_ctx, args)?;
+        if exit_code != 0 {
+            std::process::exit(exit_code);
+        }
+        return Ok(());
+    }
+
+    // Check if command exists
+    let Some(cmd) = config.commands.get(command_name) else {
+        eprintln!(
+            "Error: Command '{command_name}' not found in {}",
+            graft_yaml_path.display()
+        );
+
+        if config.commands.is_empty() && config.sequences.is_empty() {
+            eprintln!("  No commands or sequences defined in graft.yaml");
+        } else {
+            if !config.commands.is_empty() {
+                eprintln!("\nAvailable commands:");
+                for (name, command) in &config.commands {
+                    let desc = command.description.as_deref().unwrap_or("");
+                    eprintln!("  {name}  {desc}");
+                }
+            }
+            if !config.sequences.is_empty() {
+                eprintln!("\nAvailable sequences:");
+                for (name, seq) in &config.sequences {
+                    let desc = seq.description.as_deref().unwrap_or("");
+                    eprintln!("  {name}  {desc}");
+                }
+            }
+        }
+
+        std::process::exit(1);
+    };
 
     let cmd_ctx = graft_engine::CommandContext::local(base_dir, &repo_name, &repo_name, false);
 
@@ -1905,26 +1924,48 @@ fn run_dependency_command(
     let config = parse_graft_yaml(&dep_yaml_path)
         .with_context(|| format!("Failed to parse {}", dep_yaml_path.display()))?;
 
-    // Check if command exists
-    let Some(cmd) = config.commands.get(command_name) else {
-        eprintln!("Error: Command '{command_name}' not found in {dep_name}/graft.yaml");
-
-        if config.commands.is_empty() {
-            eprintln!("  No commands defined in {dep_name}/graft.yaml");
-        } else {
-            let available: Vec<&str> = config.commands.keys().map(String::as_str).collect();
-            eprintln!("  Available commands: {}", available.join(", "));
-        }
-
-        std::process::exit(1);
-    };
-
     // Determine repo name for state caching
     let repo_name = consumer_dir
         .canonicalize()
         .ok()
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
         .unwrap_or_else(|| "unknown".to_string());
+
+    // Check if it's a sequence
+    if config.sequences.contains_key(command_name) {
+        let cmd_ctx = graft_engine::CommandContext::dependency(
+            &dep_dir,
+            &consumer_dir,
+            &repo_name,
+            &repo_name,
+            false,
+        );
+        let exit_code = graft_engine::execute_sequence(&config, command_name, &cmd_ctx, args)?;
+        if exit_code != 0 {
+            std::process::exit(exit_code);
+        }
+        return Ok(());
+    }
+
+    // Check if command exists
+    let Some(cmd) = config.commands.get(command_name) else {
+        eprintln!("Error: Command '{command_name}' not found in {dep_name}/graft.yaml");
+
+        if config.commands.is_empty() && config.sequences.is_empty() {
+            eprintln!("  No commands or sequences defined in {dep_name}/graft.yaml");
+        } else {
+            let available: Vec<&str> = config.commands.keys().map(String::as_str).collect();
+            if !available.is_empty() {
+                eprintln!("  Available commands: {}", available.join(", "));
+            }
+            let seq_names: Vec<&str> = config.sequences.keys().map(String::as_str).collect();
+            if !seq_names.is_empty() {
+                eprintln!("  Available sequences: {}", seq_names.join(", "));
+            }
+        }
+
+        std::process::exit(1);
+    };
 
     // Build dependency command context: source_dir = dep dir, consumer_dir = repo root
     let cmd_ctx = graft_engine::CommandContext::dependency(

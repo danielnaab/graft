@@ -13,7 +13,7 @@ pub mod traits;
 pub use domain::{
     ArgDef, ArgType, Command, CommandState, CommitInfo, EntryDisplayMeta, FileChange,
     FileChangeStatus, GraftYaml, RefreshStats, RepoDetail, RepoPath, RepoStatus,
-    RepositoryDeclaration, WorkspaceConfig, WorkspaceName,
+    RepositoryDeclaration, Sequence, WorkspaceConfig, WorkspaceName,
 };
 pub use error::{CoreError, Result};
 pub use traits::{ConfigLoader, GitStatus, GraftYamlLoader, RepoDetailProvider, RepoRegistry};

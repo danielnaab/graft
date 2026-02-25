@@ -309,6 +309,192 @@ fn parse_string_list_field(config: &Value, field: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Retry configuration for a sequence step failure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OnStepFail {
+    /// The step name that triggers retry behavior on failure.
+    pub step: String,
+    /// Command to run as recovery before retrying the failed step.
+    pub recovery: String,
+    /// Maximum number of retry attempts after the initial failure (default 3).
+    /// `max: 3` means 1 initial run + 3 retries = 4 total step executions.
+    #[serde(default = "default_max_retries")]
+    pub max: u32,
+}
+
+fn default_max_retries() -> u32 {
+    3
+}
+
+/// A sequence definition from graft.yaml.
+///
+/// A sequence declares an ordered list of command references (steps) and optional
+/// args that are passed through to every step using "pass-all" semantics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SequenceDef {
+    /// Ordered list of command names to execute.
+    pub steps: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Args declared on the sequence, passed to every step.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<ArgDef>,
+    /// Optional retry configuration for a named step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_step_fail: Option<OnStepFail>,
+    /// When true, writes checkpoint.json after all steps succeed for human review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint: Option<bool>,
+}
+
+/// Parse sequences section from a graft.yaml content string.
+///
+/// Returns a `HashMap` of sequence name to sequence definition.
+/// Returns an empty `HashMap` if the content is empty or has no sequences section.
+pub fn parse_sequences_from_str(content: &str) -> Result<HashMap<String, SequenceDef>, String> {
+    if content.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let yaml: Value =
+        serde_yaml::from_str(content).map_err(|e| format!("Failed to parse graft.yaml: {e}"))?;
+
+    let mut sequences = HashMap::new();
+
+    if let Some(sequences_section) = yaml.get("sequences") {
+        if let Some(sequences_map) = sequences_section.as_mapping() {
+            for (name, config) in sequences_map {
+                if let Some(name_str) = name.as_str() {
+                    match parse_sequence(name_str, config) {
+                        Ok(seq) => {
+                            sequences.insert(name_str.to_string(), seq);
+                        }
+                        Err(e) => {
+                            eprintln!("Warning: Failed to parse sequence '{name_str}': {e}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(sequences)
+}
+
+/// Parse a single sequence definition from YAML config.
+#[allow(clippy::too_many_lines)]
+fn parse_sequence(name: &str, config: &Value) -> Result<SequenceDef, String> {
+    let steps = config
+        .get("steps")
+        .and_then(|v| v.as_sequence())
+        .map(|seq| {
+            seq.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .ok_or_else(|| format!("Sequence '{name}' missing 'steps' field"))?;
+
+    if steps.is_empty() {
+        return Err(format!("Sequence '{name}' must have at least one step"));
+    }
+
+    let description = config
+        .get("description")
+        .and_then(|d| d.as_str())
+        .map(std::string::ToString::to_string);
+
+    // Reuse the same args parsing as parse_command
+    let args = config
+        .get("args")
+        .and_then(|a| a.as_sequence())
+        .map(|args_seq| {
+            let mut parsed_args = Vec::new();
+            let mut seen_names = std::collections::HashSet::new();
+            for (i, arg_val) in args_seq.iter().enumerate() {
+                match serde_yaml::from_value::<ArgDef>(arg_val.clone()) {
+                    Ok(arg_def) => {
+                        if arg_def.arg_type == ArgType::Choice {
+                            let has_options = arg_def
+                                .options
+                                .as_ref()
+                                .is_some_and(|opts| !opts.is_empty());
+                            let has_options_from = arg_def.options_from.is_some();
+                            if !has_options && !has_options_from {
+                                eprintln!(
+                                    "Warning: Choice arg '{}' in sequence '{name}' has no options or options_from, skipping",
+                                    arg_def.name
+                                );
+                                continue;
+                            }
+                        }
+                        if arg_def.arg_type == ArgType::Flag && arg_def.positional {
+                            eprintln!(
+                                "Warning: Flag arg '{}' in sequence '{name}' cannot be positional, skipping",
+                                arg_def.name
+                            );
+                            continue;
+                        }
+                        if !seen_names.insert(arg_def.name.clone()) {
+                            eprintln!(
+                                "Warning: Duplicate arg name '{}' in sequence '{name}', skipping",
+                                arg_def.name
+                            );
+                            continue;
+                        }
+                        parsed_args.push(arg_def);
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: Failed to parse arg {i} in sequence '{name}': {e}");
+                    }
+                }
+            }
+            parsed_args
+        })
+        .unwrap_or_default();
+
+    // Parse on_step_fail (optional)
+    let on_step_fail = if let Some(osf_value) = config.get("on_step_fail") {
+        let osf_step = osf_value
+            .get("step")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| format!("Sequence '{name}' on_step_fail missing 'step' field"))?
+            .to_string();
+
+        let osf_recovery = osf_value
+            .get("recovery")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| format!("Sequence '{name}' on_step_fail missing 'recovery' field"))?
+            .to_string();
+
+        let osf_max = osf_value
+            .get("max")
+            .and_then(serde_yaml::Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok())
+            .unwrap_or_else(default_max_retries);
+
+        Some(OnStepFail {
+            step: osf_step,
+            recovery: osf_recovery,
+            max: osf_max,
+        })
+    } else {
+        None
+    };
+
+    // Parse checkpoint (optional)
+    let checkpoint = config
+        .get("checkpoint")
+        .and_then(serde_yaml::Value::as_bool);
+
+    Ok(SequenceDef {
+        steps,
+        description,
+        args,
+        on_step_fail,
+        checkpoint,
+    })
+}
+
 /// Parse dependency names from graft.yaml.
 ///
 /// Returns the keys from the `dependencies` (or `deps`) section.
@@ -918,6 +1104,50 @@ dependencies:
 
         let names = parse_dependency_names(temp_file.path()).unwrap();
         assert_eq!(names, vec!["alpha", "middle", "zebra"]);
+    }
+
+    #[test]
+    fn parse_sequences_from_yaml() {
+        let yaml_content = r#"
+sequences:
+  implement-verified:
+    description: "Implement and verify"
+    steps:
+      - implement
+      - verify
+    args:
+      - name: slice
+        type: choice
+        description: "Slice to implement"
+        required: true
+        positional: true
+        options_from: slices
+"#;
+        let sequences = parse_sequences_from_str(yaml_content).unwrap();
+        assert_eq!(sequences.len(), 1);
+        let seq = sequences.get("implement-verified").unwrap();
+        assert_eq!(seq.steps, vec!["implement", "verify"]);
+        assert_eq!(seq.description.as_deref(), Some("Implement and verify"));
+        assert_eq!(seq.args.len(), 1);
+        assert_eq!(seq.args[0].name, "slice");
+    }
+
+    #[test]
+    fn parse_sequences_empty_returns_empty() {
+        let sequences = parse_sequences_from_str("").unwrap();
+        assert!(sequences.is_empty());
+    }
+
+    #[test]
+    fn parse_sequences_no_section_returns_empty() {
+        let yaml_content = r#"
+apiVersion: graft/v0
+commands:
+  test:
+    run: "cargo test"
+"#;
+        let sequences = parse_sequences_from_str(yaml_content).unwrap();
+        assert!(sequences.is_empty());
     }
 
     // ── stdin and context parsing tests ──────────────────────────────────────

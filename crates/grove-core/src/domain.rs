@@ -278,13 +278,25 @@ pub struct Command {
     pub reads: Vec<String>,
 }
 
-/// Minimal graft.yaml representation (commands + dependency names).
+/// A sequence definition from graft.yaml (display-only).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sequence {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub args: Option<Vec<ArgDef>>,
+}
+
+/// Minimal graft.yaml representation (commands + dependency names + sequences).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraftYaml {
     #[serde(default)]
     pub commands: std::collections::HashMap<String, Command>,
     #[serde(default)]
     pub dependency_names: Vec<String>,
+    #[serde(default)]
+    pub sequences: Vec<Sequence>,
 }
 
 /// State of a running command

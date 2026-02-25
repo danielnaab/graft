@@ -180,6 +180,7 @@ mod tests {
             changes: HashMap::new(),
             commands: HashMap::new(),
             state: HashMap::new(),
+            sequences: HashMap::new(),
         };
 
         let errors = validate_config_schema(&config);
@@ -210,6 +211,7 @@ mod tests {
             changes: HashMap::new(),
             commands: HashMap::new(),
             state: HashMap::new(),
+            sequences: HashMap::new(),
         };
 
         let errors = validate_config_schema(&config);

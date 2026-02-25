@@ -654,6 +654,8 @@ pub struct GraftConfig {
     pub commands: HashMap<String, Command>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub state: HashMap<String, StateQuery>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub sequences: HashMap<String, graft_common::SequenceDef>,
 }
 
 impl GraftConfig {
@@ -678,6 +680,7 @@ impl GraftConfig {
             changes: HashMap::new(),
             commands: HashMap::new(),
             state: HashMap::new(),
+            sequences: HashMap::new(),
         })
     }
 
@@ -708,6 +711,12 @@ impl GraftConfig {
     #[must_use]
     pub fn add_state_query(mut self, name: String, query: StateQuery) -> Self {
         self.state.insert(name, query);
+        self
+    }
+
+    #[must_use]
+    pub fn add_sequence(mut self, name: String, sequence: graft_common::SequenceDef) -> Self {
+        self.sequences.insert(name, sequence);
         self
     }
 

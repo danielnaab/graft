@@ -346,6 +346,7 @@ mod change_tests {
             changes,
             commands,
             state: HashMap::new(),
+            sequences: HashMap::new(),
         }
     }
 

@@ -81,6 +81,7 @@ fn write_run_completion_meta(
 /// stderr interleaved), then `Completed(exit_code)`.
 /// On failure (command not found, spawn error): emits `Failed(message)`.
 #[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_lines)]
 pub fn spawn_command(
     command_name: String,
     args: Vec<String>,
@@ -88,6 +89,50 @@ pub fn spawn_command(
     run_ctx: Option<RunContext>,
     tx: Sender<CommandEvent>,
 ) {
+    // Detect sequence dispatch: names prefixed with "» " are sequences.
+    // Strip the prefix and run via `graft run <seq_name>` in the consumer directory.
+    if let Some(seq_name) = command_name.strip_prefix("» ") {
+        let consumer_dir = PathBuf::from(&repo_path);
+
+        let logging = prepare_run_logging(run_ctx.as_ref());
+
+        let run_state_dir = consumer_dir.join(".graft").join("run-state");
+        let _ = std::fs::create_dir_all(&run_state_dir);
+
+        let mut full_parts = vec!["graft".to_string(), "run".to_string(), seq_name.to_string()];
+        full_parts.extend(args);
+        let shell_cmd = full_parts.join(" ");
+
+        let config = ProcessConfig {
+            command: shell_cmd.clone(),
+            working_dir: consumer_dir.clone(),
+            env: {
+                let mut env_map = std::collections::HashMap::new();
+                env_map.insert(
+                    "GRAFT_STATE_DIR".to_string(),
+                    run_state_dir.to_string_lossy().to_string(),
+                );
+                Some(env_map)
+            },
+            log_path: logging.as_ref().map(|l| l.log_path.clone()),
+            timeout: None,
+            stdin: None,
+        };
+
+        let (_handle, rx) = match ProcessHandle::spawn(&config) {
+            Ok(pair) => pair,
+            Err(e) => {
+                let _ = tx.send(CommandEvent::Failed(format!(
+                    "Failed to spawn sequence process: {e}"
+                )));
+                return;
+            }
+        };
+
+        bridge_events(rx, tx, logging.as_ref(), &[], &shell_cmd);
+        return;
+    }
+
     // Parse qualified command name (dep:cmd vs local)
     // For dep commands: scripts/templates live in source_dir (.graft/<dep>/),
     // but commands execute in consumer_dir (the repo root).
@@ -348,6 +393,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     /// command directly to `spawn_command_assembled`, skipping arg splitting.
     /// The `working_dir` and `env` from the original command definition are forwarded.
     ///
+    /// For sequence commands (prefixed with "» "), builds and executes a
+    /// `graft run <seq_name> <args>` command instead.
+    ///
     /// For both local and dependency commands, the base directory is the consumer's
     /// repo root (commands always execute in the consumer's context).
     pub(super) fn execute_command_assembled(
@@ -360,6 +408,39 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         let Some(repo_path) = &self.selected_repo_for_commands else {
             return;
         };
+
+        // Detect sequence dispatch: names prefixed with "» " are sequences.
+        // Re-route to spawn_command which handles "» " prefixed names.
+        if command_name.starts_with("» ") {
+            let run_ctx = self.build_run_context(repo_path, &command_name);
+            let (tx, rx) = mpsc::channel();
+            self.command_event_rx = Some(rx);
+            self.command_name = Some(command_name.clone());
+            self.command_state = CommandState::Running;
+            self.output_lines.clear();
+            self.output_scroll = 0;
+            self.output_truncated_start = false;
+            self.running_command_pid = None;
+
+            // Extract any assembled args from shell_cmd (everything after the
+            // run string, which is empty for sequences) — or parse args from shell_cmd
+            // by splitting on whitespace (shell_cmd contains the graft-assembled args).
+            let args: Vec<String> = if shell_cmd.is_empty() {
+                vec![]
+            } else {
+                shell_words::split(&shell_cmd)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            };
+
+            let repo_path_clone = repo_path.clone();
+            std::thread::spawn(move || {
+                spawn_command(command_name, args, repo_path_clone, run_ctx, tx);
+            });
+            return;
+        }
 
         // Always use the consumer's repo root as base directory
         let base_dir = repo_path.clone();

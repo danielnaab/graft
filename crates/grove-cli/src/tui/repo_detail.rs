@@ -758,6 +758,21 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         self.available_commands = graft_config.commands.into_iter().collect();
 
+        // Add sequences with "» " prefix to distinguish from plain commands
+        for seq in graft_config.sequences {
+            let display_name = format!("» {}", seq.name);
+            let cmd = grove_core::Command {
+                run: String::new(), // Not used directly; dispatch strips prefix
+                description: seq.description,
+                working_dir: None,
+                env: None,
+                args: seq.args,
+                writes: vec![],
+                reads: vec![],
+            };
+            self.available_commands.push((display_name, cmd));
+        }
+
         // Load commands from dependencies (qualified as dep:cmd)
         for dep_name in &graft_config.dependency_names {
             let dep_graft_path = format!("{repo_path}/.graft/{dep_name}/graft.yaml");
@@ -765,6 +780,20 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 for (cmd_name, cmd) in dep_config.commands {
                     let qualified = format!("{dep_name}:{cmd_name}");
                     self.available_commands.push((qualified, cmd));
+                }
+                // Add dep sequences with "» dep_name:seq_name" display
+                for seq in dep_config.sequences {
+                    let display_name = format!("» {dep_name}:{}", seq.name);
+                    let cmd = grove_core::Command {
+                        run: String::new(), // Not used directly; dispatch strips prefix
+                        description: seq.description,
+                        working_dir: None,
+                        env: None,
+                        args: seq.args,
+                        writes: vec![],
+                        reads: vec![],
+                    };
+                    self.available_commands.push((display_name, cmd));
                 }
             }
         }

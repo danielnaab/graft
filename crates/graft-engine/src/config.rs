@@ -462,6 +462,50 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
         }
     }
 
+    // Parse sequences (optional) using graft_common parser, then validate steps exist
+    {
+        let parsed_seqs = graft_common::parse_sequences_from_str(content).map_err(|e| {
+            GraftError::ConfigParse {
+                path: path.to_string(),
+                reason: format!("failed to parse sequences: {e}"),
+            }
+        })?;
+
+        for (seq_name, seq_def) in parsed_seqs {
+            // Validate that all referenced steps exist as commands
+            for step in &seq_def.steps {
+                if !config.commands.contains_key(step.as_str()) {
+                    return Err(GraftError::ConfigValidation {
+                        path: path.to_string(),
+                        field: format!("sequences.{seq_name}.steps"),
+                        reason: format!("step '{step}' not found in commands section"),
+                    });
+                }
+            }
+            // Validate on_step_fail references
+            if let Some(ref osf) = seq_def.on_step_fail {
+                if !seq_def.steps.contains(&osf.step) {
+                    return Err(GraftError::ConfigValidation {
+                        path: path.to_string(),
+                        field: format!("sequences.{seq_name}.on_step_fail.step"),
+                        reason: format!("step '{}' not found in sequence's steps list", osf.step),
+                    });
+                }
+                if !config.commands.contains_key(osf.recovery.as_str()) {
+                    return Err(GraftError::ConfigValidation {
+                        path: path.to_string(),
+                        field: format!("sequences.{seq_name}.on_step_fail.recovery"),
+                        reason: format!(
+                            "recovery command '{}' not found in commands section",
+                            osf.recovery
+                        ),
+                    });
+                }
+            }
+            config.sequences.insert(seq_name, seq_def);
+        }
+    }
+
     // Validate configuration
     config.validate()?;
 
@@ -805,6 +849,140 @@ state:
             Some(StdinSource::Literal("literal text".to_string()))
         );
         assert_eq!(cmd.context, vec!["coverage".to_string()]);
+    }
+
+    #[test]
+    fn parses_sequences() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  implement:
+    run: "bash scripts/implement.sh {slice}"
+  verify:
+    run: "bash scripts/verify.sh"
+sequences:
+  implement-verified:
+    description: "Implement and verify"
+    steps:
+      - implement
+      - verify
+    args:
+      - name: slice
+        type: choice
+        description: "Slice to implement"
+        required: true
+        positional: true
+        options_from: slices
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        assert_eq!(config.sequences.len(), 1);
+        let seq = config.sequences.get("implement-verified").unwrap();
+        assert_eq!(seq.steps, vec!["implement", "verify"]);
+        assert_eq!(seq.description.as_deref(), Some("Implement and verify"));
+        assert_eq!(seq.args.len(), 1);
+    }
+
+    #[test]
+    fn sequence_with_missing_step_command_fails() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  implement:
+    run: "bash scripts/implement.sh"
+sequences:
+  test-seq:
+    steps:
+      - implement
+      - nonexistent
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("nonexistent"),
+            "Error should mention the missing step: {err}"
+        );
+    }
+
+    #[test]
+    fn sequence_with_on_step_fail_parses_correctly() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  implement:
+    run: "bash scripts/implement.sh {slice}"
+  verify:
+    run: "bash scripts/verify.sh"
+  resume:
+    run: "bash scripts/resume.sh {slice}"
+    reads:
+      - session
+sequences:
+  implement-verified:
+    steps:
+      - implement
+      - verify
+    on_step_fail:
+      step: verify
+      recovery: resume
+      max: 3
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let seq = config.sequences.get("implement-verified").unwrap();
+        let osf = seq.on_step_fail.as_ref().unwrap();
+        assert_eq!(osf.step, "verify");
+        assert_eq!(osf.recovery, "resume");
+        assert_eq!(osf.max, 3);
+    }
+
+    #[test]
+    fn sequence_on_step_fail_with_invalid_step_fails() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  implement:
+    run: "bash scripts/implement.sh"
+  recovery:
+    run: "echo recovery"
+sequences:
+  test-seq:
+    steps:
+      - implement
+    on_step_fail:
+      step: nonexistent-step
+      recovery: recovery
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("nonexistent-step"),
+            "Error should mention the invalid step: {err}"
+        );
+    }
+
+    #[test]
+    fn sequence_on_step_fail_with_missing_recovery_command_fails() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  implement:
+    run: "bash scripts/implement.sh"
+sequences:
+  test-seq:
+    steps:
+      - implement
+    on_step_fail:
+      step: implement
+      recovery: nonexistent-recovery
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("nonexistent-recovery"),
+            "Error should mention the missing recovery command: {err}"
+        );
     }
 
     #[test]
