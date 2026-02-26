@@ -179,11 +179,22 @@ pub fn spawn_command(
     // Resolve script paths: rewrite relative paths to absolute in source_dir
     let resolved_run = graft_engine::resolve_script_in_command(&cmd_def.run, &source_dir);
 
-    // Build shell command: `run [args...]`
+    // Build shell command: substitute named {placeholder} tokens with shell-quoted arg
+    // values; fall back to appending shell-quoted args when no placeholders are present.
     let args_clone = args.clone();
-    let mut full_parts = vec![resolved_run];
-    full_parts.extend(args);
-    let shell_cmd = full_parts.join(" ");
+    let (substituted, had_placeholders) =
+        graft_engine::substitute_placeholders(&resolved_run, &args);
+    let shell_cmd = if had_placeholders {
+        substituted
+    } else if args.is_empty() {
+        resolved_run
+    } else {
+        let quoted_args = args
+            .iter()
+            .map(|a| shell_words::quote(a).into_owned())
+            .collect::<Vec<_>>();
+        format!("{resolved_run} {}", quoted_args.join(" "))
+    };
 
     // Working directory: defaults to consumer_dir (repo root), with working_dir
     // relative to consumer_dir
@@ -730,5 +741,68 @@ commands:
             e,
             CommandEvent::OutputLine(s) if s.trim() == repo.path().to_str().unwrap()
         )));
+    }
+
+    #[test]
+    fn spawn_command_substitutes_placeholder_with_arg_value() {
+        let repo = setup_repo(
+            r#"
+commands:
+  greet:
+    run: "echo {name}"
+"#,
+        );
+
+        let events = collect_events(
+            "greet",
+            vec!["hello".to_string()],
+            repo.path().to_str().unwrap(),
+        );
+
+        // The arg value should appear in the output
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, CommandEvent::OutputLine(s) if s.contains("hello"))),
+            "arg value should be substituted into the run string"
+        );
+        // The literal placeholder must not appear
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, CommandEvent::OutputLine(s) if s.contains("{name}"))),
+            "literal placeholder must not reach the shell"
+        );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, CommandEvent::Completed(0))));
+    }
+
+    #[test]
+    fn spawn_command_substitutes_placeholder_with_spaced_arg() {
+        let repo = setup_repo(
+            r#"
+commands:
+  echo-msg:
+    run: "echo {msg}"
+"#,
+        );
+
+        let events = collect_events(
+            "echo-msg",
+            vec!["hello world".to_string()],
+            repo.path().to_str().unwrap(),
+        );
+
+        // Both words should appear (shell quoting preserved the space)
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, CommandEvent::OutputLine(s) if s.contains("hello world"))),
+            "spaced arg should be passed as a single argument via shell quoting"
+        );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, CommandEvent::Completed(0))));
     }
 }

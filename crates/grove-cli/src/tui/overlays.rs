@@ -969,12 +969,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     self.run_state_entries.clear();
                 }
                 KeyCode::Esc => {
-                    // Reject without feedback.
-                    let reject_cmd = self.approval_overlay.as_ref().unwrap().reject_cmd.clone();
-                    self.approval_overlay = None;
-                    self.push_view(super::View::CommandOutput);
-                    self.execute_command_with_args(reject_cmd, vec![]);
-                    self.run_state_entries.clear();
+                    // Cancel feedback input; return to normal overlay mode.
+                    if let Some(state) = &mut self.approval_overlay {
+                        state.feedback_input = None;
+                    }
                 }
                 _ => {
                     // Forward keystrokes to the feedback text buffer.

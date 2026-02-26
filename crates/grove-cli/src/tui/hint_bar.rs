@@ -13,7 +13,21 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
     #[allow(clippy::too_many_lines)]
     pub(super) fn current_hints(&self) -> Vec<KeyHint> {
         // Approval overlay — show its hints regardless of view stack.
-        if self.approval_overlay.is_some() {
+        if let Some(overlay) = &self.approval_overlay {
+            // In feedback-input mode the a/r keys type into the text buffer;
+            // show hints that match what the keys actually do.
+            if overlay.feedback_input.is_some() {
+                return vec![
+                    KeyHint {
+                        key: "Enter",
+                        action: "confirm rejection",
+                    },
+                    KeyHint {
+                        key: "Esc",
+                        action: "cancel feedback",
+                    },
+                ];
+            }
             return vec![
                 KeyHint {
                     key: "a",

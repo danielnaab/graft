@@ -97,7 +97,7 @@ pub fn execute_sequence(
 
     // Write checkpoint.json if checkpoint: true is set on this sequence
     if seq_def.checkpoint == Some(true) {
-        write_checkpoint_json(&run_state_dir, sequence_name, args)?;
+        write_checkpoint_json(&run_state_dir, sequence_name, args, &seq_def.args)?;
     }
 
     eprintln!("\n✓ Sequence '{sequence_name}' completed successfully");
@@ -108,23 +108,33 @@ pub fn execute_sequence(
 ///
 /// The checkpoint file signals that the sequence is awaiting review before proceeding.
 /// Format: `{"phase": "awaiting-review", "sequence": "...", "args": {...}, "message": "...", "created_at": "..."}`
+///
+/// `arg_schema` is the sequence's declared `args:` list; it is used to give each
+/// positional arg its declared name instead of a numeric index (e.g. `"slice"`
+/// rather than `"0"`). Any args beyond the schema length fall back to their index.
 pub fn write_checkpoint_json(
     run_state_dir: &std::path::Path,
     sequence: &str,
     args: &[String],
+    arg_schema: &[graft_common::ArgDef],
 ) -> Result<()> {
     let checkpoint_file = run_state_dir.join("checkpoint.json");
     let tmp_file = run_state_dir.join("checkpoint.json.tmp");
 
     let created_at = chrono::Utc::now().to_rfc3339();
 
-    // Build args object from positional args (key=value pairs or positional indices)
+    // Build args object: use declared arg name from schema when available,
+    // otherwise fall back to the positional index as a string key.
     let mut args_map = serde_json::Map::new();
     for (i, arg) in args.iter().enumerate() {
-        if let Some((k, v)) = arg.split_once('=') {
-            args_map.insert(k.to_string(), serde_json::json!(v));
-        } else {
+        let key = arg_schema
+            .get(i)
+            .map(|a| a.name.as_str())
+            .unwrap_or_default();
+        if key.is_empty() {
             args_map.insert(i.to_string(), serde_json::json!(arg));
+        } else {
+            args_map.insert(key.to_string(), serde_json::json!(arg));
         }
     }
 
@@ -352,8 +362,10 @@ fn execute_step_with_retry(
 /// `reason` is the message fragment after `"condition not met: "`.
 ///
 /// The reason format is `"<state>.<field>"` for operator mismatch,
-/// `"<state>.<field> — state file missing"` when the file is absent, and
-/// `"<state>.<field> — field missing"` when the JSON field is not present.
+/// `"<state>.<field> — state file missing"` when the file is absent,
+/// `"<state>.<field> — field missing"` when the JSON field is not present, and
+/// `"<state>.<field> — field is not a string"` when the field exists but has
+/// a non-string type (boolean, number, array, object).
 fn evaluate_when_condition(
     condition: &graft_common::WhenCondition,
     run_state_dir: &std::path::Path,
@@ -369,12 +381,12 @@ fn evaluate_when_condition(
         return Some(format!("{reference} — state file not valid JSON"));
     };
 
-    let Some(value) = parsed
-        .get(&condition.field)
-        .and_then(|v| v.as_str())
-        .map(String::from)
-    else {
+    let Some(raw_value) = parsed.get(&condition.field) else {
         return Some(format!("{reference} — field missing"));
+    };
+    let value = match raw_value.as_str() {
+        None => return Some(format!("{reference} — field is not a string")),
+        Some(s) => s.to_string(),
     };
 
     let passes = if let Some(eq) = &condition.equals {
@@ -764,6 +776,104 @@ mod tests {
         assert_eq!(parsed["sequence"], "checkpoint-seq");
         assert!(parsed["created_at"].is_string());
         assert!(parsed["message"].is_string());
+    }
+
+    #[test]
+    fn checkpoint_args_use_schema_names_when_declared() {
+        let tmp = TempDir::new().unwrap();
+
+        let mut config = make_echo_config(&[("echo-step", "echo hello")]);
+
+        let seq = graft_common::SequenceDef {
+            steps: vec![graft_common::StepDef::simple("echo-step")],
+            description: None,
+            category: None,
+            example: None,
+            args: vec![graft_common::ArgDef {
+                name: "slice".to_string(),
+                arg_type: graft_common::ArgType::String,
+                description: None,
+                required: false,
+                default: None,
+                options: None,
+                options_from: None,
+                positional: true,
+            }],
+            on_step_fail: None,
+            checkpoint: Some(true),
+        };
+        config.sequences.insert("named-args-seq".to_string(), seq);
+
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(
+            &config,
+            "named-args-seq",
+            &ctx,
+            &["slices/my-feature".to_string()],
+        )
+        .unwrap();
+        assert_eq!(exit_code, 0);
+
+        let checkpoint_file = tmp
+            .path()
+            .join(".graft")
+            .join("run-state")
+            .join("checkpoint.json");
+        let content = std::fs::read_to_string(&checkpoint_file).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        // The arg should be keyed by its declared name, not "0"
+        assert_eq!(
+            parsed["args"]["slice"], "slices/my-feature",
+            "arg should use schema name 'slice', not positional index '0'"
+        );
+        assert!(
+            parsed["args"]["0"].is_null(),
+            "numeric key '0' must not appear when schema name is known"
+        );
+    }
+
+    #[test]
+    fn checkpoint_args_fall_back_to_index_when_no_schema() {
+        let tmp = TempDir::new().unwrap();
+
+        let mut config = make_echo_config(&[("echo-step", "echo hello")]);
+
+        // No args schema declared
+        let seq = graft_common::SequenceDef {
+            steps: vec![graft_common::StepDef::simple("echo-step")],
+            description: None,
+            category: None,
+            example: None,
+            args: vec![],
+            on_step_fail: None,
+            checkpoint: Some(true),
+        };
+        config.sequences.insert("no-schema-seq".to_string(), seq);
+
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(
+            &config,
+            "no-schema-seq",
+            &ctx,
+            &["slices/my-feature".to_string()],
+        )
+        .unwrap();
+        assert_eq!(exit_code, 0);
+
+        let checkpoint_file = tmp
+            .path()
+            .join(".graft")
+            .join("run-state")
+            .join("checkpoint.json");
+        let content = std::fs::read_to_string(&checkpoint_file).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        // Falls back to numeric key
+        assert_eq!(
+            parsed["args"]["0"], "slices/my-feature",
+            "should use numeric key when no schema is present"
+        );
     }
 
     #[test]
@@ -1546,6 +1656,53 @@ mod tests {
         assert!(
             result.unwrap().contains("field missing"),
             "reason should mention missing field"
+        );
+    }
+
+    #[test]
+    fn evaluate_condition_non_string_field_returns_specific_error() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join("run-state");
+        // Field exists but is a boolean, not a string
+        write_run_state_json(
+            &run_state_dir,
+            "verify",
+            serde_json::json!({"passed": true, "count": 42}),
+        );
+
+        let bool_cond = graft_common::WhenCondition {
+            state: "verify".to_string(),
+            field: "passed".to_string(),
+            equals: Some("true".to_string()),
+            not_equals: None,
+            starts_with: None,
+            not_starts_with: None,
+        };
+        let result = evaluate_when_condition(&bool_cond, &run_state_dir);
+        assert!(result.is_some(), "non-string field should cause a skip");
+        let reason = result.unwrap();
+        assert!(
+            reason.contains("not a string"),
+            "reason should say 'not a string', got: {reason}"
+        );
+        assert!(
+            !reason.contains("field missing"),
+            "reason must not say 'field missing' when the field exists, got: {reason}"
+        );
+
+        let num_cond = graft_common::WhenCondition {
+            state: "verify".to_string(),
+            field: "count".to_string(),
+            equals: Some("42".to_string()),
+            not_equals: None,
+            starts_with: None,
+            not_starts_with: None,
+        };
+        let result = evaluate_when_condition(&num_cond, &run_state_dir);
+        assert!(result.is_some(), "numeric field should also cause a skip");
+        assert!(
+            result.unwrap().contains("not a string"),
+            "numeric field should report 'not a string'"
         );
     }
 }

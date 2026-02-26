@@ -775,26 +775,13 @@ impl GraftConfig {
         }
 
         // Validate the dependency graph: duplicate producers are a hard error.
-        let graph = crate::dependency_graph::DependencyGraph::from_config(self).map_err(|e| {
+        let _graph = crate::dependency_graph::DependencyGraph::from_config(self).map_err(|e| {
             GraftError::ConfigValidation {
                 path: "graft.yaml".to_string(),
                 field: "commands".to_string(),
                 reason: e,
             }
         })?;
-
-        // Warn about reads with no known producer (state may be produced outside graft).
-        for command in self.commands.values() {
-            for reads_name in &command.reads {
-                if graph.producer(reads_name).is_none() {
-                    eprintln!(
-                        "Warning: command '{}' reads state '{}' which has no known \
-                         producer in this config",
-                        command.name, reads_name
-                    );
-                }
-            }
-        }
 
         Ok(())
     }

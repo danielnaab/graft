@@ -5987,13 +5987,14 @@ fn approval_feedback_enter_rejects_with_feedback_and_clears_overlay() {
 }
 
 #[test]
-fn approval_feedback_esc_rejects_without_feedback_and_clears_overlay() {
+fn approval_feedback_esc_cancels_feedback_input_and_returns_to_overlay_mode() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::empty(),
         "test-workspace".to_string(),
     );
     app.run_state_entries = vec![make_pending_checkpoint_entry()];
+    let initial_view = app.current_view().clone();
     // Simulate state after 'r' was pressed: feedback_input is set on approval_overlay
     app.approval_overlay = Some(ApprovalOverlayState {
         sequence: "implement-verified".to_string(),
@@ -6005,18 +6006,27 @@ fn approval_feedback_esc_rejects_without_feedback_and_clears_overlay() {
 
     app.handle_key_approval_overlay(KeyCode::Esc, KeyModifiers::NONE);
 
+    // Esc should cancel feedback input and return to normal overlay mode (no reject).
     assert!(
-        app.approval_overlay.is_none(),
-        "Esc in feedback mode should clear the approval overlay (reject without feedback)"
+        app.approval_overlay.is_some(),
+        "Esc in feedback mode should keep the approval overlay open"
+    );
+    assert!(
+        app.approval_overlay
+            .as_ref()
+            .unwrap()
+            .feedback_input
+            .is_none(),
+        "Esc in feedback mode should clear feedback_input"
     );
     assert_eq!(
         *app.current_view(),
-        View::CommandOutput,
-        "Esc in feedback mode should push CommandOutput (reject executed)"
+        initial_view,
+        "Esc in feedback mode should not change the current view"
     );
     assert!(
-        app.run_state_entries.is_empty(),
-        "Esc in feedback mode should clear run_state_entries to force reload"
+        !app.run_state_entries.is_empty(),
+        "Esc in feedback mode should not clear run_state_entries"
     );
 }
 

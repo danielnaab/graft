@@ -39,7 +39,10 @@ impl DependencyGraph {
         let mut producers: HashMap<String, String> = HashMap::new();
         let mut consumers: HashMap<String, Vec<String>> = HashMap::new();
 
-        for (cmd_name, command) in &config.commands {
+        let mut sorted_commands: Vec<_> = config.commands.iter().collect();
+        sorted_commands.sort_by_key(|(name, _)| name.as_str());
+
+        for (cmd_name, command) in sorted_commands {
             for state_name in &command.writes {
                 if let Some(existing) = producers.insert(state_name.clone(), cmd_name.clone()) {
                     return Err(format!(
