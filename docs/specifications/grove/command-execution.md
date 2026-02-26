@@ -55,8 +55,9 @@ And the sequence's description (if present) is shown alongside its name
 ```gherkin
 Given a graft.yaml with both commands and sequences
 When the RepoDetail view renders the Commands section
-Then commands appear first (no prefix)
-And sequences appear after commands (with `» ` prefix)
+Then all entries are sorted alphabetically by display name
+And commands appear without a prefix
+And sequences appear with `» ` prefix (which sorts after ASCII letters, so sequences typically appear after plain-named commands)
 And both are selectable and executable via Enter
 ```
 
@@ -65,7 +66,7 @@ Given a sequence is selected and the user presses Enter
 When the argument input dialog opens
 Then the dialog title shows the sequence name (with `» ` prefix)
 And the command preview shows: graft run <sequence-name> [args]
-And on Enter, `graft run <repo>:<sequence-name> [args]` is invoked
+And on Enter, `graft run <sequence-name> [args]` is invoked
 ```
 
 ### Command Picker UI [Slice 7]
@@ -460,7 +461,7 @@ And the user can manually stop with "q" → "y"
 
 - **Output buffer**: Maximum 10,000 lines retained in memory
 - **No timeout**: Commands can run indefinitely (user can stop manually)
-- **Execution**: Uses `ProcessHandle` (graft-common) with piped stdout/stderr; runs `sh -c <run>` directly — no graft binary required in PATH
+- **Execution**: Uses `ProcessHandle` (graft-common) with piped stdout/stderr; commands run `sh -c <run>` directly — no graft binary required in PATH. Sequences are dispatched via `graft run <sequence-name>` subprocess and DO require `graft` in PATH.
 - **Working directory**: Command executed in repository root directory
 
 ## Keybindings
@@ -551,8 +552,9 @@ See [TUI Behavior](tui-behavior.md) for the full command line keybinding referen
   - Grove depends on graft-engine as a library crate (not a CLI subprocess)
   - graft.yaml is parsed via `graft_common::parse_commands()`
   - Command runs directly via `ProcessHandle::spawn()` with `sh -c <run>`
-  - graft binary no longer required in PATH at runtime
-  - Supersedes 2026-02-12 decision (subprocess via `graft run`)
+  - graft binary no longer required in PATH at runtime **for commands**
+  - Supersedes 2026-02-12 decision (subprocess via `graft run`) **for commands**
+  - Note: sequences are still dispatched via `graft run <sequence-name>` subprocess and require `graft` in PATH
 
 - **2026-02-12**: Manual stop only (no automatic timeout)
   - Long-running commands (builds, tests) should not be killed arbitrarily

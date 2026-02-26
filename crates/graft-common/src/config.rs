@@ -1233,4 +1233,41 @@ commands:
         assert_eq!(cmd.stdin, None);
         assert_eq!(cmd.context, None);
     }
+
+    #[test]
+    fn parse_sequences_on_step_fail_max_defaults_to_3() {
+        let yaml_content = r#"
+sequences:
+  ci:
+    steps:
+      - build
+      - test
+    on_step_fail:
+      step: test
+      recovery: fix
+"#;
+        let sequences = parse_sequences_from_str(yaml_content).unwrap();
+        let seq = sequences.get("ci").unwrap();
+        let osf = seq.on_step_fail.as_ref().unwrap();
+        assert_eq!(osf.max, 3, "max should default to 3 when omitted");
+    }
+
+    #[test]
+    fn parse_sequences_on_step_fail_explicit_max_overrides_default() {
+        let yaml_content = r#"
+sequences:
+  ci:
+    steps:
+      - build
+      - test
+    on_step_fail:
+      step: test
+      recovery: fix
+      max: 5
+"#;
+        let sequences = parse_sequences_from_str(yaml_content).unwrap();
+        let seq = sequences.get("ci").unwrap();
+        let osf = seq.on_step_fail.as_ref().unwrap();
+        assert_eq!(osf.max, 5);
+    }
 }

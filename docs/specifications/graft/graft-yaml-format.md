@@ -637,7 +637,7 @@ cause immediate sequence failure.
 |-------|------|----------|-------------|
 | `step` | `string` | Yes | Name of the step that triggers recovery on failure |
 | `recovery` | `string` | Yes | Command name to run before each retry |
-| `max` | `integer` | Yes | Maximum number of retry iterations (not counting the initial attempt) |
+| `max` | `integer` | No (default: 3) | Maximum number of retry iterations (not counting the initial attempt) |
 
 **Example**:
 ```yaml
@@ -973,26 +973,18 @@ def validate_graft_yaml(config: dict) -> list[str]:
             for seq_name, seq_data in config['sequences'].items():
                 if 'steps' not in seq_data or not seq_data['steps']:
                     errors.append(f"Sequence '{seq_name}': missing required 'steps' field")
-                else:
-                    # Note: step names are validated at execution time, not parse time.
-                    # This block is informational only — the runtime error is authoritative.
-                    for step in seq_data['steps']:
-                        if step not in command_keys:
-                            errors.append(
-                                f"Sequence '{seq_name}': step '{step}' not found in commands "
-                                f"(detected at parse time; runtime will also catch this)"
-                            )
+                # Note: individual step names are NOT validated at parse time.
+                # A step name that does not match any command causes an error at
+                # execution time when that step is reached.
                 if 'on_step_fail' in seq_data:
                     osf = seq_data['on_step_fail']
-                    for field in ('step', 'recovery', 'max'):
+                    for field in ('step', 'recovery'):
                         if field not in osf:
                             errors.append(
                                 f"Sequence '{seq_name}': on_step_fail missing required '{field}'"
                             )
-                    if 'max' in osf and osf['max'] < 1:
-                        errors.append(
-                            f"Sequence '{seq_name}': on_step_fail.max must be >= 1"
-                        )
+                    # max has a default of 3; specifying max: 0 is accepted and
+                    # causes the failed step to be reported immediately without any retry.
 
     # Validate dependencies section
     if 'dependencies' in config:
