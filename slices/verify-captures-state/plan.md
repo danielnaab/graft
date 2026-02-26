@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: done
 created: 2026-02-24
 ---
 
