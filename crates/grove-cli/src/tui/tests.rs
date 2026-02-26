@@ -5894,9 +5894,10 @@ fn approval_overlay_a_dismisses_overlay_and_pushes_command_output() {
         approve_cmd: "approve".to_string(),
         reject_cmd: "reject".to_string(),
         message: "Sequence complete.".to_string(),
+        feedback_input: None,
     });
 
-    app.handle_key_approval_overlay(KeyCode::Char('a'));
+    app.handle_key_approval_overlay(KeyCode::Char('a'), KeyModifiers::NONE);
 
     assert!(
         app.approval_overlay.is_none(),
@@ -5925,22 +5926,22 @@ fn approval_overlay_r_opens_feedback_input() {
         approve_cmd: "approve".to_string(),
         reject_cmd: "reject".to_string(),
         message: "Sequence complete.".to_string(),
+        feedback_input: None,
     });
 
-    app.handle_key_approval_overlay(KeyCode::Char('r'));
+    app.handle_key_approval_overlay(KeyCode::Char('r'), KeyModifiers::NONE);
 
     assert!(
         app.approval_overlay.is_some(),
         "'r' should keep the approval overlay while feedback input is open"
     );
     assert!(
-        app.argument_input.is_some(),
-        "'r' should open argument_input for rejection feedback"
-    );
-    assert_eq!(
-        app.argument_input.as_ref().unwrap().command_name,
-        "reject",
-        "argument_input should target the reject command"
+        app.approval_overlay
+            .as_ref()
+            .unwrap()
+            .feedback_input
+            .is_some(),
+        "'r' should set feedback_input on the approval overlay state"
     );
     assert_eq!(
         *app.current_view(),
@@ -5957,33 +5958,22 @@ fn approval_feedback_enter_rejects_with_feedback_and_clears_overlay() {
         "test-workspace".to_string(),
     );
     app.run_state_entries = vec![make_pending_checkpoint_entry()];
-    // Simulate state after 'r' was pressed: both overlays are set
+    // Simulate state after 'r' was pressed: feedback_input is set on approval_overlay
+    let mut fb = text_buffer::TextBuffer::new();
+    fb.set("needs more tests");
     app.approval_overlay = Some(ApprovalOverlayState {
         sequence: "implement-verified".to_string(),
         approve_cmd: "approve".to_string(),
         reject_cmd: "reject".to_string(),
         message: "Sequence complete.".to_string(),
+        feedback_input: Some(fb),
     });
-    app.argument_input = Some(ArgumentInputState {
-        text: text_buffer::TextBuffer::new(),
-        command_name: "reject".to_string(),
-    });
-    // Type feedback text
-    app.argument_input
-        .as_mut()
-        .unwrap()
-        .text
-        .set("needs more tests");
 
-    app.handle_key_argument_input(KeyCode::Enter, KeyModifiers::NONE);
+    app.handle_key_approval_overlay(KeyCode::Enter, KeyModifiers::NONE);
 
-    assert!(
-        app.argument_input.is_none(),
-        "Enter should clear argument_input"
-    );
     assert!(
         app.approval_overlay.is_none(),
-        "Enter should clear approval_overlay when coming from rejection feedback"
+        "Enter should clear the approval overlay"
     );
     assert_eq!(
         *app.current_view(),
@@ -6004,36 +5994,29 @@ fn approval_feedback_esc_rejects_without_feedback_and_clears_overlay() {
         "test-workspace".to_string(),
     );
     app.run_state_entries = vec![make_pending_checkpoint_entry()];
-    // Simulate state after 'r' was pressed: both overlays are set
+    // Simulate state after 'r' was pressed: feedback_input is set on approval_overlay
     app.approval_overlay = Some(ApprovalOverlayState {
         sequence: "implement-verified".to_string(),
         approve_cmd: "approve".to_string(),
         reject_cmd: "reject".to_string(),
         message: "Sequence complete.".to_string(),
-    });
-    app.argument_input = Some(ArgumentInputState {
-        text: text_buffer::TextBuffer::new(),
-        command_name: "reject".to_string(),
+        feedback_input: Some(text_buffer::TextBuffer::new()),
     });
 
-    app.handle_key_argument_input(KeyCode::Esc, KeyModifiers::NONE);
+    app.handle_key_approval_overlay(KeyCode::Esc, KeyModifiers::NONE);
 
-    assert!(
-        app.argument_input.is_none(),
-        "Esc should clear argument_input"
-    );
     assert!(
         app.approval_overlay.is_none(),
-        "Esc should clear approval_overlay (reject executed without feedback)"
+        "Esc in feedback mode should clear the approval overlay (reject without feedback)"
     );
     assert_eq!(
         *app.current_view(),
         View::CommandOutput,
-        "Esc should push CommandOutput (reject executed)"
+        "Esc in feedback mode should push CommandOutput (reject executed)"
     );
     assert!(
         app.run_state_entries.is_empty(),
-        "Esc should clear run_state_entries to force reload"
+        "Esc in feedback mode should clear run_state_entries to force reload"
     );
 }
 
@@ -6050,9 +6033,10 @@ fn approval_overlay_esc_dismisses_overlay_without_changing_view() {
         approve_cmd: "approve".to_string(),
         reject_cmd: "reject".to_string(),
         message: "Sequence complete.".to_string(),
+        feedback_input: None,
     });
 
-    app.handle_key_approval_overlay(KeyCode::Esc);
+    app.handle_key_approval_overlay(KeyCode::Esc, KeyModifiers::NONE);
 
     assert!(
         app.approval_overlay.is_none(),
@@ -6077,9 +6061,10 @@ fn approval_overlay_unrecognised_key_does_not_dismiss() {
         approve_cmd: "approve".to_string(),
         reject_cmd: "reject".to_string(),
         message: "Sequence complete.".to_string(),
+        feedback_input: None,
     });
 
-    app.handle_key_approval_overlay(KeyCode::Char('x'));
+    app.handle_key_approval_overlay(KeyCode::Char('x'), KeyModifiers::NONE);
 
     assert!(
         app.approval_overlay.is_some(),
@@ -6100,6 +6085,7 @@ fn approval_overlay_intercepts_keys_before_dashboard_handler() {
         approve_cmd: "approve".to_string(),
         reject_cmd: "reject".to_string(),
         message: "Sequence complete.".to_string(),
+        feedback_input: None,
     });
 
     app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);

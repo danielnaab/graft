@@ -1176,6 +1176,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             approve_cmd,
             reject_cmd,
             message,
+            feedback_input: None,
         });
     }
 }

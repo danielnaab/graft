@@ -929,10 +929,83 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Handle keys in the approval overlay.
     ///
-    /// `a` → approve, push `CommandOutput`, execute approve command, reload run-state.
-    /// `r` → reject, same with reject command.
-    /// `Esc` → dismiss without action.
-    pub(super) fn handle_key_approval_overlay(&mut self, code: KeyCode) {
+    /// Normal mode:
+    ///   `a`   → approve: push `CommandOutput`, execute approve command, reload run-state.
+    ///   `r`   → open rejection-feedback text input (overlay stays `Some`).
+    ///   `Esc` → dismiss without action.
+    ///
+    /// Feedback-input mode (when `feedback_input` is `Some`):
+    ///   `Enter`   → reject with the typed feedback (or no feedback if input is empty).
+    ///   `Esc`     → reject immediately without feedback.
+    ///   Other keys → edit the feedback text buffer.
+    pub(super) fn handle_key_approval_overlay(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        // --- Feedback-input mode ---
+        if self
+            .approval_overlay
+            .as_ref()
+            .is_some_and(|s| s.feedback_input.is_some())
+        {
+            match code {
+                KeyCode::Enter => {
+                    let (reject_cmd, feedback_text) = {
+                        let state = self.approval_overlay.as_ref().unwrap();
+                        let text = state
+                            .feedback_input
+                            .as_ref()
+                            .unwrap()
+                            .buffer
+                            .trim()
+                            .to_string();
+                        (state.reject_cmd.clone(), text)
+                    };
+                    self.approval_overlay = None;
+                    let args = if feedback_text.is_empty() {
+                        vec![]
+                    } else {
+                        vec![feedback_text]
+                    };
+                    self.push_view(super::View::CommandOutput);
+                    self.execute_command_with_args(reject_cmd, args);
+                    self.run_state_entries.clear();
+                }
+                KeyCode::Esc => {
+                    // Reject without feedback.
+                    let reject_cmd = self.approval_overlay.as_ref().unwrap().reject_cmd.clone();
+                    self.approval_overlay = None;
+                    self.push_view(super::View::CommandOutput);
+                    self.execute_command_with_args(reject_cmd, vec![]);
+                    self.run_state_entries.clear();
+                }
+                _ => {
+                    // Forward keystrokes to the feedback text buffer.
+                    if let Some(state) = &mut self.approval_overlay {
+                        if let Some(fb) = &mut state.feedback_input {
+                            if modifiers.contains(KeyModifiers::CONTROL) {
+                                match code {
+                                    KeyCode::Char('u') => fb.clear(),
+                                    KeyCode::Char('w') => fb.delete_word_backward(),
+                                    _ => {}
+                                }
+                            } else {
+                                match code {
+                                    KeyCode::Char(c) => fb.insert_char(c),
+                                    KeyCode::Backspace => fb.backspace(),
+                                    KeyCode::Delete => fb.delete_forward(),
+                                    KeyCode::Left => fb.move_left(),
+                                    KeyCode::Right => fb.move_right(),
+                                    KeyCode::Home => fb.move_home(),
+                                    KeyCode::End => fb.move_end(),
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        // --- Normal mode ---
         let Some(state) = self.approval_overlay.clone() else {
             return;
         };
@@ -945,13 +1018,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.run_state_entries.clear();
             }
             KeyCode::Char('r') => {
-                // Open feedback text input on top of the approval overlay.
-                // The approval_overlay stays Some so argument_input's Enter/Esc
-                // handlers can clean it up after executing the reject command.
-                self.argument_input = Some(super::ArgumentInputState {
-                    text: super::text_buffer::TextBuffer::new(),
-                    command_name: state.reject_cmd,
-                });
+                // Open feedback input; keep overlay active so normal keystrokes
+                // route here (approval_overlay guard fires before argument_input).
+                if let Some(s) = &mut self.approval_overlay {
+                    s.feedback_input = Some(super::text_buffer::TextBuffer::new());
+                }
             }
             KeyCode::Esc => {
                 self.approval_overlay = None;
@@ -962,7 +1033,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
     /// Render the approval overlay as a centered modal.
     ///
-    /// Displays the sequence name, message, and `a`/`r`/`Esc` keybindings.
+    /// In normal mode, displays the sequence name, message, and `a`/`r`/`Esc` keybindings.
+    /// In feedback-input mode (when `feedback_input` is `Some`), shows a text input prompt.
     /// Follows the same centered-popup pattern as `render_stop_confirmation_dialog`.
     pub(super) fn render_approval_overlay(&self, frame: &mut ratatui::Frame) {
         let Some(state) = &self.approval_overlay else {
@@ -980,37 +1052,78 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
 
         frame.render_widget(Clear, dialog_area);
 
-        let text = vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                format!("Sequence '{}' completed.", state.sequence),
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from(Span::styled(
-                state.message.as_str(),
-                Style::default().fg(Color::White),
-            )),
-            Line::from(""),
-            Line::from(Span::styled(
-                "a = Approve   r = Reject   Esc = Cancel",
-                Style::default().fg(Color::Cyan),
-            )),
-        ];
+        if let Some(fb) = &state.feedback_input {
+            // --- Feedback-input mode ---
+            let chars: Vec<char> = fb.buffer.chars().collect();
+            let before_cursor: String = chars[..fb.cursor_pos].iter().collect();
+            let after_cursor: String = chars[fb.cursor_pos..].iter().collect();
+            let input_text = if after_cursor.is_empty() {
+                format!("> {before_cursor}_")
+            } else {
+                format!("> {before_cursor}▊{after_cursor}")
+            };
 
-        let dialog = Paragraph::new(text)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow))
-                    .title(" Review Checkpoint ")
-                    .style(Style::default().bg(Color::Black)),
-            )
-            .alignment(Alignment::Center);
+            let text = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Rejection feedback (optional):",
+                    Style::default().fg(Color::Yellow),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(input_text, Style::default().fg(Color::Cyan))),
+                Line::from(""),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Enter: reject with feedback   Esc: reject without feedback",
+                    Style::default().fg(Color::Gray),
+                )),
+            ];
 
-        frame.render_widget(dialog, dialog_area);
+            let dialog = Paragraph::new(text)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Yellow))
+                        .title(" Rejection Feedback ")
+                        .style(Style::default().bg(Color::Black)),
+                )
+                .alignment(Alignment::Center);
+
+            frame.render_widget(dialog, dialog_area);
+        } else {
+            // --- Normal mode ---
+            let text = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Sequence '{}' completed.", state.sequence),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    state.message.as_str(),
+                    Style::default().fg(Color::White),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "a = Approve   r = Reject   Esc = Cancel",
+                    Style::default().fg(Color::Cyan),
+                )),
+            ];
+
+            let dialog = Paragraph::new(text)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Yellow))
+                        .title(" Review Checkpoint ")
+                        .style(Style::default().bg(Color::Black)),
+                )
+                .alignment(Alignment::Center);
+
+            frame.render_widget(dialog, dialog_area);
+        }
     }
 
     /// Render the stop confirmation dialog as a centered popup.

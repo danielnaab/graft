@@ -119,6 +119,9 @@ struct ApprovalOverlayState {
     reject_cmd: String,
     /// Human-readable message from checkpoint.json.
     message: String,
+    /// Active rejection-feedback text input, or `None` when not prompting for feedback.
+    /// Set when the user presses `r`; Enter submits the feedback (or empty), Esc skips feedback.
+    feedback_input: Option<text_buffer::TextBuffer>,
 }
 
 /// Value for a single form field.
