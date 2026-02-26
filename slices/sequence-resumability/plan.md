@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 created: 2026-02-24
 updated: 2026-02-26
 depends_on: [sequence-declarations]
@@ -8,12 +8,6 @@ note: >
   within a single run (verify fails → recovery → retry). This slice handles
   crash recovery: if a sequence is killed mid-run, re-running should restart
   from the interrupted step rather than from the beginning.
-resolve_before_implementing:
-  - "How does resumability interact with on_step_fail retry? If killed during
-    retry iteration 2 of 3, should resume restart the recovery step, restart
-    the failed step, or restart the whole sequence?"
-  - "Should skipped steps log a message or be silent?"
-  - "Should there be a --force flag to re-run all steps regardless?"
 ---
 
 # Resume failed sequences from the last completed step
@@ -26,11 +20,24 @@ currently re-executes all steps from the beginning. For expensive steps like
 makes sequences resumable: on re-run, steps that already completed are skipped
 and execution restarts from the interrupted step.
 
-## Coupling to Sequences
+## Resolved Design Questions
 
-This slice only makes sense if sequences are a first-class primitive (the
-`sequence-declarations` slice, now done). Without sequences, the user is the
-orchestrator and skips completed steps manually by running individual commands.
+### on_step_fail interaction
+
+When a sequence is killed during a retry (`phase: "retrying"`), treat it the
+same as `phase: "running"`: restart from `step_index`. The retry loop restarts
+with a fresh iteration count (losing progress within the retry is acceptable
+and simpler than persisting iteration state across process boundaries).
+
+### Skipped step messaging
+
+Emit to stderr: `↷ Skipping <step-name> (already completed)`
+
+### --force flag
+
+Deferred. Users can delete `.graft/run-state/sequence-state.json` to force a
+fresh start. Adding a `--force` flag requires plumbing through the sequence arg
+interface; out of scope for this slice.
 
 ## Approach
 
@@ -49,60 +56,48 @@ sequence executor already writes this file atomically before each step with:
 
 On re-run of a sequence:
 
-1. Read `.graft/run-state/sequence-state.json`.
-2. If absent or `phase == "complete"`: run all steps normally (fresh run).
-3. If `phase == "failed"`: the sequence already terminated cleanly — run
-   normally (sequence executor already handles this case via exit code).
-4. If `phase == "running"` for step N: step N was interrupted. Skip steps
-   0..N-1 and restart from step N.
-
-Steps that are skipped emit a visible message:
-```
-↷ Skipping implement (already completed)
-```
+1. Read `.graft/run-state/sequence-state.json` (if absent: fresh run, all steps execute).
+2. If the recorded sequence name doesn't match the current sequence: fresh run.
+3. If `phase` is `"complete"` or `"failed"`: fresh run (sequence already terminated cleanly).
+4. If `phase` is `"running"` or `"retrying"` at `step_index` N:
+   - Steps 0..N-1 are skipped with a log message.
+   - Execution restarts from step N.
 
 ## Why Not "Skip If Writes Exist"
 
 An earlier version of this plan proposed skipping steps whose `writes:` state
 files already exist. This approach is broken:
 
-- **Fails for verify**: `verify` declares `writes: [verify]` (added in
-  slice 1), so `verify.json` exists after both successful and failed runs.
-  The writes-check would incorrectly skip a failed verify on re-run, leaving
-  the failure result in place.
+- **Fails for verify**: `verify` declares `writes: [verify]`, so `verify.json`
+  exists after both successful and failed runs. The writes-check would
+  incorrectly skip a failed verify on re-run.
 - **Ambiguous on partial writes**: a step may write multiple state files and be
   killed after writing some but not all of them.
 - **Silent data hazard**: stale state from a previous run looks identical to
-  fresh state; no way to detect staleness without a timestamp comparison.
+  fresh state.
 
-The `sequence-state.json` approach avoids all of these: it tracks completion
-explicitly at the step level, written atomically before execution begins.
-
-## on_step_fail Interaction
-
-When `on_step_fail` is configured and the sequence is killed during a retry
-iteration, the resumption point is ambiguous. Two options:
-
-- **Restart the whole sequence**: simplest; may re-run the expensive initial
-  step unnecessarily.
-- **Restart from the failing step**: resume the retry from where it was
-  interrupted; requires storing the retry iteration count in
-  `sequence-state.json` (the `iteration` field already exists).
-
-Resolve before implementing. Initial recommendation: restart from the failing
-step (not the recovery step), using the stored `step_index`. The recovery step
-will re-run naturally as part of the retry loop.
+`sequence-state.json` tracks completion explicitly at the step level.
 
 ## Acceptance Criteria
 
-- A sequence re-run reads `sequence-state.json` and skips steps before the
-  interrupted step
-- Skipped steps print `↷ Skipping <step> (already completed)` to stderr
-- Steps not yet reached (step_index > current) run normally
+- A re-run of a sequence that was interrupted at step N skips steps 0..N-1
+- Each skipped step prints `↷ Skipping <step-name> (already completed)` to stderr
 - A sequence with no existing `sequence-state.json` runs all steps normally
-- `--force` flag (or equivalent) bypasses resumability and runs all steps
+- A sequence whose `sequence-state.json` records a different sequence name runs all steps normally
+- A sequence whose `sequence-state.json` has `phase: complete` or `phase: failed` runs all steps normally
+- `phase: retrying` is treated the same as `phase: running` for resumption purposes
 - `cargo test` passes with no regressions
 
 ## Steps
 
-TBD — resolve the `on_step_fail` interaction question before implementing.
+- [ ] Spec: add `docs/specifications/graft/sequence-execution.md` with Gherkin
+      scenarios covering normal execution, retry, resumability, and the
+      sequence-state.json schema (TDD — spec before code)
+- [ ] Tests: add unit tests in `crates/graft-engine/src/sequence.rs` for
+      resume-from-interrupted-step behavior; tests must fail before
+      implementation (red phase)
+- [ ] Implement: in `execute_sequence()`, read `sequence-state.json` on entry;
+      compute `resume_from` index; skip steps before it with the prescribed
+      message; handle `phase: retrying` same as `phase: running`
+- [ ] Verify: run full test suite; confirm all new tests pass and no regressions;
+      check spec matches implementation
