@@ -73,6 +73,10 @@ pub struct ProcessConfig {
     pub working_dir: PathBuf,
     /// Optional environment variable overrides (merged with the inherited environment).
     pub env: Option<HashMap<String, String>>,
+    /// Environment variable names to explicitly unset in the subprocess,
+    /// even if they are set in the parent process environment.
+    /// Applied after `env` overrides, so listed vars are always removed.
+    pub env_remove: Vec<String>,
     /// Optional path to a log file; output lines are tee'd here in append mode.
     pub log_path: Option<PathBuf>,
     /// Optional timeout; the process is killed if it exceeds this duration.
@@ -169,6 +173,9 @@ impl ProcessHandle {
             for (k, v) in env {
                 cmd.env(k, v);
             }
+        }
+        for k in &config.env_remove {
+            cmd.env_remove(k);
         }
 
         cmd.stdout(Stdio::piped());
@@ -788,6 +795,7 @@ mod tests {
             command: command.to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: None,
             timeout: None,
             stdin: None,
@@ -875,6 +883,7 @@ mod tests {
             command: "echo hello".to_string(),
             working_dir: PathBuf::from("/nonexistent/path/that/does/not/exist/12345"),
             env: None,
+            env_remove: vec![],
             log_path: None,
             timeout: None,
             stdin: None,
@@ -948,6 +957,7 @@ mod tests {
             command: "echo logged_line; echo err_logged >&2".to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: Some(log_path.clone()),
             timeout: None,
             stdin: None,
@@ -971,6 +981,7 @@ mod tests {
             command: "echo first_run".to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: Some(log_path.clone()),
             timeout: None,
             stdin: None,
@@ -979,6 +990,7 @@ mod tests {
             command: "echo second_run".to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: Some(log_path.clone()),
             timeout: None,
             stdin: None,
@@ -1000,6 +1012,7 @@ mod tests {
             command: "sleep 10".to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: None,
             timeout: Some(Duration::from_millis(200)),
             stdin: None,
@@ -1015,6 +1028,7 @@ mod tests {
             command: "echo fast".to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: None,
             timeout: Some(Duration::from_secs(10)),
             stdin: None,
@@ -1033,6 +1047,7 @@ mod tests {
             command: "echo env_timeout_test".to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: None,
             // config.timeout takes priority; set None so env var is consulted.
             timeout: None,
@@ -1309,6 +1324,7 @@ mod tests {
             command: "sleep 10".to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: None,
             timeout: Some(Duration::from_millis(200)),
             stdin: None,
@@ -1335,6 +1351,7 @@ mod tests {
             command: "cat".to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: None,
             timeout: Some(Duration::from_secs(5)),
             stdin: Some("hello".to_string()),
@@ -1350,6 +1367,7 @@ mod tests {
             command: "echo ok".to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: None,
             timeout: Some(Duration::from_secs(5)),
             stdin: None,
@@ -1365,6 +1383,7 @@ mod tests {
             command: "cat".to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: None,
             timeout: Some(Duration::from_secs(5)),
             stdin: Some("a\nb\nc".to_string()),
@@ -1380,6 +1399,7 @@ mod tests {
             command: "echo ok".to_string(),
             working_dir: workdir(),
             env: None,
+            env_remove: vec![],
             log_path: None,
             timeout: Some(Duration::from_secs(5)),
             stdin: Some("ignored input".to_string()),

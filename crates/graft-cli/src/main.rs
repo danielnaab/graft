@@ -2055,11 +2055,16 @@ fn run_dependency_command(
             process_cmd.env(key, value);
         }
     }
-    // Inject GRAFT_DEP_DIR for dependency commands
-    process_cmd.env(
-        "GRAFT_DEP_DIR",
-        cmd_ctx.source_dir.to_string_lossy().as_ref(),
-    );
+    // Inject GRAFT_DEP_DIR for dependency commands; unset it for local commands
+    // so they don't inherit it from a parent process environment.
+    if cmd_ctx.is_dependency() {
+        process_cmd.env(
+            "GRAFT_DEP_DIR",
+            cmd_ctx.source_dir.to_string_lossy().as_ref(),
+        );
+    } else {
+        process_cmd.env_remove("GRAFT_DEP_DIR");
+    }
 
     // Set up run-state: create dir, enforce reads:, inject GRAFT_STATE_DIR.
     // Done for all streaming commands so scripts can always rely on GRAFT_STATE_DIR.

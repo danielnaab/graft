@@ -121,6 +121,7 @@ pub fn execute_command(
         command: shell_cmd,
         working_dir,
         env: command.env.clone(),
+        env_remove: vec![],
         log_path: None,
         timeout: None,
         stdin: None,
@@ -306,10 +307,19 @@ pub fn execute_command_with_context(
         Some(merged_env)
     };
 
+    // For local commands, explicitly unset GRAFT_DEP_DIR so the subprocess does not
+    // inherit it from the parent process environment (e.g. when running inside a dep shell).
+    let env_remove = if ctx.is_dependency() {
+        vec![]
+    } else {
+        vec!["GRAFT_DEP_DIR".to_string()]
+    };
+
     let process_config = ProcessConfig {
         command: shell_cmd,
         working_dir,
         env,
+        env_remove,
         log_path: None,
         timeout: None,
         stdin: rendered_stdin,
@@ -590,6 +600,7 @@ fn get_git_branch(repo_path: &Path) -> Result<String> {
         command: "git rev-parse --abbrev-ref HEAD".to_string(),
         working_dir: repo_path.to_path_buf(),
         env: None,
+        env_remove: vec![],
         log_path: None,
         timeout: None,
         stdin: None,

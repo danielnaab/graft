@@ -69,6 +69,7 @@ pub fn execute_state_query(
         command: query.run.clone(),
         working_dir: repo_path.to_path_buf(),
         env: None,
+        env_remove: vec![],
         log_path: None,
         timeout: Some(Duration::from_secs(timeout_secs)),
         stdin: None,

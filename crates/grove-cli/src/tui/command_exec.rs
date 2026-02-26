@@ -114,6 +114,7 @@ pub fn spawn_command(
                 );
                 Some(env_map)
             },
+            env_remove: vec![],
             log_path: logging.as_ref().map(|l| l.log_path.clone()),
             timeout: None,
             stdin: None,
@@ -206,10 +207,19 @@ pub fn spawn_command(
 
     let logging = prepare_run_logging(run_ctx.as_ref());
 
+    // For local commands (source_dir == consumer_dir), unset GRAFT_DEP_DIR to prevent
+    // inheriting it from a parent shell that was invoked from a dep command.
+    let env_remove = if source_dir == consumer_dir {
+        vec!["GRAFT_DEP_DIR".to_string()]
+    } else {
+        vec![]
+    };
+
     let config = ProcessConfig {
         command: shell_cmd.clone(),
         working_dir,
         env,
+        env_remove,
         log_path: logging.as_ref().map(|l| l.log_path.clone()),
         timeout: None,
         stdin: None,
@@ -268,6 +278,7 @@ pub fn spawn_command_assembled(
         command: shell_cmd.clone(),
         working_dir,
         env,
+        env_remove: vec![],
         log_path: logging.as_ref().map(|l| l.log_path.clone()),
         timeout: None,
         stdin: None,
