@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-02-26
 depends_on: [workflow-checkpoints, grove-checkpoint-ui]
 ---
@@ -55,7 +55,7 @@ it (backward compatible).
 
 ## Steps
 
-- [ ] **Modify `reject.sh` and `resume.sh` to support feedback capture and injection**
+- [x] **Modify `reject.sh` and `resume.sh` to support feedback capture and injection**
   - **Delivers** — CLI-level feedback capture and injection into Claude sessions
   - **Done when** — `reject.sh` accepts an optional positional arg; when provided, merges
     it into `checkpoint.json` via `jq '. + {phase:"rejected", feedback:$fb}'` using
@@ -69,7 +69,7 @@ it (backward compatible).
     `.graft/software-factory/scripts/resume.sh`,
     `.graft/software-factory/graft.yaml`
 
-- [ ] **Add feedback text input to grove approval overlay**
+- [x] **Add feedback text input to grove approval overlay**
   - **Delivers** — grove users can type rejection feedback before the reject command runs
   - **Done when** — `handle_key_approval_overlay()` in `overlays.rs`: pressing `r` sets
     `self.argument_input = Some(ArgumentInputState { prompt: "Rejection feedback (Esc

@@ -42,16 +42,31 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 };
 
                 let command_name = state.command_name.clone();
+                // Check before clearing state whether we came from the approval overlay.
+                let from_approval = self.approval_overlay.is_some();
 
                 self.argument_input = None;
+                if from_approval {
+                    self.approval_overlay = None;
+                }
                 // Dismiss the overlay, then push CommandOutput view.
                 self.push_view(super::View::CommandOutput);
 
                 self.execute_command_with_args(command_name, args);
+
+                if from_approval {
+                    self.run_state_entries.clear();
+                }
             }
             KeyCode::Esc => {
                 self.argument_input = None;
-                // Dismiss the overlay; underlying view stays unchanged.
+                // If we were collecting rejection feedback, reject without feedback.
+                if let Some(approval) = self.approval_overlay.take() {
+                    self.push_view(super::View::CommandOutput);
+                    self.execute_command_with_args(approval.reject_cmd, vec![]);
+                    self.run_state_entries.clear();
+                }
+                // Otherwise dismiss the overlay; underlying view stays unchanged.
             }
             KeyCode::Left => {
                 state.text.move_left();
@@ -930,10 +945,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.run_state_entries.clear();
             }
             KeyCode::Char('r') => {
-                self.approval_overlay = None;
-                self.push_view(super::View::CommandOutput);
-                self.execute_command_with_args(state.reject_cmd, vec![]);
-                self.run_state_entries.clear();
+                // Open feedback text input on top of the approval overlay.
+                // The approval_overlay stays Some so argument_input's Enter/Esc
+                // handlers can clean it up after executing the reject command.
+                self.argument_input = Some(super::ArgumentInputState {
+                    text: super::text_buffer::TextBuffer::new(),
+                    command_name: state.reject_cmd,
+                });
             }
             KeyCode::Esc => {
                 self.approval_overlay = None;

@@ -200,12 +200,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             }
 
             // --- Overlays rendered on top when active ---
-            if self.approval_overlay.is_some() {
+            // argument_input takes highest priority so rejection feedback input renders
+            // on top of the approval overlay when both are simultaneously active.
+            if self.argument_input.is_some() {
+                self.render_argument_input_overlay(frame);
+            } else if self.approval_overlay.is_some() {
                 self.render_approval_overlay(frame);
             } else if self.form_input.is_some() {
                 self.render_form_input_overlay(frame);
-            } else if self.argument_input.is_some() {
-                self.render_argument_input_overlay(frame);
             }
 
             if self.show_stop_confirmation {

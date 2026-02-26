@@ -5914,7 +5914,7 @@ fn approval_overlay_a_dismisses_overlay_and_pushes_command_output() {
 }
 
 #[test]
-fn approval_overlay_r_dismisses_overlay_and_pushes_command_output() {
+fn approval_overlay_r_opens_feedback_input() {
     let mut app = App::new(
         MockRegistry::with_repos(1),
         MockDetailProvider::empty(),
@@ -5930,13 +5930,110 @@ fn approval_overlay_r_dismisses_overlay_and_pushes_command_output() {
     app.handle_key_approval_overlay(KeyCode::Char('r'));
 
     assert!(
+        app.approval_overlay.is_some(),
+        "'r' should keep the approval overlay while feedback input is open"
+    );
+    assert!(
+        app.argument_input.is_some(),
+        "'r' should open argument_input for rejection feedback"
+    );
+    assert_eq!(
+        app.argument_input.as_ref().unwrap().command_name,
+        "reject",
+        "argument_input should target the reject command"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::Dashboard,
+        "'r' should not push CommandOutput yet"
+    );
+}
+
+#[test]
+fn approval_feedback_enter_rejects_with_feedback_and_clears_overlay() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.run_state_entries = vec![make_pending_checkpoint_entry()];
+    // Simulate state after 'r' was pressed: both overlays are set
+    app.approval_overlay = Some(ApprovalOverlayState {
+        sequence: "implement-verified".to_string(),
+        approve_cmd: "approve".to_string(),
+        reject_cmd: "reject".to_string(),
+        message: "Sequence complete.".to_string(),
+    });
+    app.argument_input = Some(ArgumentInputState {
+        text: text_buffer::TextBuffer::new(),
+        command_name: "reject".to_string(),
+    });
+    // Type feedback text
+    app.argument_input
+        .as_mut()
+        .unwrap()
+        .text
+        .set("needs more tests");
+
+    app.handle_key_argument_input(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(
+        app.argument_input.is_none(),
+        "Enter should clear argument_input"
+    );
+    assert!(
         app.approval_overlay.is_none(),
-        "'r' should dismiss the overlay"
+        "Enter should clear approval_overlay when coming from rejection feedback"
     );
     assert_eq!(
         *app.current_view(),
         View::CommandOutput,
-        "'r' should push CommandOutput onto the view stack"
+        "Enter should push CommandOutput"
+    );
+    assert!(
+        app.run_state_entries.is_empty(),
+        "Enter should clear run_state_entries to force reload"
+    );
+}
+
+#[test]
+fn approval_feedback_esc_rejects_without_feedback_and_clears_overlay() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.run_state_entries = vec![make_pending_checkpoint_entry()];
+    // Simulate state after 'r' was pressed: both overlays are set
+    app.approval_overlay = Some(ApprovalOverlayState {
+        sequence: "implement-verified".to_string(),
+        approve_cmd: "approve".to_string(),
+        reject_cmd: "reject".to_string(),
+        message: "Sequence complete.".to_string(),
+    });
+    app.argument_input = Some(ArgumentInputState {
+        text: text_buffer::TextBuffer::new(),
+        command_name: "reject".to_string(),
+    });
+
+    app.handle_key_argument_input(KeyCode::Esc, KeyModifiers::NONE);
+
+    assert!(
+        app.argument_input.is_none(),
+        "Esc should clear argument_input"
+    );
+    assert!(
+        app.approval_overlay.is_none(),
+        "Esc should clear approval_overlay (reject executed without feedback)"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        "Esc should push CommandOutput (reject executed)"
+    );
+    assert!(
+        app.run_state_entries.is_empty(),
+        "Esc should clear run_state_entries to force reload"
     );
 }
 
