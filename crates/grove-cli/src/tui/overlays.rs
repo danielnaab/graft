@@ -134,11 +134,22 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     self.output_scroll -= 1;
                 }
             }
+            KeyCode::Char('t') => {
+                // Show log path in status bar so user can tail -f in another terminal.
+                if let Some(ref path) = self.current_log_path {
+                    self.status_message =
+                        Some(StatusMessage::info(format!("Log: {}", path.display())));
+                } else {
+                    self.status_message = Some(StatusMessage::info("No log available"));
+                }
+            }
             KeyCode::Char('q') => {
                 if matches!(self.command_state, CommandState::Running) {
-                    self.show_stop_confirmation = true;
+                    // Background: pop the view but preserve all command state.
+                    // The event loop continues draining command_event_rx each render frame.
+                    self.pop_view();
                 } else {
-                    // q pops back one level
+                    // q pops back one level and clears state
                     self.clear_command_output_state();
                     self.pop_view();
                 }
@@ -165,6 +176,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.output_truncated_start = false;
         self.command_event_rx = None;
         self.running_command_pid = None;
+        self.command_start_time = None;
+        self.current_log_path = None;
 
         // Reload recent runs so any new run from this session is visible.
         if let Some(repo_path) = &self.selected_repo_for_commands {
@@ -401,14 +414,32 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         }
     }
 
+    /// Format elapsed seconds as `"Xs"` or `"Xm Ys"`.
+    fn format_elapsed(secs: u64) -> String {
+        if secs < 60 {
+            format!("{secs}s")
+        } else {
+            format!("{}m {}s", secs / 60, secs % 60)
+        }
+    }
+
     /// Render the command output view (full-width).
     #[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
     pub(super) fn render_command_output_view(&mut self, frame: &mut ratatui::Frame, area: Rect) {
         let header = match &self.command_state {
-            CommandState::Running => format!(
-                " Running: {} (j/k: scroll, q: close) ",
-                self.command_name.as_deref().unwrap_or("unknown")
-            ),
+            CommandState::Running => {
+                let elapsed = self
+                    .command_start_time
+                    .map(|t| {
+                        let s = Self::format_elapsed(t.elapsed().as_secs());
+                        format!(" ({s})")
+                    })
+                    .unwrap_or_default();
+                format!(
+                    " Running: {}{elapsed} (j/k: scroll, t: log, q: background) ",
+                    self.command_name.as_deref().unwrap_or("unknown")
+                )
+            }
             CommandState::Completed { exit_code } => {
                 if *exit_code == 0 {
                     format!(

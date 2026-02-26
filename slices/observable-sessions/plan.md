@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-02-26
 depends_on: [sequence-declarations, command-run-logging]
 ---
@@ -85,7 +85,7 @@ completion.
 
 ## Steps
 
-- [ ] **Add elapsed time tracking and `t` log key to CommandOutput**
+- [x] **Add elapsed time tracking and `t` log key to CommandOutput**
   - **Delivers** — users can see how long a command has been running and access the
     run log path without leaving grove
   - **Done when** — `App` gains `command_start_time: Option<std::time::Instant>` set
@@ -105,7 +105,7 @@ completion.
     `crates/grove-cli/src/tui/command_exec.rs`,
     `crates/grove-cli/src/tui/hint_bar.rs`
 
-- [ ] **Add `q`-to-background and re-attach from repo detail**
+- [x] **Add `q`-to-background and re-attach from repo detail**
   - **Delivers** — users can leave the CommandOutput view without killing the process
     and re-attach to see accumulated output
   - **Done when** — `handle_key_command_output()` handles `q`: if `CommandState::

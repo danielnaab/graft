@@ -108,9 +108,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             KeyCode::Char('k') | KeyCode::Up => {
                 self.detail_cursor = self.detail_cursor.saturating_sub(1);
             }
-            // Refresh state queries (r key)
+            // r: re-attach to backgrounded command if one is running, else refresh state
             KeyCode::Char('r') => {
-                self.refresh_state_queries();
+                if self.running_command_pid.is_some() {
+                    self.push_view(View::CommandOutput);
+                } else {
+                    self.refresh_state_queries();
+                }
             }
             // Execute selected command, open run log, or toggle state query expand
             KeyCode::Enter => match self.current_detail_item() {
@@ -242,6 +246,15 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                         spans.push(Span::styled(
                             format!(" ↓{behind}"),
                             Style::default().fg(Color::Red),
+                        ));
+                    }
+
+                    if matches!(self.command_state, CommandState::Running)
+                        && self.running_command_pid.is_some()
+                    {
+                        spans.push(Span::styled(
+                            " (1 command running)",
+                            Style::default().fg(Color::Yellow),
                         ));
                     }
 
@@ -788,6 +801,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             let cmd = grove_core::Command {
                 run: String::new(), // Not used directly; dispatch strips prefix
                 description: seq.description,
+                category: seq.category,
+                example: seq.example,
                 working_dir: None,
                 env: None,
                 args: seq.args,
@@ -811,6 +826,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     let cmd = grove_core::Command {
                         run: String::new(), // Not used directly; dispatch strips prefix
                         description: seq.description,
+                        category: seq.category,
+                        example: seq.example,
                         working_dir: None,
                         env: None,
                         args: seq.args,

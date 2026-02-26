@@ -111,10 +111,15 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     }
                     _ => {}
                 }
+                let r_action = if self.running_command_pid.is_some() {
+                    "re-attach"
+                } else {
+                    "refresh state"
+                };
                 hints.extend([
                     KeyHint {
                         key: "r",
-                        action: "refresh state",
+                        action: r_action,
                     },
                     KeyHint {
                         key: ":",
@@ -141,24 +146,35 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     action: "home",
                 },
             ],
-            View::CommandOutput => vec![
-                KeyHint {
-                    key: "j/k",
-                    action: "scroll",
-                },
-                KeyHint {
-                    key: "q",
-                    action: "close",
-                },
-                KeyHint {
-                    key: "Esc",
-                    action: "home",
-                },
-                KeyHint {
-                    key: ":",
-                    action: "command",
-                },
-            ],
+            View::CommandOutput => {
+                let q_action = if matches!(self.command_state, super::CommandState::Running) {
+                    "background"
+                } else {
+                    "close"
+                };
+                vec![
+                    KeyHint {
+                        key: "j/k",
+                        action: "scroll",
+                    },
+                    KeyHint {
+                        key: "t",
+                        action: "log path",
+                    },
+                    KeyHint {
+                        key: "q",
+                        action: q_action,
+                    },
+                    KeyHint {
+                        key: "Esc",
+                        action: "home",
+                    },
+                    KeyHint {
+                        key: ":",
+                        action: "command",
+                    },
+                ]
+            }
         }
     }
 }

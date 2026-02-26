@@ -49,6 +49,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             command_event_rx: None,
             running_command_pid: None,
             show_stop_confirmation: false,
+            command_start_time: None,
+            current_log_path: None,
 
             // State queries
             state_queries: Vec::new(),

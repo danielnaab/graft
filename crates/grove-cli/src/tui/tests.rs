@@ -1486,6 +1486,8 @@ fn confirmation_dialog_not_shown_initially() {
 
 #[test]
 fn confirmation_dialog_shows_for_running_command() {
+    // q while running now backgrounds (pops CommandOutput) instead of showing stop dialog.
+    // Stop confirmation is still reachable via Esc while running.
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
@@ -1497,8 +1499,18 @@ fn confirmation_dialog_shows_for_running_command() {
 
     app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
     assert!(
-        app.show_stop_confirmation,
-        "Dialog should show for running command"
+        !app.show_stop_confirmation,
+        "q while running should background, not show stop dialog"
+    );
+    // CommandOutput is popped; command state remains Running (backgrounded)
+    assert_ne!(
+        *app.current_view(),
+        View::CommandOutput,
+        "Should have popped CommandOutput"
+    );
+    assert!(
+        matches!(app.command_state, CommandState::Running),
+        "Command should still be running (backgrounded)"
     );
 }
 
@@ -2442,7 +2454,8 @@ fn command_output_pops_to_repo_detail_when_launched_from_there() {
 }
 
 #[test]
-fn command_output_q_shows_stop_confirmation_when_running() {
+fn command_output_q_backgrounds_when_running() {
+    // q while running pops CommandOutput but preserves command state (backgrounding).
     let mut app = App::new(
         MockRegistry::empty(),
         MockDetailProvider::empty(),
@@ -2451,18 +2464,22 @@ fn command_output_q_shows_stop_confirmation_when_running() {
 
     app.push_view(View::CommandOutput);
     app.command_state = CommandState::Running;
+    app.running_command_pid = Some(1234);
 
     app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
 
     assert!(
-        app.show_stop_confirmation,
-        "q should show stop confirmation for running command"
+        !app.show_stop_confirmation,
+        "q should not show stop confirmation; it backgrounds"
     );
-    assert_eq!(
+    assert_ne!(
         *app.current_view(),
         View::CommandOutput,
-        "Should stay on CommandOutput while confirming"
+        "CommandOutput should be popped"
     );
+    // Command state and pid preserved so re-attach works
+    assert!(matches!(app.command_state, CommandState::Running));
+    assert_eq!(app.running_command_pid, Some(1234));
 }
 
 #[test]
@@ -2782,30 +2799,6 @@ fn stop_confirmation_gates_esc_in_command_output() {
     assert!(
         app.show_stop_confirmation,
         "Esc should show stop confirmation for running command"
-    );
-    assert_eq!(
-        *app.current_view(),
-        View::CommandOutput,
-        "Should stay in CommandOutput while confirming"
-    );
-}
-
-#[test]
-fn stop_confirmation_gates_q_in_command_output() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::CommandOutput);
-    app.command_state = CommandState::Running;
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-
-    assert!(
-        app.show_stop_confirmation,
-        "q should show stop confirmation for running command"
     );
     assert_eq!(
         *app.current_view(),

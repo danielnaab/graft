@@ -32,6 +32,7 @@ use ratatui::{
 };
 use std::collections::HashSet;
 use std::io;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthStr;
@@ -244,6 +245,10 @@ pub struct App<R, D> {
     command_event_rx: Option<Receiver<CommandEvent>>,
     running_command_pid: Option<u32>,
     show_stop_confirmation: bool,
+    /// Instant the current command started (cleared when output view is closed).
+    command_start_time: Option<Instant>,
+    /// Path to the run log for the current command (set when command starts).
+    current_log_path: Option<PathBuf>,
 
     // State queries (loaded lazily for the current repo in RepoDetail view)
     state_queries: Vec<crate::state::StateQuery>,

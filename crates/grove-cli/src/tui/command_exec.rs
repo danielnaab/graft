@@ -20,6 +20,8 @@ pub struct RunContext {
 #[derive(Debug)]
 pub enum CommandEvent {
     Started(u32), // Process PID
+    /// Path to the run log file (sent once when the process spawns successfully).
+    LogPath(PathBuf),
     OutputLine(String),
     Completed(i32),
     Failed(String),
@@ -130,6 +132,10 @@ pub fn spawn_command(
             }
         };
 
+        if let Some(ref l) = logging {
+            let _ = tx.send(CommandEvent::LogPath(l.log_path.clone()));
+        }
+
         bridge_events(rx, tx, logging.as_ref(), &[], &shell_cmd);
         return;
     }
@@ -235,6 +241,10 @@ pub fn spawn_command(
         }
     };
 
+    if let Some(ref l) = logging {
+        let _ = tx.send(CommandEvent::LogPath(l.log_path.clone()));
+    }
+
     // Bridge ProcessEvent → CommandEvent. The channel closes after Completed or Failed.
     bridge_events(rx, tx, logging.as_ref(), &args_clone, &shell_cmd);
 }
@@ -294,6 +304,10 @@ pub fn spawn_command_assembled(
         }
     };
 
+    if let Some(ref l) = logging {
+        let _ = tx.send(CommandEvent::LogPath(l.log_path.clone()));
+    }
+
     bridge_events(rx, tx, logging.as_ref(), &[], &shell_cmd);
 }
 
@@ -342,6 +356,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 match event {
                     CommandEvent::Started(pid) => {
                         self.running_command_pid = Some(pid);
+                    }
+                    CommandEvent::LogPath(path) => {
+                        self.current_log_path = Some(path);
                     }
                     CommandEvent::OutputLine(line) => {
                         self.output_lines.push(line);
@@ -424,6 +441,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         // Re-route to spawn_command which handles "» " prefixed names.
         if command_name.starts_with("» ") {
             let run_ctx = self.build_run_context(repo_path, &command_name);
+            let repo_path_clone = repo_path.clone();
             let (tx, rx) = mpsc::channel();
             self.command_event_rx = Some(rx);
             self.command_name = Some(command_name.clone());
@@ -432,6 +450,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
             self.output_scroll = 0;
             self.output_truncated_start = false;
             self.running_command_pid = None;
+            self.command_start_time = Some(std::time::Instant::now());
+            self.current_log_path = None;
 
             // Extract any assembled args from shell_cmd (everything after the
             // run string, which is empty for sequences) — or parse args from shell_cmd
@@ -446,7 +466,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                     .collect()
             };
 
-            let repo_path_clone = repo_path.clone();
             std::thread::spawn(move || {
                 spawn_command(command_name, args, repo_path_clone, run_ctx, tx);
             });
@@ -467,6 +486,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.output_scroll = 0;
         self.output_truncated_start = false;
         self.running_command_pid = None;
+        self.command_start_time = Some(std::time::Instant::now());
+        self.current_log_path = None;
 
         std::thread::spawn(move || {
             spawn_command_assembled(shell_cmd, base_dir, working_dir, env, run_ctx, tx);
@@ -480,6 +501,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         };
 
         let run_ctx = self.build_run_context(repo_path, &command_name);
+        let repo_path_clone = repo_path.clone();
 
         let (tx, rx) = mpsc::channel();
         self.command_event_rx = Some(rx);
@@ -490,8 +512,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
         self.output_scroll = 0;
         self.output_truncated_start = false;
         self.running_command_pid = None;
+        self.command_start_time = Some(std::time::Instant::now());
+        self.current_log_path = None;
 
-        let repo_path_clone = repo_path.clone();
         std::thread::spawn(move || {
             spawn_command(command_name, args, repo_path_clone, run_ctx, tx);
         });
