@@ -1236,7 +1236,7 @@ commands:
 
     #[test]
     fn parse_sequences_on_step_fail_max_defaults_to_3() {
-        let yaml_content = r#"
+        let yaml_content = r"
 sequences:
   ci:
     steps:
@@ -1245,7 +1245,7 @@ sequences:
     on_step_fail:
       step: test
       recovery: fix
-"#;
+";
         let sequences = parse_sequences_from_str(yaml_content).unwrap();
         let seq = sequences.get("ci").unwrap();
         let osf = seq.on_step_fail.as_ref().unwrap();
@@ -1254,7 +1254,7 @@ sequences:
 
     #[test]
     fn parse_sequences_on_step_fail_explicit_max_overrides_default() {
-        let yaml_content = r#"
+        let yaml_content = r"
 sequences:
   ci:
     steps:
@@ -1264,7 +1264,7 @@ sequences:
       step: test
       recovery: fix
       max: 5
-"#;
+";
         let sequences = parse_sequences_from_str(yaml_content).unwrap();
         let seq = sequences.get("ci").unwrap();
         let osf = seq.on_step_fail.as_ref().unwrap();

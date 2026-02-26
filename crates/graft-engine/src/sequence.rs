@@ -503,7 +503,7 @@ mod tests {
 
         // check-step: reads counter, increments it, exits 1 if counter <= 2, else exits 0
         let check_run = format!(
-            r#"c=$(cat {0}); c=$((c+1)); echo $c > {0}; [ $c -gt 2 ]"#,
+            r"c=$(cat {0}); c=$((c+1)); echo $c > {0}; [ $c -gt 2 ]",
             counter_file.to_string_lossy()
         );
         // recovery-step: just succeeds
