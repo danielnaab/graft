@@ -264,6 +264,12 @@ pub struct Command {
     pub run: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// Role classification: core | diagnostic | optional | advanced
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Concrete invocation example shown in help output.
+    #[serde(default)]
+    pub example: Option<String>,
     #[serde(default)]
     pub working_dir: Option<String>,
     #[serde(default)]
@@ -284,6 +290,12 @@ pub struct Sequence {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// Role classification: core | diagnostic | optional | advanced
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Concrete invocation example shown in help output.
+    #[serde(default)]
+    pub example: Option<String>,
     #[serde(default)]
     pub args: Option<Vec<ArgDef>>,
 }

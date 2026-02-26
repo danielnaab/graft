@@ -58,6 +58,12 @@ pub struct CommandDef {
     pub run: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Role classification: core | diagnostic | optional | advanced
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Concrete invocation example shown in help output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub example: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -143,6 +149,7 @@ pub fn parse_commands_from_str(content: &str) -> Result<HashMap<String, CommandD
 }
 
 /// Parse a single command from YAML config.
+#[allow(clippy::too_many_lines)]
 fn parse_command(name: &str, config: &Value) -> Result<CommandDef, String> {
     // Get run field (required)
     let run = config
@@ -244,9 +251,20 @@ fn parse_command(name: &str, config: &Value) -> Result<CommandDef, String> {
     let writes = parse_string_list_field(config, "writes");
     let reads = parse_string_list_field(config, "reads");
 
+    let category = config
+        .get("category")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let example = config
+        .get("example")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
     Ok(CommandDef {
         run,
         description,
+        category,
+        example,
         working_dir,
         env,
         args,
@@ -364,6 +382,12 @@ pub struct SequenceDef {
     pub steps: Vec<StepDef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Role classification: core | diagnostic | optional | advanced
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Concrete invocation example shown in help output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub example: Option<String>,
     /// Args declared on the sequence, passed to every step.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<ArgDef>,
@@ -425,6 +449,7 @@ fn parse_step_def(val: &Value, seq_name: &str, idx: usize) -> Option<StepDef> {
     None
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_sequence(name: &str, config: &Value) -> Result<SequenceDef, String> {
     let steps = config
         .get("steps")
@@ -529,9 +554,20 @@ fn parse_sequence(name: &str, config: &Value) -> Result<SequenceDef, String> {
         .get("checkpoint")
         .and_then(serde_yaml::Value::as_bool);
 
+    let category = config
+        .get("category")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let example = config
+        .get("example")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
     Ok(SequenceDef {
         steps,
         description,
+        category,
+        example,
         args,
         on_step_fail,
         checkpoint,

@@ -183,6 +183,15 @@ enum Commands {
         #[arg(long, value_hint = clap::ValueHint::DirPath)]
         repo: Option<String>,
     },
+    /// Show command and sequence metadata for a dependency
+    Catalog {
+        /// Dependency or dep:command (e.g., "software-factory" or "software-factory:implement")
+        dep_spec: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -303,6 +312,9 @@ fn main() -> Result<()> {
         },
         Commands::Ps { repo } => {
             ps_command(repo.as_deref())?;
+        }
+        Commands::Catalog { dep_spec, json } => {
+            help_command(&dep_spec, json)?;
         }
     }
 
@@ -1785,6 +1797,12 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
             eprintln!("  {desc}");
         }
         eprintln!("  Command: {}", cmd.run);
+        if !cmd.reads.is_empty() {
+            eprintln!("  Reads:   {}", cmd.reads.join(", "));
+        }
+        if !cmd.writes.is_empty() {
+            eprintln!("  Writes:  {}", cmd.writes.join(", "));
+        }
         if !cmd.context.is_empty() {
             eprintln!("  Context: {}", cmd.context.join(", "));
         }
@@ -1821,6 +1839,12 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
         eprintln!("  {desc}");
     }
     eprintln!("  Command: {}", cmd.run);
+    if !cmd.reads.is_empty() {
+        eprintln!("  Reads:   {}", cmd.reads.join(", "));
+    }
+    if !cmd.writes.is_empty() {
+        eprintln!("  Writes:  {}", cmd.writes.join(", "));
+    }
     if !args.is_empty() {
         eprintln!("  Arguments: {}", args.join(" "));
     }
@@ -1998,6 +2022,12 @@ fn run_dependency_command(
         eprintln!("  {desc}");
     }
     eprintln!("  Command: {}", cmd.run);
+    if !cmd.reads.is_empty() {
+        eprintln!("  Reads:   {}", cmd.reads.join(", "));
+    }
+    if !cmd.writes.is_empty() {
+        eprintln!("  Writes:  {}", cmd.writes.join(", "));
+    }
     if !cmd.context.is_empty() {
         eprintln!("  Context: {}", cmd.context.join(", "));
     }
@@ -2086,6 +2116,300 @@ fn run_dependency_command(
     }
 
     eprintln!("\n✓ Command completed successfully");
+
+    Ok(())
+}
+
+/// Print command metadata for a single command or full catalog for a dependency.
+///
+/// `dep_spec` is either `"dep-name"` (catalog mode) or `"dep-name:command-name"` (detail mode).
+/// When `json` is true, output is machine-readable JSON.
+#[allow(clippy::too_many_lines)]
+fn help_command(dep_spec: &str, json: bool) -> Result<()> {
+    // Parse dep_spec into dep name and optional command name
+    let (dep_name, command_name) = if let Some(colon) = dep_spec.find(':') {
+        let dep = &dep_spec[..colon];
+        let cmd = &dep_spec[colon + 1..];
+        (dep, Some(cmd))
+    } else {
+        (dep_spec, None)
+    };
+
+    // Find consumer's graft.yaml to locate .graft/ directory
+    let Some(consumer_graft_path) = find_graft_yaml() else {
+        eprintln!("Error: No graft.yaml found in current directory or parent directories");
+        std::process::exit(1);
+    };
+    let consumer_dir = consumer_graft_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
+
+    let dep_dir = consumer_dir.join(".graft").join(dep_name);
+    let dep_yaml_path = dep_dir.join("graft.yaml");
+
+    if !dep_yaml_path.exists() {
+        eprintln!("Error: Dependency not found: {}", dep_yaml_path.display());
+        eprintln!("  Is {dep_name} resolved in .graft/?");
+        std::process::exit(1);
+    }
+
+    let config = parse_graft_yaml(&dep_yaml_path)
+        .with_context(|| format!("Failed to parse {}", dep_yaml_path.display()))?;
+
+    match command_name {
+        None => {
+            // Catalog mode: list all commands and sequences
+            if json {
+                let commands_json: serde_json::Map<String, serde_json::Value> = config
+                    .commands
+                    .iter()
+                    .map(|(name, cmd)| {
+                        let args: Vec<serde_json::Value> = graft_common::parse_commands_from_str(
+                            &std::fs::read_to_string(&dep_yaml_path).unwrap_or_default(),
+                        )
+                        .ok()
+                        .and_then(|m| m.get(name).and_then(|d| d.args.clone()))
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|a| {
+                            serde_json::json!({
+                                "name": a.name,
+                                "type": format!("{:?}", a.arg_type).to_lowercase(),
+                                "required": a.required,
+                                "positional": a.positional,
+                                "description": a.description,
+                            })
+                        })
+                        .collect();
+                        (
+                            name.clone(),
+                            serde_json::json!({
+                                "description": cmd.description,
+                                "category": cmd.category,
+                                "example": cmd.example,
+                                "reads": cmd.reads,
+                                "writes": cmd.writes,
+                                "args": args,
+                            }),
+                        )
+                    })
+                    .collect();
+
+                let sequences_json: serde_json::Map<String, serde_json::Value> = config
+                    .sequences
+                    .iter()
+                    .map(|(name, seq)| {
+                        let step_names: Vec<&str> =
+                            seq.steps.iter().map(|s| s.name.as_str()).collect();
+                        (
+                            name.clone(),
+                            serde_json::json!({
+                                "description": seq.description,
+                                "category": seq.category,
+                                "example": seq.example,
+                                "steps": step_names,
+                                "checkpoint": seq.checkpoint.unwrap_or(false),
+                                "on_step_fail": seq.on_step_fail.as_ref().map(|osf| serde_json::json!({
+                                    "step": osf.step,
+                                    "recovery": osf.recovery,
+                                    "max": osf.max,
+                                })),
+                                "args": seq.args.iter().map(|a| serde_json::json!({
+                                    "name": a.name,
+                                    "type": format!("{:?}", a.arg_type).to_lowercase(),
+                                    "required": a.required,
+                                    "positional": a.positional,
+                                    "description": a.description,
+                                })).collect::<Vec<_>>(),
+                            }),
+                        )
+                    })
+                    .collect();
+
+                let out = serde_json::json!({
+                    "commands": commands_json,
+                    "sequences": sequences_json,
+                });
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                // Text catalog mode
+                if !config.commands.is_empty() {
+                    println!("Commands:");
+                    let mut names: Vec<&String> = config.commands.keys().collect();
+                    names.sort();
+                    for name in names {
+                        let cmd = &config.commands[name];
+                        let cat = cmd.category.as_deref().unwrap_or("");
+                        let desc = cmd.description.as_deref().unwrap_or("");
+                        let cat_tag = if cat.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" [{cat}]")
+                        };
+                        println!("  {name:<20}{cat_tag:<14} {desc}");
+                        if !cmd.reads.is_empty() {
+                            println!("    Reads:  {}", cmd.reads.join(", "));
+                        }
+                        if !cmd.writes.is_empty() {
+                            println!("    Writes: {}", cmd.writes.join(", "));
+                        }
+                    }
+                    println!();
+                }
+                if !config.sequences.is_empty() {
+                    println!("Sequences:");
+                    let mut names: Vec<&String> = config.sequences.keys().collect();
+                    names.sort();
+                    for name in names {
+                        let seq = &config.sequences[name];
+                        let cat = seq.category.as_deref().unwrap_or("");
+                        let desc = seq.description.as_deref().unwrap_or("");
+                        let cat_tag = if cat.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" [{cat}]")
+                        };
+                        let step_names: Vec<&str> =
+                            seq.steps.iter().map(|s| s.name.as_str()).collect();
+                        println!("  {name:<20}{cat_tag:<14} {desc}");
+                        println!("    Steps: {}", step_names.join(" → "));
+                        if seq.checkpoint.unwrap_or(false) {
+                            println!("    Checkpoint: yes");
+                        }
+                    }
+                }
+            }
+        }
+        Some(name) => {
+            // Detail mode: single command or sequence
+            if let Some(cmd) = config.commands.get(name) {
+                if json {
+                    // Load args from graft-common for richer type info
+                    let raw_args = graft_common::parse_commands_from_str(
+                        &std::fs::read_to_string(&dep_yaml_path).unwrap_or_default(),
+                    )
+                    .ok()
+                    .and_then(|m| m.get(name).and_then(|d| d.args.clone()))
+                    .unwrap_or_default();
+                    let args_json: Vec<serde_json::Value> = raw_args
+                        .iter()
+                        .map(|a| {
+                            serde_json::json!({
+                                "name": a.name,
+                                "type": format!("{:?}", a.arg_type).to_lowercase(),
+                                "required": a.required,
+                                "positional": a.positional,
+                                "description": a.description,
+                            })
+                        })
+                        .collect();
+                    let out = serde_json::json!({
+                        "name": name,
+                        "description": cmd.description,
+                        "category": cmd.category,
+                        "example": cmd.example,
+                        "reads": cmd.reads,
+                        "writes": cmd.writes,
+                        "args": args_json,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&out)?);
+                } else {
+                    println!();
+                    println!("  {name} — {}", cmd.description.as_deref().unwrap_or(""));
+                    if let Some(cat) = &cmd.category {
+                        println!("  Category: {cat}");
+                    }
+                    if let Some(ex) = &cmd.example {
+                        println!("  Example:  {ex}");
+                    }
+                    if !cmd.reads.is_empty() {
+                        println!("  Reads:    {}", cmd.reads.join(", "));
+                    }
+                    if !cmd.writes.is_empty() {
+                        println!("  Writes:   {}", cmd.writes.join(", "));
+                    }
+                    // Print args from graft-common (has positional/required info)
+                    let raw_args = graft_common::parse_commands_from_str(
+                        &std::fs::read_to_string(&dep_yaml_path).unwrap_or_default(),
+                    )
+                    .ok()
+                    .and_then(|m| m.get(name).and_then(|d| d.args.clone()))
+                    .unwrap_or_default();
+                    if !raw_args.is_empty() {
+                        println!();
+                        println!("  Arguments:");
+                        for a in &raw_args {
+                            let type_str = format!("{:?}", a.arg_type).to_lowercase();
+                            let req = if a.required { "required" } else { "optional" };
+                            let pos = if a.positional { ", positional" } else { "" };
+                            let desc = a.description.as_deref().unwrap_or("");
+                            println!("    {}  ({type_str}, {req}{pos})  {desc}", a.name);
+                        }
+                    }
+                }
+            } else if let Some(seq) = config.sequences.get(name) {
+                if json {
+                    let step_names: Vec<&str> = seq.steps.iter().map(|s| s.name.as_str()).collect();
+                    let out = serde_json::json!({
+                        "name": name,
+                        "description": seq.description,
+                        "category": seq.category,
+                        "example": seq.example,
+                        "steps": step_names,
+                        "checkpoint": seq.checkpoint.unwrap_or(false),
+                        "on_step_fail": seq.on_step_fail.as_ref().map(|osf| serde_json::json!({
+                            "step": osf.step,
+                            "recovery": osf.recovery,
+                            "max": osf.max,
+                        })),
+                        "args": seq.args.iter().map(|a| serde_json::json!({
+                            "name": a.name,
+                            "type": format!("{:?}", a.arg_type).to_lowercase(),
+                            "required": a.required,
+                            "positional": a.positional,
+                            "description": a.description,
+                        })).collect::<Vec<_>>(),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&out)?);
+                } else {
+                    let step_names: Vec<&str> = seq.steps.iter().map(|s| s.name.as_str()).collect();
+                    println!();
+                    println!("  {name} — {}", seq.description.as_deref().unwrap_or(""));
+                    if let Some(cat) = &seq.category {
+                        println!("  Category: {cat}");
+                    }
+                    if let Some(ex) = &seq.example {
+                        println!("  Example:  {ex}");
+                    }
+                    println!("  Steps:    {}", step_names.join(" → "));
+                    if let Some(osf) = &seq.on_step_fail {
+                        println!(
+                            "  Retry:    {} fails → {} (max {})",
+                            osf.step, osf.recovery, osf.max
+                        );
+                    }
+                    if seq.checkpoint.unwrap_or(false) {
+                        println!("  Checkpoint: yes (human approval required)");
+                    }
+                    if !seq.args.is_empty() {
+                        println!();
+                        println!("  Arguments:");
+                        for a in &seq.args {
+                            let type_str = format!("{:?}", a.arg_type).to_lowercase();
+                            let req = if a.required { "required" } else { "optional" };
+                            let pos = if a.positional { ", positional" } else { "" };
+                            let desc = a.description.as_deref().unwrap_or("");
+                            println!("    {}  ({type_str}, {req}{pos})  {desc}", a.name);
+                        }
+                    }
+                }
+            } else {
+                eprintln!("Error: unknown command: {name}");
+                std::process::exit(1);
+            }
+        }
+    }
 
     Ok(())
 }

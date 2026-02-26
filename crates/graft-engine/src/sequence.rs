@@ -447,6 +447,8 @@ mod tests {
                 graft_common::StepDef::simple("step2"),
             ],
             description: None,
+            category: None,
+            example: None,
             args: vec![],
             on_step_fail: None,
             checkpoint: None,
@@ -483,6 +485,8 @@ mod tests {
                 graft_common::StepDef::simple("next-step"),
             ],
             description: None,
+            category: None,
+            example: None,
             args: vec![],
             on_step_fail: None,
             checkpoint: None,
@@ -513,6 +517,8 @@ mod tests {
         let seq = graft_common::SequenceDef {
             steps: vec![graft_common::StepDef::simple("echo-step")],
             description: None,
+            category: None,
+            example: None,
             args: vec![],
             on_step_fail: None,
             checkpoint: None,
@@ -566,6 +572,8 @@ mod tests {
         let seq = graft_common::SequenceDef {
             steps: vec![graft_common::StepDef::simple("check-step")],
             description: None,
+            category: None,
+            example: None,
             args: vec![],
             on_step_fail: Some(graft_common::OnStepFail {
                 step: "check-step".to_string(),
@@ -598,6 +606,8 @@ mod tests {
         let seq = graft_common::SequenceDef {
             steps: vec![graft_common::StepDef::simple("fail-step")],
             description: None,
+            category: None,
+            example: None,
             args: vec![],
             on_step_fail: Some(graft_common::OnStepFail {
                 step: "fail-step".to_string(),
@@ -629,6 +639,8 @@ mod tests {
         let seq = graft_common::SequenceDef {
             steps: vec![graft_common::StepDef::simple("fail-step")],
             description: None,
+            category: None,
+            example: None,
             args: vec![],
             on_step_fail: Some(graft_common::OnStepFail {
                 step: "fail-step".to_string(),
@@ -661,6 +673,8 @@ mod tests {
         let seq = graft_common::SequenceDef {
             steps: vec![graft_common::StepDef::simple("echo-step")],
             description: None,
+            category: None,
+            example: None,
             args: vec![],
             on_step_fail: None,
             checkpoint: Some(true),
@@ -698,6 +712,8 @@ mod tests {
         let seq = graft_common::SequenceDef {
             steps: vec![graft_common::StepDef::simple("echo-step")],
             description: None,
+            category: None,
+            example: None,
             args: vec![],
             on_step_fail: None,
             checkpoint: None, // field absent
@@ -730,6 +746,8 @@ mod tests {
         let seq = graft_common::SequenceDef {
             steps: vec![graft_common::StepDef::simple("echo-step")],
             description: None,
+            category: None,
+            example: None,
             args: vec![],
             on_step_fail: None,
             checkpoint: Some(false), // explicitly false
@@ -762,6 +780,8 @@ mod tests {
         let seq = graft_common::SequenceDef {
             steps: vec![graft_common::StepDef::simple("fail-step")],
             description: None,
+            category: None,
+            example: None,
             args: vec![],
             on_step_fail: None,
             checkpoint: Some(true),
@@ -820,6 +840,8 @@ mod tests {
                 graft_common::StepDef::simple("step-b"),
             ],
             description: None,
+            category: None,
+            example: None,
             args: vec![],
             on_step_fail: None,
             checkpoint: None,

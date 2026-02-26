@@ -314,6 +314,12 @@ pub struct Command {
     pub run: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Role classification: core | diagnostic | optional | advanced
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Concrete invocation example shown in help output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub example: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -377,6 +383,8 @@ impl Command {
             name,
             run,
             description: None,
+            category: None,
+            example: None,
             working_dir: None,
             env: None,
             stdin: None,

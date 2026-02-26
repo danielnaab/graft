@@ -127,6 +127,18 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
                 }
             }
 
+            if let Some(cat_value) = cmd_obj.get(Value::String("category".to_string())) {
+                if let Some(cat) = cat_value.as_str() {
+                    command.category = Some(cat.to_string());
+                }
+            }
+
+            if let Some(ex_value) = cmd_obj.get(Value::String("example".to_string())) {
+                if let Some(ex) = ex_value.as_str() {
+                    command.example = Some(ex.to_string());
+                }
+            }
+
             if let Some(wd_value) = cmd_obj.get(Value::String("working_dir".to_string())) {
                 if let Some(wd) = wd_value.as_str() {
                     command.working_dir = Some(wd.to_string());

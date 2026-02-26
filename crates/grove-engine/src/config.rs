@@ -96,6 +96,8 @@ impl GraftYamlLoader for GraftYamlConfigLoader {
                     grove_core::Command {
                         run: def.run,
                         description: def.description,
+                        category: def.category,
+                        example: def.example,
                         working_dir: def.working_dir,
                         env: def.env,
                         args,
@@ -126,6 +128,8 @@ impl GraftYamlLoader for GraftYamlConfigLoader {
                 grove_core::Sequence {
                     name,
                     description: def.description,
+                    category: def.category,
+                    example: def.example,
                     args,
                 }
             })
