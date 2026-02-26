@@ -774,6 +774,28 @@ impl GraftConfig {
             }
         }
 
+        // Validate the dependency graph: duplicate producers are a hard error.
+        let graph = crate::dependency_graph::DependencyGraph::from_config(self).map_err(|e| {
+            GraftError::ConfigValidation {
+                path: "graft.yaml".to_string(),
+                field: "commands".to_string(),
+                reason: e,
+            }
+        })?;
+
+        // Warn about reads with no known producer (state may be produced outside graft).
+        for command in self.commands.values() {
+            for reads_name in &command.reads {
+                if graph.producer(reads_name).is_none() {
+                    eprintln!(
+                        "Warning: command '{}' reads state '{}' which has no known \
+                         producer in this config",
+                        command.name, reads_name
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1372,5 +1394,44 @@ mod tests {
             .with_ttl(120);
         assert_eq!(query.cache.ttl, Some(120));
         assert!(query.cache.deterministic); // default
+    }
+
+    #[test]
+    fn graft_config_validate_rejects_duplicate_state_producers() {
+        let mut config = GraftConfig::new("graft/v0").unwrap();
+        let cmd_a = Command::new("implement", "echo impl")
+            .unwrap()
+            .with_writes(vec!["session".to_string()]);
+        let cmd_b = Command::new("also-writes-session", "echo also")
+            .unwrap()
+            .with_writes(vec!["session".to_string()]);
+        config.commands.insert("implement".to_string(), cmd_a);
+        config
+            .commands
+            .insert("also-writes-session".to_string(), cmd_b);
+
+        let err = config.validate().unwrap_err().to_string();
+        assert!(
+            err.contains("session"),
+            "validation error should name the conflicting state, got: {err}"
+        );
+        assert!(
+            err.contains("duplicate producers"),
+            "validation error should mention duplicate producers, got: {err}"
+        );
+    }
+
+    #[test]
+    fn graft_config_validate_accepts_distinct_state_producers() {
+        let mut config = GraftConfig::new("graft/v0").unwrap();
+        let cmd_a = Command::new("implement", "echo impl")
+            .unwrap()
+            .with_writes(vec!["session".to_string()]);
+        let cmd_b = Command::new("verify", "echo verify")
+            .unwrap()
+            .with_writes(vec!["verify".to_string()]);
+        config.commands.insert("implement".to_string(), cmd_a);
+        config.commands.insert("verify".to_string(), cmd_b);
+        assert!(config.validate().is_ok());
     }
 }

@@ -161,14 +161,17 @@ pub fn setup_run_state(
         ))
     })?;
 
+    // Build the dependency graph once so each reads-lookup is O(1) rather than O(n).
+    // Duplicate-producer errors are caught at validate() time; fall back to an empty
+    // graph (no producer hint) if the config is somehow not yet validated.
+    let graph = crate::dependency_graph::DependencyGraph::from_config(config).unwrap_or_default();
+
     for reads_name in &command.reads {
         let state_file = run_state_dir.join(format!("{reads_name}.json"));
         if !state_file.exists() {
-            let producer = config
-                .commands
-                .values()
-                .find(|c| c.writes.contains(reads_name))
-                .map(|c| format!(" (produced by: {})", c.name))
+            let producer = graph
+                .producer(reads_name)
+                .map(|p| format!(" (produced by: {p})"))
                 .unwrap_or_default();
             return Err(GraftError::CommandExecution(format!(
                 "command '{}' requires state '{}'{producer}",

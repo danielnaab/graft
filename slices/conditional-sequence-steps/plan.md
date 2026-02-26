@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-02-26
 depends_on: [step-level-timeouts, verify-captures-state]
 ---

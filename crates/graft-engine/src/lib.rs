@@ -4,6 +4,7 @@
 //! dependency resolution, lock management, upgrades, and adapter
 //! implementations for graft.
 
+pub mod dependency_graph;
 pub mod domain;
 pub mod error;
 
@@ -21,6 +22,7 @@ pub mod template;
 pub mod validation;
 
 // Re-export domain types and errors at crate root
+pub use dependency_graph::DependencyGraph;
 pub use domain::*;
 pub use error::{GraftError, Result};
 

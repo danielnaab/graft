@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-02-24
 resolve_before_implementing:
   - "Does any current consumer need this beyond inline validation?"
