@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: done
 created: 2026-02-24
 updated: 2026-02-26
 depends_on: [sequence-declarations]
@@ -90,14 +90,14 @@ files already exist. This approach is broken:
 
 ## Steps
 
-- [ ] Spec: add `docs/specifications/graft/sequence-execution.md` with Gherkin
+- [x] Spec: add `docs/specifications/graft/sequence-execution.md` with Gherkin
       scenarios covering normal execution, retry, resumability, and the
       sequence-state.json schema (TDD — spec before code)
-- [ ] Tests: add unit tests in `crates/graft-engine/src/sequence.rs` for
+- [x] Tests: add unit tests in `crates/graft-engine/src/sequence.rs` for
       resume-from-interrupted-step behavior; tests must fail before
       implementation (red phase)
-- [ ] Implement: in `execute_sequence()`, read `sequence-state.json` on entry;
+- [x] Implement: in `execute_sequence()`, read `sequence-state.json` on entry;
       compute `resume_from` index; skip steps before it with the prescribed
       message; handle `phase: retrying` same as `phase: running`
-- [ ] Verify: run full test suite; confirm all new tests pass and no regressions;
+- [x] Verify: run full test suite; confirm all new tests pass and no regressions;
       check spec matches implementation
