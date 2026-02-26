@@ -21,9 +21,12 @@ Three targeted additions to grove:
 
 **1. Elapsed time in CommandOutput header**
 
-Track `command_start_time: Option<std::time::Instant>` in `App`. Set it when
-`CommandState` transitions to `Running`; clear it when the command completes. The
-header string includes the elapsed time, updated each render frame:
+Track `command_start_time: Option<std::time::Instant>` in `App`. Set it when the
+render cycle's passive event drain receives the first `CommandEvent` for a new run
+(i.e. when `command_event_rx` transitions from `None` to `Some` and produces its
+first event); clear it when a completion or failure event is received. There is no
+`handle_command_events` function — command events are drained passively during each
+render frame. The header string includes the elapsed time, updated each render frame:
 
 ```
 ┌ Running: » software-factory:implement-verified (2m 34s) (j/k: scroll, t: log, q: background) ─┐
@@ -55,6 +58,11 @@ In the repo detail view, when `running_command_pid` is `Some`:
 When the command completes while backgrounded, the indicator disappears on the next
 render and `output_lines` retains the final output for review.
 
+**Event draining while backgrounded**: `command_event_rx` remains active after
+`q`-to-background and the render cycle continues draining events into `output_lines`
+each frame — no special handling needed. The passive event drain loop runs regardless
+of whether `View::CommandOutput` is on the view stack.
+
 CommandOutput hint bar updates: `q: background` while running; `q: close` after
 completion.
 
@@ -81,8 +89,10 @@ completion.
   - **Delivers** — users can see how long a command has been running and access the
     run log path without leaving grove
   - **Done when** — `App` gains `command_start_time: Option<std::time::Instant>` set
-    when command transitions to Running (in `handle_command_events`) and cleared on
-    completion; `App` gains `current_log_path: Option<PathBuf>` set when a command
+    when the command starts (when `execute_command_with_args` stores the Instant before
+    spawning the process — not in a `handle_command_events` function, which does not
+    exist; events are drained passively in the render cycle) and cleared when a
+    completion/failure event is received during event drain; `App` gains `current_log_path: Option<PathBuf>` set when a command
     starts (thread spawned in `execute_command_assembled` / `execute_command_with_args`
     — pass log path via a channel or store before spawn); the CommandOutput title
     rendered in `render.rs` includes elapsed time when `command_start_time` is Some

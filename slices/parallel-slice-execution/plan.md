@@ -15,6 +15,11 @@ agents concurrently in isolated git worktrees. This slice enables running multip
 `implement-verified` instances simultaneously: each slice gets its own worktree with
 its own run-state, and results are reported when all complete.
 
+**This technique only benefits slices that touch clearly separate subsystems and
+files.** Slices that share files will produce conflicting changes that require manual
+resolution before merging. The command does not prevent this — users are responsible
+for choosing independent slices.
+
 ## Approach
 
 New `scripts/implement-parallel.sh <slice1> <slice2> [<slice3> [<slice4>]]`:
@@ -56,7 +61,12 @@ in the worktrees are not blocked.
 Add `implement-parallel` command to `graft.yaml`. Since graft's `args` doesn't
 support variadic positional args, use four optional args: `slice1` (required),
 `slice2` (required), `slice3` (optional), `slice4` (optional). The script skips
-empty args.
+empty args. This 4-slice cap is a known limitation of graft's arg model; lift it
+when graft gains variadic arg support.
+
+**Merge warning**: worktree branches with overlapping file changes will produce
+conflicts on `git merge`. Users must inspect branch diffs before merging. The
+summary table prints branch names to simplify diff review.
 
 ## Acceptance Criteria
 

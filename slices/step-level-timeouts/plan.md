@@ -98,7 +98,10 @@ Update the spec files before implementation (TDD).
     enum and `StepDef { name, timeout }`; `SequenceDef.steps` is `Vec<StepDef>`
     (normalized after parse); `parse_sequences_from_str` correctly handles all three
     forms; `graft-engine/src/sequence.rs`'s `execute_sequence` reads `step_def.timeout`
-    and passes it through the command execution path to `ProcessConfig.timeout`;
+    and threads it through the full call chain: `execute_sequence` →
+    `execute_command_by_name` → `ProcessConfig { timeout_seconds: step_def.timeout }`
+    (trace the exact field name and call sites before coding to confirm no intermediate
+    step silently drops the value);
     unit tests are written before implementation (red phase confirmed) covering all
     three parse forms and timeout enforcement; all tests pass after implementation;
     `cargo test && cargo clippy -- -D warnings && cargo fmt --check` passes

@@ -8,22 +8,21 @@ depends_on: [step-level-timeouts, verify-captures-state]
 
 ## Story
 
-The current `on_step_fail` retry mechanism is coarse: one recovery command handles
-all failures of a single step, regardless of what kind of failure occurred. Real
-failure modes need targeted recovery: a lint failure needs a different fix than a
-test failure, and a type error needs different recovery than a missing import.
-Conditional steps allow sequence definitions to skip or include steps based on values
-in run-state files, enabling targeted recovery sequences:
+Steps in a sequence run unconditionally. Some workflows need steps that run only when
+certain conditions are true — either as **precondition gates** (skip an expensive step
+when preconditions are unmet) or as **optional enrichment** (run a step only when
+enrichment is relevant). Examples:
 
-```yaml
-steps:
-  - implement
-  - verify
-  - name: lint-fix
-    when: {state: verify, field: lint, not_starts_with: "OK"}
-  - name: test-fix
-    when: {state: verify, field: tests, not_starts_with: "OK"}
-```
+- Skip `spec-check` when `session.json` has no `baseline_sha` (no diff to check)
+- Run a notification step only when `review.json`'s `verdict` field is `"concerns"`
+- Skip a type-generation step when the schema file hasn't changed
+
+Conditional steps allow sequence definitions to skip or include steps based on values
+in run-state files.
+
+**Note**: Conditional steps do NOT solve targeted-recovery sequences (e.g., run
+lint-fix when lint fails, then re-verify). That pattern requires a multi-step recovery
+mechanism — a separate design problem not addressed here.
 
 ## Approach
 
@@ -54,16 +53,22 @@ Conditions only reference run-state files written by previous steps in the same
 sequence. No parse-time validation of ordering is performed — if a step references a
 state file that a prior step hasn't written yet, it silently skips.
 
+**Interaction with `on_step_fail`**: The `on_step_fail.step` field must name an
+unconditional step (a step without `when`). Naming a conditional step that was skipped
+in `on_step_fail` is undefined behavior and should be documented as unsupported.
+
 The spec is written first (TDD — spec before code).
 
 ## Acceptance Criteria
 
-- A step with `when: {state: verify, field: lint, not_starts_with: "OK"}` executes
-  only when `verify.json`'s `lint` field does not start with "OK"
-- A step with `when: {state: verify, field: lint, starts_with: "OK"}` executes only
-  when it does
-- A step with `when: {state: verify, field: tests, equals: "OK. 0 tests"}` executes
-  only when tests equals exactly that string
+- A step with `when: {state: review, field: verdict, equals: "concerns"}` executes
+  only when `review.json`'s `verdict` field equals `"concerns"`
+- A step with `when: {state: review, field: verdict, not_equals: "pass"}` executes
+  only when `verdict` is not `"pass"`
+- A step with `when: {state: session, field: baseline_sha, not_starts_with: ""}` can
+  be used as a precondition gate (execute only when `baseline_sha` is non-empty)
+- A step with `when: {state: session, field: slice, starts_with: "slices/"}` executes
+  only when the slice path starts with `"slices/"`
 - A step with no `when` always executes (existing behavior preserved)
 - If the referenced state file does not exist, the condition is false and the step
   is skipped with a clear log message naming the missing state file

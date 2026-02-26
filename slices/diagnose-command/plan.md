@@ -22,13 +22,17 @@ the implementation session start with targeted fixing rather than re-diagnosis.
 This separates "understanding what's wrong" from "fixing it" — the Plan-and-Execute
 pattern that the field has found more reliable than monolithic ReAct loops.
 
+**Cost note**: `diagnose` launches a full Claude session (est. $0.10–0.50 per run).
+It is an optional standalone command — not integrated into any automated sequence.
+Users run it manually when verify failures are complex and resume is struggling.
+
 ## Approach
 
 New `scripts/diagnose.sh`:
 1. Reads `verify.json` — exits 1 with `"Nothing to diagnose: verify passed"` if all
    fields start with "OK"
 2. Reads recently changed files from `git diff --name-only <baseline_sha>` (from
-   `context-snapshot.json`) or falls back to `git status --short`
+   `session.json`) or falls back to `git status --short` if baseline_sha is absent
 3. Reads slice acceptance criteria from `session.json`'s `slice` field
 4. Constructs a targeted diagnosis prompt: here are the failures, here are the changed
    files, here is what this step was supposed to achieve — diagnose root cause
@@ -63,8 +67,9 @@ Specific issues:
 - <file>: <issue> → <fix>
 ```
 
-Add `diagnose` command to `graft.yaml` with `reads: [verify, session,
-context-snapshot]`, `writes: [diagnose]`.
+Add `diagnose` command to `graft.yaml` with `reads: [verify, session]`,
+`writes: [diagnose]` (no `reads: [context-snapshot]` — baseline_sha comes from
+`session.json`; absence handled defensively in the script).
 
 ## Acceptance Criteria
 
@@ -89,9 +94,9 @@ context-snapshot]`, `writes: [diagnose]`.
     start with "OK", exits 1; reads changed files from git; reads slice path from
     `session.json`; reads acceptance criteria from the slice plan; constructs diagnosis
     prompt; pipes to `claude -p --dangerously-skip-permissions`; writes `diagnose.json`;
-    `graft.yaml` adds `diagnose` command with `reads: [verify, session,
-    context-snapshot]`, `writes: [diagnose]`; manual test: let verify fail on a slice,
-    run diagnose, inspect `diagnose.json`
+    `graft.yaml` adds `diagnose` command with `reads: [verify, session]`,
+    `writes: [diagnose]` (baseline_sha read from `session.json`, not context-snapshot);
+    manual test: let verify fail on a slice, run diagnose, inspect `diagnose.json`
   - **Files** — `.graft/software-factory/scripts/diagnose.sh`,
     `.graft/software-factory/graft.yaml`
 

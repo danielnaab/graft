@@ -9,12 +9,13 @@ depends_on: [verify-captures-state, context-snapshot]
 ## Story
 
 `verify` confirms that tests pass and code is clean, but says nothing about whether
-the implementation actually satisfies the slice's acceptance criteria semantically. A
-slice might pass all tests while missing a criterion that wasn't covered by tests.
-`spec-check` runs Claude against the acceptance criteria from the slice plan and the
-implementation diff, producing a structured per-criterion verdict. This surfaces
-unmet criteria before the human checkpoint, closing the gap between "tests pass" and
-"spec is met."
+the implementation addresses the slice's acceptance criteria. A criterion that has no
+corresponding code change in the diff may have been forgotten. `spec-check` runs
+Claude against the acceptance criteria and the implementation diff to produce a
+per-criterion **evidence report**: for each criterion, what code changes implement it?
+This is a coverage check — flagging criteria with no implementation evidence — not a
+correctness verification. Claude cannot reliably verify that its own implementation is
+correct; it can reliably identify which criteria have no diff evidence at all.
 
 ## Approach
 
@@ -23,28 +24,29 @@ New `scripts/spec-check.sh`:
 2. Reads slice path from `session.json`
 3. Reads the "Acceptance Criteria" section from `slices/<slug>/plan.md`
 4. Gets `git diff <baseline_sha>` to see the full implementation diff
-5. Pipes criteria + diff to `claude -p --dangerously-skip-permissions` with a
-   verification prompt
+5. Pipes criteria + diff to `claude -p --dangerously-skip-permissions` with an
+   evidence-mapping prompt: "For each criterion, identify what code changes in this
+   diff implement it. If no diff changes address a criterion, flag it as uncovered."
 6. Writes `spec-check.json`:
    ```json
    {
-     "overall": "pass | partial | fail",
-     "unmet_count": 0,
+     "overall": "covered | partial | uncovered",
+     "uncovered_count": 0,
      "criteria": [
        {
          "text": "...",
-         "status": "met | unmet | partial | not_verifiable",
+         "coverage": "covered | uncovered | not_diffable",
          "evidence": "...",
-         "concern": "..."
+         "note": "..."
        }
      ]
    }
    ```
 
-`not_verifiable` is used when a criterion cannot be evaluated from a static diff (e.g.
-runtime behavior, performance characteristics). `overall: "pass"` when all criteria
-are `met` or `not_verifiable`. `overall: "partial"` when any are `partial`.
-`overall: "fail"` when any are `unmet`.
+`not_diffable` is used when a criterion describes runtime behavior or performance that
+cannot be inferred from a static diff. `overall: "covered"` when all criteria are
+`covered` or `not_diffable`. `overall: "partial"` when any are `uncovered` but others
+are `covered`. `overall: "uncovered"` when the majority are uncovered.
 
 Add `spec-check` command to `graft.yaml` with `reads: [session, context-snapshot]`,
 `writes: [spec-check]`.
@@ -55,10 +57,10 @@ as a composable step in a future `implement-spec-verified` sequence.
 ## Acceptance Criteria
 
 - `graft run software-factory:spec-check` produces `spec-check.json` with per-criterion
-  results and an `overall` field
-- `overall: "pass"` when all criteria are `met` or `not_verifiable`
-- `overall: "partial"` when any criterion is `partial`
-- `overall: "fail"` when any criterion is `unmet`
+  evidence mapping and an `overall` field
+- `overall: "covered"` when all criteria are `covered` or `not_diffable`
+- `overall: "partial"` when some criteria are `covered` and some are `uncovered`
+- `overall: "uncovered"` when the majority of criteria have no diff evidence
 - Running without `session.json` exits 1 with a clear error
 - Running when the slice plan cannot be found exits 1 with a clear error
 - Running when the slice plan has no Acceptance Criteria section exits 1 with a
@@ -68,17 +70,20 @@ as a composable step in a future `implement-spec-verified` sequence.
 ## Steps
 
 - [ ] **Write `scripts/spec-check.sh` and add `spec-check` command to `graft.yaml`**
-  - **Delivers** — standalone spec-check command that verifies acceptance criteria
-    against the implementation diff
-  - **Done when** — `spec-check.sh` reads `baseline_sha` from `context-snapshot.json`
-    or falls back to `HEAD~1`; reads slice path from `session.json`; reads the
-    Acceptance Criteria section from the slice plan (lines between `## Acceptance
-    Criteria` and the next `##` heading); constructs a verification prompt with the
-    diff and criteria list, requesting JSON output with `overall`, `unmet_count`,
-    `criteria` fields; pipes to `claude -p --dangerously-skip-permissions`; writes
-    `$GRAFT_STATE_DIR/spec-check.json`; exits 1 with clear messages on missing inputs;
-    `graft.yaml` adds `spec-check` command with `reads: [session, context-snapshot]`,
-    `writes: [spec-check]`; manual test: run on a recently-implemented slice, inspect
-    `spec-check.json` to confirm criterion coverage is correct
+  - **Delivers** — standalone spec-check command that maps acceptance criteria to
+    implementation evidence in the diff, flagging uncovered criteria
+  - **Done when** — `spec-check.sh` reads `baseline_sha` from `session.json` (written
+    by `implement.sh` before launching Claude) or falls back to `HEAD~1` if absent;
+    reads slice path from `session.json`; reads the Acceptance Criteria section from
+    the slice plan (lines between `## Acceptance Criteria` and the next `##` heading);
+    constructs an evidence-mapping prompt: "For each criterion, identify what code
+    changes in this diff implement it. Flag criteria with no diff evidence as
+    uncovered."; requests JSON output with `overall`, `uncovered_count`, `criteria`
+    fields (each: `text`, `coverage`, `evidence`, `note`); pipes to
+    `claude -p --dangerously-skip-permissions`; writes `$GRAFT_STATE_DIR/spec-check.json`;
+    exits 1 with clear messages on missing inputs; `graft.yaml` adds `spec-check`
+    command with `reads: [session]`, `writes: [spec-check]` (no `reads: [context-snapshot]`
+    — baseline_sha comes from session.json); manual test: run on a recently-implemented
+    slice, inspect `spec-check.json` to confirm criterion evidence mapping is reasonable
   - **Files** — `.graft/software-factory/scripts/spec-check.sh`,
     `.graft/software-factory/graft.yaml`

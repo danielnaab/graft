@@ -73,12 +73,16 @@ it (backward compatible).
   - **Delivers** — grove users can type rejection feedback before the reject command runs
   - **Done when** — `handle_key_approval_overlay()` in `overlays.rs`: pressing `r` sets
     `self.argument_input = Some(ArgumentInputState { prompt: "Rejection feedback (Esc
-    to skip):", ... })` rather than immediately calling `execute_command_with_args`;
+    to skip):", ... })` WITHOUT clearing `self.approval_overlay` — the overlay stays
+    `Some` while argument_input is active so it remains visible underneath; the
+    `argument_input` guard at the top of `handle_key()` fires BEFORE the
+    `approval_overlay` guard, so keystrokes go to the text input while it is active;
     when the argument input completes (Enter), calls
-    `execute_command_with_args("software-factory:reject", vec![feedback_text])` then
-    clears the overlay and sets `state_loaded = false`; when the argument input is
-    dismissed (Esc), calls `execute_command_with_args("software-factory:reject", vec![])`
-    then clears the overlay; follows the existing `argument_input` guard pattern in
-    `handle_key()` in `mod.rs`; a unit test asserts the text-input flow is entered on `r`
+    `execute_command_with_args("software-factory:reject", vec![feedback_text])`, then
+    sets `self.approval_overlay = None` and `state_loaded = false`; when the argument
+    input is dismissed (Esc), calls `execute_command_with_args("software-factory:reject",
+    vec![])`, then sets `self.approval_overlay = None`; follows the existing
+    `argument_input` guard pattern in `handle_key()` in `mod.rs`; a unit test asserts
+    the overlay stays `Some` while argument_input is set, and is cleared on completion
   - **Files** — `crates/grove-cli/src/tui/overlays.rs`,
     `crates/grove-cli/src/tui/mod.rs`
