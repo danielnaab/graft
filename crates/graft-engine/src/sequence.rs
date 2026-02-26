@@ -44,7 +44,16 @@ pub fn execute_sequence(
 
     let step_count = seq_def.steps.len();
 
+    // Check for an interrupted prior run and compute the step to resume from.
+    let resume_from = read_resume_index(&run_state_dir, sequence_name).unwrap_or(0);
+
     for (step_index, step_name) in seq_def.steps.iter().enumerate() {
+        // Skip steps that were completed before an interruption.
+        if step_index < resume_from {
+            eprintln!("↷ Skipping {step_name} (already completed)");
+            continue;
+        }
+
         let result = execute_step_with_retry(
             config,
             sequence_name,
@@ -316,6 +325,35 @@ fn execute_step_with_retry(
     // max >= 1 is guaranteed by the guard above; the loop always returns from
     // inside its body on the final iteration, so this is unreachable.
     unreachable!("retry loop must return on the final iteration")
+}
+
+/// Read the resume index from an existing sequence-state.json.
+///
+/// Returns `Some(step_index)` when the file exists, belongs to `sequence_name`,
+/// and has `phase: "running"` or `phase: "retrying"` — meaning the sequence
+/// was interrupted mid-run and the step at that index should be the restart point.
+///
+/// Returns `None` (fresh run) when:
+/// - The file is absent or unreadable.
+/// - The recorded sequence name does not match.
+/// - The phase is `"complete"` or `"failed"` (sequence already terminated cleanly).
+fn read_resume_index(run_state_dir: &std::path::Path, sequence_name: &str) -> Option<usize> {
+    let state_file = run_state_dir.join("sequence-state.json");
+    let content = std::fs::read_to_string(&state_file).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let recorded_sequence = parsed.get("sequence")?.as_str()?;
+    if recorded_sequence != sequence_name {
+        return None;
+    }
+
+    let phase = parsed.get("phase")?.as_str()?;
+    if phase != "running" && phase != "retrying" {
+        return None;
+    }
+
+    let step_index = usize::try_from(parsed.get("step_index")?.as_u64()?).ok()?;
+    Some(step_index)
 }
 
 /// Write sequence-state.json to the run-state directory atomically.
@@ -731,6 +769,188 @@ mod tests {
         assert!(
             !checkpoint_file.exists(),
             "checkpoint.json should NOT be written when sequence fails"
+        );
+    }
+
+    // ── Crash resumability tests ─────────────────────────────────────────────
+
+    /// Helper: write a synthetic sequence-state.json into the run-state dir.
+    fn write_synthetic_state(
+        run_state_dir: &std::path::Path,
+        sequence: &str,
+        step: &str,
+        step_index: usize,
+        step_count: usize,
+        phase: &str,
+    ) {
+        std::fs::create_dir_all(run_state_dir).unwrap();
+        let obj = serde_json::json!({
+            "sequence": sequence,
+            "step": step,
+            "step_index": step_index,
+            "step_count": step_count,
+            "phase": phase,
+        });
+        let path = run_state_dir.join("sequence-state.json");
+        std::fs::write(path, serde_json::to_string_pretty(&obj).unwrap()).unwrap();
+    }
+
+    /// Build a two-step ("step-a", "step-b") config + sequence that appends
+    /// each step's name to `out_file`. Returns (config, `seq_name`).
+    fn make_two_step_config(out_file: &std::path::Path) -> (GraftConfig, &'static str) {
+        let run_a = format!("echo step-a >> {}", out_file.to_string_lossy());
+        let run_b = format!("echo step-b >> {}", out_file.to_string_lossy());
+        let mut config = make_echo_config(&[("step-a", &run_a), ("step-b", &run_b)]);
+        let seq = graft_common::SequenceDef {
+            steps: vec!["step-a".to_string(), "step-b".to_string()],
+            description: None,
+            args: vec![],
+            on_step_fail: None,
+            checkpoint: None,
+        };
+        config.sequences.insert("two-step".to_string(), seq);
+        (config, "two-step")
+    }
+
+    #[test]
+    fn resume_skips_completed_steps_when_state_is_running() {
+        // step-a completed, step-b was running (killed at step_index=1) → skip step-a
+        let tmp = TempDir::new().unwrap();
+        let out_file = tmp.path().join("ran.txt");
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        write_synthetic_state(&run_state_dir, "two-step", "step-b", 1, 2, "running");
+
+        let (config, seq_name) = make_two_step_config(&out_file);
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, seq_name, &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let content = std::fs::read_to_string(&out_file).unwrap();
+        assert!(
+            !content.contains("step-a"),
+            "step-a should be skipped (already completed)"
+        );
+        assert!(
+            content.contains("step-b"),
+            "step-b should execute on resume"
+        );
+    }
+
+    #[test]
+    fn resume_with_no_state_file_runs_all_steps() {
+        // No sequence-state.json → fresh run, all steps execute
+        let tmp = TempDir::new().unwrap();
+        let out_file = tmp.path().join("ran.txt");
+
+        let (config, seq_name) = make_two_step_config(&out_file);
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, seq_name, &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let content = std::fs::read_to_string(&out_file).unwrap();
+        assert!(
+            content.contains("step-a"),
+            "step-a should run on fresh start"
+        );
+        assert!(
+            content.contains("step-b"),
+            "step-b should run on fresh start"
+        );
+    }
+
+    #[test]
+    fn resume_with_complete_phase_runs_all_steps() {
+        // phase: "complete" → sequence already done → fresh run
+        let tmp = TempDir::new().unwrap();
+        let out_file = tmp.path().join("ran.txt");
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        write_synthetic_state(&run_state_dir, "two-step", "", 1, 2, "complete");
+
+        let (config, seq_name) = make_two_step_config(&out_file);
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, seq_name, &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let content = std::fs::read_to_string(&out_file).unwrap();
+        assert!(
+            content.contains("step-a"),
+            "step-a should run after complete state"
+        );
+        assert!(
+            content.contains("step-b"),
+            "step-b should run after complete state"
+        );
+    }
+
+    #[test]
+    fn resume_with_failed_phase_runs_all_steps() {
+        // phase: "failed" → sequence terminated cleanly → fresh run
+        let tmp = TempDir::new().unwrap();
+        let out_file = tmp.path().join("ran.txt");
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        write_synthetic_state(&run_state_dir, "two-step", "step-a", 0, 2, "failed");
+
+        let (config, seq_name) = make_two_step_config(&out_file);
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, seq_name, &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let content = std::fs::read_to_string(&out_file).unwrap();
+        assert!(
+            content.contains("step-a"),
+            "step-a should run after failed state"
+        );
+        assert!(
+            content.contains("step-b"),
+            "step-b should run after failed state"
+        );
+    }
+
+    #[test]
+    fn resume_with_different_sequence_name_runs_all_steps() {
+        // State belongs to a different sequence → fresh run
+        let tmp = TempDir::new().unwrap();
+        let out_file = tmp.path().join("ran.txt");
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        write_synthetic_state(&run_state_dir, "other-seq", "step-a", 0, 2, "running");
+
+        let (config, seq_name) = make_two_step_config(&out_file);
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, seq_name, &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let content = std::fs::read_to_string(&out_file).unwrap();
+        assert!(
+            content.contains("step-a"),
+            "step-a should run (different sequence in state)"
+        );
+        assert!(
+            content.contains("step-b"),
+            "step-b should run (different sequence in state)"
+        );
+    }
+
+    #[test]
+    fn resume_with_retrying_phase_treats_same_as_running() {
+        // phase: "retrying" at step_index=1 → skip step-a, restart from step-b
+        let tmp = TempDir::new().unwrap();
+        let out_file = tmp.path().join("ran.txt");
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        write_synthetic_state(&run_state_dir, "two-step", "step-b", 1, 2, "retrying");
+
+        let (config, seq_name) = make_two_step_config(&out_file);
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, seq_name, &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let content = std::fs::read_to_string(&out_file).unwrap();
+        assert!(
+            !content.contains("step-a"),
+            "step-a should be skipped (retrying treated same as running)"
+        );
+        assert!(
+            content.contains("step-b"),
+            "step-b should execute on resume"
         );
     }
 }
