@@ -346,13 +346,70 @@ fn default_max_retries() -> u32 {
 
 /// A sequence definition from graft.yaml.
 ///
+/// A conditional guard that must evaluate to true for a step to execute.
+///
+/// Reads a field from a run-state JSON file and applies one operator.
+/// Exactly one operator (`equals`, `not_equals`, `starts_with`, `not_starts_with`)
+/// must be set; zero or multiple operators is a parse error.
+///
+/// If the state file or field is absent the condition evaluates to false
+/// and the step is skipped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WhenCondition {
+    /// Run-state file name (without `.json`), e.g. `"verify"`.
+    pub state: String,
+    /// JSON field name inside the state file, e.g. `"lint"`.
+    pub field: String,
+    /// Execute only when the field value equals this string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub equals: Option<String>,
+    /// Execute only when the field value does not equal this string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_equals: Option<String>,
+    /// Execute only when the field value starts with this prefix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub starts_with: Option<String>,
+    /// Execute only when the field value does not start with this prefix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_starts_with: Option<String>,
+}
+
+impl WhenCondition {
+    /// Count how many operator fields are set. Valid = exactly 1.
+    fn operator_count(&self) -> usize {
+        usize::from(self.equals.is_some())
+            + usize::from(self.not_equals.is_some())
+            + usize::from(self.starts_with.is_some())
+            + usize::from(self.not_starts_with.is_some())
+    }
+
+    /// Validate that exactly one operator is set.
+    pub fn validate(&self) -> Result<(), String> {
+        let count = self.operator_count();
+        if count == 0 {
+            return Err(format!(
+                "when condition on state '{}' field '{}' has no operator (need exactly one of: \
+                 equals, not_equals, starts_with, not_starts_with)",
+                self.state, self.field
+            ));
+        }
+        if count > 1 {
+            return Err(format!(
+                "when condition on state '{}' field '{}' has {} operators (need exactly one)",
+                self.state, self.field, count
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// A single step in a sequence — either a bare command name or a named step with options.
 ///
-/// Both forms are equivalent when `timeout` is absent:
+/// Both forms are equivalent when `timeout` and `when` are absent:
 /// ```yaml
 /// steps:
 ///   - implement          # bare string form
-///   - name: verify       # object form (supports timeout)
+///   - name: verify       # object form (supports timeout and when condition)
 ///     timeout: 180
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -362,14 +419,18 @@ pub struct StepDef {
     /// Optional per-step timeout in seconds. `None` means no timeout.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
+    /// Optional condition: the step only executes when the condition evaluates to true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<WhenCondition>,
 }
 
 impl StepDef {
-    /// Create a bare step with no timeout.
+    /// Create a bare step with no timeout or condition.
     pub fn simple(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             timeout: None,
+            when: None,
         }
     }
 }
@@ -435,7 +496,7 @@ pub fn parse_sequences_from_str(content: &str) -> Result<HashMap<String, Sequenc
 
 /// Parse a single sequence definition from YAML config.
 #[allow(clippy::too_many_lines)]
-/// Parse a single step value — either a bare string or an object with `name` + optional `timeout`.
+/// Parse a single step value — either a bare string or an object with `name` + optional `timeout`/`when`.
 fn parse_step_def(val: &Value, seq_name: &str, idx: usize) -> Option<StepDef> {
     if let Some(s) = val.as_str() {
         return Some(StepDef::simple(s));
@@ -443,7 +504,35 @@ fn parse_step_def(val: &Value, seq_name: &str, idx: usize) -> Option<StepDef> {
     if let Some(map) = val.as_mapping() {
         let name = map.get("name").and_then(|v| v.as_str()).map(String::from)?;
         let timeout = map.get("timeout").and_then(serde_yaml::Value::as_u64);
-        return Some(StepDef { name, timeout });
+
+        // Parse optional `when:` condition block
+        let when = if let Some(when_val) = map.get("when") {
+            match serde_yaml::from_value::<WhenCondition>(when_val.clone()) {
+                Ok(cond) => match cond.validate() {
+                    Ok(()) => Some(cond),
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: Step '{name}' in sequence '{seq_name}' has invalid when condition: {e}"
+                        );
+                        return None;
+                    }
+                },
+                Err(e) => {
+                    eprintln!(
+                        "Warning: Step '{name}' in sequence '{seq_name}' has malformed when condition: {e}"
+                    );
+                    return None;
+                }
+            }
+        } else {
+            None
+        };
+
+        return Some(StepDef {
+            name,
+            timeout,
+            when,
+        });
     }
     eprintln!("Warning: Step {idx} in sequence '{seq_name}' is not a string or object, skipping");
     None
@@ -1370,5 +1459,171 @@ sequences:
         let seq = sequences.get("ci").unwrap();
         let osf = seq.on_step_fail.as_ref().unwrap();
         assert_eq!(osf.max, 5);
+    }
+
+    // ── WhenCondition validation tests ───────────────────────────────────────
+
+    #[test]
+    fn when_condition_validate_zero_operators_returns_error() {
+        let cond = WhenCondition {
+            state: "verify".to_string(),
+            field: "lint".to_string(),
+            equals: None,
+            not_equals: None,
+            starts_with: None,
+            not_starts_with: None,
+        };
+        assert!(
+            cond.validate().is_err(),
+            "zero operators should be a validation error"
+        );
+    }
+
+    #[test]
+    fn when_condition_validate_multiple_operators_returns_error() {
+        let cond = WhenCondition {
+            state: "verify".to_string(),
+            field: "lint".to_string(),
+            equals: Some("OK".to_string()),
+            not_equals: Some("FAILED".to_string()),
+            starts_with: None,
+            not_starts_with: None,
+        };
+        assert!(
+            cond.validate().is_err(),
+            "multiple operators should be a validation error"
+        );
+    }
+
+    #[test]
+    fn when_condition_validate_single_operator_ok() {
+        for cond in [
+            WhenCondition {
+                state: "v".to_string(),
+                field: "f".to_string(),
+                equals: Some("x".to_string()),
+                not_equals: None,
+                starts_with: None,
+                not_starts_with: None,
+            },
+            WhenCondition {
+                state: "v".to_string(),
+                field: "f".to_string(),
+                equals: None,
+                not_equals: Some("x".to_string()),
+                starts_with: None,
+                not_starts_with: None,
+            },
+            WhenCondition {
+                state: "v".to_string(),
+                field: "f".to_string(),
+                equals: None,
+                not_equals: None,
+                starts_with: Some("x".to_string()),
+                not_starts_with: None,
+            },
+            WhenCondition {
+                state: "v".to_string(),
+                field: "f".to_string(),
+                equals: None,
+                not_equals: None,
+                starts_with: None,
+                not_starts_with: Some("x".to_string()),
+            },
+        ] {
+            assert!(
+                cond.validate().is_ok(),
+                "single operator should pass validation"
+            );
+        }
+    }
+
+    // ── parse_step_def with when: condition ──────────────────────────────────
+
+    #[test]
+    fn parse_step_with_when_equals_condition() {
+        let yaml_content = r"
+sequences:
+  deploy:
+    steps:
+      - name: push
+        when:
+          state: verify
+          field: lint
+          equals: OK
+";
+        let sequences = parse_sequences_from_str(yaml_content).unwrap();
+        let seq = sequences.get("deploy").unwrap();
+        assert_eq!(seq.steps.len(), 1);
+        let step = &seq.steps[0];
+        assert_eq!(step.name, "push");
+        let when = step
+            .when
+            .as_ref()
+            .expect("step should have a when condition");
+        assert_eq!(when.state, "verify");
+        assert_eq!(when.field, "lint");
+        assert_eq!(when.equals.as_deref(), Some("OK"));
+        assert!(when.not_equals.is_none());
+    }
+
+    #[test]
+    fn parse_step_with_when_not_starts_with_condition() {
+        let yaml_content = r#"
+sequences:
+  ci:
+    steps:
+      - name: baseline-check
+        when:
+          state: session
+          field: baseline_sha
+          not_starts_with: ""
+"#;
+        let sequences = parse_sequences_from_str(yaml_content).unwrap();
+        let seq = sequences.get("ci").unwrap();
+        let step = &seq.steps[0];
+        let when = step
+            .when
+            .as_ref()
+            .expect("step should have a when condition");
+        assert_eq!(when.state, "session");
+        assert_eq!(when.field, "baseline_sha");
+        assert_eq!(when.not_starts_with.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn parse_step_with_invalid_when_no_operator_drops_step() {
+        // A when: block with no operator should cause the step to be dropped (warning printed)
+        let yaml_content = r"
+sequences:
+  ci:
+    steps:
+      - name: bad-step
+        when:
+          state: verify
+          field: lint
+      - good-step
+";
+        let sequences = parse_sequences_from_str(yaml_content).unwrap();
+        let seq = sequences.get("ci").unwrap();
+        // bad-step should be dropped, good-step should remain
+        assert_eq!(seq.steps.len(), 1, "bad-step should be dropped");
+        assert_eq!(seq.steps[0].name, "good-step");
+    }
+
+    #[test]
+    fn parse_bare_step_has_no_when_condition() {
+        let yaml_content = r"
+sequences:
+  ci:
+    steps:
+      - build
+";
+        let sequences = parse_sequences_from_str(yaml_content).unwrap();
+        let seq = sequences.get("ci").unwrap();
+        assert!(
+            seq.steps[0].when.is_none(),
+            "bare step should have no when condition"
+        );
     }
 }

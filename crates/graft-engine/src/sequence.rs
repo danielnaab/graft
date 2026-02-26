@@ -56,6 +56,17 @@ pub fn execute_sequence(
             continue;
         }
 
+        // Evaluate `when:` condition immediately before the step runs.
+        if let Some(condition) = &step_def.when {
+            if let Some(skip_reason) = evaluate_when_condition(condition, &run_state_dir) {
+                eprintln!(
+                    "↷ Skipping {} (condition not met: {})",
+                    step_def.name, skip_reason
+                );
+                continue;
+            }
+        }
+
         let result = execute_step_with_retry(
             config,
             sequence_name,
@@ -332,6 +343,58 @@ fn execute_step_with_retry(
     // max >= 1 is guaranteed by the guard above; the loop always returns from
     // inside its body on the final iteration, so this is unreachable.
     unreachable!("retry loop must return on the final iteration")
+}
+
+/// Evaluate a `when:` condition against the run-state directory.
+///
+/// Returns `None` when the condition passes (step should execute).
+/// Returns `Some(reason)` when the condition fails (step should be skipped);
+/// `reason` is the message fragment after `"condition not met: "`.
+///
+/// The reason format is `"<state>.<field>"` for operator mismatch,
+/// `"<state>.<field> — state file missing"` when the file is absent, and
+/// `"<state>.<field> — field missing"` when the JSON field is not present.
+fn evaluate_when_condition(
+    condition: &graft_common::WhenCondition,
+    run_state_dir: &std::path::Path,
+) -> Option<String> {
+    let state_file = run_state_dir.join(format!("{}.json", condition.state));
+    let reference = format!("{}.{}", condition.state, condition.field);
+
+    let Ok(content) = std::fs::read_to_string(&state_file) else {
+        return Some(format!("{reference} — state file missing"));
+    };
+
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return Some(format!("{reference} — state file not valid JSON"));
+    };
+
+    let Some(value) = parsed
+        .get(&condition.field)
+        .and_then(|v| v.as_str())
+        .map(String::from)
+    else {
+        return Some(format!("{reference} — field missing"));
+    };
+
+    let passes = if let Some(eq) = &condition.equals {
+        value == *eq
+    } else if let Some(ne) = &condition.not_equals {
+        value != *ne
+    } else if let Some(sw) = &condition.starts_with {
+        value.starts_with(sw.as_str())
+    } else if let Some(nsw) = &condition.not_starts_with {
+        !value.starts_with(nsw.as_str())
+    } else {
+        // No operator — validate() should have caught this; default to executing the step.
+        true
+    };
+
+    if passes {
+        None
+    } else {
+        Some(reference)
+    }
 }
 
 /// Read the resume index from an existing sequence-state.json.
@@ -989,6 +1052,500 @@ mod tests {
         assert!(
             content.contains("step-b"),
             "step-b should execute on resume"
+        );
+    }
+
+    // ── Conditional step tests ────────────────────────────────────────────────
+
+    /// Write a run-state JSON file with the given fields.
+    fn write_run_state_json(
+        run_state_dir: &std::path::Path,
+        name: &str,
+        fields: serde_json::Value,
+    ) {
+        std::fs::create_dir_all(run_state_dir).unwrap();
+        let path = run_state_dir.join(format!("{name}.json"));
+        std::fs::write(path, serde_json::to_string_pretty(&fields).unwrap()).unwrap();
+    }
+
+    /// Build a one-step sequence with a `when:` condition that appends to `out_file`.
+    fn make_conditional_config(
+        out_file: &std::path::Path,
+        condition: graft_common::WhenCondition,
+    ) -> GraftConfig {
+        let step_run = format!("echo ran >> {}", out_file.to_string_lossy());
+        let mut config = make_echo_config(&[("cond-step", &step_run)]);
+        let seq = graft_common::SequenceDef {
+            steps: vec![graft_common::StepDef {
+                name: "cond-step".to_string(),
+                timeout: None,
+                when: Some(condition),
+            }],
+            description: None,
+            category: None,
+            example: None,
+            args: vec![],
+            on_step_fail: None,
+            checkpoint: None,
+        };
+        config.sequences.insert("cond-seq".to_string(), seq);
+        config
+    }
+
+    #[test]
+    fn conditional_step_executes_when_equals_matches() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        let out_file = tmp.path().join("ran.txt");
+        write_run_state_json(&run_state_dir, "verify", serde_json::json!({"lint": "OK"}));
+
+        let config = make_conditional_config(
+            &out_file,
+            graft_common::WhenCondition {
+                state: "verify".to_string(),
+                field: "lint".to_string(),
+                equals: Some("OK".to_string()),
+                not_equals: None,
+                starts_with: None,
+                not_starts_with: None,
+            },
+        );
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "cond-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+        assert!(
+            out_file.exists() && std::fs::read_to_string(&out_file).unwrap().contains("ran"),
+            "step should have executed when equals condition is met"
+        );
+    }
+
+    #[test]
+    fn conditional_step_skipped_when_equals_does_not_match() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        let out_file = tmp.path().join("ran.txt");
+        write_run_state_json(
+            &run_state_dir,
+            "verify",
+            serde_json::json!({"lint": "FAILED: unused import"}),
+        );
+
+        let config = make_conditional_config(
+            &out_file,
+            graft_common::WhenCondition {
+                state: "verify".to_string(),
+                field: "lint".to_string(),
+                equals: Some("OK".to_string()),
+                not_equals: None,
+                starts_with: None,
+                not_starts_with: None,
+            },
+        );
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "cond-seq", &ctx, &[]).unwrap();
+        assert_eq!(
+            exit_code, 0,
+            "sequence should succeed even when step is skipped"
+        );
+        assert!(
+            !out_file.exists(),
+            "step should have been skipped when equals condition is not met"
+        );
+    }
+
+    #[test]
+    fn conditional_step_skipped_when_state_file_missing() {
+        let tmp = TempDir::new().unwrap();
+        let out_file = tmp.path().join("ran.txt");
+        // No state file written
+
+        let config = make_conditional_config(
+            &out_file,
+            graft_common::WhenCondition {
+                state: "verify".to_string(),
+                field: "lint".to_string(),
+                equals: Some("OK".to_string()),
+                not_equals: None,
+                starts_with: None,
+                not_starts_with: None,
+            },
+        );
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "cond-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+        assert!(
+            !out_file.exists(),
+            "step should be skipped when state file is missing"
+        );
+    }
+
+    #[test]
+    fn conditional_step_skipped_when_field_missing() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        let out_file = tmp.path().join("ran.txt");
+        // State file exists but does not have the required field
+        write_run_state_json(
+            &run_state_dir,
+            "session",
+            serde_json::json!({"other": "value"}),
+        );
+
+        let config = make_conditional_config(
+            &out_file,
+            graft_common::WhenCondition {
+                state: "session".to_string(),
+                field: "baseline_sha".to_string(),
+                not_starts_with: Some(String::new()),
+                equals: None,
+                not_equals: None,
+                starts_with: None,
+            },
+        );
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "cond-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+        assert!(
+            !out_file.exists(),
+            "step should be skipped when field is missing"
+        );
+    }
+
+    #[test]
+    fn conditional_step_executes_when_not_equals_differs() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        let out_file = tmp.path().join("ran.txt");
+        write_run_state_json(
+            &run_state_dir,
+            "verify",
+            serde_json::json!({"status": "done"}),
+        );
+
+        let config = make_conditional_config(
+            &out_file,
+            graft_common::WhenCondition {
+                state: "verify".to_string(),
+                field: "status".to_string(),
+                not_equals: Some("pending".to_string()),
+                equals: None,
+                starts_with: None,
+                not_starts_with: None,
+            },
+        );
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "cond-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+        assert!(
+            out_file.exists() && std::fs::read_to_string(&out_file).unwrap().contains("ran"),
+            "step should execute when not_equals condition is met"
+        );
+    }
+
+    #[test]
+    fn conditional_step_skipped_when_not_equals_is_equal() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        let out_file = tmp.path().join("ran.txt");
+        write_run_state_json(
+            &run_state_dir,
+            "verify",
+            serde_json::json!({"status": "pending"}),
+        );
+
+        let config = make_conditional_config(
+            &out_file,
+            graft_common::WhenCondition {
+                state: "verify".to_string(),
+                field: "status".to_string(),
+                not_equals: Some("pending".to_string()),
+                equals: None,
+                starts_with: None,
+                not_starts_with: None,
+            },
+        );
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "cond-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+        assert!(
+            !out_file.exists(),
+            "step should be skipped when not_equals value matches"
+        );
+    }
+
+    #[test]
+    fn conditional_step_executes_when_starts_with_matches() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        let out_file = tmp.path().join("ran.txt");
+        write_run_state_json(
+            &run_state_dir,
+            "verify",
+            serde_json::json!({"status": "OK: all good"}),
+        );
+
+        let config = make_conditional_config(
+            &out_file,
+            graft_common::WhenCondition {
+                state: "verify".to_string(),
+                field: "status".to_string(),
+                starts_with: Some("OK".to_string()),
+                equals: None,
+                not_equals: None,
+                not_starts_with: None,
+            },
+        );
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "cond-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+        assert!(
+            out_file.exists() && std::fs::read_to_string(&out_file).unwrap().contains("ran"),
+            "step should execute when starts_with condition is met"
+        );
+    }
+
+    #[test]
+    fn conditional_step_skipped_when_starts_with_does_not_match() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        let out_file = tmp.path().join("ran.txt");
+        write_run_state_json(
+            &run_state_dir,
+            "verify",
+            serde_json::json!({"status": "FAILED: error"}),
+        );
+
+        let config = make_conditional_config(
+            &out_file,
+            graft_common::WhenCondition {
+                state: "verify".to_string(),
+                field: "status".to_string(),
+                starts_with: Some("OK".to_string()),
+                equals: None,
+                not_equals: None,
+                not_starts_with: None,
+            },
+        );
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "cond-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+        assert!(
+            !out_file.exists(),
+            "step should be skipped when starts_with does not match"
+        );
+    }
+
+    #[test]
+    fn conditional_step_executes_when_not_starts_with_does_not_start() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        let out_file = tmp.path().join("ran.txt");
+        // baseline_sha is non-empty → not_starts_with: "" is true (non-empty string does NOT start with empty... wait)
+        // Actually "" is a prefix of every string so not_starts_with: "" would always be false.
+        // Use a meaningful case: field value "abc123" does not start with "xyz"
+        write_run_state_json(
+            &run_state_dir,
+            "session",
+            serde_json::json!({"baseline_sha": "abc123def"}),
+        );
+
+        let config = make_conditional_config(
+            &out_file,
+            graft_common::WhenCondition {
+                state: "session".to_string(),
+                field: "baseline_sha".to_string(),
+                not_starts_with: Some("xyz".to_string()),
+                equals: None,
+                not_equals: None,
+                starts_with: None,
+            },
+        );
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "cond-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+        assert!(
+            out_file.exists() && std::fs::read_to_string(&out_file).unwrap().contains("ran"),
+            "step should execute when not_starts_with condition is met"
+        );
+    }
+
+    #[test]
+    fn conditional_step_skipped_when_not_starts_with_does_start() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        let out_file = tmp.path().join("ran.txt");
+        write_run_state_json(
+            &run_state_dir,
+            "session",
+            serde_json::json!({"baseline_sha": "abc123def"}),
+        );
+
+        let config = make_conditional_config(
+            &out_file,
+            graft_common::WhenCondition {
+                state: "session".to_string(),
+                field: "baseline_sha".to_string(),
+                not_starts_with: Some("abc".to_string()),
+                equals: None,
+                not_equals: None,
+                starts_with: None,
+            },
+        );
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "cond-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+        assert!(
+            !out_file.exists(),
+            "step should be skipped when not_starts_with value does start the field"
+        );
+    }
+
+    #[test]
+    fn sequence_continues_after_skipped_conditional_step() {
+        // A conditional step that is skipped should not stop the sequence.
+        // The next unconditional step should still run.
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join(".graft").join("run-state");
+        let out_file = tmp.path().join("ran.txt");
+        // No verify.json → conditional step will be skipped
+        // (state file missing)
+
+        let step_run = format!("echo unconditional >> {}", out_file.to_string_lossy());
+        let mut config = make_echo_config(&[
+            ("cond-step", "echo should-not-run"),
+            ("next-step", &step_run),
+        ]);
+        let seq = graft_common::SequenceDef {
+            steps: vec![
+                graft_common::StepDef {
+                    name: "cond-step".to_string(),
+                    timeout: None,
+                    when: Some(graft_common::WhenCondition {
+                        state: "verify".to_string(),
+                        field: "lint".to_string(),
+                        equals: Some("OK".to_string()),
+                        not_equals: None,
+                        starts_with: None,
+                        not_starts_with: None,
+                    }),
+                },
+                graft_common::StepDef::simple("next-step"),
+            ],
+            description: None,
+            category: None,
+            example: None,
+            args: vec![],
+            on_step_fail: None,
+            checkpoint: None,
+        };
+        config.sequences.insert("mixed-seq".to_string(), seq);
+
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "mixed-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let content = std::fs::read_to_string(&out_file).unwrap();
+        assert!(
+            content.contains("unconditional"),
+            "next-step should run after skipped conditional step"
+        );
+        let _ = run_state_dir; // referenced to clarify no verify.json was written
+    }
+
+    // ── evaluate_when_condition unit tests ───────────────────────────────────
+
+    #[test]
+    fn evaluate_condition_returns_none_when_condition_passes() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join("run-state");
+        write_run_state_json(&run_state_dir, "verify", serde_json::json!({"lint": "OK"}));
+
+        let cond = graft_common::WhenCondition {
+            state: "verify".to_string(),
+            field: "lint".to_string(),
+            equals: Some("OK".to_string()),
+            not_equals: None,
+            starts_with: None,
+            not_starts_with: None,
+        };
+        let result = evaluate_when_condition(&cond, &run_state_dir);
+        assert!(
+            result.is_none(),
+            "should return None (execute) when condition passes"
+        );
+    }
+
+    #[test]
+    fn evaluate_condition_returns_some_when_condition_fails() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join("run-state");
+        write_run_state_json(
+            &run_state_dir,
+            "verify",
+            serde_json::json!({"lint": "FAILED"}),
+        );
+
+        let cond = graft_common::WhenCondition {
+            state: "verify".to_string(),
+            field: "lint".to_string(),
+            equals: Some("OK".to_string()),
+            not_equals: None,
+            starts_with: None,
+            not_starts_with: None,
+        };
+        let result = evaluate_when_condition(&cond, &run_state_dir);
+        assert!(
+            result.is_some(),
+            "should return Some (skip) when condition fails"
+        );
+        assert_eq!(result.unwrap(), "verify.lint");
+    }
+
+    #[test]
+    fn evaluate_condition_state_file_missing_returns_some() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join("run-state");
+        // No file written
+
+        let cond = graft_common::WhenCondition {
+            state: "verify".to_string(),
+            field: "lint".to_string(),
+            equals: Some("OK".to_string()),
+            not_equals: None,
+            starts_with: None,
+            not_starts_with: None,
+        };
+        let result = evaluate_when_condition(&cond, &run_state_dir);
+        assert!(result.is_some());
+        assert!(
+            result.unwrap().contains("state file missing"),
+            "reason should mention missing state file"
+        );
+    }
+
+    #[test]
+    fn evaluate_condition_field_missing_returns_some() {
+        let tmp = TempDir::new().unwrap();
+        let run_state_dir = tmp.path().join("run-state");
+        write_run_state_json(
+            &run_state_dir,
+            "verify",
+            serde_json::json!({"other": "value"}),
+        );
+
+        let cond = graft_common::WhenCondition {
+            state: "verify".to_string(),
+            field: "lint".to_string(),
+            equals: Some("OK".to_string()),
+            not_equals: None,
+            starts_with: None,
+            not_starts_with: None,
+        };
+        let result = evaluate_when_condition(&cond, &run_state_dir);
+        assert!(result.is_some());
+        assert!(
+            result.unwrap().contains("field missing"),
+            "reason should mention missing field"
         );
     }
 }

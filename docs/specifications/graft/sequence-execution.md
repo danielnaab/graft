@@ -210,3 +210,61 @@ No new keybindings. `graft run <dep>:<sequence-name> [args]` is the invocation.
 
 - [Slice plan: sequence-resumability](../../../slices/sequence-resumability/plan.md)
 - [graft.yaml Format Specification](./graft-yaml-format.md) — sequences section
+
+---
+
+## Conditional Step Execution (`when:`)
+
+A step may declare a `when:` condition that gates its execution on a value in
+a run-state file. Conditions are evaluated lazily — immediately before each
+step runs — so they reflect the most recent run-state written by prior steps.
+
+```gherkin
+Given a step with when: {state: verify, field: lint, equals: "OK"}
+And verify.json exists with field "lint" = "OK"
+When the step is evaluated
+Then the step executes normally
+```
+
+```gherkin
+Given a step with when: {state: verify, field: lint, equals: "OK"}
+And verify.json exists with field "lint" = "FAILED: unused import"
+When the step is evaluated
+Then the step is skipped
+And "↷ Skipping <step> (condition not met: verify.lint)" is printed to stderr
+```
+
+```gherkin
+Given a step with when: {state: verify, field: lint, equals: "OK"}
+And verify.json does not exist
+When the step is evaluated
+Then the step is skipped
+And "↷ Skipping <step> (condition not met: verify.lint — state file missing)" is printed
+```
+
+```gherkin
+Given a step with when: {state: session, field: baseline_sha, not_starts_with: ""}
+And session.json exists but has no "baseline_sha" field
+When the step is evaluated
+Then the step is skipped
+And "↷ Skipping <step> (condition not met: session.baseline_sha — field missing)" is printed
+```
+
+### Operators
+
+| Operator          | Evaluates to true when…               |
+|-------------------|---------------------------------------|
+| `equals`          | field value is identical to string    |
+| `not_equals`      | field value is not identical          |
+| `starts_with`     | field value begins with prefix        |
+| `not_starts_with` | field value does not begin with prefix|
+
+All operators compare the field value as a plain string. Exactly one operator
+must be present per `when:` block; zero or multiple operators is a parse error.
+
+### Interaction with `on_step_fail`
+
+The `on_step_fail.step` field must name an unconditional step (a step without
+`when:`). Naming a conditionally-skipped step in `on_step_fail` is undefined
+behavior and is not validated at parse time.
+

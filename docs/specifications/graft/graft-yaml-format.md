@@ -75,9 +75,18 @@ sequences:
     category: string              # Optional: role classification (core|diagnostic|optional|advanced)
     example: string               # Optional: complete invocation example
     steps:                        # Required: ordered command names or step objects
-      - <command-name>            #   String form: no per-step timeout
-      - name: <command-name>      #   Object form: per-step timeout
+      - <command-name>            #   String form: no per-step timeout or condition
+      - name: <command-name>      #   Object form: supports timeout and when condition
         timeout: integer          #   Optional: timeout in seconds for this step
+        when:                     #   Optional: condition for executing this step
+          state: string           #     Required: run-state file name (e.g. "verify")
+          field: string           #     Required: JSON field name (e.g. "lint")
+          # Exactly one operator must be specified:
+          equals: string          #   Execute only when field equals this value
+          not_equals: string      #   Execute only when field does not equal this value
+          starts_with: string     #   Execute only when field starts with this prefix
+          not_starts_with: string #   Execute only when field does not start with this prefix
+        # When condition is false (or state file/field is absent): step is skipped
     args: list[ArgDef]            # Optional: argument declarations (same schema as commands)
     on_step_fail:                 # Optional: retry on named step failure
       step: string                # Required: step that triggers recovery
