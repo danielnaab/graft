@@ -5802,3 +5802,224 @@ fn run_state_dep_qualified_producer_shown() {
     );
     assert!(text.contains("←"), "Should show arrow for dep producer");
 }
+
+// ===== Approval overlay tests =====
+
+fn make_pending_checkpoint_entry() -> (String, serde_json::Value) {
+    (
+        "checkpoint".to_string(),
+        serde_json::json!({
+            "phase": "awaiting-review",
+            "sequence": "implement-verified",
+            "message": "Sequence complete.",
+            "created_at": "2026-02-25T00:00:00Z"
+        }),
+    )
+}
+
+fn make_approved_checkpoint_entry() -> (String, serde_json::Value) {
+    (
+        "checkpoint".to_string(),
+        serde_json::json!({"phase": "approved"}),
+    )
+}
+
+#[test]
+fn is_pending_checkpoint_true_for_awaiting_review() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.run_state_entries = vec![make_pending_checkpoint_entry()];
+
+    assert!(
+        app.is_pending_checkpoint(0),
+        "checkpoint entry with phase awaiting-review should be pending"
+    );
+}
+
+#[test]
+fn is_pending_checkpoint_false_for_approved_phase() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.run_state_entries = vec![make_approved_checkpoint_entry()];
+
+    assert!(
+        !app.is_pending_checkpoint(0),
+        "checkpoint entry with phase approved should not be pending"
+    );
+}
+
+#[test]
+fn is_pending_checkpoint_false_for_non_checkpoint_name() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    // Same phase value but name is "verify", not "checkpoint"
+    app.run_state_entries = vec![(
+        "verify".to_string(),
+        serde_json::json!({"phase": "awaiting-review"}),
+    )];
+
+    assert!(
+        !app.is_pending_checkpoint(0),
+        "non-checkpoint entry should not be pending even if phase matches"
+    );
+}
+
+#[test]
+fn is_pending_checkpoint_false_for_out_of_bounds_index() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.run_state_entries = vec![]; // empty
+
+    assert!(
+        !app.is_pending_checkpoint(0),
+        "out-of-bounds index should return false, not panic"
+    );
+}
+
+#[test]
+fn approval_overlay_a_dismisses_overlay_and_pushes_command_output() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.run_state_entries = vec![make_pending_checkpoint_entry()];
+    app.approval_overlay = Some(ApprovalOverlayState {
+        sequence: "implement-verified".to_string(),
+        approve_cmd: "approve".to_string(),
+        reject_cmd: "reject".to_string(),
+        message: "Sequence complete.".to_string(),
+    });
+
+    app.handle_key_approval_overlay(KeyCode::Char('a'));
+
+    assert!(
+        app.approval_overlay.is_none(),
+        "'a' should dismiss the overlay"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        "'a' should push CommandOutput onto the view stack"
+    );
+    assert!(
+        app.run_state_entries.is_empty(),
+        "'a' should clear run_state_entries to force reload"
+    );
+}
+
+#[test]
+fn approval_overlay_r_dismisses_overlay_and_pushes_command_output() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.approval_overlay = Some(ApprovalOverlayState {
+        sequence: "implement-verified".to_string(),
+        approve_cmd: "approve".to_string(),
+        reject_cmd: "reject".to_string(),
+        message: "Sequence complete.".to_string(),
+    });
+
+    app.handle_key_approval_overlay(KeyCode::Char('r'));
+
+    assert!(
+        app.approval_overlay.is_none(),
+        "'r' should dismiss the overlay"
+    );
+    assert_eq!(
+        *app.current_view(),
+        View::CommandOutput,
+        "'r' should push CommandOutput onto the view stack"
+    );
+}
+
+#[test]
+fn approval_overlay_esc_dismisses_overlay_without_changing_view() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    let initial_view = app.current_view().clone();
+    app.approval_overlay = Some(ApprovalOverlayState {
+        sequence: "implement-verified".to_string(),
+        approve_cmd: "approve".to_string(),
+        reject_cmd: "reject".to_string(),
+        message: "Sequence complete.".to_string(),
+    });
+
+    app.handle_key_approval_overlay(KeyCode::Esc);
+
+    assert!(
+        app.approval_overlay.is_none(),
+        "Esc should dismiss the overlay"
+    );
+    assert_eq!(
+        *app.current_view(),
+        initial_view,
+        "Esc should not change the view"
+    );
+}
+
+#[test]
+fn approval_overlay_unrecognised_key_does_not_dismiss() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    app.approval_overlay = Some(ApprovalOverlayState {
+        sequence: "implement-verified".to_string(),
+        approve_cmd: "approve".to_string(),
+        reject_cmd: "reject".to_string(),
+        message: "Sequence complete.".to_string(),
+    });
+
+    app.handle_key_approval_overlay(KeyCode::Char('x'));
+
+    assert!(
+        app.approval_overlay.is_some(),
+        "Unrecognised key should not dismiss the overlay"
+    );
+}
+
+#[test]
+fn approval_overlay_intercepts_keys_before_dashboard_handler() {
+    let mut app = App::new(
+        MockRegistry::with_repos(1),
+        MockDetailProvider::empty(),
+        "test-workspace".to_string(),
+    );
+    // 'q' would quit from Dashboard, but approval overlay must intercept first.
+    app.approval_overlay = Some(ApprovalOverlayState {
+        sequence: "implement-verified".to_string(),
+        approve_cmd: "approve".to_string(),
+        reject_cmd: "reject".to_string(),
+        message: "Sequence complete.".to_string(),
+    });
+
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
+
+    assert!(
+        !app.should_quit,
+        "'q' should not quit when approval overlay is active"
+    );
+    assert!(
+        app.approval_overlay.is_some(),
+        "overlay should remain after unrecognised key 'q'"
+    );
+}

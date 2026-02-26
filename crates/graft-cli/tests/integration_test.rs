@@ -670,14 +670,15 @@ sequences:
         stderr.contains("nonexistent-cmd"),
         "Error should name the missing command: {stderr}"
     );
-    // Should list available commands AND sequences.
+    // Should list available commands with the specific name.
     assert!(
-        stderr.contains("build") || stderr.contains("commands"),
-        "Error should list available commands: {stderr}"
+        stderr.contains("Available commands") && stderr.contains("build"),
+        "Error should list available commands including 'build': {stderr}"
     );
+    // Should list available sequences with the specific name.
     assert!(
-        stderr.contains("ci") || stderr.contains("sequences"),
-        "Error should list available sequences: {stderr}"
+        stderr.contains("Available sequences") && stderr.contains("ci"),
+        "Error should list available sequences including 'ci': {stderr}"
     );
 }
 

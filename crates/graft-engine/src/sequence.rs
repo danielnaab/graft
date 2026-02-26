@@ -224,6 +224,24 @@ fn execute_step_with_retry(
     let recovery_name = osf.recovery.clone();
     let max = osf.max;
 
+    // max: 0 means no retries — fall through to immediate failure.
+    if max == 0 {
+        write_sequence_state(
+            run_state_dir,
+            sequence_name,
+            step_name,
+            step_index,
+            step_count,
+            "failed",
+            None,
+        )?;
+        eprintln!(
+            "\n✗ Sequence '{sequence_name}' failed at step '{step_name}' (exit {})",
+            result.exit_code
+        );
+        return Ok(result.exit_code);
+    }
+
     for iteration in 1..=max {
         eprintln!(
             "\n[retry {iteration}/{max}] {sequence_name}: running recovery '{recovery_name}'"
@@ -295,11 +313,15 @@ fn execute_step_with_retry(
         }
     }
 
-    // Unreachable but satisfies the compiler
-    Ok(1)
+    // max >= 1 is guaranteed by the guard above; the loop always returns from
+    // inside its body on the final iteration, so this is unreachable.
+    unreachable!("retry loop must return on the final iteration")
 }
 
-/// Write sequence-state.json to the run-state directory.
+/// Write sequence-state.json to the run-state directory atomically.
+///
+/// Uses a `.tmp` + rename pattern so grove never observes a partial write,
+/// consistent with how `write_checkpoint_json` writes checkpoint.json.
 pub fn write_sequence_state(
     run_state_dir: &std::path::Path,
     sequence: &str,
@@ -310,6 +332,8 @@ pub fn write_sequence_state(
     iteration: Option<u32>,
 ) -> Result<()> {
     let state_file = run_state_dir.join("sequence-state.json");
+    let tmp_file = run_state_dir.join("sequence-state.json.tmp");
+
     let mut obj = serde_json::json!({
         "sequence": sequence,
         "step": step,
@@ -321,19 +345,27 @@ pub fn write_sequence_state(
         obj["iteration"] = serde_json::json!(iter);
     }
 
-    let mut file = std::fs::File::create(&state_file).map_err(|e| {
+    {
+        let mut file = std::fs::File::create(&tmp_file).map_err(|e| {
+            GraftError::CommandExecution(format!(
+                "Failed to write sequence-state.json.tmp '{}': {e}",
+                tmp_file.display()
+            ))
+        })?;
+
+        serde_json::to_writer_pretty(&mut file, &obj).map_err(|e| {
+            GraftError::CommandExecution(format!("Failed to serialize sequence state: {e}"))
+        })?;
+
+        writeln!(file).map_err(|e| {
+            GraftError::CommandExecution(format!("Failed to write sequence-state.json.tmp: {e}"))
+        })?;
+    }
+
+    std::fs::rename(&tmp_file, &state_file).map_err(|e| {
         GraftError::CommandExecution(format!(
-            "Failed to write sequence-state.json '{}': {e}",
-            state_file.display()
+            "Failed to rename sequence-state.json.tmp to sequence-state.json: {e}"
         ))
-    })?;
-
-    serde_json::to_writer_pretty(&mut file, &obj).map_err(|e| {
-        GraftError::CommandExecution(format!("Failed to serialize sequence state: {e}"))
-    })?;
-
-    writeln!(file).map_err(|e| {
-        GraftError::CommandExecution(format!("Failed to write sequence-state.json: {e}"))
     })?;
 
     Ok(())
@@ -607,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_false_does_not_write_checkpoint_json() {
+    fn checkpoint_absent_does_not_write_checkpoint_json() {
         let tmp = TempDir::new().unwrap();
 
         let mut config = make_echo_config(&[("echo-step", "echo hello")]);
@@ -617,7 +649,7 @@ mod tests {
             description: None,
             args: vec![],
             on_step_fail: None,
-            checkpoint: None,
+            checkpoint: None, // field absent
         };
         config
             .sequences
@@ -634,7 +666,39 @@ mod tests {
             .join("checkpoint.json");
         assert!(
             !checkpoint_file.exists(),
-            "checkpoint.json should NOT be written when checkpoint is not set"
+            "checkpoint.json should NOT be written when checkpoint is absent"
+        );
+    }
+
+    #[test]
+    fn checkpoint_explicit_false_does_not_write_checkpoint_json() {
+        let tmp = TempDir::new().unwrap();
+
+        let mut config = make_echo_config(&[("echo-step", "echo hello")]);
+
+        let seq = graft_common::SequenceDef {
+            steps: vec!["echo-step".to_string()],
+            description: None,
+            args: vec![],
+            on_step_fail: None,
+            checkpoint: Some(false), // explicitly false
+        };
+        config
+            .sequences
+            .insert("no-checkpoint-seq".to_string(), seq);
+
+        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
+        let exit_code = execute_sequence(&config, "no-checkpoint-seq", &ctx, &[]).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let checkpoint_file = tmp
+            .path()
+            .join(".graft")
+            .join("run-state")
+            .join("checkpoint.json");
+        assert!(
+            !checkpoint_file.exists(),
+            "checkpoint.json should NOT be written when checkpoint: false"
         );
     }
 

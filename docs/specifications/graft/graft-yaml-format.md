@@ -1,6 +1,6 @@
 ---
 title: "graft.yaml Format Specification"
-date: 2026-01-01
+date: 2026-02-25
 status: draft
 ---
 
@@ -579,7 +579,9 @@ non-zero the sequence stops (unless `on_step_fail` is configured for that step).
 
 **Constraints**:
 - Minimum 1 step.
-- Each step name must exist in the `commands:` section at parse time.
+- Each step name must match a key in the `commands:` section. This is validated at
+  execution time (not parse time): a missing step name causes the sequence to abort
+  with an error when that step is reached.
 
 **Example**:
 ```yaml
@@ -645,8 +647,20 @@ on_step_fail:
   max: 3
 ```
 
-`sequence-state.json` transitions: `running → retrying (with iteration count) →
-complete | failed`.
+**`sequence-state.json` schema** (written to `.graft/run-state/` on every state transition):
+```json
+{
+  "sequence": "<sequence-name>",
+  "step":     "<current-step-name>",
+  "step_index": 0,
+  "step_count": 2,
+  "phase": "running | retrying | complete | failed",
+  "iteration": 1
+}
+```
+
+`iteration` is only present during retries. Phase transitions per step:
+`running → (retrying with iteration) → complete | failed`.
 
 #### checkpoint (optional)
 **Type**: `bool`
@@ -663,7 +677,7 @@ approve/reject command is run. Useful for human-review gates in automated pipeli
   "phase": "awaiting-review",
   "sequence": "<sequence-name>",
   "args": { "<arg-name>": "<arg-value>" },
-  "message": "Sequence '<name>' completed successfully. Awaiting review.",
+  "message": "Sequence complete. Review and approve or reject to continue.",
   "created_at": "<RFC 3339 timestamp>"
 }
 ```
@@ -949,6 +963,36 @@ def validate_graft_yaml(config: dict) -> list[str]:
             for query_name, query_data in config['state'].items():
                 if 'run' not in query_data:
                     errors.append(f"State query '{query_name}': missing required 'run' field")
+
+    # Validate sequences section
+    if 'sequences' in config:
+        if not isinstance(config['sequences'], dict):
+            errors.append("'sequences' must be an object")
+        else:
+            command_keys = set(config.get('commands', {}).keys())
+            for seq_name, seq_data in config['sequences'].items():
+                if 'steps' not in seq_data or not seq_data['steps']:
+                    errors.append(f"Sequence '{seq_name}': missing required 'steps' field")
+                else:
+                    # Note: step names are validated at execution time, not parse time.
+                    # This block is informational only — the runtime error is authoritative.
+                    for step in seq_data['steps']:
+                        if step not in command_keys:
+                            errors.append(
+                                f"Sequence '{seq_name}': step '{step}' not found in commands "
+                                f"(detected at parse time; runtime will also catch this)"
+                            )
+                if 'on_step_fail' in seq_data:
+                    osf = seq_data['on_step_fail']
+                    for field in ('step', 'recovery', 'max'):
+                        if field not in osf:
+                            errors.append(
+                                f"Sequence '{seq_name}': on_step_fail missing required '{field}'"
+                            )
+                    if 'max' in osf and osf['max'] < 1:
+                        errors.append(
+                            f"Sequence '{seq_name}': on_step_fail.max must be >= 1"
+                        )
 
     # Validate dependencies section
     if 'dependencies' in config:

@@ -896,14 +896,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
                 self.approval_overlay = None;
                 self.push_view(super::View::CommandOutput);
                 self.execute_command_with_args(state.approve_cmd, vec![]);
-                self.state_loaded = false;
                 self.run_state_entries.clear();
             }
             KeyCode::Char('r') => {
                 self.approval_overlay = None;
                 self.push_view(super::View::CommandOutput);
                 self.execute_command_with_args(state.reject_cmd, vec![]);
-                self.state_loaded = false;
                 self.run_state_entries.clear();
             }
             KeyCode::Esc => {
