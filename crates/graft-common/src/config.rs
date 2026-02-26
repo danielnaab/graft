@@ -328,12 +328,40 @@ fn default_max_retries() -> u32 {
 
 /// A sequence definition from graft.yaml.
 ///
+/// A single step in a sequence — either a bare command name or a named step with options.
+///
+/// Both forms are equivalent when `timeout` is absent:
+/// ```yaml
+/// steps:
+///   - implement          # bare string form
+///   - name: verify       # object form (supports timeout)
+///     timeout: 180
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepDef {
+    /// Command name to execute.
+    pub name: String,
+    /// Optional per-step timeout in seconds. `None` means no timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+}
+
+impl StepDef {
+    /// Create a bare step with no timeout.
+    pub fn simple(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            timeout: None,
+        }
+    }
+}
+
 /// A sequence declares an ordered list of command references (steps) and optional
 /// args that are passed through to every step using "pass-all" semantics.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SequenceDef {
-    /// Ordered list of command names to execute.
-    pub steps: Vec<String>,
+    /// Ordered list of steps to execute.
+    pub steps: Vec<StepDef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Args declared on the sequence, passed to every step.
@@ -383,13 +411,28 @@ pub fn parse_sequences_from_str(content: &str) -> Result<HashMap<String, Sequenc
 
 /// Parse a single sequence definition from YAML config.
 #[allow(clippy::too_many_lines)]
+/// Parse a single step value — either a bare string or an object with `name` + optional `timeout`.
+fn parse_step_def(val: &Value, seq_name: &str, idx: usize) -> Option<StepDef> {
+    if let Some(s) = val.as_str() {
+        return Some(StepDef::simple(s));
+    }
+    if let Some(map) = val.as_mapping() {
+        let name = map.get("name").and_then(|v| v.as_str()).map(String::from)?;
+        let timeout = map.get("timeout").and_then(serde_yaml::Value::as_u64);
+        return Some(StepDef { name, timeout });
+    }
+    eprintln!("Warning: Step {idx} in sequence '{seq_name}' is not a string or object, skipping");
+    None
+}
+
 fn parse_sequence(name: &str, config: &Value) -> Result<SequenceDef, String> {
     let steps = config
         .get("steps")
         .and_then(|v| v.as_sequence())
         .map(|seq| {
             seq.iter()
-                .filter_map(|v| v.as_str().map(String::from))
+                .enumerate()
+                .filter_map(|(i, v)| parse_step_def(v, name, i))
                 .collect::<Vec<_>>()
         })
         .ok_or_else(|| format!("Sequence '{name}' missing 'steps' field"))?;
@@ -1126,10 +1169,32 @@ sequences:
         let sequences = parse_sequences_from_str(yaml_content).unwrap();
         assert_eq!(sequences.len(), 1);
         let seq = sequences.get("implement-verified").unwrap();
-        assert_eq!(seq.steps, vec!["implement", "verify"]);
+        assert_eq!(
+            seq.steps,
+            vec![StepDef::simple("implement"), StepDef::simple("verify")]
+        );
         assert_eq!(seq.description.as_deref(), Some("Implement and verify"));
         assert_eq!(seq.args.len(), 1);
         assert_eq!(seq.args[0].name, "slice");
+    }
+
+    #[test]
+    fn parse_sequences_step_object_form() {
+        let yaml_content = r#"
+sequences:
+  timed:
+    steps:
+      - name: implement
+        timeout: 600
+      - name: verify
+        timeout: 180
+"#;
+        let sequences = parse_sequences_from_str(yaml_content).unwrap();
+        let seq = sequences.get("timed").unwrap();
+        assert_eq!(seq.steps[0].name, "implement");
+        assert_eq!(seq.steps[0].timeout, Some(600));
+        assert_eq!(seq.steps[1].name, "verify");
+        assert_eq!(seq.steps[1].timeout, Some(180));
     }
 
     #[test]

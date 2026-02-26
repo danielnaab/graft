@@ -2,7 +2,9 @@
 //!
 //! Executes named multi-step command sequences defined in graft.yaml.
 
-use crate::command::{execute_command_with_context, CommandContext};
+use crate::command::{
+    execute_command_with_context, execute_command_with_context_timeout, CommandContext,
+};
 use crate::domain::GraftConfig;
 use crate::error::{GraftError, Result};
 use std::io::Write;
@@ -47,17 +49,17 @@ pub fn execute_sequence(
     // Check for an interrupted prior run and compute the step to resume from.
     let resume_from = read_resume_index(&run_state_dir, sequence_name).unwrap_or(0);
 
-    for (step_index, step_name) in seq_def.steps.iter().enumerate() {
+    for (step_index, step_def) in seq_def.steps.iter().enumerate() {
         // Skip steps that were completed before an interruption.
         if step_index < resume_from {
-            eprintln!("↷ Skipping {step_name} (already completed)");
+            eprintln!("↷ Skipping {} (already completed)", step_def.name);
             continue;
         }
 
         let result = execute_step_with_retry(
             config,
             sequence_name,
-            step_name,
+            step_def,
             step_index,
             step_count,
             &run_state_dir,
@@ -156,7 +158,7 @@ pub fn write_checkpoint_json(
 fn execute_step_with_retry(
     config: &GraftConfig,
     sequence_name: &str,
-    step_name: &str,
+    step_def: &graft_common::StepDef,
     step_index: usize,
     step_count: usize,
     run_state_dir: &std::path::Path,
@@ -164,7 +166,10 @@ fn execute_step_with_retry(
     args: &[String],
     seq_def: &graft_common::SequenceDef,
 ) -> Result<i32> {
-    let command = config.commands.get(step_name).ok_or_else(|| {
+    let step_name = &step_def.name;
+    let step_timeout = step_def.timeout.map(std::time::Duration::from_secs);
+
+    let command = config.commands.get(step_name.as_str()).ok_or_else(|| {
         GraftError::CommandExecution(format!(
             "Sequence '{sequence_name}' step '{step_name}' not found in commands"
         ))
@@ -186,7 +191,7 @@ fn execute_step_with_retry(
         step_index + 1
     );
 
-    let result = execute_command_with_context(command, config, ctx, args)?;
+    let result = execute_command_with_context_timeout(command, config, ctx, args, step_timeout)?;
 
     if result.success {
         return Ok(0);
@@ -211,7 +216,7 @@ fn execute_step_with_retry(
         return Ok(result.exit_code);
     };
 
-    if osf.step != step_name {
+    if osf.step != *step_name {
         // Retry configured for a different step — fail immediately
         write_sequence_state(
             run_state_dir,
@@ -263,6 +268,7 @@ fn execute_step_with_retry(
             ))
         })?;
 
+        // Recovery command runs without the step timeout (no explicit bound on recovery time)
         let recovery_result = execute_command_with_context(recovery_cmd, config, ctx, args)?;
 
         if !recovery_result.success {
@@ -296,8 +302,9 @@ fn execute_step_with_retry(
 
         eprintln!("\n[retry {iteration}/{max}] {sequence_name}: retrying '{step_name}'");
 
-        // Retry the failed step
-        let retry_result = execute_command_with_context(command, config, ctx, args)?;
+        // Retry the failed step (apply same timeout as the original attempt)
+        let retry_result =
+            execute_command_with_context_timeout(command, config, ctx, args, step_timeout)?;
 
         if retry_result.success {
             return Ok(0);
@@ -435,7 +442,10 @@ mod tests {
         let mut config = make_echo_config(&[("step1", &cmd1_run), ("step2", &cmd2_run)]);
 
         let seq = graft_common::SequenceDef {
-            steps: vec!["step1".to_string(), "step2".to_string()],
+            steps: vec![
+                graft_common::StepDef::simple("step1"),
+                graft_common::StepDef::simple("step2"),
+            ],
             description: None,
             args: vec![],
             on_step_fail: None,
@@ -468,7 +478,10 @@ mod tests {
         let mut config = make_echo_config(&[("fail-step", &cmd1_run), ("next-step", &cmd2_run)]);
 
         let seq = graft_common::SequenceDef {
-            steps: vec!["fail-step".to_string(), "next-step".to_string()],
+            steps: vec![
+                graft_common::StepDef::simple("fail-step"),
+                graft_common::StepDef::simple("next-step"),
+            ],
             description: None,
             args: vec![],
             on_step_fail: None,
@@ -498,7 +511,7 @@ mod tests {
         let mut config = make_echo_config(&[("echo-step", "echo hello")]);
 
         let seq = graft_common::SequenceDef {
-            steps: vec!["echo-step".to_string()],
+            steps: vec![graft_common::StepDef::simple("echo-step")],
             description: None,
             args: vec![],
             on_step_fail: None,
@@ -551,7 +564,7 @@ mod tests {
             make_echo_config(&[("check-step", &check_run), ("recovery-step", &recovery_run)]);
 
         let seq = graft_common::SequenceDef {
-            steps: vec!["check-step".to_string()],
+            steps: vec![graft_common::StepDef::simple("check-step")],
             description: None,
             args: vec![],
             on_step_fail: Some(graft_common::OnStepFail {
@@ -583,7 +596,7 @@ mod tests {
         let mut config = make_echo_config(&[("fail-step", "exit 1"), ("recovery", "echo ok")]);
 
         let seq = graft_common::SequenceDef {
-            steps: vec!["fail-step".to_string()],
+            steps: vec![graft_common::StepDef::simple("fail-step")],
             description: None,
             args: vec![],
             on_step_fail: Some(graft_common::OnStepFail {
@@ -614,7 +627,7 @@ mod tests {
         let mut config = make_echo_config(&[("fail-step", &fail_run), ("recovery", &recovery_run)]);
 
         let seq = graft_common::SequenceDef {
-            steps: vec!["fail-step".to_string()],
+            steps: vec![graft_common::StepDef::simple("fail-step")],
             description: None,
             args: vec![],
             on_step_fail: Some(graft_common::OnStepFail {
@@ -646,7 +659,7 @@ mod tests {
         let mut config = make_echo_config(&[("echo-step", "echo hello")]);
 
         let seq = graft_common::SequenceDef {
-            steps: vec!["echo-step".to_string()],
+            steps: vec![graft_common::StepDef::simple("echo-step")],
             description: None,
             args: vec![],
             on_step_fail: None,
@@ -683,7 +696,7 @@ mod tests {
         let mut config = make_echo_config(&[("echo-step", "echo hello")]);
 
         let seq = graft_common::SequenceDef {
-            steps: vec!["echo-step".to_string()],
+            steps: vec![graft_common::StepDef::simple("echo-step")],
             description: None,
             args: vec![],
             on_step_fail: None,
@@ -715,7 +728,7 @@ mod tests {
         let mut config = make_echo_config(&[("echo-step", "echo hello")]);
 
         let seq = graft_common::SequenceDef {
-            steps: vec!["echo-step".to_string()],
+            steps: vec![graft_common::StepDef::simple("echo-step")],
             description: None,
             args: vec![],
             on_step_fail: None,
@@ -747,7 +760,7 @@ mod tests {
         let mut config = make_echo_config(&[("fail-step", "exit 1")]);
 
         let seq = graft_common::SequenceDef {
-            steps: vec!["fail-step".to_string()],
+            steps: vec![graft_common::StepDef::simple("fail-step")],
             description: None,
             args: vec![],
             on_step_fail: None,
@@ -802,7 +815,10 @@ mod tests {
         let run_b = format!("echo step-b >> {}", out_file.to_string_lossy());
         let mut config = make_echo_config(&[("step-a", &run_a), ("step-b", &run_b)]);
         let seq = graft_common::SequenceDef {
-            steps: vec!["step-a".to_string(), "step-b".to_string()],
+            steps: vec![
+                graft_common::StepDef::simple("step-a"),
+                graft_common::StepDef::simple("step-b"),
+            ],
             description: None,
             args: vec![],
             on_step_fail: None,

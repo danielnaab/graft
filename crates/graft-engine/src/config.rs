@@ -474,17 +474,17 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
         for (seq_name, seq_def) in parsed_seqs {
             // Validate that all referenced steps exist as commands
             for step in &seq_def.steps {
-                if !config.commands.contains_key(step.as_str()) {
+                if !config.commands.contains_key(step.name.as_str()) {
                     return Err(GraftError::ConfigValidation {
                         path: path.to_string(),
                         field: format!("sequences.{seq_name}.steps"),
-                        reason: format!("step '{step}' not found in commands section"),
+                        reason: format!("step '{}' not found in commands section", step.name),
                     });
                 }
             }
             // Validate on_step_fail references
             if let Some(ref osf) = seq_def.on_step_fail {
-                if !seq_def.steps.contains(&osf.step) {
+                if !seq_def.steps.iter().any(|s| s.name == osf.step) {
                     return Err(GraftError::ConfigValidation {
                         path: path.to_string(),
                         field: format!("sequences.{seq_name}.on_step_fail.step"),
@@ -877,7 +877,13 @@ sequences:
         let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
         assert_eq!(config.sequences.len(), 1);
         let seq = config.sequences.get("implement-verified").unwrap();
-        assert_eq!(seq.steps, vec!["implement", "verify"]);
+        assert_eq!(
+            seq.steps,
+            vec![
+                graft_common::StepDef::simple("implement"),
+                graft_common::StepDef::simple("verify")
+            ]
+        );
         assert_eq!(seq.description.as_deref(), Some("Implement and verify"));
         assert_eq!(seq.args.len(), 1);
     }

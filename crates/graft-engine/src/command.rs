@@ -237,6 +237,20 @@ pub fn execute_command_with_context(
     ctx: &CommandContext,
     args: &[String],
 ) -> Result<CommandResult> {
+    execute_command_with_context_timeout(command, config, ctx, args, None)
+}
+
+/// Like [`execute_command_with_context`] but with an optional per-step timeout override.
+///
+/// When `timeout_override` is `Some`, it takes precedence over `GRAFT_TIMEOUT` env var
+/// and process defaults. Used by sequence execution to enforce per-step timeouts.
+pub fn execute_command_with_context_timeout(
+    command: &Command,
+    config: &GraftConfig,
+    ctx: &CommandContext,
+    args: &[String],
+    timeout_override: Option<std::time::Duration>,
+) -> Result<CommandResult> {
     // Set up run-state directory and enforce reads: preconditions
     let run_state_dir = setup_run_state(command, config, &ctx.consumer_dir)?;
 
@@ -321,7 +335,7 @@ pub fn execute_command_with_context(
         env,
         env_remove,
         log_path: None,
-        timeout: None,
+        timeout: timeout_override,
         stdin: rendered_stdin,
     };
 
