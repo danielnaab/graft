@@ -53,6 +53,8 @@ commands:
   <command-name>:
     run: string                   # Required: command to execute
     description: string           # Optional: human-readable description
+    category: string              # Optional: role classification (core|diagnostic|optional|advanced)
+    example: string               # Optional: complete invocation example
     working_dir: string           # Optional: working directory (default: consumer root)
     env: object                   # Optional: environment variables
     stdin: string | object        # Optional: text piped to stdin (literal or template)
@@ -70,14 +72,31 @@ state:
 sequences:
   <sequence-name>:
     description: string           # Optional: human-readable summary
-    steps:                        # Required: ordered command names
-      - <command-name>
+    category: string              # Optional: role classification (core|diagnostic|optional|advanced)
+    example: string               # Optional: complete invocation example
+    steps:                        # Required: ordered command names or step objects
+      - <command-name>            #   String form: no per-step timeout
+      - name: <command-name>      #   Object form: per-step timeout
+        timeout: integer          #   Optional: timeout in seconds for this step
     args: list[ArgDef]            # Optional: argument declarations (same schema as commands)
     on_step_fail:                 # Optional: retry on named step failure
       step: string                # Required: step that triggers recovery
       recovery: string            # Required: recovery command name
       max: integer                # Required: max retry iterations
     checkpoint: bool              # Optional: write checkpoint.json on success (default: false)
+
+# graft catalog — Command metadata subcommand
+#
+# graft catalog <dep>               Lists all commands and sequences with metadata
+# graft catalog <dep>:<name>        Prints full metadata for a single command or sequence
+# graft catalog <dep> --json        Full catalog as machine-readable JSON
+# graft catalog <dep>:<name> --json Single entry as JSON
+#
+# category values:
+#   core        Primary workflow steps (implement, verify, approve)
+#   diagnostic  Run when something is wrong (diagnose, resume)
+#   optional    Enrichment steps (spec-check, review)
+#   advanced    Power-user tools (implement-parallel)
 
 # Dependencies (for Graft-aware dependencies)
 dependencies:

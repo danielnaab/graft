@@ -47,8 +47,8 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(CommandEvent::Started(_pid)) => {
-                // Process started, continue waiting for output
+            Ok(CommandEvent::Started(_)) | Ok(CommandEvent::LogPath(_)) => {
+                // Process started or log path info, continue waiting for output
             }
             Ok(CommandEvent::OutputLine(line)) => {
                 output_lines.push(line);
@@ -127,7 +127,9 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(CommandEvent::Started(_) | CommandEvent::OutputLine(_))
+            Ok(
+                CommandEvent::Started(_) | CommandEvent::OutputLine(_) | CommandEvent::LogPath(_),
+            )
             | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(CommandEvent::Failed(msg)) => {
                 // Graft should report command not found
@@ -191,7 +193,9 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(CommandEvent::Started(_) | CommandEvent::OutputLine(_))
+            Ok(
+                CommandEvent::Started(_) | CommandEvent::OutputLine(_) | CommandEvent::LogPath(_),
+            )
             | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(CommandEvent::Completed(code)) => {
                 exit_code = Some(code);
@@ -248,7 +252,8 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(CommandEvent::Started(_)) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Ok(CommandEvent::Started(_) | CommandEvent::LogPath(_))
+            | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(CommandEvent::OutputLine(line)) => {
                 output_lines.push(line);
             }
@@ -316,7 +321,8 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(CommandEvent::Started(_)) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Ok(CommandEvent::Started(_) | CommandEvent::LogPath(_))
+            | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(CommandEvent::OutputLine(line)) => {
                 output_lines.push(line);
             }
@@ -374,8 +380,8 @@ fn test_graft_not_in_path_error() {
     // Should get helpful "graft not found" error
     loop {
         match rx.recv_timeout(Duration::from_secs(2)) {
-            Ok(CommandEvent::Started(_)) => {
-                // Process started, continue
+            Ok(CommandEvent::Started(_) | CommandEvent::LogPath(_)) => {
+                // Process started or log path, continue
             }
             Ok(CommandEvent::Failed(msg)) => {
                 assert!(
