@@ -4,7 +4,7 @@ created: 2026-02-26
 depends_on: [sequence-declarations]
 ---
 
-# Expose command and sequence metadata via `graft help` and `graft catalog`
+# Expose command and sequence metadata via `graft help`
 
 ## Story
 
@@ -28,6 +28,7 @@ Three additions:
 
 **1. `category` and `example` fields in the schema**
 
+
 Add two optional fields to `CommandDef` and `SequenceDef`:
 
 ```yaml
@@ -47,9 +48,33 @@ commands:
 
 `example` is a concrete invocation string shown in help output.
 
-**2. `graft help <dep>:<name>`**
+**2. `graft help <dep>` and `graft help <dep>:<name>`**
 
-New `graft help` subcommand that prints full metadata for a command or sequence:
+`graft help` is a single subcommand with two modes depending on whether a specific
+command name is provided.
+
+`graft help software-factory` (dep only) prints the full catalog — all commands and
+sequences with key metadata:
+
+```
+$ graft help software-factory
+
+Commands:
+  implement          [core]      Implement next slice step with Claude Code
+                                 Reads: session  Writes: session, context-snapshot
+  verify             [core]      Run consumer project verification
+                                 Reads: —        Writes: verify
+  resume             [diagnostic] Resume implementation after verify failure
+                                 Reads: session, verify  Writes: session
+
+Sequences:
+  implement-verified [core]      Implement a slice and verify it passes, with retry
+                                 Steps: implement → verify → review  Checkpoint: yes
+  implement-reviewed [core]      ...
+```
+
+`graft help software-factory:implement` (dep + name) prints full metadata for that
+specific command or sequence:
 
 ```
 $ graft help software-factory:implement
@@ -82,31 +107,11 @@ $ graft help software-factory:implement-verified
     slice  (string, required, positional)  Path to the slice directory
 ```
 
-Works for both local and dependency commands: `graft help software-factory:implement`
-resolves the dep, loads its config, and prints the metadata. No execution occurs.
+`--json` works on both modes:
+- `graft help software-factory --json` → full catalog as JSON
+- `graft help software-factory:implement --json` → single command as JSON
 
-**3. `graft catalog <dep> [--json]`**
-
-New `graft catalog` subcommand listing all commands and sequences with key metadata:
-
-```
-$ graft catalog software-factory
-
-Commands:
-  implement          [core]      Implement next slice step with Claude Code
-                                 Reads: session  Writes: session, context-snapshot
-  verify             [core]      Run consumer project verification
-                                 Reads: —        Writes: verify
-  resume             [diagnostic] Resume implementation after verify failure
-                                 Reads: session, verify  Writes: session
-
-Sequences:
-  implement-verified [core]      Implement a slice and verify it passes, with retry
-                                 Steps: implement → verify → review  Checkpoint: yes
-  implement-reviewed [core]      ...
-```
-
-With `--json`, emits a machine-readable object suitable for scripting:
+The JSON catalog shape:
 
 ```json
 {
@@ -132,6 +137,8 @@ With `--json`, emits a machine-readable object suitable for scripting:
   }
 }
 ```
+
+Both modes resolve the dep, load its config, and print metadata only — no execution.
 
 **4. Reads/writes shown before command execution**
 
@@ -162,12 +169,17 @@ new fields useful immediately.
   args (with type, required, description), reads, writes
 - `graft help software-factory:implement-verified` prints description, category,
   example, steps, retry config, checkpoint flag, args
+- `graft help software-factory` lists all commands and sequences with description,
+  category, reads/writes (commands) or steps + checkpoint (sequences)
+- `graft help software-factory --json` emits valid JSON with full metadata for all
+  commands and sequences
+- `graft help software-factory:implement` prints description, category, example,
+  args (with type, required, description), reads, writes
+- `graft help software-factory:implement-verified` prints description, category,
+  example, steps, retry config, checkpoint flag, args
+- `graft help software-factory:implement --json` emits the single command as JSON
 - `graft help <dep>:<name>` when the name doesn't exist exits 1 with
   `"unknown command: <name>"`
-- `graft catalog software-factory` lists all commands and sequences with
-  description, category, reads, writes (commands) or steps + checkpoint (sequences)
-- `graft catalog software-factory --json` emits valid JSON with full metadata for
-  all commands and sequences
 - `graft run` prints `Reads:` / `Writes:` lines before executing any command that
   declares them (empty reads/writes prints nothing for that line)
 - Every command and sequence in `.graft/software-factory/graft.yaml` has a
@@ -183,8 +195,9 @@ new fields useful immediately.
   - **Done when** — `graft-yaml-format.md` documents `category` (type: string,
     valid values: `core | diagnostic | optional | advanced`, optional) and `example`
     (type: string, a complete invocation example, optional) in both the `commands:`
-    and `sequences:` sections; documents `graft help` and `graft catalog` subcommand
-    interfaces; spec complete before implementation begins
+    and `sequences:` sections; documents `graft help <dep>` (catalog mode) and
+    `graft help <dep>:<name>` (detail mode) with `--json` flag behavior; spec
+    complete before implementation begins
   - **Files** — `docs/specifications/graft/graft-yaml-format.md`
 
 - [ ] **Add `category` and `example` to `CommandDef` and `SequenceDef` in
@@ -199,21 +212,24 @@ new fields useful immediately.
   - **Files** — `crates/graft-common/src/config.rs`,
     `crates/graft-engine/src/domain.rs`, `crates/grove-core/src/domain.rs`
 
-- [ ] **Add `graft help` and `graft catalog` subcommands and pre-execution
+- [ ] **Add `graft help` subcommand (catalog and detail modes) and pre-execution
   reads/writes output**
   - **Delivers** — consuming repos can discover full command metadata via CLI and
     machine-readable JSON; execution output confirms data-flow before commands run
-  - **Done when** — `graft-cli/src/main.rs` handles `graft help <dep>:<name>`:
-    resolves dep, loads config, looks up command or sequence by name, prints
-    formatted metadata block; exits 1 with clear error if name not found; handles
-    `graft catalog <dep>`: loads dep config, prints all commands then all sequences
-    in tabular format with description, category, reads/writes or steps/checkpoint;
-    `graft catalog <dep> --json` serializes the full catalog as JSON to stdout
-    (using `serde_json`); `run_current_repo_command` and `run_dependency_command`
-    print `Reads: <list>` and `Writes: <list>` lines before executing any command
-    with non-empty reads or writes (omit the line entirely when the list is empty);
-    unit tests assert help output for a command with all fields and for a sequence;
-    `cargo test && cargo clippy -- -D warnings && cargo fmt --check` passes
+  - **Done when** — `graft-cli/src/main.rs` handles `graft help <dep>` (no `:`):
+    resolves dep, loads config, prints all commands then all sequences in tabular
+    format with description, category, reads/writes (commands) or steps/checkpoint
+    (sequences); handles `graft help <dep>:<name>`: resolves dep, loads config,
+    looks up command or sequence by name, prints full metadata block; exits 1 with
+    clear error if name not found; `--json` flag works on both modes: catalog mode
+    emits the full commands+sequences JSON object, detail mode emits the single
+    command or sequence as JSON (using `serde_json`);
+    `run_current_repo_command` and `run_dependency_command` print `Reads: <list>`
+    and `Writes: <list>` lines before executing any command with non-empty reads or
+    writes (omit the line entirely when the list is empty); unit tests assert help
+    output for catalog mode, detail mode (command), detail mode (sequence), and
+    `--json` round-trip; `cargo test && cargo clippy -- -D warnings && cargo fmt
+    --check` passes
   - **Files** — `crates/graft-cli/src/main.rs`
 
 - [ ] **Populate `category` and `example` in software-factory `graft.yaml`**
@@ -222,6 +238,6 @@ new fields useful immediately.
   - **Done when** — every command in `.graft/software-factory/graft.yaml` has both
     `category` (one of: `core`, `diagnostic`, `optional`, `advanced`) and `example`
     (a complete `graft run software-factory:<name> [args]` string); every sequence
-    likewise; manual verification: `graft catalog software-factory` produces complete,
-    accurate output for all entries; `graft catalog software-factory --json` is valid JSON
+    likewise; manual verification: `graft help software-factory` produces complete,
+    accurate output for all entries; `graft help software-factory --json` is valid JSON
   - **Files** — `.graft/software-factory/graft.yaml`
