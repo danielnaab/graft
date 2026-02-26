@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-02-26
 depends_on: [sequence-declarations]
 ---
@@ -72,7 +72,7 @@ only.
 
 ## Steps
 
-- [ ] **Record `baseline_sha` in `session.json` and inject snapshot prompt suffix in
+- [x] **Record `baseline_sha` in `session.json` and inject snapshot prompt suffix in
   `implement.sh` and `resume.sh`**
   - **Delivers** — `session.json` reliably contains `baseline_sha`; `context-snapshot.json`
     is written at the end of each session with structured handoff fields (best-effort)
@@ -91,7 +91,7 @@ only.
     `.graft/software-factory/scripts/resume.sh`,
     `.graft/software-factory/graft.yaml`
 
-- [ ] **Inject context snapshot summary into `resume.sh` prompt**
+- [x] **Inject context snapshot summary into `resume.sh` prompt**
   - **Delivers** — resumed sessions start with full situational awareness from the
     previous session
   - **Done when** — `resume.sh` checks `[ -f "$GRAFT_STATE_DIR/context-snapshot.json" ]`
