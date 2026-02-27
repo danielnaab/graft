@@ -51,6 +51,10 @@ pub(super) struct RepoContext {
     /// In-memory cache for state query results resolved during the current session.
     /// Keyed by query name. Cleared after any `:run` command execution.
     pub(super) in_memory_state: std::collections::HashMap<String, serde_json::Value>,
+    /// Cached result of `commands_with_resolved_options`.
+    /// Computed lazily on first call; cleared by `invalidate_caches` (repo switch, `:refresh`),
+    /// by the `:run` handler, and by `load_commands_for_repo` when the command list is replaced.
+    pub(super) resolved_commands: Option<Vec<(String, CommandDef)>>,
 }
 
 impl RepoContext {
@@ -63,6 +67,7 @@ impl RepoContext {
             selected_repo_path: None,
             cached_state_queries: None,
             in_memory_state: std::collections::HashMap::new(),
+            resolved_commands: None,
         }
     }
 
@@ -73,6 +78,7 @@ impl RepoContext {
         self.available_commands.clear();
         self.cached_state_queries = None;
         self.in_memory_state.clear();
+        self.resolved_commands = None;
     }
 
     /// Full reset: clear caches and deselect repo.
@@ -254,8 +260,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             CliCommand::Repo(name_or_index) => self.cmd_repo(&name_or_index),
             CliCommand::Repos => self.cmd_repos(),
             CliCommand::Run(command_name, args) => {
-                // Clear in-memory state cache: running a command may change repo state.
+                // Clear in-memory and resolved-commands caches: a command may change repo state.
                 self.context.in_memory_state.clear();
+                self.context.resolved_commands = None;
                 self.cmd_run(&command_name, args);
             }
             CliCommand::Status => self.cmd_status(),
@@ -1355,6 +1362,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         commands.sort_by(|a, b| a.0.cmp(&b.0));
 
         self.context.available_commands = commands;
+        // Invalidate the resolved-options cache whenever the command list is replaced.
+        self.context.resolved_commands = None;
     }
 
     /// Return `available_commands` with `options_from` args resolved to their live values.
@@ -1362,7 +1371,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// For each command arg with `options_from` set and no static `options`, attempts to
     /// resolve the state query result (disk cache → in-memory cache → run fresh). Commands
     /// with only static options or no args are returned as-is (cloned).
+    ///
+    /// The result is cached in `context.resolved_commands` to avoid re-running subprocesses
+    /// on every key event or render frame. The cache is cleared after `:run` and on repo switch.
     fn commands_with_resolved_options(&mut self) -> Vec<(String, graft_common::CommandDef)> {
+        if let Some(ref cached) = self.context.resolved_commands {
+            return cached.clone();
+        }
+
         let repo_name = self
             .context
             .selected_repo_path
@@ -1409,7 +1425,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         }
 
         // Build the patched command list.
-        self.context
+        let result: Vec<(String, graft_common::CommandDef)> = self
+            .context
             .available_commands
             .iter()
             .map(|(name, def)| {
@@ -1434,7 +1451,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 }
                 (name.clone(), patched)
             })
-            .collect()
+            .collect();
+
+        // Cache the result so subsequent calls (key events, render frames) are instant.
+        self.context.resolved_commands = Some(result.clone());
+        result
     }
 
     /// Resolve a list of string options for `query_name`.

@@ -57,12 +57,15 @@ state:
   coverage:
     run: "pytest --cov --cov-report=json --quiet | jq '.totals.percent_covered'"
     cache:
-      deterministic: true
+      inputs:
+        - "**/*.py"
+        - "pyproject.toml"
 
   test-results:
     run: "cat test-results.json"
     cache:
-      deterministic: true
+      inputs:
+        - "test-results.json"
 ```
 
 ### State Execution [Stage 1]
@@ -79,8 +82,8 @@ And outputs the JSON to stdout
 ```gherkin
 Given a state query has been executed and cached
 When the user runs `graft state query coverage` again
-And the commit hash has not changed
-And cache is deterministic
+And the cache key (commit hash or content hash) has not changed
+And the query has inputs declared
 Then graft returns the cached result
 And does not re-run the command
 ```
@@ -177,10 +180,9 @@ Given a cache file exists
 When the cache file contains metadata
 Then metadata includes:
   - query_name: the name of the state query
-  - commit_hash: the git commit
+  - commit_hash: the cache key used (commit hash for clean tree, SHA256 content hash for dirty tree)
   - timestamp: when the query was executed
   - command: the run command that was executed
-  - deterministic: whether the cache is commit-bound
 ```
 
 **Cache file format:**
@@ -190,8 +192,7 @@ Then metadata includes:
     "query_name": "coverage",
     "commit_hash": "abc123...",
     "timestamp": "2026-02-13T10:30:00Z",
-    "command": "pytest --cov --cov-report=json --quiet | jq '.totals.percent_covered'",
-    "deterministic": true
+    "command": "pytest --cov --cov-report=json --quiet | jq '.totals.percent_covered'"
   },
   "data": {
     "percent_covered": 87.5
@@ -325,10 +326,20 @@ And tells the user to commit or stash changes first
 
 Temporal queries require a clean working tree. This is a safety measure to prevent worktree creation from interfering with in-progress work. When the tree is clean, graft uses `git worktree add` to create an isolated checkout at the target commit.
 
+## Caching behavior
+
+Cache behavior is controlled by the `inputs` list in the `cache:` block:
+
+| Configuration | Cache key | When re-run |
+|---|---|---|
+| `inputs` declared, working tree clean | git commit hash | On commit change |
+| `inputs` declared, working tree dirty | SHA256 of tracked input file contents | On file content change |
+| No `inputs` (no `cache:` block) | — | Always (never cached) |
+
 ## Constraints
 
 - **JSON output only**: State queries must output valid JSON to stdout
-- **Deterministic caching**: Cache key is commit hash (assumes same commit → same output)
+- **Input-keyed caching**: Cache key is either the commit hash (clean tree) or a SHA256 content hash of declared input files (dirty tree)
 - **Single repository**: State queries operate on one repo at a time (workspace aggregation is later)
 - **Read-only**: State queries should not modify repository state (not enforced, just convention)
 
@@ -432,20 +443,22 @@ state:  # NEW
   coverage:
     run: "pytest --cov --cov-report=json --quiet | jq '.totals.percent_covered'"
     cache:
-      deterministic: true  # cache by commit hash
+      inputs:
+        - "**/*.py"
+        - "pyproject.toml"
     timeout: 300  # optional: command timeout in seconds (default: 300)
 
   test-results:
     run: "pytest --json-report --quiet"
     cache:
-      deterministic: true
+      inputs:
+        - "**/*.py"
+        - "tests/**"
     timeout: 120  # faster test suite
 
   dependency-health:
     run: "uv pip list --outdated --format json"
-    cache:
-      deterministic: false  # Stage 1: treat as deterministic anyway
-      # Stage 2+: ttl: 86400
+    # No cache: always run fresh (network-dependent, non-deterministic)
     timeout: 60  # network operations can be faster with good cache
 ```
 
@@ -479,8 +492,9 @@ state:  # NEW
 
 ## Decisions
 
-- **2026-02-13**: Stage 1 implementation focuses on deterministic state only
-  - Simplest case: same commit → same output
+- **2026-02-13**: Stage 1 implementation focuses on input-keyed caching
+  - Cache key is commit hash (clean tree) or SHA256 of input file contents (dirty tree)
+  - Queries with no `inputs` declared always run fresh
   - Non-deterministic state (TTL, external APIs) deferred to Stage 2
   - Composition deferred to Stage 4
 

@@ -351,8 +351,10 @@ mod tests {
             });
 
         // get_state should skip the expired cache and re-execute.
-        // Pass "/tmp" as repo_path; git status will fail gracefully, so cache_key will be None
-        // (meaning always run fresh) — which also tests the TTL-expired code path.
+        // Pass "/tmp" as repo_path; git status will exit non-zero (not a git repo),
+        // so compute_input_cache_key returns None → no cache written/read.
+        // The old cached entry (keyed under "abc123") is never found because cache_key is None.
+        // This verifies that the query re-executes, which is the TTL-expired behavior we're testing.
         let result = get_state(&query, workspace, repo, Path::new("/tmp"), commit, false).unwrap();
 
         // Result should be from the fresh execution, not the old cache

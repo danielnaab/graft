@@ -250,6 +250,11 @@ pub fn invalidate_cached_state(
     }
 }
 
+/// Shell-quote a single token using single quotes, escaping any embedded single quotes.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 /// Compute the cache key for a state query given its declared input file globs.
 ///
 /// Returns:
@@ -268,8 +273,15 @@ pub fn compute_input_cache_key(
         return None;
     }
 
+    // Shell-quote each pattern to prevent word-splitting and glob expansion by the shell.
+    let quoted = inputs
+        .iter()
+        .map(|s| shell_quote(s))
+        .collect::<Vec<_>>()
+        .join(" ");
+
     // Build `git status --porcelain -- <inputs>` to check for local edits
-    let status_cmd = format!("git status --porcelain -- {}", inputs.join(" "));
+    let status_cmd = format!("git status --porcelain -- {quoted}");
     let config = crate::process::ProcessConfig {
         command: status_cmd,
         working_dir: repo_path.to_path_buf(),
@@ -281,6 +293,10 @@ pub fn compute_input_cache_key(
     };
 
     let output = crate::process::run_to_completion_with_timeout(&config).ok()?;
+    if !output.success {
+        // git failed (e.g. not a git repo) — can't determine cleanliness, so don't cache.
+        return None;
+    }
 
     if output.stdout.trim().is_empty() {
         // Clean tree: commit hash is sufficient
@@ -288,7 +304,7 @@ pub fn compute_input_cache_key(
     }
 
     // Dirty tree: hash content of all tracked input files for a stable content key
-    let ls_cmd = format!("git ls-files -- {}", inputs.join(" "));
+    let ls_cmd = format!("git ls-files -- {quoted}");
     let ls_config = crate::process::ProcessConfig {
         command: ls_cmd,
         working_dir: repo_path.to_path_buf(),
@@ -306,10 +322,27 @@ pub fn compute_input_cache_key(
 
     let mut hasher = Sha256::new();
     for file in ls_output.stdout.lines() {
-        let file_path = repo_path.join(file.trim());
-        if let Ok(content) = fs::read(&file_path) {
-            hasher.update(&content);
+        let filename = file.trim();
+        // Include the filename so that content-swaps between files produce different keys.
+        hasher.update(filename.as_bytes());
+        hasher.update(b"\0");
+        let file_path = repo_path.join(filename);
+        match fs::read(&file_path) {
+            Ok(content) => {
+                // Length-prefix the content. No valid file can have length u64::MAX, so
+                // present files and deleted files are always distinguishable regardless of
+                // what bytes the file contains (including the literal string "<deleted>").
+                hasher.update((content.len() as u64).to_le_bytes());
+                hasher.update(&content);
+            }
+            Err(_) => {
+                // File is tracked (in index) but deleted from disk.
+                // u64::MAX is an impossible valid file length — unambiguous tombstone.
+                hasher.update(u64::MAX.to_le_bytes());
+            }
         }
+        // Null separator so file entries don't bleed into each other.
+        hasher.update(b"\0");
     }
     let hash = hasher.finalize();
     Some(format!("{hash:x}"))
@@ -340,6 +373,225 @@ mod tests {
         assert!(path_str.contains("state"));
         assert!(path_str.contains("coverage"));
         assert!(path_str.ends_with("abc123.json"));
+    }
+
+    // ===== shell_quote =====
+
+    #[test]
+    fn test_shell_quote_simple() {
+        assert_eq!(shell_quote("foo"), "'foo'");
+    }
+
+    #[test]
+    fn test_shell_quote_glob() {
+        assert_eq!(shell_quote("**/*.rs"), "'**/*.rs'");
+    }
+
+    #[test]
+    fn test_shell_quote_empty() {
+        assert_eq!(shell_quote(""), "''");
+    }
+
+    #[test]
+    fn test_shell_quote_embedded_single_quote() {
+        // "foo'bar" → 'foo'\''bar'
+        assert_eq!(shell_quote("foo'bar"), "'foo'\\''bar'");
+    }
+
+    #[test]
+    fn test_shell_quote_multiple_single_quotes() {
+        // "a'b'c" → 'a'\''b'\''c'
+        assert_eq!(shell_quote("a'b'c"), "'a'\\''b'\\''c'");
+    }
+
+    // ===== compute_input_cache_key =====
+
+    #[test]
+    fn test_compute_input_cache_key_empty_inputs_returns_none() {
+        // Empty inputs → always run fresh, never cache. No git operation is performed,
+        // so the repo_path is irrelevant; we pass a fresh temp dir for consistency.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let result = compute_input_cache_key(&[], dir.path(), "abc123");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_compute_input_cache_key_non_git_dir_returns_none() {
+        // A fresh temp dir has no .git → git status exits non-zero → must return None.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let result = compute_input_cache_key(&["**/*.rs".to_string()], dir.path(), "abc123");
+        assert!(result.is_none());
+    }
+
+    /// Run a git command in `dir`, asserting success; return stdout.
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "test")
+            .env("GIT_AUTHOR_EMAIL", "test@test.com")
+            .env("GIT_COMMITTER_NAME", "test")
+            .env("GIT_COMMITTER_EMAIL", "test@test.com")
+            .output()
+            .unwrap_or_else(|_| panic!("git {args:?} failed to spawn"));
+        assert!(
+            out.status.success(),
+            "git {args:?} exited {}: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[test]
+    fn test_compute_input_cache_key_clean_tree_returns_commit() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repo = dir.path();
+
+        git(repo, &["init"]);
+        fs::write(repo.join("file.rs"), b"initial content").expect("write");
+        git(repo, &["add", "file.rs"]);
+        git(repo, &["commit", "-m", "init", "--no-gpg-sign"]);
+        let commit = git(repo, &["rev-parse", "HEAD"]);
+
+        let result = compute_input_cache_key(&["file.rs".to_string()], repo, &commit);
+        assert_eq!(
+            result,
+            Some(commit),
+            "clean tree: cache key must equal commit hash"
+        );
+    }
+
+    #[test]
+    fn test_compute_input_cache_key_dirty_tree_returns_content_hash() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repo = dir.path();
+
+        git(repo, &["init"]);
+        fs::write(repo.join("file.rs"), b"initial content").expect("write");
+        git(repo, &["add", "file.rs"]);
+        git(repo, &["commit", "-m", "init", "--no-gpg-sign"]);
+        let commit = git(repo, &["rev-parse", "HEAD"]);
+
+        // Dirty the working tree.
+        fs::write(repo.join("file.rs"), b"modified content").expect("modify");
+
+        let result = compute_input_cache_key(&["file.rs".to_string()], repo, &commit);
+        let key = result.expect("dirty tracked file must yield Some");
+
+        assert_ne!(key, commit, "dirty-tree key must not equal commit hash");
+        assert_eq!(key.len(), 64, "dirty-tree key must be a 64-char SHA256 hex");
+        assert!(
+            key.chars().all(|c| c.is_ascii_hexdigit()),
+            "dirty-tree key must be hex: {key}"
+        );
+
+        // Different content → different key.
+        fs::write(repo.join("file.rs"), b"other modification").expect("modify");
+        let key2 = compute_input_cache_key(&["file.rs".to_string()], repo, &commit)
+            .expect("must return Some");
+        assert_ne!(key, key2, "different content must produce different keys");
+    }
+
+    #[test]
+    fn test_compute_input_cache_key_filename_included_in_hash() {
+        // Swapping identical content between two files must produce different keys.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repo = dir.path();
+
+        git(repo, &["init"]);
+        fs::write(repo.join("a.rs"), b"content A").expect("write a");
+        fs::write(repo.join("b.rs"), b"content B").expect("write b");
+        git(repo, &["add", "a.rs", "b.rs"]);
+        git(repo, &["commit", "-m", "init", "--no-gpg-sign"]);
+        let commit = git(repo, &["rev-parse", "HEAD"]);
+
+        // Dirty both files with identical content — position-in-file matters, not just bytes.
+        fs::write(repo.join("a.rs"), b"SAME").expect("write");
+        fs::write(repo.join("b.rs"), b"SAME").expect("write");
+        let key_same =
+            compute_input_cache_key(&["a.rs".to_string(), "b.rs".to_string()], repo, &commit)
+                .expect("must return Some");
+
+        // Give each file distinct content: a.rs="value X", b.rs="value Y".
+        fs::write(repo.join("a.rs"), b"value X").expect("write");
+        fs::write(repo.join("b.rs"), b"value Y").expect("write");
+        let key_xy =
+            compute_input_cache_key(&["a.rs".to_string(), "b.rs".to_string()], repo, &commit)
+                .expect("must return Some");
+
+        // Now swap content between a and b: a="value Y", b="value X"
+        fs::write(repo.join("a.rs"), b"value Y").expect("write");
+        fs::write(repo.join("b.rs"), b"value X").expect("write");
+        let key_yx =
+            compute_input_cache_key(&["a.rs".to_string(), "b.rs".to_string()], repo, &commit)
+                .expect("must return Some");
+
+        // All three keys must be distinct (filenames are part of the hash).
+        assert_ne!(key_same, key_xy);
+        assert_ne!(
+            key_xy, key_yx,
+            "swapping content between files must change the key"
+        );
+        assert_ne!(key_same, key_yx);
+    }
+
+    #[test]
+    fn test_compute_input_cache_key_deleted_file_differs_from_empty() {
+        // A tracked file deleted from disk must hash differently from the same file with
+        // empty content, demonstrating the tombstone is included.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repo = dir.path();
+
+        git(repo, &["init"]);
+        fs::write(repo.join("file.rs"), b"content").expect("write");
+        git(repo, &["add", "file.rs"]);
+        git(repo, &["commit", "-m", "init", "--no-gpg-sign"]);
+        let commit = git(repo, &["rev-parse", "HEAD"]);
+
+        // Dirty: file present but with empty content.
+        fs::write(repo.join("file.rs"), b"").expect("write empty");
+        let key_empty = compute_input_cache_key(&["file.rs".to_string()], repo, &commit)
+            .expect("must return Some");
+
+        // Dirty: file deleted from disk (but still tracked in index via the commit).
+        fs::remove_file(repo.join("file.rs")).expect("delete file");
+        let key_deleted = compute_input_cache_key(&["file.rs".to_string()], repo, &commit)
+            .expect("must return Some");
+
+        assert_ne!(
+            key_empty, key_deleted,
+            "deleted file must hash differently from empty file"
+        );
+    }
+
+    #[test]
+    fn test_compute_input_cache_key_tombstone_not_confused_with_file_content() {
+        // A file whose content is the old string tombstone must not hash the same as a
+        // deleted file. This test would have failed before switching to the length-prefix scheme.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repo = dir.path();
+
+        git(repo, &["init"]);
+        fs::write(repo.join("file.rs"), b"initial").expect("write");
+        git(repo, &["add", "file.rs"]);
+        git(repo, &["commit", "-m", "init", "--no-gpg-sign"]);
+        let commit = git(repo, &["rev-parse", "HEAD"]);
+
+        // Dirty: file exists with content that was the old tombstone string.
+        fs::write(repo.join("file.rs"), b"<deleted>").expect("write tombstone bytes");
+        let key_content = compute_input_cache_key(&["file.rs".to_string()], repo, &commit)
+            .expect("must return Some");
+
+        // Dirty: file actually deleted from disk.
+        fs::remove_file(repo.join("file.rs")).expect("delete file");
+        let key_deleted = compute_input_cache_key(&["file.rs".to_string()], repo, &commit)
+            .expect("must return Some");
+
+        assert_ne!(
+            key_content, key_deleted,
+            "file containing b\"<deleted>\" must not hash the same as a deleted file"
+        );
     }
 
     #[test]
