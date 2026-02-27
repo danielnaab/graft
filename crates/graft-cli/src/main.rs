@@ -5,7 +5,7 @@ mod completers;
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
-use graft_common::{FsProcessRegistry, ProcessRegistry, ProcessStatus};
+use graft_common::{FsProcessRegistry, ProcessEntry, ProcessRegistry, ProcessStatus};
 use graft_engine::{
     add_dependency_to_config, apply_lock, fetch_all_dependencies, fetch_dependency,
     filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_details,
@@ -1736,6 +1736,10 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
 
     // Check if it's a sequence (checked before command lookup)
     if config.sequences.contains_key(command_name) {
+        let _ps_guard = ProcessRegistrationGuard::register(
+            &format!("graft run {command_name}"),
+            Some(base_dir.to_path_buf()),
+        );
         let cmd_ctx = graft_engine::CommandContext::local(base_dir, &repo_name, &repo_name, false);
         let exit_code = graft_engine::execute_sequence(&config, command_name, &cmd_ctx, args)?;
         if exit_code != 0 {
@@ -1788,6 +1792,13 @@ fn run_current_repo_command(command_name: &str, dry_run: bool, args: &[String]) 
         }
         return Ok(());
     }
+
+    // Register this process so `graft ps` can see it from another shell.
+    // The guard deregisters automatically when it goes out of scope.
+    let _ps_guard = ProcessRegistrationGuard::register(
+        &format!("graft run {command_name}"),
+        Some(base_dir.to_path_buf()),
+    );
 
     // Use context-aware execution if command has stdin or context
     if cmd.needs_context() {
@@ -1957,6 +1968,10 @@ fn run_dependency_command(
 
     // Check if it's a sequence
     if config.sequences.contains_key(command_name) {
+        let _ps_guard = ProcessRegistrationGuard::register(
+            &format!("graft run {dep_name}:{command_name}"),
+            Some(consumer_dir.clone()),
+        );
         let cmd_ctx = graft_engine::CommandContext::dependency(
             &dep_dir,
             &consumer_dir,
@@ -2015,6 +2030,12 @@ fn run_dependency_command(
         }
         return Ok(());
     }
+
+    // Register this process so `graft ps` can see it from another shell.
+    let _ps_guard = ProcessRegistrationGuard::register(
+        &format!("graft run {dep_name}:{command_name}"),
+        Some(consumer_dir.clone()),
+    );
 
     // Display what we're running (stderr so stdout is clean for piping)
     eprintln!("\nExecuting: {dep_name}:{command_name}");
@@ -2556,6 +2577,34 @@ fn state_invalidate_command(name: Option<&str>, all: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// RAII guard that registers a process entry on creation and deregisters on drop.
+///
+/// Uses the current process's PID so `graft ps` from another shell can see
+/// that a `graft run` command is active.
+struct ProcessRegistrationGuard {
+    registry: FsProcessRegistry,
+    pid: u32,
+}
+
+impl ProcessRegistrationGuard {
+    /// Register the current process in the default process registry.
+    ///
+    /// Returns `None` if the registry cannot be opened (non-fatal).
+    fn register(command: &str, repo_path: Option<PathBuf>) -> Option<Self> {
+        let registry = FsProcessRegistry::new(FsProcessRegistry::default_path()).ok()?;
+        let pid = std::process::id();
+        let entry = ProcessEntry::new_running(pid, command, repo_path, None);
+        registry.register(entry).ok()?;
+        Some(Self { registry, pid })
+    }
+}
+
+impl Drop for ProcessRegistrationGuard {
+    fn drop(&mut self) {
+        let _ = self.registry.deregister(self.pid);
+    }
 }
 
 fn ps_command(repo_filter: Option<&str>) -> Result<()> {
