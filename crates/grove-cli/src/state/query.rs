@@ -1,4 +1,5 @@
 //! State query data structures.
+#![allow(dead_code)]
 use graft_common::state::StateResult;
 use serde::{Deserialize, Serialize};
 

@@ -1,12 +1,9 @@
 //! Command execution and event handling.
 
-use super::{
-    mpsc, supports_unicode, App, CommandState, RepoDetailProvider, RepoRegistry, Sender,
-    LINES_TO_DROP, MAX_OUTPUT_LINES,
-};
 use graft_common::process::{ProcessConfig, ProcessEvent, ProcessHandle};
 use graft_common::runs::{run_log_path, write_run_meta, RunMeta};
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Sender};
 
 /// Context for run logging — carries workspace/repo/command identity.
 #[derive(Debug, Clone)]
@@ -265,7 +262,7 @@ pub fn spawn_command(
 /// Unlike `spawn_command`, this does not re-read graft.yaml or look up a command name.
 /// The caller has already assembled the full shell command (from the form overlay).
 /// `working_dir_override` and `env` are forwarded from the original `CommandDef`.
-#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::needless_pass_by_value, dead_code)]
 pub fn spawn_command_assembled(
     shell_cmd: String,
     repo_path: String,
@@ -354,190 +351,6 @@ fn bridge_events(
                 let _ = tx.send(CommandEvent::Failed(error));
             }
         }
-    }
-}
-
-impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
-    /// Handle incoming command output events.
-    pub(super) fn handle_command_events(&mut self) {
-        let mut should_close = false;
-
-        if let Some(rx) = &self.command_event_rx {
-            while let Ok(event) = rx.try_recv() {
-                match event {
-                    CommandEvent::Started(pid) => {
-                        self.running_command_pid = Some(pid);
-                    }
-                    CommandEvent::LogPath(path) => {
-                        self.current_log_path = Some(path);
-                    }
-                    CommandEvent::OutputLine(line) => {
-                        self.output_lines.push(line);
-
-                        if self.output_lines.len() > MAX_OUTPUT_LINES {
-                            self.output_lines.drain(0..LINES_TO_DROP);
-
-                            if !self.output_truncated_start {
-                                self.output_lines.insert(
-                                    0,
-                                    format!(
-                                        "... [earlier output truncated - showing last {MAX_OUTPUT_LINES} lines]"
-                                    ),
-                                );
-                                self.output_truncated_start = true;
-                            }
-
-                            if self.output_scroll > LINES_TO_DROP {
-                                self.output_scroll -= LINES_TO_DROP;
-                            } else {
-                                self.output_scroll = 0;
-                            }
-                        }
-                    }
-                    CommandEvent::Completed(exit_code) => {
-                        self.command_state = CommandState::Completed { exit_code };
-
-                        self.output_lines.push(String::new());
-
-                        let unicode = supports_unicode();
-                        if exit_code == 0 {
-                            let symbol = if unicode { "✓" } else { "*" };
-                            self.output_lines
-                                .push(format!("{symbol} Command completed successfully"));
-                        } else {
-                            let symbol = if unicode { "✗" } else { "X" };
-                            self.output_lines.push(format!(
-                                "{symbol} Command failed with exit code {exit_code}"
-                            ));
-                        }
-
-                        should_close = true;
-                    }
-                    CommandEvent::Failed(error) => {
-                        self.command_state = CommandState::Failed { error };
-                        should_close = true;
-                    }
-                }
-            }
-        }
-
-        if should_close {
-            self.command_event_rx = None;
-        }
-    }
-
-    /// Execute a command with a pre-assembled shell command string (from form overlay).
-    ///
-    /// Unlike `execute_command_with_args`, this passes the already-assembled shell
-    /// command directly to `spawn_command_assembled`, skipping arg splitting.
-    /// The `working_dir` and `env` from the original command definition are forwarded.
-    ///
-    /// For sequence commands (prefixed with "» "), builds and executes a
-    /// `graft run <seq_name> <args>` command instead.
-    ///
-    /// For both local and dependency commands, the base directory is the consumer's
-    /// repo root (commands always execute in the consumer's context).
-    pub(super) fn execute_command_assembled(
-        &mut self,
-        command_name: String,
-        shell_cmd: String,
-        working_dir: Option<String>,
-        env: Option<std::collections::HashMap<String, String>>,
-    ) {
-        let Some(repo_path) = &self.selected_repo_for_commands else {
-            return;
-        };
-
-        // Detect sequence dispatch: names prefixed with "» " are sequences.
-        // Re-route to spawn_command which handles "» " prefixed names.
-        if command_name.starts_with("» ") {
-            let run_ctx = self.build_run_context(repo_path, &command_name);
-            let repo_path_clone = repo_path.clone();
-            let (tx, rx) = mpsc::channel();
-            self.command_event_rx = Some(rx);
-            self.command_name = Some(command_name.clone());
-            self.command_state = CommandState::Running;
-            self.output_lines.clear();
-            self.output_scroll = 0;
-            self.output_truncated_start = false;
-            self.running_command_pid = None;
-            self.command_start_time = Some(std::time::Instant::now());
-            self.current_log_path = None;
-
-            // Extract any assembled args from shell_cmd (everything after the
-            // run string, which is empty for sequences) — or parse args from shell_cmd
-            // by splitting on whitespace (shell_cmd contains the graft-assembled args).
-            let args: Vec<String> = if shell_cmd.is_empty() {
-                vec![]
-            } else {
-                shell_words::split(&shell_cmd)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|s| !s.is_empty())
-                    .collect()
-            };
-
-            std::thread::spawn(move || {
-                spawn_command(command_name, args, repo_path_clone, run_ctx, tx);
-            });
-            return;
-        }
-
-        // Always use the consumer's repo root as base directory
-        let base_dir = repo_path.clone();
-
-        let run_ctx = self.build_run_context(repo_path, &command_name);
-
-        let (tx, rx) = mpsc::channel();
-        self.command_event_rx = Some(rx);
-
-        self.command_name = Some(command_name);
-        self.command_state = CommandState::Running;
-        self.output_lines.clear();
-        self.output_scroll = 0;
-        self.output_truncated_start = false;
-        self.running_command_pid = None;
-        self.command_start_time = Some(std::time::Instant::now());
-        self.current_log_path = None;
-
-        std::thread::spawn(move || {
-            spawn_command_assembled(shell_cmd, base_dir, working_dir, env, run_ctx, tx);
-        });
-    }
-
-    /// Execute command with provided arguments.
-    pub(super) fn execute_command_with_args(&mut self, command_name: String, args: Vec<String>) {
-        let Some(repo_path) = &self.selected_repo_for_commands else {
-            return;
-        };
-
-        let run_ctx = self.build_run_context(repo_path, &command_name);
-        let repo_path_clone = repo_path.clone();
-
-        let (tx, rx) = mpsc::channel();
-        self.command_event_rx = Some(rx);
-
-        self.command_name = Some(command_name.clone());
-        self.command_state = CommandState::Running;
-        self.output_lines.clear();
-        self.output_scroll = 0;
-        self.output_truncated_start = false;
-        self.running_command_pid = None;
-        self.command_start_time = Some(std::time::Instant::now());
-        self.current_log_path = None;
-
-        std::thread::spawn(move || {
-            spawn_command(command_name, args, repo_path_clone, run_ctx, tx);
-        });
-    }
-
-    /// Build a `RunContext` for run logging from the current workspace and repo path.
-    fn build_run_context(&self, repo_path: &str, command_name: &str) -> Option<RunContext> {
-        Some(RunContext {
-            workspace: self.workspace_name.clone(),
-            repo: graft_common::repo_name_from_path(repo_path).to_string(),
-            command: command_name.to_string(),
-        })
     }
 }
 

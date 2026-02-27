@@ -1,16 +1,22 @@
-//! Unit tests for TUI module
-//!
-//! These tests verify TUI logic without requiring a real terminal.
+//! Unit tests for TUI module (transcript paradigm)
 
-use super::*;
 use crossterm::event::{KeyCode, KeyModifiers};
 use grove_core::{
-    CommitInfo, FileChange, FileChangeStatus, RepoDetail, RepoDetailProvider, RepoPath,
-    RepoRegistry, RepoStatus, Result,
+    FileChangeStatus, RepoDetail, RepoDetailProvider, RepoPath, RepoRegistry, RepoStatus, Result,
 };
 use std::collections::HashMap;
 
-/// Mock registry for testing TUI logic without real git operations
+use super::command_line::{filtered_palette, parse_command, CliCommand, PALETTE_COMMANDS};
+use super::formatting::{compact_path, extract_basename, format_file_change_indicator};
+use super::prompt::{
+    compute_run_completions, extract_command_prefix, ghost_hint_suffix, ArgCompletion,
+    CompletionState,
+};
+use super::scroll_buffer::{BlockId, ContentBlock, ScrollBuffer};
+use super::transcript::TranscriptApp;
+
+// ===== Mock infrastructure =====
+
 struct MockRegistry {
     repos: Vec<RepoPath>,
     statuses: HashMap<RepoPath, RepoStatus>,
@@ -35,6 +41,7 @@ impl MockRegistry {
         Self { repos, statuses }
     }
 
+    #[allow(dead_code)]
     fn with_statuses(statuses: Vec<RepoStatus>) -> Self {
         let repos: Vec<RepoPath> = statuses.iter().map(|s| s.path.clone()).collect();
         let status_map = statuses.into_iter().map(|s| (s.path.clone(), s)).collect();
@@ -50,8 +57,8 @@ impl RepoRegistry for MockRegistry {
         self.repos.clone()
     }
 
-    fn get_status(&self, path: &RepoPath) -> Option<&RepoStatus> {
-        self.statuses.get(path)
+    fn get_status(&self, repo_path: &RepoPath) -> Option<&RepoStatus> {
+        self.statuses.get(repo_path)
     }
 
     fn refresh_all(&mut self) -> Result<grove_core::RefreshStats> {
@@ -62,6050 +69,985 @@ impl RepoRegistry for MockRegistry {
     }
 }
 
-/// Mock detail provider for testing
-struct MockDetailProvider {
-    detail: RepoDetail,
-    error: Option<String>,
-}
-
-impl MockDetailProvider {
-    fn empty() -> Self {
-        Self {
-            detail: RepoDetail::empty(),
-            error: None,
-        }
-    }
-
-    fn with_detail(detail: RepoDetail) -> Self {
-        Self {
-            detail,
-            error: None,
-        }
-    }
-
-    fn failing(msg: &str) -> Self {
-        Self {
-            detail: RepoDetail::empty(),
-            error: Some(msg.to_string()),
-        }
-    }
-}
+struct MockDetailProvider;
 
 impl RepoDetailProvider for MockDetailProvider {
     fn get_detail(&self, _path: &RepoPath, _max_commits: usize) -> Result<RepoDetail> {
-        if let Some(msg) = &self.error {
-            Err(grove_core::CoreError::GitError {
-                details: msg.clone(),
-            })
-        } else {
-            Ok(self.detail.clone())
-        }
+        Ok(RepoDetail::empty())
     }
 }
 
-// ===== Existing tests updated =====
-
-// Test 1: Keybinding handling - quit keys
-#[test]
-fn handles_quit_with_q_key() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    assert!(!app.should_quit, "Should not quit initially");
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-    assert!(app.should_quit, "Should quit after pressing 'q'");
-}
-
-#[test]
-fn esc_from_dashboard_does_not_quit() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    assert!(!app.should_quit, "Should not quit initially");
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-    // Escape goes home (Dashboard) — already there, so no-op (does not quit)
-    assert!(!app.should_quit, "Esc from Dashboard should NOT quit");
-    assert_eq!(*app.current_view(), View::Dashboard);
-}
-
-// Test 2: Navigation with empty list doesn't panic
-#[test]
-fn navigation_with_empty_list_does_not_panic() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.next();
-    app.previous();
-
-    assert!(
-        app.list_state.selected().is_none() || app.list_state.selected() == Some(0),
-        "Selection should be None or 0 for empty list"
-    );
-}
-
-// Test 3: Navigation wraps at boundaries
-#[test]
-fn navigation_wraps_from_last_to_first() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.list_state.select(Some(2));
-    app.next();
-    assert_eq!(
-        app.list_state.selected(),
-        Some(0),
-        "Should wrap from last to first"
-    );
-}
-
-#[test]
-fn navigation_wraps_from_first_to_last() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.list_state.select(Some(0));
-    app.previous();
-    assert_eq!(
-        app.list_state.selected(),
-        Some(2),
-        "Should wrap from first to last"
-    );
-}
-
-#[test]
-fn navigation_moves_down_normally() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.list_state.select(Some(0));
-    app.next();
-    assert_eq!(app.list_state.selected(), Some(1));
-
-    app.next();
-    assert_eq!(app.list_state.selected(), Some(2));
-}
-
-#[test]
-fn navigation_moves_up_normally() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.list_state.select(Some(2));
-    app.previous();
-    assert_eq!(app.list_state.selected(), Some(1));
-
-    app.previous();
-    assert_eq!(app.list_state.selected(), Some(0));
-}
-
-// Test 4: Format repo line with error
-#[test]
-fn formats_error_status_correctly() {
-    let path = "/tmp/broken-repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new("/tmp/broken-repo").unwrap());
-    status.error = Some("Failed to open repository".to_string());
-
-    let line = format_repo_line(path.clone(), Some(&status), 80, 0, None);
-
-    assert_eq!(
-        line.spans.len(),
-        3,
-        "Should have 3 spans: path, space, error"
-    );
-
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-    assert!(
-        text.contains("error: Failed to open repository"),
-        "Should contain error message, got: {text}"
-    );
-    assert!(text.contains(&path), "Should contain repo path");
-}
-
-// Test 5: Format complete status with all fields
-#[test]
-fn formats_complete_status_with_all_fields() {
-    let path = "/tmp/test-repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new("/tmp/test-repo").unwrap());
-    status.branch = Some("main".to_string());
-    status.is_dirty = true;
-    status.ahead = Some(3);
-    status.behind = Some(2);
-
-    let line = format_repo_line(path.clone(), Some(&status), 80, 0, None);
-
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(text.contains(&path), "Should contain repo path");
-    assert!(text.contains("[main]"), "Should contain branch name");
-    assert!(text.contains("●"), "Should contain dirty indicator");
-    assert!(text.contains("↑3"), "Should contain ahead count");
-    assert!(text.contains("↓2"), "Should contain behind count");
-}
-
-#[test]
-fn formats_clean_status_correctly() {
-    let path = "/tmp/clean-repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new("/tmp/clean-repo").unwrap());
-    status.branch = Some("develop".to_string());
-    status.is_dirty = false;
-    status.ahead = None;
-    status.behind = None;
-
-    let line = format_repo_line(path, Some(&status), 80, 0, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(text.contains("[develop]"), "Should contain branch name");
-    assert!(
-        text.contains("○"),
-        "Should contain clean indicator (circle)"
-    );
-    assert!(
-        !text.contains("↑"),
-        "Should not show ahead when count is None"
-    );
-    assert!(
-        !text.contains("↓"),
-        "Should not show behind when count is None"
-    );
-}
-
-// Test 6: Format detached HEAD
-#[test]
-fn formats_detached_head_state() {
-    let path = "/tmp/detached-repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new("/tmp/detached-repo").unwrap());
-    status.branch = None;
-    status.is_dirty = false;
-
-    let line = format_repo_line(path, Some(&status), 80, 0, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        text.contains("[detached]"),
-        "Should show [detached] for None branch, got: {text}"
-    );
-}
-
-// Test 7: Format loading state
-#[test]
-fn formats_loading_state() {
-    let path = "/tmp/loading-repo".to_string();
-    let line = format_repo_line(path.clone(), None, 80, 0, None);
-
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(text.contains(&path), "Should contain repo path");
-    assert!(
-        text.contains("[loading...]"),
-        "Should show [loading...] for None status, got: {text}"
-    );
-}
-
-// Test 8: Keybinding ignores unknown keys
-#[test]
-fn ignores_unknown_keybindings() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.list_state.select(Some(1));
-
-    // Press unknown keys (note: 'x' and 's' are now valid, so use truly unknown keys)
-    app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('z'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::F(1), KeyModifiers::NONE);
-
-    assert_eq!(
-        app.list_state.selected(),
-        Some(1),
-        "Unknown keys should not change selection"
-    );
-    assert!(!app.should_quit, "Unknown keys should not quit");
-}
-
-// Test 9: j/k vim-style navigation
-#[test]
-fn handles_vim_style_navigation() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.list_state.select(Some(0));
-
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.list_state.selected(), Some(1), "'j' should move down");
-
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(app.list_state.selected(), Some(0), "'k' should move up");
-}
-
-#[test]
-fn handles_arrow_key_navigation() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.list_state.select(Some(0));
-
-    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
-    assert_eq!(
-        app.list_state.selected(),
-        Some(1),
-        "Down arrow should move down"
-    );
-
-    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-    assert_eq!(
-        app.list_state.selected(),
-        Some(0),
-        "Up arrow should move up"
-    );
-}
-
-// Test 10: Only show ahead/behind when >0
-#[test]
-fn hides_zero_ahead_behind_counts() {
-    let path = "/tmp/test".to_string();
-    let mut status = RepoStatus::new(RepoPath::new("/tmp/test").unwrap());
-    status.branch = Some("main".to_string());
-    status.ahead = Some(0);
-    status.behind = Some(0);
-
-    let line = format_repo_line(path, Some(&status), 80, 0, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        !text.contains("↑0"),
-        "Should not show ahead when count is 0"
-    );
-    assert!(
-        !text.contains("↓0"),
-        "Should not show behind when count is 0"
-    );
-}
-
-#[test]
-fn shows_nonzero_ahead_behind_counts() {
-    let path = "/tmp/test".to_string();
-    let mut status = RepoStatus::new(RepoPath::new("/tmp/test").unwrap());
-    status.branch = Some("main".to_string());
-    status.ahead = Some(5);
-    status.behind = Some(3);
-
-    let line = format_repo_line(path, Some(&status), 80, 0, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(text.contains("↑5"), "Should show ahead count of 5");
-    assert!(text.contains("↓3"), "Should show behind count of 3");
-}
-
-// ===== Focus management tests =====
-
-#[test]
-fn starts_with_repo_list_focused() {
-    let app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    assert_eq!(*app.current_view(), View::Dashboard);
-}
-
-#[test]
-fn enter_switches_to_detail_pane() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::RepoDetail(0));
-}
-
-#[test]
-fn tab_switches_to_detail_pane() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::RepoDetail(0));
-}
-
-#[test]
-fn q_in_detail_returns_to_list() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::Dashboard);
-    assert!(!app.should_quit, "q in detail should NOT quit the app");
-}
-
-#[test]
-fn esc_in_detail_resets_to_dashboard() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::Dashboard);
-    assert!(!app.should_quit, "Esc in detail should NOT quit the app");
-}
-
-#[test]
-fn enter_in_detail_with_no_commands_is_noop() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-
-    // Enter tries to execute a command; with no commands loaded, it's a no-op.
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::RepoDetail(0));
-}
-
-#[test]
-fn tab_in_detail_returns_to_list() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-
-    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::Dashboard);
-}
-
-// Detail cursor tests
-#[test]
-fn j_in_detail_moves_cursor_down() {
-    let detail = RepoDetail {
-        changed_files: vec![
-            FileChange {
-                path: "a.txt".to_string(),
-                status: FileChangeStatus::Modified,
-            },
-            FileChange {
-                path: "b.txt".to_string(),
-                status: FileChangeStatus::Added,
-            },
-        ],
-        commits: vec![],
-        error: None,
-    };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    assert_eq!(app.detail_cursor, 0);
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.detail_cursor, 1);
-}
-
-#[test]
-fn k_in_detail_does_not_go_below_zero() {
-    let detail = RepoDetail {
-        changed_files: vec![FileChange {
-            path: "a.txt".to_string(),
-            status: FileChangeStatus::Modified,
-        }],
-        commits: vec![],
-        error: None,
-    };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    assert_eq!(app.detail_cursor, 0);
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(app.detail_cursor, 0, "Cursor should not go below 0");
-}
-
-// Cache invalidation tests
-#[test]
-fn navigation_invalidates_detail_cache() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.cached_detail = Some(RepoDetail::empty());
-    app.cached_detail_index = Some(0);
-
-    // Navigate in Dashboard view
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.list_state.selected(), Some(1));
-
-    app.ensure_detail_loaded();
-    assert_eq!(app.cached_detail_index, Some(1));
-}
-
-// Detail rendering tests
-#[test]
-fn build_repo_detail_lines_no_selection() {
-    let app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    let lines = app.build_repo_detail_lines();
-    let text: String = lines
-        .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
-        .collect::<String>();
-    assert!(text.contains("No repository selected"));
-}
-
-#[test]
-fn build_repo_detail_lines_with_error() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail = Some(RepoDetail::with_error("git failed".to_string()));
-    app.cached_detail_index = Some(0);
-
-    let lines = app.build_repo_detail_lines();
-    let text: String = lines
-        .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
-        .collect::<String>();
-    assert!(text.contains("Error: git failed"));
-}
-
-#[test]
-fn build_repo_detail_lines_with_commits_and_files() {
-    let detail = RepoDetail {
-        commits: vec![
-            CommitInfo {
-                hash: "abc1234".to_string(),
-                subject: "Fix the bug".to_string(),
-                author: "Alice".to_string(),
-                relative_date: "2 hours ago".to_string(),
-            },
-            CommitInfo {
-                hash: "def5678".to_string(),
-                subject: "Add feature".to_string(),
-                author: "Bob".to_string(),
-                relative_date: "1 day ago".to_string(),
-            },
-        ],
-        changed_files: vec![
-            FileChange {
-                path: "src/main.rs".to_string(),
-                status: FileChangeStatus::Modified,
-            },
-            FileChange {
-                path: "new_file.txt".to_string(),
-                status: FileChangeStatus::Added,
-            },
-        ],
-        error: None,
-    };
-
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.ensure_detail_loaded();
-
-    let lines = app.build_repo_detail_lines();
-    let text: String = lines
-        .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    assert!(text.contains("Changed Files (2)"), "Should show file count");
-    assert!(
-        text.contains("src/main.rs"),
-        "Should show changed file path"
-    );
-    assert!(text.contains("new_file.txt"), "Should show added file path");
-    assert!(
-        text.contains("Recent Commits (2)"),
-        "Should show commit count"
-    );
-    assert!(text.contains("abc1234"), "Should show commit hash");
-    assert!(text.contains("Fix the bug"), "Should show commit subject");
-    assert!(text.contains("Alice"), "Should show commit author");
-    assert!(text.contains("2 hours ago"), "Should show relative date");
-}
-
-#[test]
-fn build_repo_detail_lines_empty_repo() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.ensure_detail_loaded();
-
-    let lines = app.build_repo_detail_lines();
-    let text: String = lines
-        .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    assert!(text.contains("No uncommitted changes"));
-    assert!(text.contains("No commits"));
-}
-
-// File change indicator tests
-#[test]
-fn format_file_change_indicators() {
-    assert_eq!(
-        format_file_change_indicator(&FileChangeStatus::Modified),
-        ("M", Color::Yellow)
-    );
-    assert_eq!(
-        format_file_change_indicator(&FileChangeStatus::Added),
-        ("A", Color::Green)
-    );
-    assert_eq!(
-        format_file_change_indicator(&FileChangeStatus::Deleted),
-        ("D", Color::Red)
-    );
-    assert_eq!(
-        format_file_change_indicator(&FileChangeStatus::Renamed),
-        ("R", Color::Cyan)
-    );
-    assert_eq!(
-        format_file_change_indicator(&FileChangeStatus::Copied),
-        ("C", Color::Cyan)
-    );
-    assert_eq!(
-        format_file_change_indicator(&FileChangeStatus::Unknown),
-        ("?", Color::Gray)
-    );
-}
-
-// Provider error handling test
-#[test]
-fn ensure_detail_loaded_converts_provider_error_to_detail_error() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::failing("git timed out"),
-        "test-workspace".to_string(),
-    );
-    app.list_state.select(Some(0));
-
-    app.ensure_detail_loaded();
-
-    let detail = app
-        .cached_detail
-        .as_ref()
-        .expect("Should have cached detail");
-    assert!(
-        detail.error.is_some(),
-        "Provider error should be converted to RepoDetail error"
-    );
-    assert!(
-        detail.error.as_ref().unwrap().contains("git timed out"),
-        "Error message should be preserved, got: {:?}",
-        detail.error
-    );
-    assert!(detail.commits.is_empty(), "Should have no commits on error");
-    assert!(
-        detail.changed_files.is_empty(),
-        "Should have no changed files on error"
-    );
-}
-
-// --- Branch header rendering tests ---
-
-#[test]
-fn build_repo_detail_lines_shows_branch_header() {
-    // Branch info is shown in the block title via repo_detail_title(), not in the content lines.
-    // The content lines show changes/commits/state/commands sections.
-    let mut status = RepoStatus::new(RepoPath::new("/tmp/repo0").unwrap());
-    status.branch = Some("main".to_string());
-    status.is_dirty = true;
-    status.ahead = Some(2);
-    status.behind = Some(1);
-
-    let mut app = App::new(
-        MockRegistry::with_statuses(vec![status]),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.ensure_detail_loaded();
-
-    let lines = app.build_repo_detail_lines();
-    let text: String = lines
-        .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
-        .collect::<String>();
-
-    // Content lines include the changes/state/commands sections
-    assert!(
-        text.contains("No uncommitted changes")
-            || text.contains("Changed Files")
-            || text.contains("State Queries"),
-        "Should show content sections"
-    );
-}
-
-#[test]
-fn build_repo_detail_lines_clean_repo_shows_clean_indicator() {
-    // Branch/dirty info is shown in the block title via repo_detail_title(), not in content lines.
-    // Clean repo with empty detail shows "No uncommitted changes" in the content.
-    let mut status = RepoStatus::new(RepoPath::new("/tmp/repo0").unwrap());
-    status.branch = Some("develop".to_string());
-    status.is_dirty = false;
-
-    let mut app = App::new(
-        MockRegistry::with_statuses(vec![status]),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.ensure_detail_loaded();
-
-    let lines = app.build_repo_detail_lines();
-    let text: String = lines
-        .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
-        .collect::<String>();
-
-    assert!(
-        text.contains("No uncommitted changes"),
-        "Clean repo should show no-changes message"
-    );
-    assert!(
-        !text.contains("↑"),
-        "Content lines should not show ahead indicator"
-    );
-    assert!(
-        !text.contains("↓"),
-        "Content lines should not show behind indicator"
-    );
-}
-
-// --- Partial error rendering test ---
-
-#[test]
-fn build_repo_detail_lines_shows_error_and_partial_data() {
-    let detail = RepoDetail {
-        commits: vec![CommitInfo {
-            hash: "abc1234".to_string(),
-            subject: "A good commit".to_string(),
-            author: "Alice".to_string(),
-            relative_date: "1 hour ago".to_string(),
-        }],
-        changed_files: vec![],
-        error: Some("changed files: git status timed out".to_string()),
-    };
-
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail.clone()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail = Some(detail);
-    app.cached_detail_index = Some(0);
-
-    let lines = app.build_repo_detail_lines();
-    let text: String = lines
-        .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    assert!(
-        text.contains("Error:"),
-        "Should show error warning, got: {text}"
-    );
-    assert!(
-        text.contains("timed out"),
-        "Should include error details, got: {text}"
-    );
-    assert!(
-        text.contains("abc1234"),
-        "Should still show partial commit data, got: {text}"
-    );
-    assert!(
-        text.contains("A good commit"),
-        "Should still show commit subject, got: {text}"
-    );
-}
-
-// --- Cursor clamping test ---
-
-#[test]
-fn rebuild_detail_items_clamps_cursor_when_data_shrinks() {
-    let detail = RepoDetail {
-        changed_files: vec![
-            FileChange {
-                path: "a.txt".to_string(),
-                status: FileChangeStatus::Modified,
-            },
-            FileChange {
-                path: "b.txt".to_string(),
-                status: FileChangeStatus::Added,
-            },
-            FileChange {
-                path: "c.txt".to_string(),
-                status: FileChangeStatus::Deleted,
-            },
-        ],
-        commits: vec![],
-        error: None,
-    };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    // Cursor at last item (index 2)
-    app.detail_cursor = 2;
-    assert_eq!(app.detail_items.len(), 3);
-
-    // Simulate data shrinking (e.g. after refresh, only 1 file change)
-    app.cached_detail = Some(RepoDetail {
-        changed_files: vec![FileChange {
-            path: "a.txt".to_string(),
-            status: FileChangeStatus::Modified,
-        }],
-        commits: vec![],
-        error: None,
-    });
-    app.rebuild_detail_items();
-
-    assert_eq!(app.detail_items.len(), 1);
-    assert_eq!(
-        app.detail_cursor, 0,
-        "Cursor should be clamped to last valid index"
-    );
-}
-
-// --- Path compaction tests ---
-
-#[test]
-fn compact_path_returns_unchanged_if_fits() {
-    let path = "/tmp/short";
-    let result = compact_path(path, 50);
-    assert_eq!(result, path);
-}
-
-#[test]
-fn compact_path_applies_tilde_expansion() {
-    let path = format!(
-        "{}/projects/graft",
-        std::env::var("HOME").unwrap_or_default()
-    );
-    let result = compact_path(&path, 100);
-    assert!(
-        result.starts_with("~/"),
-        "Should start with tilde, got: {result}"
-    );
-}
-
-#[test]
-fn compact_path_abbreviates_parent_components() {
-    let path = "/home/user/very/long/nested/project-name/submodule";
-    let result = compact_path(path, 35);
-
-    assert!(
-        result.contains("project-name/submodule"),
-        "Should preserve final 2 components, got: {result}"
-    );
-    assert!(
-        result.len() < path.len(),
-        "Should be shorter than original, got: {result}"
-    );
-}
-
-#[test]
-fn compact_path_preserves_final_components() {
-    let path = "/a/b/c/d/project/repo";
-    let result = compact_path(path, 25);
-
-    assert!(
-        result.ends_with("project/repo"),
-        "Should end with last 2 components, got: {result}"
-    );
-}
-
-#[test]
-fn compact_path_falls_back_to_prefix_truncation() {
-    let path = "/extremely/long/path/that/will/not/fit/even/with/abbreviation/project-name";
-    let result = compact_path(path, 20);
-
-    assert!(
-        result.starts_with("[..]"),
-        "Should use prefix truncation, got: {result}"
-    );
-    assert!(
-        result.len() <= 20,
-        "Should not exceed max width, got: {} (len {})",
-        result,
-        result.len()
-    );
-}
-
-#[test]
-fn compact_path_handles_unicode_correctly() {
-    let path = "/home/user/プロジェクト/ファイル";
-    let result = compact_path(path, 50);
-
-    assert!(
-        result.width() <= 50,
-        "Unicode path should respect width limit, got width: {} for: {}",
-        result.width(),
-        result
-    );
-}
-
-#[test]
-fn compact_path_handles_very_short_max_width() {
-    let path = "/home/user/project";
-    let result = compact_path(path, 5);
-
-    assert!(
-        result.width() <= 5,
-        "Should respect very short width, got: {} (width {})",
-        result,
-        result.width()
-    );
-}
-
-#[test]
-fn compact_path_abbreviates_fish_style() {
-    let path = "/var/log/nginx/access/archive";
-    let result = compact_path(path, 25);
-
-    assert!(result.ends_with("access/archive"));
-    assert!(result.len() < path.len());
-}
-
-// --- Adaptive branch display tests ---
-
-#[test]
-fn format_repo_line_shows_branch_when_space_allows() {
-    let path = "/tmp/repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new("/tmp/repo").unwrap());
-    status.branch = Some("main".to_string());
-    status.is_dirty = true;
-
-    let line = format_repo_line(path, Some(&status), 80, 0, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        text.contains("[main]"),
-        "Should show branch when space allows, got: {text}"
-    );
-}
-
-#[test]
-fn format_repo_line_drops_branch_when_path_would_be_too_short() {
-    let path = "/home/user/very/long/path/to/repository".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("feature-branch-with-long-name".to_string());
-    status.is_dirty = true;
-
-    let line = format_repo_line(path, Some(&status), 20, 0, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        !text.contains("[feature-branch-with-long-name]"),
-        "Should drop branch when path would be too short, got: {text}"
-    );
-    assert!(text.contains("●"), "Should still show dirty indicator");
-}
-
-#[test]
-fn format_repo_line_drops_branch_when_path_uses_prefix_truncation() {
-    let path = "/extremely/long/nested/directory/structure/repository-name".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("main".to_string());
-    status.is_dirty = false;
-
-    let line = format_repo_line(path, Some(&status), 18, 0, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        !text.contains("[main]"),
-        "Should drop branch when path uses [..] prefix, got: {text}"
-    );
-}
-
-#[test]
-fn format_repo_line_unicode_path_uses_width_not_len() {
-    let path = "/home/用户/项目/repository".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("main".to_string());
-    status.is_dirty = true;
-
-    let line = format_repo_line(path, Some(&status), 40, 0, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        text.contains("●"),
-        "Should show status indicator for unicode path"
-    );
-}
-
-#[test]
-fn format_repo_line_preserves_ahead_behind_when_dropping_branch() {
-    let path = "/home/user/very/long/path/to/repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("main".to_string());
-    status.is_dirty = true;
-    status.ahead = Some(4);
-    status.behind = Some(2);
-
-    let line = format_repo_line(path, Some(&status), 22, 0, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        !text.contains("[main]"),
-        "Should drop branch in tight space"
-    );
-    assert!(text.contains("↑4"), "Should preserve ahead indicator");
-    assert!(text.contains("↓2"), "Should preserve behind indicator");
-    assert!(text.contains("●"), "Should preserve dirty indicator");
-}
-
-#[test]
-fn format_repo_line_shows_basename_only_in_very_tight_space() {
-    let path = "/home/user/src/graft".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("main".to_string());
-    status.is_dirty = true;
-
-    let line = format_repo_line(path, Some(&status), 12, 0, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        text.contains("graft"),
-        "Should show basename in very tight space, got: {text}"
-    );
-    assert!(
-        !text.contains("[main]"),
-        "Should not show branch in very tight space"
-    );
-    assert!(
-        !text.contains("src"),
-        "Should not show parent dirs in very tight space"
-    );
-    assert!(text.contains("●"), "Should still show status");
-}
-
-#[test]
-fn extract_basename_works_correctly() {
-    assert_eq!(extract_basename("/home/user/src/graft"), "graft");
-    assert_eq!(extract_basename("~/projects/repo"), "repo");
-    assert_eq!(extract_basename("/tmp"), "tmp");
-    assert_eq!(extract_basename("single"), "single");
-}
-
-// --- Overhead calculation verification ---
-
-#[test]
-fn verify_overhead_calculation_is_accurate() {
-    let path = "/home/user/repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("main".to_string());
-    status.is_dirty = true;
-    status.ahead = Some(4);
-    status.behind = Some(2);
-
-    let pane_width = 50;
-    let line = format_repo_line(path, Some(&status), pane_width, 0, None);
-
-    let actual_width: usize = line.spans.iter().map(|s| s.content.width()).sum();
-
-    assert!(
-        actual_width <= pane_width as usize - 2,
-        "Line width {} should fit in pane {} with overhead, got spans: {:?}",
-        actual_width,
-        pane_width,
-        line.spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect::<Vec<_>>()
-    );
-
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-    assert!(text.contains("[main]"), "Should contain branch");
-    assert!(text.contains("●"), "Should contain dirty");
-    assert!(text.contains("↑4"), "Should contain ahead");
-    assert!(text.contains("↓2"), "Should contain behind");
-}
-
-#[test]
-fn empty_workspace_has_no_selection() {
-    let app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    assert_eq!(
-        app.list_state.selected(),
-        None,
-        "Empty workspace should have no selected item"
-    );
-}
-
-#[test]
-fn help_overlay_activates_on_question_mark() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    assert_eq!(*app.current_view(), View::Dashboard);
-
-    app.handle_key(KeyCode::Char('?'), KeyModifiers::NONE);
-    assert_eq!(
-        *app.current_view(),
-        View::Help,
-        "View stack should show Help"
-    );
-}
-
-#[test]
-fn help_overlay_dismisses_on_printable_key() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char('?'), KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::Help);
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::Dashboard);
-}
-
-#[test]
-fn help_overlay_dismisses_on_esc() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char('?'), KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::Help);
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::Dashboard);
-}
-
-#[test]
-fn empty_workspace_navigation_does_not_panic() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.list_state.selected(), None);
-
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(app.list_state.selected(), None);
-}
-
-// --- Status bar tests ---
-
-#[test]
-fn status_message_creates_with_timestamp() {
-    let msg = StatusMessage::error("Test error");
-    assert_eq!(msg.text, "Test error");
-    assert_eq!(msg.msg_type, MessageType::Error);
-    assert!(msg.shown_at.elapsed() < Duration::from_millis(10));
-}
-
-#[test]
-fn status_message_not_expired_immediately() {
-    let msg = StatusMessage::info("Test");
-    assert!(!msg.is_expired());
-}
-
-#[test]
-fn status_message_expires_after_three_seconds() {
-    let mut msg = StatusMessage::warning("Test");
-    msg.shown_at = Instant::now().checked_sub(Duration::from_secs(4)).unwrap();
-    assert!(msg.is_expired(), "Message should expire after 3 seconds");
-}
-
-#[test]
-fn status_message_convenience_constructors() {
-    let error = StatusMessage::error("Error message");
-    assert_eq!(error.msg_type, MessageType::Error);
-    assert_eq!(error.text, "Error message");
-
-    let warning = StatusMessage::warning("Warning message");
-    assert_eq!(warning.msg_type, MessageType::Warning);
-    assert_eq!(warning.text, "Warning message");
-
-    let info = StatusMessage::info("Info message");
-    assert_eq!(info.msg_type, MessageType::Info);
-    assert_eq!(info.text, "Info message");
-
-    let success = StatusMessage::success("Success message");
-    assert_eq!(success.msg_type, MessageType::Success);
-    assert_eq!(success.text, "Success message");
-}
-
-#[test]
-fn message_type_symbols_unicode() {
-    assert_eq!(MessageType::Error.symbol(true), "✗");
-    assert_eq!(MessageType::Warning.symbol(true), "⚠");
-    assert_eq!(MessageType::Info.symbol(true), "ℹ");
-    assert_eq!(MessageType::Success.symbol(true), "✓");
-}
-
-#[test]
-fn message_type_symbols_ascii() {
-    assert_eq!(MessageType::Error.symbol(false), "X");
-    assert_eq!(MessageType::Warning.symbol(false), "!");
-    assert_eq!(MessageType::Info.symbol(false), "i");
-    assert_eq!(MessageType::Success.symbol(false), "*");
-}
-
-#[test]
-fn message_type_colors() {
-    assert_eq!(MessageType::Error.fg_color(), Color::White);
-    assert_eq!(MessageType::Error.bg_color(), Color::Red);
-
-    assert_eq!(MessageType::Warning.fg_color(), Color::Black);
-    assert_eq!(MessageType::Warning.bg_color(), Color::Yellow);
-
-    assert_eq!(MessageType::Info.fg_color(), Color::White);
-    assert_eq!(MessageType::Info.bg_color(), Color::Blue);
-
-    assert_eq!(MessageType::Success.fg_color(), Color::Black);
-    assert_eq!(MessageType::Success.bg_color(), Color::Green);
-}
-
-#[test]
-fn supports_unicode_detects_incompatible_terminals() {
-    let _ = supports_unicode();
-    assert!(supports_unicode() || !supports_unicode());
-}
-
-#[test]
-fn clear_expired_status_message_removes_old_messages() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    let mut old_msg = StatusMessage::info("Old message");
-    old_msg.shown_at = Instant::now().checked_sub(Duration::from_secs(4)).unwrap();
-    app.status_message = Some(old_msg);
-
-    app.clear_expired_status_message();
-
-    assert!(
-        app.status_message.is_none(),
-        "Expired message should be cleared"
-    );
-}
-
-#[test]
-fn clear_expired_status_message_keeps_fresh_messages() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.status_message = Some(StatusMessage::success("Fresh message"));
-
-    app.clear_expired_status_message();
-
-    assert!(
-        app.status_message.is_some(),
-        "Fresh message should not be cleared"
-    );
-}
-
-#[test]
-fn status_message_set_on_refresh() {
-    let mut app = App::new(
-        MockRegistry::with_repos(2),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.needs_refresh = true;
-    app.handle_refresh_if_needed();
-
-    assert!(app.status_message.is_some());
-    let msg = app.status_message.as_ref().unwrap();
-    assert_eq!(msg.msg_type, MessageType::Success);
-    assert!(msg.text.contains("Refreshed"));
-}
-
-#[test]
-fn x_from_repo_list_navigates_to_commands_tab() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char('x'), KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::RepoDetail(0));
-}
-
-#[test]
-fn s_from_repo_list_navigates_to_state_tab() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char('s'), KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::RepoDetail(0));
-}
-
-// ===== Command Execution Tests =====
-
-#[test]
-fn command_state_transitions_not_started_to_running() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    assert!(matches!(app.command_state, CommandState::NotStarted));
-
-    app.command_state = CommandState::Running;
-    assert!(matches!(app.command_state, CommandState::Running));
-}
-
-#[test]
-fn command_state_transitions_running_to_completed() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.command_state = CommandState::Running;
-
-    app.command_state = CommandState::Completed { exit_code: 0 };
-    assert!(matches!(
-        app.command_state,
-        CommandState::Completed { exit_code: 0 }
-    ));
-}
-
-#[test]
-fn command_state_transitions_running_to_failed() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.command_state = CommandState::Running;
-
-    app.command_state = CommandState::Failed {
-        error: "test error".to_string(),
-    };
-    assert!(matches!(app.command_state, CommandState::Failed { .. }));
-}
-
-#[test]
-fn confirmation_dialog_not_shown_initially() {
-    let app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    assert!(
-        !app.show_stop_confirmation,
-        "Dialog should not be shown initially"
-    );
-}
-
-#[test]
-fn confirmation_dialog_shows_for_running_command() {
-    // q while running now backgrounds (pops CommandOutput) instead of showing stop dialog.
-    // Stop confirmation is still reachable via Esc while running.
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.command_state = CommandState::Running;
-    app.push_view(View::CommandOutput);
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-    assert!(
-        !app.show_stop_confirmation,
-        "q while running should background, not show stop dialog"
-    );
-    // CommandOutput is popped; command state remains Running (backgrounded)
-    assert_ne!(
-        *app.current_view(),
-        View::CommandOutput,
-        "Should have popped CommandOutput"
-    );
-    assert!(
-        matches!(app.command_state, CommandState::Running),
-        "Command should still be running (backgrounded)"
-    );
-}
-
-#[test]
-fn confirmation_dialog_not_shown_for_completed_command() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.command_state = CommandState::Completed { exit_code: 0 };
-    app.push_view(View::CommandOutput);
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-    assert!(
-        !app.show_stop_confirmation,
-        "Dialog should not show for completed command"
-    );
-    assert_eq!(*app.current_view(), View::Dashboard);
-}
-
-#[test]
-fn pid_tracking_none_initially() {
-    let app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    assert!(
-        app.running_command_pid.is_none(),
-        "PID should be None initially"
-    );
-}
-
-#[test]
-fn pid_tracking_set_on_started_event() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.running_command_pid = Some(12345);
-    assert_eq!(app.running_command_pid, Some(12345), "PID should be set");
-}
-
-#[test]
-fn ring_buffer_flag_false_initially() {
-    let app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    assert!(
-        !app.output_truncated_start,
-        "Ring buffer flag should be false initially"
-    );
-}
-
-#[test]
-fn output_pane_scroll_initialized_to_zero() {
-    let app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    assert_eq!(app.output_scroll, 0, "Output scroll should start at 0");
-}
-
-#[test]
-fn output_lines_empty_initially() {
-    let app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    assert!(
-        app.output_lines.is_empty(),
-        "Output lines should be empty initially"
-    );
-}
-
-// ===== Argument Input Tests =====
-
-#[test]
-fn argument_input_opens_after_command_selected() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.available_commands = vec![(
-        "test".to_string(),
-        grove_core::Command {
-            run: "echo test".to_string(),
-            description: Some("Test command".to_string()),
-            working_dir: None,
-            env: None,
-            args: None,
-            ..Default::default()
-        },
-    )];
-    app.push_view(View::RepoDetail(0));
-    app.detail_items = vec![DetailItem::Command(0)];
-    app.detail_cursor = 0;
-
-    app.execute_selected_command();
-
-    assert!(app.argument_input.is_some());
-    let state = app.argument_input.as_ref().unwrap();
-    assert_eq!(state.command_name, "test");
-    assert!(state.text.buffer.is_empty());
-    assert_eq!(state.text.cursor_pos, 0);
-}
-
-#[test]
-fn argument_input_buffer_updates_on_char() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::new(),
-        command_name: "test".to_string(),
-    });
-
-    app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('g'), KeyModifiers::NONE);
-
-    let state = app.argument_input.as_ref().unwrap();
-    assert_eq!(state.text.buffer, "arg");
-    assert_eq!(state.text.cursor_pos, 3);
-}
-
-#[test]
-fn argument_input_backspace_removes_char() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::with_content("test", 4),
-        command_name: "test".to_string(),
-    });
-
-    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
-
-    let state = app.argument_input.as_ref().unwrap();
-    assert_eq!(state.text.buffer, "tes");
-    assert_eq!(state.text.cursor_pos, 3);
-}
-
-#[test]
-fn argument_input_escape_cancels() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::with_content("some args", 9),
-        command_name: "test".to_string(),
-    });
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-    assert!(app.argument_input.is_none());
-}
-
-#[test]
-fn argument_input_enter_executes_with_args() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::with_content("arg1 arg2", 9),
-        command_name: "test".to_string(),
-    });
-    app.selected_repo_for_commands = Some("/tmp/test".to_string());
-
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-    assert!(app.argument_input.is_none());
-    assert_eq!(app.command_name, Some("test".to_string()));
-}
-
-#[test]
-fn argument_input_enter_with_empty_buffer_executes_without_args() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::new(),
-        command_name: "test".to_string(),
-    });
-    app.selected_repo_for_commands = Some("/tmp/test".to_string());
-
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-    assert_eq!(app.command_name, Some("test".to_string()));
-}
-
-#[test]
-fn argument_input_parses_quoted_arguments_correctly() {
-    let input = r#"Personal "This is a test""#;
-    let parsed = shell_words::split(input).unwrap();
-
-    assert_eq!(parsed.len(), 2, "Should parse into 2 arguments");
-    assert_eq!(parsed[0], "Personal");
-    assert_eq!(parsed[1], "This is a test");
-}
-
-#[test]
-fn argument_input_handles_multiple_quoted_args() {
-    let input = r#""First arg" "Second arg" third"#;
-    let parsed = shell_words::split(input).unwrap();
-
-    assert_eq!(parsed.len(), 3);
-    assert_eq!(parsed[0], "First arg");
-    assert_eq!(parsed[1], "Second arg");
-    assert_eq!(parsed[2], "third");
-}
-
-// ===== Cursor Navigation Tests =====
-
-#[test]
-fn argument_input_cursor_moves_left() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::with_content("test", 4),
-        command_name: "cmd".to_string(),
-    });
-
-    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
-
-    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 3);
-}
-
-#[test]
-fn argument_input_cursor_moves_right() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::with_content("test", 2),
-        command_name: "cmd".to_string(),
-    });
-
-    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
-
-    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 3);
+fn create_app(registry: MockRegistry) -> TranscriptApp<MockRegistry, MockDetailProvider> {
+    TranscriptApp::new(registry, MockDetailProvider, "test-workspace".to_string())
 }
 
-#[test]
-fn argument_input_cursor_stops_at_boundaries() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::with_content("test", 0),
-        command_name: "cmd".to_string(),
-    });
-
-    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
-    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 0);
-
-    app.argument_input.as_mut().unwrap().text.cursor_pos = 4;
-
-    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
-    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 4);
-}
-
-#[test]
-fn argument_input_home_end_keys() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::with_content("test", 2),
-        command_name: "cmd".to_string(),
-    });
-
-    app.handle_key(KeyCode::Home, KeyModifiers::NONE);
-    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 0);
-
-    app.handle_key(KeyCode::End, KeyModifiers::NONE);
-    assert_eq!(app.argument_input.as_ref().unwrap().text.cursor_pos, 4);
-}
-
-#[test]
-fn argument_input_inserts_char_at_cursor() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::with_content("test", 2),
-        command_name: "cmd".to_string(),
-    });
-
-    app.handle_key(KeyCode::Char('X'), KeyModifiers::NONE);
-
-    let state = app.argument_input.as_ref().unwrap();
-    assert_eq!(state.text.buffer, "teXst");
-    assert_eq!(state.text.cursor_pos, 3);
-}
-
-#[test]
-fn argument_input_backspace_at_cursor() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::with_content("test", 2),
-        command_name: "cmd".to_string(),
-    });
-
-    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
-
-    let state = app.argument_input.as_ref().unwrap();
-    assert_eq!(state.text.buffer, "tst");
-    assert_eq!(state.text.cursor_pos, 1);
-}
-
-#[test]
-fn argument_input_prevents_execution_on_parse_error() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::with_content(r#"unclosed "quote"#, 15),
-        command_name: "cmd".to_string(),
-    });
-    app.selected_repo_for_commands = Some("/tmp/test".to_string());
-
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(
-        app.argument_input.is_some(),
-        "argument input overlay should still be active"
-    );
+// ===== TranscriptApp tests =====
 
-    assert!(app.status_message.is_some());
-    let msg = app.status_message.as_ref().unwrap();
-    assert!(msg.text.contains("parsing error") || msg.text.contains("Parse error"));
-}
-
-// ===== Tab Switching Tests =====
-
 #[test]
-fn q_from_any_tab_returns_to_repo_list() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.push_view(View::RepoDetail(0));
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::Dashboard);
+fn new_app_selects_first_repo() {
+    let app = create_app(MockRegistry::with_repos(3));
+    assert_eq!(app.context.selected_index, Some(0));
     assert!(!app.should_quit);
 }
 
-// ===== State Tab Tests =====
-
 #[test]
-fn state_tab_navigation_with_j_key() {
-    // In the unified RepoDetail view, j/k move the detail_cursor.
-    let detail = RepoDetail {
-        changed_files: vec![
-            FileChange {
-                path: "a.txt".to_string(),
-                status: FileChangeStatus::Modified,
-            },
-            FileChange {
-                path: "b.txt".to_string(),
-                status: FileChangeStatus::Added,
-            },
-        ],
-        commits: vec![],
-        error: None,
-    };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    assert_eq!(app.detail_cursor, 0);
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(
-        app.detail_cursor, 1,
-        "'j' should move cursor down in detail view"
-    );
+fn new_app_empty_registry() {
+    let app = create_app(MockRegistry::empty());
+    assert_eq!(app.context.selected_index, None);
 }
 
 #[test]
-fn state_tab_navigation_with_k_key() {
-    // In the unified RepoDetail view, k moves cursor up (saturating at 0).
-    let detail = RepoDetail {
-        changed_files: vec![
-            FileChange {
-                path: "a.txt".to_string(),
-                status: FileChangeStatus::Modified,
-            },
-            FileChange {
-                path: "b.txt".to_string(),
-                status: FileChangeStatus::Added,
-            },
-        ],
-        commits: vec![],
-        error: None,
-    };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    app.detail_cursor = 1;
-
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(
-        app.detail_cursor, 0,
-        "'k' should move cursor up in detail view"
-    );
-
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(app.detail_cursor, 0, "'k' at top should not go below 0");
+fn quit_key_sets_should_quit() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
+    assert!(app.should_quit);
 }
 
 #[test]
-fn state_tab_navigation_does_not_move_past_end() {
-    // j should not move cursor past the last item.
-    let detail = RepoDetail {
-        changed_files: vec![FileChange {
-            path: "a.txt".to_string(),
-            status: FileChangeStatus::Modified,
-        }],
-        commits: vec![],
-        error: None,
-    };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    assert_eq!(app.detail_items.len(), 1);
-    assert_eq!(app.detail_cursor, 0);
-
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(
-        app.detail_cursor, 0,
-        "j should not move past last item when only 1 item exists"
-    );
+fn colon_opens_command_line() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    assert!(!app.prompt.is_active());
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    assert!(app.prompt.is_active());
 }
 
 #[test]
-fn state_tab_navigation_does_not_move_before_start() {
-    // k at detail_cursor=0 should not underflow (saturating_sub).
-    let detail = RepoDetail {
-        changed_files: vec![FileChange {
-            path: "a.txt".to_string(),
-            status: FileChangeStatus::Modified,
-        }],
-        commits: vec![],
-        error: None,
-    };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
+fn esc_closes_command_line() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    assert!(app.prompt.is_active());
 
-    assert_eq!(app.detail_cursor, 0);
-
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(app.detail_cursor, 0, "k at top should not underflow");
+    // Send Esc to close command line
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+    assert!(!app.prompt.is_active());
 }
 
 #[test]
-fn state_tab_navigation_with_arrow_keys() {
-    // Arrow keys in the unified RepoDetail view move the cursor.
-    let detail = RepoDetail {
-        changed_files: vec![
-            FileChange {
-                path: "a.txt".to_string(),
-                status: FileChangeStatus::Modified,
-            },
-            FileChange {
-                path: "b.txt".to_string(),
-                status: FileChangeStatus::Added,
-            },
-            FileChange {
-                path: "c.txt".to_string(),
-                status: FileChangeStatus::Deleted,
-            },
-        ],
-        commits: vec![],
-        error: None,
-    };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
+fn help_command_pushes_help_block() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    let initial_blocks = app.scroll.blocks.len();
 
-    assert_eq!(app.detail_cursor, 0);
+    // Open command line and type "help"
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('l'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Char('p'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
-    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
-    assert_eq!(app.detail_cursor, 1, "Down arrow should move cursor down");
-
-    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-    assert_eq!(app.detail_cursor, 0, "Up arrow should move cursor up");
+    assert!(app.scroll.blocks.len() > initial_blocks);
+    assert!(!app.prompt.is_active());
 }
 
 #[test]
-fn state_tab_handles_empty_queries_gracefully() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.state_queries = Vec::new();
-    app.state_results = Vec::new();
-
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
-    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-
-    // Just verifying that navigating with an empty query list does not panic
-    assert!(
-        app.state_queries.is_empty(),
-        "Empty query list should not panic"
-    );
-}
-
-#[test]
-fn state_results_match_queries_length() {
-    use crate::state::StateQuery;
-
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.state_queries = vec![
-        StateQuery {
-            name: "q1".to_string(),
-            run: "echo q1".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-        StateQuery {
-            name: "q2".to_string(),
-            run: "echo q2".to_string(),
-            description: None,
-            deterministic: true,
-            timeout: None,
-        },
-    ];
-    app.state_results = vec![None, None];
-
-    assert_eq!(
-        app.state_queries.len(),
-        app.state_results.len(),
-        "Queries and results must stay in sync"
-    );
-}
-
-#[test]
-fn state_tab_refresh_with_no_queries_shows_info() {
-    // When no state queries are configured, pressing r shows an informational message.
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    // state_queries is empty by default
-
+fn refresh_key_triggers_refresh() {
+    let mut app = create_app(MockRegistry::with_repos(1));
     app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
+    assert!(app.needs_refresh);
+}
 
-    assert!(app.status_message.is_some());
-    let msg = app.status_message.as_ref().unwrap();
+#[test]
+fn scroll_keys_work() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    // Push some blocks to have content
+    for _ in 0..5 {
+        app.scroll.push(ContentBlock::Text {
+            id: BlockId::new(),
+            lines: vec![ratatui::text::Line::from("test line")],
+            collapsed: false,
+        });
+    }
+
+    // j scrolls down
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    // k scrolls up
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+}
+
+#[test]
+fn repo_command_switches_context() {
+    let mut app = create_app(MockRegistry::with_repos(3));
+    assert_eq!(app.context.selected_index, Some(0));
+
+    // :repo 2
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "repo 2".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert_eq!(app.context.selected_index, Some(1)); // 2 is 1-based
+}
+
+#[test]
+fn repos_command_adds_table_block() {
+    let mut app = create_app(MockRegistry::with_repos(3));
+    let initial_blocks = app.scroll.blocks.len();
+
+    // :repos
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in "repos".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(app.scroll.blocks.len() > initial_blocks);
+    // The last block should be a table
+    match app.scroll.blocks.last() {
+        Some(ContentBlock::Table { title, rows, .. }) => {
+            assert_eq!(title, "Repositories");
+            assert_eq!(rows.len(), 3);
+        }
+        _ => panic!("Expected a Table block"),
+    }
+}
+
+// ===== ScrollBuffer tests =====
+
+#[test]
+fn scroll_buffer_push_and_count() {
+    let mut buf = ScrollBuffer::new();
+    assert!(buf.blocks.is_empty());
+
+    buf.push(ContentBlock::Text {
+        id: BlockId::new(),
+        lines: vec![ratatui::text::Line::from("hello")],
+        collapsed: false,
+    });
+    assert_eq!(buf.blocks.len(), 1);
+}
+
+#[test]
+fn scroll_buffer_clear() {
+    let mut buf = ScrollBuffer::new();
+    buf.push(ContentBlock::Text {
+        id: BlockId::new(),
+        lines: vec![ratatui::text::Line::from("hello")],
+        collapsed: false,
+    });
+    buf.clear();
+    assert!(buf.blocks.is_empty());
+}
+
+#[test]
+fn block_id_unique() {
+    let id1 = BlockId::new();
+    let id2 = BlockId::new();
+    assert_ne!(id1, id2);
+}
+
+#[test]
+fn content_block_collapse_toggle() {
+    let mut block = ContentBlock::Text {
+        id: BlockId::new(),
+        lines: vec![ratatui::text::Line::from("test")],
+        collapsed: false,
+    };
+    assert!(!block.is_collapsed());
+    block.toggle_collapse();
+    assert!(block.is_collapsed());
+    block.toggle_collapse();
+    assert!(!block.is_collapsed());
+}
+
+#[test]
+fn divider_not_collapsible() {
+    let mut block = ContentBlock::Divider { id: BlockId::new() };
+    assert!(!block.is_collapsed());
+    block.toggle_collapse();
+    assert!(!block.is_collapsed());
+}
+
+#[test]
+fn focus_next_prev() {
+    let mut buf = ScrollBuffer::new();
+    for _ in 0..3 {
+        buf.push(ContentBlock::Text {
+            id: BlockId::new(),
+            lines: vec![ratatui::text::Line::from("line")],
+            collapsed: false,
+        });
+    }
+
+    assert_eq!(buf.focused_block, None);
+    buf.focus_next();
+    assert_eq!(buf.focused_block, Some(0));
+    buf.focus_next();
+    assert_eq!(buf.focused_block, Some(1));
+    buf.focus_next();
+    assert_eq!(buf.focused_block, Some(2));
+    buf.focus_next(); // should stay at 2
+    assert_eq!(buf.focused_block, Some(2));
+
+    buf.focus_prev();
+    assert_eq!(buf.focused_block, Some(1));
+    buf.focus_prev();
+    assert_eq!(buf.focused_block, Some(0));
+    buf.focus_prev(); // should stay at 0
+    assert_eq!(buf.focused_block, Some(0));
+}
+
+// ===== Formatting tests =====
+
+#[test]
+fn basename_simple() {
+    assert_eq!(extract_basename("/home/user/src/graft"), "graft");
+    assert_eq!(extract_basename("graft"), "graft");
+    assert_eq!(extract_basename("/tmp"), "tmp");
+}
+
+#[test]
+fn compact_path_no_truncation() {
+    let path = "/short";
+    assert_eq!(compact_path(path, 100), path);
+}
+
+#[test]
+fn file_change_indicator_colors() {
+    let (indicator, color) = format_file_change_indicator(&FileChangeStatus::Modified);
+    assert_eq!(indicator, "M");
+    assert_eq!(color, ratatui::style::Color::Yellow);
+
+    let (indicator, color) = format_file_change_indicator(&FileChangeStatus::Added);
+    assert_eq!(indicator, "A");
+    assert_eq!(color, ratatui::style::Color::Green);
+
+    let (indicator, color) = format_file_change_indicator(&FileChangeStatus::Deleted);
+    assert_eq!(indicator, "D");
+    assert_eq!(color, ratatui::style::Color::Red);
+}
+
+// ===== Command parsing tests =====
+
+#[test]
+fn parse_command_help() {
+    assert_eq!(parse_command("help"), CliCommand::Help);
+    assert_eq!(parse_command("h"), CliCommand::Help);
+}
+
+#[test]
+fn parse_command_quit() {
+    assert_eq!(parse_command("quit"), CliCommand::Quit);
+    assert_eq!(parse_command("q"), CliCommand::Quit);
+}
+
+#[test]
+fn parse_command_refresh() {
+    assert_eq!(parse_command("refresh"), CliCommand::Refresh);
+    assert_eq!(parse_command("r"), CliCommand::Refresh);
+}
+
+#[test]
+fn parse_command_repos() {
+    assert_eq!(parse_command("repos"), CliCommand::Repos);
+}
+
+#[test]
+fn parse_command_repo() {
     assert_eq!(
-        msg.msg_type,
-        MessageType::Info,
-        "No queries defined should produce an Info message"
+        parse_command("repo graft"),
+        CliCommand::Repo("graft".to_string())
+    );
+    assert_eq!(parse_command("repo 1"), CliCommand::Repo("1".to_string()));
+}
+
+#[test]
+fn parse_command_run() {
+    assert_eq!(
+        parse_command("run test"),
+        CliCommand::Run("test".to_string(), vec![])
+    );
+    assert_eq!(
+        parse_command("run deploy --env staging"),
+        CliCommand::Run(
+            "deploy".to_string(),
+            vec!["--env".to_string(), "staging".to_string()]
+        )
     );
 }
 
 #[test]
-fn state_tab_shows_cache_age_formatting() {
-    use crate::state::{StateMetadata, StateQuery, StateResult};
-    use serde_json::json;
+fn parse_command_unknown() {
+    assert_eq!(
+        parse_command("frobnicate"),
+        CliCommand::Unknown("frobnicate".to_string())
+    );
+    assert_eq!(parse_command(""), CliCommand::Unknown(String::new()));
+}
 
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
+#[test]
+fn palette_commands_exist() {
+    assert!(PALETTE_COMMANDS.len() >= 10);
+    assert!(PALETTE_COMMANDS.iter().any(|e| e.command == "help"));
+    assert!(PALETTE_COMMANDS.iter().any(|e| e.command == "quit"));
+    assert!(PALETTE_COMMANDS.iter().any(|e| e.command == "repos"));
+    assert!(PALETTE_COMMANDS.iter().any(|e| e.command == "status"));
+    assert!(PALETTE_COMMANDS.iter().any(|e| e.command == "catalog"));
+    assert!(PALETTE_COMMANDS.iter().any(|e| e.command == "state"));
+    assert!(PALETTE_COMMANDS.iter().any(|e| e.command == "invalidate"));
+}
+
+#[test]
+fn filtered_palette_all() {
+    let all = filtered_palette("");
+    assert_eq!(all.len(), PALETTE_COMMANDS.len());
+}
+
+#[test]
+fn filtered_palette_filter() {
+    let matches = filtered_palette("re");
+    assert!(matches.iter().any(|e| e.command == "refresh"));
+    assert!(matches.iter().any(|e| e.command == "repo"));
+    assert!(matches.iter().any(|e| e.command == "repos"));
+}
+
+#[test]
+fn filtered_palette_no_match() {
+    let matches = filtered_palette("zzz");
+    assert!(matches.is_empty());
+}
+
+// ===== TextBuffer tests =====
+
+#[test]
+fn text_buffer_insert_and_backspace() {
+    let mut buf = super::text_buffer::TextBuffer::new();
+    buf.insert_char('h');
+    buf.insert_char('i');
+    assert_eq!(buf.buffer, "hi");
+    assert_eq!(buf.cursor_pos, 2);
+
+    buf.backspace();
+    assert_eq!(buf.buffer, "h");
+    assert_eq!(buf.cursor_pos, 1);
+}
+
+#[test]
+fn text_buffer_clear() {
+    let mut buf = super::text_buffer::TextBuffer::new();
+    buf.set("hello world");
+    buf.clear();
+    assert_eq!(buf.buffer, "");
+    assert_eq!(buf.cursor_pos, 0);
+}
+
+#[test]
+fn text_buffer_delete_word_backward() {
+    let mut buf = super::text_buffer::TextBuffer::new();
+    buf.set("hello world");
+    buf.delete_word_backward();
+    assert_eq!(buf.buffer, "hello ");
+    assert_eq!(buf.cursor_pos, 6);
+}
+
+#[test]
+fn text_buffer_cursor_movement() {
+    let mut buf = super::text_buffer::TextBuffer::new();
+    buf.set("abc");
+    assert_eq!(buf.cursor_pos, 3);
+    buf.move_left();
+    assert_eq!(buf.cursor_pos, 2);
+    buf.move_home();
+    assert_eq!(buf.cursor_pos, 0);
+    buf.move_end();
+    assert_eq!(buf.cursor_pos, 3);
+}
+
+// ===== PromptState tests =====
+
+#[test]
+fn prompt_open_close() {
+    let mut prompt = super::prompt::PromptState::new();
+    assert!(!prompt.is_active());
+
+    prompt.open();
+    assert!(prompt.is_active());
+
+    prompt.close();
+    assert!(!prompt.is_active());
+}
+
+#[test]
+fn prompt_esc_closes() {
+    let mut prompt = super::prompt::PromptState::new();
+    prompt.open();
+    let result = prompt.handle_key(
+        KeyCode::Esc,
+        KeyModifiers::NONE,
+        &CompletionState::default(),
+    );
+    assert!(result.is_none());
+    assert!(!prompt.is_active());
+}
+
+#[test]
+fn prompt_enter_submits() {
+    let mut prompt = super::prompt::PromptState::new();
+    prompt.open();
+
+    // Type "help"
+    prompt.handle_key(
+        KeyCode::Char('h'),
+        KeyModifiers::NONE,
+        &CompletionState::default(),
+    );
+    prompt.handle_key(
+        KeyCode::Char('e'),
+        KeyModifiers::NONE,
+        &CompletionState::default(),
+    );
+    prompt.handle_key(
+        KeyCode::Char('l'),
+        KeyModifiers::NONE,
+        &CompletionState::default(),
+    );
+    prompt.handle_key(
+        KeyCode::Char('p'),
+        KeyModifiers::NONE,
+        &CompletionState::default(),
     );
 
-    app.state_queries = vec![StateQuery {
-        name: "coverage".to_string(),
-        run: "pytest --cov".to_string(),
-        description: None,
-        deterministic: true,
-        timeout: None,
-    }];
+    let result = prompt.handle_key(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        &CompletionState::default(),
+    );
+    assert_eq!(result, Some(CliCommand::Help));
+    assert!(!prompt.is_active());
+}
 
-    app.state_results = vec![Some(StateResult {
-        metadata: StateMetadata {
-            query_name: "coverage".to_string(),
-            commit_hash: "abc123".to_string(),
-            timestamp: (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339(),
-            command: "pytest --cov".to_string(),
-            deterministic: true,
-        },
-        data: json!({"lines": 85}),
-    })];
+#[test]
+fn prompt_history() {
+    let mut prompt = super::prompt::PromptState::new();
 
-    if let Some(Some(result)) = app.state_results.first() {
-        let age = result.metadata.time_ago();
-        assert!(
-            age.contains("m ago") || age.contains("just now"),
-            "Cache age should be formatted, got: {age}"
+    // Submit "help" to history
+    prompt.open();
+    for c in "help".chars() {
+        prompt.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
         );
     }
+    prompt.handle_key(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        &CompletionState::default(),
+    );
+    assert_eq!(prompt.history.len(), 1);
+
+    // Submit "repos" to history
+    prompt.open();
+    for c in "repos".chars() {
+        prompt.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    prompt.handle_key(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        &CompletionState::default(),
+    );
+    assert_eq!(prompt.history.len(), 2);
 }
 
 #[test]
-fn state_tab_empty_state_is_helpful() {
-    let app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
+fn prompt_palette_enter_selects_command() {
+    // Find the first palette entry that doesn't take args
+    let first_no_args = PALETTE_COMMANDS.iter().find(|e| !e.takes_args).unwrap();
+    let expected = parse_command(first_no_args.command);
 
-    assert!(app.state_queries.is_empty());
-    assert!(app.state_results.is_empty());
+    let mut prompt = super::prompt::PromptState::new();
+    prompt.open();
+
+    let result = prompt.handle_key(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        &CompletionState::default(),
+    );
+    assert_eq!(result, Some(expected));
+    assert!(!prompt.is_active());
 }
 
-// ===== Data Invalidation Tests =====
+#[test]
+fn prompt_palette_enter_fills_args_command() {
+    // Type a prefix that uniquely matches a takes_args command
+    let mut prompt = super::prompt::PromptState::new();
+    prompt.open();
+
+    // Type "repo" to filter to just "repo" and "repos"
+    for c in "repo".chars() {
+        prompt.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    // First match should be "repo" (takes_args: true)
+    let result = prompt.handle_key(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        &CompletionState::default(),
+    );
+    // Should fill buffer with "repo " and stay active (needs args)
+    assert!(result.is_none());
+    assert!(prompt.is_active());
+    assert_eq!(prompt.command_line.as_ref().unwrap().text.buffer, "repo ");
+}
+
+// ===== New command integration tests =====
+
+/// Helper to type a command string and press Enter.
+fn type_command(app: &mut TranscriptApp<MockRegistry, MockDetailProvider>, cmd: &str) {
+    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
+    for c in cmd.chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+}
 
 #[test]
-fn navigation_invalidates_tab_data() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
+fn status_command_pushes_text_block() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    let initial_blocks = app.scroll.blocks.len();
 
-    // Simulate cached tab data
-    app.selected_repo_for_commands = Some("/tmp/repo0".to_string());
-    app.available_commands = vec![(
-        "test".to_string(),
-        grove_core::Command {
+    type_command(&mut app, "status");
+
+    assert!(app.scroll.blocks.len() > initial_blocks);
+    match app.scroll.blocks.last() {
+        Some(ContentBlock::Text { lines, .. }) => {
+            let text: String = lines
+                .iter()
+                .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(
+                text.contains("Changed Files"),
+                "Expected 'Changed Files' in output"
+            );
+            assert!(
+                text.contains("Recent Commits"),
+                "Expected 'Recent Commits' in output"
+            );
+        }
+        _ => panic!("Expected a Text block from :status"),
+    }
+}
+
+#[test]
+fn status_command_no_repo_shows_warning() {
+    let mut app = create_app(MockRegistry::empty());
+    type_command(&mut app, "status");
+    assert!(app.status.is_some());
+}
+
+#[test]
+fn catalog_command_no_repo_shows_warning() {
+    let mut app = create_app(MockRegistry::empty());
+    type_command(&mut app, "catalog");
+    assert!(app.status.is_some());
+}
+
+#[test]
+fn state_command_no_repo_shows_warning() {
+    let mut app = create_app(MockRegistry::empty());
+    type_command(&mut app, "state");
+    assert!(app.status.is_some());
+}
+
+#[test]
+fn invalidate_command_no_repo_shows_warning() {
+    let mut app = create_app(MockRegistry::empty());
+    type_command(&mut app, "invalidate");
+    assert!(app.status.is_some());
+}
+
+// ===== Completion system test helpers =====
+
+fn make_command(
+    name: &str,
+    desc: &str,
+    args: Option<Vec<graft_common::ArgDef>>,
+) -> (String, graft_common::CommandDef) {
+    (
+        name.to_string(),
+        graft_common::CommandDef {
             run: "echo test".to_string(),
-            description: None,
+            description: Some(desc.to_string()),
+            args,
+            category: None,
+            example: None,
             working_dir: None,
             env: None,
-            args: None,
-            ..Default::default()
+            stdin: None,
+            context: None,
+            writes: Vec::new(),
+            reads: Vec::new(),
         },
-    )];
-
-    // Navigate to next repo
-    app.next();
-
-    // Tab data should be invalidated
-    assert!(
-        app.selected_repo_for_commands.is_none(),
-        "Commands cache should be cleared on navigation"
-    );
-    assert!(
-        app.available_commands.is_empty(),
-        "Commands list should be cleared on navigation"
-    );
-    assert!(
-        app.state_queries.is_empty(),
-        "State queries should be cleared on navigation"
-    );
+    )
 }
 
-// ===== Hint Bar Tests =====
+fn make_arg(
+    name: &str,
+    arg_type: graft_common::ArgType,
+    required: bool,
+    options: Option<Vec<String>>,
+) -> graft_common::ArgDef {
+    graft_common::ArgDef {
+        name: name.to_string(),
+        arg_type,
+        description: None,
+        required,
+        default: None,
+        options,
+        options_from: None,
+        positional: false,
+    }
+}
+
+// ===== extract_command_prefix tests =====
 
 #[test]
-fn hint_bar_shows_repo_list_hints() {
-    let app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Dashboard view (default)
-    let hints = app.current_hints();
-    let keys: Vec<&str> = hints.iter().map(|h| h.key).collect();
-
-    assert!(keys.contains(&"j/k"), "Should have navigation hint");
-    assert!(keys.contains(&"Enter"), "Should have details hint");
-    assert!(keys.contains(&"?"), "Should have help hint");
-    assert!(keys.contains(&"q"), "Should have quit hint");
+fn extract_command_prefix_with_space() {
+    assert_eq!(extract_command_prefix("run build"), "run ");
 }
 
 #[test]
-fn hint_bar_shows_detail_changes_hints() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-
-    let hints = app.current_hints();
-    let keys: Vec<&str> = hints.iter().map(|h| h.key).collect();
-
-    assert!(keys.contains(&"j/k"), "Should have scroll hint");
-    assert!(keys.contains(&"q"), "Should have back hint");
+fn extract_command_prefix_trailing_space() {
+    assert_eq!(extract_command_prefix("run "), "run ");
 }
 
 #[test]
-fn hint_bar_shows_detail_state_hints() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-
-    let hints = app.current_hints();
-    let keys: Vec<&str> = hints.iter().map(|h| h.key).collect();
-
-    assert!(keys.contains(&"r"), "Should have refresh hint");
-    assert!(keys.contains(&"q"), "Should have back hint");
+fn extract_command_prefix_no_space() {
+    assert_eq!(extract_command_prefix("run"), "run");
 }
 
-#[test]
-fn hint_bar_shows_detail_commands_hints() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-
-    // With cursor on a command, Enter:run should be shown
-    app.available_commands = vec![(
-        "test".to_string(),
-        grove_core::Command {
-            run: "cargo test".to_string(),
-            description: None,
-            working_dir: None,
-            env: None,
-            args: None,
-            ..Default::default()
-        },
-    )];
-    app.detail_items = vec![DetailItem::Command(0)];
-    app.detail_cursor = 0;
-
-    let hints = app.current_hints();
-    let keys: Vec<&str> = hints.iter().map(|h| h.key).collect();
-
-    assert!(
-        keys.contains(&"Enter"),
-        "Should have run hint when on command"
-    );
-    assert!(keys.contains(&"q"), "Should have back hint");
-}
+// ===== ghost_hint_suffix tests =====
 
 #[test]
-fn hint_bar_shows_help_overlay_hint() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::Help);
-
-    let hints = app.current_hints();
-    assert_eq!(hints.len(), 2);
-    assert_eq!(hints[0].key, "q");
-    assert_eq!(hints[0].action, "close");
-    assert_eq!(hints[1].key, "Esc");
-    assert_eq!(hints[1].action, "home");
-}
-
-// ===== Tab Header Tests =====
-
-#[test]
-fn empty_workspace_x_does_not_navigate() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char('x'), KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::Dashboard);
-}
-
-#[test]
-fn empty_workspace_s_does_not_navigate() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char('s'), KeyModifiers::NONE);
-    assert_eq!(*app.current_view(), View::Dashboard);
-}
-
-// ===== Task 3: CommandOutput and ArgumentInput View Stack Tests =====
-
-#[test]
-fn command_output_pushes_onto_view_stack() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::CommandOutput);
-
+fn ghost_hint_suffix_partial() {
     assert_eq!(
-        *app.current_view(),
-        View::CommandOutput,
-        "CommandOutput should be on top of view stack"
+        ghost_hint_suffix("run bu", "build"),
+        Some("ild".to_string())
     );
+}
+
+#[test]
+fn ghost_hint_suffix_exact() {
+    assert_eq!(ghost_hint_suffix("run build", "build"), None);
+}
+
+#[test]
+fn ghost_hint_suffix_case_insensitive() {
     assert_eq!(
-        app.view_stack.len(),
-        2,
-        "Stack should have Dashboard + CommandOutput"
+        ghost_hint_suffix("run BU", "build"),
+        Some("ild".to_string())
     );
 }
 
 #[test]
-fn command_output_q_pops_back_to_previous_view() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
+fn ghost_hint_suffix_no_space() {
+    assert_eq!(ghost_hint_suffix("build", "build"), None);
+}
 
-    app.push_view(View::CommandOutput);
-    app.command_state = CommandState::Completed { exit_code: 0 };
+// ===== compute_completions tests =====
 
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-
-    assert_eq!(
-        *app.current_view(),
-        View::Dashboard,
-        "q should pop CommandOutput back to Dashboard"
-    );
-    assert!(
-        !app.should_quit,
-        "Should not quit after popping CommandOutput"
-    );
+#[test]
+fn completions_empty_when_no_space() {
+    // Simulate typing "run" with no space
+    let mut p = super::prompt::PromptState::new();
+    p.open();
+    for c in "run".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let cs = p.compute_completions(&[], &[], &[]);
+    assert!(cs.completions.is_empty());
 }
 
 #[test]
-fn command_output_esc_pops_back_to_previous_view() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::CommandOutput);
-    app.command_state = CommandState::Completed { exit_code: 0 };
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    assert_eq!(
-        *app.current_view(),
-        View::Dashboard,
-        "Esc should pop CommandOutput back to Dashboard"
-    );
-    assert!(
-        !app.should_quit,
-        "Should not quit after Esc in CommandOutput"
-    );
-}
-
-#[test]
-fn command_output_pops_to_repo_detail_when_launched_from_there() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::RepoDetail(1));
-    app.push_view(View::CommandOutput);
-    app.command_state = CommandState::Completed { exit_code: 0 };
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-
-    assert_eq!(
-        *app.current_view(),
-        View::RepoDetail(1),
-        "q should pop CommandOutput back to RepoDetail"
-    );
-}
-
-#[test]
-fn command_output_q_backgrounds_when_running() {
-    // q while running pops CommandOutput but preserves command state (backgrounding).
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::CommandOutput);
-    app.command_state = CommandState::Running;
-    app.running_command_pid = Some(1234);
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-
-    assert!(
-        !app.show_stop_confirmation,
-        "q should not show stop confirmation; it backgrounds"
-    );
-    assert_ne!(
-        *app.current_view(),
-        View::CommandOutput,
-        "CommandOutput should be popped"
-    );
-    // Command state and pid preserved so re-attach works
-    assert!(matches!(app.command_state, CommandState::Running));
-    assert_eq!(app.running_command_pid, Some(1234));
-}
-
-#[test]
-fn command_output_esc_shows_stop_confirmation_when_running() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::CommandOutput);
-    app.command_state = CommandState::Running;
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    assert!(
-        app.show_stop_confirmation,
-        "Esc should show stop confirmation for running command"
-    );
-    assert_eq!(
-        *app.current_view(),
-        View::CommandOutput,
-        "Should stay on CommandOutput while confirming stop"
-    );
-}
-
-#[test]
-fn stop_confirmation_n_cancels_and_stays_in_command_output() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::CommandOutput);
-    app.command_state = CommandState::Running;
-    app.show_stop_confirmation = true;
-
-    app.handle_key(KeyCode::Char('n'), KeyModifiers::NONE);
-
-    assert!(
-        !app.show_stop_confirmation,
-        "n should dismiss confirmation dialog"
-    );
-    assert_eq!(
-        *app.current_view(),
-        View::CommandOutput,
-        "Should remain in CommandOutput after cancelling stop"
-    );
-    assert!(
-        matches!(app.command_state, CommandState::Running),
-        "Command should still be running"
-    );
-}
-
-#[test]
-fn stop_confirmation_esc_cancels_and_stays_in_command_output() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::CommandOutput);
-    app.command_state = CommandState::Running;
-    app.show_stop_confirmation = true;
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    assert!(
-        !app.show_stop_confirmation,
-        "Esc should dismiss confirmation dialog"
-    );
-    assert_eq!(
-        *app.current_view(),
-        View::CommandOutput,
-        "Should remain in CommandOutput after cancelling stop"
-    );
-    assert!(
-        matches!(app.command_state, CommandState::Running),
-        "Command should still be running"
-    );
-}
-
-#[test]
-fn argument_input_overlay_is_intercepted_before_view_dispatch() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    // Set up ArgumentInput overlay while in RepoDetail view
-    app.push_view(View::RepoDetail(0));
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::new(),
-        command_name: "test".to_string(),
-    });
-
-    // Press 'q' — in view dispatch this would pop the view, but the overlay
-    // should intercept and treat it as a char input instead
-    // (Actually Esc is the cancel key for argument input, q is just a char)
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-
-    // The ArgumentInput overlay should have handled it (as char input)
-    assert_eq!(
-        *app.current_view(),
-        View::RepoDetail(0),
-        "View should not change — ArgumentInput intercepts before view dispatch"
-    );
-    assert!(
-        app.argument_input.is_some(),
-        "argument input overlay should still be active"
-    );
-    let state = app.argument_input.as_ref().unwrap();
-    assert_eq!(
-        state.text.buffer, "q",
-        "q should be added to buffer, not pop the view"
-    );
-}
-
-#[test]
-fn argument_input_esc_restores_view_without_popping_stack() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    // ArgumentInput overlay while in RepoDetail
-    app.push_view(View::RepoDetail(0));
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::with_content("some args", 9),
-        command_name: "test".to_string(),
-    });
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    // Should cancel overlay, stay on current view
-    assert_eq!(
-        *app.current_view(),
-        View::RepoDetail(0),
-        "View stack should be unchanged after ArgumentInput Esc"
-    );
-    assert!(
-        app.argument_input.is_none(),
-        "ArgumentInput state should be cleared"
-    );
-}
-
-// ===== Task 6: Escape-goes-home and stack discipline =====
-
-#[test]
-fn escape_from_deep_stack_resets_to_dashboard() {
-    // Dashboard → RepoDetail → CommandOutput: Esc resets all the way home
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::RepoDetail(1));
-    app.push_view(View::Help);
-    assert_eq!(app.view_stack.len(), 3);
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    assert_eq!(
-        *app.current_view(),
-        View::Dashboard,
-        "Esc from deep stack should reset to Dashboard"
-    );
-    assert_eq!(app.view_stack.len(), 1, "Stack should have only Dashboard");
-    assert!(!app.should_quit);
-}
-
-#[test]
-fn q_in_detail_pops_one_level() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::RepoDetail(0));
-    assert_eq!(app.view_stack.len(), 2);
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-
-    assert_eq!(*app.current_view(), View::Dashboard);
-    assert_eq!(app.view_stack.len(), 1);
-    assert!(!app.should_quit, "q in RepoDetail should not quit");
-}
-
-#[test]
-fn q_from_dashboard_quits() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    assert_eq!(*app.current_view(), View::Dashboard);
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-    assert!(app.should_quit, "q from Dashboard should quit");
-}
-
-#[test]
-fn esc_from_dashboard_is_noop_not_quit() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    assert_eq!(*app.current_view(), View::Dashboard);
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-    assert!(!app.should_quit, "Esc from Dashboard should not quit");
-    assert_eq!(
-        *app.current_view(),
-        View::Dashboard,
-        "Should remain at Dashboard"
-    );
-}
-
-#[test]
-fn esc_from_help_resets_to_dashboard() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::Help);
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    assert_eq!(*app.current_view(), View::Dashboard);
-    assert!(!app.should_quit);
-}
-
-#[test]
-fn q_from_help_pops_one_level() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::Help);
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-
-    assert_eq!(*app.current_view(), View::Dashboard);
-    assert!(!app.should_quit, "q from Help should not quit");
-}
-
-#[test]
-fn esc_from_command_output_resets_to_dashboard() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::RepoDetail(0));
-    app.push_view(View::CommandOutput);
-    app.command_state = CommandState::Completed { exit_code: 0 };
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    assert_eq!(
-        *app.current_view(),
-        View::Dashboard,
-        "Esc from CommandOutput should reset to Dashboard"
-    );
-    assert!(!app.should_quit);
-}
-
-#[test]
-fn q_from_command_output_pops_to_previous_view() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::RepoDetail(0));
-    app.push_view(View::CommandOutput);
-    app.command_state = CommandState::Completed { exit_code: 0 };
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-
-    assert_eq!(
-        *app.current_view(),
-        View::RepoDetail(0),
-        "q from CommandOutput should pop to previous view (RepoDetail)"
-    );
-    assert!(!app.should_quit);
-}
-
-#[test]
-fn stop_confirmation_gates_esc_in_command_output() {
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::CommandOutput);
-    app.command_state = CommandState::Running;
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    assert!(
-        app.show_stop_confirmation,
-        "Esc should show stop confirmation for running command"
-    );
-    assert_eq!(
-        *app.current_view(),
-        View::CommandOutput,
-        "Should stay in CommandOutput while confirming"
-    );
-}
-
-#[test]
-fn esc_from_deeply_nested_repo_detail_resets_to_dashboard() {
-    // Stack: Dashboard → RepoDetail(0) → RepoDetail(1) — hypothetically deep
-    // (In practice only one RepoDetail would be on stack, but the escape-goes-home
-    // semantic should clear any depth)
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test".to_string(),
-    );
-
-    app.push_view(View::RepoDetail(0));
-    assert_eq!(app.view_stack.len(), 2);
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    assert_eq!(*app.current_view(), View::Dashboard);
-    assert_eq!(app.view_stack.len(), 1, "All views above Dashboard cleared");
-    assert!(!app.should_quit);
-}
-
-// ===== Task 7: Command Line Input Infrastructure =====
-
-#[test]
-fn colon_activates_command_line() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    assert!(
-        app.command_line.is_none(),
-        "Command line should be inactive initially"
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-
-    assert!(
-        app.command_line.is_some(),
-        "`:` should activate command line"
-    );
-    let state = app.command_line.as_ref().unwrap();
-    assert!(
-        state.text.buffer.is_empty(),
-        "Buffer should be empty on activation"
-    );
-    assert_eq!(state.text.cursor_pos, 0, "Cursor should be at position 0");
-}
-
-#[test]
-fn colon_activates_command_line_from_repo_detail() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-
-    assert!(
-        app.command_line.is_some(),
-        "`:` should activate from any view"
-    );
-    assert_eq!(
-        *app.current_view(),
-        View::RepoDetail(0),
-        "View should not change"
-    );
-}
-
-#[test]
-fn command_line_escape_cancels() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    assert!(app.command_line.is_some());
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none(), "Esc should cancel command line");
-    assert_eq!(
-        *app.current_view(),
-        View::Dashboard,
-        "View should not change"
-    );
-    assert!(!app.should_quit, "Esc in command line should not quit");
-}
-
-#[test]
-fn command_line_char_input_appends_to_buffer() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('l'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('p'), KeyModifiers::NONE);
-
-    let state = app.command_line.as_ref().unwrap();
-    assert_eq!(state.text.buffer, "help");
-    assert_eq!(state.text.cursor_pos, 4);
-}
-
-#[test]
-fn command_line_backspace_removes_char() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('l'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('p'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
-
-    let state = app.command_line.as_ref().unwrap();
-    assert_eq!(state.text.buffer, "hel");
-    assert_eq!(state.text.cursor_pos, 3);
-}
-
-#[test]
-fn command_line_backspace_at_start_is_noop() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // cursor_pos = 0, buffer = ""
-    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
-
-    let state = app.command_line.as_ref().unwrap();
-    assert!(
-        state.text.buffer.is_empty(),
-        "Backspace at start should be noop"
-    );
-    assert_eq!(state.text.cursor_pos, 0);
-}
-
-#[test]
-fn command_line_left_right_cursor_movement() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('b'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('c'), KeyModifiers::NONE);
-    // cursor at 3
-
-    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 2);
-
-    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 1);
-
-    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 2);
-}
-
-#[test]
-fn command_line_cursor_stops_at_boundaries() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('x'), KeyModifiers::NONE);
-    // cursor at 1, buffer = "x"
-
-    // Can't go right past end
-    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 1);
-
-    // Move to start
-    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 0);
-
-    // Can't go left past start
-    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 0);
-}
-
-#[test]
-fn command_line_home_end_keys() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('b'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('c'), KeyModifiers::NONE);
-    // cursor at 3
-
-    app.handle_key(KeyCode::Home, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 0);
-
-    app.handle_key(KeyCode::End, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.cursor_pos, 3);
-}
-
-#[test]
-fn command_line_enter_with_empty_buffer_fills_selected_palette_entry() {
-    // When buffer is empty and the selected palette entry takes no args,
-    // Enter executes it immediately and closes the command line.
-    // The first palette entry is "help" (takes_args: false).
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // No input — empty buffer, palette shows all commands, first is selected ("help")
-
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    // No-arg command executes immediately — command line should be dismissed
-    assert!(
-        app.command_line.is_none(),
-        "Enter on a no-arg palette entry should close the command line"
-    );
-    // "help" pushes the Help view
-    assert_eq!(
-        app.current_view(),
-        &View::Help,
-        "Enter on 'help' palette entry should push the Help view"
-    );
-}
-
-#[test]
-fn command_line_enter_with_help_pushes_help_view() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('l'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('p'), KeyModifiers::NONE);
-
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(
-        app.command_line.is_none(),
-        "Enter should dismiss command line"
-    );
-    // Task 8: `:help` pushes Help view
-    assert_eq!(
-        *app.current_view(),
-        View::Help,
-        ":help should push Help view"
-    );
-}
-
-#[test]
-fn command_line_intercepts_before_view_dispatch() {
-    // When command line is active, keys are handled by command line — not by view dispatch.
-    // j navigates the palette (not scroll the detail view), other chars go to the buffer.
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    let detail_scroll_before = app.detail_scroll;
-
-    // Type 'r' (not a palette nav key) — should go to buffer
-    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
-
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "r",
-        "r should be added to command line buffer"
-    );
-    assert_eq!(
-        app.detail_scroll, detail_scroll_before,
-        "detail_scroll should not change while command line is active"
-    );
-
-    // j inserts into buffer when buffer has content (no longer navigates palette)
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "rj",
-        "j should be inserted into buffer when buffer has content"
-    );
-    assert_eq!(
-        app.detail_scroll, detail_scroll_before,
-        "detail_scroll should not change while command line is active"
-    );
-}
-
-#[test]
-fn command_line_j_k_insert_when_buffer_has_content() {
-    // When the buffer already has text, j and k should be inserted as characters,
-    // not consumed by palette navigation.
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // Type "run " then j and k
+fn completions_run_command_names() {
+    let commands = vec![
+        make_command("test", "Run tests", None),
+        make_command("build", "Build project", None),
+    ];
+    let mut p = super::prompt::PromptState::new();
+    p.open();
     for c in "run ".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
     }
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "run jk",
-        "j and k should be inserted when buffer has content"
-    );
+    let cs = p.compute_completions(&commands, &[], &[]);
+    assert_eq!(cs.completions.len(), 2);
+    let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
+    assert!(values.contains(&"test"));
+    assert!(values.contains(&"build"));
 }
 
 #[test]
-fn command_line_j_k_navigate_palette_when_buffer_empty() {
-    // When the buffer is empty, j and k should navigate the palette.
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 0);
-
-    // j moves down
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        1,
-        "j should navigate palette down when buffer is empty"
-    );
-    assert!(
-        app.command_line.as_ref().unwrap().text.buffer.is_empty(),
-        "j should not be inserted when buffer is empty"
-    );
-
-    // k moves back up
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        0,
-        "k should navigate palette up when buffer is empty"
-    );
-    assert!(
-        app.command_line.as_ref().unwrap().text.buffer.is_empty(),
-        "k should not be inserted when buffer is empty"
-    );
-}
-
-#[test]
-fn command_line_arrows_navigate_palette_regardless_of_buffer() {
-    // Arrow keys should always navigate the palette, even when buffer has content.
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // Type "r" — palette shows refresh, repo, run
-    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 0);
-
-    // Down arrow navigates palette
-    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        1,
-        "Down arrow should navigate palette even with buffer content"
-    );
-
-    // Up arrow navigates palette
-    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        0,
-        "Up arrow should navigate palette even with buffer content"
-    );
-
-    // Buffer should remain unchanged
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "r",
-        "Arrow keys should not modify buffer"
-    );
-}
-
-#[test]
-fn command_line_esc_does_not_affect_view_stack() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.push_view(View::Help);
-    // Stack: Dashboard → RepoDetail(0) → Help
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    // Command line Esc only closes command line — does not pop view stack
-    assert_eq!(
-        *app.current_view(),
-        View::Help,
-        "View should remain Help after command line Esc"
-    );
-    assert_eq!(app.view_stack.len(), 3, "Stack should be unchanged");
-}
-
-#[test]
-fn argument_input_blocks_command_line_activation() {
-    // ArgumentInput intercepts before command line, so `:` in argument input is a char input.
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.argument_input = Some(ArgumentInputState {
-        text: super::text_buffer::TextBuffer::new(),
-        command_name: "test".to_string(),
-    });
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-
-    // `:` should be added to argument input buffer, NOT activate command line
-    assert!(
-        app.command_line.is_none(),
-        "Command line should NOT activate when ArgumentInput is active"
-    );
-    assert_eq!(
-        app.argument_input.as_ref().unwrap().text.buffer,
-        ":",
-        "`:` should be appended to argument input buffer"
-    );
-}
-
-#[test]
-fn colon_from_help_activates_command_line_not_pop() {
-    // In Help view, `q` and printable chars pop the view.
-    // But `:` should activate command line (intercepted before view dispatch).
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::Help);
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-
-    assert!(
-        app.command_line.is_some(),
-        "`:` in Help should activate command line"
-    );
-    assert_eq!(
-        *app.current_view(),
-        View::Help,
-        "Help view should remain on stack"
-    );
-}
-
-#[test]
-fn command_line_char_insert_at_cursor_mid_buffer() {
-    // Insert a char in the middle of the buffer via cursor navigation.
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('c'), KeyModifiers::NONE);
-    // buffer = "ac", cursor at 2
-
-    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
-    // cursor at 1
-
-    app.handle_key(KeyCode::Char('b'), KeyModifiers::NONE);
-    // buffer should be "abc", cursor at 2
-
-    let state = app.command_line.as_ref().unwrap();
-    assert_eq!(state.text.buffer, "abc");
-    assert_eq!(state.text.cursor_pos, 2);
-}
-
-// ===== Task 8: Command execution from command line =====
-
-#[test]
-fn cli_command_help_pushes_help_view() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    assert_eq!(*app.current_view(), View::Help, ":h should push Help view");
-}
-
-#[test]
-fn cli_command_quit_sets_should_quit() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    assert!(app.should_quit, ":q should quit the application");
-}
-
-#[test]
-fn cli_command_quit_long_form() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.command_line = Some(CommandLineState {
-        text: super::text_buffer::TextBuffer::with_content("quit", 4),
-        palette_selected: 0,
-        history_index: None,
-        history_draft: String::new(),
-    });
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.should_quit, ":quit should quit the application");
-}
-
-#[test]
-fn cli_command_refresh_triggers_refresh() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.command_line = Some(super::CommandLineState {
-        text: super::text_buffer::TextBuffer::with_content("refresh", 7),
-        palette_selected: 0,
-        history_index: None,
-        history_draft: String::new(),
-    });
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    assert!(app.needs_refresh, ":refresh should set needs_refresh");
-    assert!(app.status_message.is_some(), ":refresh should show status");
-}
-
-#[test]
-fn cli_command_unknown_shows_error() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.command_line = Some(super::CommandLineState {
-        text: super::text_buffer::TextBuffer::with_content("frobnicate", 10),
-        palette_selected: 0,
-        history_index: None,
-        history_draft: String::new(),
-    });
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    let msg = app
-        .status_message
-        .as_ref()
-        .expect("Should have error message");
-    assert!(
-        msg.text.contains("frobnicate"),
-        "Error should mention the unknown command, got: {}",
-        msg.text
-    );
-    assert_eq!(msg.msg_type, MessageType::Error);
-}
-
-#[test]
-fn cli_command_repo_by_index_jumps_to_repo() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.command_line = Some(super::CommandLineState {
-        text: super::text_buffer::TextBuffer::with_content("repo 2", 6),
-        palette_selected: 0,
-        history_index: None,
-        history_draft: String::new(),
-    });
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    // Index 2 (1-based) = index 1 (0-based)
-    assert_eq!(
-        *app.current_view(),
-        View::RepoDetail(1),
-        ":repo 2 should jump to index 1 (0-based)"
-    );
-    assert_eq!(
-        app.view_stack.len(),
-        1,
-        "reset_to_view should replace stack"
-    );
-}
-
-#[test]
-fn cli_command_repo_by_index_out_of_range_shows_error() {
-    let mut app = App::new(
-        MockRegistry::with_repos(2),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.command_line = Some(super::CommandLineState {
-        text: super::text_buffer::TextBuffer::with_content("repo 99", 7),
-        palette_selected: 0,
-        history_index: None,
-        history_draft: String::new(),
-    });
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    assert_eq!(
-        *app.current_view(),
-        View::Dashboard,
-        "Should stay on Dashboard for out-of-range index"
-    );
-    let msg = app.status_message.as_ref().expect("Should have error");
-    assert_eq!(msg.msg_type, MessageType::Error);
-}
-
-#[test]
-fn cli_command_repo_by_name_jumps_to_matching_repo() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Repos are named /tmp/repo0, /tmp/repo1, /tmp/repo2
-    app.command_line = Some(super::CommandLineState {
-        text: super::text_buffer::TextBuffer::with_content("repo repo1", 10),
-        palette_selected: 0,
-        history_index: None,
-        history_draft: String::new(),
-    });
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    assert_eq!(
-        *app.current_view(),
-        View::RepoDetail(1),
-        ":repo repo1 should match /tmp/repo1"
-    );
-}
-
-#[test]
-fn cli_command_repo_no_match_shows_error() {
-    let mut app = App::new(
-        MockRegistry::with_repos(2),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.command_line = Some(super::CommandLineState {
-        text: super::text_buffer::TextBuffer::with_content("repo nonexistent", 16),
-        palette_selected: 0,
-        history_index: None,
-        history_draft: String::new(),
-    });
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    assert_eq!(*app.current_view(), View::Dashboard);
-    let msg = app.status_message.as_ref().expect("Should have error");
-    assert_eq!(msg.msg_type, MessageType::Error);
-    assert!(msg.text.contains("nonexistent"));
-}
-
-#[test]
-fn cli_command_run_with_no_repo_shows_warning() {
-    // Empty registry — no repo selected
-    let mut app = App::new(
-        MockRegistry::empty(),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.command_line = Some(super::CommandLineState {
-        text: super::text_buffer::TextBuffer::with_content("run test", 8),
-        palette_selected: 0,
-        history_index: None,
-        history_draft: String::new(),
-    });
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    // No repo selected → warning
-    let msg = app.status_message.as_ref().expect("Should have warning");
-    assert_eq!(msg.msg_type, MessageType::Warning);
-}
-
-#[test]
-fn cli_command_run_from_repo_detail_pushes_command_output() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Navigate to RepoDetail first
-    app.push_view(View::RepoDetail(0));
-
-    app.command_line = Some(super::CommandLineState {
-        text: super::text_buffer::TextBuffer::with_content("run test", 8),
-        palette_selected: 0,
-        history_index: None,
-        history_draft: String::new(),
-    });
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    // Should push CommandOutput on top of RepoDetail
-    assert_eq!(
-        *app.current_view(),
-        View::CommandOutput,
-        ":run should push CommandOutput view"
-    );
-    assert_eq!(
-        app.view_stack,
-        vec![View::Dashboard, View::RepoDetail(0), View::CommandOutput],
-        "Stack should be Dashboard → RepoDetail → CommandOutput"
-    );
-    assert_eq!(
-        app.command_name,
-        Some("test".to_string()),
-        "command_name should be set"
-    );
-}
-
-#[test]
-fn cli_command_run_from_dashboard_uses_selected_repo() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Select repo at index 1 from the dashboard
-    app.list_state.select(Some(1));
-
-    app.command_line = Some(super::CommandLineState {
-        text: super::text_buffer::TextBuffer::with_content("run build", 9),
-        palette_selected: 0,
-        history_index: None,
-        history_draft: String::new(),
-    });
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    assert_eq!(
-        *app.current_view(),
-        View::CommandOutput,
-        ":run from Dashboard should push CommandOutput"
-    );
-    assert_eq!(app.command_name, Some("build".to_string()));
-}
-
-#[test]
-fn cli_command_state_refreshes_state_query() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // With no state queries selected, :state shows warning
-    app.command_line = Some(super::CommandLineState {
-        text: super::text_buffer::TextBuffer::with_content("state", 5),
-        palette_selected: 0,
-        history_index: None,
-        history_draft: String::new(),
-    });
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(app.command_line.is_none());
-    // refresh_state_queries with no queries loaded shows a warning
-    assert!(
-        app.status_message.is_some(),
-        ":state should produce a status message"
-    );
-}
-
-// ===== Task 9: Command palette =====
-
-#[test]
-fn command_palette_shows_all_commands_when_buffer_empty() {
-    use crate::tui::command_line::{filtered_palette, PALETTE_COMMANDS};
-
-    // Empty buffer → all commands visible
-    let entries = filtered_palette("");
-    assert_eq!(
-        entries.len(),
-        PALETTE_COMMANDS.len(),
-        "Empty filter should show all palette entries"
-    );
-}
-
-#[test]
-fn command_palette_filters_by_prefix() {
-    use crate::tui::command_line::filtered_palette;
-
-    // "re" matches "refresh" and "repo"
-    let entries = filtered_palette("re");
-    let names: Vec<&str> = entries.iter().map(|e| e.command).collect();
-    assert!(names.contains(&"refresh"), "Should match 'refresh'");
-    assert!(names.contains(&"repo"), "Should match 'repo'");
-    assert!(!names.contains(&"help"), "'help' should not match 're'");
-    assert!(!names.contains(&"quit"), "'quit' should not match 're'");
-}
-
-#[test]
-fn command_palette_filter_is_case_insensitive() {
-    use crate::tui::command_line::filtered_palette;
-
-    // "RE" should match same as "re"
-    let lower = filtered_palette("re");
-    let upper = filtered_palette("RE");
-    assert_eq!(
-        lower.len(),
-        upper.len(),
-        "Filtering should be case-insensitive"
-    );
-}
-
-#[test]
-fn command_palette_filter_no_matches_returns_empty() {
-    use crate::tui::command_line::filtered_palette;
-
-    let entries = filtered_palette("zzz");
-    assert!(
-        entries.is_empty(),
-        "No commands match 'zzz', should return empty"
-    );
-}
-
-#[test]
-fn palette_navigation_j_moves_selection_down() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // palette_selected starts at 0
-
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        1,
-        "j should move palette selection down"
-    );
-
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        2,
-        "j should move palette selection down again"
-    );
-}
-
-#[test]
-fn palette_navigation_k_moves_selection_up() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // Move to index 2 first
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 2);
-
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        1,
-        "k should move palette selection up"
-    );
-}
-
-#[test]
-fn palette_navigation_j_wraps_from_last_to_first() {
-    use crate::tui::command_line::PALETTE_COMMANDS;
-
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // Move to the last entry
-    let last_idx = PALETTE_COMMANDS.len() - 1;
-    app.command_line.as_mut().unwrap().palette_selected = last_idx;
-
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        0,
-        "j from last entry should wrap to first"
-    );
-}
-
-#[test]
-fn palette_navigation_k_wraps_from_first_to_last() {
-    use crate::tui::command_line::PALETTE_COMMANDS;
-
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // palette_selected starts at 0
-
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        PALETTE_COMMANDS.len() - 1,
-        "k from first entry should wrap to last"
-    );
-}
-
-#[test]
-fn palette_navigation_up_down_arrows_work() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 0);
-
-    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        1,
-        "Down arrow should work same as j"
-    );
-
-    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        0,
-        "Up arrow should work same as k"
-    );
-}
-
-#[test]
-fn palette_enter_fills_command_line_with_selected_entry() {
-    // "quit" is a no-arg command — Enter executes it immediately.
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // Navigate to "quit" (index 1 in PALETTE_COMMANDS)
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 1);
-
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    // No-arg command executes immediately — command line dismissed and quit triggered
-    assert!(
-        app.command_line.is_none(),
-        "Command line should be dismissed after executing no-arg palette entry"
-    );
-    assert!(
-        app.should_quit,
-        "Selecting 'quit' from palette should set should_quit"
-    );
-}
-
-#[test]
-fn palette_enter_on_filled_buffer_submits_command() {
-    // When buffer has text, Enter submits rather than filling from palette
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // Type "quit" manually
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('u'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('i'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('t'), KeyModifiers::NONE);
-
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(
-        app.command_line.is_none(),
-        "Enter with non-empty buffer should dismiss command line"
-    );
-    assert!(app.should_quit, ":quit should have been executed");
-}
-
-#[test]
-fn typing_resets_palette_selection() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // Navigate palette
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 2);
-
-    // Typing a character should reset selection to 0
-    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        0,
-        "Typing should reset palette selection to 0"
-    );
-}
-
-#[test]
-fn backspace_resets_palette_selection() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
-    // Navigate palette in filtered state (3 entries: refresh, repo, run) using Down arrow
-    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().palette_selected, 1);
-
-    // Backspace should reset selection
-    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().palette_selected,
-        0,
-        "Backspace should reset palette selection to 0"
-    );
-}
-
-#[test]
-fn palette_escape_dismisses_command_line() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    // Navigate palette a bit
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-
-    assert!(
-        app.command_line.is_none(),
-        "Esc should dismiss command line (and palette)"
-    );
-    assert_eq!(*app.current_view(), View::Dashboard);
-    assert!(!app.should_quit);
-}
-
-// ===== Tab completion tests =====
-
-#[test]
-fn tab_completes_unique_match() {
-    // Typing "he" matches only "help" — Tab should complete fully.
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-
-    // "help" doesn't take args, so no trailing space
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "help",
-        "Tab should complete unique match"
-    );
-}
-
-#[test]
-fn tab_completes_with_trailing_space_for_arg_commands() {
-    // Typing "ru" matches only "run" (takes_args) — Tab adds trailing space.
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('u'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "run ",
-        "Tab should complete with trailing space for commands that take args"
-    );
-}
-
-#[test]
-fn tab_fills_common_prefix_for_multiple_matches() {
-    // Typing "r" matches "refresh", "repo", "run" — common prefix is "r" (no change).
-    // Typing "re" matches "refresh", "repo" — common prefix is "re" (no change).
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
-    // "re" matches "refresh" and "repo" — common prefix is "re"
-    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "re",
-        "Tab should not change buffer when common prefix equals current buffer"
-    );
-}
-
-#[test]
-fn tab_extends_to_common_prefix() {
-    // Typing "st" matches only "state" — single match, completes fully.
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('s'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('t'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "state",
-        "Tab should complete 'st' to 'state'"
-    );
-}
-
-#[test]
-fn tab_noop_on_no_matches() {
-    // Typing "xyz" matches nothing — Tab should do nothing.
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('x'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('y'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('z'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "xyz",
-        "Tab should be noop when no palette matches"
-    );
-}
-
-// ===== Command history tests =====
-
-#[test]
-fn history_saves_on_enter() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Execute "help"
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "help".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert_eq!(app.command_history, vec!["help"]);
-}
-
-#[test]
-fn history_skips_consecutive_duplicates() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Execute "help" twice
-    for _ in 0..2 {
-        app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-        for c in "help".chars() {
-            app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-        }
-        app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-    }
-
-    assert_eq!(
-        app.command_history,
-        vec!["help"],
-        "Consecutive duplicate commands should not be saved twice"
-    );
-}
-
-#[test]
-fn history_up_recalls_previous_command() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Execute "help", then open command line and press Up
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "help".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    // Open command line, type something that doesn't match palette (so Up goes to history)
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "xyz".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-    // "xyz" matches no palette entries, so Up navigates history
-    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "help",
-        "Up should recall the previous command from history"
-    );
-}
-
-#[test]
-fn history_down_restores_draft() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Execute "help"
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "help".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    // Open command line, type "xyz" (no palette matches)
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "xyz".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-
-    // Up recalls "help"
-    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "help");
-
-    // Down restores draft "xyz"
-    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "xyz",
-        "Down should restore the draft after navigating through history"
-    );
-}
-
-#[test]
-fn history_multiple_entries() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Execute "help", then "refresh"
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "help".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "refresh".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    // Open command line with "xyz" (no matches)
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "xyz".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-
-    // Up gets "refresh" (most recent)
-    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "refresh");
-
-    // Up again gets "help" (older)
-    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "help");
-
-    // Down gets "refresh" again
-    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "refresh");
-
-    // Down restores draft "xyz"
-    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "xyz");
-}
-
-#[test]
-fn history_typing_resets_index() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Execute "help"
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "help".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    // Open command line with "xyz" (no matches), navigate to history, then type
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "xyz".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-    assert_eq!(app.command_line.as_ref().unwrap().text.buffer, "help");
-
-    // Typing resets history browsing
-    app.handle_key(KeyCode::Char('!'), KeyModifiers::NONE);
-    assert!(
-        app.command_line.as_ref().unwrap().history_index.is_none(),
-        "Typing should reset history index"
-    );
-}
-
-// ===== Argument hint tests =====
-
-#[test]
-fn argument_hint_for_run_command() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Set up available commands
-    app.available_commands = vec![
-        (
-            "build".to_string(),
-            grove_core::Command {
-                run: "make build".to_string(),
-                description: None,
-                working_dir: None,
-                env: None,
-                args: None,
-                ..Default::default()
-            },
-        ),
-        (
-            "test".to_string(),
-            grove_core::Command {
-                run: "make test".to_string(),
-                description: None,
-                working_dir: None,
-                env: None,
-                args: None,
-                ..Default::default()
-            },
-        ),
+fn completions_run_command_partial() {
+    let commands = vec![
+        make_command("test", "Run tests", None),
+        make_command("build", "Build project", None),
     ];
-
-    // Open command line, type "run t"
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "run t".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+    let mut p = super::prompt::PromptState::new();
+    p.open();
+    for c in "run te".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
     }
-
-    let hint = app.compute_argument_hint();
-    assert_eq!(
-        hint.as_deref(),
-        Some("est"),
-        "Should hint 'est' to complete 'test'"
-    );
+    let cs = p.compute_completions(&commands, &[], &[]);
+    assert_eq!(cs.completions.len(), 1);
+    assert_eq!(cs.completions[0].value, "test");
 }
 
 #[test]
-fn argument_hint_for_repo_command() {
-    let mut app = App::new(
-        MockRegistry::with_repos(3),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Open command line, type "repo repo1"
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "repo repo".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
+fn completions_repo_names() {
+    let repos = vec!["graft".to_string(), "grove".to_string()];
+    let mut p = super::prompt::PromptState::new();
+    p.open();
+    for c in "repo ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
     }
-
-    // repo names are /tmp/repo0, /tmp/repo1, /tmp/repo2
-    // Partial "repo" matches "repo0", "repo1", "repo2" — first is "repo0"
-    let hint = app.compute_argument_hint();
-    assert_eq!(
-        hint.as_deref(),
-        Some("0"),
-        "Should hint '0' to complete 'repo0'"
-    );
+    let cs = p.compute_completions(&[], &repos, &[]);
+    assert_eq!(cs.completions.len(), 2);
 }
 
 #[test]
-fn argument_hint_none_for_full_match() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
+fn completions_repo_partial() {
+    let repos = vec![
+        "graft".to_string(),
+        "grove".to_string(),
+        "other".to_string(),
+    ];
+    let mut p = super::prompt::PromptState::new();
+    p.open();
+    for c in "repo gr".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let cs = p.compute_completions(&[], &repos, &[]);
+    assert_eq!(cs.completions.len(), 2);
+    let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
+    assert!(values.contains(&"graft"));
+    assert!(values.contains(&"grove"));
+}
 
-    app.available_commands = vec![(
-        "test".to_string(),
-        grove_core::Command {
-            run: "make test".to_string(),
-            description: None,
-            working_dir: None,
-            env: None,
-            args: None,
-            ..Default::default()
-        },
+#[test]
+fn completions_state_query_names() {
+    let queries = vec!["coverage".to_string(), "deps".to_string()];
+    let mut p = super::prompt::PromptState::new();
+    p.open();
+    for c in "state ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let cs = p.compute_completions(&[], &[], &queries);
+    assert_eq!(cs.completions.len(), 2);
+}
+
+#[test]
+fn completions_catalog_categories() {
+    let mut p = super::prompt::PromptState::new();
+    p.open();
+    for c in "catalog ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let cs = p.compute_completions(&[], &[], &[]);
+    let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
+    assert!(values.contains(&"core"));
+    assert!(values.contains(&"diagnostic"));
+    assert!(values.contains(&"optional"));
+    assert!(values.contains(&"advanced"));
+    assert!(values.contains(&"uncategorized"));
+}
+
+#[test]
+fn completions_cursor_not_at_end() {
+    let mut p = super::prompt::PromptState::new();
+    p.open();
+    for c in "run ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    // Move cursor to position 2 (not at end)
+    p.command_line.as_mut().unwrap().text.cursor_pos = 2;
+    let cs = p.compute_completions(&[], &[], &[]);
+    assert!(cs.completions.is_empty());
+}
+
+// ===== compute_run_completions multi-arg tests =====
+
+#[test]
+fn run_completions_choice_arg() {
+    let commands = vec![make_command(
+        "deploy",
+        "Deploy",
+        Some(vec![make_arg(
+            "env",
+            graft_common::ArgType::Choice,
+            true,
+            Some(vec!["staging".to_string(), "production".to_string()]),
+        )]),
     )];
-
-    // Type "run test" — fully matched, no hint
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "run test".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-
-    let hint = app.compute_argument_hint();
-    assert_eq!(hint, None, "Should not hint when arg is fully matched");
+    let cs = compute_run_completions("deploy ", &commands);
+    assert_eq!(cs.completions.len(), 2);
+    let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
+    assert!(values.contains(&"staging"));
+    assert!(values.contains(&"production"));
+    assert!(cs.requires_more_input);
 }
 
 #[test]
-fn argument_hint_none_for_unknown_command() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    // Type "help" — no arg hints for help command
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "help".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-
-    let hint = app.compute_argument_hint();
-    assert_eq!(hint, None, "Should not hint for commands without args");
-}
-
-#[test]
-fn tab_accepts_argument_hint() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-
-    app.available_commands = vec![(
-        "build".to_string(),
-        grove_core::Command {
-            run: "make build".to_string(),
-            description: None,
-            working_dir: None,
-            env: None,
-            args: None,
-            ..Default::default()
-        },
+fn run_completions_flag_arg() {
+    let commands = vec![make_command(
+        "build",
+        "Build",
+        Some(vec![make_arg(
+            "verbose",
+            graft_common::ArgType::Flag,
+            false,
+            None,
+        )]),
     )];
-
-    // Type "run b" — hint should be "uild"
-    app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
-    for c in "run b".chars() {
-        app.handle_key(KeyCode::Char(c), KeyModifiers::NONE);
-    }
-
-    // Tab accepts the hint
-    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-    assert_eq!(
-        app.command_line.as_ref().unwrap().text.buffer,
-        "run build",
-        "Tab should accept the argument hint"
-    );
-}
-
-// ===== Form input overlay tests =====
-
-#[test]
-fn form_input_from_schema_initializes_defaults() {
-    let args = vec![
-        grove_core::ArgDef {
-            name: "env".to_string(),
-            arg_type: grove_core::ArgType::Choice,
-            description: Some("Target environment".to_string()),
-            required: true,
-            default: Some("production".to_string()),
-            options: Some(vec!["staging".to_string(), "production".to_string()]),
-            positional: false,
-            options_from: None,
-        },
-        grove_core::ArgDef {
-            name: "tag".to_string(),
-            arg_type: grove_core::ArgType::String,
-            description: None,
-            required: false,
-            default: Some("latest".to_string()),
-            options: None,
-            positional: false,
-            options_from: None,
-        },
-        grove_core::ArgDef {
-            name: "verbose".to_string(),
-            arg_type: grove_core::ArgType::Flag,
-            description: None,
-            required: false,
-            default: Some("true".to_string()),
-            options: None,
-            positional: false,
-            options_from: None,
-        },
-    ];
-
-    let state = FormInputState::from_schema("deploy".to_string(), args);
-    assert_eq!(state.command_name, "deploy");
-    assert_eq!(state.fields.len(), 3);
-    assert_eq!(state.focused, 0);
-
-    // Choice defaults to "production" (index 1)
-    match &state.fields[0].value {
-        FieldValue::Choice(idx) => assert_eq!(*idx, 1),
-        _ => panic!("Expected Choice"),
-    }
-
-    // String defaults to "latest"
-    match &state.fields[1].value {
-        FieldValue::Text(buf) => assert_eq!(buf.buffer, "latest"),
-        _ => panic!("Expected Text"),
-    }
-
-    // Flag defaults to true
-    match &state.fields[2].value {
-        FieldValue::Flag(on) => assert!(*on),
-        _ => panic!("Expected Flag"),
-    }
+    let cs = compute_run_completions("build ", &commands);
+    assert_eq!(cs.completions.len(), 2);
+    let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
+    assert!(values.contains(&"true"));
+    assert!(values.contains(&"false"));
 }
 
 #[test]
-fn form_input_from_schema_no_defaults() {
-    let args = vec![grove_core::ArgDef {
-        name: "target".to_string(),
-        arg_type: grove_core::ArgType::String,
-        description: None,
-        required: true,
-        default: None,
-        options: None,
-        positional: true,
-        options_from: None,
-    }];
-
-    let state = FormInputState::from_schema("build".to_string(), args);
-    match &state.fields[0].value {
-        FieldValue::Text(buf) => assert!(buf.buffer.is_empty()),
-        _ => panic!("Expected Text"),
-    }
-}
-
-#[test]
-fn form_assemble_args_auto_assembly() {
-    // This tests the assemble_args method via the App impl
-    let fields = vec![
-        FormField {
-            def: grove_core::ArgDef {
-                name: "target".to_string(),
-                arg_type: grove_core::ArgType::String,
-                description: None,
-                required: true,
-                default: None,
-                options: None,
-                positional: true,
-                options_from: None,
-            },
-            value: FieldValue::Text(text_buffer::TextBuffer::with_content("release", 7)),
-        },
-        FormField {
-            def: grove_core::ArgDef {
-                name: "env".to_string(),
-                arg_type: grove_core::ArgType::Choice,
-                description: None,
-                required: true,
-                default: None,
-                options: Some(vec!["staging".to_string(), "production".to_string()]),
-                positional: false,
-                options_from: None,
-            },
-            value: FieldValue::Choice(1),
-        },
-        FormField {
-            def: grove_core::ArgDef {
-                name: "verbose".to_string(),
-                arg_type: grove_core::ArgType::Flag,
-                description: None,
-                required: false,
-                default: None,
-                options: None,
-                positional: false,
-                options_from: None,
-            },
-            value: FieldValue::Flag(true),
-        },
-    ];
-
-    let result = App::<MockRegistry, MockDetailProvider>::assemble_args("./deploy.sh", &fields);
-    assert_eq!(result, "./deploy.sh release --env production --verbose");
-}
-
-#[test]
-fn form_assemble_args_omits_empty_and_false() {
-    let fields = vec![
-        FormField {
-            def: grove_core::ArgDef {
-                name: "tag".to_string(),
-                arg_type: grove_core::ArgType::String,
-                description: None,
-                required: false,
-                default: None,
-                options: None,
-                positional: false,
-                options_from: None,
-            },
-            value: FieldValue::Text(text_buffer::TextBuffer::new()),
-        },
-        FormField {
-            def: grove_core::ArgDef {
-                name: "verbose".to_string(),
-                arg_type: grove_core::ArgType::Flag,
-                description: None,
-                required: false,
-                default: None,
-                options: None,
-                positional: false,
-                options_from: None,
-            },
-            value: FieldValue::Flag(false),
-        },
-    ];
-
-    let result = App::<MockRegistry, MockDetailProvider>::assemble_args("make build", &fields);
-    assert_eq!(result, "make build");
-}
-
-#[test]
-fn form_assemble_args_template_interpolation() {
-    let fields = vec![
-        FormField {
-            def: grove_core::ArgDef {
-                name: "env".to_string(),
-                arg_type: grove_core::ArgType::Choice,
-                description: None,
-                required: true,
-                default: None,
-                options: Some(vec!["staging".to_string(), "production".to_string()]),
-                positional: false,
-                options_from: None,
-            },
-            value: FieldValue::Choice(0),
-        },
-        FormField {
-            def: grove_core::ArgDef {
-                name: "tag".to_string(),
-                arg_type: grove_core::ArgType::String,
-                description: None,
-                required: false,
-                default: None,
-                options: None,
-                positional: false,
-                options_from: None,
-            },
-            value: FieldValue::Text(text_buffer::TextBuffer::with_content("v1.0", 4)),
-        },
-    ];
-
-    let result = App::<MockRegistry, MockDetailProvider>::assemble_args(
-        "deploy --to {env} --version {tag}",
-        &fields,
-    );
-    assert_eq!(result, "deploy --to staging --version v1.0");
-}
-
-#[test]
-fn form_has_placeholders_detection() {
-    assert!(graft_engine::has_placeholders("deploy {env}"));
-    assert!(graft_engine::has_placeholders("{name} --flag"));
-    assert!(!graft_engine::has_placeholders("./deploy.sh"));
-    assert!(!graft_engine::has_placeholders("echo ${HOME}"));
-    assert!(!graft_engine::has_placeholders("echo {}"));
-    // Mixed: has both ${env} and {placeholder}
-    assert!(graft_engine::has_placeholders("echo ${HOME} {name}"));
-    // Brace-like content that's not a valid identifier
-    assert!(!graft_engine::has_placeholders("echo {foo bar}"));
-}
-
-#[test]
-fn form_validate_required_empty_string_fails() {
-    let state = FormInputState {
-        command_name: "test".to_string(),
-        fields: vec![FormField {
-            def: grove_core::ArgDef {
-                name: "target".to_string(),
-                arg_type: grove_core::ArgType::String,
-                description: None,
-                required: true,
-                default: None,
-                options: None,
-                positional: false,
-                options_from: None,
-            },
-            value: FieldValue::Text(text_buffer::TextBuffer::new()),
-        }],
-        focused: 0,
-    };
-
-    let err = App::<MockRegistry, MockDetailProvider>::validate_form(&state);
-    assert!(err.is_some());
-    assert!(err.unwrap().contains("target"));
-}
-
-#[test]
-fn form_validate_required_choice_passes() {
-    let state = FormInputState {
-        command_name: "test".to_string(),
-        fields: vec![FormField {
-            def: grove_core::ArgDef {
-                name: "env".to_string(),
-                arg_type: grove_core::ArgType::Choice,
-                description: None,
-                required: true,
-                default: None,
-                options: Some(vec!["staging".to_string(), "production".to_string()]),
-                positional: false,
-                options_from: None,
-            },
-            value: FieldValue::Choice(0),
-        }],
-        focused: 0,
-    };
-
-    assert!(App::<MockRegistry, MockDetailProvider>::validate_form(&state).is_none());
-}
-
-#[test]
-fn form_execute_selected_command_shows_form_for_args() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-ws".to_string(),
-    );
-
-    app.selected_repo_for_commands = Some("/tmp/repo0".to_string());
-    app.available_commands = vec![(
-        "deploy".to_string(),
-        grove_core::Command {
-            run: "./deploy.sh".to_string(),
-            description: None,
-            working_dir: None,
-            env: None,
-            args: Some(vec![grove_core::ArgDef {
-                name: "env".to_string(),
-                arg_type: grove_core::ArgType::Choice,
-                description: None,
-                required: true,
-                default: None,
-                options: Some(vec!["staging".to_string(), "production".to_string()]),
-                positional: false,
-                options_from: None,
-            }]),
-            ..Default::default()
-        },
+fn run_completions_string_arg() {
+    let commands = vec![make_command(
+        "greet",
+        "Greet",
+        Some(vec![make_arg(
+            "name",
+            graft_common::ArgType::String,
+            false,
+            None,
+        )]),
     )];
-    app.detail_items = vec![DetailItem::Command(0)];
-    app.detail_cursor = 0;
-
-    app.execute_selected_command();
-
-    assert!(app.form_input.is_some(), "Should show form for args");
-    assert!(app.argument_input.is_none(), "Should not show free-text");
+    let cs = compute_run_completions("greet ", &commands);
+    assert!(cs.completions.is_empty());
+    assert_eq!(cs.arg_hint, Some("<name>".to_string()));
 }
 
 #[test]
-fn form_execute_selected_command_shows_freetext_for_no_args() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-ws".to_string(),
-    );
-
-    app.selected_repo_for_commands = Some("/tmp/repo0".to_string());
-    app.available_commands = vec![(
-        "test".to_string(),
-        grove_core::Command {
-            run: "cargo test".to_string(),
-            description: None,
-            working_dir: None,
-            env: None,
-            args: None,
-            ..Default::default()
-        },
-    )];
-    app.detail_items = vec![DetailItem::Command(0)];
-    app.detail_cursor = 0;
-
-    app.execute_selected_command();
-
-    assert!(app.form_input.is_none(), "Should not show form");
-    assert!(app.argument_input.is_some(), "Should show free-text input");
-}
-
-#[test]
-fn form_key_handling_navigation() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-ws".to_string(),
-    );
-
-    let args = vec![
-        grove_core::ArgDef {
-            name: "a".to_string(),
-            arg_type: grove_core::ArgType::String,
-            description: None,
-            required: false,
-            default: None,
-            options: None,
-            positional: false,
-            options_from: None,
-        },
-        grove_core::ArgDef {
-            name: "b".to_string(),
-            arg_type: grove_core::ArgType::Flag,
-            description: None,
-            required: false,
-            default: None,
-            options: None,
-            positional: false,
-            options_from: None,
-        },
-    ];
-
-    app.form_input = Some(FormInputState::from_schema("test".to_string(), args));
-
-    assert_eq!(app.form_input.as_ref().unwrap().focused, 0);
-
-    // Tab moves to next field
-    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-    assert_eq!(app.form_input.as_ref().unwrap().focused, 1);
-
-    // Tab wraps around
-    app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-    assert_eq!(app.form_input.as_ref().unwrap().focused, 0);
-
-    // Down also moves forward
-    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
-    assert_eq!(app.form_input.as_ref().unwrap().focused, 1);
-
-    // Up moves backward
-    app.handle_key(KeyCode::Up, KeyModifiers::NONE);
-    assert_eq!(app.form_input.as_ref().unwrap().focused, 0);
-
-    // Esc dismisses
-    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-    assert!(app.form_input.is_none());
-}
-
-#[test]
-fn form_key_handling_flag_toggle() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-ws".to_string(),
-    );
-
-    let args = vec![grove_core::ArgDef {
-        name: "verbose".to_string(),
-        arg_type: grove_core::ArgType::Flag,
-        description: None,
-        required: false,
-        default: None,
-        options: None,
-        positional: false,
-        options_from: None,
-    }];
-
-    app.form_input = Some(FormInputState::from_schema("test".to_string(), args));
-
-    // Initially false
-    match &app.form_input.as_ref().unwrap().fields[0].value {
-        FieldValue::Flag(on) => assert!(!on),
-        _ => panic!("Expected Flag"),
-    }
-
-    // Space toggles
-    app.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
-    match &app.form_input.as_ref().unwrap().fields[0].value {
-        FieldValue::Flag(on) => assert!(on),
-        _ => panic!("Expected Flag"),
-    }
-
-    // Space toggles back
-    app.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
-    match &app.form_input.as_ref().unwrap().fields[0].value {
-        FieldValue::Flag(on) => assert!(!on),
-        _ => panic!("Expected Flag"),
-    }
-}
-
-#[test]
-fn form_key_handling_choice_cycle() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-ws".to_string(),
-    );
-
-    let args = vec![grove_core::ArgDef {
-        name: "env".to_string(),
-        arg_type: grove_core::ArgType::Choice,
-        description: None,
-        required: false,
-        default: None,
-        options: Some(vec![
-            "dev".to_string(),
-            "staging".to_string(),
-            "prod".to_string(),
+fn run_completions_required_blocks_enter() {
+    // Command with 2 required args: env (Choice) + region (Choice)
+    let commands = vec![make_command(
+        "deploy",
+        "Deploy",
+        Some(vec![
+            make_arg(
+                "env",
+                graft_common::ArgType::Choice,
+                true,
+                Some(vec!["staging".to_string(), "production".to_string()]),
+            ),
+            make_arg(
+                "region",
+                graft_common::ArgType::Choice,
+                true,
+                Some(vec!["us-east".to_string(), "eu-west".to_string()]),
+            ),
         ]),
-        positional: false,
-        options_from: None,
-    }];
-
-    app.form_input = Some(FormInputState::from_schema("test".to_string(), args));
-
-    // Helper to get the current choice index
-    let get_choice = |app: &App<MockRegistry, MockDetailProvider>| -> usize {
-        match &app.form_input.as_ref().unwrap().fields[0].value {
-            FieldValue::Choice(idx) => *idx,
-            _ => panic!("Expected Choice"),
-        }
-    };
-
-    // Initially index 0
-    assert_eq!(get_choice(&app), 0);
-
-    // Right cycles forward
-    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
-    assert_eq!(get_choice(&app), 1);
-
-    // Right again
-    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
-    assert_eq!(get_choice(&app), 2);
-
-    // Right wraps to 0
-    app.handle_key(KeyCode::Right, KeyModifiers::NONE);
-    assert_eq!(get_choice(&app), 0);
-
-    // Left wraps to last
-    app.handle_key(KeyCode::Left, KeyModifiers::NONE);
-    assert_eq!(get_choice(&app), 2);
-}
-
-#[test]
-fn form_key_handling_text_input() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-ws".to_string(),
-    );
-
-    let args = vec![grove_core::ArgDef {
-        name: "tag".to_string(),
-        arg_type: grove_core::ArgType::String,
-        description: None,
-        required: false,
-        default: None,
-        options: None,
-        positional: false,
-        options_from: None,
-    }];
-
-    app.form_input = Some(FormInputState::from_schema("test".to_string(), args));
-
-    // Type some text
-    app.handle_key(KeyCode::Char('v'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('.'), KeyModifiers::NONE);
-    app.handle_key(KeyCode::Char('0'), KeyModifiers::NONE);
-
-    match &app.form_input.as_ref().unwrap().fields[0].value {
-        FieldValue::Text(buf) => assert_eq!(buf.buffer, "v1.0"),
-        _ => panic!("Expected Text"),
-    }
-
-    // Backspace
-    app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
-    match &app.form_input.as_ref().unwrap().fields[0].value {
-        FieldValue::Text(buf) => assert_eq!(buf.buffer, "v1."),
-        _ => panic!("Expected Text"),
-    }
-
-    // Ctrl+U clears
-    app.handle_key(KeyCode::Char('u'), KeyModifiers::CONTROL);
-    match &app.form_input.as_ref().unwrap().fields[0].value {
-        FieldValue::Text(buf) => assert!(buf.buffer.is_empty()),
-        _ => panic!("Expected Text"),
-    }
-}
-
-#[test]
-fn form_assemble_args_shell_escapes_special_chars() {
-    let fields = vec![FormField {
-        def: grove_core::ArgDef {
-            name: "msg".to_string(),
-            arg_type: grove_core::ArgType::String,
-            description: None,
-            required: false,
-            default: None,
-            options: None,
-            positional: false,
-            options_from: None,
-        },
-        value: FieldValue::Text(text_buffer::TextBuffer::with_content("hello world", 11)),
-    }];
-
-    let result = App::<MockRegistry, MockDetailProvider>::assemble_args("echo", &fields);
-    // Should shell-escape the value with spaces
-    assert!(
-        result.contains("'hello world'") || result.contains("\"hello world\""),
-        "Should escape value with spaces, got: {result}"
-    );
-}
-
-#[test]
-fn form_assemble_args_notebook_capture_scenario() {
-    // Simulates the real notebook capture command:
-    //   run: "uv run notecap capture"
-    //   args: section (choice, positional), content (string, positional), raw (flag)
-    let fields = vec![
-        FormField {
-            def: grove_core::ArgDef {
-                name: "section".to_string(),
-                arg_type: grove_core::ArgType::Choice,
-                description: Some("Section: Personal or Work".to_string()),
-                required: true,
-                default: None,
-                options: Some(vec!["Personal".to_string(), "Work".to_string()]),
-                positional: true,
-                options_from: None,
-            },
-            value: FieldValue::Choice(0), // "Personal"
-        },
-        FormField {
-            def: grove_core::ArgDef {
-                name: "content".to_string(),
-                arg_type: grove_core::ArgType::String,
-                description: Some("Content to capture".to_string()),
-                required: true,
-                default: None,
-                options: None,
-                positional: true,
-                options_from: None,
-            },
-            value: FieldValue::Text(text_buffer::TextBuffer::with_content("Buy groceries", 13)),
-        },
-        FormField {
-            def: grove_core::ArgDef {
-                name: "raw".to_string(),
-                arg_type: grove_core::ArgType::Flag,
-                description: Some("Skip content sanitization".to_string()),
-                required: false,
-                default: None,
-                options: None,
-                positional: false,
-                options_from: None,
-            },
-            value: FieldValue::Flag(false),
-        },
-    ];
-
-    let result =
-        App::<MockRegistry, MockDetailProvider>::assemble_args("uv run notecap capture", &fields);
-    // Expected: positional args first (section, content), flag omitted when false
-    assert_eq!(
-        result, "uv run notecap capture Personal 'Buy groceries'",
-        "Assembled command should match notecap CLI expectations"
-    );
-
-    // Now with --raw enabled
-    let mut fields_with_raw = fields;
-    fields_with_raw[2].value = FieldValue::Flag(true);
-
-    let result_raw = App::<MockRegistry, MockDetailProvider>::assemble_args(
-        "uv run notecap capture",
-        &fields_with_raw,
-    );
-    assert_eq!(
-        result_raw, "uv run notecap capture Personal 'Buy groceries' --raw",
-        "Should append --raw flag when enabled"
-    );
-}
-
-// ===== Cursor model tests =====
-
-#[test]
-fn cursor_moves_across_section_boundaries() {
-    let detail = RepoDetail {
-        changed_files: vec![FileChange {
-            path: "a.txt".to_string(),
-            status: FileChangeStatus::Modified,
-        }],
-        commits: vec![CommitInfo {
-            hash: "abc1234".to_string(),
-            subject: "Initial commit".to_string(),
-            author: "Alice".to_string(),
-            relative_date: "2 days ago".to_string(),
-        }],
-        error: None,
-    };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    // Should have FileChange(0), Commit(0)
-    assert_eq!(app.detail_items.len(), 2);
-    assert_eq!(app.detail_items[0], DetailItem::FileChange(0));
-    assert_eq!(app.detail_items[1], DetailItem::Commit(0));
-
-    // j from file change should go to commit
-    assert_eq!(app.detail_cursor, 0);
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.detail_cursor, 1);
-}
-
-#[test]
-fn enter_is_noop_on_file_change() {
-    let detail = RepoDetail {
-        changed_files: vec![FileChange {
-            path: "a.txt".to_string(),
-            status: FileChangeStatus::Modified,
-        }],
-        commits: vec![],
-        error: None,
-    };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    assert_eq!(app.detail_cursor, 0);
-    assert!(matches!(
-        app.current_detail_item(),
-        Some(DetailItem::FileChange(0))
-    ));
-
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    // Should remain in RepoDetail, no overlay opened
-    assert_eq!(*app.current_view(), View::RepoDetail(0));
-    assert!(app.argument_input.is_none());
-    assert!(app.form_input.is_none());
-}
-
-#[test]
-fn enter_executes_when_cursor_on_command() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.available_commands = vec![(
-        "build".to_string(),
-        grove_core::Command {
-            run: "cargo build".to_string(),
-            description: None,
-            working_dir: None,
-            env: None,
-            args: None,
-            ..Default::default()
-        },
     )];
-    app.detail_items = vec![DetailItem::Command(0)];
-    app.detail_cursor = 0;
-
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(
-        app.argument_input.is_some(),
-        "Enter on command should open argument input"
-    );
+    // First arg filled, second still missing
+    let cs = compute_run_completions("deploy staging ", &commands);
+    assert!(cs.requires_more_input);
+    assert_eq!(cs.completions.len(), 2); // region options
+    let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
+    assert!(values.contains(&"us-east"));
 }
 
 #[test]
-fn cursor_does_not_exceed_max() {
-    let detail = RepoDetail {
-        changed_files: vec![
-            FileChange {
-                path: "a.txt".to_string(),
-                status: FileChangeStatus::Modified,
+fn run_completions_all_required_filled() {
+    let commands = vec![make_command(
+        "deploy",
+        "Deploy",
+        Some(vec![make_arg(
+            "env",
+            graft_common::ArgType::Choice,
+            true,
+            Some(vec!["staging".to_string(), "production".to_string()]),
+        )]),
+    )];
+    // "deploy staging " — required arg has been filled
+    let cs = compute_run_completions("deploy staging ", &commands);
+    assert!(!cs.requires_more_input);
+}
+
+// ===== Integration test: requires_more_input blocks Enter =====
+
+#[test]
+fn enter_blocked_when_required_arg_missing() {
+    let mut prompt = super::prompt::PromptState::new();
+    prompt.open();
+
+    // Type "run deploy " — deploy has a required Choice arg
+    for c in "run deploy ".chars() {
+        prompt.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+
+    // Build a CompletionState that mimics what compute_completions would return
+    let cs = CompletionState {
+        completions: vec![
+            ArgCompletion {
+                value: "staging".to_string(),
+                description: String::new(),
             },
-            FileChange {
-                path: "b.txt".to_string(),
-                status: FileChangeStatus::Added,
+            ArgCompletion {
+                value: "production".to_string(),
+                description: String::new(),
             },
         ],
-        commits: vec![],
-        error: None,
+        requires_more_input: true,
+        arg_hint: None,
     };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
 
-    assert_eq!(app.detail_items.len(), 2);
-
-    // Move to last item
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(app.detail_cursor, 1);
-
-    // Try to move past the end
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(
-        app.detail_cursor, 1,
-        "Cursor should not exceed detail_items.len() - 1"
-    );
-}
-
-#[test]
-fn dynamic_hints_show_enter_run_on_command() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.available_commands = vec![(
-        "test".to_string(),
-        grove_core::Command {
-            run: "cargo test".to_string(),
-            description: None,
-            working_dir: None,
-            env: None,
-            args: None,
-            ..Default::default()
-        },
-    )];
-    app.detail_items = vec![DetailItem::Command(0)];
-    app.detail_cursor = 0;
-
-    let hints = app.current_hints();
-    let has_enter_run = hints.iter().any(|h| h.key == "Enter" && h.action == "run");
+    // Press Enter — should fill selected completion, not submit
+    let result = prompt.handle_key(KeyCode::Enter, KeyModifiers::NONE, &cs);
     assert!(
-        has_enter_run,
-        "Hint bar should include Enter:run when cursor is on a command"
-    );
-}
-
-// ===== State Query Expand/Collapse Tests =====
-
-#[test]
-fn enter_on_state_query_toggles_expanded() {
-    use crate::state::{StateMetadata, StateQuery, StateResult};
-    use serde_json::json;
-
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail {
-            changed_files: vec![],
-            commits: vec![],
-            error: None,
-        }),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    // Set up a state query with data
-    app.state_queries = vec![StateQuery {
-        name: "verify".to_string(),
-        run: "echo test".to_string(),
-        description: None,
-        deterministic: true,
-        timeout: None,
-    }];
-    app.state_results = vec![Some(StateResult {
-        metadata: StateMetadata {
-            query_name: "verify".to_string(),
-            commit_hash: "abc".to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            command: "echo test".to_string(),
-            deterministic: true,
-        },
-        data: json!({"format": "OK", "lint": "OK", "tests": "OK"}),
-    })];
-    app.rebuild_detail_items();
-
-    // Navigate cursor to the state query item
-    let sq_pos = app
-        .detail_items
-        .iter()
-        .position(|item| matches!(item, DetailItem::StateQuery(0)))
-        .expect("StateQuery(0) should be in detail_items");
-    app.detail_cursor = sq_pos;
-
-    // Initially not expanded
-    assert!(
-        app.expanded_state_queries.is_empty(),
-        "Should start collapsed"
-    );
-
-    // Press Enter to expand
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-    assert!(
-        app.expanded_state_queries.contains(&0),
-        "Enter should expand state query"
-    );
-
-    // Press Enter again to collapse
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-    assert!(
-        app.expanded_state_queries.is_empty(),
-        "Second Enter should collapse"
-    );
-}
-
-#[test]
-fn expanded_state_query_adds_lines_to_detail_view() {
-    use crate::state::{StateMetadata, StateQuery, StateResult};
-    use serde_json::json;
-
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail {
-            changed_files: vec![],
-            commits: vec![],
-            error: None,
-        }),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    app.state_queries = vec![StateQuery {
-        name: "verify".to_string(),
-        run: "echo test".to_string(),
-        description: None,
-        deterministic: true,
-        timeout: None,
-    }];
-    app.state_results = vec![Some(StateResult {
-        metadata: StateMetadata {
-            query_name: "verify".to_string(),
-            commit_hash: "abc".to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            command: "echo test".to_string(),
-            deterministic: true,
-        },
-        data: json!({"format": "OK", "lint": "OK", "tests": "OK"}),
-    })];
-    app.rebuild_detail_items();
-
-    let collapsed_lines = app.build_repo_detail_lines().len();
-
-    // Expand the state query
-    app.expanded_state_queries.insert(0);
-
-    let expanded_lines = app.build_repo_detail_lines().len();
-    assert!(
-        expanded_lines > collapsed_lines,
-        "Expanding should add lines: collapsed={collapsed_lines}, expanded={expanded_lines}"
-    );
-    // 3 fields means 3 extra lines
-    assert_eq!(
-        expanded_lines - collapsed_lines,
-        3,
-        "Should add one line per field"
-    );
-}
-
-#[test]
-fn hint_bar_shows_expand_for_state_query() {
-    use crate::state::StateQuery;
-
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail {
-            changed_files: vec![],
-            commits: vec![],
-            error: None,
-        }),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    app.state_queries = vec![StateQuery {
-        name: "q".to_string(),
-        run: "echo".to_string(),
-        description: None,
-        deterministic: true,
-        timeout: None,
-    }];
-    app.state_results = vec![None];
-    app.rebuild_detail_items();
-
-    // Move cursor to state query
-    let sq_pos = app
-        .detail_items
-        .iter()
-        .position(|item| matches!(item, DetailItem::StateQuery(_)))
-        .expect("should have a StateQuery item");
-    app.detail_cursor = sq_pos;
-
-    let hints = app.current_hints();
-    let actions: Vec<&str> = hints.iter().map(|h| h.action).collect();
-    assert!(
-        actions.contains(&"expand/collapse"),
-        "Hints should include expand/collapse for state query, got: {actions:?}"
-    );
-}
-
-#[test]
-fn dynamic_hints_exclude_enter_run_on_file_change() {
-    let detail = RepoDetail {
-        changed_files: vec![FileChange {
-            path: "a.txt".to_string(),
-            status: FileChangeStatus::Modified,
-        }],
-        commits: vec![],
-        error: None,
-    };
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(detail),
-        "test-workspace".to_string(),
-    );
-    app.push_view(View::RepoDetail(0));
-    app.ensure_detail_loaded();
-
-    let hints = app.current_hints();
-    let has_enter = hints.iter().any(|h| h.key == "Enter");
-    assert!(
-        !has_enter,
-        "Hint bar should NOT include Enter when cursor is on a file change"
-    );
-}
-
-// --- Depth indent and lock staleness rendering tests ---
-
-#[test]
-fn format_repo_line_depth_one_prepends_tree_connector() {
-    let path = "/tmp/repo/.graft/software-factory".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("main".to_string());
-    status.is_dirty = false;
-
-    let line = format_repo_line(path, Some(&status), 80, 1, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        text.starts_with("  ├─ "),
-        "Depth-1 entry should start with tree connector, got: {text:?}"
-    );
-    assert!(text.contains("[main]"), "Should still show branch");
-}
-
-#[test]
-fn format_repo_line_depth_zero_has_no_indent() {
-    let path = "/tmp/repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("main".to_string());
-
-    let line = format_repo_line(path, Some(&status), 80, 0, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        !text.starts_with("  ├─ "),
-        "Depth-0 entry should not have tree connector, got: {text:?}"
-    );
-}
-
-#[test]
-fn format_repo_line_shows_lock_staleness_when_ahead() {
-    let path = "/tmp/repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("main".to_string());
-    status.is_dirty = false;
-
-    let line = format_repo_line(path, Some(&status), 80, 1, Some(3));
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        text.contains("⊛+3"),
-        "Should show lock staleness indicator, got: {text:?}"
-    );
-}
-
-#[test]
-fn format_repo_line_hides_lock_indicator_when_at_lock() {
-    let path = "/tmp/repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("main".to_string());
-
-    let line = format_repo_line(path, Some(&status), 80, 1, Some(0));
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        !text.contains("⊛"),
-        "Should not show lock indicator when at exact lock commit, got: {text:?}"
-    );
-}
-
-#[test]
-fn format_repo_line_hides_lock_indicator_when_none() {
-    let path = "/tmp/repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("main".to_string());
-
-    let line = format_repo_line(path, Some(&status), 80, 1, None);
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-
-    assert!(
-        !text.contains("⊛"),
-        "Should not show lock indicator when ahead_of_lock is None"
-    );
-}
-
-#[test]
-fn format_repo_line_lock_staleness_space_is_separate_span() {
-    // Verify the space before ⊛+N is a separate Span (consistent with ahead/behind pattern),
-    // not embedded in the lock text itself.
-    let path = "/tmp/repo".to_string();
-    let mut status = RepoStatus::new(RepoPath::new(&path).unwrap());
-    status.branch = Some("main".to_string());
-
-    let line = format_repo_line(path, Some(&status), 80, 0, Some(2));
-    let lock_span = line.spans.iter().find(|s| s.content.contains("⊛+2"));
-    assert!(
-        lock_span.is_some(),
-        "Should have a span containing ⊛+2, got: {:?}",
-        line.spans
-    );
-    let lock_content = lock_span.unwrap().content.as_ref();
-    assert!(
-        !lock_content.starts_with(' '),
-        "Lock span itself should not start with a space (space is a separate span), got: {lock_content:?}"
-    );
-}
-
-// ===== Run State section rendering tests =====
-
-fn lines_to_text(lines: &[ratatui::text::Line]) -> String {
-    lines
-        .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref().to_string()))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-#[test]
-fn run_state_section_shows_placeholder_when_empty() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    // run_state_entries is empty by default
-    app.rebuild_detail_items();
-
-    let lines = app.build_repo_detail_lines();
-    let text = lines_to_text(&lines);
-    assert!(text.contains("Run State"), "Should show section header");
-    assert!(
-        text.contains("No run state"),
-        "Should show empty placeholder"
-    );
-}
-
-#[test]
-fn run_state_section_shows_entries_with_collapsed_chevron() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.run_state_entries = vec![
-        ("session".to_string(), serde_json::json!({"id": "abc123"})),
-        ("config".to_string(), serde_json::json!({"env": "prod"})),
-    ];
-    app.rebuild_detail_items();
-
-    let lines = app.build_repo_detail_lines();
-    let text = lines_to_text(&lines);
-    assert!(text.contains("Run State"), "Should show section header");
-    assert!(text.contains("session"), "Should show first entry name");
-    assert!(text.contains("config"), "Should show second entry name");
-    assert!(text.contains('▸'), "Should show collapsed chevron");
-    assert!(
-        !text.contains("No run state"),
-        "Should not show placeholder"
-    );
-}
-
-#[test]
-fn run_state_entry_shows_producer_label() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.run_state_entries = vec![("session".to_string(), serde_json::json!({"id": "abc"}))];
-    app.run_state_producers
-        .insert("session".to_string(), vec!["login".to_string()]);
-    app.rebuild_detail_items();
-
-    let lines = app.build_repo_detail_lines();
-    let text = lines_to_text(&lines);
-    assert!(text.contains("← login"), "Should show producer label");
-}
-
-#[test]
-fn run_state_entry_without_producer_shows_no_arrow() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.run_state_entries = vec![("session".to_string(), serde_json::json!({"id": "abc"}))];
-    // run_state_producers left empty
-    app.rebuild_detail_items();
-
-    let lines = app.build_repo_detail_lines();
-    let text = lines_to_text(&lines);
-    assert!(
-        !text.contains("←"),
-        "Should not show arrow when no producer"
-    );
-}
-
-#[test]
-fn run_state_enter_toggles_expand() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.run_state_entries = vec![("session".to_string(), serde_json::json!({"id": "abc123"}))];
-    app.push_view(View::RepoDetail(0));
-    app.rebuild_detail_items();
-
-    // Position cursor on the RunState item
-    app.detail_cursor = app
-        .detail_items
-        .iter()
-        .position(|i| matches!(i, DetailItem::RunState(0)))
-        .expect("RunState(0) should exist");
-
-    let collapsed_lines = app.build_repo_detail_lines().len();
-    assert!(
-        !app.expanded_run_state.contains(&0),
-        "Should start collapsed"
-    );
-
-    // Press Enter — should expand
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-    assert!(
-        app.expanded_run_state.contains(&0),
-        "Should be expanded after Enter"
-    );
-    let expanded_lines = app.build_repo_detail_lines().len();
-    assert!(
-        expanded_lines > collapsed_lines,
-        "Expanded view should have more lines"
-    );
-
-    // Press Enter again — should collapse
-    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-    assert!(
-        !app.expanded_run_state.contains(&0),
-        "Should collapse after second Enter"
-    );
-    assert_eq!(
-        app.build_repo_detail_lines().len(),
-        collapsed_lines,
-        "Line count should return to collapsed count"
-    );
-}
-
-#[test]
-fn run_state_expanded_shows_json_and_consumers() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.run_state_entries = vec![(
-        "session".to_string(),
-        serde_json::json!({"id": "abc", "env": "prod"}),
-    )];
-    app.run_state_consumers
-        .insert("session".to_string(), vec!["deploy".to_string()]);
-    app.expanded_run_state.insert(0);
-    app.rebuild_detail_items();
-
-    let lines = app.build_repo_detail_lines();
-    let text = lines_to_text(&lines);
-    assert!(text.contains("id"), "Should show JSON key in expanded view");
-    assert!(
-        text.contains("reads: deploy"),
-        "Should show consumer in expanded view"
-    );
-    assert!(text.contains('▾'), "Should show expanded chevron");
-}
-
-#[test]
-fn run_state_cursor_navigates_across_entries() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.run_state_entries = vec![
-        ("alpha".to_string(), serde_json::json!({})),
-        ("beta".to_string(), serde_json::json!({})),
-    ];
-    app.rebuild_detail_items();
-
-    // Cursor should be able to reach both RunState items
-    let has_alpha = app
-        .detail_items
-        .iter()
-        .any(|i| matches!(i, DetailItem::RunState(0)));
-    let has_beta = app
-        .detail_items
-        .iter()
-        .any(|i| matches!(i, DetailItem::RunState(1)));
-    assert!(has_alpha, "RunState(0) should be in detail_items");
-    assert!(has_beta, "RunState(1) should be in detail_items");
-}
-
-#[test]
-fn run_state_multiple_producers_shown_joined() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.run_state_entries = vec![("session".to_string(), serde_json::json!({"id": "abc"}))];
-    app.run_state_producers.insert(
-        "session".to_string(),
-        vec!["login".to_string(), "refresh".to_string()],
-    );
-    app.rebuild_detail_items();
-
-    let lines = app.build_repo_detail_lines();
-    let text = lines_to_text(&lines);
-    assert!(
-        text.contains("login, refresh") || text.contains("login") && text.contains("refresh"),
-        "Should show both producer names, got: {text}"
-    );
-    assert!(
-        text.contains("←"),
-        "Should show arrow with multiple producers"
-    );
-}
-
-#[test]
-fn run_state_long_name_is_truncated() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    // Name longer than 12 chars should be truncated with "..."
-    app.run_state_entries = vec![("very-long-state-name".to_string(), serde_json::json!({}))];
-    app.rebuild_detail_items();
-
-    let lines = app.build_repo_detail_lines();
-    let text = lines_to_text(&lines);
-    assert!(
-        !text.contains("very-long-state-name"),
-        "Full long name should not appear verbatim"
-    );
-    assert!(text.contains("..."), "Truncated name should end with '...'");
-    assert!(
-        text.contains("very-lon"),
-        "Truncated prefix should be present"
-    );
-}
-
-#[test]
-fn run_state_jk_moves_cursor_across_entries() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.run_state_entries = vec![
-        ("alpha".to_string(), serde_json::json!({})),
-        ("beta".to_string(), serde_json::json!({})),
-        ("gamma".to_string(), serde_json::json!({})),
-    ];
-    app.push_view(View::RepoDetail(0));
-    app.rebuild_detail_items();
-
-    // Position cursor on first RunState item
-    app.detail_cursor = app
-        .detail_items
-        .iter()
-        .position(|i| matches!(i, DetailItem::RunState(0)))
-        .expect("RunState(0) should exist");
-
-    assert_eq!(
-        app.current_detail_item(),
-        Some(&DetailItem::RunState(0)),
-        "Should start on RunState(0)"
-    );
-
-    // Press j — should move to RunState(1)
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(
-        app.current_detail_item(),
-        Some(&DetailItem::RunState(1)),
-        "j should move to RunState(1)"
-    );
-
-    // Press j again — should move to RunState(2)
-    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert_eq!(
-        app.current_detail_item(),
-        Some(&DetailItem::RunState(2)),
-        "j should move to RunState(2)"
-    );
-
-    // Press k — should move back to RunState(1)
-    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert_eq!(
-        app.current_detail_item(),
-        Some(&DetailItem::RunState(1)),
-        "k should move back to RunState(1)"
-    );
-}
-
-#[test]
-fn run_state_dep_qualified_producer_shown() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::with_detail(RepoDetail::empty()),
-        "test-workspace".to_string(),
-    );
-    app.cached_detail_index = Some(0);
-    app.run_state_entries = vec![("session".to_string(), serde_json::json!({"id": "x"}))];
-    // Dep-qualified producer name: "notebook:login"
-    app.run_state_producers
-        .insert("session".to_string(), vec!["notebook:login".to_string()]);
-    app.rebuild_detail_items();
-
-    let lines = app.build_repo_detail_lines();
-    let text = lines_to_text(&lines);
-    assert!(
-        text.contains("notebook:login"),
-        "Should show dep-qualified producer name, got: {text}"
-    );
-    assert!(text.contains("←"), "Should show arrow for dep producer");
-}
-
-// ===== Approval overlay tests =====
-
-fn make_pending_checkpoint_entry() -> (String, serde_json::Value) {
-    (
-        "checkpoint".to_string(),
-        serde_json::json!({
-            "phase": "awaiting-review",
-            "sequence": "implement-verified",
-            "message": "Sequence complete.",
-            "created_at": "2026-02-25T00:00:00Z"
-        }),
-    )
-}
-
-fn make_approved_checkpoint_entry() -> (String, serde_json::Value) {
-    (
-        "checkpoint".to_string(),
-        serde_json::json!({"phase": "approved"}),
-    )
-}
-
-#[test]
-fn is_pending_checkpoint_true_for_awaiting_review() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.run_state_entries = vec![make_pending_checkpoint_entry()];
-
-    assert!(
-        app.is_pending_checkpoint(0),
-        "checkpoint entry with phase awaiting-review should be pending"
-    );
-}
-
-#[test]
-fn is_pending_checkpoint_false_for_approved_phase() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.run_state_entries = vec![make_approved_checkpoint_entry()];
-
-    assert!(
-        !app.is_pending_checkpoint(0),
-        "checkpoint entry with phase approved should not be pending"
-    );
-}
-
-#[test]
-fn is_pending_checkpoint_false_for_non_checkpoint_name() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    // Same phase value but name is "verify", not "checkpoint"
-    app.run_state_entries = vec![(
-        "verify".to_string(),
-        serde_json::json!({"phase": "awaiting-review"}),
-    )];
-
-    assert!(
-        !app.is_pending_checkpoint(0),
-        "non-checkpoint entry should not be pending even if phase matches"
-    );
-}
-
-#[test]
-fn is_pending_checkpoint_false_for_out_of_bounds_index() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.run_state_entries = vec![]; // empty
-
-    assert!(
-        !app.is_pending_checkpoint(0),
-        "out-of-bounds index should return false, not panic"
-    );
-}
-
-#[test]
-fn approval_overlay_a_dismisses_overlay_and_pushes_command_output() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.run_state_entries = vec![make_pending_checkpoint_entry()];
-    app.approval_overlay = Some(ApprovalOverlayState {
-        sequence: "implement-verified".to_string(),
-        approve_cmd: "approve".to_string(),
-        reject_cmd: "reject".to_string(),
-        message: "Sequence complete.".to_string(),
-        feedback_input: None,
-    });
-
-    app.handle_key_approval_overlay(KeyCode::Char('a'), KeyModifiers::NONE);
-
-    assert!(
-        app.approval_overlay.is_none(),
-        "'a' should dismiss the overlay"
-    );
-    assert_eq!(
-        *app.current_view(),
-        View::CommandOutput,
-        "'a' should push CommandOutput onto the view stack"
-    );
-    assert!(
-        app.run_state_entries.is_empty(),
-        "'a' should clear run_state_entries to force reload"
-    );
-}
-
-#[test]
-fn approval_overlay_r_opens_feedback_input() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.approval_overlay = Some(ApprovalOverlayState {
-        sequence: "implement-verified".to_string(),
-        approve_cmd: "approve".to_string(),
-        reject_cmd: "reject".to_string(),
-        message: "Sequence complete.".to_string(),
-        feedback_input: None,
-    });
-
-    app.handle_key_approval_overlay(KeyCode::Char('r'), KeyModifiers::NONE);
-
-    assert!(
-        app.approval_overlay.is_some(),
-        "'r' should keep the approval overlay while feedback input is open"
-    );
-    assert!(
-        app.approval_overlay
-            .as_ref()
-            .unwrap()
-            .feedback_input
-            .is_some(),
-        "'r' should set feedback_input on the approval overlay state"
-    );
-    assert_eq!(
-        *app.current_view(),
-        View::Dashboard,
-        "'r' should not push CommandOutput yet"
-    );
-}
-
-#[test]
-fn approval_feedback_enter_rejects_with_feedback_and_clears_overlay() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.run_state_entries = vec![make_pending_checkpoint_entry()];
-    // Simulate state after 'r' was pressed: feedback_input is set on approval_overlay
-    let mut fb = text_buffer::TextBuffer::new();
-    fb.set("needs more tests");
-    app.approval_overlay = Some(ApprovalOverlayState {
-        sequence: "implement-verified".to_string(),
-        approve_cmd: "approve".to_string(),
-        reject_cmd: "reject".to_string(),
-        message: "Sequence complete.".to_string(),
-        feedback_input: Some(fb),
-    });
-
-    app.handle_key_approval_overlay(KeyCode::Enter, KeyModifiers::NONE);
-
-    assert!(
-        app.approval_overlay.is_none(),
-        "Enter should clear the approval overlay"
-    );
-    assert_eq!(
-        *app.current_view(),
-        View::CommandOutput,
-        "Enter should push CommandOutput"
-    );
-    assert!(
-        app.run_state_entries.is_empty(),
-        "Enter should clear run_state_entries to force reload"
-    );
-}
-
-#[test]
-fn approval_feedback_esc_cancels_feedback_input_and_returns_to_overlay_mode() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.run_state_entries = vec![make_pending_checkpoint_entry()];
-    let initial_view = app.current_view().clone();
-    // Simulate state after 'r' was pressed: feedback_input is set on approval_overlay
-    app.approval_overlay = Some(ApprovalOverlayState {
-        sequence: "implement-verified".to_string(),
-        approve_cmd: "approve".to_string(),
-        reject_cmd: "reject".to_string(),
-        message: "Sequence complete.".to_string(),
-        feedback_input: Some(text_buffer::TextBuffer::new()),
-    });
-
-    app.handle_key_approval_overlay(KeyCode::Esc, KeyModifiers::NONE);
-
-    // Esc should cancel feedback input and return to normal overlay mode (no reject).
-    assert!(
-        app.approval_overlay.is_some(),
-        "Esc in feedback mode should keep the approval overlay open"
-    );
-    assert!(
-        app.approval_overlay
-            .as_ref()
-            .unwrap()
-            .feedback_input
-            .is_none(),
-        "Esc in feedback mode should clear feedback_input"
-    );
-    assert_eq!(
-        *app.current_view(),
-        initial_view,
-        "Esc in feedback mode should not change the current view"
-    );
-    assert!(
-        !app.run_state_entries.is_empty(),
-        "Esc in feedback mode should not clear run_state_entries"
-    );
-}
-
-#[test]
-fn approval_overlay_esc_dismisses_overlay_without_changing_view() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    let initial_view = app.current_view().clone();
-    app.approval_overlay = Some(ApprovalOverlayState {
-        sequence: "implement-verified".to_string(),
-        approve_cmd: "approve".to_string(),
-        reject_cmd: "reject".to_string(),
-        message: "Sequence complete.".to_string(),
-        feedback_input: None,
-    });
-
-    app.handle_key_approval_overlay(KeyCode::Esc, KeyModifiers::NONE);
-
-    assert!(
-        app.approval_overlay.is_none(),
-        "Esc should dismiss the overlay"
-    );
-    assert_eq!(
-        *app.current_view(),
-        initial_view,
-        "Esc should not change the view"
-    );
-}
-
-#[test]
-fn approval_overlay_unrecognised_key_does_not_dismiss() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    app.approval_overlay = Some(ApprovalOverlayState {
-        sequence: "implement-verified".to_string(),
-        approve_cmd: "approve".to_string(),
-        reject_cmd: "reject".to_string(),
-        message: "Sequence complete.".to_string(),
-        feedback_input: None,
-    });
-
-    app.handle_key_approval_overlay(KeyCode::Char('x'), KeyModifiers::NONE);
-
-    assert!(
-        app.approval_overlay.is_some(),
-        "Unrecognised key should not dismiss the overlay"
-    );
-}
-
-#[test]
-fn approval_overlay_intercepts_keys_before_dashboard_handler() {
-    let mut app = App::new(
-        MockRegistry::with_repos(1),
-        MockDetailProvider::empty(),
-        "test-workspace".to_string(),
-    );
-    // 'q' would quit from Dashboard, but approval overlay must intercept first.
-    app.approval_overlay = Some(ApprovalOverlayState {
-        sequence: "implement-verified".to_string(),
-        approve_cmd: "approve".to_string(),
-        reject_cmd: "reject".to_string(),
-        message: "Sequence complete.".to_string(),
-        feedback_input: None,
-    });
-
-    app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-
-    assert!(
-        !app.should_quit,
-        "'q' should not quit when approval overlay is active"
-    );
-    assert!(
-        app.approval_overlay.is_some(),
-        "overlay should remain after unrecognised key 'q'"
-    );
+        result.is_none(),
+        "Enter should not submit when required arg is missing"
+    );
+    assert!(prompt.is_active(), "Prompt should stay active");
+    // Buffer should have the completion filled with a trailing space
+    let buffer = &prompt.command_line.as_ref().unwrap().text.buffer;
+    assert_eq!(buffer, "run deploy staging ");
 }

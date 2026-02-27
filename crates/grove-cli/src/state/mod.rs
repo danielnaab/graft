@@ -5,7 +5,9 @@
 pub mod discovery;
 pub mod query;
 
+#[allow(unused_imports)]
 pub use discovery::discover_state_queries;
+#[allow(unused_imports)]
 pub use query::{format_state_summary, StateQuery};
 
 // Re-export shared types and functions from graft-common.

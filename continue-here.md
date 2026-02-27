@@ -7,9 +7,9 @@ archive_policy: "Snapshot before major milestones, keep latest"
 
 # Continue Development Here
 
-**Last Updated**: 2026-02-23
+**Last Updated**: 2026-02-27
 **Branch**: `main`
-**Status**: Production ready. Software factory operational. Active design work on command output state mapping.
+**Status**: Grove TUI refactor in progress (Phase 1 complete). Transcript paradigm replacing spatial dashboard.
 
 ---
 
@@ -83,11 +83,38 @@ cargo run -p grove-cli -- status
 
 ## Recent Changes
 
-**Latest commits** (most recent first):
+### Grove TUI Refactor — Phase 1 Complete (2026-02-27)
+
+Replaced the old spatial dashboard TUI (~6300 lines, view stacks, overlays, cursor models)
+with a transcript paradigm (~4100 lines). Scrolling content area + command prompt at bottom,
+similar to Claude Code / OpenCode.
+
+**What was done:**
+- Created: `scroll_buffer.rs`, `transcript.rs`, `header.rs`, `prompt.rs`, `formatting.rs`
+- Rewrote: `mod.rs`, `command_line.rs` (stripped `impl App` blocks), `status_bar.rs`, `tests.rs`
+- Deleted: `app.rs`, `render.rs`, `repo_list.rs`, `hint_bar.rs`, `overlays.rs`, `repo_detail.rs`
+- Kept unchanged: `text_buffer.rs`, `command_exec.rs`, `state/`
+
+**Working commands:** `:repos`, `:repo <name|idx>`, `:help`, `:refresh`/`:r`, `:quit`/`:q`,
+`:run <cmd>`, plus `j/k` scroll, `Tab/BackTab` focus, `Enter` collapse toggle.
+
+**Verification:** `cargo fmt --check` clean, `cargo clippy -- -D warnings` clean,
+88 unit tests + 26 integration tests all passing.
+
+**Known issues to fix before Phase 2:**
+- Palette Enter handler has dead branch (`buffer.is_empty()` guard prevents palette selection)
+- Palette filtering uses substring instead of prefix matching
+- Silent failures when `graft.yaml` parsing errors occur
+- Output pushed as immutable Text blocks (needs streaming Output block for Phase 3)
+- See review notes in plan file for full list
+
+**Plan:** 5-phase refactor. Phases 2-5 remain (status/state/catalog commands, command
+execution with streaming output, sequences/approvals, test migration/cleanup).
+Plan file: `.claude/plans/snazzy-skipping-gosling.md`
+
+**Previous commits** (pre-refactor):
 1. Wire software-factory commands into graft.yaml; move state mapping slices here
 2. Add command-state-declarations and command-output-state-capture slices
-3. Design note: command output state mapping and Grove workflow operationalization
-4. Software factory: session resume, shared lib, verification step
 
 Run `git log --oneline -10` for complete history.
 

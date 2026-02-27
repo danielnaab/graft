@@ -1,4 +1,5 @@
 //! Discover state queries from graft.yaml files.
+#![allow(dead_code)]
 use super::query::StateQuery;
 use std::path::Path;
 

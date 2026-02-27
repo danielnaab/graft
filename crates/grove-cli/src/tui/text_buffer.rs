@@ -21,6 +21,7 @@ impl TextBuffer {
 
     /// Create a `TextBuffer` with initial content and a specific cursor position.
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) fn with_content(s: &str, cursor_pos: usize) -> Self {
         Self {
             buffer: s.to_string(),

@@ -1,16 +1,20 @@
-//! Repository list rendering and path formatting utilities.
+//! Path formatting and display utilities extracted from the repo list renderer.
+#![allow(dead_code)]
 
-use super::{
-    Alignment, App, Block, Borders, Color, FileChangeStatus, Line, List, ListItem, Modifier,
-    Paragraph, Rect, RepoDetailProvider, RepoRegistry, RepoStatus, Span, Style, UnicodeWidthStr,
+use ratatui::{
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
 };
+use unicode_width::UnicodeWidthStr;
+
+use grove_core::{FileChangeStatus, RepoStatus};
 
 /// Extract the basename (final component) from a path.
 ///
 /// # Examples
-/// - `/home/user/src/graft` → `graft`
-/// - `~/projects/repo` → `repo`
-/// - `/tmp` → `tmp`
+/// - `/home/user/src/graft` -> `graft`
+/// - `~/projects/repo` -> `repo`
+/// - `/tmp` -> `tmp`
 pub(crate) fn extract_basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
@@ -18,7 +22,7 @@ pub(crate) fn extract_basename(path: &str) -> &str {
 /// Compact a path to fit within a maximum width using abbreviation strategies.
 ///
 /// Applies transformations in order:
-/// 1. Home directory shown as "~" (e.g., `/home/user` → `~`)
+/// 1. Home directory shown as "~" (e.g., `/home/user` -> `~`)
 /// 2. Parent directory components abbreviated to first character (preserves last 2 components)
 /// 3. Fallback to prefix truncation with "[..]" if still too wide
 pub(crate) fn compact_path(path: &str, max_width: usize) -> String {
@@ -121,17 +125,14 @@ pub(crate) fn format_file_change_indicator(status: &FileChangeStatus) -> (&'stat
 }
 
 /// Tree connector prefix for nested graft deps (depth > 0).
-const INDENT_PREFIX: &str = "  ├─ ";
-/// Display columns consumed by `INDENT_PREFIX` (2 spaces + ├ + ─ + 1 space = 5 cols).
+const INDENT_PREFIX: &str = "  \u{251c}\u{2500} ";
+/// Display columns consumed by `INDENT_PREFIX` (2 spaces + box-draw + dash + 1 space = 5 cols).
 const INDENT_WIDTH: u16 = 5;
 
 /// Format a repository status line for display in the TUI.
 ///
 /// `depth` and `ahead_of_lock` come from `RepoRegistry::get_display_meta()` rather
 /// than from `RepoStatus`, keeping git-status data separate from display metadata.
-///
-/// Returns `Line<'static>` because all data is owned (no borrowing from input parameters).
-/// The 'static lifetime indicates the Line owns its data, not that it's statically allocated.
 #[allow(
     clippy::too_many_lines,
     clippy::single_match_else,
@@ -144,14 +145,13 @@ pub(crate) fn format_repo_line(
     depth: usize,
     ahead_of_lock: Option<usize>,
 ) -> Line<'static> {
-    // Verify constant is in sync with the prefix string (catches edits to INDENT_PREFIX).
+    // Verify constant is in sync with the prefix string.
     debug_assert_eq!(
         INDENT_PREFIX.width(),
         INDENT_WIDTH as usize,
         "INDENT_WIDTH is out of sync with INDENT_PREFIX display width"
     );
 
-    // Effective pane width after accounting for depth indent.
     let effective_width = if depth > 0 {
         pane_width.saturating_sub(INDENT_WIDTH)
     } else {
@@ -180,7 +180,6 @@ fn format_repo_line_inner(
 ) -> Line<'static> {
     match status {
         Some(status) => {
-            // Check for error first
             if let Some(error_msg) = &status.error {
                 let error_text = format!("[error: {error_msg}]");
                 let overhead = 2 + 1 + error_text.width() + 3;
@@ -199,13 +198,16 @@ fn format_repo_line_inner(
                     Span::styled(error_text, Style::default().fg(error_color)),
                 ])
             } else {
-                // Build status indicators first to calculate their width
                 let branch = status
                     .branch
                     .as_ref()
                     .map_or_else(|| "[detached]".to_string(), |b| format!("[{b}]"));
 
-                let dirty_indicator = if status.is_dirty { "●" } else { "○" };
+                let dirty_indicator = if status.is_dirty {
+                    "\u{25cf}"
+                } else {
+                    "\u{25cb}"
+                };
                 let dirty_color = if status.is_dirty {
                     Color::Yellow
                 } else {
@@ -215,35 +217,32 @@ fn format_repo_line_inner(
                 let ahead_text = status
                     .ahead
                     .filter(|&n| n > 0)
-                    .map(|n| format!("↑{n}"))
+                    .map(|n| format!("\u{2191}{n}"))
                     .unwrap_or_default();
 
                 let behind_text = status
                     .behind
                     .filter(|&n| n > 0)
-                    .map(|n| format!("↓{n}"))
+                    .map(|n| format!("\u{2193}{n}"))
                     .unwrap_or_default();
 
-                // Lock staleness indicator (consistent with ahead/behind: space pushed separately).
                 let lock_text = match ahead_of_lock {
-                    Some(n) if n > 0 => format!("⊛+{n}"),
+                    Some(n) if n > 0 => format!("\u{229b}+{n}"),
                     _ => String::new(),
                 };
 
-                // Calculate status width WITHOUT branch (for tight space fallback)
-                let mut minimal_status_width = 1 + 1; // space + dirty indicator
+                let mut minimal_status_width = 1 + 1;
                 if !ahead_text.is_empty() {
-                    minimal_status_width += 1 + ahead_text.width(); // space + ahead
+                    minimal_status_width += 1 + ahead_text.width();
                 }
                 if !behind_text.is_empty() {
-                    minimal_status_width += 1 + behind_text.width(); // space + behind
+                    minimal_status_width += 1 + behind_text.width();
                 }
                 if !lock_text.is_empty() {
-                    minimal_status_width += 1 + lock_text.width(); // space + lock
+                    minimal_status_width += 1 + lock_text.width();
                 }
 
                 if pane_width < 15 {
-                    // Very tight: show just basename
                     let basename = extract_basename(path);
                     let overhead = 2 + minimal_status_width + 3;
                     let max_basename_width = (pane_width as usize).saturating_sub(overhead);
@@ -264,12 +263,10 @@ fn format_repo_line_inner(
                         spans.push(Span::raw(" "));
                         spans.push(Span::styled(ahead_text, Style::default().fg(Color::Green)));
                     }
-
                     if !behind_text.is_empty() {
                         spans.push(Span::raw(" "));
                         spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
                     }
-
                     if !lock_text.is_empty() {
                         spans.push(Span::raw(" "));
                         spans.push(Span::styled(lock_text, Style::default().fg(Color::Yellow)));
@@ -277,9 +274,7 @@ fn format_repo_line_inner(
 
                     Line::from(spans)
                 } else {
-                    // Calculate status width WITH branch
                     let full_status_width = 1 + branch.width() + minimal_status_width;
-
                     let overhead_with_branch = 2 + full_status_width + 3;
                     let max_path_width_with_branch =
                         (pane_width as usize).saturating_sub(overhead_with_branch);
@@ -304,12 +299,10 @@ fn format_repo_line_inner(
                             spans.push(Span::raw(" "));
                             spans.push(Span::styled(ahead_text, Style::default().fg(Color::Green)));
                         }
-
                         if !behind_text.is_empty() {
                             spans.push(Span::raw(" "));
                             spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
                         }
-
                         if !lock_text.is_empty() {
                             spans.push(Span::raw(" "));
                             spans.push(Span::styled(lock_text, Style::default().fg(Color::Yellow)));
@@ -332,12 +325,10 @@ fn format_repo_line_inner(
                             spans.push(Span::raw(" "));
                             spans.push(Span::styled(ahead_text, Style::default().fg(Color::Green)));
                         }
-
                         if !behind_text.is_empty() {
                             spans.push(Span::raw(" "));
                             spans.push(Span::styled(behind_text, Style::default().fg(Color::Red)));
                         }
-
                         if !lock_text.is_empty() {
                             spans.push(Span::raw(" "));
                             spans.push(Span::styled(lock_text, Style::default().fg(Color::Yellow)));
@@ -359,93 +350,6 @@ fn format_repo_line_inner(
                 Span::raw(" "),
                 Span::styled(loading_text, Style::default().fg(Color::Gray)),
             ])
-        }
-    }
-}
-
-impl<R: RepoRegistry, D: RepoDetailProvider> App<R, D> {
-    /// Render the repository list in the left pane.
-    pub(super) fn render_repo_list(&mut self, frame: &mut ratatui::Frame, area: Rect) {
-        let repos = self.registry.list_repos();
-        let pane_width = area.width;
-
-        // Always use Cyan — render_repo_list is only called when Dashboard is the current view.
-        let list_border_color = Color::Cyan;
-
-        let title = format!("Grove: {}", self.workspace_name);
-
-        if repos.is_empty() {
-            let empty_message = vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    "No repositories configured",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "Edit your workspace config to add repositories:",
-                    Style::default().fg(Color::Gray),
-                )),
-                Line::from(Span::styled(
-                    "  ~/.config/grove/workspace.yaml",
-                    Style::default().fg(Color::Cyan),
-                )),
-                Line::from(""),
-                Line::from(Span::styled("Example:", Style::default().fg(Color::Gray))),
-                Line::from(Span::styled(
-                    "  repositories:",
-                    Style::default().fg(Color::DarkGray),
-                )),
-                Line::from(Span::styled(
-                    "    - path: ~/src/my-project",
-                    Style::default().fg(Color::DarkGray),
-                )),
-            ];
-
-            let empty_widget = Paragraph::new(empty_message)
-                .block(
-                    Block::default()
-                        .title(title)
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(list_border_color)),
-                )
-                .alignment(Alignment::Center);
-
-            frame.render_widget(empty_widget, area);
-        } else {
-            let items: Vec<ListItem> = repos
-                .iter()
-                .map(|repo_path| {
-                    let status = self.registry.get_status(repo_path);
-                    let meta = self.registry.get_display_meta(repo_path);
-                    let line = format_repo_line(
-                        repo_path.as_path().display().to_string(),
-                        status,
-                        pane_width,
-                        meta.depth,
-                        meta.ahead_of_lock,
-                    );
-                    ListItem::new(line)
-                })
-                .collect();
-
-            let list = List::new(items)
-                .block(
-                    Block::default()
-                        .title(title)
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(list_border_color)),
-                )
-                .highlight_style(
-                    Style::default()
-                        .bg(Color::Rgb(40, 40, 50))
-                        .add_modifier(Modifier::BOLD),
-                )
-                .highlight_symbol("▶ ");
-
-            frame.render_stateful_widget(list, area, &mut self.list_state);
         }
     }
 }
