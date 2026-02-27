@@ -179,8 +179,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     pub(super) fn handle_key(&mut self, code: KeyCode, modifiers: crossterm::event::KeyModifiers) {
         // Command line intercepts all keys when active
         if self.prompt.is_active() {
+            let resolved = self.commands_with_resolved_options();
             let cs = self.prompt.compute_completions(
-                &self.context.available_commands,
+                &resolved,
                 &self.repo_basenames(),
                 &self.state_query_names(),
             );
@@ -1163,8 +1164,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
 
             // Render prompt or status bar
             if self.prompt.is_active() {
+                let resolved = self.commands_with_resolved_options();
                 let cs = self.prompt.compute_completions(
-                    &self.context.available_commands,
+                    &resolved,
                     &self.repo_basenames(),
                     &self.state_query_names(),
                 );
@@ -1337,6 +1339,89 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
 
         self.context.available_commands = commands;
     }
+
+    /// Return `available_commands` with `options_from` args resolved to their cached values.
+    ///
+    /// For each command arg with `options_from` set and no static `options`, reads the latest
+    /// cached state result and fills in `options` with the extracted string values. Commands
+    /// with only static options or no args are returned as-is (cloned).
+    fn commands_with_resolved_options(&self) -> Vec<(String, graft_common::CommandDef)> {
+        let repo_name = self
+            .context
+            .selected_repo_path
+            .as_deref()
+            .map(graft_common::repo_name_from_path)
+            .unwrap_or_default();
+
+        self.context
+            .available_commands
+            .iter()
+            .map(|(name, def)| {
+                let needs_patch = def.args.as_ref().is_some_and(|args| {
+                    args.iter()
+                        .any(|a| a.options_from.is_some() && a.options.is_none())
+                });
+                if !needs_patch {
+                    return (name.clone(), def.clone());
+                }
+                let mut patched = def.clone();
+                if let Some(ref mut args) = patched.args {
+                    for arg in args.iter_mut() {
+                        if arg.options.is_none() {
+                            if let Some(query_name) = &arg.options_from.clone() {
+                                arg.options =
+                                    Some(self.resolve_options_from(query_name, repo_name));
+                            }
+                        }
+                    }
+                }
+                (name.clone(), patched)
+            })
+            .collect()
+    }
+
+    /// Read the latest cached state for `query_name` and extract a flat list of string options.
+    fn resolve_options_from(&self, query_name: &str, repo_name: &str) -> Vec<String> {
+        let Some(result) =
+            graft_common::read_latest_cached(&self.workspace_name, repo_name, query_name)
+        else {
+            return Vec::new();
+        };
+        extract_options_from_state(query_name, &result.data)
+    }
+}
+
+/// Extract a flat list of string options from a state query result.
+///
+/// Looks for a top-level array under the key matching `query_name`. Each element is
+/// converted to a string: bare strings are used as-is; objects with a `path` field
+/// yield the parent directory of that path (stripping the trailing filename); objects
+/// with a `name` field yield that name.
+pub(super) fn extract_options_from_state(
+    query_name: &str,
+    data: &serde_json::Value,
+) -> Vec<String> {
+    let Some(arr) = data.get(query_name).and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|item| {
+            if let Some(s) = item.as_str() {
+                Some(s.to_string())
+            } else if let Some(path) = item.get("path").and_then(|v| v.as_str()) {
+                // Strip the trailing filename (e.g. "slices/foo/plan.md" → "slices/foo")
+                Some(
+                    path.rsplit_once('/')
+                        .map_or(path, |(dir, _)| dir)
+                        .to_string(),
+                )
+            } else {
+                item.get("name")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string)
+            }
+        })
+        .collect()
 }
 
 /// Helper to build a help line.

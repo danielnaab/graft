@@ -13,7 +13,7 @@ use super::prompt::{
     CompletionState,
 };
 use super::scroll_buffer::{BlockId, ContentBlock, ScrollBuffer};
-use super::transcript::TranscriptApp;
+use super::transcript::{extract_options_from_state, TranscriptApp};
 
 // ===== Mock infrastructure =====
 
@@ -750,6 +750,64 @@ fn ghost_hint_suffix_case_insensitive() {
 #[test]
 fn ghost_hint_suffix_no_space() {
     assert_eq!(ghost_hint_suffix("build", "build"), None);
+}
+
+// ===== extract_options_from_state tests =====
+
+#[test]
+fn options_from_state_extracts_path_array() {
+    let data = serde_json::json!({
+        "slices": [
+            {"path": "slices/foo/plan.md", "status": "draft"},
+            {"path": "slices/bar/plan.md", "status": "done"},
+        ]
+    });
+    let opts = extract_options_from_state("slices", &data);
+    assert_eq!(opts, vec!["slices/foo", "slices/bar"]);
+}
+
+#[test]
+fn options_from_state_extracts_string_array() {
+    let data = serde_json::json!({"tags": ["alpha", "beta", "gamma"]});
+    let opts = extract_options_from_state("tags", &data);
+    assert_eq!(opts, vec!["alpha", "beta", "gamma"]);
+}
+
+#[test]
+fn options_from_state_extracts_name_field() {
+    let data = serde_json::json!({
+        "envs": [{"name": "staging"}, {"name": "production"}]
+    });
+    let opts = extract_options_from_state("envs", &data);
+    assert_eq!(opts, vec!["staging", "production"]);
+}
+
+#[test]
+fn options_from_state_missing_key_returns_empty() {
+    let data = serde_json::json!({"other": ["x", "y"]});
+    let opts = extract_options_from_state("slices", &data);
+    assert!(opts.is_empty());
+}
+
+#[test]
+fn run_completions_options_from_resolved() {
+    // Simulate a command where options_from has been pre-resolved into options
+    let commands = vec![make_command(
+        "software-factory:implement",
+        "Implement a slice",
+        Some(vec![make_arg(
+            "slice",
+            graft_common::ArgType::Choice,
+            true,
+            Some(vec!["slices/foo".to_string(), "slices/bar".to_string()]),
+        )]),
+    )];
+    let cs = compute_run_completions("software-factory:implement ", &commands);
+    assert_eq!(cs.completions.len(), 2);
+    let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
+    assert!(values.contains(&"slices/foo"));
+    assert!(values.contains(&"slices/bar"));
+    assert!(cs.requires_more_input);
 }
 
 // ===== compute_completions tests =====
