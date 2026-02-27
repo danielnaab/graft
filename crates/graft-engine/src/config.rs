@@ -445,16 +445,21 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
                             reason: "cache must be an object".to_string(),
                         })?;
 
-                let deterministic = cache_obj
-                    .get(Value::String("deterministic".to_string()))
-                    .and_then(serde_yaml::Value::as_bool)
-                    .unwrap_or(true);
+                let inputs = cache_obj
+                    .get(Value::String("inputs".to_string()))
+                    .and_then(serde_yaml::Value::as_sequence)
+                    .map(|seq| {
+                        seq.iter()
+                            .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
 
                 let ttl = cache_obj
                     .get(Value::String("ttl".to_string()))
                     .and_then(serde_yaml::Value::as_u64);
 
-                query.cache = StateCache { deterministic, ttl };
+                query.cache = StateCache { inputs, ttl };
             }
 
             // Parse timeout (optional)
@@ -788,20 +793,22 @@ commands:
     }
 
     #[test]
-    fn parses_state_query_with_ttl() {
+    fn parses_state_query_with_inputs_and_ttl() {
         let yaml = r#"
 apiVersion: graft/v0
 state:
   verify:
     run: "cargo test"
     cache:
-      deterministic: true
+      inputs:
+        - "**/*.rs"
+        - "Cargo.toml"
       ttl: 120
     timeout: 60
 "#;
         let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
         let query = config.state.get("verify").unwrap();
-        assert!(query.cache.deterministic);
+        assert_eq!(query.cache.inputs, &["**/*.rs", "Cargo.toml"]);
         assert_eq!(query.cache.ttl, Some(120));
         assert_eq!(query.timeout, Some(60));
     }

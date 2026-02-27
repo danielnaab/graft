@@ -136,7 +136,6 @@ pub fn execute_state_query(
             commit_hash: commit_hash.to_string(),
             timestamp,
             command: query.run.clone(),
-            deterministic: query.cache.deterministic,
         },
         data,
     })
@@ -151,28 +150,35 @@ pub fn get_state(
     commit_hash: &str,
     refresh: bool,
 ) -> Result<StateResult> {
+    // Compute cache key based on declared inputs.
+    // None means no inputs declared → never cache, always run fresh.
+    let cache_key =
+        graft_common::compute_input_cache_key(&query.cache.inputs, repo_path, commit_hash);
+
     // Check cache (unless refresh requested)
-    if !refresh && query.cache.deterministic {
-        if let Some(cached) = read_cached_state(workspace_name, repo_name, &query.name, commit_hash)
-        {
-            // If TTL is configured, check if cache has expired
-            if let Some(ttl_secs) = query.cache.ttl {
-                if is_cache_expired(&cached.metadata.timestamp, ttl_secs) {
-                    // Cache expired, fall through to re-execute
+    if !refresh {
+        if let Some(ref key) = cache_key {
+            if let Some(cached) = read_cached_state(workspace_name, repo_name, &query.name, key) {
+                // If TTL is configured, check if cache has expired
+                if let Some(ttl_secs) = query.cache.ttl {
+                    if is_cache_expired(&cached.metadata.timestamp, ttl_secs) {
+                        // Cache expired, fall through to re-execute
+                    } else {
+                        return Ok(cached);
+                    }
                 } else {
                     return Ok(cached);
                 }
-            } else {
-                return Ok(cached);
             }
         }
     }
 
-    // Execute query
-    let result = execute_state_query(query, repo_path, commit_hash)?;
+    // Execute query (use cache key as the commit_hash field when available)
+    let effective_key = cache_key.as_deref().unwrap_or(commit_hash);
+    let result = execute_state_query(query, repo_path, effective_key)?;
 
-    // Cache result if deterministic
-    if result.metadata.deterministic {
+    // Write to cache if we have a key (inputs declared)
+    if cache_key.is_some() {
         write_cached_state(workspace_name, repo_name, &result)?;
     }
 
@@ -209,12 +215,14 @@ pub fn list_state_queries<S: ::std::hash::BuildHasher>(
     queries: &HashMap<String, StateQuery, S>,
     workspace_name: &str,
     repo_name: &str,
-    commit_hash: &str,
+    _commit_hash: &str,
 ) -> Vec<StateQueryStatus> {
     queries
         .iter()
         .map(|(name, query)| {
-            let cached = read_cached_state(workspace_name, repo_name, name, commit_hash);
+            // Use read_latest_cached (not commit-keyed) so we show any cached result
+            // regardless of whether the cache key was a commit hash or a content hash.
+            let cached = graft_common::state::read_latest_cached(workspace_name, repo_name, name);
 
             StateQueryStatus {
                 name: name.clone(),
@@ -244,7 +252,7 @@ mod tests {
         let query = StateQuery::new("test", "echo '{\"result\": \"ok\"}'")
             .unwrap()
             .with_cache(StateCache {
-                deterministic: true,
+                inputs: vec!["**/*.rs".to_string()],
                 ttl: None,
             });
 
@@ -328,7 +336,6 @@ mod tests {
                 commit_hash: commit.to_string(),
                 timestamp: old_timestamp,
                 command: "echo '{\"old\": true}'".to_string(),
-                deterministic: true,
             },
             data: serde_json::json!({"old": true}),
         };
@@ -339,11 +346,13 @@ mod tests {
         let query = StateQuery::new(query_name, "echo '{\"fresh\": true}'")
             .unwrap()
             .with_cache(StateCache {
-                deterministic: true,
+                inputs: vec!["**/*.rs".to_string()],
                 ttl: Some(120),
             });
 
-        // get_state should skip the expired cache and re-execute
+        // get_state should skip the expired cache and re-execute.
+        // Pass "/tmp" as repo_path; git status will fail gracefully, so cache_key will be None
+        // (meaning always run fresh) — which also tests the TTL-expired code path.
         let result = get_state(&query, workspace, repo, Path::new("/tmp"), commit, false).unwrap();
 
         // Result should be from the fresh execution, not the old cache

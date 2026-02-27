@@ -14,10 +14,11 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateMetadata {
     pub query_name: String,
+    /// The cache key used to store this result.
+    /// May be a commit hash (clean tree) or a SHA256 content hash (dirty tree).
     pub commit_hash: String,
     pub timestamp: String, // ISO 8601 format
     pub command: String,
-    pub deterministic: bool,
 }
 
 impl StateMetadata {
@@ -249,6 +250,71 @@ pub fn invalidate_cached_state(
     }
 }
 
+/// Compute the cache key for a state query given its declared input file globs.
+///
+/// Returns:
+/// - `None` if `inputs` is empty (always run fresh, never cache)
+/// - The current `commit_hash` if `git status --porcelain -- {inputs}` shows no local edits
+/// - A SHA256 content hash of all tracked input files if the working tree is dirty
+///
+/// Callers should pass the current commit hash (from `git rev-parse HEAD`) so the
+/// clean-tree path avoids a second git invocation.
+pub fn compute_input_cache_key(
+    inputs: &[String],
+    repo_path: &Path,
+    commit_hash: &str,
+) -> Option<String> {
+    if inputs.is_empty() {
+        return None;
+    }
+
+    // Build `git status --porcelain -- <inputs>` to check for local edits
+    let status_cmd = format!("git status --porcelain -- {}", inputs.join(" "));
+    let config = crate::process::ProcessConfig {
+        command: status_cmd,
+        working_dir: repo_path.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(std::time::Duration::from_secs(30)),
+        stdin: None,
+    };
+
+    let output = crate::process::run_to_completion_with_timeout(&config).ok()?;
+
+    if output.stdout.trim().is_empty() {
+        // Clean tree: commit hash is sufficient
+        return Some(commit_hash.to_string());
+    }
+
+    // Dirty tree: hash content of all tracked input files for a stable content key
+    let ls_cmd = format!("git ls-files -- {}", inputs.join(" "));
+    let ls_config = crate::process::ProcessConfig {
+        command: ls_cmd,
+        working_dir: repo_path.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(std::time::Duration::from_secs(30)),
+        stdin: None,
+    };
+
+    let ls_output = crate::process::run_to_completion_with_timeout(&ls_config).ok()?;
+    if !ls_output.success {
+        return None;
+    }
+
+    let mut hasher = Sha256::new();
+    for file in ls_output.stdout.lines() {
+        let file_path = repo_path.join(file.trim());
+        if let Ok(content) = fs::read(&file_path) {
+            hasher.update(&content);
+        }
+    }
+    let hash = hasher.finalize();
+    Some(format!("{hash:x}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,7 +349,6 @@ mod tests {
             commit_hash: "abc123".to_string(),
             timestamp: Utc::now().to_rfc3339(),
             command: "test".to_string(),
-            deterministic: true,
         };
 
         let time_ago = metadata.time_ago();

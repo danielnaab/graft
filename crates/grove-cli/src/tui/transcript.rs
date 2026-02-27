@@ -48,6 +48,9 @@ pub(super) struct RepoContext {
     pub(super) selected_repo_path: Option<String>,
     /// Cached state query definitions from graft.yaml.
     pub(super) cached_state_queries: Option<Vec<crate::state::StateQuery>>,
+    /// In-memory cache for state query results resolved during the current session.
+    /// Keyed by query name. Cleared after any `:run` command execution.
+    pub(super) in_memory_state: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl RepoContext {
@@ -59,6 +62,7 @@ impl RepoContext {
             available_commands: Vec::new(),
             selected_repo_path: None,
             cached_state_queries: None,
+            in_memory_state: std::collections::HashMap::new(),
         }
     }
 
@@ -68,6 +72,7 @@ impl RepoContext {
         self.cached_detail_index = None;
         self.available_commands.clear();
         self.cached_state_queries = None;
+        self.in_memory_state.clear();
     }
 
     /// Full reset: clear caches and deselect repo.
@@ -248,7 +253,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             }
             CliCommand::Repo(name_or_index) => self.cmd_repo(&name_or_index),
             CliCommand::Repos => self.cmd_repos(),
-            CliCommand::Run(command_name, args) => self.cmd_run(&command_name, args),
+            CliCommand::Run(command_name, args) => {
+                // Clear in-memory state cache: running a command may change repo state.
+                self.context.in_memory_state.clear();
+                self.cmd_run(&command_name, args);
+            }
             CliCommand::Status => self.cmd_status(),
             CliCommand::Catalog(cat) => self.cmd_catalog(cat.as_deref()),
             CliCommand::State(name) => self.cmd_state(name.as_deref()),
@@ -872,7 +881,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                     "Query".to_string(),
                     "Summary".to_string(),
                     "Age".to_string(),
-                    "Deterministic".to_string(),
+                    "Cached".to_string(),
                 ];
 
                 let rows: Vec<Vec<Span<'static>>> = queries
@@ -890,13 +899,21 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                             ),
                             None => ("(not cached)".to_string(), "-".to_string()),
                         };
-                        let det = if q.deterministic { "yes" } else { "no" };
+                        // "yes" when query declares inputs (cacheable), "no" otherwise
+                        let cacheable = if q.inputs.as_ref().is_some_and(|v| !v.is_empty()) {
+                            "yes"
+                        } else {
+                            "no"
+                        };
 
                         vec![
                             Span::styled(q.name.clone(), Style::default().fg(Color::Cyan)),
                             Span::styled(summary, Style::default().fg(Color::White)),
                             Span::styled(age, Style::default().fg(Color::DarkGray)),
-                            Span::styled(det.to_string(), Style::default().fg(Color::DarkGray)),
+                            Span::styled(
+                                cacheable.to_string(),
+                                Style::default().fg(Color::DarkGray),
+                            ),
                         ]
                     })
                     .collect();
@@ -1340,19 +1357,58 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         self.context.available_commands = commands;
     }
 
-    /// Return `available_commands` with `options_from` args resolved to their cached values.
+    /// Return `available_commands` with `options_from` args resolved to their live values.
     ///
-    /// For each command arg with `options_from` set and no static `options`, reads the latest
-    /// cached state result and fills in `options` with the extracted string values. Commands
+    /// For each command arg with `options_from` set and no static `options`, attempts to
+    /// resolve the state query result (disk cache → in-memory cache → run fresh). Commands
     /// with only static options or no args are returned as-is (cloned).
-    fn commands_with_resolved_options(&self) -> Vec<(String, graft_common::CommandDef)> {
+    fn commands_with_resolved_options(&mut self) -> Vec<(String, graft_common::CommandDef)> {
         let repo_name = self
             .context
             .selected_repo_path
             .as_deref()
             .map(graft_common::repo_name_from_path)
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .to_string();
 
+        // Collect the list of (name, query_name) pairs that need patching first,
+        // to avoid holding a borrow on self.context while we call resolve_options_from.
+        let to_patch: Vec<(String, Vec<String>)> = self
+            .context
+            .available_commands
+            .iter()
+            .filter_map(|(name, def)| {
+                let query_names: Vec<String> = def
+                    .args
+                    .as_ref()
+                    .map(|args| {
+                        args.iter()
+                            .filter(|a| a.options_from.is_some() && a.options.is_none())
+                            .filter_map(|a| a.options_from.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if query_names.is_empty() {
+                    None
+                } else {
+                    Some((name.clone(), query_names))
+                }
+            })
+            .collect();
+
+        // Resolve all needed query names up-front (may run subprocess).
+        let mut resolved_map: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for (_, query_names) in &to_patch {
+            for query_name in query_names {
+                if !resolved_map.contains_key(query_name) {
+                    let opts = self.resolve_options_from(query_name, &repo_name);
+                    resolved_map.insert(query_name.clone(), opts);
+                }
+            }
+        }
+
+        // Build the patched command list.
         self.context
             .available_commands
             .iter()
@@ -1368,9 +1424,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 if let Some(ref mut args) = patched.args {
                     for arg in args.iter_mut() {
                         if arg.options.is_none() {
-                            if let Some(query_name) = &arg.options_from.clone() {
-                                arg.options =
-                                    Some(self.resolve_options_from(query_name, repo_name));
+                            if let Some(query_name) = &arg.options_from {
+                                if let Some(opts) = resolved_map.get(query_name) {
+                                    arg.options = Some(opts.clone());
+                                }
                             }
                         }
                     }
@@ -1380,14 +1437,74 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             .collect()
     }
 
-    /// Read the latest cached state for `query_name` and extract a flat list of string options.
-    fn resolve_options_from(&self, query_name: &str, repo_name: &str) -> Vec<String> {
-        let Some(result) =
+    /// Resolve a list of string options for `query_name`.
+    ///
+    /// Lookup order:
+    /// 1. Latest disk cache (`read_latest_cached`)
+    /// 2. In-memory cache (populated from a previous fresh run this session)
+    /// 3. Run the query's bash command as a subprocess (result cached in-memory)
+    fn resolve_options_from(&mut self, query_name: &str, repo_name: &str) -> Vec<String> {
+        // 1. Try disk cache (may have been written by a previous `graft run … verify`)
+        if let Some(result) =
             graft_common::read_latest_cached(&self.workspace_name, repo_name, query_name)
-        else {
+        {
+            return extract_options_from_state(query_name, &result.data);
+        }
+
+        // 2. Try in-memory cache (populated by an earlier fresh run this session)
+        if let Some(data) = self.context.in_memory_state.get(query_name).cloned() {
+            return extract_options_from_state(query_name, &data);
+        }
+
+        // 3. Fall back: run the query command as a subprocess
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
             return Vec::new();
         };
-        extract_options_from_state(query_name, &result.data)
+
+        // Lazily discover state queries if not yet loaded
+        if self.context.cached_state_queries.is_none() {
+            let graft_yaml_path = PathBuf::from(&repo_path).join("graft.yaml");
+            self.context.cached_state_queries =
+                Some(crate::state::discover_state_queries(&graft_yaml_path).unwrap_or_default());
+        }
+
+        let run_cmd = self
+            .context
+            .cached_state_queries
+            .as_ref()
+            .and_then(|queries| queries.iter().find(|q| q.name == query_name))
+            .map(|q| q.run.clone());
+
+        let Some(run_cmd) = run_cmd else {
+            return Vec::new();
+        };
+
+        let config = graft_common::ProcessConfig {
+            command: run_cmd,
+            working_dir: std::path::PathBuf::from(&repo_path),
+            env: None,
+            env_remove: vec![],
+            log_path: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+            stdin: None,
+        };
+
+        let output = match graft_common::run_to_completion_with_timeout(&config) {
+            Ok(out) if out.success => out,
+            _ => return Vec::new(),
+        };
+
+        let data: serde_json::Value = match serde_json::from_str(&output.stdout) {
+            Ok(v) => v,
+            Err(_) => return Vec::new(),
+        };
+
+        // Store in in-memory cache for subsequent keypresses this session
+        self.context
+            .in_memory_state
+            .insert(query_name.to_string(), data.clone());
+
+        extract_options_from_state(query_name, &data)
     }
 }
 

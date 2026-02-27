@@ -88,7 +88,12 @@ pub struct StateQueryDef {
     pub run: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub deterministic: bool,
+    /// Glob patterns for files this query reads. Drives cache key selection:
+    /// - `None` or empty: never cached
+    /// - non-empty, clean tree: commit hash
+    /// - non-empty, dirty tree: SHA256 of input file contents
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inputs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
 }
@@ -754,12 +759,16 @@ fn parse_state_query(name: &str, config: &Value) -> Result<StateQueryDef, String
         .ok_or_else(|| format!("State query '{name}' missing 'run' field"))?
         .to_string();
 
-    // Get cache config
-    let deterministic = config
+    // Get cache.inputs (optional list of glob patterns)
+    let inputs = config
         .get("cache")
-        .and_then(|c| c.get("deterministic"))
-        .and_then(serde_yaml::Value::as_bool)
-        .unwrap_or(true); // Default to deterministic
+        .and_then(|c| c.get("inputs"))
+        .and_then(serde_yaml::Value::as_sequence)
+        .map(|seq| {
+            seq.iter()
+                .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
+                .collect::<Vec<_>>()
+        });
 
     // Get timeout
     let timeout = config.get("timeout").and_then(serde_yaml::Value::as_u64);
@@ -773,7 +782,7 @@ fn parse_state_query(name: &str, config: &Value) -> Result<StateQueryDef, String
     Ok(StateQueryDef {
         run,
         description,
-        deterministic,
+        inputs,
         timeout,
     })
 }
@@ -1064,13 +1073,13 @@ state:
     run: "pytest --cov"
     description: "Run coverage"
     cache:
-      deterministic: true
+      inputs:
+        - "**/*.py"
+        - "pyproject.toml"
     timeout: 60
 
   tasks:
     run: "task-tracker status"
-    cache:
-      deterministic: false
     timeout: 30
 "#;
 
@@ -1084,13 +1093,14 @@ state:
         let coverage = queries.get("coverage").unwrap();
         assert_eq!(coverage.run, "pytest --cov");
         assert_eq!(coverage.description.as_deref(), Some("Run coverage"));
-        assert!(coverage.deterministic);
+        let inputs = coverage.inputs.as_ref().unwrap();
+        assert_eq!(inputs, &["**/*.py", "pyproject.toml"]);
         assert_eq!(coverage.timeout, Some(60));
 
         let tasks = queries.get("tasks").unwrap();
         assert_eq!(tasks.run, "task-tracker status");
         assert!(tasks.description.is_none());
-        assert!(!tasks.deterministic);
+        assert!(tasks.inputs.is_none()); // no inputs → never cached
         assert_eq!(tasks.timeout, Some(30));
     }
 
@@ -1111,7 +1121,7 @@ commands:
     }
 
     #[test]
-    fn parse_state_queries_defaults_deterministic_to_true() {
+    fn parse_state_queries_no_inputs_is_none() {
         let yaml_content = r#"
 state:
   simple:
@@ -1125,7 +1135,7 @@ state:
         assert_eq!(queries.len(), 1);
 
         let simple = queries.get("simple").unwrap();
-        assert!(simple.deterministic); // Default
+        assert!(simple.inputs.is_none()); // No cache → always run fresh
         assert_eq!(simple.timeout, None);
     }
 
@@ -1143,8 +1153,32 @@ state:
 
         let queries = parse_state_queries(temp_file.path()).unwrap();
         let simple = queries.get("simple").unwrap();
-        assert!(simple.deterministic); // Default when cache field missing
+        assert!(simple.inputs.is_none()); // No inputs → never cached
         assert_eq!(simple.timeout, Some(10));
+    }
+
+    #[test]
+    fn parse_state_queries_inputs_list() {
+        let yaml_content = r#"
+state:
+  verify:
+    run: "cargo test"
+    cache:
+      inputs:
+        - "**/*.rs"
+        - "Cargo.toml"
+        - "Cargo.lock"
+    timeout: 180
+"#;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let queries = parse_state_queries(temp_file.path()).unwrap();
+        let verify = queries.get("verify").unwrap();
+        let inputs = verify.inputs.as_ref().unwrap();
+        assert_eq!(inputs, &["**/*.rs", "Cargo.toml", "Cargo.lock"]);
+        assert_eq!(verify.timeout, Some(180));
     }
 
     #[test]

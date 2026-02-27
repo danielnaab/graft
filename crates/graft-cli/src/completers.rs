@@ -252,11 +252,10 @@ state:
   deps-status:
     run: "graft status --format json"
     cache:
-      deterministic: true
+      inputs:
+        - "**/*.lock"
   repo-info:
     run: "git log --oneline -5"
-    cache:
-      deterministic: false
 "#,
         )
         .unwrap();
@@ -279,11 +278,10 @@ state:
   deps-status:
     run: "graft status --format json"
     cache:
-      deterministic: true
+      inputs:
+        - "**/*.lock"
   repo-info:
     run: "git log --oneline -5"
-    cache:
-      deterministic: false
 "#,
         )
         .unwrap();

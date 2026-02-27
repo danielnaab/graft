@@ -65,7 +65,7 @@ state:
   <query-name>:
     run: string                   # Required: command outputting JSON
     cache:                        # Optional: cache configuration
-      deterministic: bool         # Default: true
+      inputs: list[string]        # Optional: glob patterns for files this query reads
     timeout: integer              # Optional: seconds (default: 300)
 
 # Sequence definitions (multi-step command pipelines)
@@ -796,6 +796,64 @@ sequences:
 
 ---
 
+## Section: state
+
+Defines state queries — shell commands that produce JSON snapshots of the consumer
+repository's state. Queries are resolved lazily before commands that declare them in
+`context:`, and can be cached to avoid redundant re-execution.
+
+### Structure
+
+```yaml
+state:
+  <query-name>:
+    run: string          # Required: shell command outputting a JSON object to stdout
+    cache:               # Optional: cache configuration
+      inputs: [string]   # Optional: glob patterns for files this query reads
+    timeout: integer     # Optional: seconds (default: 300)
+```
+
+### Cache modes
+
+The `inputs` list declares which files the query reads. It drives cache invalidation:
+
+| `inputs` | Working tree | Cache key |
+|----------|-------------|-----------|
+| Not declared | — | Never cached — always run fresh |
+| Declared | Clean (`git status --porcelain -- <inputs>` is empty) | Current commit hash |
+| Declared | Dirty (local edits to input files) | SHA256 of input file contents |
+
+Use `inputs` for expensive queries (test suites, linters) whose results are stable for
+a given set of source files. Omit `inputs` for cheap or filesystem-dependent queries
+(listing slice directories, git log summaries) that should always run fresh.
+
+### Example
+
+```yaml
+state:
+  # Expensive: cache against source files (commit hash when clean, content hash when dirty)
+  verify:
+    run: "bash scripts/verify.sh"
+    cache:
+      inputs:
+        - "**/*.rs"
+        - "Cargo.toml"
+        - "Cargo.lock"
+    timeout: 180
+
+  # Cheap: always run fresh (no cache)
+  slices:
+    run: "bash scripts/list-slices.sh"
+    timeout: 10
+
+  # Cheap: always run fresh (no cache)
+  changes:
+    run: "bash -c 'git log --oneline -10 | jq -Rs ...'"
+    timeout: 30
+```
+
+---
+
 ## Section: dependencies
 
 Declares dependencies on other Graft-enabled modules (optional).
@@ -908,7 +966,9 @@ state:
   coverage:
     run: "pytest --cov --cov-report=json --quiet | jq '.totals.percent_covered'"
     cache:
-      deterministic: true
+      inputs:
+        - "**/*.py"
+        - "pyproject.toml"
 
 sequences:
   test-and-report:

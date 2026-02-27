@@ -1364,7 +1364,7 @@ mod tests {
         let query = StateQuery::new("myquery", "bash scripts/query.sh")
             .unwrap()
             .with_cache(StateCache {
-                deterministic: false,
+                inputs: Vec::new(), // no inputs → always run fresh
                 ttl: None,
             });
         config.state.insert("myquery".to_string(), query);

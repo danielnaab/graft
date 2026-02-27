@@ -29,14 +29,14 @@ state:
   coverage:
     run: "pytest --cov"
     cache:
-      deterministic: true
+      inputs:
+        - "**/*.py"
+        - "pyproject.toml"
     timeout: 60
     description: "Code coverage metrics"
 
   tasks:
     run: "task-tracker status"
-    cache:
-      deterministic: false
 "#,
     )
     .unwrap();
@@ -51,7 +51,8 @@ state:
         .iter()
         .find(|q| q.name == "coverage")
         .expect("Coverage query not found");
-    assert!(coverage.deterministic);
+    let inputs = coverage.inputs.as_ref().unwrap();
+    assert_eq!(inputs, &["**/*.py", "pyproject.toml"]);
     assert_eq!(coverage.timeout, Some(60));
     assert_eq!(
         coverage.description,
@@ -63,7 +64,7 @@ state:
         .iter()
         .find(|q| q.name == "tasks")
         .expect("Tasks query not found");
-    assert!(!tasks.deterministic);
+    assert!(tasks.inputs.is_none()); // no inputs → never cached
     assert_eq!(tasks.timeout, None);
 }
 
@@ -122,7 +123,8 @@ name: test-repo
 state:
   incomplete:
     cache:
-      deterministic: true
+      inputs:
+        - '**/*.py'
 ",
     )
     .unwrap();
@@ -176,7 +178,6 @@ fn read_cached_state_from_file() {
             commit_hash: "abc123def456".to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             command: "pytest --cov".to_string(),
-            deterministic: true,
         },
         data: json!({"lines": 85, "branches": 72}),
     };
@@ -215,7 +216,6 @@ fn read_latest_cached_returns_newest() {
             commit_hash: "old123".to_string(),
             timestamp: (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339(),
             command: "task-list".to_string(),
-            deterministic: true,
         },
         data: json!({"open": 50}),
     };
@@ -235,7 +235,6 @@ fn read_latest_cached_returns_newest() {
             commit_hash: "new456".to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             command: "task-list".to_string(),
-            deterministic: true,
         },
         data: json!({"open": 59}),
     };
@@ -279,7 +278,6 @@ fn read_all_cached_returns_sorted_by_time() {
                 commit_hash: commit.to_string(),
                 timestamp,
                 command: "word-count".to_string(),
-                deterministic: false,
             },
             data: json!({"words": 1000 * (i + 1)}),
         };
@@ -330,7 +328,6 @@ fn summary_formats_writing_metrics() {
             commit_hash: "abc123".to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             command: "word-count".to_string(),
-            deterministic: false,
         },
         data: json!({
             "total_words": 5000,
@@ -349,7 +346,6 @@ fn summary_formats_task_metrics() {
             commit_hash: "abc123".to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             command: "task-list".to_string(),
-            deterministic: true,
         },
         data: json!({"open": 59, "completed": 49}),
     };
@@ -365,7 +361,6 @@ fn summary_formats_graph_metrics() {
             commit_hash: "abc123".to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             command: "graph-analyze".to_string(),
-            deterministic: true,
         },
         data: json!({
             "broken_links": 2223,
@@ -387,7 +382,6 @@ fn summary_falls_back_for_unknown_format() {
             commit_hash: "abc123".to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             command: "custom-query".to_string(),
-            deterministic: true,
         },
         data: json!({"foo": 42, "bar": "baz"}),
     };

@@ -15,7 +15,7 @@ pub fn discover_state_queries(graft_yaml_path: &Path) -> Result<Vec<StateQuery>,
             name,
             run: def.run,
             description: def.description,
-            deterministic: def.deterministic,
+            inputs: def.inputs,
             timeout: def.timeout,
         })
         .collect();
@@ -37,13 +37,13 @@ state:
   coverage:
     run: "pytest --cov"
     cache:
-      deterministic: true
+      inputs:
+        - "**/*.py"
+        - "pyproject.toml"
     timeout: 60
 
   tasks:
     run: "task-tracker status"
-    cache:
-      deterministic: false
     timeout: 30
 "#;
 
@@ -56,12 +56,13 @@ state:
 
         let coverage = queries.iter().find(|q| q.name == "coverage").unwrap();
         assert_eq!(coverage.run, "pytest --cov");
-        assert!(coverage.deterministic);
+        let inputs = coverage.inputs.as_ref().unwrap();
+        assert_eq!(inputs, &["**/*.py", "pyproject.toml"]);
         assert_eq!(coverage.timeout, Some(60));
 
         let tasks = queries.iter().find(|q| q.name == "tasks").unwrap();
         assert_eq!(tasks.run, "task-tracker status");
-        assert!(!tasks.deterministic);
+        assert!(tasks.inputs.is_none()); // no inputs → never cached
         assert_eq!(tasks.timeout, Some(30));
     }
 
@@ -94,7 +95,7 @@ state:
 
         let queries = discover_state_queries(temp_file.path()).unwrap();
         assert_eq!(queries.len(), 1);
-        assert!(queries[0].deterministic); // Default
+        assert!(queries[0].inputs.is_none()); // No cache → always run fresh
         assert_eq!(queries[0].timeout, None);
     }
 }

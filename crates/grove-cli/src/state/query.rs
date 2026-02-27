@@ -10,7 +10,9 @@ pub struct StateQuery {
     pub run: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub deterministic: bool,
+    /// Glob patterns for files this query reads. `None` or empty means never cache.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inputs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
 }
@@ -75,7 +77,6 @@ mod tests {
                 commit_hash: "abc123".to_string(),
                 timestamp: chrono::Utc::now().to_rfc3339(),
                 command: "test".to_string(),
-                deterministic: false,
             },
             data: json!({
                 "total_words": 5000,
@@ -97,7 +98,6 @@ mod tests {
                 commit_hash: "abc123".to_string(),
                 timestamp: chrono::Utc::now().to_rfc3339(),
                 command: "test".to_string(),
-                deterministic: true,
             },
             data: json!({
                 "open": 59,
@@ -117,7 +117,6 @@ mod tests {
                 commit_hash: "abc123".to_string(),
                 timestamp: chrono::Utc::now().to_rfc3339(),
                 command: "test".to_string(),
-                deterministic: true,
             },
             data: json!({
                 "total_notes": 2019,
@@ -141,7 +140,6 @@ mod tests {
                 commit_hash: "abc123".to_string(),
                 timestamp: chrono::Utc::now().to_rfc3339(),
                 command: "test".to_string(),
-                deterministic: true,
             },
             data: json!({
                 "foo": 1,

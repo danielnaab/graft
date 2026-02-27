@@ -545,23 +545,20 @@ impl Command {
 }
 
 /// Cache configuration for a state query.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct StateCache {
-    /// If true, cache is keyed by commit hash and valid indefinitely (unless TTL is set).
-    pub deterministic: bool,
+    /// Glob patterns for files this query reads.
+    ///
+    /// Controls cache invalidation:
+    /// - empty: never cached — always run fresh
+    /// - non-empty, clean tree: commit hash is the cache key
+    /// - non-empty, dirty tree: SHA256 of input file contents is the cache key
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<String>,
     /// Optional time-to-live in seconds. When set, cached results older than this
-    /// are re-executed even if the commit hash matches.
+    /// are re-executed even when the cache key still matches.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ttl: Option<u64>,
-}
-
-impl Default for StateCache {
-    fn default() -> Self {
-        Self {
-            deterministic: true,
-            ttl: None,
-        }
-    }
 }
 
 /// A state query definition from graft.yaml.
@@ -1355,23 +1352,24 @@ mod tests {
     #[test]
     fn state_cache_with_ttl_round_trips_serde() {
         let cache = StateCache {
-            deterministic: true,
+            inputs: vec!["**/*.rs".to_string()],
             ttl: Some(120),
         };
         let yaml = serde_yaml::to_string(&cache).unwrap();
         let parsed: StateCache = serde_yaml::from_str(&yaml).unwrap();
-        assert!(parsed.deterministic);
+        assert_eq!(parsed.inputs, &["**/*.rs"]);
         assert_eq!(parsed.ttl, Some(120));
 
-        // Without TTL
+        // Without TTL, without inputs
         let cache_no_ttl = StateCache {
-            deterministic: true,
+            inputs: Vec::new(),
             ttl: None,
         };
         let yaml2 = serde_yaml::to_string(&cache_no_ttl).unwrap();
         assert!(!yaml2.contains("ttl"), "ttl should be skipped when None");
         let parsed2: StateCache = serde_yaml::from_str(&yaml2).unwrap();
         assert_eq!(parsed2.ttl, None);
+        assert!(parsed2.inputs.is_empty()); // no inputs → never cached
     }
 
     #[test]
@@ -1380,7 +1378,7 @@ mod tests {
             .unwrap()
             .with_ttl(120);
         assert_eq!(query.cache.ttl, Some(120));
-        assert!(query.cache.deterministic); // default
+        assert!(query.cache.inputs.is_empty()); // default: no inputs, no cache
     }
 
     #[test]
