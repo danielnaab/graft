@@ -1,20 +1,23 @@
 //! State query data structures.
 #![allow(dead_code)]
 use graft_common::state::StateResult;
-use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// A state query definition from graft.yaml.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `working_dir` is always the consumer repo root (for both local and dep queries).
+/// For dep queries, the `run` field is pre-resolved so relative script paths point to
+/// absolute locations inside the dep directory (matching graft-engine behaviour).
+#[derive(Debug, Clone)]
 pub struct StateQuery {
     pub name: String,
     pub run: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Glob patterns for files this query reads. `None` or empty means never cache.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub inputs: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
+    /// Working directory for subprocess execution — always the consumer repo root.
+    pub working_dir: PathBuf,
 }
 
 /// Get a summary string for display (type-specific formatting).

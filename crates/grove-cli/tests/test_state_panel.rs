@@ -41,8 +41,8 @@ state:
     )
     .unwrap();
 
-    let queries =
-        discover_state_queries(graft_yaml.as_path()).expect("Failed to discover state queries");
+    let queries = discover_state_queries(graft_yaml.as_path(), temp_dir.path())
+        .expect("Failed to discover state queries");
 
     assert_eq!(queries.len(), 2);
 
@@ -85,8 +85,8 @@ commands:
     )
     .unwrap();
 
-    let queries =
-        discover_state_queries(graft_yaml.as_path()).expect("Should succeed with empty queries");
+    let queries = discover_state_queries(graft_yaml.as_path(), temp_dir.path())
+        .expect("Should succeed with empty queries");
 
     assert_eq!(queries.len(), 0);
 }
@@ -104,7 +104,7 @@ invalid: [ yaml syntax
     )
     .unwrap();
 
-    let result = discover_state_queries(graft_yaml.as_path());
+    let result = discover_state_queries(graft_yaml.as_path(), temp_dir.path());
 
     assert!(result.is_err(), "Should fail on malformed YAML");
 }
@@ -129,8 +129,8 @@ state:
     )
     .unwrap();
 
-    let queries =
-        discover_state_queries(graft_yaml.as_path()).expect("Should skip invalid queries");
+    let queries = discover_state_queries(graft_yaml.as_path(), temp_dir.path())
+        .expect("Should skip invalid queries");
 
     // Invalid query should be skipped (warning logged)
     assert_eq!(queries.len(), 0);

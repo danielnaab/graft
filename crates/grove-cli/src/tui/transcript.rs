@@ -853,20 +853,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             return;
         };
 
-        // Discover and cache state queries
+        // Discover and cache state queries (root + all dep graft.yamls)
         if self.context.cached_state_queries.is_none() {
-            let graft_yaml_path = PathBuf::from(&repo_path).join("graft.yaml");
-            match crate::state::discover_state_queries(&graft_yaml_path) {
-                Ok(queries) => {
-                    self.context.cached_state_queries = Some(queries);
-                }
-                Err(e) => {
-                    self.status = Some(StatusMessage::warning(format!(
-                        "Failed to discover state queries: {e}"
-                    )));
-                    self.context.cached_state_queries = Some(Vec::new());
-                }
+            let (queries, warnings) =
+                crate::state::discover_all_state_queries(&PathBuf::from(&repo_path));
+            if let Some(w) = warnings.first() {
+                self.status = Some(StatusMessage::warning(w.clone()));
             }
+            self.context.cached_state_queries = Some(queries);
         }
 
         let queries = self
@@ -1482,27 +1476,26 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             return Vec::new();
         };
 
-        // Lazily discover state queries if not yet loaded
+        // Lazily discover state queries if not yet loaded (root + all dep graft.yamls)
         if self.context.cached_state_queries.is_none() {
-            let graft_yaml_path = PathBuf::from(&repo_path).join("graft.yaml");
-            self.context.cached_state_queries =
-                Some(crate::state::discover_state_queries(&graft_yaml_path).unwrap_or_default());
+            let (queries, _) = crate::state::discover_all_state_queries(&PathBuf::from(&repo_path));
+            self.context.cached_state_queries = Some(queries);
         }
 
-        let run_cmd = self
+        let query = self
             .context
             .cached_state_queries
             .as_ref()
             .and_then(|queries| queries.iter().find(|q| q.name == query_name))
-            .map(|q| q.run.clone());
+            .cloned();
 
-        let Some(run_cmd) = run_cmd else {
+        let Some(query) = query else {
             return Vec::new();
         };
 
         let config = graft_common::ProcessConfig {
-            command: run_cmd,
-            working_dir: std::path::PathBuf::from(&repo_path),
+            command: query.run,
+            working_dir: query.working_dir,
             env: None,
             env_remove: vec![],
             log_path: None,

@@ -6,7 +6,7 @@ pub mod discovery;
 pub mod query;
 
 #[allow(unused_imports)]
-pub use discovery::discover_state_queries;
+pub use discovery::{discover_all_state_queries, discover_state_queries};
 #[allow(unused_imports)]
 pub use query::{format_state_summary, StateQuery};
 
