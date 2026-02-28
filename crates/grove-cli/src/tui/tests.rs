@@ -10,7 +10,7 @@ use super::command_line::{filtered_palette, parse_command, CliCommand, PALETTE_C
 use super::formatting::{compact_path, extract_basename, format_file_change_indicator};
 use super::prompt::{
     compute_run_completions, extract_command_prefix, ghost_hint_suffix, ArgCompletion,
-    CompletionState,
+    CompletionState, PickerItem, PickerOutcome, PickerState,
 };
 use super::scroll_buffer::{BlockId, ContentBlock, ScrollBuffer};
 use super::transcript::{extract_options_from_state, TranscriptApp};
@@ -1122,4 +1122,528 @@ fn enter_blocked_when_required_arg_missing() {
     // Buffer should have the completion filled with a trailing space
     let buffer = &prompt.command_line.as_ref().unwrap().text.buffer;
     assert_eq!(buffer, "run deploy staging ");
+}
+
+// ===== PickerState tests =====
+
+fn make_picker_items() -> Vec<PickerItem> {
+    vec![
+        PickerItem {
+            label: "alpha".to_string(),
+            description: "First item".to_string(),
+            action: CliCommand::Help,
+        },
+        PickerItem {
+            label: "beta".to_string(),
+            description: "Second item".to_string(),
+            action: CliCommand::Refresh,
+        },
+        PickerItem {
+            label: "gamma".to_string(),
+            description: "Third item".to_string(),
+            action: CliCommand::Repos,
+        },
+    ]
+}
+
+#[test]
+fn picker_filter_narrows_items() {
+    let mut picker = PickerState::new(make_picker_items());
+
+    // No filter — all items visible
+    assert_eq!(picker.filtered_items().len(), 3);
+
+    // Filter "al" matches only "alpha"
+    picker.filter = "al".to_string();
+    let filtered = picker.filtered_items();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].label, "alpha");
+
+    // Case-insensitive: "AL" still matches "alpha"
+    picker.filter = "AL".to_string();
+    assert_eq!(picker.filtered_items().len(), 1);
+
+    // Filter with no match
+    picker.filter = "zzz".to_string();
+    assert_eq!(picker.filtered_items().len(), 0);
+}
+
+#[test]
+fn picker_navigation_wraps_around() {
+    let mut picker = PickerState::new(make_picker_items());
+    assert_eq!(picker.selected, 0);
+
+    // j moves down
+    picker.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(picker.selected, 1);
+
+    picker.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(picker.selected, 2);
+
+    // j at last item wraps to 0
+    picker.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(picker.selected, 0);
+
+    // k at first item wraps to last
+    picker.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+    assert_eq!(picker.selected, 2);
+
+    // k moves up
+    picker.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+    assert_eq!(picker.selected, 1);
+}
+
+#[test]
+fn picker_enter_returns_action() {
+    let mut picker = PickerState::new(make_picker_items());
+
+    // Enter on first item returns Help
+    let outcome = picker.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(outcome, PickerOutcome::Select(CliCommand::Help));
+
+    // Move to second item, Enter returns Refresh
+    picker.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    let outcome = picker.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(outcome, PickerOutcome::Select(CliCommand::Refresh));
+}
+
+#[test]
+fn picker_esc_returns_dismiss() {
+    let mut picker = PickerState::new(make_picker_items());
+    let outcome = picker.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+    assert_eq!(outcome, PickerOutcome::Dismiss);
+}
+
+#[test]
+fn picker_typing_filters_and_resets_selection() {
+    let mut picker = PickerState::new(make_picker_items());
+    picker.handle_key(KeyCode::Char('j'), KeyModifiers::NONE); // selected = 1
+
+    // Typing resets selection to 0; 'l' only appears in "alpha"
+    picker.handle_key(KeyCode::Char('l'), KeyModifiers::NONE);
+    assert_eq!(picker.selected, 0);
+    assert_eq!(picker.filter, "l");
+    assert_eq!(picker.filtered_items().len(), 1);
+    assert_eq!(picker.filtered_items()[0].label, "alpha");
+
+    // Backspace removes last char, restoring all 3 items
+    picker.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
+    assert_eq!(picker.filter, "");
+    assert_eq!(picker.filtered_items().len(), 3);
+}
+
+#[test]
+fn picker_enter_on_empty_filter_returns_nothing() {
+    let mut picker = PickerState::new(vec![]);
+    let outcome = picker.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(outcome, PickerOutcome::Nothing);
+}
+
+// ===== Actionable table / picker integration tests =====
+
+/// Build a table ContentBlock with per-row actions.
+fn make_actionable_table() -> ContentBlock {
+    use ratatui::text::Span;
+    ContentBlock::Table {
+        id: BlockId::new(),
+        title: "Test Table".to_string(),
+        headers: vec!["Name".to_string(), "Desc".to_string()],
+        rows: vec![
+            vec![Span::raw("alpha"), Span::raw("First")],
+            vec![Span::raw("beta"), Span::raw("Second")],
+        ],
+        collapsed: false,
+        actions: Some(vec![CliCommand::Repos, CliCommand::Help]),
+    }
+}
+
+#[test]
+fn enter_on_actionable_table_opens_picker() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+
+    // Push an actionable table and focus it
+    app.scroll.push(make_actionable_table());
+    // Focus the actionable table (last block)
+    let last_idx = app.scroll.blocks.len() - 1;
+    app.scroll.focused_block = Some(last_idx);
+
+    // Picker should be None before Enter
+    assert!(app.picker.is_none());
+
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    // Picker should now be open with 2 items (one per row)
+    assert!(app.picker.is_some());
+    let picker = app.picker.as_ref().unwrap();
+    assert_eq!(picker.items.len(), 2);
+    assert_eq!(picker.items[0].label, "alpha");
+    assert_eq!(picker.items[1].label, "beta");
+}
+
+#[test]
+fn enter_on_non_actionable_block_toggles_collapse() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+
+    // Push a plain text block and focus it
+    app.scroll.push(ContentBlock::Text {
+        id: BlockId::new(),
+        lines: vec![ratatui::text::Line::from("hello")],
+        collapsed: false,
+    });
+    let last_idx = app.scroll.blocks.len() - 1;
+    app.scroll.focused_block = Some(last_idx);
+
+    // Enter should toggle collapse, not open picker
+    assert!(app.picker.is_none());
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(app.picker.is_none());
+
+    // Block should now be collapsed
+    assert!(app.scroll.blocks[last_idx].is_collapsed());
+}
+
+#[test]
+fn c_key_toggles_collapse_on_focused_block() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+
+    // Push a table (with or without actions) and focus it
+    app.scroll.push(make_actionable_table());
+    let last_idx = app.scroll.blocks.len() - 1;
+    app.scroll.focused_block = Some(last_idx);
+
+    assert!(!app.scroll.blocks[last_idx].is_collapsed());
+    app.handle_key(KeyCode::Char('c'), KeyModifiers::NONE);
+    assert!(app.scroll.blocks[last_idx].is_collapsed());
+
+    // Press c again to expand
+    app.handle_key(KeyCode::Char('c'), KeyModifiers::NONE);
+    assert!(!app.scroll.blocks[last_idx].is_collapsed());
+}
+
+#[test]
+fn picker_esc_dismisses_without_side_effects() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+
+    // Open picker via Enter on actionable table
+    app.scroll.push(make_actionable_table());
+    let last_idx = app.scroll.blocks.len() - 1;
+    app.scroll.focused_block = Some(last_idx);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(app.picker.is_some());
+
+    // Esc should dismiss picker
+    let blocks_before = app.scroll.blocks.len();
+    app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+    assert!(app.picker.is_none());
+    // No side effects: same number of blocks
+    assert_eq!(app.scroll.blocks.len(), blocks_before);
+}
+
+#[test]
+fn picker_selection_executes_command() {
+    let mut app = create_app(MockRegistry::with_repos(3));
+
+    // Push a table whose first action is CliCommand::Repos (produces a table block)
+    app.scroll.push(make_actionable_table());
+    let last_idx = app.scroll.blocks.len() - 1;
+    app.scroll.focused_block = Some(last_idx);
+
+    // Open picker
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(app.picker.is_some());
+
+    let blocks_before = app.scroll.blocks.len();
+
+    // Enter in picker selects first item (Repos command)
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    // Picker should be dismissed
+    assert!(app.picker.is_none());
+    // Repos command should have pushed a new table block
+    assert!(app.scroll.blocks.len() > blocks_before);
+}
+
+#[test]
+fn focused_block_actions_returns_none_for_non_actionable() {
+    let mut buf = ScrollBuffer::new();
+    buf.push(ContentBlock::Text {
+        id: BlockId::new(),
+        lines: vec![ratatui::text::Line::from("text")],
+        collapsed: false,
+    });
+    buf.focused_block = Some(0);
+    assert!(buf.focused_block_actions().is_none());
+}
+
+#[test]
+fn focused_block_actions_returns_actions_for_actionable_table() {
+    let mut buf = ScrollBuffer::new();
+    buf.push(make_actionable_table());
+    buf.focused_block = Some(0);
+    let actions = buf.focused_block_actions();
+    assert!(actions.is_some());
+    assert_eq!(actions.unwrap().len(), 2);
+}
+
+#[test]
+fn help_output_documents_c_binding() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    let initial_blocks = app.scroll.blocks.len();
+
+    type_command(&mut app, "help");
+
+    assert!(app.scroll.blocks.len() > initial_blocks);
+    // Find the help block and check for 'c' binding
+    let help_block = app.scroll.blocks.last().unwrap();
+    if let ContentBlock::Text { lines, .. } = help_block {
+        let all_text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            all_text.contains('c'),
+            "Help output should mention 'c' keybinding"
+        );
+        assert!(
+            all_text.to_lowercase().contains("collapse"),
+            "Help output should mention 'collapse'"
+        );
+    } else {
+        panic!("Expected Text block from :help");
+    }
+}
+
+// ===== Actionable table integration tests =====
+
+#[test]
+fn repos_table_has_actionable_rows() {
+    let mut app = create_app(MockRegistry::with_repos(3));
+    type_command(&mut app, "repos");
+
+    let last = app.scroll.blocks.last().unwrap();
+    if let ContentBlock::Table { actions, rows, .. } = last {
+        let acts = actions.as_ref().expect("repos table should have actions");
+        assert_eq!(acts.len(), rows.len());
+        assert_eq!(acts.len(), 3);
+        // Each action should be Repo(<basename>)
+        assert_eq!(acts[0], CliCommand::Repo("repo0".to_string()));
+        assert_eq!(acts[1], CliCommand::Repo("repo1".to_string()));
+        assert_eq!(acts[2], CliCommand::Repo("repo2".to_string()));
+    } else {
+        panic!("Expected Table block from :repos");
+    }
+}
+
+#[test]
+fn repos_enter_opens_picker_with_repo_names() {
+    let mut app = create_app(MockRegistry::with_repos(3));
+    type_command(&mut app, "repos");
+
+    // Focus the repos table (last block)
+    let last_idx = app.scroll.blocks.len() - 1;
+    app.scroll.focused_block = Some(last_idx);
+
+    assert!(app.picker.is_none());
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(app.picker.is_some());
+    let picker = app.picker.as_ref().unwrap();
+    assert_eq!(picker.items.len(), 3);
+    // Labels come from first column: Repository basename
+    assert_eq!(picker.items[0].label, "repo0");
+    assert_eq!(picker.items[1].label, "repo1");
+    assert_eq!(picker.items[2].label, "repo2");
+}
+
+#[test]
+fn repos_picker_selection_switches_repo() {
+    let mut app = create_app(MockRegistry::with_repos(3));
+    // App starts at repo0 (index 0)
+    assert_eq!(app.context.selected_index, Some(0));
+
+    type_command(&mut app, "repos");
+    let last_idx = app.scroll.blocks.len() - 1;
+    app.scroll.focused_block = Some(last_idx);
+
+    // Open picker
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(app.picker.is_some());
+
+    // Navigate to repo1 (press j)
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+    assert_eq!(app.picker.as_ref().unwrap().selected, 1);
+
+    // Select repo1
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    // Picker should be dismissed
+    assert!(app.picker.is_none());
+    // Context should have switched to repo1
+    assert_eq!(app.context.selected_index, Some(1));
+    assert!(app
+        .context
+        .selected_repo_path
+        .as_deref()
+        .unwrap_or("")
+        .contains("repo1"));
+}
+
+#[test]
+fn catalog_table_has_actionable_rows() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+
+    // Pre-populate available_commands so catalog produces a table
+    app.context.available_commands = vec![
+        (
+            "build".to_string(),
+            graft_common::CommandDef {
+                run: "cargo build".to_string(),
+                description: Some("Build the project".to_string()),
+                category: Some("core".to_string()),
+                example: None,
+                working_dir: None,
+                env: None,
+                args: None,
+                stdin: None,
+                context: None,
+                writes: vec![],
+                reads: vec![],
+            },
+        ),
+        (
+            "test".to_string(),
+            graft_common::CommandDef {
+                run: "cargo test".to_string(),
+                description: Some("Run tests".to_string()),
+                category: Some("core".to_string()),
+                example: None,
+                working_dir: None,
+                env: None,
+                args: None,
+                stdin: None,
+                context: None,
+                writes: vec![],
+                reads: vec![],
+            },
+        ),
+    ];
+
+    type_command(&mut app, "catalog");
+
+    let last = app.scroll.blocks.last().unwrap();
+    if let ContentBlock::Table { actions, rows, .. } = last {
+        let acts = actions.as_ref().expect("catalog table should have actions");
+        assert_eq!(acts.len(), rows.len());
+        assert_eq!(acts.len(), 2);
+        // Actions should be Run(name, [])
+        assert_eq!(acts[0], CliCommand::Run("build".to_string(), vec![]));
+        assert_eq!(acts[1], CliCommand::Run("test".to_string(), vec![]));
+    } else {
+        panic!("Expected Table block from :catalog");
+    }
+}
+
+#[test]
+fn catalog_enter_opens_picker() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    app.context.available_commands = vec![(
+        "deploy".to_string(),
+        graft_common::CommandDef {
+            run: "make deploy".to_string(),
+            description: Some("Deploy".to_string()),
+            category: None,
+            example: None,
+            working_dir: None,
+            env: None,
+            args: None,
+            stdin: None,
+            context: None,
+            writes: vec![],
+            reads: vec![],
+        },
+    )];
+
+    type_command(&mut app, "catalog");
+    let last_idx = app.scroll.blocks.len() - 1;
+    app.scroll.focused_block = Some(last_idx);
+
+    assert!(app.picker.is_none());
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(app.picker.is_some());
+
+    let picker = app.picker.as_ref().unwrap();
+    assert_eq!(picker.items.len(), 1);
+    assert_eq!(picker.items[0].label, "deploy");
+    assert_eq!(
+        picker.items[0].action,
+        CliCommand::Run("deploy".to_string(), vec![])
+    );
+}
+
+#[test]
+fn state_table_has_actionable_rows() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+
+    // Pre-populate cached_state_queries
+    app.context.cached_state_queries = Some(vec![
+        crate::state::StateQuery {
+            name: "coverage".to_string(),
+            run: "cargo tarpaulin".to_string(),
+            description: Some("Test coverage".to_string()),
+            inputs: Some(vec!["**/*.rs".to_string()]),
+            timeout: None,
+            working_dir: std::path::PathBuf::from("/tmp/repo0"),
+        },
+        crate::state::StateQuery {
+            name: "deps".to_string(),
+            run: "cargo tree".to_string(),
+            description: None,
+            inputs: None,
+            timeout: None,
+            working_dir: std::path::PathBuf::from("/tmp/repo0"),
+        },
+    ]);
+
+    type_command(&mut app, "state");
+
+    let last = app.scroll.blocks.last().unwrap();
+    if let ContentBlock::Table { actions, rows, .. } = last {
+        let acts = actions.as_ref().expect("state table should have actions");
+        assert_eq!(acts.len(), rows.len());
+        assert_eq!(acts.len(), 2);
+        assert_eq!(acts[0], CliCommand::State(Some("coverage".to_string())));
+        assert_eq!(acts[1], CliCommand::State(Some("deps".to_string())));
+    } else {
+        panic!("Expected Table block from :state");
+    }
+}
+
+#[test]
+fn state_enter_opens_picker_with_query_names() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    app.context.cached_state_queries = Some(vec![crate::state::StateQuery {
+        name: "metrics".to_string(),
+        run: "compute-metrics".to_string(),
+        description: None,
+        inputs: None,
+        timeout: None,
+        working_dir: std::path::PathBuf::from("/tmp/repo0"),
+    }]);
+
+    type_command(&mut app, "state");
+    let last_idx = app.scroll.blocks.len() - 1;
+    app.scroll.focused_block = Some(last_idx);
+
+    assert!(app.picker.is_none());
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(app.picker.is_some());
+
+    let picker = app.picker.as_ref().unwrap();
+    assert_eq!(picker.items.len(), 1);
+    assert_eq!(picker.items[0].label, "metrics");
+    assert_eq!(
+        picker.items[0].action,
+        CliCommand::State(Some("metrics".to_string()))
+    );
 }

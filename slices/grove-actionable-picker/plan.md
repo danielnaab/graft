@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-02-27
 ---
 
@@ -98,7 +98,7 @@ This avoids a mode: Enter always means "activate" and `c` always means "collapse
 
 ## Steps
 
-- [ ] **Extract `PickerState` component and refactor palette to use it**
+- [x] **Extract `PickerState` component and refactor palette to use it**
   - **Delivers** — a reusable picker overlay that the palette delegates to
   - **Done when** — `prompt.rs` contains a `PickerState` struct with `items`,
     `filter`, and `selected` fields; `PickerItem` has `label: String`,
@@ -115,7 +115,7 @@ This avoids a mode: Enter always means "activate" and `c` always means "collapse
   - **Files** — `crates/grove-cli/src/tui/prompt.rs`,
     `crates/grove-cli/src/tui/tests.rs`
 
-- [ ] **Add `actions` field to `ContentBlock::Table` and wire Enter/`c` keybindings**
+- [x] **Add `actions` field to `ContentBlock::Table` and wire Enter/`c` keybindings**
   - **Delivers** — table blocks can carry per-row actions; Enter activates, `c`
     collapses
   - **Done when** — `ContentBlock::Table` gains `actions: Option<Vec<CliCommand>>`;
@@ -137,7 +137,7 @@ This avoids a mode: Enter always means "activate" and `c` always means "collapse
     `crates/grove-cli/src/tui/prompt.rs`,
     `crates/grove-cli/src/tui/tests.rs`
 
-- [ ] **Wire `:repos`, `:catalog`, and `:state` to produce actionable tables**
+- [x] **Wire `:repos`, `:catalog`, and `:state` to produce actionable tables**
   - **Delivers** — the three list commands produce tables that open pickers on Enter
   - **Done when** — `cmd_repos()` builds `actions: Some(vec![...])` with
     `CliCommand::Repo(basename)` for each row; `cmd_catalog()` builds actions with

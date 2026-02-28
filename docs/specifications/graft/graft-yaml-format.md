@@ -94,19 +94,6 @@ sequences:
       max: integer                # Required: max retry iterations
     checkpoint: bool              # Optional: write checkpoint.json on success (default: false)
 
-# graft catalog — Command metadata subcommand
-#
-# graft catalog <dep>               Lists all commands and sequences with metadata
-# graft catalog <dep>:<name>        Prints full metadata for a single command or sequence
-# graft catalog <dep> --json        Full catalog as machine-readable JSON
-# graft catalog <dep>:<name> --json Single entry as JSON
-#
-# category values:
-#   core        Primary workflow steps (implement, verify, approve)
-#   diagnostic  Run when something is wrong (diagnose, resume)
-#   optional    Enrichment steps (spec-check, review)
-#   advanced    Power-user tools (implement-parallel)
-
 # Dependencies (for Graft-aware dependencies)
 dependencies:
   <dep-name>:
@@ -232,6 +219,8 @@ commands:
   <command-name>:          # Key is the command name
     run: string            # Required: shell command to execute
     description: string    # Optional: human-readable description
+    category: string       # Optional: role classification (core|diagnostic|optional|advanced)
+    example: string        # Optional: complete invocation example
     working_dir: string    # Optional: working directory
     env:                   # Optional: environment variables
       KEY: value
@@ -284,6 +273,38 @@ run: |
 **Example**:
 ```yaml
 description: "Rename getUserData to fetchUserData"
+```
+
+#### category (optional)
+**Type**: `string`
+
+**Valid values**: `core` | `diagnostic` | `optional` | `advanced`
+
+**Description**: Classifies the command by its role in the workflow. Used by `graft help` to
+group and annotate output.
+
+| Value | Role |
+|-------|------|
+| `core` | Primary workflow steps run in normal operation (`implement`, `verify`, `approve`) |
+| `diagnostic` | Run when something is wrong to investigate or recover (`diagnose`, `resume`) |
+| `optional` | Enrichment steps that improve quality but are not required (`spec-check`, `review`) |
+| `advanced` | Power-user or parallel variants not needed for basic use (`implement-parallel`) |
+
+**Example**:
+```yaml
+category: core
+```
+
+#### example (optional)
+**Type**: `string`
+
+**Description**: A complete, concrete invocation string shown in `graft help` output. Should
+be a ready-to-run command that a user can copy and execute with only minor customisation
+(e.g., replacing a slice path).
+
+**Example**:
+```yaml
+example: "graft run software-factory:implement slices/my-feature"
 ```
 
 #### working_dir (optional)
@@ -575,6 +596,8 @@ retry on step failure or write a checkpoint gate when all steps succeed.
 sequences:
   <sequence-name>:
     description: string              # Optional: human-readable summary
+    category: string                 # Optional: role classification (core|diagnostic|optional|advanced)
+    example: string                  # Optional: complete invocation example
     steps:                           # Required: ordered list of command names
       - <command-name>
       - <command-name>
@@ -628,6 +651,31 @@ Commands section (prefixed with `» `).
 **Example**:
 ```yaml
 description: "Build, test, and deploy to staging"
+```
+
+#### category (optional)
+**Type**: `string`
+
+**Valid values**: `core` | `diagnostic` | `optional` | `advanced`
+
+**Description**: Classifies the sequence by its role in the workflow. Same values and
+semantics as `category` on individual commands. Used by `graft help` to group and annotate
+output.
+
+**Example**:
+```yaml
+category: core
+```
+
+#### example (optional)
+**Type**: `string`
+
+**Description**: A complete, concrete invocation string shown in `graft help` output. Should
+be a ready-to-run command that a user can copy and execute with only minor customisation.
+
+**Example**:
+```yaml
+example: "graft run software-factory:implement-verified slices/my-feature"
 ```
 
 #### args (optional)
@@ -1157,6 +1205,118 @@ metadata:
 ```
 
 If not specified, latest version is assumed.
+
+## graft help
+
+`graft help` exposes the command and sequence catalog from a dependency's `graft.yaml`
+without executing anything.
+
+### Modes
+
+#### Catalog mode — `graft help <dep>`
+
+Lists all commands and sequences with key metadata.
+
+```
+$ graft help software-factory
+
+Commands:
+  implement          [core]        Implement next slice step with Claude Code
+                                   Reads: session  Writes: session, context-snapshot
+  verify             [core]        Run consumer project verification
+                                   Reads: —        Writes: verify
+  resume             [diagnostic]  Resume implementation after verify failure
+                                   Reads: session, verify  Writes: session
+
+Sequences:
+  implement-verified [core]        Implement a slice and verify it passes, with retry
+                                   Steps: implement → verify → review  Checkpoint: yes
+  implement-reviewed [core]        Implement, verify, and request code review
+                                   Steps: implement → verify → review  Checkpoint: yes
+```
+
+#### Detail mode — `graft help <dep>:<name>`
+
+Prints full metadata for a single command or sequence. Exits 1 with
+`"unknown command: <name>"` if the name is not found.
+
+**Command example:**
+```
+$ graft help software-factory:implement
+
+  implement — Implement next slice step with Claude Code
+  Category: core
+  Example:  graft run software-factory:implement slices/my-feature
+
+  Arguments:
+    slice  (string, required, positional)  Path to the slice directory
+
+  Reads:   session
+  Writes:  session, context-snapshot
+```
+
+**Sequence example:**
+```
+$ graft help software-factory:implement-verified
+
+  implement-verified — Implement a slice and verify it passes, with retry
+  Category: core
+  Example:  graft run software-factory:implement-verified slices/my-feature
+
+  Steps:      implement → verify → review
+  Retry:      verify fails → resume (max 3)
+  Checkpoint: yes (human approval required)
+
+  Arguments:
+    slice  (string, required, positional)  Path to the slice directory
+```
+
+### `--json` flag
+
+Appending `--json` to either mode emits machine-readable JSON instead of human-readable text.
+
+**Catalog mode** (`graft help <dep> --json`):
+```json
+{
+  "commands": {
+    "implement": {
+      "description": "Implement next slice step with Claude Code",
+      "category": "core",
+      "example": "graft run software-factory:implement slices/my-feature",
+      "args": [
+        {"name": "slice", "type": "string", "required": true, "positional": true, "description": "Path to the slice directory"}
+      ],
+      "reads": ["session"],
+      "writes": ["session", "context-snapshot"]
+    }
+  },
+  "sequences": {
+    "implement-verified": {
+      "description": "Implement a slice and verify it passes, with retry",
+      "category": "core",
+      "example": "graft run software-factory:implement-verified slices/my-feature",
+      "steps": ["implement", "verify", "review"],
+      "on_step_fail": {"step": "verify", "recovery": "resume", "max": 3},
+      "checkpoint": true,
+      "args": [
+        {"name": "slice", "type": "string", "required": true, "positional": true, "description": "Path to the slice directory"}
+      ]
+    }
+  }
+}
+```
+
+**Detail mode** (`graft help <dep>:<name> --json`): emits the single command or sequence
+object as JSON (same shape as the corresponding value in the catalog JSON above).
+
+### Exit codes
+
+| Exit code | Condition |
+|-----------|-----------|
+| `0` | Success |
+| `1` | Dependency not found, or `<name>` not found in detail mode |
+
+---
 
 ## Related
 

@@ -190,7 +190,7 @@ new fields useful immediately.
 
 ## Steps
 
-- [ ] **Spec: add `category` and `example` to `graft-yaml-format.md`**
+- [x] **Spec: add `category` and `example` to `graft-yaml-format.md`**
   - **Delivers** — unambiguous spec for new fields before any code is written
   - **Done when** — `graft-yaml-format.md` documents `category` (type: string,
     valid values: `core | diagnostic | optional | advanced`, optional) and `example`

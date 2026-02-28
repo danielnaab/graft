@@ -14,6 +14,204 @@ use ratatui::{
 use super::command_line::{filtered_palette, parse_command, CliCommand};
 use super::text_buffer::TextBuffer;
 
+// ===== Picker overlay component =====
+
+/// The outcome of a key event handled by [`PickerState`].
+#[derive(Debug, PartialEq)]
+#[allow(dead_code)]
+pub(super) enum PickerOutcome {
+    /// The user selected an item; execute this command.
+    Select(CliCommand),
+    /// The user dismissed the picker (Esc).
+    Dismiss,
+    /// No selection yet; continue showing the picker.
+    Nothing,
+}
+
+/// A single item in a picker overlay.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(super) struct PickerItem {
+    /// Primary text shown in the left column.
+    pub(super) label: String,
+    /// Secondary text shown in the right column.
+    pub(super) description: String,
+    /// Command to execute when this item is selected.
+    pub(super) action: CliCommand,
+}
+
+/// A filterable, navigable picker overlay rendered above the prompt line.
+///
+/// Renders identically to the command palette: a bordered `List` widget with
+/// cyan highlight on the selected row. Used both as the backing store for the
+/// command palette and (in future steps) as a standalone overlay for table
+/// blocks.
+#[derive(Debug)]
+pub(super) struct PickerState {
+    /// All available items (unfiltered).
+    pub(super) items: Vec<PickerItem>,
+    /// Current filter text (case-insensitive substring match on label).
+    pub(super) filter: String,
+    /// Currently highlighted row index (into the filtered item list).
+    pub(super) selected: usize,
+}
+
+#[allow(dead_code)]
+impl PickerState {
+    pub(super) fn new(items: Vec<PickerItem>) -> Self {
+        Self {
+            items,
+            filter: String::new(),
+            selected: 0,
+        }
+    }
+
+    /// Return the subset of items whose label contains `self.filter`
+    /// (case-insensitive substring match).
+    pub(super) fn filtered_items(&self) -> Vec<&PickerItem> {
+        if self.filter.is_empty() {
+            self.items.iter().collect()
+        } else {
+            let f = self.filter.to_ascii_lowercase();
+            self.items
+                .iter()
+                .filter(|i| i.label.to_ascii_lowercase().contains(&f))
+                .collect()
+        }
+    }
+
+    /// Handle a key event and update internal state.
+    ///
+    /// - j / Down  → move selection down (wraps)
+    /// - k / Up    → move selection up (wraps)
+    /// - Char       → append to filter, reset selection
+    /// - Backspace  → remove last filter char, reset selection
+    /// - Enter      → return `Select(action)` for the highlighted item
+    /// - Esc        → return `Dismiss`
+    pub(super) fn handle_key(&mut self, code: KeyCode, _modifiers: KeyModifiers) -> PickerOutcome {
+        match code {
+            KeyCode::Esc => PickerOutcome::Dismiss,
+            KeyCode::Enter => {
+                let items = self.filtered_items();
+                if items.is_empty() {
+                    PickerOutcome::Nothing
+                } else {
+                    let idx = self.selected.min(items.len() - 1);
+                    PickerOutcome::Select(items[idx].action.clone())
+                }
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                let count = self.filtered_items().len();
+                if count > 0 {
+                    self.selected = if self.selected + 1 >= count {
+                        0
+                    } else {
+                        self.selected + 1
+                    };
+                }
+                PickerOutcome::Nothing
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                let count = self.filtered_items().len();
+                if count > 0 {
+                    self.selected = if self.selected == 0 {
+                        count - 1
+                    } else {
+                        self.selected - 1
+                    };
+                }
+                PickerOutcome::Nothing
+            }
+            KeyCode::Char(c) => {
+                self.filter.push(c);
+                self.selected = 0;
+                PickerOutcome::Nothing
+            }
+            KeyCode::Backspace => {
+                self.filter.pop();
+                self.selected = 0;
+                PickerOutcome::Nothing
+            }
+            _ => PickerOutcome::Nothing,
+        }
+    }
+
+    /// Render the picker overlay floating above `above_area`.
+    ///
+    /// The popup is anchored to the bottom-left of `above_area`, grows upward,
+    /// and is styled identically to the command palette (bordered List, cyan
+    /// highlight, black background).
+    pub(super) fn render(&self, frame: &mut ratatui::Frame, above_area: Rect, title: &str) {
+        let items = self.filtered_items();
+        if items.is_empty() {
+            return;
+        }
+
+        let count = items.len();
+        let max_content_width = items
+            .iter()
+            .map(|i| i.label.len() + 2 + i.description.len())
+            .max()
+            .unwrap_or(20);
+
+        let list_items: Vec<ListItem> = items
+            .iter()
+            .map(|item| {
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!("{:<10}", item.label),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::styled(
+                        format!("  {}", item.description),
+                        Style::default().fg(Color::White),
+                    ),
+                ]))
+            })
+            .collect();
+
+        let max_height = above_area.height.saturating_sub(1);
+        let count_u16 = u16::try_from(count).unwrap_or(u16::MAX);
+        let popup_height = count_u16.saturating_add(2).min(max_height);
+        if popup_height < 3 {
+            return;
+        }
+
+        let width_u16 = u16::try_from(max_content_width).unwrap_or(u16::MAX);
+        let popup_width = width_u16.saturating_add(4).min(above_area.width);
+
+        let x = above_area.x;
+        let y = above_area
+            .y
+            .saturating_add(above_area.height)
+            .saturating_sub(popup_height);
+
+        let popup_area = Rect {
+            x,
+            y,
+            width: popup_width,
+            height: popup_height,
+        };
+
+        frame.render_widget(Clear, popup_area);
+
+        let list = List::new(list_items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(title)
+                    .border_style(Style::default().fg(Color::Cyan))
+                    .style(Style::default().fg(Color::White).bg(Color::Black)),
+            )
+            .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
+
+        let mut list_state = ListState::default();
+        list_state.select(Some(self.selected.min(count.saturating_sub(1))));
+
+        frame.render_stateful_widget(list, popup_area, &mut list_state);
+    }
+}
+
 /// Maximum number of command history entries to keep.
 const MAX_HISTORY: usize = 50;
 
@@ -479,7 +677,6 @@ impl PromptState {
     }
 
     /// Render the command palette or argument completion popup above the prompt.
-    #[allow(clippy::too_many_lines)]
     pub(super) fn render_palette(
         &self,
         frame: &mut ratatui::Frame,
@@ -492,35 +689,31 @@ impl PromptState {
 
         let palette_entries = filtered_palette(&state.text.buffer);
 
-        // Build items and metadata from either palette entries or arg completions
-        let (items, title, count, max_content_width): (Vec<ListItem>, &str, usize, usize);
-
+        // Command palette: delegate rendering to PickerState.
         if !palette_entries.is_empty() {
-            count = palette_entries.len();
-            max_content_width = palette_entries
+            let picker_items: Vec<PickerItem> = palette_entries
                 .iter()
-                .map(|e| e.command.len() + 2 + e.description.len())
-                .max()
-                .unwrap_or(20);
-            items = palette_entries
-                .iter()
-                .map(|e| {
-                    ListItem::new(Line::from(vec![
-                        Span::styled(
-                            format!("{:<10}", e.command),
-                            Style::default().fg(Color::Cyan),
-                        ),
-                        Span::styled(
-                            format!("  {}", e.description),
-                            Style::default().fg(Color::White),
-                        ),
-                    ]))
+                .map(|e| PickerItem {
+                    label: e.command.to_string(),
+                    description: e.description.to_string(),
+                    action: parse_command(e.command),
                 })
                 .collect();
-            title = " Commands ";
-        } else if !cs.completions.is_empty() {
-            count = cs.completions.len();
-            max_content_width = cs
+            let picker = PickerState {
+                items: picker_items,
+                filter: String::new(),
+                selected: state
+                    .palette_selected
+                    .min(palette_entries.len().saturating_sub(1)),
+            };
+            picker.render(frame, above_area, " Commands ");
+            return;
+        }
+
+        // Argument completion popup (different styling — value only, DarkGray description).
+        if !cs.completions.is_empty() {
+            let count = cs.completions.len();
+            let max_content_width = cs
                 .completions
                 .iter()
                 .map(|c| {
@@ -533,7 +726,8 @@ impl PromptState {
                 })
                 .max()
                 .unwrap_or(20);
-            items = cs
+
+            let items: Vec<ListItem> = cs
                 .completions
                 .iter()
                 .map(|c| {
@@ -550,51 +744,47 @@ impl PromptState {
                     ListItem::new(Line::from(spans))
                 })
                 .collect();
-            title = " Completions ";
-        } else {
-            return;
+
+            let max_height = above_area.height.saturating_sub(1);
+            let count_u16 = u16::try_from(count).unwrap_or(u16::MAX);
+            let popup_height = count_u16.saturating_add(2).min(max_height);
+            if popup_height < 3 {
+                return;
+            }
+
+            let width_u16 = u16::try_from(max_content_width).unwrap_or(u16::MAX);
+            let popup_width = width_u16.saturating_add(4).min(above_area.width);
+
+            let x = above_area.x;
+            let y = above_area
+                .y
+                .saturating_add(above_area.height)
+                .saturating_sub(popup_height);
+
+            let popup_area = Rect {
+                x,
+                y,
+                width: popup_width,
+                height: popup_height,
+            };
+
+            frame.render_widget(Clear, popup_area);
+
+            let list = List::new(items)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" Completions ")
+                        .border_style(Style::default().fg(Color::Cyan))
+                        .style(Style::default().fg(Color::White).bg(Color::Black)),
+                )
+                .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
+
+            let mut list_state = ListState::default();
+            list_state.select(Some(state.palette_selected.min(count.saturating_sub(1))));
+
+            frame.render_stateful_widget(list, popup_area, &mut list_state);
         }
-
-        // Common popup rendering
-        let max_height = above_area.height.saturating_sub(1);
-        let count_u16 = u16::try_from(count).unwrap_or(u16::MAX);
-        let popup_height = count_u16.saturating_add(2).min(max_height);
-        if popup_height < 3 {
-            return;
-        }
-
-        let width_u16 = u16::try_from(max_content_width).unwrap_or(u16::MAX);
-        let popup_width = width_u16.saturating_add(4).min(above_area.width);
-
-        let x = above_area.x;
-        let y = above_area
-            .y
-            .saturating_add(above_area.height)
-            .saturating_sub(popup_height);
-
-        let popup_area = Rect {
-            x,
-            y,
-            width: popup_width,
-            height: popup_height,
-        };
-
-        frame.render_widget(Clear, popup_area);
-
-        let list = List::new(items)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(title)
-                    .border_style(Style::default().fg(Color::Cyan))
-                    .style(Style::default().fg(Color::White).bg(Color::Black)),
-            )
-            .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
-
-        let mut list_state = ListState::default();
-        list_state.select(Some(state.palette_selected.min(count.saturating_sub(1))));
-
-        frame.render_stateful_widget(list, popup_area, &mut list_state);
     }
 
     /// Render the command line prompt in the given area.
