@@ -759,11 +759,25 @@ fn options_from_state_extracts_path_array() {
     let data = serde_json::json!({
         "slices": [
             {"path": "slices/foo/plan.md", "status": "draft"},
-            {"path": "slices/bar/plan.md", "status": "done"},
+            {"path": "slices/bar/plan.md", "status": "in-progress"},
+            {"path": "slices/baz/plan.md", "status": "accepted"},
         ]
     });
     let opts = extract_options_from_state("slices", &data);
-    assert_eq!(opts, vec!["slices/foo", "slices/bar"]);
+    assert_eq!(opts, vec!["slices/foo", "slices/bar", "slices/baz"]);
+}
+
+#[test]
+fn options_from_state_excludes_done_items() {
+    let data = serde_json::json!({
+        "slices": [
+            {"path": "slices/active/plan.md", "status": "draft"},
+            {"path": "slices/finished/plan.md", "status": "done"},
+            {"path": "slices/wip/plan.md", "status": "in-progress"},
+        ]
+    });
+    let opts = extract_options_from_state("slices", &data);
+    assert_eq!(opts, vec!["slices/active", "slices/wip"]);
 }
 
 #[test]

@@ -1537,6 +1537,10 @@ pub(super) fn extract_options_from_state(
     };
     arr.iter()
         .filter_map(|item| {
+            // Skip items explicitly marked as done (e.g. completed slices)
+            if item.get("status").and_then(|v| v.as_str()) == Some("done") {
+                return None;
+            }
             if let Some(s) = item.as_str() {
                 Some(s.to_string())
             } else if let Some(path) = item.get("path").and_then(|v| v.as_str()) {
