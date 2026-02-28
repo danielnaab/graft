@@ -168,6 +168,24 @@ sequence primitive prematurely.
 
 ---
 
+## Graft as Context Provider (2026-02-28)
+
+Exploration of inverting the architecture: Claude instances as autonomous workers,
+graft as a queryable world model, grove as mission control with local branch/merge
+review.
+
+**Active**:
+- [Graft as Context Provider](2026-02-28-graft-as-context-provider.md) -- worker model,
+  artifacts over actors, local PR workflow, component evolution
+
+**Relates to**:
+- [Agentic Orchestration](2026-02-18-grove-agentic-orchestration.md) -- dispatch board metaphor
+- [Command Output State Mapping](2026-02-23-command-output-state-mapping.md) -- state mapping primitive
+- [Sequence Primitives](2026-02-24-sequence-primitives-exploration.md) -- sequence design decisions
+- [Entity Focus Slice](../slices/grove-entity-focus/plan.md) -- step zero of the evolution
+
+---
+
 ## Adding New Notes
 
 When creating session logs or exploration notes:
