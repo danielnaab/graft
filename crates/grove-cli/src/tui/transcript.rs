@@ -575,6 +575,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:run <cmd> [args]` — execute a command.
     #[allow(clippy::too_many_lines)]
     fn cmd_run(&mut self, command_name: &str, args: Vec<String>) {
+        // Guard: reject concurrent executions — one command at a time.
+        if self.execution.command_state == CommandState::Running {
+            self.status = Some(StatusMessage::warning(
+                "A command is already running — wait for it to finish",
+            ));
+            return;
+        }
+
         let repo_path = if let Some(p) = &self.context.selected_repo_path {
             p.clone()
         } else {

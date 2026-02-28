@@ -102,6 +102,52 @@ impl ContentBlock {
         }
     }
 
+    /// Count rendered lines without allocating.
+    ///
+    /// Used by [`ScrollBuffer::total_lines`] to compute scroll bounds efficiently.
+    fn line_count(&self) -> usize {
+        match self {
+            Self::Divider { .. } => 1,
+            Self::Text {
+                lines, collapsed, ..
+            } => {
+                if *collapsed {
+                    1
+                } else {
+                    lines.len()
+                }
+            }
+            Self::Running {
+                output_lines,
+                output_truncated,
+                collapsed,
+                ..
+            } => {
+                if *collapsed {
+                    1
+                } else {
+                    // 1 header + optional truncation notice + output lines
+                    1 + usize::from(*output_truncated) + output_lines.len()
+                }
+            }
+            Self::Table {
+                title,
+                headers,
+                rows,
+                collapsed,
+                ..
+            } => {
+                if *collapsed {
+                    return 1;
+                }
+                let title_lines = usize::from(!title.is_empty());
+                // header row + separator when headers are present
+                let header_lines = if headers.is_empty() { 0 } else { 2 };
+                title_lines + header_lines + rows.len()
+            }
+        }
+    }
+
     /// Render this block into lines for display at the given instant.
     ///
     /// `now` is used only by [`ContentBlock::Running`] to drive the spinner
@@ -341,16 +387,12 @@ impl ScrollBuffer {
     }
 
     /// Total rendered lines across all blocks (including blank separators between blocks).
-    fn total_lines(&self, width: u16) -> usize {
-        let now = Instant::now();
-        let mut total = 0;
-        for (i, block) in self.blocks.iter().enumerate() {
-            if i > 0 {
-                total += 1; // blank line between blocks
-            }
-            total += block.render_lines_at(width, now).len();
-        }
-        total
+    fn total_lines(&self, _width: u16) -> usize {
+        self.blocks
+            .iter()
+            .enumerate()
+            .map(|(i, b)| usize::from(i > 0) + b.line_count())
+            .sum()
     }
 
     /// Append lines to the `Running` block with the given `id`.
@@ -361,6 +403,8 @@ impl ScrollBuffer {
     pub(super) fn append_lines_to_running(&mut self, id: BlockId, new_lines: Vec<Line<'static>>) {
         const MAX_RUNNING_OUTPUT_LINES: usize = 10_000;
         const RUNNING_LINES_TO_DROP: usize = 1_000;
+
+        let at_bottom = self.scroll_offset == usize::MAX;
 
         if let Some(ContentBlock::Running {
             output_lines,
@@ -373,6 +417,10 @@ impl ScrollBuffer {
                 output_lines.drain(0..RUNNING_LINES_TO_DROP);
                 *output_truncated = true;
             }
+        }
+
+        // Only auto-scroll if the user hasn't scrolled up manually.
+        if at_bottom {
             self.scroll_to_bottom();
         }
     }
@@ -388,7 +436,8 @@ impl ScrollBuffer {
         let pos = self.blocks.iter().position(|b| b.id() == id);
         let Some(pos) = pos else { return };
 
-        let block = &self.blocks[pos];
+        // Remove the block to take ownership — avoids cloning output_lines.
+        let block = self.blocks.remove(pos);
         let ContentBlock::Running {
             command,
             args,
@@ -398,10 +447,12 @@ impl ScrollBuffer {
             ..
         } = block
         else {
+            // Put it back if it wasn't a Running block.
+            self.blocks.insert(pos, block);
             return;
         };
 
-        let elapsed = now.duration_since(*started_at);
+        let elapsed = now.duration_since(started_at);
         let elapsed_str = format_elapsed(elapsed);
         let arg_str = args.join(" ");
         let cmd_display = if arg_str.is_empty() {
@@ -409,7 +460,6 @@ impl ScrollBuffer {
         } else {
             format!("{command}  {arg_str}")
         };
-        let collapsed = *collapsed;
 
         let (symbol, symbol_color, exit_label) = match &outcome {
             RunCompletion::Exited(0) => ("\u{2713}", Color::Green, String::new()),
@@ -417,11 +467,11 @@ impl ScrollBuffer {
             RunCompletion::Error(_) => ("\u{2717}", Color::Red, String::new()),
         };
 
+        // Note: no leading "▶ " here — Text collapse rendering adds its own prefix.
         let mut header = vec![
-            Span::styled("\u{25b6} ", Style::default().fg(Color::DarkGray)),
             Span::styled(cmd_display, Style::default().fg(Color::DarkGray)),
             Span::styled(
-                format!("    {symbol}  {elapsed_str}{exit_label}"),
+                format!("  {symbol}  {elapsed_str}{exit_label}"),
                 Style::default().fg(symbol_color),
             ),
         ];
@@ -434,15 +484,16 @@ impl ScrollBuffer {
         }
 
         let mut lines = vec![Line::from(header)];
-        // Clone output lines out before the mutable borrow below
-        let saved_output = output_lines.clone();
-        lines.extend(saved_output);
+        lines.extend(output_lines);
 
-        self.blocks[pos] = ContentBlock::Text {
-            id,
-            lines,
-            collapsed,
-        };
+        self.blocks.insert(
+            pos,
+            ContentBlock::Text {
+                id,
+                lines,
+                collapsed,
+            },
+        );
         self.scroll_to_bottom();
     }
 
@@ -455,6 +506,13 @@ impl ScrollBuffer {
 
     /// Scroll up by `n` lines.
     pub(super) fn scroll_up(&mut self, n: usize) {
+        // If at the bottom sentinel, resolve to actual max offset first so we
+        // don't end up at usize::MAX - n (still enormous, renders as bottom).
+        if self.scroll_offset == usize::MAX {
+            let total = self.total_lines(self.last_width);
+            let max_offset = total.saturating_sub(self.last_viewport_height as usize);
+            self.scroll_offset = max_offset;
+        }
         self.scroll_offset = self.scroll_offset.saturating_sub(n);
     }
 
@@ -598,13 +656,17 @@ fn format_elapsed(d: Duration) -> String {
     }
 }
 
+const FORMAT_FIRST_LINE_MAX_CHARS: usize = 60;
+const FORMAT_FIRST_LINE_TRUNCATED_CHARS: usize = 57;
+
 fn format_first_line(line: &Line<'_>) -> String {
     let mut s = String::new();
     for span in &line.spans {
         s.push_str(&span.content);
     }
-    if s.len() > 60 {
-        s.truncate(57);
+    // Truncate by char count, not byte length, to avoid panics on multibyte chars.
+    if s.chars().count() > FORMAT_FIRST_LINE_MAX_CHARS {
+        s = s.chars().take(FORMAT_FIRST_LINE_TRUNCATED_CHARS).collect();
         s.push_str("...");
     }
     s
@@ -680,4 +742,275 @@ fn compute_col_widths(
     }
 
     widths
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn make_text(lines: Vec<&'static str>) -> ContentBlock {
+        ContentBlock::Text {
+            id: BlockId::new(),
+            lines: lines.into_iter().map(Line::raw).collect(),
+            collapsed: false,
+        }
+    }
+
+    fn make_running(output: Vec<&'static str>) -> (BlockId, ContentBlock) {
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "test".into(),
+            args: vec![],
+            started_at: Instant::now(),
+            output_lines: output.into_iter().map(Line::raw).collect(),
+            output_truncated: false,
+            collapsed: false,
+        };
+        (id, block)
+    }
+
+    // ── format_elapsed ──────────────────────────────────────────────────────
+
+    #[test]
+    fn format_elapsed_seconds() {
+        assert_eq!(format_elapsed(Duration::from_secs(5)), "5s");
+        assert_eq!(format_elapsed(Duration::from_secs(59)), "59s");
+    }
+
+    #[test]
+    fn format_elapsed_minutes() {
+        assert_eq!(format_elapsed(Duration::from_secs(60)), "1m 0s");
+        assert_eq!(format_elapsed(Duration::from_secs(154)), "2m 34s");
+    }
+
+    // ── append_lines_to_running ─────────────────────────────────────────────
+
+    #[test]
+    fn append_lines_adds_to_running_block() {
+        let mut buf = ScrollBuffer::new();
+        let (id, block) = make_running(vec![]);
+        buf.push(block);
+
+        buf.append_lines_to_running(id, vec![Line::raw("line 1"), Line::raw("line 2")]);
+
+        if let ContentBlock::Running { output_lines, .. } = &buf.blocks[0] {
+            assert_eq!(output_lines.len(), 2);
+        } else {
+            panic!("expected Running block");
+        }
+    }
+
+    #[test]
+    fn append_lines_noop_on_wrong_id() {
+        let mut buf = ScrollBuffer::new();
+        let (_, block) = make_running(vec!["existing"]);
+        buf.push(block);
+
+        let other_id = BlockId::new();
+        buf.append_lines_to_running(other_id, vec![Line::raw("new")]);
+
+        if let ContentBlock::Running { output_lines, .. } = &buf.blocks[0] {
+            assert_eq!(output_lines.len(), 1);
+        } else {
+            panic!("expected Running block");
+        }
+    }
+
+    #[test]
+    fn append_lines_respects_auto_scroll_opt_out() {
+        let mut buf = ScrollBuffer::new();
+        let (id, block) = make_running(vec![]);
+        buf.push(block);
+
+        // Scroll up manually (offset 0 = top)
+        buf.scroll_offset = 0;
+        buf.append_lines_to_running(id, vec![Line::raw("x")]);
+
+        // Should NOT have jumped to bottom
+        assert_eq!(buf.scroll_offset, 0);
+    }
+
+    #[test]
+    fn append_lines_auto_scrolls_when_at_bottom() {
+        let mut buf = ScrollBuffer::new();
+        let (id, block) = make_running(vec![]);
+        buf.push(block);
+
+        // At bottom sentinel
+        buf.scroll_offset = usize::MAX;
+        buf.append_lines_to_running(id, vec![Line::raw("x")]);
+
+        assert_eq!(buf.scroll_offset, usize::MAX);
+    }
+
+    // ── finalize_running ────────────────────────────────────────────────────
+
+    #[test]
+    fn finalize_running_converts_to_text() {
+        let mut buf = ScrollBuffer::new();
+        let (id, block) = make_running(vec!["out1", "out2"]);
+        buf.push(block);
+
+        buf.finalize_running(id, &RunCompletion::Exited(0));
+
+        assert!(matches!(buf.blocks[0], ContentBlock::Text { .. }));
+        if let ContentBlock::Text { lines, .. } = &buf.blocks[0] {
+            // First line = header with command name; subsequent = output
+            assert!(lines.len() >= 3); // header + 2 output lines
+        }
+    }
+
+    #[test]
+    fn finalize_running_exit_nonzero_shows_exit_code() {
+        let mut buf = ScrollBuffer::new();
+        let (id, block) = make_running(vec![]);
+        buf.push(block);
+
+        buf.finalize_running(id, &RunCompletion::Exited(1));
+
+        if let ContentBlock::Text { lines, .. } = &buf.blocks[0] {
+            let header_text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+            assert!(header_text.contains("exit 1"), "got: {header_text}");
+        } else {
+            panic!("expected Text block");
+        }
+    }
+
+    #[test]
+    fn finalize_running_noop_on_wrong_id() {
+        let mut buf = ScrollBuffer::new();
+        let (_, block) = make_running(vec![]);
+        buf.push(block);
+
+        let other_id = BlockId::new();
+        buf.finalize_running(other_id, &RunCompletion::Exited(0));
+
+        // Block should still be Running
+        assert!(matches!(buf.blocks[0], ContentBlock::Running { .. }));
+    }
+
+    // ── render_lines_at (Running variant) ───────────────────────────────────
+
+    #[test]
+    fn running_render_shows_spinner_and_output() {
+        let now = Instant::now();
+        let (id, block) = make_running(vec!["stdout line"]);
+        let lines = block.render_lines_at(80, now);
+
+        // header line + 1 output line
+        assert_eq!(lines.len(), 2);
+
+        // Header should contain command name "test"
+        let header: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(header.contains("test"), "got: {header}");
+        let _ = id;
+    }
+
+    #[test]
+    fn running_render_collapsed_is_single_line() {
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "build".into(),
+            args: vec!["--release".into()],
+            started_at: Instant::now(),
+            output_lines: vec![Line::raw("a"), Line::raw("b"), Line::raw("c")],
+            output_truncated: false,
+            collapsed: true,
+        };
+
+        let lines = block.render_lines_at(80, Instant::now());
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn running_render_truncated_adds_notice() {
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "test".into(),
+            args: vec![],
+            started_at: Instant::now(),
+            output_lines: vec![Line::raw("x")],
+            output_truncated: true,
+            collapsed: false,
+        };
+
+        let lines = block.render_lines_at(80, Instant::now());
+        // header + truncation notice + 1 output
+        assert_eq!(lines.len(), 3);
+        let notice: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(notice.contains("truncated"), "got: {notice}");
+    }
+
+    // ── line_count ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn line_count_text_uncollapsed() {
+        let block = make_text(vec!["a", "b", "c"]);
+        assert_eq!(block.line_count(), 3);
+    }
+
+    #[test]
+    fn line_count_text_collapsed() {
+        let mut block = make_text(vec!["a", "b", "c"]);
+        if let ContentBlock::Text { collapsed, .. } = &mut block {
+            *collapsed = true;
+        }
+        assert_eq!(block.line_count(), 1);
+    }
+
+    #[test]
+    fn line_count_running_matches_render() {
+        let (_, block) = make_running(vec!["x", "y"]);
+        let rendered = block.render_lines_at(80, Instant::now()).len();
+        assert_eq!(block.line_count(), rendered);
+    }
+
+    #[test]
+    fn line_count_running_with_truncation() {
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "t".into(),
+            args: vec![],
+            started_at: Instant::now(),
+            output_lines: vec![Line::raw("a"), Line::raw("b")],
+            output_truncated: true,
+            collapsed: false,
+        };
+        let rendered = block.render_lines_at(80, Instant::now()).len();
+        assert_eq!(block.line_count(), rendered);
+    }
+
+    #[test]
+    fn line_count_divider() {
+        let block = ContentBlock::Divider { id: BlockId::new() };
+        assert_eq!(block.line_count(), 1);
+    }
+
+    // ── scroll_up from sentinel ─────────────────────────────────────────────
+
+    #[test]
+    fn scroll_up_from_sentinel_resolves_correctly() {
+        let mut buf = ScrollBuffer::new();
+        // Add enough lines to make scrolling meaningful
+        for i in 0..20 {
+            buf.push(make_text(vec![Box::leak(
+                format!("line {i}").into_boxed_str(),
+            )]));
+        }
+        buf.scroll_to_bottom(); // sentinel = usize::MAX
+
+        buf.scroll_up(1);
+
+        // After scrolling up, offset must NOT be usize::MAX or near it
+        assert!(
+            buf.scroll_offset < usize::MAX / 2,
+            "scroll_offset should be small, got {}",
+            buf.scroll_offset
+        );
+    }
 }
