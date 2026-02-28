@@ -1168,6 +1168,7 @@ mod tests {
     // ── Conditional step tests ────────────────────────────────────────────────
 
     /// Write a run-state JSON file with the given fields.
+    #[allow(clippy::needless_pass_by_value)]
     fn write_run_state_json(
         run_state_dir: &std::path::Path,
         name: &str,

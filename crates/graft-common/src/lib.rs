@@ -54,7 +54,8 @@ pub use command::{run_command_with_timeout, CommandError};
 pub use config::{
     parse_commands, parse_commands_from_str, parse_dependency_names,
     parse_dependency_names_from_str, parse_sequences_from_str, parse_state_queries, ArgDef,
-    ArgType, CommandDef, OnStepFail, SequenceDef, StateQueryDef, StdinDef, StepDef, WhenCondition,
+    ArgType, CommandDef, EntityDef, OnStepFail, SequenceDef, StateQueryDef, StdinDef, StepDef,
+    WhenCondition,
 };
 pub use git::{get_current_commit, git_checkout, git_fetch, git_rev_parse, is_git_repo, GitError};
 pub use process::{

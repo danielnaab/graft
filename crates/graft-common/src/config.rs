@@ -82,6 +82,21 @@ pub struct CommandDef {
     pub reads: Vec<String>,
 }
 
+/// Entity declaration for a state query — describes the collection shape the query returns.
+///
+/// When present, `extract_options_from_state` uses `key` to identify each item and
+/// `collection` (defaulting to the query name) to locate the array in the JSON output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityDef {
+    /// Field name within each collection object used as the identity value (for
+    /// `options_from` resolution and focus).
+    pub key: String,
+    /// JSON key for the collection array in the query output. When absent, the query
+    /// name is used as the collection key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection: Option<String>,
+}
+
 /// A state query definition from graft.yaml.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateQueryDef {
@@ -96,6 +111,9 @@ pub struct StateQueryDef {
     pub inputs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
+    /// Optional entity declaration — describes the collection shape returned by this query.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity: Option<EntityDef>,
 }
 
 /// Read a YAML file, returning an empty string if the file doesn't exist.
@@ -779,11 +797,22 @@ fn parse_state_query(name: &str, config: &Value) -> Result<StateQueryDef, String
         .and_then(|d| d.as_str())
         .map(std::string::ToString::to_string);
 
+    // Get entity declaration (optional)
+    let entity = config.get("entity").and_then(|e| {
+        let key = e.get("key").and_then(|v| v.as_str())?.to_string();
+        let collection = e
+            .get("collection")
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string);
+        Some(EntityDef { key, collection })
+    });
+
     Ok(StateQueryDef {
         run,
         description,
         inputs,
         timeout,
+        entity,
     })
 }
 
@@ -1182,6 +1211,69 @@ state:
     }
 
     #[test]
+    fn parse_state_query_entity_with_both_fields() {
+        let yaml_content = r#"
+state:
+  migrations:
+    run: "bash scripts/list-migrations.sh"
+    entity:
+      key: name
+      collection: migrations
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let queries = parse_state_queries(temp_file.path()).unwrap();
+        let migrations = queries.get("migrations").unwrap();
+        let entity = migrations
+            .entity
+            .as_ref()
+            .expect("entity should be present");
+        assert_eq!(entity.key, "name");
+        assert_eq!(entity.collection.as_deref(), Some("migrations"));
+    }
+
+    #[test]
+    fn parse_state_query_entity_key_only() {
+        // When collection is absent it defaults to None (query name is used at extraction time)
+        let yaml_content = r#"
+state:
+  slices:
+    run: "bash scripts/list-slices.sh"
+    entity:
+      key: slug
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let queries = parse_state_queries(temp_file.path()).unwrap();
+        let slices = queries.get("slices").unwrap();
+        let entity = slices.entity.as_ref().expect("entity should be present");
+        assert_eq!(entity.key, "slug");
+        assert!(entity.collection.is_none());
+    }
+
+    #[test]
+    fn parse_state_query_no_entity_backward_compat() {
+        // Queries without entity must parse successfully with entity = None
+        let yaml_content = r#"
+state:
+  coverage:
+    run: "pytest --cov"
+    cache:
+      inputs:
+        - "**/*.py"
+    timeout: 60
+"#;
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(yaml_content.as_bytes()).unwrap();
+
+        let queries = parse_state_queries(temp_file.path()).unwrap();
+        let coverage = queries.get("coverage").unwrap();
+        assert!(coverage.entity.is_none());
+    }
+
+    #[test]
     fn parse_notebook_graft_yaml_capture_args() {
         // Test against the real notebook graft.yaml to verify end-to-end parsing
         let notebook_path = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
@@ -1339,7 +1431,7 @@ sequences:
 
     #[test]
     fn parse_sequences_step_object_form() {
-        let yaml_content = r#"
+        let yaml_content = r"
 sequences:
   timed:
     steps:
@@ -1347,7 +1439,7 @@ sequences:
         timeout: 600
       - name: verify
         timeout: 180
-"#;
+";
         let sequences = parse_sequences_from_str(yaml_content).unwrap();
         let seq = sequences.get("timed").unwrap();
         assert_eq!(seq.steps[0].name, "implement");

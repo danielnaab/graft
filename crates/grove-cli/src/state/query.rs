@@ -18,6 +18,10 @@ pub struct StateQuery {
     pub timeout: Option<u64>,
     /// Working directory for subprocess execution — always the consumer repo root.
     pub working_dir: PathBuf,
+    /// Optional entity declaration — describes the collection shape returned by this query.
+    /// When present, `extract_options_from_state` uses `key` to identify each item and
+    /// `collection` (defaulting to the query name) to locate the array in the JSON output.
+    pub entity: Option<graft_common::EntityDef>,
 }
 
 /// Get a summary string for display (type-specific formatting).

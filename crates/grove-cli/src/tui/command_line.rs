@@ -24,6 +24,11 @@ pub(super) const PALETTE_COMMANDS: &[PaletteEntry] = &[
         takes_args: false,
     },
     PaletteEntry {
+        command: "focus",
+        description: "Set or list focused entity per query",
+        takes_args: false,
+    },
+    PaletteEntry {
         command: "help",
         description: "Show keybindings and command reference",
         takes_args: false,
@@ -68,6 +73,11 @@ pub(super) const PALETTE_COMMANDS: &[PaletteEntry] = &[
         description: "Show file changes and recent commits",
         takes_args: false,
     },
+    PaletteEntry {
+        command: "unfocus",
+        description: "Clear focused entity (one query or all)",
+        takes_args: false,
+    },
 ];
 
 /// Return the subset of `PALETTE_COMMANDS` whose `command` field starts with `filter`
@@ -105,6 +115,17 @@ pub(super) enum CliCommand {
     State(Option<String>),
     /// `:invalidate [name]` — clear cached state (all or a single query).
     Invalidate(Option<String>),
+    /// `:focus [query [value]]` — list, pick, or set a focused entity.
+    ///
+    /// - `Focus(None, None)` — list all focusable queries and current values.
+    /// - `Focus(Some(query), None)` — open a picker over that query's entities.
+    /// - `Focus(Some(query), Some(value))` — set focus directly (no picker).
+    Focus(Option<String>, Option<String>),
+    /// `:unfocus [query]` — clear focus for one query or all queries.
+    ///
+    /// - `Unfocus(None)` — clear all focuses.
+    /// - `Unfocus(Some(query))` — clear focus for a single query.
+    Unfocus(Option<String>),
     /// An unknown command (the raw input is preserved for error display).
     Unknown(String),
 }
@@ -170,6 +191,23 @@ pub(super) fn parse_command(input: &str) -> CliCommand {
                 CliCommand::Invalidate(None)
             } else {
                 CliCommand::Invalidate(Some(rest.to_string()))
+            }
+        }
+        "focus" | "f" => {
+            if rest.is_empty() {
+                CliCommand::Focus(None, None)
+            } else {
+                let mut parts = rest.splitn(2, char::is_whitespace);
+                let query = parts.next().unwrap_or("").to_string();
+                let value = parts.next().map(str::trim).filter(|s| !s.is_empty());
+                CliCommand::Focus(Some(query), value.map(str::to_string))
+            }
+        }
+        "unfocus" | "uf" => {
+            if rest.is_empty() {
+                CliCommand::Unfocus(None)
+            } else {
+                CliCommand::Unfocus(Some(rest.to_string()))
             }
         }
         _ => CliCommand::Unknown(input.to_string()),

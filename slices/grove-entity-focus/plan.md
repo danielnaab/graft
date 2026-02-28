@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 created: 2026-02-28
 ---
 
@@ -198,7 +198,7 @@ No layer knows about software-factory, slices, or transactions.
 
 ## Steps
 
-- [ ] **Spec and parse `entity` on state queries**
+- [x] **Spec and parse `entity` on state queries**
   - **Delivers** — format spec + parsing for the new declaration
   - **Done when** — `graft-yaml-format.md` documents `entity` block (key required,
     collection optional defaulting to query name); `EntityDef` struct added to
@@ -210,7 +210,7 @@ No layer knows about software-factory, slices, or transactions.
   - **Files** — `docs/specifications/graft/graft-yaml-format.md`,
     `crates/graft-common/src/config.rs`
 
-- [ ] **Use `entity` declaration in `extract_options_from_state`**
+- [x] **Use `entity` declaration in `extract_options_from_state`**
   - **Delivers** — generic entity extraction replacing hardcoded conventions
   - **Done when** — `extract_options_from_state` signature gains
     `entity: Option<&EntityDef>`; when `Some`, uses `entity.collection` (falling
@@ -224,7 +224,7 @@ No layer knows about software-factory, slices, or transactions.
     `crates/grove-cli/src/state/query.rs`,
     `crates/grove-cli/src/tui/tests.rs`
 
-- [ ] **Add focus state and `:focus`/`:unfocus` commands**
+- [x] **Add focus state and `:focus`/`:unfocus` commands**
   - **Delivers** — the core focus mechanism
   - **Done when** — `TranscriptApp` gains `focus: HashMap<String, String>`;
     `CliCommand` gains `Focus(Option<String>, Option<String>)` and
@@ -237,7 +237,7 @@ No layer knows about software-factory, slices, or transactions.
     `crates/grove-cli/src/tui/transcript.rs`,
     `crates/grove-cli/src/tui/tests.rs`
 
-- [ ] **Auto-fill focused args in `:run`**
+- [x] **Auto-fill focused args in `:run`**
   - **Delivers** — focus actually changes behavior for command execution
   - **Done when** — `cmd_run` checks each arg's `options_from` against
     `self.focus`; missing args with a matching focus are injected; explicit args
@@ -247,7 +247,7 @@ No layer knows about software-factory, slices, or transactions.
   - **Files** — `crates/grove-cli/src/tui/transcript.rs`,
     `crates/grove-cli/src/tui/tests.rs`
 
-- [ ] **Show focus in header and add completions**
+- [x] **Show focus in header and add completions**
   - **Delivers** — visual feedback for focus state + discoverability
   - **Done when** — `HeaderData` gains `focus: &'a HashMap<String, String>`;
     `render_header` appends focus entries after branch indicators (separator dark

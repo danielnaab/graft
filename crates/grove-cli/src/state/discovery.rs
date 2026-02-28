@@ -25,6 +25,7 @@ pub fn discover_state_queries(
             inputs: def.inputs,
             timeout: def.timeout,
             working_dir: consumer_root.to_path_buf(),
+            entity: def.entity,
         })
         .collect();
 

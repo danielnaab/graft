@@ -67,6 +67,9 @@ state:
     cache:                        # Optional: cache configuration
       inputs: list[string]        # Optional: glob patterns for files this query reads
     timeout: integer              # Optional: seconds (default: 300)
+    entity:                       # Optional: declares this query returns a collection
+      key: string                 # Required: field name for identity value
+      collection: string          # Optional: JSON key for the array (default: query name)
 
 # Sequence definitions (multi-step command pipelines)
 sequences:
@@ -859,6 +862,9 @@ state:
     cache:               # Optional: cache configuration
       inputs: [string]   # Optional: glob patterns for files this query reads
     timeout: integer     # Optional: seconds (default: 300)
+    entity:              # Optional: declares this query returns a collection
+      key: string        # Required: field name for identity value
+      collection: string # Optional: JSON key for the array (default: query name)
 ```
 
 ### Cache modes
@@ -875,6 +881,54 @@ Use `inputs` for expensive queries (test suites, linters) whose results are stab
 a given set of source files. Omit `inputs` for cheap or filesystem-dependent queries
 (listing slice directories, git log summaries) that should always run fresh.
 
+### `entity` block (optional)
+
+Declares that a state query returns a collection of named objects. When present, grove
+uses `entity.key` to extract identity values for `options_from` resolution and focus.
+
+#### `entity.key` (required)
+
+**Type**: `string`
+
+**Description**: The JSON field name within each collection object whose value is used
+as the identity — surfaced as the option value for `options_from` and as the focused
+value for `:focus`.
+
+#### `entity.collection` (optional)
+
+**Type**: `string`
+
+**Default**: the query name
+
+**Description**: The JSON key under which the array of objects lives in the query
+output. Override this when the JSON key returned by the script differs from the query
+name in `graft.yaml`.
+
+```yaml
+# When the query name matches the JSON key — no collection needed
+state:
+  slices:
+    run: "bash scripts/list-slices.sh"
+    entity:
+      key: slug      # Each object has a "slug" field
+
+# When the query name differs from the JSON key
+state:
+  active-tasks:
+    run: "bash scripts/list-tasks.sh"
+    entity:
+      collection: tasks  # Script returns {"tasks": [...]} not {"active-tasks": [...]}
+      key: id
+```
+
+**No filtering.** The `entity` block does not filter items. Scripts control what they
+return. If a graft wants to exclude completed items, the script should do so. The format
+encodes structure, not business logic.
+
+**Backward compatible.** Queries without `entity` continue to use the existing
+extraction conventions in grove (`path` → parent directory, `name`, bare string,
+`status == "done"` filter). Adding `entity` opts the query into the new generic path.
+
 ### Example
 
 ```yaml
@@ -889,10 +943,19 @@ state:
         - "Cargo.lock"
     timeout: 180
 
-  # Cheap: always run fresh (no cache)
+  # Cheap: always run fresh (no cache); entity declares collection shape
   slices:
     run: "bash scripts/list-slices.sh"
     timeout: 10
+    entity:
+      key: slug
+
+  # Query name differs from JSON key
+  active-migrations:
+    run: "bash scripts/list-migrations.sh"
+    entity:
+      collection: migrations
+      key: name
 
   # Cheap: always run fresh (no cache)
   changes:

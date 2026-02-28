@@ -589,6 +589,7 @@ impl PromptState {
         available_commands: &[(String, graft_common::CommandDef)],
         repo_names: &[String],
         state_query_names: &[String],
+        focus_entity_opts: &std::collections::HashMap<String, Vec<String>>,
     ) -> CompletionState {
         let Some(state) = self.command_line.as_ref() else {
             return CompletionState::default();
@@ -670,6 +671,42 @@ impl PromptState {
                         })
                         .collect(),
                     ..CompletionState::default()
+                }
+            }
+            "focus" | "f" => {
+                if rest.contains(char::is_whitespace) {
+                    // Second arg: complete entity values for the named query
+                    let mut parts = rest.splitn(2, char::is_whitespace);
+                    let query_name = parts.next().unwrap_or("");
+                    let partial = parts.next().unwrap_or("").trim_start().to_ascii_lowercase();
+                    let opts = focus_entity_opts
+                        .get(query_name)
+                        .map_or(&[][..], Vec::as_slice);
+                    CompletionState {
+                        completions: opts
+                            .iter()
+                            .filter(|v| v.to_ascii_lowercase().starts_with(&partial))
+                            .map(|v| ArgCompletion {
+                                value: v.clone(),
+                                description: String::new(),
+                            })
+                            .collect(),
+                        ..CompletionState::default()
+                    }
+                } else {
+                    // First arg: complete query names
+                    let partial = rest.to_ascii_lowercase();
+                    CompletionState {
+                        completions: state_query_names
+                            .iter()
+                            .filter(|n| n.to_ascii_lowercase().starts_with(&partial))
+                            .map(|n| ArgCompletion {
+                                value: n.clone(),
+                                description: String::new(),
+                            })
+                            .collect(),
+                        ..CompletionState::default()
+                    }
                 }
             }
             _ => CompletionState::default(),

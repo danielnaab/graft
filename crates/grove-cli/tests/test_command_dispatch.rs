@@ -47,9 +47,8 @@ commands:
 
     while start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(CommandEvent::Started(_)) | Ok(CommandEvent::LogPath(_)) => {
-                // Process started or log path info, continue waiting for output
-            }
+            Ok(CommandEvent::Started(_) | CommandEvent::LogPath(_))
+            | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(CommandEvent::OutputLine(line)) => {
                 output_lines.push(line);
             }
@@ -60,7 +59,6 @@ commands:
             Ok(CommandEvent::Failed(msg)) => {
                 panic!("Command failed: {msg}");
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 break;
             }

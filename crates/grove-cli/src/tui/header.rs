@@ -17,6 +17,10 @@ pub(super) struct HeaderData<'a> {
     pub is_dirty: Option<bool>,
     pub ahead: Option<usize>,
     pub behind: Option<usize>,
+    /// Per-query focus values to display (query name → focused value).
+    pub focus: &'a std::collections::HashMap<String, String>,
+    /// Query names whose focused value is no longer in the current state results.
+    pub stale_focus: &'a std::collections::HashSet<String>,
 }
 
 /// Render the 2-line sticky header.
@@ -85,6 +89,35 @@ pub(super) fn render_header(frame: &mut ratatui::Frame, area: Rect, data: &Heade
                     format!("\u{2193}{n}"),
                     Style::default().fg(Color::Red),
                 ));
+            }
+        }
+
+        // Focus entries: ` | query: value` (stale if not in current results)
+        if !data.focus.is_empty() {
+            spans.push(Span::styled(" | ", Style::default().fg(Color::DarkGray)));
+            let mut entries: Vec<(&str, &str)> = data
+                .focus
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            entries.sort_by_key(|(k, _)| *k);
+            for (i, (query, value)) in entries.iter().enumerate() {
+                if i > 0 {
+                    spans.push(Span::styled(", ", Style::default().fg(Color::DarkGray)));
+                }
+                spans.push(Span::styled(
+                    format!("{query}: "),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::DIM),
+                ));
+                spans.push(Span::styled(
+                    (*value).to_string(),
+                    Style::default().fg(Color::Cyan),
+                ));
+                if data.stale_focus.contains(*query) {
+                    spans.push(Span::styled(" (stale)", Style::default().fg(Color::Yellow)));
+                }
             }
         }
 

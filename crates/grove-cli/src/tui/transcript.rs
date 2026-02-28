@@ -13,6 +13,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Paragraph},
 };
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
@@ -136,6 +137,9 @@ pub struct TranscriptApp<R, D> {
     // Status
     pub(super) status: Option<StatusMessage>,
 
+    // Focus: per-query selected entity value (query name → value)
+    pub(super) focus: HashMap<String, String>,
+
     // Misc
     pub(super) needs_refresh: bool,
     #[allow(dead_code)]
@@ -155,6 +159,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             picker: None,
             execution: ExecutionState::new(),
             status: None,
+            focus: HashMap::new(),
             needs_refresh: false,
             graft_loader: GraftYamlConfigLoader::new(),
         };
@@ -201,11 +206,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
 
         // Command line intercepts all keys when active
         if self.prompt.is_active() {
+            let focus_opts = self.focus_entity_opts_for_buffer();
             let resolved = self.commands_with_resolved_options();
             let cs = self.prompt.compute_completions(
                 &resolved,
                 &self.repo_basenames(),
                 &self.state_query_names(),
+                &focus_opts,
             );
             if let Some(cmd) = self.prompt.handle_key(code, modifiers, &cs) {
                 self.execute_cli_command(cmd);
@@ -319,6 +326,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             CliCommand::Catalog(cat) => self.cmd_catalog(cat.as_deref()),
             CliCommand::State(name) => self.cmd_state(name.as_deref()),
             CliCommand::Invalidate(name) => self.cmd_invalidate(name.as_deref()),
+            CliCommand::Focus(query, value) => {
+                self.cmd_focus(query.as_deref(), value.as_deref());
+            }
+            CliCommand::Unfocus(query) => {
+                self.cmd_unfocus(query.as_deref());
+            }
             CliCommand::Unknown(raw) => {
                 if !raw.is_empty() {
                     self.status = Some(StatusMessage::error(format!("Unknown command: :{raw}")));
@@ -601,6 +614,42 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         // Ensure commands are loaded
         if self.context.available_commands.is_empty() {
             self.load_commands_for_repo();
+        }
+
+        // Auto-fill missing required args from focus when options_from matches a focused query.
+        // Clone arg_defs to avoid borrow conflict with self.focus.
+        let mut args = args;
+        {
+            let arg_defs_opt: Option<Vec<graft_common::ArgDef>> = self
+                .context
+                .available_commands
+                .iter()
+                .find(|(n, _)| n == command_name)
+                .and_then(|(_, cmd_def)| cmd_def.args.clone());
+            if let Some(arg_defs) = arg_defs_opt {
+                let mut auto_filled: Vec<String> = Vec::new();
+                for (i, arg_def) in arg_defs.iter().enumerate() {
+                    if i < args.len() {
+                        continue; // user-supplied arg
+                    }
+                    if arg_def.required && arg_def.default.is_none() {
+                        if let Some(query_name) = &arg_def.options_from {
+                            if let Some(focused_value) = self.focus.get(query_name).cloned() {
+                                args.push(focused_value.clone());
+                                auto_filled.push(format!("{query_name}: {focused_value}"));
+                                continue;
+                            }
+                        }
+                        break; // required arg can't be filled — stop to avoid mispositioning
+                    }
+                }
+                if !auto_filled.is_empty() {
+                    self.status = Some(StatusMessage::info(format!(
+                        "Using focused {}",
+                        auto_filled.join(", ")
+                    )));
+                }
+            }
         }
 
         // Validate command exists and check required args
@@ -1090,6 +1139,184 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         }
     }
 
+    /// `:focus [query [value]]` — list, pick, or set a focused entity.
+    ///
+    /// Three modes:
+    /// - `focus` (no args) — list focusable queries and their current focus.
+    /// - `focus <query>` — open a picker over that query's entity values.
+    /// - `focus <query> <value>` — set focus directly (no picker).
+    #[allow(clippy::too_many_lines)]
+    fn cmd_focus(&mut self, query: Option<&str>, value: Option<&str>) {
+        match (query, value) {
+            // Mode 3: direct set — :focus <query> <value>
+            (Some(q), Some(v)) => {
+                self.focus.insert(q.to_string(), v.to_string());
+                self.status = Some(StatusMessage::success(format!("Focus set: {q} → {v}")));
+            }
+
+            // Mode 2: picker — :focus <query>
+            (Some(q), None) => {
+                let repo_name = self
+                    .context
+                    .selected_repo_path
+                    .as_deref()
+                    .map(graft_common::repo_name_from_path)
+                    .unwrap_or_default()
+                    .to_string();
+                let opts = self.resolve_options_from(q, &repo_name);
+                if opts.is_empty() {
+                    self.status = Some(StatusMessage::warning(format!(
+                        "No values found for query: {q}"
+                    )));
+                    return;
+                }
+                let q_owned = q.to_string();
+                let items: Vec<PickerItem> = opts
+                    .into_iter()
+                    .map(|v| PickerItem {
+                        label: v.clone(),
+                        description: String::new(),
+                        action: CliCommand::Focus(Some(q_owned.clone()), Some(v)),
+                    })
+                    .collect();
+                self.picker = Some(PickerState::new(items));
+            }
+
+            // Mode 1: list — :focus (no args)
+            (None, _) => {
+                let repo_name = self
+                    .context
+                    .selected_repo_path
+                    .as_deref()
+                    .map(graft_common::repo_name_from_path)
+                    .unwrap_or_default()
+                    .to_string();
+
+                // Ensure state queries are loaded
+                if self.context.cached_state_queries.is_none() {
+                    if let Some(ref rp) = self.context.selected_repo_path.clone() {
+                        let (queries, _) =
+                            crate::state::discover_all_state_queries(&PathBuf::from(rp));
+                        self.context.cached_state_queries = Some(queries);
+                    }
+                }
+
+                let queries = self
+                    .context
+                    .cached_state_queries
+                    .clone()
+                    .unwrap_or_default();
+
+                if queries.is_empty() && self.focus.is_empty() {
+                    self.status = Some(StatusMessage::info("No focusable queries defined"));
+                    return;
+                }
+
+                let mut lines = vec![
+                    Line::from(Span::styled(
+                        "Focus",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from(""),
+                ];
+
+                if queries.is_empty() {
+                    lines.push(Line::from(Span::styled(
+                        "  (no state queries defined)",
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                } else {
+                    for q in &queries {
+                        let current = self.focus.get(&q.name);
+                        let (value_span, hint_span) = match current {
+                            Some(v) => (
+                                Span::styled(v.clone(), Style::default().fg(Color::Cyan)),
+                                Span::styled(
+                                    format!("  :unfocus {}", q.name),
+                                    Style::default().fg(Color::DarkGray),
+                                ),
+                            ),
+                            None => (
+                                Span::styled("(none)", Style::default().fg(Color::DarkGray)),
+                                Span::styled(
+                                    format!("  :focus {}", q.name),
+                                    Style::default().fg(Color::DarkGray),
+                                ),
+                            ),
+                        };
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("  {:<20}", q.name),
+                                Style::default().fg(Color::White),
+                            ),
+                            value_span,
+                            hint_span,
+                        ]));
+                    }
+
+                    // Show any focused queries not in the discovered list
+                    for (q, v) in &self.focus {
+                        if !queries.iter().any(|sq| &sq.name == q) {
+                            lines.push(Line::from(vec![
+                                Span::styled(
+                                    format!("  {q:<20}"),
+                                    Style::default().fg(Color::DarkGray),
+                                ),
+                                Span::styled(v.clone(), Style::default().fg(Color::Yellow)),
+                                Span::styled(
+                                    "  (query not found)",
+                                    Style::default().fg(Color::DarkGray),
+                                ),
+                            ]));
+                        }
+                    }
+                }
+
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "Repo context: {}",
+                        if repo_name.is_empty() {
+                            "(none)"
+                        } else {
+                            repo_name.as_str()
+                        }
+                    ),
+                    Style::default().fg(Color::DarkGray),
+                )));
+
+                self.scroll.push(ContentBlock::Text {
+                    id: BlockId::new(),
+                    lines,
+                    collapsed: false,
+                });
+            }
+        }
+    }
+
+    /// `:unfocus [query]` — clear focus for one query or all queries.
+    fn cmd_unfocus(&mut self, query: Option<&str>) {
+        if let Some(q) = query {
+            if self.focus.remove(q).is_some() {
+                self.status = Some(StatusMessage::success(format!("Focus cleared: {q}")));
+            } else {
+                self.status = Some(StatusMessage::info(format!("No focus set for query: {q}")));
+            }
+        } else {
+            let count = self.focus.len();
+            self.focus.clear();
+            if count > 0 {
+                self.status = Some(StatusMessage::success(format!(
+                    "All focuses cleared ({count})"
+                )));
+            } else {
+                self.status = Some(StatusMessage::info("No focuses to clear"));
+            }
+        }
+    }
+
     // ===== Refresh =====
 
     pub(super) fn handle_refresh_if_needed(&mut self) {
@@ -1226,11 +1453,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
 
             // Render prompt or status bar
             if self.prompt.is_active() {
+                let focus_opts = self.focus_entity_opts_for_buffer();
                 let resolved = self.commands_with_resolved_options();
                 let cs = self.prompt.compute_completions(
                     &resolved,
                     &self.repo_basenames(),
                     &self.state_query_names(),
+                    &focus_opts,
                 );
                 self.prompt.render_palette(frame, content_area, &cs);
                 self.prompt.render_prompt(frame, prompt_area, &cs);
@@ -1278,6 +1507,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 (None, None, None, None, None)
             };
 
+        let stale_focus = self.compute_stale_focus();
         let data = super::header::HeaderData {
             workspace_name: &self.workspace_name,
             repo_path: repo_path.as_deref(),
@@ -1285,8 +1515,31 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             is_dirty,
             ahead,
             behind,
+            focus: &self.focus,
+            stale_focus: &stale_focus,
         };
         super::header::render_header(frame, area, &data);
+    }
+
+    /// Determine which focused query values are stale by checking in-memory state
+    /// opportunistically (no subprocess runs, no disk reads).
+    pub(super) fn compute_stale_focus(&self) -> std::collections::HashSet<String> {
+        let mut stale = std::collections::HashSet::new();
+        for (query_name, focused_value) in &self.focus {
+            if let Some(data) = self.context.in_memory_state.get(query_name.as_str()) {
+                let entity = self
+                    .context
+                    .cached_state_queries
+                    .as_ref()
+                    .and_then(|qs| qs.iter().find(|q| q.name == *query_name))
+                    .and_then(|q| q.entity.as_ref());
+                let opts = extract_options_from_state(query_name, data, entity);
+                if !opts.contains(focused_value) {
+                    stale.insert(query_name.clone());
+                }
+            }
+        }
+        stale
     }
 
     // ===== Helpers =====
@@ -1298,6 +1551,52 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             .as_ref()
             .map(|qs| qs.iter().map(|q| q.name.clone()).collect())
             .unwrap_or_default()
+    }
+
+    /// Resolve entity options for the query the user is completing as the second arg of `:focus`.
+    ///
+    /// Returns a map with at most one entry: `{query_name → [option, ...]}`.
+    /// Returns an empty map if the current buffer doesn't look like `focus <query> `.
+    fn focus_entity_opts_for_buffer(&mut self) -> HashMap<String, Vec<String>> {
+        let buffer = match self.prompt.command_line.as_ref() {
+            Some(s) => s.text.buffer.clone(),
+            None => return HashMap::new(),
+        };
+
+        // Parse "focus <rest>"
+        let mut parts = buffer.splitn(2, char::is_whitespace);
+        let cmd = parts.next().unwrap_or("").to_ascii_lowercase();
+        if cmd != "focus" && cmd != "f" {
+            return HashMap::new();
+        }
+        let rest = parts.next().unwrap_or("").trim_start().to_string();
+
+        // Only resolve if there's a space in rest (second arg is being typed)
+        if !rest.contains(' ') {
+            return HashMap::new();
+        }
+
+        let query_name = match rest.split_whitespace().next() {
+            Some(q) if !q.is_empty() => q.to_string(),
+            _ => return HashMap::new(),
+        };
+
+        let repo_name = self
+            .context
+            .selected_repo_path
+            .as_deref()
+            .map(graft_common::repo_name_from_path)
+            .unwrap_or_default()
+            .to_string();
+
+        let opts = self.resolve_options_from(&query_name, &repo_name);
+        if opts.is_empty() {
+            HashMap::new()
+        } else {
+            let mut map = HashMap::new();
+            map.insert(query_name, opts);
+            map
+        }
     }
 
     /// Get basenames of all repos (for argument hints).
@@ -1507,28 +1806,44 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// 1. Latest disk cache (`read_latest_cached`)
     /// 2. In-memory cache (populated from a previous fresh run this session)
     /// 3. Run the query's bash command as a subprocess (result cached in-memory)
+    ///
+    /// The `entity` declaration (if any) is threaded through to `extract_options_from_state`
+    /// for all three paths so that entity-aware extraction is used consistently.
     fn resolve_options_from(&mut self, query_name: &str, repo_name: &str) -> Vec<String> {
+        // Lazily discover state queries to obtain the entity declaration.
+        // We do this up-front so all three cache paths can use it.
+        let repo_path_opt = self.context.selected_repo_path.clone();
+        if self.context.cached_state_queries.is_none() {
+            if let Some(ref repo_path) = repo_path_opt {
+                let (queries, _) =
+                    crate::state::discover_all_state_queries(&PathBuf::from(repo_path));
+                self.context.cached_state_queries = Some(queries);
+            }
+        }
+
+        // Clone the entity so we can pass it through without holding a borrow.
+        let entity = self
+            .context
+            .cached_state_queries
+            .as_ref()
+            .and_then(|queries| queries.iter().find(|q| q.name == query_name))
+            .and_then(|q| q.entity.clone());
+
         // 1. Try disk cache (may have been written by a previous `graft run … verify`)
         if let Some(result) =
             graft_common::read_latest_cached(&self.workspace_name, repo_name, query_name)
         {
-            return extract_options_from_state(query_name, &result.data);
+            return extract_options_from_state(query_name, &result.data, entity.as_ref());
         }
 
         // 2. Try in-memory cache (populated by an earlier fresh run this session)
         if let Some(data) = self.context.in_memory_state.get(query_name).cloned() {
-            return extract_options_from_state(query_name, &data);
+            return extract_options_from_state(query_name, &data, entity.as_ref());
         }
 
-        // 3. Fall back: run the query command as a subprocess
-        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+        // 3. Fall back: run the query command as a subprocess (need repo selected)
+        if repo_path_opt.is_none() {
             return Vec::new();
-        };
-
-        // Lazily discover state queries if not yet loaded (root + all dep graft.yamls)
-        if self.context.cached_state_queries.is_none() {
-            let (queries, _) = crate::state::discover_all_state_queries(&PathBuf::from(&repo_path));
-            self.context.cached_state_queries = Some(queries);
         }
 
         let query = self
@@ -1567,20 +1882,41 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             .in_memory_state
             .insert(query_name.to_string(), data.clone());
 
-        extract_options_from_state(query_name, &data)
+        extract_options_from_state(query_name, &data, entity.as_ref())
     }
 }
 
 /// Extract a flat list of string options from a state query result.
 ///
-/// Looks for a top-level array under the key matching `query_name`. Each element is
-/// converted to a string: bare strings are used as-is; objects with a `path` field
-/// yield the parent directory of that path (stripping the trailing filename); objects
-/// with a `name` field yield that name.
+/// When `entity` is `Some`, uses `entity.collection` (falling back to `query_name`) as the
+/// JSON array key and `entity.key` to extract the identity value from each object.
+///
+/// When `entity` is `None`, preserves the existing hardcoded behavior: looks for a
+/// top-level array under `query_name`; bare strings are used as-is; objects with a `path`
+/// field yield the parent directory; objects with a `name` field yield that name; items
+/// with `status == "done"` are skipped.
 pub(super) fn extract_options_from_state(
     query_name: &str,
     data: &serde_json::Value,
+    entity: Option<&graft_common::EntityDef>,
 ) -> Vec<String> {
+    if let Some(entity) = entity {
+        // Entity-aware extraction: use declared collection key and identity field.
+        let collection_key = entity.collection.as_deref().unwrap_or(query_name);
+        let Some(arr) = data.get(collection_key).and_then(|v| v.as_array()) else {
+            return Vec::new();
+        };
+        return arr
+            .iter()
+            .filter_map(|item| {
+                item.get(&entity.key)
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string)
+            })
+            .collect();
+    }
+
+    // Hardcoded legacy extraction (backward compatible).
     let Some(arr) = data.get(query_name).and_then(|v| v.as_array()) else {
         return Vec::new();
     };
