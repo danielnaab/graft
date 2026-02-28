@@ -7,6 +7,9 @@ use ratatui::{
     widgets::Paragraph,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+
+use super::command_line::CliCommand;
 
 /// Unique identifier for a content block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -20,6 +23,15 @@ impl BlockId {
     }
 }
 
+/// Outcome of a command execution, used to finalize a `Running` block.
+#[derive(Debug)]
+pub(super) enum RunCompletion {
+    /// Process exited with the given code (0 = success).
+    Exited(i32),
+    /// Process could not be spawned or failed with an error message.
+    Error(String),
+}
+
 /// A block of content in the scroll buffer.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -30,6 +42,20 @@ pub(super) enum ContentBlock {
         lines: Vec<Line<'static>>,
         collapsed: bool,
     },
+    /// A live command execution block. Renders with an animated spinner and
+    /// elapsed time while the command is running. Call
+    /// [`ScrollBuffer::finalize_running`] to convert it to a static `Text`
+    /// block when the command completes.
+    Running {
+        id: BlockId,
+        command: String,
+        args: Vec<String>,
+        started_at: Instant,
+        output_lines: Vec<Line<'static>>,
+        /// Set when old output was dropped to stay within the line cap.
+        output_truncated: bool,
+        collapsed: bool,
+    },
     /// A data table with headers and rows.
     Table {
         id: BlockId,
@@ -37,6 +63,9 @@ pub(super) enum ContentBlock {
         headers: Vec<String>,
         rows: Vec<Vec<Span<'static>>>,
         collapsed: bool,
+        /// Optional per-row actions. When `Some`, pressing Enter on this table
+        /// opens a picker overlay. Length must match `rows`.
+        actions: Option<Vec<CliCommand>>,
     },
     /// A horizontal divider line.
     Divider { id: BlockId },
@@ -46,29 +75,39 @@ pub(super) enum ContentBlock {
 impl ContentBlock {
     pub(super) fn id(&self) -> BlockId {
         match self {
-            Self::Text { id, .. } | Self::Table { id, .. } | Self::Divider { id } => *id,
+            Self::Text { id, .. }
+            | Self::Running { id, .. }
+            | Self::Table { id, .. }
+            | Self::Divider { id } => *id,
         }
     }
 
     pub(super) fn is_collapsed(&self) -> bool {
         match self {
-            Self::Text { collapsed, .. } | Self::Table { collapsed, .. } => *collapsed,
+            Self::Text { collapsed, .. }
+            | Self::Running { collapsed, .. }
+            | Self::Table { collapsed, .. } => *collapsed,
             Self::Divider { .. } => false,
         }
     }
 
     pub(super) fn toggle_collapse(&mut self) {
         match self {
-            Self::Text { collapsed, .. } | Self::Table { collapsed, .. } => {
+            Self::Text { collapsed, .. }
+            | Self::Running { collapsed, .. }
+            | Self::Table { collapsed, .. } => {
                 *collapsed = !*collapsed;
             }
             Self::Divider { .. } => {}
         }
     }
 
-    /// Render this block into lines for display.
+    /// Render this block into lines for display at the given instant.
+    ///
+    /// `now` is used only by [`ContentBlock::Running`] to drive the spinner
+    /// and elapsed-time display; all other variants ignore it.
     #[allow(clippy::too_many_lines)]
-    fn render_lines(&self, width: u16) -> Vec<Line<'static>> {
+    fn render_lines_at(&self, width: u16, now: Instant) -> Vec<Line<'static>> {
         match self {
             Self::Text {
                 lines, collapsed, ..
@@ -91,6 +130,68 @@ impl ContentBlock {
                 } else {
                     lines.clone()
                 }
+            }
+            Self::Running {
+                command,
+                args,
+                started_at,
+                output_lines,
+                output_truncated,
+                collapsed,
+                ..
+            } => {
+                const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+                let elapsed = now.duration_since(*started_at);
+                let frame = (elapsed.as_millis() / 100) as usize % SPINNER.len();
+                let spinner = SPINNER[frame];
+                let elapsed_str = format_elapsed(elapsed);
+                let arg_str = args.join(" ");
+
+                if *collapsed {
+                    let summary = if arg_str.is_empty() {
+                        command.clone()
+                    } else {
+                        format!("{command}  {arg_str}")
+                    };
+                    return vec![Line::from(vec![
+                        Span::styled(format!("{spinner} "), Style::default().fg(Color::Yellow)),
+                        Span::styled(summary, Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            format!("  [{elapsed_str}]"),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ])];
+                }
+
+                let mut header = vec![
+                    Span::styled(format!("{spinner} "), Style::default().fg(Color::Yellow)),
+                    Span::styled(
+                        command.clone(),
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ];
+                if !arg_str.is_empty() {
+                    header.push(Span::styled(
+                        format!("  {arg_str}"),
+                        Style::default().fg(Color::White),
+                    ));
+                }
+                header.push(Span::styled(
+                    format!("    [{elapsed_str}]"),
+                    Style::default().fg(Color::DarkGray),
+                ));
+
+                let mut out = vec![Line::from(header)];
+                if *output_truncated {
+                    out.push(Line::from(Span::styled(
+                        "  \u{2026} (earlier output truncated)",
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+                out.extend(output_lines.iter().cloned());
+                out
             }
             Self::Table {
                 title,
@@ -219,18 +320,6 @@ impl ScrollBuffer {
         self.scroll_to_bottom();
     }
 
-    /// Append lines to the last block if it's a Text block.
-    /// Returns false if the last block isn't Text or there are no blocks.
-    pub(super) fn append_lines_to_last(&mut self, new_lines: Vec<Line<'static>>) -> bool {
-        if let Some(ContentBlock::Text { lines, .. }) = self.blocks.last_mut() {
-            lines.extend(new_lines);
-            self.scroll_to_bottom();
-            true
-        } else {
-            false
-        }
-    }
-
     /// Replace the lines of the last Text block entirely.
     #[allow(dead_code)]
     pub(super) fn replace_last_lines(&mut self, new_lines: Vec<Line<'static>>) -> bool {
@@ -253,14 +342,108 @@ impl ScrollBuffer {
 
     /// Total rendered lines across all blocks (including blank separators between blocks).
     fn total_lines(&self, width: u16) -> usize {
+        let now = Instant::now();
         let mut total = 0;
         for (i, block) in self.blocks.iter().enumerate() {
             if i > 0 {
                 total += 1; // blank line between blocks
             }
-            total += block.render_lines(width).len();
+            total += block.render_lines_at(width, now).len();
         }
         total
+    }
+
+    /// Append lines to the `Running` block with the given `id`.
+    ///
+    /// Lines beyond [`MAX_RUNNING_OUTPUT_LINES`] are dropped from the front
+    /// and `output_truncated` is set so the block can show a truncation notice.
+    /// No-ops if the block is not found or is not a `Running` block.
+    pub(super) fn append_lines_to_running(&mut self, id: BlockId, new_lines: Vec<Line<'static>>) {
+        const MAX_RUNNING_OUTPUT_LINES: usize = 10_000;
+        const RUNNING_LINES_TO_DROP: usize = 1_000;
+
+        if let Some(ContentBlock::Running {
+            output_lines,
+            output_truncated,
+            ..
+        }) = self.blocks.iter_mut().find(|b| b.id() == id)
+        {
+            output_lines.extend(new_lines);
+            if output_lines.len() > MAX_RUNNING_OUTPUT_LINES {
+                output_lines.drain(0..RUNNING_LINES_TO_DROP);
+                *output_truncated = true;
+            }
+            self.scroll_to_bottom();
+        }
+    }
+
+    /// Convert a `Running` block to a static `Text` block, recording the
+    /// outcome in the header and preserving all captured output lines.
+    ///
+    /// The header is updated to show a check-mark (exit 0) or cross (non-zero
+    /// / error) together with the elapsed time.  Call this once when the
+    /// command process finishes.  No-ops if the block is not found.
+    pub(super) fn finalize_running(&mut self, id: BlockId, outcome: &RunCompletion) {
+        let now = Instant::now();
+        let pos = self.blocks.iter().position(|b| b.id() == id);
+        let Some(pos) = pos else { return };
+
+        let block = &self.blocks[pos];
+        let ContentBlock::Running {
+            command,
+            args,
+            started_at,
+            output_lines,
+            collapsed,
+            ..
+        } = block
+        else {
+            return;
+        };
+
+        let elapsed = now.duration_since(*started_at);
+        let elapsed_str = format_elapsed(elapsed);
+        let arg_str = args.join(" ");
+        let cmd_display = if arg_str.is_empty() {
+            command.clone()
+        } else {
+            format!("{command}  {arg_str}")
+        };
+        let collapsed = *collapsed;
+
+        let (symbol, symbol_color, exit_label) = match &outcome {
+            RunCompletion::Exited(0) => ("\u{2713}", Color::Green, String::new()),
+            RunCompletion::Exited(n) => ("\u{2717}", Color::Red, format!("  (exit {n})")),
+            RunCompletion::Error(_) => ("\u{2717}", Color::Red, String::new()),
+        };
+
+        let mut header = vec![
+            Span::styled("\u{25b6} ", Style::default().fg(Color::DarkGray)),
+            Span::styled(cmd_display, Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("    {symbol}  {elapsed_str}{exit_label}"),
+                Style::default().fg(symbol_color),
+            ),
+        ];
+
+        if let RunCompletion::Error(msg) = &outcome {
+            header.push(Span::styled(
+                format!("  {msg}"),
+                Style::default().fg(Color::Red),
+            ));
+        }
+
+        let mut lines = vec![Line::from(header)];
+        // Clone output lines out before the mutable borrow below
+        let saved_output = output_lines.clone();
+        lines.extend(saved_output);
+
+        self.blocks[pos] = ContentBlock::Text {
+            id,
+            lines,
+            collapsed,
+        };
+        self.scroll_to_bottom();
     }
 
     /// Scroll to the bottom so the last content is visible.
@@ -313,6 +496,23 @@ impl ScrollBuffer {
         }
     }
 
+    /// Return the actions for the focused block if it is an actionable `Table`.
+    ///
+    /// Returns `Some(slice)` when the focused block is a `Table` with
+    /// `actions: Some(...)`, otherwise `None`.
+    pub(super) fn focused_block_actions(&self) -> Option<&[CliCommand]> {
+        if let Some(idx) = self.focused_block {
+            if let Some(ContentBlock::Table {
+                actions: Some(acts),
+                ..
+            }) = self.blocks.get(idx)
+            {
+                return Some(acts.as_slice());
+            }
+        }
+        None
+    }
+
     /// Toggle collapse on the focused block.
     pub(super) fn toggle_focused_collapse(&mut self) {
         if let Some(idx) = self.focused_block {
@@ -342,13 +542,15 @@ impl ScrollBuffer {
             }
         }
 
-        // Collect all rendered lines with block association
+        // Collect all rendered lines with block association.
+        // Capture `now` once so every Running block uses the same instant.
+        let now = Instant::now();
         let mut all_lines: Vec<(Line<'static>, Option<usize>)> = Vec::new();
         for (block_idx, block) in self.blocks.iter().enumerate() {
             if block_idx > 0 {
                 all_lines.push((Line::from(""), None));
             }
-            for line in block.render_lines(width) {
+            for line in block.render_lines_at(width, now) {
                 all_lines.push((line, Some(block_idx)));
             }
         }
@@ -385,6 +587,16 @@ impl ScrollBuffer {
 }
 
 // ===== Helpers =====
+
+/// Format a duration as a short human-readable string: "42s" or "2m 34s".
+fn format_elapsed(d: Duration) -> String {
+    let secs = d.as_secs();
+    if secs < 60 {
+        format!("{secs}s")
+    } else {
+        format!("{}m {}s", secs / 60, secs % 60)
+    }
+}
 
 fn format_first_line(line: &Line<'_>) -> String {
     let mut s = String::new();

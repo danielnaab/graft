@@ -20,18 +20,12 @@ use std::time::Instant;
 use super::command_exec::CommandEvent;
 use super::command_line::CliCommand;
 use super::formatting::{extract_basename, format_file_change_indicator};
-use super::prompt::{CompletionState, PromptState};
+use super::prompt::{CompletionState, PickerItem, PickerOutcome, PickerState, PromptState};
 use super::scroll_buffer::{BlockId, ContentBlock, ScrollBuffer};
 use super::status_bar::StatusMessage;
 
 /// Default number of recent commits to show.
 const DEFAULT_MAX_COMMITS: usize = 10;
-
-/// Maximum lines of command output to buffer.
-const MAX_OUTPUT_LINES: usize = 10_000;
-
-/// Number of lines to drop when buffer is full.
-const LINES_TO_DROP: usize = 1_000;
 
 /// Active repository context.
 #[derive(Debug)]
@@ -97,12 +91,9 @@ pub(super) struct ExecutionState {
     pub(super) running_command_pid: Option<u32>,
     pub(super) command_state: CommandState,
     pub(super) command_name: Option<String>,
-    pub(super) output_lines: Vec<String>,
-    pub(super) output_scroll: usize,
-    pub(super) output_truncated_start: bool,
-    pub(super) command_start_time: Option<Instant>,
     pub(super) current_log_path: Option<std::path::PathBuf>,
-    #[allow(dead_code)]
+    /// The `BlockId` of the active `ContentBlock::Running` in the scroll buffer.
+    /// `None` when no command is executing.
     pub(super) active_output_block: Option<BlockId>,
 }
 
@@ -113,10 +104,6 @@ impl ExecutionState {
             running_command_pid: None,
             command_state: CommandState::NotStarted,
             command_name: None,
-            output_lines: Vec::new(),
-            output_scroll: 0,
-            output_truncated_start: false,
-            command_start_time: None,
             current_log_path: None,
             active_output_block: None,
         }
@@ -140,6 +127,9 @@ pub struct TranscriptApp<R, D> {
     // Input
     pub(super) prompt: PromptState,
 
+    // Picker overlay (Some when a picker is open over the transcript)
+    pub(super) picker: Option<PickerState>,
+
     // Execution
     pub(super) execution: ExecutionState,
 
@@ -162,6 +152,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             context: RepoContext::new(),
             scroll: ScrollBuffer::new(),
             prompt: PromptState::new(),
+            picker: None,
             execution: ExecutionState::new(),
             status: None,
             needs_refresh: false,
@@ -187,7 +178,27 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     // ===== Event handling =====
 
     /// Handle a key press.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn handle_key(&mut self, code: KeyCode, modifiers: crossterm::event::KeyModifiers) {
+        // Picker overlay intercepts all keys when open
+        let picker_outcome = self
+            .picker
+            .as_mut()
+            .map(|picker| picker.handle_key(code, modifiers));
+        if let Some(outcome) = picker_outcome {
+            match outcome {
+                PickerOutcome::Select(cmd) => {
+                    self.picker = None;
+                    self.execute_cli_command(cmd);
+                }
+                PickerOutcome::Dismiss => {
+                    self.picker = None;
+                }
+                PickerOutcome::Nothing => {}
+            }
+            return;
+        }
+
         // Command line intercepts all keys when active
         if self.prompt.is_active() {
             let resolved = self.commands_with_resolved_options();
@@ -226,6 +237,45 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.scroll.scroll_offset = 0;
             }
             KeyCode::Enter => {
+                // Clone actions to avoid borrow conflict when accessing rows later
+                let actions_opt = self.scroll.focused_block_actions().map(<[_]>::to_vec);
+                if let Some(actions) = actions_opt {
+                    // Build picker items from focused table's rows and per-row actions
+                    let items: Vec<PickerItem> = if let Some(idx) = self.scroll.focused_block {
+                        if let Some(ContentBlock::Table { rows, .. }) = self.scroll.blocks.get(idx)
+                        {
+                            rows.iter()
+                                .zip(actions.iter())
+                                .map(|(row, action)| {
+                                    let label = row
+                                        .first()
+                                        .map(|s| s.content.to_string())
+                                        .unwrap_or_default();
+                                    let description = row
+                                        .get(1)
+                                        .map(|s| s.content.to_string())
+                                        .unwrap_or_default();
+                                    PickerItem {
+                                        label,
+                                        description,
+                                        action: action.clone(),
+                                    }
+                                })
+                                .collect()
+                        } else {
+                            vec![]
+                        }
+                    } else {
+                        vec![]
+                    };
+                    if !items.is_empty() {
+                        self.picker = Some(PickerState::new(items));
+                    }
+                } else {
+                    self.scroll.toggle_focused_collapse();
+                }
+            }
+            KeyCode::Char('c') => {
                 self.scroll.toggle_focused_collapse();
             }
             KeyCode::Tab => {
@@ -337,14 +387,16 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             return;
         }
 
+        // Repository is the first column so it becomes the picker label when filtering.
         let headers = vec![
-            "#".to_string(),
             "Repository".to_string(),
             "Branch".to_string(),
             "Status".to_string(),
+            "#".to_string(),
         ];
 
         let mut rows = Vec::new();
+        let mut actions = Vec::new();
         for (i, repo) in repos.iter().enumerate() {
             let path_str = repo.as_path().display().to_string();
             let basename = extract_basename(&path_str).to_string();
@@ -386,11 +438,12 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 Style::default().fg(Color::White)
             };
 
+            actions.push(CliCommand::Repo(basename.clone()));
             rows.push(vec![
-                Span::styled(format!("{}", i + 1), idx_style),
                 Span::styled(basename, name_style),
                 branch,
                 dirty,
+                Span::styled(format!("{}", i + 1), idx_style),
             ]);
         }
 
@@ -400,6 +453,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             headers,
             rows,
             collapsed: false,
+            actions: Some(actions),
         });
     }
 
@@ -504,7 +558,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             help_line("j/k", "Scroll down/up"),
             help_line("g/G", "Scroll to top/bottom"),
             help_line("Tab/Shift+Tab", "Focus next/prev block"),
-            help_line("Enter", "Toggle collapse on focused block"),
+            help_line("Enter", "Activate focused block (open picker on tables)"),
+            help_line("c", "Toggle collapse on focused block"),
             help_line(":", "Open command palette"),
             help_line("r", "Refresh"),
             help_line("q", "Quit"),
@@ -608,31 +663,27 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         self.execution.command_event_rx = Some(rx);
         self.execution.command_name = Some(command_name.to_string());
         self.execution.command_state = CommandState::Running;
-        self.execution.output_lines.clear();
-        self.execution.output_scroll = 0;
-        self.execution.output_truncated_start = false;
         self.execution.running_command_pid = None;
-        self.execution.command_start_time = Some(Instant::now());
         self.execution.current_log_path = None;
 
+        // Clone args for the display block before moving them into the thread.
+        let display_args = args.clone();
         let cmd_name = command_name.to_string();
         let repo = repo_path;
         std::thread::spawn(move || {
             super::command_exec::spawn_command(cmd_name, args, repo, run_ctx, tx);
         });
 
-        // Push a status line for the running command
-        self.scroll.push(ContentBlock::Text {
-            id: BlockId::new(),
-            lines: vec![Line::from(vec![
-                Span::styled("\u{25b6} Running: ", Style::default().fg(Color::Yellow)),
-                Span::styled(
-                    command_name.to_string(),
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ])],
+        // Push a live Running block — it animates until finalized on completion.
+        let block_id = BlockId::new();
+        self.execution.active_output_block = Some(block_id);
+        self.scroll.push(ContentBlock::Running {
+            id: block_id,
+            command: command_name.to_string(),
+            args: display_args,
+            started_at: Instant::now(),
+            output_lines: vec![],
+            output_truncated: false,
             collapsed: false,
         });
     }
@@ -825,16 +876,22 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             "Category".to_string(),
         ];
 
-        let rows: Vec<Vec<Span<'static>>> = entries
-            .into_iter()
-            .map(|(name, desc, cat)| {
-                vec![
-                    Span::styled(name, Style::default().fg(Color::Cyan)),
-                    Span::styled(desc, Style::default().fg(Color::White)),
-                    Span::styled(cat, Style::default().fg(Color::DarkGray)),
-                ]
-            })
-            .collect();
+        let mut rows = Vec::new();
+        let mut actions = Vec::new();
+        for (name, desc, cat) in entries {
+            // Strip the sequence prefix (» ) to get the runnable name
+            let run_name = if let Some(stripped) = name.strip_prefix("\u{00bb} ") {
+                stripped.to_string()
+            } else {
+                name.clone()
+            };
+            actions.push(CliCommand::Run(run_name, vec![]));
+            rows.push(vec![
+                Span::styled(name, Style::default().fg(Color::Cyan)),
+                Span::styled(desc, Style::default().fg(Color::White)),
+                Span::styled(cat, Style::default().fg(Color::DarkGray)),
+            ]);
+        }
 
         self.scroll.push(ContentBlock::Table {
             id: BlockId::new(),
@@ -842,6 +899,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             headers,
             rows,
             collapsed: false,
+            actions: Some(actions),
         });
     }
 
@@ -885,39 +943,33 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                     "Cached".to_string(),
                 ];
 
-                let rows: Vec<Vec<Span<'static>>> = queries
-                    .iter()
-                    .map(|q| {
-                        let cached = graft_common::read_latest_cached(
-                            &self.workspace_name,
-                            repo_name,
-                            &q.name,
-                        );
-                        let (summary, age) = match &cached {
-                            Some(result) => (
-                                crate::state::format_state_summary(result),
-                                result.metadata.time_ago(),
-                            ),
-                            None => ("(not cached)".to_string(), "-".to_string()),
-                        };
-                        // "yes" when query declares inputs (cacheable), "no" otherwise
-                        let cacheable = if q.inputs.as_ref().is_some_and(|v| !v.is_empty()) {
-                            "yes"
-                        } else {
-                            "no"
-                        };
+                let mut rows = Vec::new();
+                let mut actions = Vec::new();
+                for q in &queries {
+                    let cached =
+                        graft_common::read_latest_cached(&self.workspace_name, repo_name, &q.name);
+                    let (summary, age) = match &cached {
+                        Some(result) => (
+                            crate::state::format_state_summary(result),
+                            result.metadata.time_ago(),
+                        ),
+                        None => ("(not cached)".to_string(), "-".to_string()),
+                    };
+                    // "yes" when query declares inputs (cacheable), "no" otherwise
+                    let cacheable = if q.inputs.as_ref().is_some_and(|v| !v.is_empty()) {
+                        "yes"
+                    } else {
+                        "no"
+                    };
 
-                        vec![
-                            Span::styled(q.name.clone(), Style::default().fg(Color::Cyan)),
-                            Span::styled(summary, Style::default().fg(Color::White)),
-                            Span::styled(age, Style::default().fg(Color::DarkGray)),
-                            Span::styled(
-                                cacheable.to_string(),
-                                Style::default().fg(Color::DarkGray),
-                            ),
-                        ]
-                    })
-                    .collect();
+                    actions.push(CliCommand::State(Some(q.name.clone())));
+                    rows.push(vec![
+                        Span::styled(q.name.clone(), Style::default().fg(Color::Cyan)),
+                        Span::styled(summary, Style::default().fg(Color::White)),
+                        Span::styled(age, Style::default().fg(Color::DarkGray)),
+                        Span::styled(cacheable.to_string(), Style::default().fg(Color::DarkGray)),
+                    ]);
+                }
 
                 self.scroll.push(ContentBlock::Table {
                     id: BlockId::new(),
@@ -925,6 +977,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                     headers,
                     rows,
                     collapsed: false,
+                    actions: Some(actions),
                 });
             }
             Some(query_name) => {
@@ -1072,11 +1125,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
 
     /// Handle incoming command output events.
     ///
-    /// Output lines are streamed directly into the scroll buffer's last Text block
-    /// (the "Running:" block created by `cmd_run`), making output visible in real time.
+    /// Output lines are streamed into the active `ContentBlock::Running` in the
+    /// scroll buffer. When the process finishes the block is finalized (converted
+    /// to a static `Text` block) with elapsed time stamped in the header.
     pub(super) fn handle_command_events(&mut self) {
         let mut should_close = false;
-        let mut new_lines: Vec<Line<'static>> = Vec::new();
+        let mut output_lines: Vec<Line<'static>> = Vec::new();
+        let mut completion: Option<super::scroll_buffer::RunCompletion> = None;
 
         if let Some(rx) = &self.execution.command_event_rx {
             while let Ok(event) = rx.try_recv() {
@@ -1088,55 +1143,36 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                         self.execution.current_log_path = Some(path);
                     }
                     CommandEvent::OutputLine(line) => {
-                        self.execution.output_lines.push(line.clone());
-                        new_lines.push(Line::from(line));
-
-                        // Truncate if buffer is too large
-                        if self.execution.output_lines.len() > MAX_OUTPUT_LINES {
-                            self.execution.output_lines.drain(0..LINES_TO_DROP);
-                            self.execution.output_truncated_start = true;
-                        }
+                        output_lines.push(Line::from(line));
                     }
                     CommandEvent::Completed(exit_code) => {
                         self.execution.command_state = CommandState::Completed { exit_code };
-
-                        let unicode = super::supports_unicode();
-                        new_lines.push(Line::from(""));
-                        if exit_code == 0 {
-                            let symbol = if unicode { "\u{2713}" } else { "*" };
-                            new_lines.push(Line::from(Span::styled(
-                                format!("{symbol} Completed successfully"),
-                                Style::default().fg(Color::Green),
-                            )));
-                        } else {
-                            let symbol = if unicode { "\u{2717}" } else { "X" };
-                            new_lines.push(Line::from(Span::styled(
-                                format!("{symbol} Failed with exit code {exit_code}"),
-                                Style::default().fg(Color::Red),
-                            )));
-                        }
-
+                        completion = Some(super::scroll_buffer::RunCompletion::Exited(exit_code));
                         should_close = true;
                     }
                     CommandEvent::Failed(error) => {
                         self.execution.command_state = CommandState::Failed {
                             error: error.clone(),
                         };
-
-                        new_lines.push(Line::from(Span::styled(
-                            format!("Error: {error}"),
-                            Style::default().fg(Color::Red),
-                        )));
-
+                        completion = Some(super::scroll_buffer::RunCompletion::Error(error));
                         should_close = true;
                     }
                 }
             }
         }
 
-        // Append any new output lines to the running command's block in the scroll buffer
-        if !new_lines.is_empty() {
-            self.scroll.append_lines_to_last(new_lines);
+        // Flush output lines into the Running block before potentially finalizing it.
+        if !output_lines.is_empty() {
+            if let Some(id) = self.execution.active_output_block {
+                self.scroll.append_lines_to_running(id, output_lines);
+            }
+        }
+
+        // Finalize the Running block if the command has finished.
+        if let Some(outcome) = completion {
+            if let Some(id) = self.execution.active_output_block.take() {
+                self.scroll.finalize_running(id, &outcome);
+            }
         }
 
         if should_close {
@@ -1202,6 +1238,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             } else {
                 self.prompt
                     .render_prompt(frame, prompt_area, &CompletionState::default());
+            }
+
+            // Render picker overlay on top of everything else if active
+            if let Some(picker) = &self.picker {
+                picker.render(frame, content_area, " Select ");
             }
         })?;
 
