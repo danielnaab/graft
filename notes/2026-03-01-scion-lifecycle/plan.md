@@ -1,5 +1,5 @@
 ---
-status: working
+status: done
 purpose: "Implementation plan for scion lifecycle — task tracking for Ralph loop"
 ---
 
@@ -312,6 +312,6 @@ Hook resolution, execution, create/prune retrofit, fuse command with merge workf
 ## Final: Mark slice plans done
 
 ### Task F.1: Update slice plan status
-- [ ] Set `status: done` in all 4 slice plan frontmatters. Run full verification: `cargo fmt --check && cargo clippy -- -D warnings && cargo test`. Commit.
+- [x] Set `status: done` in all 4 slice plan frontmatters. Run full verification: `cargo fmt --check && cargo clippy -- -D warnings && cargo test`. Commit.
 - **Files**: `slices/scion-worktree-primitives/plan.md`, `slices/scion-config-create-prune/plan.md`,
   `slices/scion-list/plan.md`, `slices/scion-hook-composition-and-fuse/plan.md`

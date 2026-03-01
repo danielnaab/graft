@@ -1,5 +1,5 @@
 ---
-status: working
+status: done
 purpose: "Append-only progress log for scion lifecycle Ralph loop"
 ---
 
