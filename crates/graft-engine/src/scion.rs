@@ -189,11 +189,9 @@ pub fn scion_fuse(
 
     let merge_commit = if ahead == 0 {
         // Already merged — the base branch tip is the "merge" result
-        let base_commit = worktrees
-            .first()
-            .map(|w| w.head.clone())
-            .unwrap_or_default();
-        base_commit
+        worktrees.first().map(|w| w.head.clone()).ok_or_else(|| {
+            GraftError::CommandExecution("no main worktree found in repository".to_string())
+        })?
     } else {
         // Step 1: Merge to temp ref
         let commit =
@@ -1145,8 +1143,10 @@ mod tests {
         let wt_path = temp.path().join(".worktrees").join("no-ahead");
 
         // Fuse should succeed (already-merged path)
-        let result = scion_fuse(temp.path(), "no-ahead", None, &[]);
-        assert!(result.is_ok());
+        let commit = scion_fuse(temp.path(), "no-ahead", None, &[]).unwrap();
+        // Should return a valid commit hash (not empty)
+        assert_eq!(commit.len(), 40);
+        assert!(commit.chars().all(|c| c.is_ascii_hexdigit()));
 
         // Worktree and branch should be cleaned up
         assert!(!wt_path.exists());
