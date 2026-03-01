@@ -660,6 +660,39 @@ pub fn git_fast_forward(
     Ok(())
 }
 
+/// Reset the working tree and index to match HEAD.
+///
+/// Runs `git reset --hard` in the given directory. This is useful after
+/// advancing a branch pointer with `git_fast_forward` to sync the working
+/// tree with the new commit.
+///
+/// # Arguments
+/// * `path` - Path to the git working tree to reset
+///
+/// # Errors
+/// Returns `GitError` if the git command fails.
+pub fn git_reset_hard(path: impl AsRef<Path>) -> Result<(), GitError> {
+    let path = path.as_ref();
+    let config = ProcessConfig {
+        command: "git reset --hard".to_string(),
+        working_dir: path.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git reset --hard failed in '{}': {}",
+            path.display(),
+            output.stderr
+        )));
+    }
+    Ok(())
+}
+
 /// Delete a git ref.
 ///
 /// Runs `git update-ref -d <ref_name>` to remove a ref.

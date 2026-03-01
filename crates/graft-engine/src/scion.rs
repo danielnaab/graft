@@ -13,7 +13,7 @@ use crate::error::{GraftError, Result};
 use graft_common::process::{run_to_completion_with_timeout, ProcessConfig};
 use graft_common::{
     git_ahead_behind, git_branch_delete, git_delete_ref, git_fast_forward, git_is_dirty,
-    git_last_commit_time, git_merge_to_ref, git_worktree_add, git_worktree_list,
+    git_last_commit_time, git_merge_to_ref, git_reset_hard, git_worktree_add, git_worktree_list,
     git_worktree_remove,
 };
 use serde::Serialize;
@@ -214,6 +214,10 @@ pub fn scion_fuse(
         // Step 3: Fast-forward base branch to merge commit
         git_fast_forward(repo, &base_branch, &commit).map_err(GraftError::from)?;
 
+        // Sync the main worktree's working tree to match the new branch tip
+        let main_worktree_path = &worktrees[0].path;
+        git_reset_hard(main_worktree_path).map_err(GraftError::from)?;
+
         // Clean up temp ref
         let _ = git_delete_ref(repo, &temp_ref);
 
@@ -384,16 +388,16 @@ impl std::fmt::Display for HookChainError {
 
 impl std::error::Error for HookChainError {}
 
-/// Look up the `Command.run` string for a hook from the appropriate config.
+/// Look up the `Command` definition for a hook from the appropriate config.
 ///
 /// - Dependency hooks (namespace = Some): strip the `dep:` prefix to get the
 ///   unqualified name, look up in the dependency's `commands`.
 /// - Project hooks (namespace = None): look up directly in the project's `commands`.
-fn resolve_hook_run(
+fn resolve_hook_command<'a>(
     hook: &ResolvedHook,
-    config: &GraftConfig,
-    dep_configs: &[(String, GraftConfig)],
-) -> Option<String> {
+    config: &'a GraftConfig,
+    dep_configs: &'a [(String, GraftConfig)],
+) -> Option<&'a crate::domain::Command> {
     if let Some(ref ns) = hook.namespace {
         let unqualified = hook
             .command_name
@@ -403,12 +407,8 @@ fn resolve_hook_run(
             .iter()
             .find(|(name, _)| name == ns)
             .and_then(|(_, cfg)| cfg.commands.get(unqualified))
-            .map(|cmd| cmd.run.clone())
     } else {
-        config
-            .commands
-            .get(&hook.command_name)
-            .map(|cmd| cmd.run.clone())
+        config.commands.get(&hook.command_name)
     }
 }
 
@@ -436,15 +436,15 @@ pub fn execute_hook_chain(
     let mut completed = Vec::new();
 
     for hook in chain {
-        let run_cmd =
-            resolve_hook_run(hook, config, dep_configs).ok_or_else(|| HookChainError {
+        let cmd =
+            resolve_hook_command(hook, config, dep_configs).ok_or_else(|| HookChainError {
                 failed_hook: hook.command_name.clone(),
                 completed_hooks: completed.clone(),
                 error: format!("Command not found: {}", hook.command_name),
             })?;
 
-        // Build env with scion identity vars
-        let mut env: HashMap<String, String> = HashMap::new();
+        // Merge the command's env with scion identity vars (scion vars win)
+        let mut env: HashMap<String, String> = cmd.env.clone().unwrap_or_default();
         env.insert("GRAFT_SCION_NAME".to_string(), scion_env.name.clone());
         env.insert("GRAFT_SCION_BRANCH".to_string(), scion_env.branch.clone());
         env.insert(
@@ -452,9 +452,19 @@ pub fn execute_hook_chain(
             scion_env.worktree.to_str().unwrap_or_default().to_string(),
         );
 
+        // Hook working_dir (event-specific) takes precedence; fall back to
+        // the command's working_dir if the hook doesn't override it.
+        let working_dir = if hook.working_dir.as_os_str().is_empty() {
+            cmd.working_dir
+                .as_ref()
+                .map_or_else(|| hook.working_dir.clone(), PathBuf::from)
+        } else {
+            hook.working_dir.clone()
+        };
+
         let process_config = ProcessConfig {
-            command: run_cmd,
-            working_dir: hook.working_dir.clone(),
+            command: cmd.run.clone(),
+            working_dir,
             env: Some(env),
             env_remove: vec![],
             log_path: None,
@@ -1016,6 +1026,35 @@ mod tests {
         assert!(err.error.contains("Command not found"));
     }
 
+    #[test]
+    fn execute_hook_chain_merges_command_env() {
+        // Define a command with its own env vars
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        let mut cmd = crate::domain::Command::new("env-hook", "env").unwrap();
+        let mut cmd_env = HashMap::new();
+        cmd_env.insert("MY_VAR".to_string(), "hello".to_string());
+        cmd.env = Some(cmd_env);
+        config.commands.insert("env-hook".to_string(), cmd);
+        config.scion_hooks = Some(ScionHooks {
+            on_create: Some(vec!["env-hook".to_string()]),
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+        });
+
+        let chain = resolve_hook_chain(
+            HookEvent::OnCreate,
+            &config,
+            &[],
+            Path::new("/tmp"),
+            Path::new("/tmp"),
+        );
+        let result = execute_hook_chain(&chain, &config, &[], &make_scion_env());
+        assert!(result.is_ok());
+        // If we get here, the command ran successfully with merged env —
+        // the env command succeeded, meaning both command env and scion env were set.
+    }
+
     // --- Hook rollback integration tests ---
 
     #[test]
@@ -1126,6 +1165,12 @@ mod tests {
         };
         let output = run_to_completion_with_timeout(&config).unwrap();
         assert_eq!(output.stdout.trim(), merge_commit);
+
+        // Main worktree working tree should contain the fused file
+        assert!(
+            temp.path().join("feature.txt").exists(),
+            "feature.txt should appear in main worktree after fuse"
+        );
 
         // Worktree + branch should be cleaned up
         assert!(!wt_path.exists());

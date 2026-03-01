@@ -2713,10 +2713,33 @@ fn try_load_graft_config(repo_path: &Path) -> Option<graft_engine::GraftConfig> 
     }
 }
 
+/// Load dependency configs from `.graft/<dep>/graft.yaml` for each dependency
+/// in the project config. Dependencies whose graft.yaml is missing or invalid
+/// are silently skipped (they simply won't contribute hooks).
+fn load_dep_configs(
+    repo_path: &Path,
+    config: &graft_engine::GraftConfig,
+) -> Vec<(String, graft_engine::GraftConfig)> {
+    config
+        .dependencies
+        .keys()
+        .filter_map(|dep_name| {
+            let dep_yaml = repo_path.join(".graft").join(dep_name).join("graft.yaml");
+            parse_graft_yaml(&dep_yaml)
+                .ok()
+                .map(|cfg| (dep_name.clone(), cfg))
+        })
+        .collect()
+}
+
 fn scion_create_command(name: &str) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
     let config = try_load_graft_config(&repo_path);
-    let wt_path = scion_create(&repo_path, name, config.as_ref(), &[])
+    let dep_configs = config
+        .as_ref()
+        .map(|c| load_dep_configs(&repo_path, c))
+        .unwrap_or_default();
+    let wt_path = scion_create(&repo_path, name, config.as_ref(), &dep_configs)
         .with_context(|| format!("Failed to create scion '{name}'"))?;
     println!("Created scion '{name}' at {}", wt_path.display());
     println!("  worktree: {}", wt_path.display());
@@ -2727,7 +2750,11 @@ fn scion_create_command(name: &str) -> Result<()> {
 fn scion_prune_command(name: &str) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
     let config = try_load_graft_config(&repo_path);
-    scion_prune(&repo_path, name, config.as_ref(), &[])
+    let dep_configs = config
+        .as_ref()
+        .map(|c| load_dep_configs(&repo_path, c))
+        .unwrap_or_default();
+    scion_prune(&repo_path, name, config.as_ref(), &dep_configs)
         .with_context(|| format!("Failed to prune scion '{name}'"))?;
     println!("Pruned scion '{name}'");
     Ok(())
@@ -2736,7 +2763,11 @@ fn scion_prune_command(name: &str) -> Result<()> {
 fn scion_fuse_command(name: &str) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
     let config = try_load_graft_config(&repo_path);
-    let merge_commit = scion_fuse(&repo_path, name, config.as_ref(), &[])
+    let dep_configs = config
+        .as_ref()
+        .map(|c| load_dep_configs(&repo_path, c))
+        .unwrap_or_default();
+    let merge_commit = scion_fuse(&repo_path, name, config.as_ref(), &dep_configs)
         .with_context(|| format!("Failed to fuse scion '{name}'"))?;
     println!("Fused scion '{name}' into main");
     println!("  merge commit: {merge_commit}");
