@@ -10,11 +10,13 @@
 
 use crate::domain::{GraftConfig, ScionHooks};
 use crate::error::{GraftError, Result};
+use graft_common::process::{run_to_completion_with_timeout, ProcessConfig};
 use graft_common::{
     git_ahead_behind, git_branch_delete, git_is_dirty, git_last_commit_time, git_worktree_add,
     git_worktree_list, git_worktree_remove,
 };
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Compute the worktree path for a scion: `<repo_root>/.worktrees/<name>`.
@@ -180,6 +182,142 @@ pub fn resolve_hook_chain(
     }
 
     chain
+}
+
+/// Scion identity passed to hooks as environment variables.
+#[derive(Debug, Clone)]
+pub struct ScionEnv {
+    /// Scion name (e.g. `retry-logic`).
+    pub name: String,
+    /// Full branch name (e.g. `feature/retry-logic`).
+    pub branch: String,
+    /// Worktree path (e.g. `.worktrees/retry-logic`).
+    pub worktree: PathBuf,
+}
+
+/// Error from a hook chain execution.
+///
+/// Carries structured details about what completed and what failed,
+/// enabling callers to make rollback decisions.
+#[derive(Debug)]
+pub struct HookChainError {
+    /// The `command_name` of the hook that failed.
+    pub failed_hook: String,
+    /// Hooks that completed successfully before the failure.
+    pub completed_hooks: Vec<String>,
+    /// The error message from the failed hook.
+    pub error: String,
+}
+
+impl std::fmt::Display for HookChainError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Hook '{}' failed: {}", self.failed_hook, self.error)?;
+        if !self.completed_hooks.is_empty() {
+            write!(f, " (completed: {})", self.completed_hooks.join(", "))?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for HookChainError {}
+
+/// Look up the `Command.run` string for a hook from the appropriate config.
+///
+/// - Dependency hooks (namespace = Some): strip the `dep:` prefix to get the
+///   unqualified name, look up in the dependency's `commands`.
+/// - Project hooks (namespace = None): look up directly in the project's `commands`.
+fn resolve_hook_run(
+    hook: &ResolvedHook,
+    config: &GraftConfig,
+    dep_configs: &[(String, GraftConfig)],
+) -> Option<String> {
+    if let Some(ref ns) = hook.namespace {
+        let unqualified = hook
+            .command_name
+            .strip_prefix(&format!("{ns}:"))
+            .unwrap_or(&hook.command_name);
+        dep_configs
+            .iter()
+            .find(|(name, _)| name == ns)
+            .and_then(|(_, cfg)| cfg.commands.get(unqualified))
+            .map(|cmd| cmd.run.clone())
+    } else {
+        config
+            .commands
+            .get(&hook.command_name)
+            .map(|cmd| cmd.run.clone())
+    }
+}
+
+/// Execute a resolved hook chain sequentially with fail-fast semantics.
+///
+/// Each hook receives `GRAFT_SCION_NAME`, `GRAFT_SCION_BRANCH`, and
+/// `GRAFT_SCION_WORKTREE` environment variables. Hooks run in the working
+/// directory specified in the `ResolvedHook`.
+///
+/// # Arguments
+/// * `chain`       - Ordered hooks to execute
+/// * `config`      - Project's `GraftConfig` (for command lookup)
+/// * `dep_configs` - Dependency configs (for namespace-qualified command lookup)
+/// * `scion_env`   - Scion identity for environment variables
+///
+/// # Returns
+/// `Ok(completed_hooks)` if all hooks succeed, or `Err(HookChainError)` on
+/// first failure with details about which hook failed and which completed.
+pub fn execute_hook_chain(
+    chain: &[ResolvedHook],
+    config: &GraftConfig,
+    dep_configs: &[(String, GraftConfig)],
+    scion_env: &ScionEnv,
+) -> std::result::Result<Vec<String>, HookChainError> {
+    let mut completed = Vec::new();
+
+    for hook in chain {
+        let run_cmd =
+            resolve_hook_run(hook, config, dep_configs).ok_or_else(|| HookChainError {
+                failed_hook: hook.command_name.clone(),
+                completed_hooks: completed.clone(),
+                error: format!("Command not found: {}", hook.command_name),
+            })?;
+
+        // Build env with scion identity vars
+        let mut env: HashMap<String, String> = HashMap::new();
+        env.insert("GRAFT_SCION_NAME".to_string(), scion_env.name.clone());
+        env.insert("GRAFT_SCION_BRANCH".to_string(), scion_env.branch.clone());
+        env.insert(
+            "GRAFT_SCION_WORKTREE".to_string(),
+            scion_env.worktree.to_str().unwrap_or_default().to_string(),
+        );
+
+        let process_config = ProcessConfig {
+            command: run_cmd,
+            working_dir: hook.working_dir.clone(),
+            env: Some(env),
+            env_remove: vec![],
+            log_path: None,
+            timeout: None,
+            stdin: None,
+        };
+
+        let output =
+            run_to_completion_with_timeout(&process_config).map_err(|e| HookChainError {
+                failed_hook: hook.command_name.clone(),
+                completed_hooks: completed.clone(),
+                error: e.to_string(),
+            })?;
+
+        if !output.success {
+            return Err(HookChainError {
+                failed_hook: hook.command_name.clone(),
+                completed_hooks: completed.clone(),
+                error: format!("exit code {}: {}", output.exit_code, output.stderr.trim()),
+            });
+        }
+
+        completed.push(hook.command_name.clone());
+    }
+
+    Ok(completed)
 }
 
 /// Structured information about a scion workstream.
@@ -596,5 +734,122 @@ mod tests {
             Path::new("/root"),
         );
         assert_eq!(chain[0].working_dir, Path::new("/root"));
+    }
+
+    // --- execute_hook_chain tests ---
+
+    fn make_scion_env() -> ScionEnv {
+        ScionEnv {
+            name: "test-scion".to_string(),
+            branch: "feature/test-scion".to_string(),
+            worktree: PathBuf::from("/tmp/test-wt"),
+        }
+    }
+
+    fn make_config_with_command(
+        cmd_name: &str,
+        run: &str,
+        hooks: Option<ScionHooks>,
+    ) -> GraftConfig {
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        let cmd = crate::domain::Command::new(cmd_name, run).unwrap();
+        config.commands.insert(cmd_name.to_string(), cmd);
+        config.scion_hooks = hooks;
+        config
+    }
+
+    #[test]
+    fn execute_hook_chain_all_succeed() {
+        let config = make_config_with_command(
+            "hook-a",
+            "true",
+            Some(ScionHooks {
+                on_create: Some(vec!["hook-a".to_string()]),
+                pre_fuse: None,
+                post_fuse: None,
+                on_prune: None,
+            }),
+        );
+        // Add a second command
+        let mut config = config;
+        let cmd_b = crate::domain::Command::new("hook-b", "true").unwrap();
+        config.commands.insert("hook-b".to_string(), cmd_b);
+        config.scion_hooks = Some(ScionHooks {
+            on_create: Some(vec!["hook-a".to_string(), "hook-b".to_string()]),
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+        });
+
+        let chain = resolve_hook_chain(
+            HookEvent::OnCreate,
+            &config,
+            &[],
+            Path::new("/tmp"),
+            Path::new("/tmp"),
+        );
+        let result = execute_hook_chain(&chain, &config, &[], &make_scion_env());
+        assert!(result.is_ok());
+        let completed = result.unwrap();
+        assert_eq!(completed, vec!["hook-a", "hook-b"]);
+    }
+
+    #[test]
+    fn execute_hook_chain_middle_hook_fails() {
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        let cmd_a = crate::domain::Command::new("hook-a", "true").unwrap();
+        let cmd_b = crate::domain::Command::new("hook-b", "exit 1").unwrap();
+        let cmd_c = crate::domain::Command::new("hook-c", "true").unwrap();
+        config.commands.insert("hook-a".to_string(), cmd_a);
+        config.commands.insert("hook-b".to_string(), cmd_b);
+        config.commands.insert("hook-c".to_string(), cmd_c);
+        config.scion_hooks = Some(ScionHooks {
+            on_create: Some(vec![
+                "hook-a".to_string(),
+                "hook-b".to_string(),
+                "hook-c".to_string(),
+            ]),
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+        });
+
+        let chain = resolve_hook_chain(
+            HookEvent::OnCreate,
+            &config,
+            &[],
+            Path::new("/tmp"),
+            Path::new("/tmp"),
+        );
+        let result = execute_hook_chain(&chain, &config, &[], &make_scion_env());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.failed_hook, "hook-b");
+        assert_eq!(err.completed_hooks, vec!["hook-a"]);
+        // hook-c should not have been attempted
+    }
+
+    #[test]
+    fn execute_hook_chain_empty_chain_succeeds() {
+        let config = GraftConfig::new("graft/v1").unwrap();
+        let chain: Vec<ResolvedHook> = vec![];
+        let result = execute_hook_chain(&chain, &config, &[], &make_scion_env());
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn execute_hook_chain_command_not_found() {
+        let config = GraftConfig::new("graft/v1").unwrap();
+        let chain = vec![ResolvedHook {
+            command_name: "nonexistent".to_string(),
+            namespace: None,
+            working_dir: PathBuf::from("/tmp"),
+        }];
+        let result = execute_hook_chain(&chain, &config, &[], &make_scion_env());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.failed_hook, "nonexistent");
+        assert!(err.error.contains("Command not found"));
     }
 }
