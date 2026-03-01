@@ -525,14 +525,13 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
 
     // Parse scions (optional)
     if let Some(scions_value) = obj.get(Value::String("scions".to_string())) {
-        let scions_obj =
-            scions_value
-                .as_mapping()
-                .ok_or_else(|| GraftError::ConfigValidation {
-                    path: path.to_string(),
-                    field: "scions".to_string(),
-                    reason: "must be a mapping/dict of hook_name: command_name(s)".to_string(),
-                })?;
+        let scions_obj = scions_value
+            .as_mapping()
+            .ok_or_else(|| GraftError::ConfigValidation {
+                path: path.to_string(),
+                field: "scions".to_string(),
+                reason: "must be a mapping/dict of hook_name: command_name(s)".to_string(),
+            })?;
 
         let mut hooks = ScionHooks {
             on_create: None,
@@ -542,13 +541,11 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
         };
 
         for (key, value) in scions_obj {
-            let key_str = key
-                .as_str()
-                .ok_or_else(|| GraftError::ConfigValidation {
-                    path: path.to_string(),
-                    field: "scions".to_string(),
-                    reason: "hook name must be a string".to_string(),
-                })?;
+            let key_str = key.as_str().ok_or_else(|| GraftError::ConfigValidation {
+                path: path.to_string(),
+                field: "scions".to_string(),
+                reason: "hook name must be a string".to_string(),
+            })?;
             let cmds = parse_hook_commands(value, path, &format!("scions.{key_str}"))?;
             match key_str {
                 "on_create" => hooks.on_create = cmds,
@@ -585,11 +582,7 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
 ///
 /// Returns `Some(vec)` if the value is a non-empty string or non-empty list,
 /// or `None` if the value is null.
-fn parse_hook_commands(
-    value: &Value,
-    path: &str,
-    field: &str,
-) -> Result<Option<Vec<String>>> {
+fn parse_hook_commands(value: &Value, path: &str, field: &str) -> Result<Option<Vec<String>>> {
     match value {
         Value::String(s) => Ok(Some(vec![s.clone()])),
         Value::Sequence(seq) => {

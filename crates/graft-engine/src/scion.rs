@@ -130,10 +130,7 @@ pub fn scion_list(repo_path: impl AsRef<Path>) -> Result<Vec<ScionInfo>> {
             continue;
         }
         // The parent directory must be named ".worktrees"
-        let parent_name = components[len - 2]
-            .as_os_str()
-            .to_str()
-            .unwrap_or("");
+        let parent_name = components[len - 2].as_os_str().to_str().unwrap_or("");
         if parent_name != ".worktrees" {
             continue;
         }
@@ -149,8 +146,7 @@ pub fn scion_list(repo_path: impl AsRef<Path>) -> Result<Vec<ScionInfo>> {
 
         let branch = branch_name(&scion_name);
 
-        let (ahead, behind) =
-            git_ahead_behind(repo, &branch, &base_branch).unwrap_or((0, 0));
+        let (ahead, behind) = git_ahead_behind(repo, &branch, &base_branch).unwrap_or((0, 0));
 
         let last_commit_time = git_last_commit_time(repo, &branch).ok();
 

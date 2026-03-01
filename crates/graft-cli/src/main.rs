@@ -13,7 +13,7 @@ use graft_engine::{
     is_submodule, list_state_queries, parse_graft_yaml, parse_lock_file,
     remove_dependency_from_config, remove_dependency_from_lock, remove_submodule,
     resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, scion_create,
-    scion_prune, sync_all_dependencies, validate_config_schema, validate_integrity,
+    scion_list, scion_prune, sync_all_dependencies, validate_config_schema, validate_integrity,
     write_lock_file,
 };
 use std::path::{Path, PathBuf};
@@ -236,6 +236,12 @@ enum StateCommands {
 
 #[derive(Subcommand)]
 enum ScionCommands {
+    /// List all scion workstreams with their status
+    List {
+        /// Output format
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
+    },
     /// Create a new scion workstream (worktree + branch)
     Create {
         /// Scion name (creates .worktrees/<name> on branch feature/<name>)
@@ -337,6 +343,9 @@ fn main() -> Result<()> {
             help_command(&dep_spec, json)?;
         }
         Commands::Scion { subcommand } => match subcommand {
+            ScionCommands::List { format } => {
+                scion_list_command(&format)?;
+            }
             ScionCommands::Create { name } => {
                 scion_create_command(&name)?;
             }
@@ -2633,6 +2642,56 @@ impl Drop for ProcessRegistrationGuard {
     fn drop(&mut self) {
         let _ = self.registry.deregister(self.pid);
     }
+}
+
+/// Format a Unix timestamp as a relative "time ago" string.
+fn format_unix_time_ago(ts: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+        .unwrap_or(0);
+    let secs = now.saturating_sub(ts);
+    if secs < 60 {
+        "just now".to_string()
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
+    } else {
+        format!("{}d ago", secs / 86400)
+    }
+}
+
+fn scion_list_command(format: &OutputFormat) -> Result<()> {
+    let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
+    let scions = scion_list(&repo_path).context("Failed to list scions")?;
+
+    match format {
+        OutputFormat::Json => {
+            let json = serde_json::to_string_pretty(&scions)
+                .context("Failed to serialize scion list to JSON")?;
+            println!("{json}");
+        }
+        OutputFormat::Text => {
+            if scions.is_empty() {
+                println!("No scions");
+                return Ok(());
+            }
+            for s in &scions {
+                let ahead_behind = format!("{} ahead, {} behind", s.ahead, s.behind);
+                let time_str = s.last_commit_time.map_or_else(
+                    || "no commits".to_string(),
+                    |t| format!("last: {}", format_unix_time_ago(t)),
+                );
+                let dirty_str = if s.dirty { "  dirty" } else { "" };
+                println!(
+                    "{:<25} {:<22} {:<20}{}",
+                    s.name, ahead_behind, time_str, dirty_str
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn scion_create_command(name: &str) -> Result<()> {
