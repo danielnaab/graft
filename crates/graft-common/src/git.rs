@@ -382,6 +382,84 @@ pub fn git_ahead_behind(
     Ok((ahead, behind))
 }
 
+/// Get the Unix timestamp of the most recent commit on a branch.
+///
+/// Runs `git log -1 --format=%ct <branch>` to retrieve the committer timestamp.
+///
+/// # Arguments
+/// * `repo`   - Path to the git repository
+/// * `branch` - Branch name (or any rev) to query
+///
+/// # Returns
+/// Unix timestamp as `i64`.
+///
+/// # Errors
+/// Returns `GitError` if the branch has no commits or the ref is invalid.
+pub fn git_last_commit_time(repo: impl AsRef<Path>, branch: &str) -> Result<i64, GitError> {
+    let repo = repo.as_ref();
+    let config = ProcessConfig {
+        command: format!("git log -1 --format=%ct {branch}"),
+        working_dir: repo.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git log failed for branch '{branch}': {}",
+            output.stderr
+        )));
+    }
+    let trimmed = output.stdout.trim();
+    if trimmed.is_empty() {
+        return Err(GitError::CommandFailed(format!(
+            "No commits found on branch '{branch}'"
+        )));
+    }
+    trimmed
+        .parse::<i64>()
+        .map_err(|e| GitError::CommandFailed(format!("Failed to parse commit timestamp: {e}")))
+}
+
+/// Check whether a worktree has uncommitted changes.
+///
+/// Runs `git -C <worktree_path> status --porcelain` and returns `true` if the
+/// output is non-empty (i.e., there are staged or unstaged changes or untracked
+/// files).
+///
+/// # Arguments
+/// * `worktree_path` - Absolute path to the worktree directory
+///
+/// # Errors
+/// Returns `GitError` if the git command fails.
+pub fn git_is_dirty(worktree_path: impl AsRef<Path>) -> Result<bool, GitError> {
+    let path = worktree_path.as_ref();
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| GitError::CommandFailed("worktree path is not valid UTF-8".to_string()))?;
+    let config = ProcessConfig {
+        command: format!("git -C {path_str} status --porcelain"),
+        working_dir: path.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git status failed in '{}': {}",
+            path.display(),
+            output.stderr
+        )));
+    }
+    Ok(!output.stdout.trim().is_empty())
+}
+
 /// Checkout a specific commit.
 ///
 /// Runs `git checkout <commit>` to move HEAD to the specified commit.
@@ -779,5 +857,59 @@ mod tests {
             .find(|w| w.path.ends_with("detached-wt"))
             .expect("detached worktree not found");
         assert!(detached.branch.is_none());
+    }
+
+    #[test]
+    fn git_last_commit_time_returns_timestamp() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        let branch = worktrees[0].branch.clone().unwrap();
+
+        let ts = git_last_commit_time(temp.path(), &branch).unwrap();
+        // Timestamp should be in a reasonable range (after 2020-01-01)
+        assert!(ts > 1_577_836_800);
+    }
+
+    #[test]
+    fn git_last_commit_time_fails_for_nonexistent_branch() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let result = git_last_commit_time(temp.path(), "no-such-branch");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn git_is_dirty_clean_repo_returns_false() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let dirty = git_is_dirty(temp.path()).unwrap();
+        assert!(!dirty);
+    }
+
+    #[test]
+    fn git_is_dirty_with_modified_file_returns_true() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        // Modify a tracked file without staging
+        fs::write(temp.path().join("README.md"), "modified content").unwrap();
+
+        let dirty = git_is_dirty(temp.path()).unwrap();
+        assert!(dirty);
+    }
+
+    #[test]
+    fn git_is_dirty_with_new_untracked_file_returns_true() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        fs::write(temp.path().join("untracked.txt"), "new file").unwrap();
+
+        let dirty = git_is_dirty(temp.path()).unwrap();
+        assert!(dirty);
     }
 }
