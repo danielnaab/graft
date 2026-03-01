@@ -127,6 +127,91 @@ pub fn git_fetch(path: impl AsRef<Path>) -> Result<(), GitError> {
     Ok(())
 }
 
+/// Information about a git worktree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeInfo {
+    /// Absolute path to the worktree directory.
+    pub path: std::path::PathBuf,
+    /// Branch checked out in this worktree, or `None` for a detached HEAD.
+    pub branch: Option<String>,
+    /// The HEAD commit hash.
+    pub head: String,
+}
+
+/// Parse the output of `git worktree list --porcelain` into a list of `WorktreeInfo`.
+fn parse_worktree_list(output: &str) -> Result<Vec<WorktreeInfo>, GitError> {
+    let mut result = Vec::new();
+    // Stanzas are separated by blank lines
+    for stanza in output.split("\n\n") {
+        let stanza = stanza.trim();
+        if stanza.is_empty() {
+            continue;
+        }
+        let mut path: Option<std::path::PathBuf> = None;
+        let mut head: Option<String> = None;
+        let mut branch: Option<String> = None;
+
+        for line in stanza.lines() {
+            if let Some(p) = line.strip_prefix("worktree ") {
+                path = Some(std::path::PathBuf::from(p.trim()));
+            } else if let Some(h) = line.strip_prefix("HEAD ") {
+                head = Some(h.trim().to_string());
+            } else if let Some(b) = line.strip_prefix("branch ") {
+                let b = b.trim();
+                // "refs/heads/feature/foo" -> "feature/foo"
+                let name = b.strip_prefix("refs/heads/").unwrap_or(b).to_string();
+                branch = Some(name);
+            }
+            // "detached", "locked", "prunable" lines are intentionally skipped
+        }
+
+        match (path, head) {
+            (Some(p), Some(h)) => result.push(WorktreeInfo {
+                path: p,
+                branch,
+                head: h,
+            }),
+            _ => {
+                return Err(GitError::CommandFailed(format!(
+                    "Failed to parse worktree stanza: {stanza}"
+                )));
+            }
+        }
+    }
+    Ok(result)
+}
+
+/// List all git worktrees for the repository.
+///
+/// Runs `git worktree list --porcelain` and parses the output into a structured
+/// list. The first entry is always the main worktree.
+///
+/// # Arguments
+/// * `repo` - Path to the git repository
+///
+/// # Errors
+/// Returns an error if the git command fails or the output cannot be parsed.
+pub fn git_worktree_list(repo: impl AsRef<Path>) -> Result<Vec<WorktreeInfo>, GitError> {
+    let repo = repo.as_ref();
+    let config = ProcessConfig {
+        command: "git worktree list --porcelain".to_string(),
+        working_dir: repo.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git worktree list failed: {}",
+            output.stderr
+        )));
+    }
+    parse_worktree_list(&output.stdout)
+}
+
 /// Checkout a specific commit.
 ///
 /// Runs `git checkout <commit>` to move HEAD to the specified commit.
@@ -285,5 +370,77 @@ mod tests {
 
         let result = git_checkout(temp_dir.path(), "0000000000000000000000000000000000000000");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn git_worktree_list_main_worktree() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        // Always at least the main worktree
+        assert!(!worktrees.is_empty());
+        // First entry is main worktree with a branch
+        let main = &worktrees[0];
+        assert!(main.branch.is_some());
+        assert_eq!(main.head.len(), 40);
+    }
+
+    #[test]
+    fn git_worktree_list_includes_added_worktree() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let wt_path = temp.path().join("extra");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                wt_path.to_str().unwrap(),
+                "-b",
+                "feature/test-wt",
+            ])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        assert_eq!(worktrees.len(), 2);
+
+        let wt = worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some("feature/test-wt"))
+            .expect("added worktree not found");
+        // path in output is absolute; wt_path may not be canonicalized the same way
+        assert!(wt.path.ends_with("extra"));
+        assert_eq!(wt.head.len(), 40);
+    }
+
+    #[test]
+    fn git_worktree_list_detached_head_has_none_branch() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let commit = get_current_commit(temp.path()).unwrap();
+        let wt_path = temp.path().join("detached-wt");
+        // Worktree at a specific commit → detached HEAD
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "--detach",
+                wt_path.to_str().unwrap(),
+                &commit,
+            ])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        let detached = worktrees
+            .iter()
+            .find(|w| w.path.ends_with("detached-wt"))
+            .expect("detached worktree not found");
+        assert!(detached.branch.is_none());
     }
 }
