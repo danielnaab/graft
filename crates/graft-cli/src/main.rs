@@ -13,8 +13,8 @@ use graft_engine::{
     is_submodule, list_state_queries, parse_graft_yaml, parse_lock_file,
     remove_dependency_from_config, remove_dependency_from_lock, remove_submodule,
     resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, scion_create,
-    scion_list, scion_prune, sync_all_dependencies, validate_config_schema, validate_integrity,
-    write_lock_file,
+    scion_fuse, scion_list, scion_prune, sync_all_dependencies, validate_config_schema,
+    validate_integrity, write_lock_file,
 };
 use std::path::{Path, PathBuf};
 
@@ -252,8 +252,14 @@ enum ScionCommands {
         /// Scion name to remove
         name: String,
     },
+    /// Fuse a scion into the main branch (merge + cleanup)
+    Fuse {
+        /// Scion name to fuse
+        name: String,
+    },
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
     clap_complete::CompleteEnv::with_factory(Cli::command).complete();
 
@@ -351,6 +357,9 @@ fn main() -> Result<()> {
             }
             ScionCommands::Prune { name } => {
                 scion_prune_command(&name)?;
+            }
+            ScionCommands::Fuse { name } => {
+                scion_fuse_command(&name)?;
             }
         },
     }
@@ -2721,6 +2730,17 @@ fn scion_prune_command(name: &str) -> Result<()> {
     scion_prune(&repo_path, name, config.as_ref(), &[])
         .with_context(|| format!("Failed to prune scion '{name}'"))?;
     println!("Pruned scion '{name}'");
+    Ok(())
+}
+
+fn scion_fuse_command(name: &str) -> Result<()> {
+    let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
+    let config = try_load_graft_config(&repo_path);
+    let merge_commit = scion_fuse(&repo_path, name, config.as_ref(), &[])
+        .with_context(|| format!("Failed to fuse scion '{name}'"))?;
+    println!("Fused scion '{name}' into main");
+    println!("  merge commit: {merge_commit}");
+    println!("  worktree and branch cleaned up");
     Ok(())
 }
 
