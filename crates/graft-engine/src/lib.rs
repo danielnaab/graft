@@ -16,6 +16,7 @@ pub mod mutation;
 pub mod query;
 pub mod resolution;
 pub mod sequence;
+pub mod scion;
 pub mod snapshot;
 pub mod state;
 pub mod template;
@@ -50,6 +51,7 @@ pub use resolution::{
     SyncResult,
 };
 pub use sequence::{execute_sequence, write_checkpoint_json, write_sequence_state};
+pub use scion::{scion_create, scion_prune};
 pub use snapshot::SnapshotManager;
 pub use state::{
     execute_state_query, get_cache_path, get_run_state_entry, get_state, invalidate_cached_state,
