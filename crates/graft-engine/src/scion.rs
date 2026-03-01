@@ -20,9 +20,58 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Validate that a scion name is safe for use as a directory component and branch suffix.
+///
+/// Rules:
+/// - Non-empty
+/// - Max 100 characters
+/// - Only `[a-zA-Z0-9._-]` characters (no slashes, colons, spaces, or control chars)
+/// - Must not be `.` or `..`
+fn validate_scion_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        return Err(GraftError::CommandExecution(
+            "scion name cannot be empty".to_string(),
+        ));
+    }
+    if name.len() > 100 {
+        return Err(GraftError::CommandExecution(format!(
+            "scion name too long: {} chars (max 100)",
+            name.len()
+        )));
+    }
+    if name == "." || name == ".." {
+        return Err(GraftError::CommandExecution(format!(
+            "invalid scion name: '{name}'"
+        )));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+    {
+        return Err(GraftError::CommandExecution(format!(
+            "invalid scion name: '{name}'. Only [a-zA-Z0-9._-] characters are allowed."
+        )));
+    }
+    Ok(())
+}
+
 /// Compute the worktree path for a scion: `<repo_root>/.worktrees/<name>`.
 fn worktree_path(repo: &Path, name: &str) -> PathBuf {
     repo.join(".worktrees").join(name)
+}
+
+/// Resolve the base branch from the main worktree.
+///
+/// Returns an error if the main worktree is in detached HEAD state (no branch).
+fn resolve_base_branch(worktrees: &[graft_common::WorktreeInfo]) -> Result<String> {
+    worktrees
+        .first()
+        .and_then(|w| w.branch.clone())
+        .ok_or_else(|| {
+            GraftError::CommandExecution(
+                "cannot determine base branch: main worktree is in detached HEAD state".into(),
+            )
+        })
 }
 
 /// Compute the branch name for a scion: `feature/<name>`.
@@ -57,6 +106,7 @@ pub fn scion_create(
     config: Option<&GraftConfig>,
     dep_configs: &[(String, GraftConfig)],
 ) -> Result<PathBuf> {
+    validate_scion_name(name)?;
     let repo = repo_path.as_ref();
     let path = worktree_path(repo, name);
     let branch = branch_name(name);
@@ -109,6 +159,7 @@ pub fn scion_prune(
     config: Option<&GraftConfig>,
     dep_configs: &[(String, GraftConfig)],
 ) -> Result<()> {
+    validate_scion_name(name)?;
     let repo = repo_path.as_ref();
     let path = worktree_path(repo, name);
     let branch = branch_name(name);
@@ -165,6 +216,7 @@ pub fn scion_fuse(
     config: Option<&GraftConfig>,
     dep_configs: &[(String, GraftConfig)],
 ) -> Result<String> {
+    validate_scion_name(name)?;
     let repo = repo_path.as_ref();
     let path = worktree_path(repo, name);
     let branch = branch_name(name);
@@ -172,10 +224,7 @@ pub fn scion_fuse(
 
     // Determine the base branch from the main worktree
     let worktrees = git_worktree_list(repo).map_err(GraftError::from)?;
-    let base_branch = worktrees
-        .first()
-        .and_then(|w| w.branch.clone())
-        .unwrap_or_else(|| "main".to_string());
+    let base_branch = resolve_base_branch(&worktrees)?;
 
     let scion_env = ScionEnv {
         name: name.to_string(),
@@ -211,17 +260,19 @@ pub fn scion_fuse(
             }
         }
 
-        // Step 3: Fast-forward base branch to merge commit
-        git_fast_forward(repo, &base_branch, &commit).map_err(GraftError::from)?;
+        // Step 3: Fast-forward base branch to merge commit + sync worktree.
+        // Wrap in a closure so the temp ref is always cleaned up, even on failure.
+        let result = (|| -> Result<String> {
+            git_fast_forward(repo, &base_branch, &commit).map_err(GraftError::from)?;
+            let main_worktree_path = &worktrees[0].path;
+            git_reset_hard(main_worktree_path).map_err(GraftError::from)?;
+            Ok(commit)
+        })();
 
-        // Sync the main worktree's working tree to match the new branch tip
-        let main_worktree_path = &worktrees[0].path;
-        git_reset_hard(main_worktree_path).map_err(GraftError::from)?;
-
-        // Clean up temp ref
+        // Always clean up temp ref
         let _ = git_delete_ref(repo, &temp_ref);
 
-        commit
+        result?
     };
 
     // Step 4: post_fuse hooks
@@ -535,10 +586,7 @@ pub fn scion_list(repo_path: impl AsRef<Path>) -> Result<Vec<ScionInfo>> {
     let worktrees = git_worktree_list(repo).map_err(GraftError::from)?;
 
     // The first entry is always the main worktree; its branch is our base.
-    let base_branch = worktrees
-        .first()
-        .and_then(|w| w.branch.clone())
-        .unwrap_or_else(|| "main".to_string());
+    let base_branch = resolve_base_branch(&worktrees)?;
 
     let mut scions = Vec::new();
     for wt in &worktrees {
@@ -559,7 +607,7 @@ pub fn scion_list(repo_path: impl AsRef<Path>) -> Result<Vec<ScionInfo>> {
             .to_str()
             .unwrap_or("")
             .to_string();
-        if scion_name.is_empty() {
+        if validate_scion_name(&scion_name).is_err() {
             continue;
         }
 
@@ -1240,5 +1288,98 @@ mod tests {
 
         // Worktree should still exist (no cleanup on merge conflict)
         assert!(wt_path.exists());
+    }
+
+    // --- validate_scion_name tests ---
+
+    #[test]
+    fn validate_scion_name_accepts_valid_names() {
+        assert!(validate_scion_name("my-feature").is_ok());
+        assert!(validate_scion_name("feature_1").is_ok());
+        assert!(validate_scion_name("v2.0.1").is_ok());
+        assert!(validate_scion_name("a").is_ok());
+        assert!(validate_scion_name("ABC-123").is_ok());
+    }
+
+    #[test]
+    fn validate_scion_name_rejects_empty() {
+        assert!(validate_scion_name("").is_err());
+    }
+
+    #[test]
+    fn validate_scion_name_rejects_path_traversal() {
+        assert!(validate_scion_name("..").is_err());
+        assert!(validate_scion_name(".").is_err());
+        // Contains / which is disallowed
+        assert!(validate_scion_name("../..").is_err());
+        assert!(validate_scion_name("a/b").is_err());
+    }
+
+    #[test]
+    fn validate_scion_name_rejects_slashes_and_colons() {
+        assert!(validate_scion_name("a/b").is_err());
+        assert!(validate_scion_name("a\\b").is_err());
+        assert!(validate_scion_name("a:b").is_err());
+    }
+
+    #[test]
+    fn validate_scion_name_rejects_spaces() {
+        assert!(validate_scion_name("my feature").is_err());
+    }
+
+    #[test]
+    fn validate_scion_name_rejects_too_long() {
+        let long = "a".repeat(101);
+        assert!(validate_scion_name(&long).is_err());
+        // Exactly 100 is fine
+        let ok = "a".repeat(100);
+        assert!(validate_scion_name(&ok).is_ok());
+    }
+
+    // --- detached HEAD tests ---
+
+    #[test]
+    fn scion_list_fails_on_detached_head() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        // Detach HEAD
+        Command::new("git")
+            .args(["checkout", "--detach", "HEAD"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        let result = scion_list(temp.path());
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("detached HEAD"),
+            "expected detached HEAD error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn scion_fuse_fails_on_detached_head() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        // Create a scion while HEAD is attached
+        scion_create(temp.path(), "det-fuse", None, &[]).unwrap();
+
+        // Now detach HEAD on the main worktree
+        Command::new("git")
+            .args(["checkout", "--detach", "HEAD"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        let result = scion_fuse(temp.path(), "det-fuse", None, &[]);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("detached HEAD"),
+            "expected detached HEAD error, got: {err_msg}"
+        );
     }
 }
