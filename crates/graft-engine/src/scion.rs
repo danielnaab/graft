@@ -25,8 +25,8 @@ use std::path::{Path, PathBuf};
 /// Rules:
 /// - Non-empty
 /// - Max 100 characters
+/// - Must not start with `.` or `-`
 /// - Only `[a-zA-Z0-9._-]` characters (no slashes, colons, spaces, or control chars)
-/// - Must not be `.` or `..`
 fn validate_scion_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(GraftError::CommandExecution(
@@ -39,9 +39,9 @@ fn validate_scion_name(name: &str) -> Result<()> {
             name.len()
         )));
     }
-    if name == "." || name == ".." {
+    if name.starts_with('.') || name.starts_with('-') {
         return Err(GraftError::CommandExecution(format!(
-            "invalid scion name: '{name}'"
+            "invalid scion name: '{name}'. Must not start with '.' or '-'."
         )));
     }
     if !name
@@ -183,7 +183,12 @@ pub fn scion_prune(
     }
 
     git_worktree_remove(repo, &path).map_err(GraftError::from)?;
-    git_branch_delete(repo, &branch).map_err(GraftError::from)?;
+    if let Err(e) = git_branch_delete(repo, &branch) {
+        return Err(GraftError::CommandExecution(format!(
+            "worktree removed but branch deletion failed for '{branch}': {e}. \
+             Delete it manually with: git branch -D {branch}"
+        )));
+    }
     Ok(())
 }
 
@@ -219,6 +224,17 @@ pub fn scion_fuse(
     validate_scion_name(name)?;
     let repo = repo_path.as_ref();
     let path = worktree_path(repo, name);
+    if !path.exists() {
+        return Err(GraftError::CommandExecution(format!(
+            "scion worktree not found at {}. Was it manually removed?",
+            path.display()
+        )));
+    }
+    if git_is_dirty(&path).unwrap_or(false) {
+        return Err(GraftError::CommandExecution(format!(
+            "scion '{name}' has uncommitted changes. Commit or discard them before fusing."
+        )));
+    }
     let branch = branch_name(name);
     let temp_ref = format!("refs/merge-temp/{name}");
 
@@ -290,7 +306,12 @@ pub fn scion_fuse(
 
     // Step 5: Remove worktree + branch
     git_worktree_remove(repo, &path).map_err(GraftError::from)?;
-    git_branch_delete(repo, &branch).map_err(GraftError::from)?;
+    if let Err(e) = git_branch_delete(repo, &branch) {
+        return Err(GraftError::CommandExecution(format!(
+            "worktree removed but branch deletion failed for '{branch}': {e}. \
+             Delete it manually with: git branch -D {branch}"
+        )));
+    }
 
     Ok(merge_commit)
 }
@@ -557,9 +578,11 @@ pub struct ScionInfo {
     /// Absolute path to the worktree directory.
     pub worktree_path: PathBuf,
     /// Commits in the scion branch not yet in main.
-    pub ahead: usize,
+    /// `None` if the count could not be determined (e.g. branch missing).
+    pub ahead: Option<usize>,
     /// Commits in main not yet in the scion branch.
-    pub behind: usize,
+    /// `None` if the count could not be determined (e.g. branch missing).
+    pub behind: Option<usize>,
     /// Unix timestamp of the most recent commit on the scion branch.
     /// `None` if the scion has no commits (freshly created).
     pub last_commit_time: Option<i64>,
@@ -613,7 +636,10 @@ pub fn scion_list(repo_path: impl AsRef<Path>) -> Result<Vec<ScionInfo>> {
 
         let branch = branch_name(&scion_name);
 
-        let (ahead, behind) = git_ahead_behind(repo, &branch, &base_branch).unwrap_or((0, 0));
+        let (ahead, behind) = match git_ahead_behind(repo, &branch, &base_branch) {
+            Ok((a, b)) => (Some(a), Some(b)),
+            Err(_) => (None, None),
+        };
 
         let last_commit_time = git_last_commit_time(repo, &branch).ok();
 
@@ -775,8 +801,8 @@ mod tests {
         assert_eq!(s.name, "alpha");
         assert_eq!(s.branch, "feature/alpha");
         assert!(s.worktree_path.ends_with(".worktrees/alpha"));
-        assert_eq!(s.ahead, 0);
-        assert_eq!(s.behind, 0);
+        assert_eq!(s.ahead, Some(0));
+        assert_eq!(s.behind, Some(0));
         assert!(!s.dirty);
     }
 
@@ -794,8 +820,8 @@ mod tests {
 
         let scions = scion_list(temp.path()).unwrap();
         let s = scions.iter().find(|s| s.name == "beta").unwrap();
-        assert_eq!(s.ahead, 2);
-        assert_eq!(s.behind, 0);
+        assert_eq!(s.ahead, Some(2));
+        assert_eq!(s.behind, Some(0));
         // last_commit_time should be set now that we have commits
         assert!(s.last_commit_time.is_some());
     }
@@ -1336,6 +1362,16 @@ mod tests {
         assert!(validate_scion_name(&ok).is_ok());
     }
 
+    #[test]
+    fn validate_scion_name_rejects_leading_dot_or_dash() {
+        assert!(validate_scion_name(".hidden").is_err());
+        assert!(validate_scion_name(".git").is_err());
+        assert!(validate_scion_name("-rf").is_err());
+        // Dots and dashes in the middle are fine
+        assert!(validate_scion_name("my.feature").is_ok());
+        assert!(validate_scion_name("my-feature").is_ok());
+    }
+
     // --- detached HEAD tests ---
 
     #[test]
@@ -1380,6 +1416,50 @@ mod tests {
         assert!(
             err_msg.contains("detached HEAD"),
             "expected detached HEAD error, got: {err_msg}"
+        );
+    }
+
+    // --- fuse guard tests ---
+
+    #[test]
+    fn scion_fuse_rejects_dirty_worktree() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        scion_create(temp.path(), "dirty-fuse", None, &[]).unwrap();
+        let wt_path = temp.path().join(".worktrees").join("dirty-fuse");
+
+        // Create uncommitted changes in the scion worktree
+        fs::write(wt_path.join("uncommitted.txt"), "wip").unwrap();
+
+        let result = scion_fuse(temp.path(), "dirty-fuse", None, &[]);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("uncommitted changes"),
+            "expected dirty worktree error, got: {err_msg}"
+        );
+        // Worktree should still exist (no cleanup attempted)
+        assert!(wt_path.exists());
+    }
+
+    #[test]
+    fn scion_fuse_rejects_missing_worktree() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        scion_create(temp.path(), "gone-fuse", None, &[]).unwrap();
+        let wt_path = temp.path().join(".worktrees").join("gone-fuse");
+
+        // Manually remove the worktree directory (simulating rm -rf)
+        fs::remove_dir_all(&wt_path).unwrap();
+
+        let result = scion_fuse(temp.path(), "gone-fuse", None, &[]);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not found"),
+            "expected missing worktree error, got: {err_msg}"
         );
     }
 }

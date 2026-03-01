@@ -2687,7 +2687,10 @@ fn scion_list_command(format: &OutputFormat) -> Result<()> {
                 return Ok(());
             }
             for s in &scions {
-                let ahead_behind = format!("{} ahead, {} behind", s.ahead, s.behind);
+                let ahead_behind = match (s.ahead, s.behind) {
+                    (Some(a), Some(b)) => format!("{a} ahead, {b} behind"),
+                    _ => "? ahead, ? behind".to_string(),
+                };
                 let time_str = s.last_commit_time.map_or_else(
                     || "no commits".to_string(),
                     |t| format!("last: {}", format_unix_time_ago(t)),
