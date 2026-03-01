@@ -186,6 +186,26 @@ review.
 
 ---
 
+## Shoot Lifecycle Design (2026-03-01)
+
+Design session refining the worker model from the context provider exploration.
+Establishes shoot/fuse/prune vocabulary, composable lifecycle hooks in graft.yaml,
+and minimal Claude Code integration surface.
+
+**Active**:
+- [Shoot Lifecycle Design](2026-03-01-shoot-lifecycle-design.md) — shoot commands,
+  composable hooks, failure semantics, Claude Code integration layers
+
+**Relates to**:
+- [Graft as Context Provider](2026-02-28-graft-as-context-provider.md) — parent
+  exploration
+- [Agentic Orchestration](2026-02-18-grove-agentic-orchestration.md) — dispatch
+  board metaphor
+- [Sequence Primitives](2026-02-24-sequence-primitives-exploration.md) — sequence
+  design decisions
+
+---
+
 ## Adding New Notes
 
 When creating session logs or exploration notes:
