@@ -6,7 +6,7 @@
 //! this default when set.
 
 use crate::process::{run_to_completion_with_timeout, ProcessConfig, ProcessError};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const GIT_DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -131,7 +131,7 @@ pub fn git_fetch(path: impl AsRef<Path>) -> Result<(), GitError> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorktreeInfo {
     /// Absolute path to the worktree directory.
-    pub path: std::path::PathBuf,
+    pub path: PathBuf,
     /// Branch checked out in this worktree, or `None` for a detached HEAD.
     pub branch: Option<String>,
     /// The HEAD commit hash.
@@ -147,7 +147,7 @@ fn parse_worktree_list(output: &str) -> Result<Vec<WorktreeInfo>, GitError> {
         if stanza.is_empty() {
             continue;
         }
-        let mut path: Option<std::path::PathBuf> = None;
+        let mut path: Option<PathBuf> = None;
         let mut head: Option<String> = None;
         let mut branch: Option<String> = None;
 
@@ -232,7 +232,7 @@ pub fn git_worktree_add(
     repo: impl AsRef<Path>,
     path: impl AsRef<Path>,
     branch: &str,
-) -> Result<std::path::PathBuf, GitError> {
+) -> Result<PathBuf, GitError> {
     let repo = repo.as_ref();
     let path = path.as_ref();
     let path_str = path

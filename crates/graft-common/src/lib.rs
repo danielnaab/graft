@@ -57,7 +57,11 @@ pub use config::{
     ArgType, CommandDef, EntityDef, OnStepFail, SequenceDef, StateQueryDef, StdinDef, StepDef,
     WhenCondition,
 };
-pub use git::{get_current_commit, git_checkout, git_fetch, git_rev_parse, is_git_repo, GitError};
+pub use git::{
+    get_current_commit, git_ahead_behind, git_branch_delete, git_checkout, git_fetch,
+    git_rev_parse, git_worktree_add, git_worktree_list, git_worktree_remove, is_git_repo,
+    GitError, WorktreeInfo,
+};
 pub use process::{
     run_to_completion, run_to_completion_registered, run_to_completion_with_timeout,
     run_to_completion_with_timeout_registered, FsProcessRegistry, ProcessConfig, ProcessEntry,
