@@ -333,6 +333,58 @@ pub fn git_branch_delete(repo: impl AsRef<Path>, branch: &str) -> Result<(), Git
     Ok(())
 }
 
+/// Count commits ahead and behind between two refs.
+///
+/// Runs `git rev-list --left-right --count <branch>...<base>`.
+///
+/// # Returns
+/// `(ahead, behind)` — commits in `branch` not in `base`, and vice versa.
+///
+/// # Arguments
+/// * `repo`   - Path to the git repository
+/// * `branch` - Branch to measure from
+/// * `base`   - Reference to compare against (e.g. "main")
+///
+/// # Errors
+/// Returns `GitError` if either ref is invalid or the git command fails.
+pub fn git_ahead_behind(
+    repo: impl AsRef<Path>,
+    branch: &str,
+    base: &str,
+) -> Result<(usize, usize), GitError> {
+    let repo = repo.as_ref();
+    let config = ProcessConfig {
+        command: format!("git rev-list --left-right --count {branch}...{base}"),
+        working_dir: repo.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git rev-list --left-right --count failed: {}",
+            output.stderr
+        )));
+    }
+    let trimmed = output.stdout.trim();
+    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+    if parts.len() != 2 {
+        return Err(GitError::CommandFailed(format!(
+            "Unexpected output from git rev-list: {trimmed}"
+        )));
+    }
+    let ahead = parts[0]
+        .parse::<usize>()
+        .map_err(|e| GitError::CommandFailed(format!("Failed to parse ahead count: {e}")))?;
+    let behind = parts[1]
+        .parse::<usize>()
+        .map_err(|e| GitError::CommandFailed(format!("Failed to parse behind count: {e}")))?;
+    Ok((ahead, behind))
+}
+
 /// Checkout a specific commit.
 ///
 /// Runs `git checkout <commit>` to move HEAD to the specified commit.
@@ -620,6 +672,89 @@ mod tests {
 
         let result = git_branch_delete(temp.path(), "no-such-branch");
         assert!(result.is_err());
+    }
+
+    /// Create a helper that makes an additional commit in the repo at `path`.
+    fn make_commit(path: &Path, filename: &str, message: &str) {
+        fs::write(path.join(filename), "content").unwrap();
+        Command::new("git")
+            .args(["add", filename])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", message])
+            .current_dir(path)
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn git_ahead_behind_same_branch_is_zero_zero() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        let main_branch = worktrees[0].branch.clone().unwrap();
+
+        let (ahead, behind) = git_ahead_behind(temp.path(), &main_branch, &main_branch).unwrap();
+        assert_eq!(ahead, 0);
+        assert_eq!(behind, 0);
+    }
+
+    #[test]
+    fn git_ahead_behind_feature_ahead_of_main() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        // Get main branch name
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        let main_branch = worktrees[0].branch.clone().unwrap();
+
+        // Create a feature branch and add 2 commits
+        Command::new("git")
+            .args(["checkout", "-b", "feature/ahead"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        make_commit(temp.path(), "a.txt", "feat: a");
+        make_commit(temp.path(), "b.txt", "feat: b");
+
+        let (ahead, behind) =
+            git_ahead_behind(temp.path(), "feature/ahead", &main_branch).unwrap();
+        assert_eq!(ahead, 2);
+        assert_eq!(behind, 0);
+    }
+
+    #[test]
+    fn git_ahead_behind_diverged_branches() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        let main_branch = worktrees[0].branch.clone().unwrap();
+
+        // Add 1 commit to feature
+        Command::new("git")
+            .args(["checkout", "-b", "feature/diverged"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        make_commit(temp.path(), "feature.txt", "feat: feature");
+
+        // Go back to main and add 2 commits
+        Command::new("git")
+            .args(["checkout", &main_branch])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        make_commit(temp.path(), "main1.txt", "chore: main 1");
+        make_commit(temp.path(), "main2.txt", "chore: main 2");
+
+        let (ahead, behind) =
+            git_ahead_behind(temp.path(), "feature/diverged", &main_branch).unwrap();
+        assert_eq!(ahead, 1);
+        assert_eq!(behind, 2);
     }
 
     #[test]
