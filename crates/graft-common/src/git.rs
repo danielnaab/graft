@@ -263,6 +263,76 @@ pub fn git_worktree_add(
     Ok(abs)
 }
 
+/// Remove a git worktree.
+///
+/// Runs `git worktree remove <path> --force`. The `--force` flag removes the
+/// worktree even if it has uncommitted changes.
+///
+/// # Arguments
+/// * `repo` - Path to the main git repository
+/// * `path` - Path to the worktree to remove
+///
+/// # Errors
+/// Returns `GitError` if the worktree does not exist or the git command fails.
+pub fn git_worktree_remove(
+    repo: impl AsRef<Path>,
+    path: impl AsRef<Path>,
+) -> Result<(), GitError> {
+    let repo = repo.as_ref();
+    let path = path.as_ref();
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| GitError::CommandFailed("worktree path is not valid UTF-8".to_string()))?;
+    let config = ProcessConfig {
+        command: format!("git worktree remove {path_str} --force"),
+        working_dir: repo.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git worktree remove failed: {}",
+            output.stderr
+        )));
+    }
+    Ok(())
+}
+
+/// Delete a git branch (force delete).
+///
+/// Runs `git branch -D <branch>`. The force flag allows deleting unmerged branches.
+///
+/// # Arguments
+/// * `repo`   - Path to the git repository
+/// * `branch` - Name of the branch to delete
+///
+/// # Errors
+/// Returns `GitError` if the branch does not exist or the git command fails.
+pub fn git_branch_delete(repo: impl AsRef<Path>, branch: &str) -> Result<(), GitError> {
+    let repo = repo.as_ref();
+    let config = ProcessConfig {
+        command: format!("git branch -D {branch}"),
+        working_dir: repo.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git branch -D failed: {}",
+            output.stderr
+        )));
+    }
+    Ok(())
+}
+
 /// Checkout a specific commit.
 ///
 /// Runs `git checkout <commit>` to move HEAD to the specified commit.
@@ -497,6 +567,58 @@ mod tests {
         // Trying to create a worktree with the existing branch name should fail
         let wt_path = temp.path().join("conflict-wt");
         let result = git_worktree_add(temp.path(), &wt_path, &main_branch);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn git_worktree_remove_removes_worktree() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let wt_path = temp.path().join("to-remove");
+        git_worktree_add(temp.path(), &wt_path, "feature/to-remove").unwrap();
+        assert_eq!(git_worktree_list(temp.path()).unwrap().len(), 2);
+
+        git_worktree_remove(temp.path(), &wt_path).unwrap();
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        assert_eq!(worktrees.len(), 1);
+        assert!(!worktrees
+            .iter()
+            .any(|w| w.branch.as_deref() == Some("feature/to-remove")));
+    }
+
+    #[test]
+    fn git_worktree_remove_fails_for_nonexistent() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let result = git_worktree_remove(temp.path(), temp.path().join("no-such-worktree"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn git_branch_delete_removes_branch() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let wt_path = temp.path().join("branch-wt");
+        git_worktree_add(temp.path(), &wt_path, "feature/to-delete").unwrap();
+        git_worktree_remove(temp.path(), &wt_path).unwrap();
+
+        // Branch still exists after worktree removal — now delete it
+        git_branch_delete(temp.path(), "feature/to-delete").unwrap();
+
+        // Verify it's gone
+        let result = git_branch_delete(temp.path(), "feature/to-delete");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn git_branch_delete_fails_for_nonexistent() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let result = git_branch_delete(temp.path(), "no-such-branch");
         assert!(result.is_err());
     }
 
