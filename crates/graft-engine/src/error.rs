@@ -76,3 +76,9 @@ pub enum GraftError {
 }
 
 pub type Result<T> = std::result::Result<T, GraftError>;
+
+impl From<graft_common::GitError> for GraftError {
+    fn from(err: graft_common::GitError) -> Self {
+        GraftError::Git(err.to_string())
+    }
+}
