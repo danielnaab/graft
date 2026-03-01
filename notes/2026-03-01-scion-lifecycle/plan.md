@@ -45,7 +45,7 @@ Key constraints:
 Pure library functions in `graft-common/src/git.rs`. No config, no CLI, no engine.
 
 ### Task 1.1: `WorktreeInfo` type and `git_worktree_list`
-- [ ] Add `WorktreeInfo { path, branch, head }` and `git_worktree_list(repo)` to `graft-common/src/git.rs`
+- [x] Add `WorktreeInfo { path, branch, head }` and `git_worktree_list(repo)` to `graft-common/src/git.rs`
 - **Spec**: `slices/scion-worktree-primitives/plan.md` (step 1)
 - **Code**: `crates/graft-common/src/git.rs`
 - **Acceptance**:
@@ -56,7 +56,7 @@ Pure library functions in `graft-common/src/git.rs`. No config, no CLI, no engin
   - `cargo test -p graft-common && cargo clippy -p graft-common -- -D warnings` passes
 
 ### Task 1.2: `git_worktree_add`
-- [ ] Add `git_worktree_add(repo, path, branch)` to `graft-common/src/git.rs`
+- [x] Add `git_worktree_add(repo, path, branch)` to `graft-common/src/git.rs`
 - **Code**: `crates/graft-common/src/git.rs`
 - **Acceptance**:
   - Runs `git worktree add <path> -b <branch>`, returns absolute worktree path
@@ -65,7 +65,7 @@ Pure library functions in `graft-common/src/git.rs`. No config, no CLI, no engin
   - `cargo test -p graft-common && cargo clippy -p graft-common -- -D warnings` passes
 
 ### Task 1.3: `git_worktree_remove` and `git_branch_delete`
-- [ ] Add removal primitives to `graft-common/src/git.rs`
+- [x] Add removal primitives to `graft-common/src/git.rs`
 - **Code**: `crates/graft-common/src/git.rs`
 - **Acceptance**:
   - `git_worktree_remove(repo, path)` runs `git worktree remove <path> --force`
@@ -75,7 +75,7 @@ Pure library functions in `graft-common/src/git.rs`. No config, no CLI, no engin
   - `cargo test -p graft-common && cargo clippy -p graft-common -- -D warnings` passes
 
 ### Task 1.4: `git_ahead_behind`
-- [ ] Add `git_ahead_behind(repo, branch, base)` to `graft-common/src/git.rs`
+- [x] Add `git_ahead_behind(repo, branch, base)` to `graft-common/src/git.rs`
 - **Code**: `crates/graft-common/src/git.rs`
 - **Acceptance**:
   - Runs `git rev-list --left-right --count <branch>...<base>`, returns `(usize, usize)`
@@ -83,7 +83,7 @@ Pure library functions in `graft-common/src/git.rs`. No config, no CLI, no engin
   - `cargo test -p graft-common && cargo clippy -p graft-common -- -D warnings` passes
 
 ### Task 1.C: Critique slice 1
-- [ ] Re-read ALL code added/modified in tasks 1.1–1.4. Evaluate against slice plan's acceptance criteria. Check API consistency with existing `git.rs` functions, error handling, test coverage, edge cases. Fix any concrete issues found, commit fixes separately.
+- [x] Re-read ALL code added/modified in tasks 1.1–1.4. Evaluate against slice plan's acceptance criteria. Check API consistency with existing `git.rs` functions, error handling, test coverage, edge cases. Fix any concrete issues found, commit fixes separately.
 - **Read**: `crates/graft-common/src/git.rs`, `slices/scion-worktree-primitives/plan.md`
 
 ---
