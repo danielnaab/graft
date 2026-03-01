@@ -58,3 +58,28 @@ pattern is functionally equivalent to `?` and clippy-clean. Empty scions mapping
 literal initializers across the crate (`grep "GraftConfig {"`) — they need `field: None` added.
 In this iteration, `query.rs` and `validation.rs` both had literals that needed updating.
 
+---
+
+### Iteration — Slice 3 (Tasks 3.1–3.C): Scion List
+**Status**: completed
+**Files changed**: `crates/graft-common/src/git.rs`, `crates/graft-common/src/lib.rs`,
+`crates/graft-engine/src/scion.rs`, `crates/graft-engine/src/lib.rs`,
+`crates/graft-cli/src/main.rs`
+**What was done**: Added `git_last_commit_time` (Unix timestamp via `git log -1 --format=%ct`)
+and `git_is_dirty` (`git -C <path> status --porcelain`) to `graft-common/src/git.rs` with
+re-exports in `lib.rs`. Added `ScionInfo` struct (with `Serialize` derive) and `scion_list`
+function to `graft-engine/src/scion.rs` — filters `.worktrees/` entries, extracts scion name,
+gathers ahead/behind, last commit time, and dirty status. Added `graft scion list` CLI command
+with text table format (name, ahead/behind, relative time, dirty marker) and `--format json`
+support. `format_unix_time_ago` helper for "2m ago" style output.
+**Critique findings**: All acceptance criteria met. No actionable issues. `scion_list` correctly
+uses `unwrap_or`/`.ok()` for per-scion metrics (graceful degradation). `format_unix_time_ago`
+is separate from existing `format_time_ago` (which takes RFC 3339) — this is correct since
+`git_last_commit_time` returns Unix timestamps. Minor doc note: `ScionInfo.last_commit_time`
+documents `None` for "freshly created" scions, but a freshly created scion inherits the main
+branch commit and will always have `Some` — the `None` is only a safety fallback via `.ok()`.
+**Improvements made**: None needed.
+**Learnings for future iterations**: When resuming from a prior iteration that committed code
+but not plan/progress updates, check `git log` against `plan.md` to reconcile state. Formatting
+changes from `cargo fmt` should be committed with the relevant feature commit.
+

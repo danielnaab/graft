@@ -172,7 +172,7 @@ Spec update, domain types, config parsing, engine module, CLI commands.
 Git helpers for activity/dirty state, engine enumeration, CLI with table and JSON.
 
 ### Task 3.1: `git_last_commit_time` and `git_is_dirty`
-- [ ] Add git helpers for commit timestamps and dirty state
+- [x] Add git helpers for commit timestamps and dirty state
 - **Spec**: `slices/scion-list/plan.md` (step 1)
 - **Code**: `crates/graft-common/src/git.rs`
 - **Acceptance**:
@@ -184,7 +184,7 @@ Git helpers for activity/dirty state, engine enumeration, CLI with table and JSO
   - `cargo test -p graft-common && cargo clippy -p graft-common -- -D warnings` passes
 
 ### Task 3.2: `ScionInfo` and `scion_list` engine function
-- [ ] Add structured scion enumeration to `graft-engine/src/scion.rs`
+- [x] Add structured scion enumeration to `graft-engine/src/scion.rs`
 - **Spec**: `slices/scion-list/plan.md` (step 2)
 - **Code**: `crates/graft-engine/src/scion.rs`
 - **Acceptance**:
@@ -196,7 +196,7 @@ Git helpers for activity/dirty state, engine enumeration, CLI with table and JSO
   - `cargo test -p graft-engine && cargo clippy -p graft-engine -- -D warnings` passes
 
 ### Task 3.3: `graft scion list` CLI command
-- [ ] Add list subcommand with text table and `--format json`
+- [x] Add list subcommand with text table and `--format json`
 - **Spec**: `slices/scion-list/plan.md` (step 3)
 - **Code**: `crates/graft-cli/src/main.rs`
 - **Acceptance**:
@@ -207,7 +207,7 @@ Git helpers for activity/dirty state, engine enumeration, CLI with table and JSO
   - `cargo test && cargo clippy -- -D warnings && cargo fmt --check` passes
 
 ### Task 3.C: Critique slice 3
-- [ ] Re-read ALL code added/modified in tasks 3.1–3.3. Evaluate: git helper correctness, ScionInfo completeness, filtering logic, table formatting, JSON output, edge cases (no scions, brand-new scion with no commits). Fix any concrete issues found.
+- [x] Re-read ALL code added/modified in tasks 3.1–3.3. Evaluate: git helper correctness, ScionInfo completeness, filtering logic, table formatting, JSON output, edge cases (no scions, brand-new scion with no commits). Fix any concrete issues found.
 - **Read**: `crates/graft-common/src/git.rs`, `crates/graft-engine/src/scion.rs`,
   `crates/graft-cli/src/main.rs`, `slices/scion-list/plan.md`
 
