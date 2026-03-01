@@ -212,6 +212,57 @@ pub fn git_worktree_list(repo: impl AsRef<Path>) -> Result<Vec<WorktreeInfo>, Gi
     parse_worktree_list(&output.stdout)
 }
 
+/// Create a new git worktree at the given path on a new branch.
+///
+/// Runs `git worktree add <path> -b <branch>`. The branch must not already exist,
+/// and the path must not already be registered as a worktree.
+///
+/// # Arguments
+/// * `repo`   - Path to the main git repository
+/// * `path`   - Where to create the worktree (relative or absolute)
+/// * `branch` - Name of the new branch to create in the worktree
+///
+/// # Returns
+/// The canonicalized absolute path to the new worktree.
+///
+/// # Errors
+/// Returns `GitError` if the worktree path or branch already exists, or the git
+/// command fails for any other reason.
+pub fn git_worktree_add(
+    repo: impl AsRef<Path>,
+    path: impl AsRef<Path>,
+    branch: &str,
+) -> Result<std::path::PathBuf, GitError> {
+    let repo = repo.as_ref();
+    let path = path.as_ref();
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| GitError::CommandFailed("worktree path is not valid UTF-8".to_string()))?;
+    let config = ProcessConfig {
+        command: format!("git worktree add {path_str} -b {branch}"),
+        working_dir: repo.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git worktree add failed: {}",
+            output.stderr
+        )));
+    }
+    // Resolve the absolute path (the caller may have passed a relative path)
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        repo.join(path)
+    };
+    Ok(abs)
+}
+
 /// Checkout a specific commit.
 ///
 /// Runs `git checkout <commit>` to move HEAD to the specified commit.
@@ -414,6 +465,39 @@ mod tests {
         // path in output is absolute; wt_path may not be canonicalized the same way
         assert!(wt.path.ends_with("extra"));
         assert_eq!(wt.head.len(), 40);
+    }
+
+    #[test]
+    fn git_worktree_add_creates_worktree() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let wt_path = temp.path().join("new-wt");
+        let returned = git_worktree_add(temp.path(), &wt_path, "feature/new").unwrap();
+
+        // The returned path points to the created directory
+        assert!(returned.exists());
+
+        // The worktree appears in git_worktree_list
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        assert!(worktrees
+            .iter()
+            .any(|w| w.branch.as_deref() == Some("feature/new")));
+    }
+
+    #[test]
+    fn git_worktree_add_fails_if_branch_exists() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        // Get the default branch name
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        let main_branch = worktrees[0].branch.clone().unwrap();
+
+        // Trying to create a worktree with the existing branch name should fail
+        let wt_path = temp.path().join("conflict-wt");
+        let result = git_worktree_add(temp.path(), &wt_path, &main_branch);
+        assert!(result.is_err());
     }
 
     #[test]
