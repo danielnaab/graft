@@ -8,6 +8,7 @@
 //! Git primitives from `graft-common` take explicit paths and branch names.
 //! The naming convention lives here, not in the primitives.
 
+use crate::domain::{GraftConfig, ScionHooks};
 use crate::error::{GraftError, Result};
 use graft_common::{
     git_ahead_behind, git_branch_delete, git_is_dirty, git_last_commit_time, git_worktree_add,
@@ -72,6 +73,113 @@ pub fn scion_prune(repo_path: impl AsRef<Path>, name: &str) -> Result<()> {
     git_worktree_remove(repo, &path).map_err(GraftError::from)?;
     git_branch_delete(repo, &branch).map_err(GraftError::from)?;
     Ok(())
+}
+
+/// A scion lifecycle event that triggers hooks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookEvent {
+    /// After worktree + branch creation.
+    OnCreate,
+    /// Before merging the feature branch to main.
+    PreFuse,
+    /// After the merge commit is applied to main.
+    PostFuse,
+    /// Before worktree + branch removal.
+    OnPrune,
+}
+
+/// A resolved hook ready for execution.
+///
+/// Produced by `resolve_hook_chain`. Each entry carries enough context to
+/// locate the command definition and set up the execution environment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedHook {
+    /// Command name as defined in a graft.yaml `commands:` section.
+    /// For dependency hooks this is qualified: `dep_name:command_name`.
+    /// For project hooks this is unqualified: `command_name`.
+    pub command_name: String,
+    /// Namespace: dependency name, or `None` for project-level hooks.
+    pub namespace: Option<String>,
+    /// Working directory for hook execution.
+    pub working_dir: PathBuf,
+}
+
+/// Extract the hook command list for the given event from `ScionHooks`.
+fn hooks_for_event(hooks: &ScionHooks, event: HookEvent) -> Option<&Vec<String>> {
+    match event {
+        HookEvent::OnCreate => hooks.on_create.as_ref(),
+        HookEvent::PreFuse => hooks.pre_fuse.as_ref(),
+        HookEvent::PostFuse => hooks.post_fuse.as_ref(),
+        HookEvent::OnPrune => hooks.on_prune.as_ref(),
+    }
+}
+
+/// Determine the working directory for a hook based on the lifecycle event.
+///
+/// - `on_create`, `pre_fuse`, `on_prune` → scion worktree (the work happens there)
+/// - `post_fuse` → project root (the worktree may be about to be removed)
+fn working_dir_for_event(event: HookEvent, scion_worktree: &Path, project_root: &Path) -> PathBuf {
+    match event {
+        HookEvent::OnCreate | HookEvent::PreFuse | HookEvent::OnPrune => {
+            scion_worktree.to_path_buf()
+        }
+        HookEvent::PostFuse => project_root.to_path_buf(),
+    }
+}
+
+/// Resolve the ordered chain of hooks for a scion lifecycle event.
+///
+/// Dependencies' hooks run first (in the order provided), then the project's
+/// own hooks. Within each scope, hooks run in list order.
+///
+/// # Arguments
+/// * `event`           - The lifecycle event to resolve hooks for
+/// * `config`          - The project's `GraftConfig` (for project-level hooks)
+/// * `dep_configs`     - Dependency configs in declaration order: `(name, config)`
+/// * `scion_worktree`  - Absolute path to the scion's worktree
+/// * `project_root`    - Absolute path to the project root
+///
+/// # Returns
+/// Ordered list of `ResolvedHook`s. Empty if no hooks are defined.
+pub fn resolve_hook_chain(
+    event: HookEvent,
+    config: &GraftConfig,
+    dep_configs: &[(String, GraftConfig)],
+    scion_worktree: &Path,
+    project_root: &Path,
+) -> Vec<ResolvedHook> {
+    let working_dir = working_dir_for_event(event, scion_worktree, project_root);
+    let mut chain = Vec::new();
+
+    // Dependencies first, in declaration order
+    for (dep_name, dep_config) in dep_configs {
+        if let Some(hooks) = &dep_config.scion_hooks {
+            if let Some(cmds) = hooks_for_event(hooks, event) {
+                for cmd in cmds {
+                    chain.push(ResolvedHook {
+                        command_name: format!("{dep_name}:{cmd}"),
+                        namespace: Some(dep_name.clone()),
+                        working_dir: working_dir.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Project hooks last
+    if let Some(hooks) = &config.scion_hooks {
+        if let Some(cmds) = hooks_for_event(hooks, event) {
+            for cmd in cmds {
+                chain.push(ResolvedHook {
+                    command_name: cmd.clone(),
+                    namespace: None,
+                    working_dir: working_dir.clone(),
+                });
+            }
+        }
+    }
+
+    chain
 }
 
 /// Structured information about a scion workstream.
@@ -347,5 +455,146 @@ mod tests {
         let scions = scion_list(temp.path()).unwrap();
         let s = scions.iter().find(|s| s.name == "gamma").unwrap();
         assert!(s.dirty);
+    }
+
+    // --- resolve_hook_chain tests ---
+
+    fn make_config_with_hooks(hooks: ScionHooks) -> GraftConfig {
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        config.scion_hooks = Some(hooks);
+        config
+    }
+
+    #[test]
+    fn resolve_hook_chain_no_hooks() {
+        let config = GraftConfig::new("graft/v1").unwrap();
+        let chain = resolve_hook_chain(
+            HookEvent::OnCreate,
+            &config,
+            &[],
+            Path::new("/wt"),
+            Path::new("/root"),
+        );
+        assert!(chain.is_empty());
+    }
+
+    #[test]
+    fn resolve_hook_chain_project_only() {
+        let config = make_config_with_hooks(ScionHooks {
+            on_create: Some(vec!["setup".to_string(), "init".to_string()]),
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+        });
+        let chain = resolve_hook_chain(
+            HookEvent::OnCreate,
+            &config,
+            &[],
+            Path::new("/wt"),
+            Path::new("/root"),
+        );
+        assert_eq!(chain.len(), 2);
+        assert_eq!(chain[0].command_name, "setup");
+        assert!(chain[0].namespace.is_none());
+        assert_eq!(chain[1].command_name, "init");
+        assert!(chain[1].namespace.is_none());
+    }
+
+    #[test]
+    fn resolve_hook_chain_dep_only() {
+        let config = GraftConfig::new("graft/v1").unwrap();
+        let dep = make_config_with_hooks(ScionHooks {
+            on_create: Some(vec!["dep-setup".to_string()]),
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+        });
+        let chain = resolve_hook_chain(
+            HookEvent::OnCreate,
+            &config,
+            &[("my-dep".to_string(), dep)],
+            Path::new("/wt"),
+            Path::new("/root"),
+        );
+        assert_eq!(chain.len(), 1);
+        assert_eq!(chain[0].command_name, "my-dep:dep-setup");
+        assert_eq!(chain[0].namespace.as_deref(), Some("my-dep"));
+    }
+
+    #[test]
+    fn resolve_hook_chain_mixed_deps_then_project() {
+        let config = make_config_with_hooks(ScionHooks {
+            on_create: Some(vec!["project-setup".to_string()]),
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+        });
+        let dep_a = make_config_with_hooks(ScionHooks {
+            on_create: Some(vec!["a-init".to_string()]),
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+        });
+        let dep_b = make_config_with_hooks(ScionHooks {
+            on_create: Some(vec!["b-init".to_string(), "b-check".to_string()]),
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+        });
+        let chain = resolve_hook_chain(
+            HookEvent::OnCreate,
+            &config,
+            &[("dep-a".to_string(), dep_a), ("dep-b".to_string(), dep_b)],
+            Path::new("/wt"),
+            Path::new("/root"),
+        );
+        assert_eq!(chain.len(), 4);
+        // Deps first in order, then project
+        assert_eq!(chain[0].command_name, "dep-a:a-init");
+        assert_eq!(chain[1].command_name, "dep-b:b-init");
+        assert_eq!(chain[2].command_name, "dep-b:b-check");
+        assert_eq!(chain[3].command_name, "project-setup");
+    }
+
+    #[test]
+    fn resolve_hook_chain_working_dir_worktree_events() {
+        let config = make_config_with_hooks(ScionHooks {
+            on_create: Some(vec!["a".to_string()]),
+            pre_fuse: Some(vec!["b".to_string()]),
+            post_fuse: None,
+            on_prune: Some(vec!["c".to_string()]),
+        });
+        let wt = Path::new("/worktree");
+        let root = Path::new("/root");
+
+        // on_create → worktree
+        let chain = resolve_hook_chain(HookEvent::OnCreate, &config, &[], wt, root);
+        assert_eq!(chain[0].working_dir, wt);
+
+        // pre_fuse → worktree
+        let chain = resolve_hook_chain(HookEvent::PreFuse, &config, &[], wt, root);
+        assert_eq!(chain[0].working_dir, wt);
+
+        // on_prune → worktree
+        let chain = resolve_hook_chain(HookEvent::OnPrune, &config, &[], wt, root);
+        assert_eq!(chain[0].working_dir, wt);
+    }
+
+    #[test]
+    fn resolve_hook_chain_working_dir_post_fuse_uses_project_root() {
+        let config = make_config_with_hooks(ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: Some(vec!["notify".to_string()]),
+            on_prune: None,
+        });
+        let chain = resolve_hook_chain(
+            HookEvent::PostFuse,
+            &config,
+            &[],
+            Path::new("/worktree"),
+            Path::new("/root"),
+        );
+        assert_eq!(chain[0].working_dir, Path::new("/root"));
     }
 }

@@ -50,7 +50,9 @@ pub use resolution::{
     resolve_dependency, sync_all_dependencies, sync_dependency, FetchResult, ResolutionResult,
     SyncResult,
 };
-pub use scion::{scion_create, scion_list, scion_prune, ScionInfo};
+pub use scion::{
+    resolve_hook_chain, scion_create, scion_list, scion_prune, HookEvent, ResolvedHook, ScionInfo,
+};
 pub use sequence::{execute_sequence, write_checkpoint_json, write_sequence_state};
 pub use snapshot::SnapshotManager;
 pub use state::{
