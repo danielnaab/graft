@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 created: 2026-03-01
 depends_on:
   - scion-worktree-primitives

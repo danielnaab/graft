@@ -1159,7 +1159,7 @@ mod tests {
 
         // Get main branch name
         let worktrees = graft_common::git_worktree_list(temp.path()).unwrap();
-        let main_branch = worktrees[0].branch.clone().unwrap();
+        let _main_branch = worktrees[0].branch.clone().unwrap();
 
         // Create a scion and modify README
         scion_create(temp.path(), "conflict-fuse", None, &[]).unwrap();
