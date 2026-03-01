@@ -102,6 +102,13 @@ dependencies:
   <dep-name>:
     source: string                # Required: git URL or path
     ref: string                   # Optional: specific ref (default: main)
+
+# Scion lifecycle hooks (optional)
+scions:
+  on_create: string | list[string]   # Optional: command name(s) to run after worktree creation
+  pre_fuse: string | list[string]    # Optional: command name(s) to run before merging to main
+  post_fuse: string | list[string]   # Optional: command name(s) to run after merge completes
+  on_prune: string | list[string]    # Optional: command name(s) to run before worktree removal
 ```
 
 ## Section: metadata
@@ -1378,6 +1385,81 @@ object as JSON (same shape as the corresponding value in the catalog JSON above)
 |-----------|-----------|
 | `0` | Success |
 | `1` | Dependency not found, or `<name>` not found in detail mode |
+
+---
+
+## Section: scions
+
+Optional lifecycle hooks for the scion workstream feature (`graft scion create`, `fuse`, `prune`).
+A scion is a git worktree + branch pair used for parallel workstreams. The `scions:` section
+declares commands to run at each lifecycle event.
+
+### Hook points
+
+| Hook | When it fires | Working directory |
+|------|--------------|-------------------|
+| `on_create` | After the worktree and branch are created | Scion worktree |
+| `pre_fuse` | Before the feature branch is merged into main | Scion worktree |
+| `post_fuse` | After the merge commit is applied to main | Project root |
+| `on_prune` | Before the worktree and branch are removed | Scion worktree |
+
+### Hook value
+
+Each hook point accepts a **command name** (string) or a **list of command names** (list of
+strings). Command names refer to commands declared in the **same graft.yaml's `commands:` section**.
+A single string is equivalent to a one-element list.
+
+```yaml
+# Single command
+scions:
+  on_create: setup-dev-env
+
+# List of commands (executed in order; fail-fast on first failure)
+scions:
+  on_create:
+    - install-deps
+    - seed-database
+
+# All hook points (all optional)
+scions:
+  on_create: setup-dev-env
+  pre_fuse: run-tests
+  post_fuse: notify-team
+  on_prune: cleanup-resources
+```
+
+### Hook environment
+
+When a hook command runs, these environment variables are injected:
+
+| Variable | Value |
+|----------|-------|
+| `GRAFT_SCION_NAME` | Scion name (e.g. `my-feature`) |
+| `GRAFT_SCION_BRANCH` | Full branch name (e.g. `feature/my-feature`) |
+| `GRAFT_SCION_WORKTREE` | Absolute path to the worktree directory |
+
+### Composition across dependencies
+
+If a project depends on multiple graft modules that each declare `scions:` hooks, all hooks
+are composed into a single chain at the lifecycle event. Dependency hooks run first (in
+declaration order), each qualified to their namespace. Project hooks run last, unqualified.
+
+### Failure semantics
+
+Hooks execute sequentially and **fail-fast**: if one hook fails, subsequent hooks are not
+run. The behaviour on failure depends on the event:
+
+| Event | On hook failure |
+|-------|----------------|
+| `on_create` | Worktree and branch are removed (rollback) |
+| `pre_fuse` | Merge is aborted; scion left intact |
+| `post_fuse` | Scion left intact (merge already applied) |
+| `on_prune` | Removal is aborted; scion left intact |
+
+### Validation
+
+`graft validate` checks that every command name referenced in `scions:` exists in the
+same file's `commands:` section. Unknown command names are reported as validation errors.
 
 ---
 
