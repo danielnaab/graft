@@ -186,14 +186,14 @@ review.
 
 ---
 
-## Shoot Lifecycle Design (2026-03-01)
+## Scion Lifecycle Design (2026-03-01)
 
 Design session refining the worker model from the context provider exploration.
-Establishes shoot/fuse/prune vocabulary, composable lifecycle hooks in graft.yaml,
+Establishes scion/fuse/prune vocabulary, composable lifecycle hooks in graft.yaml,
 and minimal Claude Code integration surface.
 
 **Active**:
-- [Shoot Lifecycle Design](2026-03-01-shoot-lifecycle-design.md) — shoot commands,
+- [Scion Lifecycle Design](2026-03-01-shoot-lifecycle-design.md) — scion commands,
   composable hooks, failure semantics, Claude Code integration layers
 
 **Relates to**:

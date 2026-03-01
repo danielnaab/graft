@@ -1,9 +1,9 @@
 ---
 status: working
-purpose: "Design session: shoot lifecycle (worktree-based parallel workstreams) with composable hooks"
+purpose: "Design session: scion lifecycle (worktree-based parallel workstreams) with composable hooks"
 ---
 
-# Shoot Lifecycle Design
+# Scion Lifecycle Design
 
 Session exploring how graft bootstraps and manages parallel workstreams using git
 worktrees, and how Claude Code integrates as a worker runtime. Refines ideas from
@@ -11,24 +11,28 @@ the [graft as context provider](2026-02-28-graft-as-context-provider.md) explora
 
 ## Key Decisions
 
-### Vocabulary: shoot / fuse / prune
+### Vocabulary: scion / fuse / prune
 
-Git worktrees map to the horticultural metaphor. A **shoot** is new growth from an
-existing tree — grows independently, gets its own physical space, and is either
-incorporated back into the trunk or pruned away. Terminology:
+Git worktrees map to the horticultural metaphor. A **scion** is the cutting grafted
+onto rootstock — the piece of living material grown separately for eventual fusion
+with the main tree. In the graft metaphor this is precise: graft is the tool, the
+scion is the workstream being grown for incorporation into the trunk.
 
-- **shoot** — a worktree + branch pair for parallel work
-- **fuse** — incorporate a shoot into the trunk (merge to main + cleanup).
+Considered alternatives: shoot (accessible but generic), sprout (implies small
+scale), branch (owned by git), limb (implies permanence).
+
+- **scion** — a worktree + branch pair for parallel work
+- **fuse** — incorporate a scion into the trunk (merge to main + cleanup).
   In tree biology, fusion is when cambium layers grow together and become
   structurally continuous. The branch history *becomes* trunk history — no seam.
-- **prune** — discard a shoot (delete worktree + branch)
+- **prune** — discard a scion (delete worktree + branch)
 
 ### "Slice" stays in software-factory
 
 Graft core knows commands, sequences, state queries, and dependencies. The
-work-unit concept (slice, issue, task) is workflow-defined. `graft shoot` operates
+work-unit concept (slice, issue, task) is workflow-defined. `graft scion` operates
 on names, not domain-specific work units. The workflow package maps its work units
-to shoots.
+to scions.
 
 A `work` command that understands slices belongs in software-factory's graft.yaml as
 a command, not in graft core:
@@ -48,7 +52,7 @@ commands:
 
 | Layer | Owns |
 |---|---|
-| Graft | Primitives: shoot create/list/fuse/prune, branch-scoped state queries |
+| Graft | Primitives: scion create/list/fuse/prune, branch-scoped state queries |
 | Workflow package | Opinions: work-unit definition, worker bootstrap, work protocol |
 | Claude Code config | Runtime: .claude/rules (generated), skills (protocol), hooks (enforcement) |
 
@@ -65,15 +69,15 @@ Don't track worker processes. Derive workstream state from artifacts:
 No worker registry, no heartbeat, no coordination protocol. "Last activity: 47m
 ago" is more honest than a stale "running" status.
 
-## Shoot Lifecycle
+## Scion Lifecycle
 
 ### Commands
 
 ```
-graft shoot create <name>     # worktree + branch, run on_create hooks
-graft shoot list               # enumerate with artifact-derived state
-graft shoot fuse <name>        # merge to main + cleanup, with hook gates
-graft shoot prune <name>       # discard, with cleanup hooks
+graft scion create <name>     # worktree + branch, run on_create hooks
+graft scion list               # enumerate with artifact-derived state
+graft scion fuse <name>        # merge to main + cleanup, with hook gates
+graft scion prune <name>       # discard, with cleanup hooks
 ```
 
 ### Create
@@ -93,7 +97,7 @@ graft shoot prune <name>       # discard, with cleanup hooks
    → on failure: discard temp ref (rollback), exit with error
 3. Fast-forward main to merged result
 4. Run post_fuse hook chain
-   → on failure: leave shoot intact (main already moved), exit with error
+   → on failure: leave scion intact (main already moved), exit with error
    → re-running fuse detects "already merged", retries from step 4
 5. Remove worktree + branch
 ```
@@ -130,7 +134,7 @@ dependency behavior to extend it.
 ### Hook specification in graft.yaml
 
 ```yaml
-shoots:
+scions:
   on_create: setup-worker          # single command
   pre_fuse:                        # or a list
     - verify-result
@@ -152,9 +156,9 @@ the project. Within each scope, list items run in order.
 resolve_hook_chain(event):
   chain = []
   for dep in project.dependencies (declaration order):
-    if dep.graft_yaml.shoots[event] defined:
+    if dep.graft_yaml.scions[event] defined:
       append dep's hooks, qualified to dep's namespace
-  if project.graft_yaml.shoots[event] defined:
+  if project.graft_yaml.scions[event] defined:
     append project's hooks (unqualified)
   return chain
 ```
@@ -169,7 +173,7 @@ dependencies:
   compliance-checks:         # hooks run second
     git_url: ...
 
-shoots:
+scions:
   on_create: project-setup   # runs third (last)
 ```
 
@@ -209,7 +213,7 @@ Error output reports which hook failed AND which hooks already ran.
 |---|---|---|
 | `on_create` | Remove worktree | Incomplete setup is a trap for the worker |
 | `pre_fuse` | Discard temp merge | Nothing irreversible happened |
-| `post_fuse` | Leave shoot intact | Main moved; re-run retries from failure point |
+| `post_fuse` | Leave scion intact | Main moved; re-run retries from failure point |
 | `on_prune` | Don't delete worktree | Archive didn't complete; data preserved |
 
 **Idempotency contract:** hooks must be safe to re-run. When retrying after
@@ -218,12 +222,12 @@ enforced by graft.
 
 ### Hook environment
 
-All hooks receive shoot identity via environment variables:
+All hooks receive scion identity via environment variables:
 
 ```
-GRAFT_SHOOT_NAME=retry-logic
-GRAFT_SHOOT_BRANCH=feature/retry-logic
-GRAFT_SHOOT_WORKTREE=.worktrees/retry-logic
+GRAFT_SCION_NAME=retry-logic
+GRAFT_SCION_BRANCH=feature/retry-logic
+GRAFT_SCION_WORKTREE=.worktrees/retry-logic
 ```
 
 Hooks run inside the worktree as working directory (for `on_create`, `pre_fuse`,
@@ -282,10 +286,10 @@ pattern with layers 0-1.
 
 ## Open Questions
 
-- **Shoot state queries**: how much of `shoot list` is built into graft (git
+- **Scion state queries**: how much of `scion list` is built into graft (git
   operations) vs composed from existing state queries (verify status, step
   progress)? Ahead/behind is pure git; verify status is workflow-defined.
-- **Multi-shoot coordination**: when shoot A fuses, shoot B may need rebase.
+- **Multi-scion coordination**: when scion A fuses, scion B may need rebase.
   Does graft detect this? Surface it? Auto-act? Or is this workflow/grove
   territory?
 - **Human feedback channel**: `:request-changes` writes feedback where? A file
