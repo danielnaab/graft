@@ -491,6 +491,206 @@ pub fn git_checkout(path: impl AsRef<Path>, commit: &str) -> Result<(), GitError
     Ok(())
 }
 
+/// Merge two branches into a ref without touching HEAD or the working tree.
+///
+/// Uses `git merge-tree --write-tree` (git 2.38+) to compute the merged tree,
+/// `git commit-tree` to create a merge commit, and `git update-ref` to store it.
+///
+/// # Arguments
+/// * `repo`     - Path to the git repository
+/// * `source`   - Branch to merge (e.g. `feature/my-scion`)
+/// * `target`   - Branch to merge into (e.g. `main`)
+/// * `ref_name` - Ref to store the result (e.g. `refs/merge-temp/my-scion`)
+///
+/// # Returns
+/// The commit hash of the new merge commit.
+///
+/// # Errors
+/// Returns `GitError` if there are merge conflicts or any git command fails.
+pub fn git_merge_to_ref(
+    repo: impl AsRef<Path>,
+    source: &str,
+    target: &str,
+    ref_name: &str,
+) -> Result<String, GitError> {
+    let repo = repo.as_ref();
+
+    // Resolve source and target to commit hashes for commit-tree parents
+    let target_hash = {
+        let config = ProcessConfig {
+            command: format!("git rev-parse {target}"),
+            working_dir: repo.to_path_buf(),
+            env: None,
+            env_remove: vec![],
+            log_path: None,
+            timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+            stdin: None,
+        };
+        let output = run_to_completion_with_timeout(&config)?;
+        if !output.success {
+            return Err(GitError::CommandFailed(format!(
+                "Failed to resolve target ref '{target}': {}",
+                output.stderr
+            )));
+        }
+        output.stdout.trim().to_string()
+    };
+
+    let source_hash = {
+        let config = ProcessConfig {
+            command: format!("git rev-parse {source}"),
+            working_dir: repo.to_path_buf(),
+            env: None,
+            env_remove: vec![],
+            log_path: None,
+            timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+            stdin: None,
+        };
+        let output = run_to_completion_with_timeout(&config)?;
+        if !output.success {
+            return Err(GitError::CommandFailed(format!(
+                "Failed to resolve source ref '{source}': {}",
+                output.stderr
+            )));
+        }
+        output.stdout.trim().to_string()
+    };
+
+    // Compute merged tree via merge-tree --write-tree
+    let tree_hash = {
+        let config = ProcessConfig {
+            command: format!("git merge-tree --write-tree {target} {source}"),
+            working_dir: repo.to_path_buf(),
+            env: None,
+            env_remove: vec![],
+            log_path: None,
+            timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+            stdin: None,
+        };
+        let output = run_to_completion_with_timeout(&config)?;
+        if !output.success {
+            return Err(GitError::CommandFailed(format!(
+                "Merge conflicts between '{source}' and '{target}': {}",
+                output.stdout.trim()
+            )));
+        }
+        output.stdout.trim().to_string()
+    };
+
+    // Create merge commit
+    let commit_hash = {
+        let config = ProcessConfig {
+            command: format!(
+                "git commit-tree {tree_hash} -p {target_hash} -p {source_hash} -m \"Merge {source} into {target}\""
+            ),
+            working_dir: repo.to_path_buf(),
+            env: None,
+            env_remove: vec![],
+            log_path: None,
+            timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+            stdin: None,
+        };
+        let output = run_to_completion_with_timeout(&config)?;
+        if !output.success {
+            return Err(GitError::CommandFailed(format!(
+                "git commit-tree failed: {}",
+                output.stderr
+            )));
+        }
+        output.stdout.trim().to_string()
+    };
+
+    // Store the merge commit at the requested ref
+    {
+        let config = ProcessConfig {
+            command: format!("git update-ref {ref_name} {commit_hash}"),
+            working_dir: repo.to_path_buf(),
+            env: None,
+            env_remove: vec![],
+            log_path: None,
+            timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+            stdin: None,
+        };
+        let output = run_to_completion_with_timeout(&config)?;
+        if !output.success {
+            return Err(GitError::CommandFailed(format!(
+                "git update-ref failed: {}",
+                output.stderr
+            )));
+        }
+    }
+
+    Ok(commit_hash)
+}
+
+/// Advance a branch to point at a given commit (fast-forward).
+///
+/// Runs `git update-ref refs/heads/<branch> <commit>`. This is a low-level
+/// operation — it does not check that the update is actually a fast-forward.
+///
+/// # Arguments
+/// * `repo`   - Path to the git repository
+/// * `branch` - Branch name to advance (without `refs/heads/` prefix)
+/// * `commit` - Commit hash to set the branch to
+///
+/// # Errors
+/// Returns `GitError` if the git command fails.
+pub fn git_fast_forward(
+    repo: impl AsRef<Path>,
+    branch: &str,
+    commit: &str,
+) -> Result<(), GitError> {
+    let repo = repo.as_ref();
+    let config = ProcessConfig {
+        command: format!("git update-ref refs/heads/{branch} {commit}"),
+        working_dir: repo.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git update-ref failed for branch '{branch}': {}",
+            output.stderr
+        )));
+    }
+    Ok(())
+}
+
+/// Delete a git ref.
+///
+/// Runs `git update-ref -d <ref_name>` to remove a ref.
+///
+/// # Arguments
+/// * `repo`     - Path to the git repository
+/// * `ref_name` - Full ref to delete (e.g. `refs/merge-temp/my-scion`)
+///
+/// # Errors
+/// Returns `GitError` if the ref does not exist or the git command fails.
+pub fn git_delete_ref(repo: impl AsRef<Path>, ref_name: &str) -> Result<(), GitError> {
+    let repo = repo.as_ref();
+    let config = ProcessConfig {
+        command: format!("git update-ref -d {ref_name}"),
+        working_dir: repo.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git update-ref -d failed for ref '{ref_name}': {}",
+            output.stderr
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -911,5 +1111,197 @@ mod tests {
 
         let dirty = git_is_dirty(temp.path()).unwrap();
         assert!(dirty);
+    }
+
+    #[test]
+    fn git_merge_to_ref_clean_merge() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        let main_branch = worktrees[0].branch.clone().unwrap();
+
+        // Create a feature branch with a non-conflicting change
+        Command::new("git")
+            .args(["checkout", "-b", "feature/clean"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        make_commit(temp.path(), "feature.txt", "feat: add feature file");
+
+        // Go back to main
+        Command::new("git")
+            .args(["checkout", &main_branch])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        // Merge to a temp ref
+        let commit = git_merge_to_ref(
+            temp.path(),
+            "feature/clean",
+            &main_branch,
+            "refs/merge-temp/test",
+        )
+        .unwrap();
+
+        // The merge commit should be a valid hash
+        assert_eq!(commit.len(), 40);
+        assert!(commit.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // The temp ref should exist and point to the merge commit
+        let config = ProcessConfig {
+            command: "git rev-parse refs/merge-temp/test".to_string(),
+            working_dir: temp.path().to_path_buf(),
+            env: None,
+            env_remove: vec![],
+            log_path: None,
+            timeout: Some(Duration::from_secs(5)),
+            stdin: None,
+        };
+        let output = run_to_completion_with_timeout(&config).unwrap();
+        assert_eq!(output.stdout.trim(), commit);
+
+        // Main should NOT have moved
+        let main_commit = get_current_commit(temp.path()).unwrap();
+        assert_ne!(main_commit, commit);
+    }
+
+    #[test]
+    fn git_merge_to_ref_conflict_returns_error() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        let main_branch = worktrees[0].branch.clone().unwrap();
+
+        // Create a feature branch that modifies the same file
+        Command::new("git")
+            .args(["checkout", "-b", "feature/conflict"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        fs::write(temp.path().join("README.md"), "feature version").unwrap();
+        Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "feat: modify readme"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        // Go back to main and modify the same file differently
+        Command::new("git")
+            .args(["checkout", &main_branch])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        fs::write(temp.path().join("README.md"), "main version").unwrap();
+        Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "chore: modify readme on main"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        // Merge should fail with conflict
+        let result = git_merge_to_ref(
+            temp.path(),
+            "feature/conflict",
+            &main_branch,
+            "refs/merge-temp/conflict",
+        );
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Merge conflicts"),
+            "Expected merge conflict error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn git_fast_forward_advances_branch() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let worktrees = git_worktree_list(temp.path()).unwrap();
+        let main_branch = worktrees[0].branch.clone().unwrap();
+
+        // Create a feature branch with a commit
+        Command::new("git")
+            .args(["checkout", "-b", "feature/ff"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        make_commit(temp.path(), "ff.txt", "feat: ff commit");
+        let feature_commit = get_current_commit(temp.path()).unwrap();
+
+        // Go back to main
+        Command::new("git")
+            .args(["checkout", &main_branch])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        let main_before = get_current_commit(temp.path()).unwrap();
+
+        // Fast-forward main to the feature commit
+        git_fast_forward(temp.path(), &main_branch, &feature_commit).unwrap();
+
+        // Verify main now points to the feature commit
+        let config = ProcessConfig {
+            command: format!("git rev-parse refs/heads/{main_branch}"),
+            working_dir: temp.path().to_path_buf(),
+            env: None,
+            env_remove: vec![],
+            log_path: None,
+            timeout: Some(Duration::from_secs(5)),
+            stdin: None,
+        };
+        let output = run_to_completion_with_timeout(&config).unwrap();
+        assert_eq!(output.stdout.trim(), feature_commit);
+        assert_ne!(main_before, feature_commit);
+    }
+
+    #[test]
+    fn git_delete_ref_removes_ref() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path()).unwrap();
+
+        let commit = get_current_commit(temp.path()).unwrap();
+
+        // Create a ref
+        let config = ProcessConfig {
+            command: format!("git update-ref refs/test/temp {commit}"),
+            working_dir: temp.path().to_path_buf(),
+            env: None,
+            env_remove: vec![],
+            log_path: None,
+            timeout: Some(Duration::from_secs(5)),
+            stdin: None,
+        };
+        run_to_completion_with_timeout(&config).unwrap();
+
+        // Delete it
+        git_delete_ref(temp.path(), "refs/test/temp").unwrap();
+
+        // Verify it's gone
+        let config = ProcessConfig {
+            command: "git rev-parse refs/test/temp".to_string(),
+            working_dir: temp.path().to_path_buf(),
+            env: None,
+            env_remove: vec![],
+            log_path: None,
+            timeout: Some(Duration::from_secs(5)),
+            stdin: None,
+        };
+        let output = run_to_completion_with_timeout(&config).unwrap();
+        assert!(!output.success);
     }
 }
