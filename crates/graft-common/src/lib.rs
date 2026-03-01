@@ -59,8 +59,8 @@ pub use config::{
 };
 pub use git::{
     get_current_commit, git_ahead_behind, git_branch_delete, git_checkout, git_fetch,
-    git_rev_parse, git_worktree_add, git_worktree_list, git_worktree_remove, is_git_repo,
-    GitError, WorktreeInfo,
+    git_rev_parse, git_worktree_add, git_worktree_list, git_worktree_remove, is_git_repo, GitError,
+    WorktreeInfo,
 };
 pub use process::{
     run_to_completion, run_to_completion_registered, run_to_completion_with_timeout,

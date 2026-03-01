@@ -274,10 +274,7 @@ pub fn git_worktree_add(
 ///
 /// # Errors
 /// Returns `GitError` if the worktree does not exist or the git command fails.
-pub fn git_worktree_remove(
-    repo: impl AsRef<Path>,
-    path: impl AsRef<Path>,
-) -> Result<(), GitError> {
+pub fn git_worktree_remove(repo: impl AsRef<Path>, path: impl AsRef<Path>) -> Result<(), GitError> {
     let repo = repo.as_ref();
     let path = path.as_ref();
     let path_str = path
@@ -720,8 +717,7 @@ mod tests {
         make_commit(temp.path(), "a.txt", "feat: a");
         make_commit(temp.path(), "b.txt", "feat: b");
 
-        let (ahead, behind) =
-            git_ahead_behind(temp.path(), "feature/ahead", &main_branch).unwrap();
+        let (ahead, behind) = git_ahead_behind(temp.path(), "feature/ahead", &main_branch).unwrap();
         assert_eq!(ahead, 2);
         assert_eq!(behind, 0);
     }

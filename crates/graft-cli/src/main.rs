@@ -12,8 +12,9 @@ use graft_engine::{
     get_changes_for_dependency, get_dependency_status, get_state, invalidate_cached_state,
     is_submodule, list_state_queries, parse_graft_yaml, parse_lock_file,
     remove_dependency_from_config, remove_dependency_from_lock, remove_submodule,
-    resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, sync_all_dependencies,
-    validate_config_schema, validate_integrity, write_lock_file,
+    resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, scion_create,
+    scion_prune, sync_all_dependencies, validate_config_schema, validate_integrity,
+    write_lock_file,
 };
 use std::path::{Path, PathBuf};
 
@@ -192,6 +193,11 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Manage scion workstreams (parallel git worktrees)
+    Scion {
+        #[command(subcommand)]
+        subcommand: ScionCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -225,6 +231,20 @@ enum StateCommands {
         /// Invalidate all queries
         #[arg(short, long)]
         all: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ScionCommands {
+    /// Create a new scion workstream (worktree + branch)
+    Create {
+        /// Scion name (creates .worktrees/<name> on branch feature/<name>)
+        name: String,
+    },
+    /// Remove a scion workstream (worktree + branch)
+    Prune {
+        /// Scion name to remove
+        name: String,
     },
 }
 
@@ -316,6 +336,14 @@ fn main() -> Result<()> {
         Commands::Catalog { dep_spec, json } => {
             help_command(&dep_spec, json)?;
         }
+        Commands::Scion { subcommand } => match subcommand {
+            ScionCommands::Create { name } => {
+                scion_create_command(&name)?;
+            }
+            ScionCommands::Prune { name } => {
+                scion_prune_command(&name)?;
+            }
+        },
     }
 
     Ok(())
@@ -2605,6 +2633,23 @@ impl Drop for ProcessRegistrationGuard {
     fn drop(&mut self) {
         let _ = self.registry.deregister(self.pid);
     }
+}
+
+fn scion_create_command(name: &str) -> Result<()> {
+    let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
+    let wt_path = scion_create(&repo_path, name)
+        .with_context(|| format!("Failed to create scion '{name}'"))?;
+    println!("Created scion '{name}' at {}", wt_path.display());
+    println!("  worktree: {}", wt_path.display());
+    println!("  branch:   feature/{name}");
+    Ok(())
+}
+
+fn scion_prune_command(name: &str) -> Result<()> {
+    let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
+    scion_prune(&repo_path, name).with_context(|| format!("Failed to prune scion '{name}'"))?;
+    println!("Pruned scion '{name}'");
+    Ok(())
 }
 
 fn ps_command(repo_filter: Option<&str>) -> Result<()> {
