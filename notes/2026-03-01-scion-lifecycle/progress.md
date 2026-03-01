@@ -83,3 +83,31 @@ branch commit and will always have `Some` — the `None` is only a safety fallba
 but not plan/progress updates, check `git log` against `plan.md` to reconcile state. Formatting
 changes from `cargo fmt` should be committed with the relevant feature commit.
 
+---
+
+### Iteration — Slice 4 (Tasks 4.1–4.C): Hook Composition and Fuse
+**Status**: completed
+**Files changed**: `crates/graft-common/src/git.rs`, `crates/graft-common/src/lib.rs`,
+`crates/graft-engine/src/scion.rs`, `crates/graft-engine/src/lib.rs`,
+`crates/graft-cli/src/main.rs`
+**What was done**: Added `git_merge_to_ref` (merge-tree + commit-tree + update-ref),
+`git_fast_forward` (update-ref), and `git_delete_ref` to graft-common with re-exports.
+Added `HookEvent` enum (OnCreate, PreFuse, PostFuse, OnPrune), `ResolvedHook` struct,
+`ScionEnv` struct, `HookChainError` error type, `resolve_hook_chain` (deps-first qualified
+names, project last unqualified, event-specific working_dir), and `execute_hook_chain`
+(sequential fail-fast with GRAFT_SCION_NAME/BRANCH/WORKTREE env vars) to scion.rs.
+Retrofitted hooks into `scion_create` (on_create with rollback on failure) and `scion_prune`
+(on_prune, preserves worktree on failure) — both now accept `Option<&GraftConfig>` +
+`&[(String, GraftConfig)]`. Added `scion_fuse` engine function implementing full state
+machine: already-merged detection → merge to temp ref → pre_fuse hooks → fast-forward main
+→ post_fuse hooks → cleanup. Added `graft scion fuse <name>` CLI command. CLI loads config
+opportunistically via `try_load_graft_config` helper.
+**Critique findings**: HIGH: `unwrap_or_default()` in `scion_fuse`'s already-merged path
+would return an empty string if worktrees list was somehow empty — replaced with
+`ok_or_else()` returning `GraftError::CommandExecution("no main worktree found")`. Test
+strengthened to validate returned commit hash is 40 hex chars.
+**Improvements made**: Fixed the empty-string bug. Added proper error propagation.
+**Learnings for future iterations**: When returning a value from a fallible operation,
+prefer `ok_or_else()` with a descriptive error over `unwrap_or_default()` — empty/zero
+defaults can silently produce wrong results downstream.
+

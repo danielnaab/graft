@@ -218,7 +218,7 @@ Git helpers for activity/dirty state, engine enumeration, CLI with table and JSO
 Hook resolution, execution, create/prune retrofit, fuse command with merge workflow.
 
 ### Task 4.1: `git_merge_to_ref` and `git_fast_forward`
-- [ ] Add merge plumbing and branch advancement to `graft-common/src/git.rs`
+- [x] Add merge plumbing and branch advancement to `graft-common/src/git.rs`
 - **Spec**: `slices/scion-hook-composition-and-fuse/plan.md` (step 1)
 - **Code**: `crates/graft-common/src/git.rs`
 - **Acceptance**:
@@ -233,7 +233,7 @@ Hook resolution, execution, create/prune retrofit, fuse command with merge workf
   - `cargo test -p graft-common && cargo clippy -p graft-common -- -D warnings` passes
 
 ### Task 4.2: `ResolvedHook` and `resolve_hook_chain`
-- [ ] Hook resolution across dependency scopes with event-aware working directories
+- [x] Hook resolution across dependency scopes with event-aware working directories
 - **Spec**: `slices/scion-hook-composition-and-fuse/plan.md` (step 2),
   `notes/2026-03-01-shoot-lifecycle-design.md` (resolution algorithm, hook environment)
 - **Code**: `crates/graft-engine/src/scion.rs`
@@ -247,7 +247,7 @@ Hook resolution, execution, create/prune retrofit, fuse command with merge workf
   - `cargo test -p graft-engine && cargo clippy -p graft-engine -- -D warnings` passes
 
 ### Task 4.3: `execute_hook_chain`
-- [ ] Sequential hook execution with fail-fast and scion env vars
+- [x] Sequential hook execution with fail-fast and scion env vars
 - **Spec**: `slices/scion-hook-composition-and-fuse/plan.md` (step 3),
   `notes/2026-03-01-shoot-lifecycle-design.md` (failure semantics)
 - **Code**: `crates/graft-engine/src/scion.rs`
@@ -260,7 +260,7 @@ Hook resolution, execution, create/prune retrofit, fuse command with merge workf
   - `cargo test -p graft-engine && cargo clippy -p graft-engine -- -D warnings` passes
 
 ### Task 4.4: Retrofit hooks into `scion_create` and `scion_prune`
-- [ ] Wire hook execution into create/prune with event-specific rollback
+- [x] Wire hook execution into create/prune with event-specific rollback
 - **Spec**: `slices/scion-hook-composition-and-fuse/plan.md` (step 4),
   `notes/2026-03-01-shoot-lifecycle-design.md` (rollback table)
 - **Code**: `crates/graft-engine/src/scion.rs`
@@ -274,7 +274,7 @@ Hook resolution, execution, create/prune retrofit, fuse command with merge workf
   - `cargo test && cargo clippy -- -D warnings && cargo fmt --check` passes
 
 ### Task 4.5: `scion_fuse` engine function
-- [ ] Merge-to-main with hook gates, already-merged detection, cleanup
+- [x] Merge-to-main with hook gates, already-merged detection, cleanup
 - **Spec**: `slices/scion-hook-composition-and-fuse/plan.md` (step 5),
   `notes/2026-03-01-shoot-lifecycle-design.md` (fuse sequence)
 - **Code**: `crates/graft-engine/src/scion.rs`
@@ -291,7 +291,7 @@ Hook resolution, execution, create/prune retrofit, fuse command with merge workf
   - `cargo test -p graft-engine && cargo clippy -p graft-engine -- -D warnings` passes
 
 ### Task 4.6: `graft scion fuse <name>` CLI command
-- [ ] Add fuse subcommand
+- [x] Add fuse subcommand
 - **Spec**: `slices/scion-hook-composition-and-fuse/plan.md` (step 6)
 - **Code**: `crates/graft-cli/src/main.rs`
 - **Acceptance**:
@@ -302,7 +302,7 @@ Hook resolution, execution, create/prune retrofit, fuse command with merge workf
   - `cargo test && cargo clippy -- -D warnings && cargo fmt --check` passes
 
 ### Task 4.C: Critique slice 4
-- [ ] Re-read ALL code added/modified in tasks 4.1–4.6. Evaluate: merge plumbing correctness, hook resolution order, env var injection, rollback behavior, fuse state machine, already-merged detection, error reporting quality, CLI output. Fix any concrete issues found.
+- [x] Re-read ALL code added/modified in tasks 4.1–4.6. Evaluate: merge plumbing correctness, hook resolution order, env var injection, rollback behavior, fuse state machine, already-merged detection, error reporting quality, CLI output. Fix any concrete issues found.
 - **Read**: `crates/graft-common/src/git.rs`, `crates/graft-engine/src/scion.rs`,
   `crates/graft-cli/src/main.rs`, `slices/scion-hook-composition-and-fuse/plan.md`,
   `notes/2026-03-01-shoot-lifecycle-design.md`
