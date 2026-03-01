@@ -93,7 +93,7 @@ Pure library functions in `graft-common/src/git.rs`. No config, no CLI, no engin
 Spec update, domain types, config parsing, engine module, CLI commands.
 
 ### Task 2.1: Update spec — add `scions:` section to `graft-yaml-format.md`
-- [ ] Document the `scions:` top-level key with all four hook points
+- [x] Document the `scions:` top-level key with all four hook points
 - **Spec**: `slices/scion-config-create-prune/plan.md` (step 1)
 - **Code**: `docs/specifications/graft/graft-yaml-format.md`
 - **Acceptance**:
@@ -104,7 +104,7 @@ Spec update, domain types, config parsing, engine module, CLI commands.
   - Consistent with existing spec style and terminology
 
 ### Task 2.2: `ScionHooks` type, `GraftConfig` field, and parser
-- [ ] Add `ScionHooks` to `domain.rs`, wire into `GraftConfig`, parse in `config.rs`
+- [x] Add `ScionHooks` to `domain.rs`, wire into `GraftConfig`, parse in `config.rs`
 - **Spec**: `slices/scion-config-create-prune/plan.md` (steps 2–3)
 - **Code**: `crates/graft-engine/src/domain.rs`, `crates/graft-engine/src/config.rs`
 - **Acceptance**:
@@ -118,7 +118,7 @@ Spec update, domain types, config parsing, engine module, CLI commands.
   - `cargo test -p graft-engine && cargo clippy -p graft-engine -- -D warnings` passes
 
 ### Task 2.3: Cross-validate hook command names
-- [ ] Add scion hook validation to `GraftConfig::validate()`
+- [x] Add scion hook validation to `GraftConfig::validate()`
 - **Code**: `crates/graft-engine/src/domain.rs`
 - **Acceptance**:
   - `validate()` checks every command name in `scion_hooks` exists in `self.commands`
@@ -127,7 +127,7 @@ Spec update, domain types, config parsing, engine module, CLI commands.
   - `cargo test -p graft-engine && cargo clippy -p graft-engine -- -D warnings` passes
 
 ### Task 2.4: `From<GitError> for GraftError` error bridging
-- [ ] Add error conversion impl to `graft-engine/src/error.rs`
+- [x] Add error conversion impl to `graft-engine/src/error.rs`
 - **Code**: `crates/graft-engine/src/error.rs`
 - **Acceptance**:
   - `impl From<graft_common::GitError> for GraftError` maps to `GraftError::Git(String)`
@@ -135,7 +135,7 @@ Spec update, domain types, config parsing, engine module, CLI commands.
   - `cargo test -p graft-engine && cargo clippy -p graft-engine -- -D warnings` passes
 
 ### Task 2.5: `scion_create` and `scion_prune` engine functions
-- [ ] New `graft-engine/src/scion.rs` module with create and prune operations
+- [x] New `graft-engine/src/scion.rs` module with create and prune operations
 - **Spec**: `slices/scion-config-create-prune/plan.md` (step 4)
 - **Code**: `crates/graft-engine/src/scion.rs`, `crates/graft-engine/src/lib.rs`
 - **Acceptance**:
@@ -147,7 +147,7 @@ Spec update, domain types, config parsing, engine module, CLI commands.
   - `cargo test -p graft-engine && cargo clippy -p graft-engine -- -D warnings` passes
 
 ### Task 2.6: `graft scion create/prune` CLI commands
-- [ ] Add scion subcommand group to `graft-cli/src/main.rs`
+- [x] Add scion subcommand group to `graft-cli/src/main.rs`
 - **Spec**: `slices/scion-config-create-prune/plan.md` (step 5)
 - **Code**: `crates/graft-cli/src/main.rs`
 - **Acceptance**:
@@ -159,7 +159,7 @@ Spec update, domain types, config parsing, engine module, CLI commands.
   - `cargo test && cargo clippy -- -D warnings && cargo fmt --check` passes
 
 ### Task 2.C: Critique slice 2
-- [ ] Re-read ALL code added/modified in tasks 2.1–2.6. Evaluate: spec consistency with design doc, ScionHooks type design, parsing correctness, validation completeness, naming convention placement, error bridging, CLI ergonomics. Fix any concrete issues found.
+- [x] Re-read ALL code added/modified in tasks 2.1–2.6. Evaluate: spec consistency with design doc, ScionHooks type design, parsing correctness, validation completeness, naming convention placement, error bridging, CLI ergonomics. Fix any concrete issues found.
 - **Read**: `crates/graft-engine/src/domain.rs`, `crates/graft-engine/src/config.rs`,
   `crates/graft-engine/src/error.rs`, `crates/graft-engine/src/scion.rs`,
   `crates/graft-cli/src/main.rs`, `docs/specifications/graft/graft-yaml-format.md`,

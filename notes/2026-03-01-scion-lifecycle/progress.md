@@ -35,3 +35,26 @@ was being used as a qualified path in the struct definition instead of importing
 **Learnings for future iterations**: Always check `lib.rs` re-exports when adding to `graft-common`.
 The `graft-engine` crate imports via `use graft_common::{WorktreeInfo, git_worktree_list, ...}`.
 
+---
+
+### Iteration — Slice 2 (Tasks 2.1–2.C): Scion Config, Create, Prune
+**Status**: completed
+**Files changed**: `docs/specifications/graft/graft-yaml-format.md`, `crates/graft-engine/src/domain.rs`,
+`crates/graft-engine/src/config.rs`, `crates/graft-engine/src/error.rs`,
+`crates/graft-engine/src/scion.rs`, `crates/graft-engine/src/lib.rs`,
+`crates/graft-cli/src/main.rs`, `crates/graft-engine/src/query.rs`,
+`crates/graft-engine/src/validation.rs`
+**What was done**: Added `scions:` spec section with all hook points, environment vars, composition,
+and failure semantics. Added `ScionHooks` struct to domain.rs. Wired `scion_hooks: Option<ScionHooks>`
+into `GraftConfig`. Added scions YAML parsing with string→vec normalization and unknown-key rejection.
+Added hook command validation in `GraftConfig::validate()`. Added `From<GitError> for GraftError`.
+Created `graft-engine/src/scion.rs` with `scion_create`/`scion_prune` applying `.worktrees/<name>`
++ `feature/<name>` convention. Added `graft scion create/prune` CLI subcommands.
+**Critique findings**: No actionable issues. All acceptance criteria met. `map_err(GraftError::from)?`
+pattern is functionally equivalent to `?` and clippy-clean. Empty scions mapping correctly produces
+`scion_hooks: None` (no hooks defined).
+**Improvements made**: None needed.
+**Learnings for future iterations**: When adding a new field to `GraftConfig`, search for struct
+literal initializers across the crate (`grep "GraftConfig {"`) — they need `field: None` added.
+In this iteration, `query.rs` and `validation.rs` both had literals that needed updating.
+
