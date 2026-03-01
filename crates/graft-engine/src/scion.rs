@@ -12,8 +12,9 @@ use crate::domain::{GraftConfig, ScionHooks};
 use crate::error::{GraftError, Result};
 use graft_common::process::{run_to_completion_with_timeout, ProcessConfig};
 use graft_common::{
-    git_ahead_behind, git_branch_delete, git_is_dirty, git_last_commit_time, git_worktree_add,
-    git_worktree_list, git_worktree_remove,
+    git_ahead_behind, git_branch_delete, git_delete_ref, git_fast_forward, git_is_dirty,
+    git_last_commit_time, git_merge_to_ref, git_worktree_add, git_worktree_list,
+    git_worktree_remove,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -133,6 +134,112 @@ pub fn scion_prune(
     git_worktree_remove(repo, &path).map_err(GraftError::from)?;
     git_branch_delete(repo, &branch).map_err(GraftError::from)?;
     Ok(())
+}
+
+/// Fuse a scion branch into main: merge, hook gates, cleanup.
+///
+/// Sequence:
+/// 1. Merge `feature/<name>` into the base branch via a temp ref
+/// 2. Run `pre_fuse` hook chain — on failure, delete temp ref
+/// 3. Fast-forward the base branch to the merge commit
+/// 4. Run `post_fuse` hook chain — on failure, leave scion intact
+/// 5. Remove worktree + branch
+///
+/// Already-merged detection: if the scion is 0 commits ahead of the base
+/// branch, skip directly to step 4 (`post_fuse` hooks and cleanup).
+///
+/// # Arguments
+/// * `repo_path`   - Absolute path to the main git repository
+/// * `name`        - Scion name (e.g. `my-feature`)
+/// * `config`      - Project config (for hook resolution). Pass `None` to skip hooks.
+/// * `dep_configs` - Dependency configs in declaration order.
+///
+/// # Returns
+/// The merge commit hash on success.
+///
+/// # Errors
+/// Returns `GraftError` on merge conflicts, hook failures, or git errors.
+pub fn scion_fuse(
+    repo_path: impl AsRef<Path>,
+    name: &str,
+    config: Option<&GraftConfig>,
+    dep_configs: &[(String, GraftConfig)],
+) -> Result<String> {
+    let repo = repo_path.as_ref();
+    let path = worktree_path(repo, name);
+    let branch = branch_name(name);
+    let temp_ref = format!("refs/merge-temp/{name}");
+
+    // Determine the base branch from the main worktree
+    let worktrees = git_worktree_list(repo).map_err(GraftError::from)?;
+    let base_branch = worktrees
+        .first()
+        .and_then(|w| w.branch.clone())
+        .unwrap_or_else(|| "main".to_string());
+
+    let scion_env = ScionEnv {
+        name: name.to_string(),
+        branch: branch.clone(),
+        worktree: path.clone(),
+    };
+
+    // Check if already merged (0 commits ahead)
+    let (ahead, _behind) =
+        git_ahead_behind(repo, &branch, &base_branch).map_err(GraftError::from)?;
+
+    let merge_commit = if ahead == 0 {
+        // Already merged — the base branch tip is the "merge" result
+        let base_commit = worktrees
+            .first()
+            .map(|w| w.head.clone())
+            .unwrap_or_default();
+        base_commit
+    } else {
+        // Step 1: Merge to temp ref
+        let commit =
+            git_merge_to_ref(repo, &branch, &base_branch, &temp_ref).map_err(GraftError::from)?;
+
+        // Step 2: pre_fuse hooks
+        if let Some(cfg) = config {
+            let chain = resolve_hook_chain(HookEvent::PreFuse, cfg, dep_configs, &path, repo);
+            if !chain.is_empty() {
+                if let Err(hook_err) = execute_hook_chain(&chain, cfg, dep_configs, &scion_env) {
+                    // Rollback: delete temp ref
+                    let _ = git_delete_ref(repo, &temp_ref);
+                    return Err(GraftError::CommandExecution(format!(
+                        "pre_fuse hook failed (temp ref discarded): {hook_err}"
+                    )));
+                }
+            }
+        }
+
+        // Step 3: Fast-forward base branch to merge commit
+        git_fast_forward(repo, &base_branch, &commit).map_err(GraftError::from)?;
+
+        // Clean up temp ref
+        let _ = git_delete_ref(repo, &temp_ref);
+
+        commit
+    };
+
+    // Step 4: post_fuse hooks
+    if let Some(cfg) = config {
+        let chain = resolve_hook_chain(HookEvent::PostFuse, cfg, dep_configs, &path, repo);
+        if !chain.is_empty() {
+            if let Err(hook_err) = execute_hook_chain(&chain, cfg, dep_configs, &scion_env) {
+                // Leave scion intact — main already moved
+                return Err(GraftError::CommandExecution(format!(
+                    "post_fuse hook failed (scion preserved, main already updated): {hook_err}"
+                )));
+            }
+        }
+    }
+
+    // Step 5: Remove worktree + branch
+    git_worktree_remove(repo, &path).map_err(GraftError::from)?;
+    git_branch_delete(repo, &branch).map_err(GraftError::from)?;
+
+    Ok(merge_commit)
 }
 
 /// A scion lifecycle event that triggers hooks.
@@ -984,6 +1091,109 @@ mod tests {
 
         // Worktree should still exist
         let wt_path = temp.path().join(".worktrees").join("preserve-test");
+        assert!(wt_path.exists());
+    }
+
+    // --- scion_fuse integration tests ---
+
+    #[test]
+    fn scion_fuse_full_lifecycle() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        // Create scion and add a commit
+        scion_create(temp.path(), "fuse-test", None, &[]).unwrap();
+        let wt_path = temp.path().join(".worktrees").join("fuse-test");
+        make_commit(&wt_path, "feature.txt", "feat: add feature");
+
+        // Get main branch name and current commit
+        let worktrees = graft_common::git_worktree_list(temp.path()).unwrap();
+        let main_branch = worktrees[0].branch.clone().unwrap();
+        let main_before = worktrees[0].head.clone();
+
+        // Fuse
+        let merge_commit = scion_fuse(temp.path(), "fuse-test", None, &[]).unwrap();
+        assert_eq!(merge_commit.len(), 40);
+        assert_ne!(merge_commit, main_before);
+
+        // Main should have advanced
+        let config = ProcessConfig {
+            command: format!("git rev-parse refs/heads/{main_branch}"),
+            working_dir: temp.path().to_path_buf(),
+            env: None,
+            env_remove: vec![],
+            log_path: None,
+            timeout: Some(std::time::Duration::from_secs(5)),
+            stdin: None,
+        };
+        let output = run_to_completion_with_timeout(&config).unwrap();
+        assert_eq!(output.stdout.trim(), merge_commit);
+
+        // Worktree + branch should be cleaned up
+        assert!(!wt_path.exists());
+        let del = graft_common::git_branch_delete(temp.path(), "feature/fuse-test");
+        assert!(del.is_err());
+    }
+
+    #[test]
+    fn scion_fuse_already_merged() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        // Create a scion but make NO commits (0 ahead)
+        scion_create(temp.path(), "no-ahead", None, &[]).unwrap();
+        let wt_path = temp.path().join(".worktrees").join("no-ahead");
+
+        // Fuse should succeed (already-merged path)
+        let result = scion_fuse(temp.path(), "no-ahead", None, &[]);
+        assert!(result.is_ok());
+
+        // Worktree and branch should be cleaned up
+        assert!(!wt_path.exists());
+    }
+
+    #[test]
+    fn scion_fuse_merge_conflict_returns_error() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        // Get main branch name
+        let worktrees = graft_common::git_worktree_list(temp.path()).unwrap();
+        let main_branch = worktrees[0].branch.clone().unwrap();
+
+        // Create a scion and modify README
+        scion_create(temp.path(), "conflict-fuse", None, &[]).unwrap();
+        let wt_path = temp.path().join(".worktrees").join("conflict-fuse");
+        fs::write(wt_path.join("README.md"), "scion version").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(&wt_path)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "modify readme in scion"])
+            .current_dir(&wt_path)
+            .output()
+            .unwrap();
+
+        // Modify the same file on main
+        fs::write(temp.path().join("README.md"), "main version").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "modify readme on main"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        // Fuse should fail with merge conflict
+        let result = scion_fuse(temp.path(), "conflict-fuse", None, &[]);
+        assert!(result.is_err());
+
+        // Worktree should still exist (no cleanup on merge conflict)
         assert!(wt_path.exists());
     }
 }
