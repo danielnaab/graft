@@ -181,6 +181,7 @@ mod tests {
             commands: HashMap::new(),
             state: HashMap::new(),
             sequences: HashMap::new(),
+            scion_hooks: None,
         };
 
         let errors = validate_config_schema(&config);
@@ -212,6 +213,7 @@ mod tests {
             commands: HashMap::new(),
             state: HashMap::new(),
             sequences: HashMap::new(),
+            scion_hooks: None,
         };
 
         let errors = validate_config_schema(&config);

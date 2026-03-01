@@ -644,6 +644,27 @@ pub struct Metadata {
     pub changelog: Option<String>,
 }
 
+/// Lifecycle hooks for the scion workstream feature.
+///
+/// Each hook point accepts a single command name (normalized to a one-element
+/// vec during parsing) or a list of command names. Commands are resolved in the
+/// same `commands:` section of this graft.yaml.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScionHooks {
+    /// Commands to run after worktree and branch creation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_create: Option<Vec<String>>,
+    /// Commands to run before merging the feature branch to main.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_fuse: Option<Vec<String>>,
+    /// Commands to run after the merge commit is applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post_fuse: Option<Vec<String>>,
+    /// Commands to run before worktree and branch removal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_prune: Option<Vec<String>>,
+}
+
 /// Complete graft.yaml configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraftConfig {
@@ -661,6 +682,9 @@ pub struct GraftConfig {
     pub state: HashMap<String, StateQuery>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub sequences: HashMap<String, graft_common::SequenceDef>,
+    /// Optional scion lifecycle hooks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scion_hooks: Option<ScionHooks>,
 }
 
 impl GraftConfig {
@@ -686,6 +710,7 @@ impl GraftConfig {
             commands: HashMap::new(),
             state: HashMap::new(),
             sequences: HashMap::new(),
+            scion_hooks: None,
         })
     }
 
@@ -767,6 +792,31 @@ impl GraftConfig {
                         field: format!("commands.{}.context", command.name),
                         reason: format!("context entry '{ctx_entry}' not found in state section"),
                     });
+                }
+            }
+        }
+
+        // Validate scion hook command names
+        if let Some(ref hooks) = self.scion_hooks {
+            let hook_fields: &[(&str, &Option<Vec<String>>)] = &[
+                ("scions.on_create", &hooks.on_create),
+                ("scions.pre_fuse", &hooks.pre_fuse),
+                ("scions.post_fuse", &hooks.post_fuse),
+                ("scions.on_prune", &hooks.on_prune),
+            ];
+            for (field, cmds) in hook_fields {
+                if let Some(cmd_names) = cmds {
+                    for cmd_name in cmd_names {
+                        if !self.commands.contains_key(cmd_name) {
+                            return Err(GraftError::ConfigValidation {
+                                path: "graft.yaml".to_string(),
+                                field: field.to_string(),
+                                reason: format!(
+                                    "hook command '{cmd_name}' not found in commands section"
+                                ),
+                            });
+                        }
+                    }
                 }
             }
         }

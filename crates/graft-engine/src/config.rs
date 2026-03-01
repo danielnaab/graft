@@ -2,7 +2,7 @@
 
 use crate::{
     Change, Command, DependencySpec, GitRef, GitUrl, GraftConfig, GraftError, Metadata, Result,
-    StateCache, StateQuery, StdinSource,
+    ScionHooks, StateCache, StateQuery, StdinSource,
 };
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -523,10 +523,93 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
         }
     }
 
+    // Parse scions (optional)
+    if let Some(scions_value) = obj.get(Value::String("scions".to_string())) {
+        let scions_obj =
+            scions_value
+                .as_mapping()
+                .ok_or_else(|| GraftError::ConfigValidation {
+                    path: path.to_string(),
+                    field: "scions".to_string(),
+                    reason: "must be a mapping/dict of hook_name: command_name(s)".to_string(),
+                })?;
+
+        let mut hooks = ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+        };
+
+        for (key, value) in scions_obj {
+            let key_str = key
+                .as_str()
+                .ok_or_else(|| GraftError::ConfigValidation {
+                    path: path.to_string(),
+                    field: "scions".to_string(),
+                    reason: "hook name must be a string".to_string(),
+                })?;
+            let cmds = parse_hook_commands(value, path, &format!("scions.{key_str}"))?;
+            match key_str {
+                "on_create" => hooks.on_create = cmds,
+                "pre_fuse" => hooks.pre_fuse = cmds,
+                "post_fuse" => hooks.post_fuse = cmds,
+                "on_prune" => hooks.on_prune = cmds,
+                other => {
+                    return Err(GraftError::ConfigValidation {
+                        path: path.to_string(),
+                        field: format!("scions.{other}"),
+                        reason: format!("unknown hook point '{other}'; expected on_create, pre_fuse, post_fuse, or on_prune"),
+                    });
+                }
+            }
+        }
+
+        // Only store if at least one hook was defined
+        if hooks.on_create.is_some()
+            || hooks.pre_fuse.is_some()
+            || hooks.post_fuse.is_some()
+            || hooks.on_prune.is_some()
+        {
+            config.scion_hooks = Some(hooks);
+        }
+    }
+
     // Validate configuration
     config.validate()?;
 
     Ok(config)
+}
+
+/// Parse a hook value that can be a single string or a list of strings.
+///
+/// Returns `Some(vec)` if the value is a non-empty string or non-empty list,
+/// or `None` if the value is null.
+fn parse_hook_commands(
+    value: &Value,
+    path: &str,
+    field: &str,
+) -> Result<Option<Vec<String>>> {
+    match value {
+        Value::String(s) => Ok(Some(vec![s.clone()])),
+        Value::Sequence(seq) => {
+            let cmds: Vec<String> = seq
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            if cmds.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(cmds))
+            }
+        }
+        Value::Null => Ok(None),
+        _ => Err(GraftError::ConfigValidation {
+            path: path.to_string(),
+            field: field.to_string(),
+            reason: "hook must be a command name (string) or list of command names".to_string(),
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -1030,5 +1113,128 @@ commands:
             }
             other => panic!("expected Template with engine none, got: {other:?}"),
         }
+    }
+
+    // ── scions parsing tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn scions_section_absent_gives_none() {
+        let yaml = r"
+apiVersion: graft/v0
+";
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        assert!(config.scion_hooks.is_none());
+    }
+
+    #[test]
+    fn scions_single_command_normalizes_to_vec() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  setup:
+    run: "echo setup"
+scions:
+  on_create: setup
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let hooks = config.scion_hooks.as_ref().unwrap();
+        assert_eq!(hooks.on_create, Some(vec!["setup".to_string()]));
+        assert!(hooks.pre_fuse.is_none());
+        assert!(hooks.post_fuse.is_none());
+        assert!(hooks.on_prune.is_none());
+    }
+
+    #[test]
+    fn scions_list_of_commands() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  install:
+    run: "npm install"
+  seed:
+    run: "npm run seed"
+scions:
+  on_create:
+    - install
+    - seed
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let hooks = config.scion_hooks.as_ref().unwrap();
+        assert_eq!(
+            hooks.on_create,
+            Some(vec!["install".to_string(), "seed".to_string()])
+        );
+    }
+
+    #[test]
+    fn scions_all_hook_points() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  setup:
+    run: "echo setup"
+  test:
+    run: "echo test"
+  notify:
+    run: "echo notify"
+  cleanup:
+    run: "echo cleanup"
+scions:
+  on_create: setup
+  pre_fuse: test
+  post_fuse: notify
+  on_prune: cleanup
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let hooks = config.scion_hooks.as_ref().unwrap();
+        assert_eq!(hooks.on_create, Some(vec!["setup".to_string()]));
+        assert_eq!(hooks.pre_fuse, Some(vec!["test".to_string()]));
+        assert_eq!(hooks.post_fuse, Some(vec!["notify".to_string()]));
+        assert_eq!(hooks.on_prune, Some(vec!["cleanup".to_string()]));
+    }
+
+    #[test]
+    fn scions_invalid_hook_name_rejected() {
+        let yaml = r#"
+apiVersion: graft/v0
+scions:
+  on_deploy: something
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unknown hook point"));
+    }
+
+    #[test]
+    fn scions_hook_referencing_nonexistent_command_fails() {
+        let yaml = r#"
+apiVersion: graft/v0
+scions:
+  on_create: nonexistent-command
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("nonexistent-command"),
+            "Error should mention the bad command name: {err}"
+        );
+    }
+
+    #[test]
+    fn scions_hook_referencing_valid_command_passes() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  setup:
+    run: "echo setup"
+scions:
+  on_create: setup
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        assert!(config.scion_hooks.is_some());
     }
 }

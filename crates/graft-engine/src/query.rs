@@ -347,6 +347,7 @@ mod change_tests {
             commands,
             state: HashMap::new(),
             sequences: HashMap::new(),
+            scion_hooks: None,
         }
     }
 
