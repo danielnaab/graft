@@ -206,6 +206,27 @@ and minimal Claude Code integration surface.
 
 ---
 
+## Scion Orchestration Design (2026-03-01)
+
+Architecture for scion worker management: graft owns a runtime abstraction
+(tmux today, docker/SSH future), grove is a switchboard for observation and
+review. Revisits agentic orchestration proposals (Slices 8-13) in light of
+implemented scions.
+
+**Active**:
+- [Scion Orchestration Design](2026-03-01-scion-orchestration-design.md) —
+  runtime abstraction, grove switchboard, worker handoff, prompt assembly
+
+**Relates to**:
+- [Scion Lifecycle Design](2026-03-01-shoot-lifecycle-design.md) — implemented
+  primitives this builds on
+- [Graft as Context Provider](2026-02-28-graft-as-context-provider.md) —
+  worker model, artifacts over actors
+- [Agentic Orchestration](2026-02-18-grove-agentic-orchestration.md) — original
+  Slices 8-13 proposals
+
+---
+
 ## Adding New Notes
 
 When creating session logs or exploration notes:
