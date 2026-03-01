@@ -2694,9 +2694,20 @@ fn scion_list_command(format: &OutputFormat) -> Result<()> {
     Ok(())
 }
 
+/// Try to load the project's graft.yaml config. Returns None if not found.
+fn try_load_graft_config(repo_path: &Path) -> Option<graft_engine::GraftConfig> {
+    let config_path = repo_path.join("graft.yaml");
+    if config_path.exists() {
+        parse_graft_yaml(&config_path).ok()
+    } else {
+        None
+    }
+}
+
 fn scion_create_command(name: &str) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
-    let wt_path = scion_create(&repo_path, name)
+    let config = try_load_graft_config(&repo_path);
+    let wt_path = scion_create(&repo_path, name, config.as_ref(), &[])
         .with_context(|| format!("Failed to create scion '{name}'"))?;
     println!("Created scion '{name}' at {}", wt_path.display());
     println!("  worktree: {}", wt_path.display());
@@ -2706,7 +2717,9 @@ fn scion_create_command(name: &str) -> Result<()> {
 
 fn scion_prune_command(name: &str) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
-    scion_prune(&repo_path, name).with_context(|| format!("Failed to prune scion '{name}'"))?;
+    let config = try_load_graft_config(&repo_path);
+    scion_prune(&repo_path, name, config.as_ref(), &[])
+        .with_context(|| format!("Failed to prune scion '{name}'"))?;
     println!("Pruned scion '{name}'");
     Ok(())
 }

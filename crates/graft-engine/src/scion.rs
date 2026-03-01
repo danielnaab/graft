@@ -35,21 +35,52 @@ fn branch_name(name: &str) -> String {
 /// - Worktree: `<repo_root>/.worktrees/<name>`
 /// - Branch: `feature/<name>`
 ///
+/// After worktree creation, runs `on_create` hooks if configured. On hook
+/// failure, the worktree and branch are rolled back (removed).
+///
 /// # Arguments
-/// * `repo_path` - Absolute path to the main git repository
-/// * `name`      - Scion name (e.g. `my-feature`)
+/// * `repo_path`   - Absolute path to the main git repository
+/// * `name`        - Scion name (e.g. `my-feature`)
+/// * `config`      - Project config (for hook resolution). Pass `None` to skip hooks.
+/// * `dep_configs` - Dependency configs in declaration order (for hook resolution).
 ///
 /// # Returns
 /// Absolute path to the newly created worktree.
 ///
 /// # Errors
-/// Returns `GraftError` if the worktree or branch already exists, or the
-/// underlying git operation fails.
-pub fn scion_create(repo_path: impl AsRef<Path>, name: &str) -> Result<PathBuf> {
+/// Returns `GraftError` if the worktree or branch already exists, if an
+/// `on_create` hook fails (after rollback), or the underlying git operation fails.
+pub fn scion_create(
+    repo_path: impl AsRef<Path>,
+    name: &str,
+    config: Option<&GraftConfig>,
+    dep_configs: &[(String, GraftConfig)],
+) -> Result<PathBuf> {
     let repo = repo_path.as_ref();
     let path = worktree_path(repo, name);
     let branch = branch_name(name);
     git_worktree_add(repo, &path, &branch).map_err(GraftError::from)?;
+
+    // Run on_create hooks if config is provided
+    if let Some(cfg) = config {
+        let chain = resolve_hook_chain(HookEvent::OnCreate, cfg, dep_configs, &path, repo);
+        if !chain.is_empty() {
+            let scion_env = ScionEnv {
+                name: name.to_string(),
+                branch: branch.clone(),
+                worktree: path.clone(),
+            };
+            if let Err(hook_err) = execute_hook_chain(&chain, cfg, dep_configs, &scion_env) {
+                // Rollback: remove worktree and branch on hook failure
+                let _ = git_worktree_remove(repo, &path);
+                let _ = git_branch_delete(repo, &branch);
+                return Err(GraftError::CommandExecution(format!(
+                    "on_create hook failed (worktree rolled back): {hook_err}"
+                )));
+            }
+        }
+    }
+
     Ok(path)
 }
 
@@ -59,19 +90,46 @@ pub fn scion_create(repo_path: impl AsRef<Path>, name: &str) -> Result<PathBuf> 
 /// - Worktree: `<repo_root>/.worktrees/<name>`
 /// - Branch: `feature/<name>`
 ///
-/// The worktree is removed first, then the branch.
+/// Runs `on_prune` hooks before removal if configured. On hook failure,
+/// the worktree is left intact and the error is returned.
 ///
 /// # Arguments
-/// * `repo_path` - Absolute path to the main git repository
-/// * `name`      - Scion name (e.g. `my-feature`)
+/// * `repo_path`   - Absolute path to the main git repository
+/// * `name`        - Scion name (e.g. `my-feature`)
+/// * `config`      - Project config (for hook resolution). Pass `None` to skip hooks.
+/// * `dep_configs` - Dependency configs in declaration order (for hook resolution).
 ///
 /// # Errors
-/// Returns `GraftError` if the worktree or branch does not exist, or the
-/// underlying git operation fails.
-pub fn scion_prune(repo_path: impl AsRef<Path>, name: &str) -> Result<()> {
+/// Returns `GraftError` if the worktree or branch does not exist, if an
+/// `on_prune` hook fails (worktree preserved), or the underlying git operation fails.
+pub fn scion_prune(
+    repo_path: impl AsRef<Path>,
+    name: &str,
+    config: Option<&GraftConfig>,
+    dep_configs: &[(String, GraftConfig)],
+) -> Result<()> {
     let repo = repo_path.as_ref();
     let path = worktree_path(repo, name);
     let branch = branch_name(name);
+
+    // Run on_prune hooks before removal if config is provided
+    if let Some(cfg) = config {
+        let chain = resolve_hook_chain(HookEvent::OnPrune, cfg, dep_configs, &path, repo);
+        if !chain.is_empty() {
+            let scion_env = ScionEnv {
+                name: name.to_string(),
+                branch: branch.clone(),
+                worktree: path.clone(),
+            };
+            if let Err(hook_err) = execute_hook_chain(&chain, cfg, dep_configs, &scion_env) {
+                // Leave worktree intact on hook failure
+                return Err(GraftError::CommandExecution(format!(
+                    "on_prune hook failed (worktree preserved): {hook_err}"
+                )));
+            }
+        }
+    }
+
     git_worktree_remove(repo, &path).map_err(GraftError::from)?;
     git_branch_delete(repo, &branch).map_err(GraftError::from)?;
     Ok(())
@@ -453,7 +511,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         init_test_repo(temp.path());
 
-        let wt_path = scion_create(temp.path(), "my-feature").unwrap();
+        let wt_path = scion_create(temp.path(), "my-feature", None, &[]).unwrap();
 
         // Worktree directory exists at expected path
         assert_eq!(wt_path, temp.path().join(".worktrees").join("my-feature"));
@@ -473,8 +531,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         init_test_repo(temp.path());
 
-        scion_create(temp.path(), "dup").unwrap();
-        let result = scion_create(temp.path(), "dup");
+        scion_create(temp.path(), "dup", None, &[]).unwrap();
+        let result = scion_create(temp.path(), "dup", None, &[]);
         assert!(result.is_err());
     }
 
@@ -483,8 +541,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         init_test_repo(temp.path());
 
-        scion_create(temp.path(), "to-prune").unwrap();
-        scion_prune(temp.path(), "to-prune").unwrap();
+        scion_create(temp.path(), "to-prune", None, &[]).unwrap();
+        scion_prune(temp.path(), "to-prune", None, &[]).unwrap();
 
         // Worktree gone from list
         let worktrees = graft_common::git_worktree_list(temp.path()).unwrap();
@@ -502,7 +560,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         init_test_repo(temp.path());
 
-        let result = scion_prune(temp.path(), "does-not-exist");
+        let result = scion_prune(temp.path(), "does-not-exist", None, &[]);
         assert!(result.is_err());
     }
 
@@ -511,10 +569,10 @@ mod tests {
         let temp = TempDir::new().unwrap();
         init_test_repo(temp.path());
 
-        let wt = scion_create(temp.path(), "round-trip").unwrap();
+        let wt = scion_create(temp.path(), "round-trip", None, &[]).unwrap();
         assert!(wt.exists());
 
-        scion_prune(temp.path(), "round-trip").unwrap();
+        scion_prune(temp.path(), "round-trip", None, &[]).unwrap();
         assert!(!wt.exists());
     }
 
@@ -546,7 +604,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         init_test_repo(temp.path());
 
-        scion_create(temp.path(), "alpha").unwrap();
+        scion_create(temp.path(), "alpha", None, &[]).unwrap();
         let scions = scion_list(temp.path()).unwrap();
 
         assert_eq!(scions.len(), 1);
@@ -564,7 +622,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         init_test_repo(temp.path());
 
-        scion_create(temp.path(), "beta").unwrap();
+        scion_create(temp.path(), "beta", None, &[]).unwrap();
         let wt_path = temp.path().join(".worktrees").join("beta");
 
         // Make 2 commits in the scion worktree
@@ -584,7 +642,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         init_test_repo(temp.path());
 
-        scion_create(temp.path(), "gamma").unwrap();
+        scion_create(temp.path(), "gamma", None, &[]).unwrap();
         let wt_path = temp.path().join(".worktrees").join("gamma");
 
         // Write a file without committing
@@ -851,5 +909,81 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.failed_hook, "nonexistent");
         assert!(err.error.contains("Command not found"));
+    }
+
+    // --- Hook rollback integration tests ---
+
+    #[test]
+    fn scion_create_with_failing_hook_rolls_back() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        let cmd = crate::domain::Command::new("fail-hook", "exit 1").unwrap();
+        config.commands.insert("fail-hook".to_string(), cmd);
+        config.scion_hooks = Some(ScionHooks {
+            on_create: Some(vec!["fail-hook".to_string()]),
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+        });
+
+        let result = scion_create(temp.path(), "rollback-test", Some(&config), &[]);
+        assert!(result.is_err());
+
+        // Worktree should have been rolled back
+        let wt_path = temp.path().join(".worktrees").join("rollback-test");
+        assert!(!wt_path.exists());
+
+        // Branch should also be gone
+        let del = graft_common::git_branch_delete(temp.path(), "feature/rollback-test");
+        assert!(del.is_err());
+    }
+
+    #[test]
+    fn scion_create_with_passing_hook_succeeds() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        let cmd = crate::domain::Command::new("pass-hook", "true").unwrap();
+        config.commands.insert("pass-hook".to_string(), cmd);
+        config.scion_hooks = Some(ScionHooks {
+            on_create: Some(vec!["pass-hook".to_string()]),
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+        });
+
+        let result = scion_create(temp.path(), "hook-pass", Some(&config), &[]);
+        assert!(result.is_ok());
+        assert!(result.unwrap().exists());
+    }
+
+    #[test]
+    fn scion_prune_with_failing_hook_preserves_worktree() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        // Create scion first (no hooks)
+        scion_create(temp.path(), "preserve-test", None, &[]).unwrap();
+
+        // Now try to prune with a failing hook
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        let cmd = crate::domain::Command::new("fail-prune", "exit 1").unwrap();
+        config.commands.insert("fail-prune".to_string(), cmd);
+        config.scion_hooks = Some(ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: Some(vec!["fail-prune".to_string()]),
+        });
+
+        let result = scion_prune(temp.path(), "preserve-test", Some(&config), &[]);
+        assert!(result.is_err());
+
+        // Worktree should still exist
+        let wt_path = temp.path().join(".worktrees").join("preserve-test");
+        assert!(wt_path.exists());
     }
 }
