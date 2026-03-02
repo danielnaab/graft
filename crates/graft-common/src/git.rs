@@ -785,7 +785,7 @@ pub fn git_diff_output(repo: impl AsRef<Path>, base: &str, head: &str) -> Result
             output.stderr
         )));
     }
-    Ok(output.stdout.clone())
+    Ok(output.stdout.trim().to_string())
 }
 
 /// Get a oneline commit log between two refs.

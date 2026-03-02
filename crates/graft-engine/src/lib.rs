@@ -51,9 +51,9 @@ pub use resolution::{
     SyncResult,
 };
 pub use scion::{
-    execute_hook_chain, resolve_base_branch, resolve_hook_chain, scion_attach_check, scion_create,
-    scion_fuse, scion_list, scion_prune, scion_session_id, scion_start, scion_stop, HookChainError,
-    HookEvent, ResolvedHook, ScionEnv, ScionInfo,
+    branch_name, execute_hook_chain, resolve_base_branch, resolve_hook_chain, scion_attach_check,
+    scion_create, scion_fuse, scion_list, scion_prune, scion_session_id, scion_start, scion_stop,
+    worktree_path, HookChainError, HookEvent, ResolvedHook, ScionEnv, ScionInfo,
 };
 pub use sequence::{execute_sequence, write_checkpoint_json, write_sequence_state};
 pub use snapshot::SnapshotManager;

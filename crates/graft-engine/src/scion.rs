@@ -27,7 +27,8 @@ use std::path::{Path, PathBuf};
 /// - Non-empty
 /// - Max 100 characters
 /// - Must not start with `.` or `-`
-/// - Only `[a-zA-Z0-9._-]` characters (no slashes, colons, spaces, or control chars)
+/// - Only `[a-zA-Z0-9_-]` characters (no dots, slashes, colons, spaces, or control chars)
+/// - Dots are disallowed because tmux silently replaces them with underscores in session names
 fn validate_scion_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(GraftError::CommandExecution(
@@ -47,17 +48,17 @@ fn validate_scion_name(name: &str) -> Result<()> {
     }
     if !name
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
         return Err(GraftError::CommandExecution(format!(
-            "invalid scion name: '{name}'. Only [a-zA-Z0-9._-] characters are allowed."
+            "invalid scion name: '{name}'. Only [a-zA-Z0-9_-] characters are allowed."
         )));
     }
     Ok(())
 }
 
 /// Compute the worktree path for a scion: `<repo_root>/.worktrees/<name>`.
-fn worktree_path(repo: &Path, name: &str) -> PathBuf {
+pub fn worktree_path(repo: &Path, name: &str) -> PathBuf {
     repo.join(".worktrees").join(name)
 }
 
@@ -76,7 +77,7 @@ pub fn resolve_base_branch(worktrees: &[graft_common::WorktreeInfo]) -> Result<S
 }
 
 /// Compute the branch name for a scion: `feature/<name>`.
-fn branch_name(name: &str) -> String {
+pub fn branch_name(name: &str) -> String {
     format!("feature/{name}")
 }
 
@@ -1497,7 +1498,7 @@ mod tests {
     fn validate_scion_name_accepts_valid_names() {
         assert!(validate_scion_name("my-feature").is_ok());
         assert!(validate_scion_name("feature_1").is_ok());
-        assert!(validate_scion_name("v2.0.1").is_ok());
+        assert!(validate_scion_name("v2-0-1").is_ok());
         assert!(validate_scion_name("a").is_ok());
         assert!(validate_scion_name("ABC-123").is_ok());
     }
@@ -1542,8 +1543,9 @@ mod tests {
         assert!(validate_scion_name(".hidden").is_err());
         assert!(validate_scion_name(".git").is_err());
         assert!(validate_scion_name("-rf").is_err());
-        // Dots and dashes in the middle are fine
-        assert!(validate_scion_name("my.feature").is_ok());
+        // Dots are disallowed (tmux replaces dots with underscores in session names)
+        assert!(validate_scion_name("my.feature").is_err());
+        // Dashes in the middle are fine
         assert!(validate_scion_name("my-feature").is_ok());
     }
 

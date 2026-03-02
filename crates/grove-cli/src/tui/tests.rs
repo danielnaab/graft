@@ -10,7 +10,7 @@ use super::command_line::{filtered_palette, parse_command, CliCommand, PALETTE_C
 use super::formatting::{compact_path, extract_basename, format_file_change_indicator};
 use super::prompt::{
     compute_run_completions, extract_command_prefix, ghost_hint_suffix, ArgCompletion,
-    CompletionState, PickerItem, PickerOutcome, PickerState,
+    CompletionState, PickerItem, PickerOutcome, PickerState, PromptState,
 };
 use super::scroll_buffer::{BlockId, ContentBlock, ScrollBuffer};
 use super::transcript::{extract_options_from_state, TranscriptApp};
@@ -2233,4 +2233,179 @@ fn completions_focus_alias_f_works() {
     }
     let cs = p.compute_completions(&[], &[], &queries, &HashMap::default(), &[]);
     assert_eq!(cs.completions.len(), 2);
+}
+
+// ===== scion completion tests =====
+
+#[test]
+fn completions_scion_subcommands() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &[]);
+    let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
+    assert!(values.contains(&"list"));
+    assert!(values.contains(&"create"));
+    assert!(values.contains(&"start"));
+    assert!(values.contains(&"stop"));
+    assert!(values.contains(&"prune"));
+    assert!(values.contains(&"fuse"));
+    assert_eq!(cs.completions.len(), 6);
+    assert!(cs.requires_more_input);
+}
+
+#[test]
+fn completions_scion_subcommand_partial() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion st".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &[]);
+    let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
+    assert!(values.contains(&"start"));
+    assert!(values.contains(&"stop"));
+    assert_eq!(cs.completions.len(), 2);
+}
+
+#[test]
+fn completions_scion_start_shows_scion_names() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion start ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let scions = vec![
+        ArgCompletion {
+            value: "my-feature".to_string(),
+            description: "+3".to_string(),
+        },
+        ArgCompletion {
+            value: "bugfix".to_string(),
+            description: "+1 [session]".to_string(),
+        },
+    ];
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
+    assert_eq!(cs.completions.len(), 2);
+    let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
+    assert!(values.contains(&"my-feature"));
+    assert!(values.contains(&"bugfix"));
+}
+
+#[test]
+fn completions_scion_start_partial_filters() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion start my".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let scions = vec![
+        ArgCompletion {
+            value: "my-feature".to_string(),
+            description: "+3".to_string(),
+        },
+        ArgCompletion {
+            value: "bugfix".to_string(),
+            description: String::new(),
+        },
+    ];
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
+    assert_eq!(cs.completions.len(), 1);
+    assert_eq!(cs.completions[0].value, "my-feature");
+}
+
+#[test]
+fn completions_attach_shows_scion_names() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "attach ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let scions = vec![ArgCompletion {
+        value: "dev".to_string(),
+        description: "+2 [session]".to_string(),
+    }];
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
+    assert_eq!(cs.completions.len(), 1);
+    assert_eq!(cs.completions[0].value, "dev");
+}
+
+#[test]
+fn completions_review_shows_scion_names() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "review ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let scions = vec![
+        ArgCompletion {
+            value: "alpha".to_string(),
+            description: String::new(),
+        },
+        ArgCompletion {
+            value: "beta".to_string(),
+            description: String::new(),
+        },
+    ];
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
+    assert_eq!(cs.completions.len(), 2);
+}
+
+#[test]
+fn completions_scion_create_requires_name() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion create ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &[]);
+    assert!(cs.completions.is_empty());
+    assert!(cs.requires_more_input);
+    assert_eq!(cs.arg_hint, Some("<name>".to_string()));
+}
+
+#[test]
+fn completions_sc_alias_shows_subcommands() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "sc ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &[]);
+    assert_eq!(cs.completions.len(), 6);
+    assert!(cs.requires_more_input);
 }

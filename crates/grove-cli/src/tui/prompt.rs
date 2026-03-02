@@ -717,8 +717,14 @@ impl PromptState {
                 let sub_lower = sub.to_ascii_lowercase();
 
                 match sub_lower.as_str() {
-                    // list and create don't need name completion
-                    "list" | "ls" | "create" => CompletionState::default(),
+                    // list doesn't need a name
+                    "list" | "ls" => CompletionState::default(),
+                    // create needs a name but no completion (new name)
+                    "create" => CompletionState {
+                        completions: vec![],
+                        requires_more_input: true,
+                        arg_hint: Some("<name>".to_string()),
+                    },
                     "start" | "stop" | "prune" | "fuse" => {
                         // Complete scion name
                         let name_partial = sub_parts.get(1).unwrap_or(&"").trim();
@@ -1067,13 +1073,21 @@ pub(super) fn compute_run_completions(
 /// Filter pre-computed scion completions by a partial name prefix.
 fn filter_scion_completions(partial: &str, completions: &[ArgCompletion]) -> CompletionState {
     let partial_lower = partial.to_ascii_lowercase();
+    let filtered: Vec<ArgCompletion> = completions
+        .iter()
+        .filter(|c| c.value.to_ascii_lowercase().starts_with(&partial_lower))
+        .cloned()
+        .collect();
+    // A name is required: show hint when completions are empty and no text typed yet
+    let needs_more = partial.is_empty() && filtered.is_empty();
     CompletionState {
-        completions: completions
-            .iter()
-            .filter(|c| c.value.to_ascii_lowercase().starts_with(&partial_lower))
-            .cloned()
-            .collect(),
-        ..CompletionState::default()
+        completions: filtered,
+        requires_more_input: needs_more,
+        arg_hint: if needs_more {
+            Some("<name>".to_string())
+        } else {
+            None
+        },
     }
 }
 

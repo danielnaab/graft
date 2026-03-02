@@ -51,6 +51,10 @@ pub(super) struct RepoContext {
     /// Computed lazily on first call; cleared by `invalidate_caches` (repo switch, `:refresh`),
     /// by the `:run` handler, and by `load_commands_for_repo` when the command list is replaced.
     pub(super) resolved_commands: Option<Vec<(String, CommandDef)>>,
+    /// Cached scion name completions for the selected repo.
+    /// Computed lazily on first access; cleared on repo switch, `:refresh`,
+    /// and after scion-mutating commands (create, start, stop, prune, fuse).
+    pub(super) cached_scion_completions: Option<Vec<super::prompt::ArgCompletion>>,
 }
 
 impl RepoContext {
@@ -64,6 +68,7 @@ impl RepoContext {
             cached_state_queries: None,
             in_memory_state: std::collections::HashMap::new(),
             resolved_commands: None,
+            cached_scion_completions: None,
         }
     }
 
@@ -75,6 +80,7 @@ impl RepoContext {
         self.cached_state_queries = None;
         self.in_memory_state.clear();
         self.resolved_commands = None;
+        self.cached_scion_completions = None;
     }
 
     /// Full reset: clear caches and deselect repo.
@@ -1333,7 +1339,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:scion list` — list all scion workstreams.
     fn cmd_scion_list(&mut self) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::error("No repository selected"));
+            self.status = Some(StatusMessage::warning("No repository selected"));
             return;
         };
         let runtime = graft_common::TmuxRuntime::new().ok();
@@ -1399,7 +1405,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:scion create <name>` — create a new scion.
     fn cmd_scion_create(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::error("No repository selected"));
+            self.status = Some(StatusMessage::warning("No repository selected"));
             return;
         };
         let config =
@@ -1420,12 +1426,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.status = Some(StatusMessage::error(format!("scion create failed: {e}")));
             }
         }
+        self.context.cached_scion_completions = None;
     }
 
     /// `:scion start <name>` — start a scion's runtime session.
     fn cmd_scion_start(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::error("No repository selected"));
+            self.status = Some(StatusMessage::warning("No repository selected"));
             return;
         };
         let config =
@@ -1443,12 +1450,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.status = Some(StatusMessage::error(format!("scion start failed: {e}")));
             }
         }
+        self.context.cached_scion_completions = None;
     }
 
     /// `:scion stop <name>` — stop a scion's runtime session.
     fn cmd_scion_stop(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::error("No repository selected"));
+            self.status = Some(StatusMessage::warning("No repository selected"));
             return;
         };
         let Ok(runtime) = graft_common::TmuxRuntime::new() else {
@@ -1463,12 +1471,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.status = Some(StatusMessage::error(format!("scion stop failed: {e}")));
             }
         }
+        self.context.cached_scion_completions = None;
     }
 
     /// `:scion prune <name>` — remove a scion.
     fn cmd_scion_prune(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::error("No repository selected"));
+            self.status = Some(StatusMessage::warning("No repository selected"));
             return;
         };
         let config =
@@ -1495,12 +1504,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.status = Some(StatusMessage::error(format!("scion prune failed: {e}")));
             }
         }
+        self.context.cached_scion_completions = None;
     }
 
     /// `:scion fuse <name>` — fuse a scion into main.
     fn cmd_scion_fuse(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::error("No repository selected"));
+            self.status = Some(StatusMessage::warning("No repository selected"));
             return;
         };
         let config =
@@ -1540,12 +1550,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.status = Some(StatusMessage::error(format!("scion fuse failed: {e}")));
             }
         }
+        self.context.cached_scion_completions = None;
     }
 
     /// `:attach <name>` — attach to a scion's runtime session.
     fn cmd_attach(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::error("No repository selected"));
+            self.status = Some(StatusMessage::warning("No repository selected"));
             return;
         };
         let Ok(runtime) = graft_common::TmuxRuntime::new() else {
@@ -1576,7 +1587,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     #[allow(clippy::too_many_lines)]
     fn cmd_review(&mut self, name: &str, full: bool) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::error("No repository selected"));
+            self.status = Some(StatusMessage::warning("No repository selected"));
             return;
         };
         let repo = std::path::Path::new(&repo_path);
@@ -1600,7 +1611,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         };
 
         // Check scion exists
-        let wt_path = repo.join(".worktrees").join(name);
+        let wt_path = graft_engine::worktree_path(repo, name);
         if !wt_path.exists() {
             self.status = Some(StatusMessage::error(format!(
                 "scion '{name}' does not exist"
@@ -1608,7 +1619,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             return;
         }
 
-        let branch = format!("feature/{name}");
+        let branch = graft_engine::branch_name(name);
 
         // Check ahead count
         let (ahead, _behind) = match graft_common::git_ahead_behind(repo, &branch, &base) {
@@ -2015,15 +2026,20 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             .collect()
     }
 
-    /// Get scion name completions for the selected repo.
-    fn scion_completions(&self) -> Vec<super::prompt::ArgCompletion> {
-        let Some(repo_path) = self.context.selected_repo_path.as_ref() else {
+    /// Get scion name completions for the selected repo (cached).
+    fn scion_completions(&mut self) -> Vec<super::prompt::ArgCompletion> {
+        if let Some(cached) = &self.context.cached_scion_completions {
+            return cached.clone();
+        }
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
             return Vec::new();
         };
-        let Ok(scions) = graft_engine::scion_list(repo_path, None) else {
+        let runtime = graft_common::TmuxRuntime::new().ok();
+        let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
+        let Ok(scions) = graft_engine::scion_list(&repo_path, runtime_ref) else {
             return Vec::new();
         };
-        scions
+        let completions: Vec<super::prompt::ArgCompletion> = scions
             .iter()
             .map(|s| {
                 let status = match (s.ahead, s.session_active) {
@@ -2036,7 +2052,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                     description: status,
                 }
             })
-            .collect()
+            .collect();
+        self.context.cached_scion_completions = Some(completions.clone());
+        completions
     }
 
     /// Load sequences from a graft.yaml into the catalog entries list.
