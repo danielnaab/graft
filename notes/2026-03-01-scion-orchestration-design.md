@@ -103,8 +103,8 @@ graft.yaml                     grove
   commands:                      (switchboard TUI)
     worker:                        |
       run: "claude -p ..."         | observes:
-      session: detached            |   scion state (via graft)
-                                   |   session presence (via runtime)
+  scions:                          |   scion state (via graft)
+    start: worker                  |   session presence (via runtime)
          |                         |
          v                         | actions:
     graft engine                   |   :scion create → graft
@@ -136,44 +136,51 @@ graft.yaml                     grove
 
 ### Interface
 
-A runtime backend needs three capabilities:
+A runtime backend needs four capabilities, defined by the `SessionRuntime`
+trait in `graft-common/src/runtime.rs`:
 
-| Capability | tmux | docker (future) | ssh (future) |
+| Capability | tmux (implemented) | docker (future) | ssh (future) |
 |---|---|---|---|
 | **Launch** | `tmux new-session -d -s <id> -c <dir> <cmd>` | `docker run -d --name <id> -w <dir> <img> <cmd>` | `ssh <host> tmux new-session -d ...` |
-| **Detect** | `tmux has-session -t <id>` | `docker ps --filter name=<id>` | `ssh <host> tmux has-session ...` |
-| **Attach** | `tmux attach -t <id>` | `docker exec -it <id> bash` | `ssh -t <host> tmux attach ...` |
-| **Stop** | `tmux kill-session -t <id>` | `docker stop <id>` | `ssh <host> tmux kill-session ...` |
+| **Detect** | `tmux has-session -t =<id>` | `docker ps --filter name=<id>` | `ssh <host> tmux has-session ...` |
+| **Attach** | `tmux attach-session -t =<id>` | `docker exec -it <id> bash` | `ssh -t <host> tmux attach ...` |
+| **Stop** | `tmux kill-session -t =<id>` | `docker stop <id>` | `ssh <host> tmux kill-session ...` |
+
+Note: tmux's `-t` flag uses `=<id>` prefix for exact matching, preventing
+fnmatch/prefix collisions (e.g., `graft-scion-api` matching `graft-scion-api-v2`).
 
 The session ID follows a naming convention owned by graft:
-`scion-<name>` (e.g., `scion-retry-logic`).
+`graft-scion-<name>` (e.g., `graft-scion-retry-logic`). The `graft-` prefix
+namespaces sessions to avoid collisions with other tools using tmux.
 
-### Configuration
+### Configuration (implemented)
 
-The runtime backend is configured at the project level, not per-command:
+The runtime backend is tmux (hardcoded default; the `SessionRuntime` trait
+supports future backends). The worker command is named in `scions.start`,
+not marked per-command:
 
 ```yaml
-# graft.yaml — runtime is a project-level setting
-runtime:
-  backend: tmux           # tmux | docker | ssh (future)
-
-# Per-command, only the execution mode matters:
+# graft.yaml — start names the command to launch as a runtime session
 commands:
   worker:
     run: "claude -p '...'"
-    session: detached      # run in runtime backend, don't block
+
+scions:
+  start: worker           # single command name (not a list)
+  on_create: setup-env    # hooks still run synchronously before start
 ```
 
-When `session: detached` is absent or false, the command runs as a blocking
-subprocess (current behavior). When present, graft dispatches to the
-configured runtime backend.
+`graft scion start <name>` resolves `scions.start` to a command, then
+launches it via the runtime backend in a detached session. `graft scion stop
+<name>` terminates the session. The `session: detached` per-command field
+from the original design was not implemented — the simpler `scions.start`
+approach avoids coupling runtime mode to command definitions.
 
 ### Graceful degradation
 
-- If `session: detached` but the runtime backend isn't available (no tmux
-  installed), graft returns a clear error with the missing dependency.
-- If no `runtime:` section in graft.yaml, the default is tmux (the universal
-  tool for this problem space).
+- If tmux is not installed, `graft scion start` returns a clear error.
+- `graft scion list` detects runtime availability; when tmux is unavailable,
+  the session indicator column is absent but all artifact state is shown.
 - Grove detects runtime availability and adjusts its UI — no attach option
   when there's no session to attach to.
 
@@ -191,9 +198,12 @@ The complete flow from creation to fusion:
      c. Run on_create hook chain (sync, blocking)
         → software-factory hooks: write context files, adjust CLAUDE.md
         → project hooks: install deps, configure tooling
-     d. If a "worker" command is configured with session: detached,
-        launch it via the runtime backend
-     e. Return worktree path (+ session ID if launched)
+     d. Return worktree path
+
+2b. Human (optional, separate step):
+      graft scion start retry-logic
+      → Resolves scions.start command, launches via runtime backend
+      → Session ID: graft-scion-retry-logic
 
 3. Worker (in worktree, running in runtime session):
      - Reads CLAUDE.md, context files, plan references
@@ -224,8 +234,8 @@ The complete flow from creation to fusion:
      h. Remove worktree + branch
 ```
 
-Steps 1, 2, and 6 are implemented today (minus the runtime dispatch in 2d
-and session cleanup in 6g). Steps 3-5 describe the target experience.
+Steps 1, 2 (including 2b), and 6 are implemented today (minus session
+cleanup in 6g). Steps 3-5 describe the target experience.
 
 ## Grove Switchboard Design
 
@@ -250,7 +260,7 @@ works — artifact state is always available via git.
 ### Attach and detach
 
 `:attach retry-logic`:
-1. Grove checks for a runtime session `scion-retry-logic`
+1. Grove checks for a runtime session `graft-scion-retry-logic`
 2. If found: grove suspends its TUI, invokes the runtime's attach command
 3. Human interacts directly with the agent in the terminal
 4. On detach (tmux: `Ctrl-b d`): grove resumes, refreshes scion state
@@ -270,11 +280,6 @@ Review is purely artifact-based. No runtime session needed. The human can
 review a scion whose agent has already exited.
 
 ## Open Questions
-
-- **Worker launch integration**: should `graft scion create` automatically
-  launch a worker command if one is configured, or should that be a separate
-  `graft scion start <name>` command? Auto-launch is convenient but couples
-  create and start. Separate commands are more composable.
 
 - **Session cleanup on fuse/prune**: should graft automatically kill the
   runtime session, or warn if one is active and let the human decide?
@@ -299,6 +304,11 @@ review a scion whose agent has already exited.
 
 ## Resolved Questions (from prior design sessions)
 
+- **Worker launch integration**: separate `graft scion start <name>` command,
+  not auto-launch on create. More composable. Implemented.
+- **Runtime configuration**: `scions.start` names the command (simpler than
+  per-command `session: detached`). Runtime backend is tmux by default; trait
+  supports future backends. Implemented.
 - **Pre-fuse merge strategy**: temp ref with fast-forward. Implemented.
 - **Detached HEAD handling**: explicit error, not silent fallback. Implemented.
 - **Scion name validation**: strict character set, no path traversal. Implemented.

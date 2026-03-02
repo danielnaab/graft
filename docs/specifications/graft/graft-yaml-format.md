@@ -103,12 +103,13 @@ dependencies:
     source: string                # Required: git URL or path
     ref: string                   # Optional: specific ref (default: main)
 
-# Scion lifecycle hooks (optional)
+# Scion lifecycle hooks and runtime (optional)
 scions:
   on_create: string | list[string]   # Optional: command name(s) to run after worktree creation
   pre_fuse: string | list[string]    # Optional: command name(s) to run before merging to main
   post_fuse: string | list[string]   # Optional: command name(s) to run after merge completes
   on_prune: string | list[string]    # Optional: command name(s) to run before worktree removal
+  start: string                      # Optional: command name to launch as a runtime session
 ```
 
 ## Section: metadata
@@ -1390,9 +1391,10 @@ object as JSON (same shape as the corresponding value in the catalog JSON above)
 
 ## Section: scions
 
-Optional lifecycle hooks for the scion workstream feature (`graft scion create`, `fuse`, `prune`).
-A scion is a git worktree + branch pair used for parallel workstreams. The `scions:` section
-declares commands to run at each lifecycle event.
+Optional lifecycle hooks and runtime configuration for the scion workstream feature
+(`graft scion create`, `fuse`, `prune`, `start`, `stop`). A scion is a git worktree +
+branch pair used for parallel workstreams. The `scions:` section declares commands to
+run at each lifecycle event and optionally a worker command for runtime sessions.
 
 ### Hook points
 
@@ -1428,6 +1430,29 @@ scions:
   on_prune: cleanup-resources
 ```
 
+### Start command
+
+The `start` field names a single command to launch as a long-running worker process in a
+runtime session (currently tmux). Unlike hook points, `start` accepts only a **single command
+name** (not a list) — it names the process that runs for the lifetime of the scion.
+
+```yaml
+commands:
+  agent:
+    run: "claude -p '$(graft context)'"
+
+scions:
+  start: agent
+  on_create: setup-dev-env
+```
+
+`graft scion start <name>` resolves the `start` command and launches it in a detached
+tmux session with ID `graft-scion-<name>`. `graft scion stop <name>` terminates the
+session. `graft scion list` shows a `● active` indicator when a session exists.
+
+The runtime backend is tmux. The `SessionRuntime` trait in graft-common supports future
+backends (docker, SSH) without changing the config format.
+
 ### Hook environment
 
 When a hook command runs, these environment variables are injected:
@@ -1459,7 +1484,8 @@ run. The behaviour on failure depends on the event:
 ### Validation
 
 `graft validate` checks that every command name referenced in `scions:` exists in the
-same file's `commands:` section. Unknown command names are reported as validation errors.
+same file's `commands:` section, including the `start` command. Unknown command names
+are reported as validation errors.
 
 ---
 

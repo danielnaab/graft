@@ -594,14 +594,19 @@ pub fn scion_start(
         )));
     }
 
-    let command_name = config
-        .and_then(|c| c.scion_hooks.as_ref())
+    let cfg = config.ok_or_else(|| {
+        GraftError::CommandExecution("no start command configured in scions.start".to_string())
+    })?;
+
+    let command_name = cfg
+        .scion_hooks
+        .as_ref()
         .and_then(|h| h.start.as_ref())
         .ok_or_else(|| {
             GraftError::CommandExecution("no start command configured in scions.start".to_string())
         })?;
 
-    let command = config.unwrap().get_command(command_name).ok_or_else(|| {
+    let command = cfg.get_command(command_name).ok_or_else(|| {
         GraftError::CommandExecution(format!(
             "start command '{command_name}' not found in commands"
         ))
