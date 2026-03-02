@@ -590,6 +590,7 @@ impl PromptState {
         repo_names: &[String],
         state_query_names: &[String],
         focus_entity_opts: &std::collections::HashMap<String, Vec<String>>,
+        scion_completions: &[ArgCompletion],
     ) -> CompletionState {
         let Some(state) = self.command_line.as_ref() else {
             return CompletionState::default();
@@ -724,7 +725,7 @@ impl PromptState {
                         if name_partial.contains(char::is_whitespace) {
                             return CompletionState::default();
                         }
-                        compute_scion_name_completions(name_partial)
+                        filter_scion_completions(name_partial, scion_completions)
                     }
                     _ => {
                         // Complete subcommand name
@@ -756,7 +757,7 @@ impl PromptState {
                 if rest.contains(char::is_whitespace) {
                     return CompletionState::default();
                 }
-                compute_scion_name_completions(rest)
+                filter_scion_completions(rest, scion_completions)
             }
             _ => CompletionState::default(),
         }
@@ -1063,34 +1064,14 @@ pub(super) fn compute_run_completions(
 
 // ===== Scion name completion =====
 
-/// Compute completions for scion names by listing scions from the filesystem.
-///
-/// This is a best-effort operation: if listing fails (e.g. no repo selected),
-/// an empty completion list is returned.
-fn compute_scion_name_completions(partial: &str) -> CompletionState {
-    // Try to list scions from the current directory
-    let Ok(cwd) = std::env::current_dir() else {
-        return CompletionState::default();
-    };
-    let Ok(scions) = graft_engine::scion_list(&cwd, None) else {
-        return CompletionState::default();
-    };
+/// Filter pre-computed scion completions by a partial name prefix.
+fn filter_scion_completions(partial: &str, completions: &[ArgCompletion]) -> CompletionState {
     let partial_lower = partial.to_ascii_lowercase();
     CompletionState {
-        completions: scions
+        completions: completions
             .iter()
-            .filter(|s| s.name.to_ascii_lowercase().starts_with(&partial_lower))
-            .map(|s| {
-                let status = match (s.ahead, s.session_active) {
-                    (Some(a), Some(true)) => format!("+{a} [session]"),
-                    (Some(a), _) => format!("+{a}"),
-                    _ => String::new(),
-                };
-                ArgCompletion {
-                    value: s.name.clone(),
-                    description: status,
-                }
-            })
+            .filter(|c| c.value.to_ascii_lowercase().starts_with(&partial_lower))
+            .cloned()
             .collect(),
         ..CompletionState::default()
     }

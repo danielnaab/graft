@@ -29,6 +29,29 @@ pub fn parse_graft_yaml(path: impl AsRef<Path>) -> Result<GraftConfig> {
     parse_graft_yaml_str(&content, &path.display().to_string())
 }
 
+/// Load dependency configs from `.graft/<dep>/graft.yaml` for each dependency
+/// in the project config. Dependencies whose graft.yaml is missing or invalid
+/// are silently skipped (they simply won't contribute hooks).
+pub fn load_dep_configs(
+    repo_path: impl AsRef<Path>,
+    config: &GraftConfig,
+) -> Vec<(String, GraftConfig)> {
+    config
+        .dependencies
+        .keys()
+        .filter_map(|dep_name| {
+            let dep_yaml = repo_path
+                .as_ref()
+                .join(".graft")
+                .join(dep_name)
+                .join("graft.yaml");
+            parse_graft_yaml(&dep_yaml)
+                .ok()
+                .map(|cfg| (dep_name.clone(), cfg))
+        })
+        .collect()
+}
+
 /// Parse graft.yaml from a string.
 #[allow(clippy::too_many_lines)]
 pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {

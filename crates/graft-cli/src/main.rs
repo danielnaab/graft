@@ -12,7 +12,7 @@ use graft_engine::{
     add_dependency_to_config, apply_lock, fetch_all_dependencies, fetch_dependency,
     filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_details,
     get_changes_for_dependency, get_dependency_status, get_state, invalidate_cached_state,
-    is_submodule, list_state_queries, parse_graft_yaml, parse_lock_file,
+    is_submodule, list_state_queries, load_dep_configs, parse_graft_yaml, parse_lock_file,
     remove_dependency_from_config, remove_dependency_from_lock, remove_submodule,
     resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, scion_attach_check,
     scion_create, scion_fuse, scion_list, scion_prune, scion_start, scion_stop,
@@ -2757,25 +2757,6 @@ fn try_load_graft_config(repo_path: &Path) -> Option<graft_engine::GraftConfig> 
     } else {
         None
     }
-}
-
-/// Load dependency configs from `.graft/<dep>/graft.yaml` for each dependency
-/// in the project config. Dependencies whose graft.yaml is missing or invalid
-/// are silently skipped (they simply won't contribute hooks).
-fn load_dep_configs(
-    repo_path: &Path,
-    config: &graft_engine::GraftConfig,
-) -> Vec<(String, graft_engine::GraftConfig)> {
-    config
-        .dependencies
-        .keys()
-        .filter_map(|dep_name| {
-            let dep_yaml = repo_path.join(".graft").join(dep_name).join("graft.yaml");
-            parse_graft_yaml(&dep_yaml)
-                .ok()
-                .map(|cfg| (dep_name.clone(), cfg))
-        })
-        .collect()
 }
 
 fn scion_create_command(name: &str) -> Result<()> {

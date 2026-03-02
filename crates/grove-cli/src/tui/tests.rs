@@ -912,7 +912,7 @@ fn completions_empty_when_no_space() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&[], &[], &[], &HashMap::default());
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &[]);
     assert!(cs.completions.is_empty());
 }
 
@@ -931,7 +931,7 @@ fn completions_run_command_names() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&commands, &[], &[], &HashMap::default());
+    let cs = p.compute_completions(&commands, &[], &[], &HashMap::default(), &[]);
     assert_eq!(cs.completions.len(), 2);
     let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
     assert!(values.contains(&"test"));
@@ -953,7 +953,7 @@ fn completions_run_command_partial() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&commands, &[], &[], &HashMap::default());
+    let cs = p.compute_completions(&commands, &[], &[], &HashMap::default(), &[]);
     assert_eq!(cs.completions.len(), 1);
     assert_eq!(cs.completions[0].value, "test");
 }
@@ -970,7 +970,7 @@ fn completions_repo_names() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&[], &repos, &[], &HashMap::default());
+    let cs = p.compute_completions(&[], &repos, &[], &HashMap::default(), &[]);
     assert_eq!(cs.completions.len(), 2);
 }
 
@@ -990,7 +990,7 @@ fn completions_repo_partial() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&[], &repos, &[], &HashMap::default());
+    let cs = p.compute_completions(&[], &repos, &[], &HashMap::default(), &[]);
     assert_eq!(cs.completions.len(), 2);
     let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
     assert!(values.contains(&"graft"));
@@ -1009,7 +1009,7 @@ fn completions_state_query_names() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&[], &[], &queries, &HashMap::default());
+    let cs = p.compute_completions(&[], &[], &queries, &HashMap::default(), &[]);
     assert_eq!(cs.completions.len(), 2);
 }
 
@@ -1024,7 +1024,7 @@ fn completions_catalog_categories() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&[], &[], &[], &HashMap::default());
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &[]);
     let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
     assert!(values.contains(&"core"));
     assert!(values.contains(&"diagnostic"));
@@ -1046,7 +1046,7 @@ fn completions_cursor_not_at_end() {
     }
     // Move cursor to position 2 (not at end)
     p.command_line.as_mut().unwrap().text.cursor_pos = 2;
-    let cs = p.compute_completions(&[], &[], &[], &HashMap::default());
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &[]);
     assert!(cs.completions.is_empty());
 }
 
@@ -2147,7 +2147,7 @@ fn completions_focus_first_arg_shows_query_names() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&[], &[], &queries, &HashMap::default());
+    let cs = p.compute_completions(&[], &[], &queries, &HashMap::default(), &[]);
     assert_eq!(cs.completions.len(), 2);
     let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
     assert!(values.contains(&"slices"));
@@ -2166,7 +2166,7 @@ fn completions_focus_first_arg_partial_match() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&[], &[], &queries, &HashMap::default());
+    let cs = p.compute_completions(&[], &[], &queries, &HashMap::default(), &[]);
     assert_eq!(cs.completions.len(), 1);
     assert_eq!(cs.completions[0].value, "slices");
 }
@@ -2189,7 +2189,7 @@ fn completions_focus_second_arg_shows_entity_values() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&[], &[], &queries, &focus_opts);
+    let cs = p.compute_completions(&[], &[], &queries, &focus_opts, &[]);
     assert_eq!(cs.completions.len(), 2);
     let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
     assert!(values.contains(&"retry-logic"));
@@ -2214,7 +2214,7 @@ fn completions_focus_second_arg_partial_match() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&[], &[], &queries, &focus_opts);
+    let cs = p.compute_completions(&[], &[], &queries, &focus_opts, &[]);
     assert_eq!(cs.completions.len(), 1);
     assert_eq!(cs.completions[0].value, "retry-logic");
 }
@@ -2231,6 +2231,6 @@ fn completions_focus_alias_f_works() {
             &CompletionState::default(),
         );
     }
-    let cs = p.compute_completions(&[], &[], &queries, &HashMap::default());
+    let cs = p.compute_completions(&[], &[], &queries, &HashMap::default(), &[]);
     assert_eq!(cs.completions.len(), 2);
 }

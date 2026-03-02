@@ -176,11 +176,11 @@ pub fn scion_prune(
         if rt.exists(&session_id).unwrap_or(false) {
             if !force {
                 return Err(GraftError::CommandExecution(format!(
-                    "scion '{name}' has an active runtime session; stop it first or use --force"
+                    "scion '{name}' has an active runtime session ({session_id}); stop it first or use --force"
                 )));
             }
             rt.stop(&session_id).map_err(|e| {
-                GraftError::CommandExecution(format!("failed to stop session: {e}"))
+                GraftError::CommandExecution(format!("failed to stop session '{session_id}': {e}"))
             })?;
         }
     }
@@ -256,11 +256,11 @@ pub fn scion_fuse(
         if rt.exists(&session_id).unwrap_or(false) {
             if !force {
                 return Err(GraftError::CommandExecution(format!(
-                    "scion '{name}' has an active runtime session; stop it first or use --force"
+                    "scion '{name}' has an active runtime session ({session_id}); stop it first or use --force"
                 )));
             }
             rt.stop(&session_id).map_err(|e| {
-                GraftError::CommandExecution(format!("failed to stop session: {e}"))
+                GraftError::CommandExecution(format!("failed to stop session '{session_id}': {e}"))
             })?;
         }
     }
@@ -1784,7 +1784,7 @@ mod tests {
 
         let runtime = MockRuntime::new();
         runtime
-            .launch("graft-scion-guarded", "echo", Path::new("/tmp"))
+            .launch(&scion_session_id("guarded"), "echo", Path::new("/tmp"))
             .unwrap();
 
         let result = scion_fuse(temp.path(), "guarded", None, &[], Some(&runtime), false);
@@ -1805,14 +1805,13 @@ mod tests {
         make_commit(&wt_path, "ff.txt", "feat: forced");
 
         let runtime = MockRuntime::new();
-        runtime
-            .launch("graft-scion-force-fuse", "echo", Path::new("/tmp"))
-            .unwrap();
+        let sid = scion_session_id("force-fuse");
+        runtime.launch(&sid, "echo", Path::new("/tmp")).unwrap();
 
         // Force should stop session and proceed
         let result = scion_fuse(temp.path(), "force-fuse", None, &[], Some(&runtime), true);
         assert!(result.is_ok());
-        assert!(!runtime.exists("graft-scion-force-fuse").unwrap());
+        assert!(!runtime.exists(&sid).unwrap());
     }
 
     #[test]
@@ -1855,7 +1854,7 @@ mod tests {
 
         let runtime = MockRuntime::new();
         runtime
-            .launch("graft-scion-prune-guard", "echo", Path::new("/tmp"))
+            .launch(&scion_session_id("prune-guard"), "echo", Path::new("/tmp"))
             .unwrap();
 
         let result = scion_prune(temp.path(), "prune-guard", None, &[], Some(&runtime), false);
@@ -1874,13 +1873,12 @@ mod tests {
         scion_create(temp.path(), "force-prune", None, &[]).unwrap();
 
         let runtime = MockRuntime::new();
-        runtime
-            .launch("graft-scion-force-prune", "echo", Path::new("/tmp"))
-            .unwrap();
+        let sid = scion_session_id("force-prune");
+        runtime.launch(&sid, "echo", Path::new("/tmp")).unwrap();
 
         let result = scion_prune(temp.path(), "force-prune", None, &[], Some(&runtime), true);
         assert!(result.is_ok());
-        assert!(!runtime.exists("graft-scion-force-prune").unwrap());
+        assert!(!runtime.exists(&sid).unwrap());
     }
 
     // --- scion_attach_check tests ---

@@ -209,11 +209,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         if self.prompt.is_active() {
             let focus_opts = self.focus_entity_opts_for_buffer();
             let resolved = self.commands_with_resolved_options();
+            let scion_comps = self.scion_completions();
             let cs = self.prompt.compute_completions(
                 &resolved,
                 &self.repo_basenames(),
                 &self.state_query_names(),
                 &focus_opts,
+                &scion_comps,
             );
             if let Some(cmd) = self.prompt.handle_key(code, modifiers, &cs) {
                 self.execute_cli_command(cmd);
@@ -1405,7 +1407,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 .ok();
         let dep_configs = config
             .as_ref()
-            .map(|c| load_dep_configs_for_repo(std::path::Path::new(&repo_path), c))
+            .map(|c| graft_engine::load_dep_configs(&repo_path, c))
             .unwrap_or_default();
         match graft_engine::scion_create(&repo_path, name, config.as_ref(), &dep_configs) {
             Ok(wt_path) => {
@@ -1474,7 +1476,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 .ok();
         let dep_configs = config
             .as_ref()
-            .map(|c| load_dep_configs_for_repo(std::path::Path::new(&repo_path), c))
+            .map(|c| graft_engine::load_dep_configs(&repo_path, c))
             .unwrap_or_default();
         let runtime = graft_common::TmuxRuntime::new().ok();
         let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
@@ -1506,7 +1508,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 .ok();
         let dep_configs = config
             .as_ref()
-            .map(|c| load_dep_configs_for_repo(std::path::Path::new(&repo_path), c))
+            .map(|c| graft_engine::load_dep_configs(&repo_path, c))
             .unwrap_or_default();
         let runtime = graft_common::TmuxRuntime::new().ok();
         let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
@@ -1560,11 +1562,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         // Suspend TUI for blocking attach
         crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen).ok();
         crossterm::terminal::disable_raw_mode().ok();
-        let _ = runtime.attach(&session_id);
+        let attach_result = runtime.attach(&session_id);
         // Resume TUI
         crossterm::terminal::enable_raw_mode().ok();
         crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen).ok();
         self.needs_refresh = true;
+        if let Err(e) = attach_result {
+            self.status = Some(StatusMessage::error(format!("attach failed: {e}")));
+        }
     }
 
     /// `:review <name> [full]` — review a scion's changes.
@@ -1852,11 +1857,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             if self.prompt.is_active() {
                 let focus_opts = self.focus_entity_opts_for_buffer();
                 let resolved = self.commands_with_resolved_options();
+                let scion_comps = self.scion_completions();
                 let cs = self.prompt.compute_completions(
                     &resolved,
                     &self.repo_basenames(),
                     &self.state_query_names(),
                     &focus_opts,
+                    &scion_comps,
                 );
                 self.prompt.render_palette(frame, content_area, &cs);
                 self.prompt.render_prompt(frame, prompt_area, &cs);
@@ -2004,6 +2011,30 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             .map(|r| {
                 let path = r.as_path().display().to_string();
                 extract_basename(&path).to_string()
+            })
+            .collect()
+    }
+
+    /// Get scion name completions for the selected repo.
+    fn scion_completions(&self) -> Vec<super::prompt::ArgCompletion> {
+        let Some(repo_path) = self.context.selected_repo_path.as_ref() else {
+            return Vec::new();
+        };
+        let Ok(scions) = graft_engine::scion_list(repo_path, None) else {
+            return Vec::new();
+        };
+        scions
+            .iter()
+            .map(|s| {
+                let status = match (s.ahead, s.session_active) {
+                    (Some(a), Some(true)) => format!("+{a} [session]"),
+                    (Some(a), _) => format!("+{a}"),
+                    _ => String::new(),
+                };
+                super::prompt::ArgCompletion {
+                    value: s.name.clone(),
+                    description: status,
+                }
             })
             .collect()
     }
@@ -2347,21 +2378,4 @@ fn help_line(cmd: &str, desc: &str) -> Line<'static> {
         Span::styled(format!("  {cmd:<22}"), Style::default().fg(Color::Cyan)),
         Span::styled(desc.to_string(), Style::default().fg(Color::Gray)),
     ])
-}
-
-/// Load dependency configs from `.graft/<dep>/graft.yaml` for hook resolution.
-fn load_dep_configs_for_repo(
-    repo_path: &std::path::Path,
-    config: &graft_engine::GraftConfig,
-) -> Vec<(String, graft_engine::GraftConfig)> {
-    config
-        .dependencies
-        .keys()
-        .filter_map(|dep_name| {
-            let dep_yaml = repo_path.join(".graft").join(dep_name).join("graft.yaml");
-            graft_engine::parse_graft_yaml(&dep_yaml)
-                .ok()
-                .map(|cfg| (dep_name.clone(), cfg))
-        })
-        .collect()
 }

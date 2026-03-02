@@ -33,7 +33,7 @@ pub use command::{
     has_placeholders, resolve_command_stdin, resolve_script_in_command, setup_run_state,
     substitute_named_placeholders, substitute_placeholders, CommandContext, CommandResult,
 };
-pub use config::parse_graft_yaml;
+pub use config::{load_dep_configs, parse_graft_yaml};
 pub use lock::{parse_lock_file, write_lock_file};
 pub use management::{
     add_dependency_to_config, is_submodule, remove_dependency_from_config,
