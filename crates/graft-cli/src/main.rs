@@ -5,16 +5,18 @@ mod completers;
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
-use graft_common::{FsProcessRegistry, ProcessEntry, ProcessRegistry, ProcessStatus, TmuxRuntime};
+use graft_common::{
+    FsProcessRegistry, ProcessEntry, ProcessRegistry, ProcessStatus, SessionRuntime, TmuxRuntime,
+};
 use graft_engine::{
     add_dependency_to_config, apply_lock, fetch_all_dependencies, fetch_dependency,
     filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_details,
     get_changes_for_dependency, get_dependency_status, get_state, invalidate_cached_state,
     is_submodule, list_state_queries, parse_graft_yaml, parse_lock_file,
     remove_dependency_from_config, remove_dependency_from_lock, remove_submodule,
-    resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, scion_create,
-    scion_fuse, scion_list, scion_prune, scion_start, scion_stop, sync_all_dependencies,
-    validate_config_schema, validate_integrity, write_lock_file,
+    resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, scion_attach_check,
+    scion_create, scion_fuse, scion_list, scion_prune, scion_start, scion_stop,
+    sync_all_dependencies, validate_config_schema, validate_integrity, write_lock_file,
 };
 use std::path::{Path, PathBuf};
 
@@ -251,11 +253,17 @@ enum ScionCommands {
     Prune {
         /// Scion name to remove
         name: String,
+        /// Force prune even if a runtime session is active
+        #[arg(long)]
+        force: bool,
     },
     /// Fuse a scion into the main branch (merge + cleanup)
     Fuse {
         /// Scion name to fuse
         name: String,
+        /// Force fuse even if a runtime session is active
+        #[arg(long)]
+        force: bool,
     },
     /// Start a worker process in a scion's runtime session
     Start {
@@ -264,6 +272,11 @@ enum ScionCommands {
     },
     /// Stop a scion's runtime session
     Stop {
+        /// Scion name
+        name: String,
+    },
+    /// Attach to a scion's runtime session
+    Attach {
         /// Scion name
         name: String,
     },
@@ -365,17 +378,20 @@ fn main() -> Result<()> {
             ScionCommands::Create { name } => {
                 scion_create_command(&name)?;
             }
-            ScionCommands::Prune { name } => {
-                scion_prune_command(&name)?;
+            ScionCommands::Prune { name, force } => {
+                scion_prune_command(&name, force)?;
             }
-            ScionCommands::Fuse { name } => {
-                scion_fuse_command(&name)?;
+            ScionCommands::Fuse { name, force } => {
+                scion_fuse_command(&name, force)?;
             }
             ScionCommands::Start { name } => {
                 scion_start_command(&name)?;
             }
             ScionCommands::Stop { name } => {
                 scion_stop_command(&name)?;
+            }
+            ScionCommands::Attach { name } => {
+                scion_attach_command(&name)?;
             }
         },
     }
@@ -2777,15 +2793,24 @@ fn scion_create_command(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn scion_prune_command(name: &str) -> Result<()> {
+fn scion_prune_command(name: &str, force: bool) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
     let config = try_load_graft_config(&repo_path);
     let dep_configs = config
         .as_ref()
         .map(|c| load_dep_configs(&repo_path, c))
         .unwrap_or_default();
-    scion_prune(&repo_path, name, config.as_ref(), &dep_configs)
-        .with_context(|| format!("Failed to prune scion '{name}'"))?;
+    let runtime = TmuxRuntime::new().ok();
+    let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
+    scion_prune(
+        &repo_path,
+        name,
+        config.as_ref(),
+        &dep_configs,
+        runtime_ref,
+        force,
+    )
+    .with_context(|| format!("Failed to prune scion '{name}'"))?;
     println!("Pruned scion '{name}'");
     Ok(())
 }
@@ -2809,15 +2834,35 @@ fn scion_stop_command(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn scion_fuse_command(name: &str) -> Result<()> {
+fn scion_attach_command(name: &str) -> Result<()> {
+    let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
+    let runtime = TmuxRuntime::new().context("tmux is required for scion sessions")?;
+    let session_id = scion_attach_check(&repo_path, name, &runtime)
+        .with_context(|| format!("Failed to attach to scion '{name}'"))?;
+    runtime
+        .attach(&session_id)
+        .with_context(|| format!("Failed to attach to session '{session_id}'"))?;
+    Ok(())
+}
+
+fn scion_fuse_command(name: &str, force: bool) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
     let config = try_load_graft_config(&repo_path);
     let dep_configs = config
         .as_ref()
         .map(|c| load_dep_configs(&repo_path, c))
         .unwrap_or_default();
-    let merge_commit = scion_fuse(&repo_path, name, config.as_ref(), &dep_configs)
-        .with_context(|| format!("Failed to fuse scion '{name}'"))?;
+    let runtime = TmuxRuntime::new().ok();
+    let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
+    let merge_commit = scion_fuse(
+        &repo_path,
+        name,
+        config.as_ref(),
+        &dep_configs,
+        runtime_ref,
+        force,
+    )
+    .with_context(|| format!("Failed to fuse scion '{name}'"))?;
     println!("Fused scion '{name}' into main");
     println!("  merge commit: {merge_commit}");
     println!("  worktree and branch cleaned up");

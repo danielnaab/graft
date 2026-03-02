@@ -709,6 +709,55 @@ impl PromptState {
                     }
                 }
             }
+            "scion" | "sc" => {
+                // Parse subcommand and name
+                let sub_parts: Vec<&str> = rest.splitn(2, char::is_whitespace).collect();
+                let sub = sub_parts.first().copied().unwrap_or("");
+                let sub_lower = sub.to_ascii_lowercase();
+
+                match sub_lower.as_str() {
+                    // list and create don't need name completion
+                    "list" | "ls" | "create" => CompletionState::default(),
+                    "start" | "stop" | "prune" | "fuse" => {
+                        // Complete scion name
+                        let name_partial = sub_parts.get(1).unwrap_or(&"").trim();
+                        if name_partial.contains(char::is_whitespace) {
+                            return CompletionState::default();
+                        }
+                        compute_scion_name_completions(name_partial)
+                    }
+                    _ => {
+                        // Complete subcommand name
+                        let subs = [
+                            ("list", "List all scions"),
+                            ("create", "Create a new scion"),
+                            ("start", "Start runtime session"),
+                            ("stop", "Stop runtime session"),
+                            ("prune", "Remove a scion"),
+                            ("fuse", "Fuse into main"),
+                        ];
+                        let partial = sub.to_ascii_lowercase();
+                        CompletionState {
+                            completions: subs
+                                .iter()
+                                .filter(|(name, _)| name.starts_with(partial.as_str()))
+                                .map(|(name, desc)| ArgCompletion {
+                                    value: (*name).to_string(),
+                                    description: (*desc).to_string(),
+                                })
+                                .collect(),
+                            requires_more_input: true,
+                            arg_hint: None,
+                        }
+                    }
+                }
+            }
+            "attach" | "review" => {
+                if rest.contains(char::is_whitespace) {
+                    return CompletionState::default();
+                }
+                compute_scion_name_completions(rest)
+            }
             _ => CompletionState::default(),
         }
     }
@@ -1009,6 +1058,41 @@ pub(super) fn compute_run_completions(
                 arg_hint: Some(format!("<{}>", arg_def.name)),
             }
         }
+    }
+}
+
+// ===== Scion name completion =====
+
+/// Compute completions for scion names by listing scions from the filesystem.
+///
+/// This is a best-effort operation: if listing fails (e.g. no repo selected),
+/// an empty completion list is returned.
+fn compute_scion_name_completions(partial: &str) -> CompletionState {
+    // Try to list scions from the current directory
+    let Ok(cwd) = std::env::current_dir() else {
+        return CompletionState::default();
+    };
+    let Ok(scions) = graft_engine::scion_list(&cwd, None) else {
+        return CompletionState::default();
+    };
+    let partial_lower = partial.to_ascii_lowercase();
+    CompletionState {
+        completions: scions
+            .iter()
+            .filter(|s| s.name.to_ascii_lowercase().starts_with(&partial_lower))
+            .map(|s| {
+                let status = match (s.ahead, s.session_active) {
+                    (Some(a), Some(true)) => format!("+{a} [session]"),
+                    (Some(a), _) => format!("+{a}"),
+                    _ => String::new(),
+                };
+                ArgCompletion {
+                    value: s.name.clone(),
+                    description: status,
+                }
+            })
+            .collect(),
+        ..CompletionState::default()
     }
 }
 

@@ -724,6 +724,102 @@ pub fn git_delete_ref(repo: impl AsRef<Path>, ref_name: &str) -> Result<(), GitE
     Ok(())
 }
 
+/// Get a compact diff summary between two refs.
+///
+/// Runs `git diff --stat <base>...<head>`.
+///
+/// # Arguments
+/// * `repo` - Path to the git repository
+/// * `base` - Base ref (e.g. "main")
+/// * `head` - Head ref (e.g. "feature/my-feature")
+///
+/// # Errors
+/// Returns `GitError` if the git command fails.
+pub fn git_diff_stat(repo: impl AsRef<Path>, base: &str, head: &str) -> Result<String, GitError> {
+    let repo = repo.as_ref();
+    let config = ProcessConfig {
+        command: format!("git diff --stat {base}...{head}"),
+        working_dir: repo.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git diff --stat failed: {}",
+            output.stderr
+        )));
+    }
+    Ok(output.stdout.trim().to_string())
+}
+
+/// Get the full diff between two refs.
+///
+/// Runs `git diff <base>...<head>`.
+///
+/// # Arguments
+/// * `repo` - Path to the git repository
+/// * `base` - Base ref (e.g. "main")
+/// * `head` - Head ref (e.g. "feature/my-feature")
+///
+/// # Errors
+/// Returns `GitError` if the git command fails.
+pub fn git_diff_output(repo: impl AsRef<Path>, base: &str, head: &str) -> Result<String, GitError> {
+    let repo = repo.as_ref();
+    let config = ProcessConfig {
+        command: format!("git diff {base}...{head}"),
+        working_dir: repo.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git diff failed: {}",
+            output.stderr
+        )));
+    }
+    Ok(output.stdout.clone())
+}
+
+/// Get a oneline commit log between two refs.
+///
+/// Runs `git log <base>..<head> --oneline`.
+///
+/// # Arguments
+/// * `repo` - Path to the git repository
+/// * `base` - Base ref (e.g. "main")
+/// * `head` - Head ref (e.g. "feature/my-feature")
+///
+/// # Errors
+/// Returns `GitError` if the git command fails.
+pub fn git_log_output(repo: impl AsRef<Path>, base: &str, head: &str) -> Result<String, GitError> {
+    let repo = repo.as_ref();
+    let config = ProcessConfig {
+        command: format!("git log {base}..{head} --oneline"),
+        working_dir: repo.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git log failed: {}",
+            output.stderr
+        )));
+    }
+    Ok(output.stdout.trim().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

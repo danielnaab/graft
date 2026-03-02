@@ -64,7 +64,7 @@ fn worktree_path(repo: &Path, name: &str) -> PathBuf {
 /// Resolve the base branch from the main worktree.
 ///
 /// Returns an error if the main worktree is in detached HEAD state (no branch).
-fn resolve_base_branch(worktrees: &[graft_common::WorktreeInfo]) -> Result<String> {
+pub fn resolve_base_branch(worktrees: &[graft_common::WorktreeInfo]) -> Result<String> {
     worktrees
         .first()
         .and_then(|w| w.branch.clone())
@@ -78,6 +78,11 @@ fn resolve_base_branch(worktrees: &[graft_common::WorktreeInfo]) -> Result<Strin
 /// Compute the branch name for a scion: `feature/<name>`.
 fn branch_name(name: &str) -> String {
     format!("feature/{name}")
+}
+
+/// Compute the tmux session ID for a scion: `graft-scion-<name>`.
+pub fn scion_session_id(name: &str) -> String {
+    format!("graft-scion-{name}")
 }
 
 /// Create a new scion (worktree + branch) for the given name.
@@ -159,9 +164,27 @@ pub fn scion_prune(
     name: &str,
     config: Option<&GraftConfig>,
     dep_configs: &[(String, GraftConfig)],
+    runtime: Option<&dyn SessionRuntime>,
+    force: bool,
 ) -> Result<()> {
     validate_scion_name(name)?;
     let repo = repo_path.as_ref();
+
+    // Session guard: refuse to prune while a runtime session is active
+    if let Some(rt) = runtime {
+        let session_id = scion_session_id(name);
+        if rt.exists(&session_id).unwrap_or(false) {
+            if !force {
+                return Err(GraftError::CommandExecution(format!(
+                    "scion '{name}' has an active runtime session; stop it first or use --force"
+                )));
+            }
+            rt.stop(&session_id).map_err(|e| {
+                GraftError::CommandExecution(format!("failed to stop session: {e}"))
+            })?;
+        }
+    }
+
     let path = worktree_path(repo, name);
     let branch = branch_name(name);
 
@@ -221,9 +244,27 @@ pub fn scion_fuse(
     name: &str,
     config: Option<&GraftConfig>,
     dep_configs: &[(String, GraftConfig)],
+    runtime: Option<&dyn SessionRuntime>,
+    force: bool,
 ) -> Result<String> {
     validate_scion_name(name)?;
     let repo = repo_path.as_ref();
+
+    // Session guard: refuse to fuse while a runtime session is active
+    if let Some(rt) = runtime {
+        let session_id = scion_session_id(name);
+        if rt.exists(&session_id).unwrap_or(false) {
+            if !force {
+                return Err(GraftError::CommandExecution(format!(
+                    "scion '{name}' has an active runtime session; stop it first or use --force"
+                )));
+            }
+            rt.stop(&session_id).map_err(|e| {
+                GraftError::CommandExecution(format!("failed to stop session: {e}"))
+            })?;
+        }
+    }
+
     let path = worktree_path(repo, name);
     if !path.exists() {
         return Err(GraftError::CommandExecution(format!(
@@ -612,7 +653,7 @@ pub fn scion_start(
         ))
     })?;
 
-    let session_id = format!("graft-scion-{name}");
+    let session_id = scion_session_id(name);
     runtime.launch(&session_id, &command.run, &wt_path)?;
     Ok(())
 }
@@ -629,9 +670,39 @@ pub fn scion_stop(
     runtime: &impl SessionRuntime,
 ) -> Result<()> {
     validate_scion_name(name)?;
-    let session_id = format!("graft-scion-{name}");
+    let session_id = scion_session_id(name);
     runtime.stop(&session_id)?;
     Ok(())
+}
+
+/// Check that a scion exists and has an active runtime session, returning the session ID.
+///
+/// Used by the `attach` command to validate preconditions before handing off to
+/// the runtime's blocking `attach` call.
+///
+/// # Errors
+/// Returns `GraftError` if the scion worktree does not exist or no active session
+/// is found for it.
+pub fn scion_attach_check(
+    repo_path: impl AsRef<Path>,
+    name: &str,
+    runtime: &impl SessionRuntime,
+) -> Result<String> {
+    validate_scion_name(name)?;
+    let repo = repo_path.as_ref();
+    let path = worktree_path(repo, name);
+    if !path.exists() {
+        return Err(GraftError::CommandExecution(format!(
+            "scion '{name}' does not exist"
+        )));
+    }
+    let session_id = scion_session_id(name);
+    if !runtime.exists(&session_id).unwrap_or(false) {
+        return Err(GraftError::CommandExecution(format!(
+            "no active session for scion '{name}'"
+        )));
+    }
+    Ok(session_id)
 }
 
 /// Structured information about a scion workstream.
@@ -723,7 +794,7 @@ pub fn scion_list(
         let dirty = git_is_dirty(&wt.path).unwrap_or(false);
 
         let session_active = runtime.map(|rt| {
-            let session_id = format!("graft-scion-{scion_name}");
+            let session_id = scion_session_id(&scion_name);
             rt.exists(&session_id).unwrap_or(false)
         });
 
@@ -814,7 +885,7 @@ mod tests {
         init_test_repo(temp.path());
 
         scion_create(temp.path(), "to-prune", None, &[]).unwrap();
-        scion_prune(temp.path(), "to-prune", None, &[]).unwrap();
+        scion_prune(temp.path(), "to-prune", None, &[], None, false).unwrap();
 
         // Worktree gone from list
         let worktrees = graft_common::git_worktree_list(temp.path()).unwrap();
@@ -832,7 +903,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         init_test_repo(temp.path());
 
-        let result = scion_prune(temp.path(), "does-not-exist", None, &[]);
+        let result = scion_prune(temp.path(), "does-not-exist", None, &[], None, false);
         assert!(result.is_err());
     }
 
@@ -844,7 +915,7 @@ mod tests {
         let wt = scion_create(temp.path(), "round-trip", None, &[]).unwrap();
         assert!(wt.exists());
 
-        scion_prune(temp.path(), "round-trip", None, &[]).unwrap();
+        scion_prune(temp.path(), "round-trip", None, &[], None, false).unwrap();
         assert!(!wt.exists());
     }
 
@@ -1294,7 +1365,14 @@ mod tests {
             start: None,
         });
 
-        let result = scion_prune(temp.path(), "preserve-test", Some(&config), &[]);
+        let result = scion_prune(
+            temp.path(),
+            "preserve-test",
+            Some(&config),
+            &[],
+            None,
+            false,
+        );
         assert!(result.is_err());
 
         // Worktree should still exist
@@ -1320,7 +1398,7 @@ mod tests {
         let main_before = worktrees[0].head.clone();
 
         // Fuse
-        let merge_commit = scion_fuse(temp.path(), "fuse-test", None, &[]).unwrap();
+        let merge_commit = scion_fuse(temp.path(), "fuse-test", None, &[], None, false).unwrap();
         assert_eq!(merge_commit.len(), 40);
         assert_ne!(merge_commit, main_before);
 
@@ -1359,7 +1437,7 @@ mod tests {
         let wt_path = temp.path().join(".worktrees").join("no-ahead");
 
         // Fuse should succeed (already-merged path)
-        let commit = scion_fuse(temp.path(), "no-ahead", None, &[]).unwrap();
+        let commit = scion_fuse(temp.path(), "no-ahead", None, &[], None, false).unwrap();
         // Should return a valid commit hash (not empty)
         assert_eq!(commit.len(), 40);
         assert!(commit.chars().all(|c| c.is_ascii_hexdigit()));
@@ -1406,7 +1484,7 @@ mod tests {
             .unwrap();
 
         // Fuse should fail with merge conflict
-        let result = scion_fuse(temp.path(), "conflict-fuse", None, &[]);
+        let result = scion_fuse(temp.path(), "conflict-fuse", None, &[], None, false);
         assert!(result.is_err());
 
         // Worktree should still exist (no cleanup on merge conflict)
@@ -1507,7 +1585,7 @@ mod tests {
             .output()
             .unwrap();
 
-        let result = scion_fuse(temp.path(), "det-fuse", None, &[]);
+        let result = scion_fuse(temp.path(), "det-fuse", None, &[], None, false);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -1529,7 +1607,7 @@ mod tests {
         // Create uncommitted changes in the scion worktree
         fs::write(wt_path.join("uncommitted.txt"), "wip").unwrap();
 
-        let result = scion_fuse(temp.path(), "dirty-fuse", None, &[]);
+        let result = scion_fuse(temp.path(), "dirty-fuse", None, &[], None, false);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -1551,7 +1629,7 @@ mod tests {
         // Manually remove the worktree directory (simulating rm -rf)
         fs::remove_dir_all(&wt_path).unwrap();
 
-        let result = scion_fuse(temp.path(), "gone-fuse", None, &[]);
+        let result = scion_fuse(temp.path(), "gone-fuse", None, &[], None, false);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -1692,5 +1770,164 @@ mod tests {
 
         let scions = scion_list(temp.path(), Some(&runtime)).unwrap();
         assert_eq!(scions[0].session_active, Some(true));
+    }
+
+    // --- session guard tests ---
+
+    #[test]
+    fn scion_fuse_with_active_session_no_force_errors() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "guarded", None, &[]).unwrap();
+        let wt_path = temp.path().join(".worktrees").join("guarded");
+        make_commit(&wt_path, "g.txt", "feat: g");
+
+        let runtime = MockRuntime::new();
+        runtime
+            .launch("graft-scion-guarded", "echo", Path::new("/tmp"))
+            .unwrap();
+
+        let result = scion_fuse(temp.path(), "guarded", None, &[], Some(&runtime), false);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("--force"),
+            "expected '--force' hint, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn scion_fuse_with_active_session_force_succeeds() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "force-fuse", None, &[]).unwrap();
+        let wt_path = temp.path().join(".worktrees").join("force-fuse");
+        make_commit(&wt_path, "ff.txt", "feat: forced");
+
+        let runtime = MockRuntime::new();
+        runtime
+            .launch("graft-scion-force-fuse", "echo", Path::new("/tmp"))
+            .unwrap();
+
+        // Force should stop session and proceed
+        let result = scion_fuse(temp.path(), "force-fuse", None, &[], Some(&runtime), true);
+        assert!(result.is_ok());
+        assert!(!runtime.exists("graft-scion-force-fuse").unwrap());
+    }
+
+    #[test]
+    fn scion_fuse_no_session_succeeds() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "no-sess-fuse", None, &[]).unwrap();
+        let wt_path = temp.path().join(".worktrees").join("no-sess-fuse");
+        make_commit(&wt_path, "ns.txt", "feat: no session");
+
+        let runtime = MockRuntime::new();
+        let result = scion_fuse(
+            temp.path(),
+            "no-sess-fuse",
+            None,
+            &[],
+            Some(&runtime),
+            false,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn scion_fuse_no_runtime_succeeds() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "no-rt-fuse", None, &[]).unwrap();
+        let wt_path = temp.path().join(".worktrees").join("no-rt-fuse");
+        make_commit(&wt_path, "nr.txt", "feat: no runtime");
+
+        let result = scion_fuse(temp.path(), "no-rt-fuse", None, &[], None, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn scion_prune_with_active_session_no_force_errors() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "prune-guard", None, &[]).unwrap();
+
+        let runtime = MockRuntime::new();
+        runtime
+            .launch("graft-scion-prune-guard", "echo", Path::new("/tmp"))
+            .unwrap();
+
+        let result = scion_prune(temp.path(), "prune-guard", None, &[], Some(&runtime), false);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("--force"),
+            "expected '--force' hint, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn scion_prune_with_active_session_force_succeeds() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "force-prune", None, &[]).unwrap();
+
+        let runtime = MockRuntime::new();
+        runtime
+            .launch("graft-scion-force-prune", "echo", Path::new("/tmp"))
+            .unwrap();
+
+        let result = scion_prune(temp.path(), "force-prune", None, &[], Some(&runtime), true);
+        assert!(result.is_ok());
+        assert!(!runtime.exists("graft-scion-force-prune").unwrap());
+    }
+
+    // --- scion_attach_check tests ---
+
+    #[test]
+    fn scion_attach_check_nonexistent_scion_errors() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        let runtime = MockRuntime::new();
+        let result = scion_attach_check(temp.path(), "ghost", &runtime);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("does not exist"),
+            "expected 'does not exist' error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn scion_attach_check_no_session_errors() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "idle", None, &[]).unwrap();
+
+        let runtime = MockRuntime::new();
+        let result = scion_attach_check(temp.path(), "idle", &runtime);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("no active session"),
+            "expected 'no active session' error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn scion_attach_check_with_session_returns_id() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "running", None, &[]).unwrap();
+
+        let runtime = MockRuntime::new();
+        runtime
+            .launch("graft-scion-running", "echo", Path::new("/tmp"))
+            .unwrap();
+
+        let session_id = scion_attach_check(temp.path(), "running", &runtime).unwrap();
+        assert_eq!(session_id, "graft-scion-running");
     }
 }

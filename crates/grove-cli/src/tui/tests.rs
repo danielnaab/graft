@@ -555,12 +555,21 @@ fn prompt_history() {
 
 #[test]
 fn prompt_palette_enter_selects_command() {
-    // Find the first palette entry that doesn't take args
-    let first_no_args = PALETTE_COMMANDS.iter().find(|e| !e.takes_args).unwrap();
-    let expected = parse_command(first_no_args.command);
+    // Find the first palette entry that doesn't take args and navigate to it
+    let no_args_index = PALETTE_COMMANDS.iter().position(|e| !e.takes_args).unwrap();
+    let expected = parse_command(PALETTE_COMMANDS[no_args_index].command);
 
     let mut prompt = super::prompt::PromptState::new();
     prompt.open();
+
+    // Navigate down to the first no-args entry
+    for _ in 0..no_args_index {
+        prompt.handle_key(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
 
     let result = prompt.handle_key(
         KeyCode::Enter,

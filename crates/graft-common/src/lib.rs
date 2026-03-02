@@ -60,9 +60,9 @@ pub use config::{
 };
 pub use git::{
     get_current_commit, git_ahead_behind, git_branch_delete, git_checkout, git_delete_ref,
-    git_fast_forward, git_fetch, git_is_dirty, git_last_commit_time, git_merge_to_ref,
-    git_reset_hard, git_rev_parse, git_worktree_add, git_worktree_list, git_worktree_remove,
-    is_git_repo, GitError, WorktreeInfo,
+    git_diff_output, git_diff_stat, git_fast_forward, git_fetch, git_is_dirty,
+    git_last_commit_time, git_log_output, git_merge_to_ref, git_reset_hard, git_rev_parse,
+    git_worktree_add, git_worktree_list, git_worktree_remove, is_git_repo, GitError, WorktreeInfo,
 };
 pub use process::{
     run_to_completion, run_to_completion_registered, run_to_completion_with_timeout,

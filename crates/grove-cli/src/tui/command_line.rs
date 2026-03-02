@@ -19,6 +19,11 @@ pub(super) struct PaletteEntry {
 /// All known commands, in alphabetical display order.
 pub(super) const PALETTE_COMMANDS: &[PaletteEntry] = &[
     PaletteEntry {
+        command: "attach",
+        description: "Attach to a scion's runtime session",
+        takes_args: true,
+    },
+    PaletteEntry {
         command: "catalog",
         description: "List available commands and sequences",
         takes_args: false,
@@ -59,8 +64,18 @@ pub(super) const PALETTE_COMMANDS: &[PaletteEntry] = &[
         takes_args: false,
     },
     PaletteEntry {
+        command: "review",
+        description: "Review a scion's changes",
+        takes_args: true,
+    },
+    PaletteEntry {
         command: "run",
         description: "Run a graft command in the current repository",
+        takes_args: true,
+    },
+    PaletteEntry {
+        command: "scion",
+        description: "Manage scion workstreams",
         takes_args: true,
     },
     PaletteEntry {
@@ -126,11 +141,28 @@ pub(super) enum CliCommand {
     /// - `Unfocus(None)` — clear all focuses.
     /// - `Unfocus(Some(query))` — clear focus for a single query.
     Unfocus(Option<String>),
+    /// `:scion list` — list all scion workstreams.
+    ScionList,
+    /// `:scion create <name>` — create a new scion.
+    ScionCreate(String),
+    /// `:scion start <name>` — start a scion's runtime session.
+    ScionStart(String),
+    /// `:scion stop <name>` — stop a scion's runtime session.
+    ScionStop(String),
+    /// `:scion prune <name>` — remove a scion.
+    ScionPrune(String),
+    /// `:scion fuse <name>` — fuse a scion into main.
+    ScionFuse(String),
+    /// `:attach <name>` — attach to a scion's runtime session.
+    Attach(String),
+    /// `:review <name> [full]` — review a scion's changes.
+    Review(String, bool),
     /// An unknown command (the raw input is preserved for error display).
     Unknown(String),
 }
 
 /// Parse a command line buffer (without the leading `:`) into a `CliCommand`.
+#[allow(clippy::too_many_lines)]
 pub(super) fn parse_command(input: &str) -> CliCommand {
     let input = input.trim();
 
@@ -208,6 +240,76 @@ pub(super) fn parse_command(input: &str) -> CliCommand {
                 CliCommand::Unfocus(None)
             } else {
                 CliCommand::Unfocus(Some(rest.to_string()))
+            }
+        }
+        "scion" | "sc" => {
+            if rest.is_empty() {
+                return CliCommand::ScionList;
+            }
+            let parts: Vec<&str> = rest.splitn(2, char::is_whitespace).collect();
+            match parts.first().map(|s| s.to_ascii_lowercase()).as_deref() {
+                Some("list" | "ls") => CliCommand::ScionList,
+                Some("create") => {
+                    let name = parts.get(1).unwrap_or(&"").trim();
+                    if name.is_empty() {
+                        CliCommand::Unknown(input.to_string())
+                    } else {
+                        CliCommand::ScionCreate(name.to_string())
+                    }
+                }
+                Some("start") => {
+                    let name = parts.get(1).unwrap_or(&"").trim();
+                    if name.is_empty() {
+                        CliCommand::Unknown(input.to_string())
+                    } else {
+                        CliCommand::ScionStart(name.to_string())
+                    }
+                }
+                Some("stop") => {
+                    let name = parts.get(1).unwrap_or(&"").trim();
+                    if name.is_empty() {
+                        CliCommand::Unknown(input.to_string())
+                    } else {
+                        CliCommand::ScionStop(name.to_string())
+                    }
+                }
+                Some("prune") => {
+                    let name = parts.get(1).unwrap_or(&"").trim();
+                    if name.is_empty() {
+                        CliCommand::Unknown(input.to_string())
+                    } else {
+                        CliCommand::ScionPrune(name.to_string())
+                    }
+                }
+                Some("fuse") => {
+                    let name = parts.get(1).unwrap_or(&"").trim();
+                    if name.is_empty() {
+                        CliCommand::Unknown(input.to_string())
+                    } else {
+                        CliCommand::ScionFuse(name.to_string())
+                    }
+                }
+                _ => CliCommand::Unknown(input.to_string()),
+            }
+        }
+        "attach" => {
+            if rest.is_empty() {
+                CliCommand::Unknown(input.to_string())
+            } else {
+                CliCommand::Attach(rest.to_string())
+            }
+        }
+        "review" => {
+            if rest.is_empty() {
+                CliCommand::Unknown(input.to_string())
+            } else {
+                let mut words = rest.splitn(2, char::is_whitespace);
+                let name = words.next().unwrap_or("").to_string();
+                let full = words
+                    .next()
+                    .map(str::trim)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("full"));
+                CliCommand::Review(name, full)
             }
         }
         _ => CliCommand::Unknown(input.to_string()),
@@ -416,5 +518,99 @@ mod tests {
     fn filtered_palette_no_match() {
         let matches = filtered_palette("zzz");
         assert!(matches.is_empty());
+    }
+
+    // --- scion command parsing ---
+
+    #[test]
+    fn parse_scion_list() {
+        assert_eq!(parse_command("scion list"), CliCommand::ScionList);
+        assert_eq!(parse_command("scion ls"), CliCommand::ScionList);
+        assert_eq!(parse_command("sc list"), CliCommand::ScionList);
+        assert_eq!(parse_command("scion"), CliCommand::ScionList);
+    }
+
+    #[test]
+    fn parse_scion_create() {
+        assert_eq!(
+            parse_command("scion create my-feature"),
+            CliCommand::ScionCreate("my-feature".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_scion_create_no_name() {
+        assert_eq!(
+            parse_command("scion create"),
+            CliCommand::Unknown("scion create".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_scion_start_stop() {
+        assert_eq!(
+            parse_command("scion start worker"),
+            CliCommand::ScionStart("worker".to_string())
+        );
+        assert_eq!(
+            parse_command("scion stop worker"),
+            CliCommand::ScionStop("worker".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_scion_prune_fuse() {
+        assert_eq!(
+            parse_command("scion prune old"),
+            CliCommand::ScionPrune("old".to_string())
+        );
+        assert_eq!(
+            parse_command("scion fuse done"),
+            CliCommand::ScionFuse("done".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_scion_unknown_sub() {
+        assert_eq!(
+            parse_command("scion bogus arg"),
+            CliCommand::Unknown("scion bogus arg".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_attach() {
+        assert_eq!(
+            parse_command("attach worker"),
+            CliCommand::Attach("worker".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_attach_no_name() {
+        assert_eq!(
+            parse_command("attach"),
+            CliCommand::Unknown("attach".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_review() {
+        assert_eq!(
+            parse_command("review my-feature"),
+            CliCommand::Review("my-feature".to_string(), false)
+        );
+        assert_eq!(
+            parse_command("review my-feature full"),
+            CliCommand::Review("my-feature".to_string(), true)
+        );
+    }
+
+    #[test]
+    fn parse_review_no_name() {
+        assert_eq!(
+            parse_command("review"),
+            CliCommand::Unknown("review".to_string())
+        );
     }
 }

@@ -4,6 +4,7 @@
 //! Every action is triggered from the prompt, results appear as blocks in the scroll buffer.
 
 use crossterm::event::KeyCode;
+use graft_common::runtime::SessionRuntime;
 use graft_common::CommandDef;
 use grove_core::{CommandState, RepoDetail, RepoDetailProvider, RepoRegistry};
 use grove_engine::GraftYamlConfigLoader;
@@ -332,6 +333,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             CliCommand::Unfocus(query) => {
                 self.cmd_unfocus(query.as_deref());
             }
+            CliCommand::ScionList => self.cmd_scion_list(),
+            CliCommand::ScionCreate(name) => self.cmd_scion_create(&name),
+            CliCommand::ScionStart(name) => self.cmd_scion_start(&name),
+            CliCommand::ScionStop(name) => self.cmd_scion_stop(&name),
+            CliCommand::ScionPrune(name) => self.cmd_scion_prune(&name),
+            CliCommand::ScionFuse(name) => self.cmd_scion_fuse(&name),
+            CliCommand::Attach(name) => self.cmd_attach(&name),
+            CliCommand::Review(name, full) => self.cmd_review(&name, full),
             CliCommand::Unknown(raw) => {
                 if !raw.is_empty() {
                     self.status = Some(StatusMessage::error(format!("Unknown command: :{raw}")));
@@ -1317,6 +1326,394 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         }
     }
 
+    // ===== Scion commands =====
+
+    /// `:scion list` — list all scion workstreams.
+    fn cmd_scion_list(&mut self) {
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.status = Some(StatusMessage::error("No repository selected"));
+            return;
+        };
+        let runtime = graft_common::TmuxRuntime::new().ok();
+        let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
+        match graft_engine::scion_list(&repo_path, runtime_ref) {
+            Ok(scions) if scions.is_empty() => {
+                self.scroll.push(ContentBlock::Text {
+                    id: BlockId::new(),
+                    lines: vec![Line::from(Span::styled(
+                        "No scions",
+                        Style::default().fg(Color::Gray),
+                    ))],
+                    collapsed: false,
+                });
+            }
+            Ok(scions) => {
+                let mut lines = vec![Line::from(vec![
+                    Span::styled(
+                        "Scions",
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!(" ({})", scions.len()),
+                        Style::default().fg(Color::Gray),
+                    ),
+                ])];
+                lines.push(Line::from(""));
+                for s in &scions {
+                    let ahead_str = s.ahead.map_or("?".to_string(), |a| a.to_string());
+                    let behind_str = s.behind.map_or("?".to_string(), |b| b.to_string());
+                    let dirty_str = if s.dirty { " [dirty]" } else { "" };
+                    let session_str = match s.session_active {
+                        Some(true) => " [session]",
+                        Some(false) | None => "",
+                    };
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("  {:<20}", s.name),
+                            Style::default().fg(Color::Cyan),
+                        ),
+                        Span::styled(
+                            format!("+{ahead_str}/-{behind_str}"),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                        Span::styled(dirty_str, Style::default().fg(Color::Red)),
+                        Span::styled(session_str, Style::default().fg(Color::Green)),
+                    ]));
+                }
+                self.scroll.push(ContentBlock::Text {
+                    id: BlockId::new(),
+                    lines,
+                    collapsed: false,
+                });
+            }
+            Err(e) => {
+                self.status = Some(StatusMessage::error(format!("scion list failed: {e}")));
+            }
+        }
+    }
+
+    /// `:scion create <name>` — create a new scion.
+    fn cmd_scion_create(&mut self, name: &str) {
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.status = Some(StatusMessage::error("No repository selected"));
+            return;
+        };
+        let config =
+            graft_engine::parse_graft_yaml(std::path::Path::new(&repo_path).join("graft.yaml"))
+                .ok();
+        let dep_configs = config
+            .as_ref()
+            .map(|c| load_dep_configs_for_repo(std::path::Path::new(&repo_path), c))
+            .unwrap_or_default();
+        match graft_engine::scion_create(&repo_path, name, config.as_ref(), &dep_configs) {
+            Ok(wt_path) => {
+                self.status = Some(StatusMessage::success(format!(
+                    "Created scion '{name}' at {}",
+                    wt_path.display()
+                )));
+            }
+            Err(e) => {
+                self.status = Some(StatusMessage::error(format!("scion create failed: {e}")));
+            }
+        }
+    }
+
+    /// `:scion start <name>` — start a scion's runtime session.
+    fn cmd_scion_start(&mut self, name: &str) {
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.status = Some(StatusMessage::error("No repository selected"));
+            return;
+        };
+        let config =
+            graft_engine::parse_graft_yaml(std::path::Path::new(&repo_path).join("graft.yaml"))
+                .ok();
+        let Ok(runtime) = graft_common::TmuxRuntime::new() else {
+            self.status = Some(StatusMessage::error("tmux not available"));
+            return;
+        };
+        match graft_engine::scion_start(&repo_path, name, config.as_ref(), &runtime) {
+            Ok(()) => {
+                self.status = Some(StatusMessage::success(format!("Started scion '{name}'")));
+            }
+            Err(e) => {
+                self.status = Some(StatusMessage::error(format!("scion start failed: {e}")));
+            }
+        }
+    }
+
+    /// `:scion stop <name>` — stop a scion's runtime session.
+    fn cmd_scion_stop(&mut self, name: &str) {
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.status = Some(StatusMessage::error("No repository selected"));
+            return;
+        };
+        let Ok(runtime) = graft_common::TmuxRuntime::new() else {
+            self.status = Some(StatusMessage::error("tmux not available"));
+            return;
+        };
+        match graft_engine::scion_stop(&repo_path, name, &runtime) {
+            Ok(()) => {
+                self.status = Some(StatusMessage::success(format!("Stopped scion '{name}'")));
+            }
+            Err(e) => {
+                self.status = Some(StatusMessage::error(format!("scion stop failed: {e}")));
+            }
+        }
+    }
+
+    /// `:scion prune <name>` — remove a scion.
+    fn cmd_scion_prune(&mut self, name: &str) {
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.status = Some(StatusMessage::error("No repository selected"));
+            return;
+        };
+        let config =
+            graft_engine::parse_graft_yaml(std::path::Path::new(&repo_path).join("graft.yaml"))
+                .ok();
+        let dep_configs = config
+            .as_ref()
+            .map(|c| load_dep_configs_for_repo(std::path::Path::new(&repo_path), c))
+            .unwrap_or_default();
+        let runtime = graft_common::TmuxRuntime::new().ok();
+        let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
+        match graft_engine::scion_prune(
+            &repo_path,
+            name,
+            config.as_ref(),
+            &dep_configs,
+            runtime_ref,
+            false,
+        ) {
+            Ok(()) => {
+                self.status = Some(StatusMessage::success(format!("Pruned scion '{name}'")));
+            }
+            Err(e) => {
+                self.status = Some(StatusMessage::error(format!("scion prune failed: {e}")));
+            }
+        }
+    }
+
+    /// `:scion fuse <name>` — fuse a scion into main.
+    fn cmd_scion_fuse(&mut self, name: &str) {
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.status = Some(StatusMessage::error("No repository selected"));
+            return;
+        };
+        let config =
+            graft_engine::parse_graft_yaml(std::path::Path::new(&repo_path).join("graft.yaml"))
+                .ok();
+        let dep_configs = config
+            .as_ref()
+            .map(|c| load_dep_configs_for_repo(std::path::Path::new(&repo_path), c))
+            .unwrap_or_default();
+        let runtime = graft_common::TmuxRuntime::new().ok();
+        let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
+        match graft_engine::scion_fuse(
+            &repo_path,
+            name,
+            config.as_ref(),
+            &dep_configs,
+            runtime_ref,
+            false,
+        ) {
+            Ok(commit) => {
+                self.scroll.push(ContentBlock::Text {
+                    id: BlockId::new(),
+                    lines: vec![
+                        Line::from(Span::styled(
+                            format!("Fused scion '{name}' into main"),
+                            Style::default().fg(Color::Green),
+                        )),
+                        Line::from(Span::styled(
+                            format!("  merge commit: {commit}"),
+                            Style::default().fg(Color::Gray),
+                        )),
+                    ],
+                    collapsed: false,
+                });
+            }
+            Err(e) => {
+                self.status = Some(StatusMessage::error(format!("scion fuse failed: {e}")));
+            }
+        }
+    }
+
+    /// `:attach <name>` — attach to a scion's runtime session.
+    fn cmd_attach(&mut self, name: &str) {
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.status = Some(StatusMessage::error("No repository selected"));
+            return;
+        };
+        let Ok(runtime) = graft_common::TmuxRuntime::new() else {
+            self.status = Some(StatusMessage::error("tmux not available"));
+            return;
+        };
+        let session_id = match graft_engine::scion_attach_check(&repo_path, name, &runtime) {
+            Ok(id) => id,
+            Err(e) => {
+                self.status = Some(StatusMessage::error(format!("{e}")));
+                return;
+            }
+        };
+        // Suspend TUI for blocking attach
+        crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen).ok();
+        crossterm::terminal::disable_raw_mode().ok();
+        let _ = runtime.attach(&session_id);
+        // Resume TUI
+        crossterm::terminal::enable_raw_mode().ok();
+        crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen).ok();
+        self.needs_refresh = true;
+    }
+
+    /// `:review <name> [full]` — review a scion's changes.
+    #[allow(clippy::too_many_lines)]
+    fn cmd_review(&mut self, name: &str, full: bool) {
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.status = Some(StatusMessage::error("No repository selected"));
+            return;
+        };
+        let repo = std::path::Path::new(&repo_path);
+
+        // Get worktrees and base branch
+        let worktrees = match graft_common::git_worktree_list(repo) {
+            Ok(wts) => wts,
+            Err(e) => {
+                self.status = Some(StatusMessage::error(format!(
+                    "Failed to list worktrees: {e}"
+                )));
+                return;
+            }
+        };
+        let base = match graft_engine::resolve_base_branch(&worktrees) {
+            Ok(b) => b,
+            Err(e) => {
+                self.status = Some(StatusMessage::error(format!("{e}")));
+                return;
+            }
+        };
+
+        // Check scion exists
+        let wt_path = repo.join(".worktrees").join(name);
+        if !wt_path.exists() {
+            self.status = Some(StatusMessage::error(format!(
+                "scion '{name}' does not exist"
+            )));
+            return;
+        }
+
+        let branch = format!("feature/{name}");
+
+        // Check ahead count
+        let (ahead, _behind) = match graft_common::git_ahead_behind(repo, &branch, &base) {
+            Ok(counts) => counts,
+            Err(e) => {
+                self.status = Some(StatusMessage::error(format!(
+                    "Failed to compute ahead/behind: {e}"
+                )));
+                return;
+            }
+        };
+
+        if ahead == 0 {
+            self.scroll.push(ContentBlock::Text {
+                id: BlockId::new(),
+                lines: vec![Line::from(Span::styled(
+                    format!("Scion '{name}' has no changes to review (0 commits ahead)"),
+                    Style::default().fg(Color::Gray),
+                ))],
+                collapsed: false,
+            });
+            return;
+        }
+
+        let mut lines = vec![Line::from(vec![
+            Span::styled(
+                format!("Review: {name}"),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" ({ahead} commit{})", if ahead == 1 { "" } else { "s" }),
+                Style::default().fg(Color::Gray),
+            ),
+        ])];
+        lines.push(Line::from(""));
+
+        // Commit log
+        if let Ok(log) = graft_common::git_log_output(repo, &base, &branch) {
+            if !log.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "Commits:",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )));
+                for line in log.lines() {
+                    lines.push(Line::from(Span::styled(
+                        format!("  {line}"),
+                        Style::default().fg(Color::White),
+                    )));
+                }
+                lines.push(Line::from(""));
+            }
+        }
+
+        // Diff stat or full diff
+        if full {
+            if let Ok(diff) = graft_common::git_diff_output(repo, &base, &branch) {
+                lines.push(Line::from(Span::styled(
+                    "Diff:",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )));
+                for line in diff.lines() {
+                    let style = if line.starts_with('+') && !line.starts_with("+++") {
+                        Style::default().fg(Color::Green)
+                    } else if line.starts_with('-') && !line.starts_with("---") {
+                        Style::default().fg(Color::Red)
+                    } else if line.starts_with("@@") {
+                        Style::default().fg(Color::Cyan)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    lines.push(Line::from(Span::styled(format!("  {line}"), style)));
+                }
+            }
+        } else if let Ok(stat) = graft_common::git_diff_stat(repo, &base, &branch) {
+            if !stat.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "Changes:",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )));
+                for line in stat.lines() {
+                    lines.push(Line::from(Span::styled(
+                        format!("  {line}"),
+                        Style::default().fg(Color::White),
+                    )));
+                }
+                lines.push(Line::from(""));
+            }
+        }
+
+        // Follow-up suggestions
+        lines.push(Line::from(Span::styled(
+            "Tip: :review <name> full  for full diff  |  :scion fuse <name>  to merge",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        self.scroll.push(ContentBlock::Text {
+            id: BlockId::new(),
+            lines,
+            collapsed: false,
+        });
+    }
+
     // ===== Refresh =====
 
     pub(super) fn handle_refresh_if_needed(&mut self) {
@@ -1950,4 +2347,21 @@ fn help_line(cmd: &str, desc: &str) -> Line<'static> {
         Span::styled(format!("  {cmd:<22}"), Style::default().fg(Color::Cyan)),
         Span::styled(desc.to_string(), Style::default().fg(Color::Gray)),
     ])
+}
+
+/// Load dependency configs from `.graft/<dep>/graft.yaml` for hook resolution.
+fn load_dep_configs_for_repo(
+    repo_path: &std::path::Path,
+    config: &graft_engine::GraftConfig,
+) -> Vec<(String, graft_engine::GraftConfig)> {
+    config
+        .dependencies
+        .keys()
+        .filter_map(|dep_name| {
+            let dep_yaml = repo_path.join(".graft").join(dep_name).join("graft.yaml");
+            graft_engine::parse_graft_yaml(&dep_yaml)
+                .ok()
+                .map(|cfg| (dep_name.clone(), cfg))
+        })
+        .collect()
 }
