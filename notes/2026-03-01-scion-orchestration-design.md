@@ -319,14 +319,17 @@ review a scion whose agent has already exited.
 
 ### What scions replaced from agentic orchestration (Slices 8-13)
 
-| Old proposal | Scion equivalent | Remaining gap |
+| Old proposal | Scion equivalent | Status |
 |---|---|---|
-| Slice 8: Background Sessions | Scion + runtime backend | Implemented here |
-| Slice 9: Session Monitor | Grove switchboard + attach | Designed here |
-| Slice 10: Context Assembly | on_create hooks + prompt | Workflow-package concern |
-| Slice 11: Review Flow | Grove review UI | Designed here |
-| Slice 12: Plans | Future (sequences + scions) | Not addressed |
-| Slice 13: Session Dashboard | Grove scion list | Designed here |
+| Slice 8: Background Sessions | Scion + `SessionRuntime` + `graft scion start/stop` | **Implemented** (scion runtime slices) |
+| Slice 9: Session Monitor | `graft scion attach` + grove `:attach` | **Sliced** → `scion-attach`, `grove-scion-commands` |
+| Slice 10: Context Assembly | `on_create` hooks + command `run:` field | **Out of scope** — workflow-package concern |
+| Slice 11: Review Flow | Grove `:review <scion>` (artifact-based diff) | **Sliced** → `grove-scion-review` |
+| Slice 12: Plans | Sequences + scions (partial) | **Deferred** — no formal plan primitives scoped |
+| Slice 13: Session Dashboard | Grove `:scion list` | **Sliced** → `grove-scion-commands` |
+
+The old agentic orchestration doc has been [marked superseded](2026-02-18-grove-agentic-orchestration.md)
+with per-slice disposition annotations.
 
 ### What changed from the context provider exploration
 
@@ -338,6 +341,15 @@ review a scion whose agent has already exited.
 - **Auto-rebase on fuse**: not addressed. Multi-scion coordination is a
   future concern.
 
+## Forward: Implementation Slices
+
+The following slices implement the designs described in this document:
+
+- **`scion-attach`** — `graft scion attach <name>` CLI command (runtime attach wiring)
+- **`scion-session-cleanup`** — warn/`--force` guard on fuse/prune when a session is active
+- **`grove-scion-commands`** — `:scion list/create/start/stop/prune/fuse` and `:attach` in grove TUI
+- **`grove-scion-review`** — `:review <scion>` artifact-based review workflow in grove
+
 ## Sources
 
 - [Scion Lifecycle Design](2026-03-01-shoot-lifecycle-design.md) — scion
@@ -345,7 +357,7 @@ review a scion whose agent has already exited.
 - [Graft as Context Provider](2026-02-28-graft-as-context-provider.md) —
   worker model, artifacts over actors, local PR workflow
 - [Agentic Orchestration](2026-02-18-grove-agentic-orchestration.md) —
-  original session/plan/context proposals (Slices 8-13)
+  original session/plan/context proposals (Slices 8-13, now superseded)
 - [Sequence Primitives](2026-02-24-sequence-primitives-exploration.md) —
   sequence design decisions
 - Community tools researched: workmux, Agent Deck, Gas Town, NTM,

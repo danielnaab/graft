@@ -1,12 +1,19 @@
 ---
 title: "Grove: Agentic Workflow Orchestration"
 date: 2026-02-18
-status: working
+status: superseded
+superseded_by: 2026-03-01-scion-orchestration-design.md
 participants: ["human", "agent"]
 tags: [exploration, grove, agentic, orchestration, sessions, plans, design]
 ---
 
 # Grove: Agentic Workflow Orchestration
+
+> **Superseded**: This design has been replaced by the
+> [scion orchestration design](2026-03-01-scion-orchestration-design.md).
+> Scions (graft-owned worktree+branch+runtime) replaced the grove-owned session
+> model proposed here. Slices 8-13 below have been retired — see annotations in
+> the [Vertical Slices](#vertical-slices) table. Kept for historical context.
 
 ## Context
 
@@ -182,14 +189,14 @@ For headless sessions, attach doesn't make sense — no terminal to connect to. 
 
 Building on existing slices 1-7:
 
-| # | Slice | Depends On | Goal |
-|---|-------|------------|------|
-| 8 | **Background Sessions** | 7 | Launch command as tracked background session, see status in repo list |
-| 9 | **Session Monitor** | 8 | View live output from running sessions, tail completed logs |
-| 10 | **Context Assembly** | 8, 5 | Auto-assemble workspace context, inject on launch |
-| 11 | **Review Flow** | 9 | Review session results (diff), accept/reject/annotate |
-| 12 | **Plans** | 10, 11 | Multi-step plans with approval gates and context chaining |
-| 13 | **Session Dashboard** | 8, 9 | Cross-workspace view of all sessions |
+| # | Slice | Depends On | Goal | Disposition |
+|---|-------|------------|------|-------------|
+| 8 | **Background Sessions** | 7 | Launch command as tracked background session, see status in repo list | **Retired — done.** Scions + `SessionRuntime` + `graft scion start/stop` replace this. |
+| 9 | **Session Monitor** | 8 | View live output from running sessions, tail completed logs | **Retired — partially replaced.** "Monitor" (tail output) replaced by tmux attach. "Attach" concept carries forward as grove `:attach` and `graft scion attach`. See `scion-attach` and `grove-scion-commands` slices. |
+| 10 | **Context Assembly** | 8, 5 | Auto-assemble workspace context, inject on launch | **Retired — out of scope.** Explicitly a workflow-package concern, not graft/grove code. `on_create` hooks + command `run:` field handle this. |
+| 11 | **Review Flow** | 9 | Review session results (diff), accept/reject/annotate | **Retired — concept carries forward.** Review reframed as artifact-based: `:review <scion>` shows diff against main. See `grove-scion-review` slice. |
+| 12 | **Plans** | 10, 11 | Multi-step plans with approval gates and context chaining | **Retired — deferred.** Multi-step plans with gates remain future work. Sequences + scions partially address this but formal plan primitives aren't scoped. |
+| 13 | **Session Dashboard** | 8, 9 | Cross-workspace view of all sessions | **Retired — replaced.** Grove scion list replaces cross-workspace session dashboard. See `grove-scion-commands` slice. |
 
 Slice 8 implements headless only first. tmux/interactive support is Slice 8b or folded into Slice 9. Monitoring infrastructure is the same for both modes.
 
