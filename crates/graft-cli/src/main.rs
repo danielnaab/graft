@@ -5,7 +5,7 @@ mod completers;
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
-use graft_common::{FsProcessRegistry, ProcessEntry, ProcessRegistry, ProcessStatus};
+use graft_common::{FsProcessRegistry, ProcessEntry, ProcessRegistry, ProcessStatus, TmuxRuntime};
 use graft_engine::{
     add_dependency_to_config, apply_lock, fetch_all_dependencies, fetch_dependency,
     filter_breaking_changes, filter_changes_by_type, get_all_status, get_change_details,
@@ -13,8 +13,8 @@ use graft_engine::{
     is_submodule, list_state_queries, parse_graft_yaml, parse_lock_file,
     remove_dependency_from_config, remove_dependency_from_lock, remove_submodule,
     resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, scion_create,
-    scion_fuse, scion_list, scion_prune, sync_all_dependencies, validate_config_schema,
-    validate_integrity, write_lock_file,
+    scion_fuse, scion_list, scion_prune, scion_start, scion_stop, sync_all_dependencies,
+    validate_config_schema, validate_integrity, write_lock_file,
 };
 use std::path::{Path, PathBuf};
 
@@ -257,6 +257,16 @@ enum ScionCommands {
         /// Scion name to fuse
         name: String,
     },
+    /// Start a worker process in a scion's runtime session
+    Start {
+        /// Scion name
+        name: String,
+    },
+    /// Stop a scion's runtime session
+    Stop {
+        /// Scion name
+        name: String,
+    },
 }
 
 #[allow(clippy::too_many_lines)]
@@ -360,6 +370,12 @@ fn main() -> Result<()> {
             }
             ScionCommands::Fuse { name } => {
                 scion_fuse_command(&name)?;
+            }
+            ScionCommands::Start { name } => {
+                scion_start_command(&name)?;
+            }
+            ScionCommands::Stop { name } => {
+                scion_stop_command(&name)?;
             }
         },
     }
@@ -2673,7 +2689,14 @@ fn format_unix_time_ago(ts: i64) -> String {
 
 fn scion_list_command(format: &OutputFormat) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
-    let scions = scion_list(&repo_path).context("Failed to list scions")?;
+
+    // Try to create runtime for session detection
+    let runtime = TmuxRuntime::new().ok();
+    let runtime_ref = runtime
+        .as_ref()
+        .map(|r| r as &dyn graft_common::SessionRuntime);
+
+    let scions = scion_list(&repo_path, runtime_ref).context("Failed to list scions")?;
 
     match format {
         OutputFormat::Json => {
@@ -2696,9 +2719,13 @@ fn scion_list_command(format: &OutputFormat) -> Result<()> {
                     |t| format!("last: {}", format_unix_time_ago(t)),
                 );
                 let dirty_str = if s.dirty { "  dirty" } else { "" };
+                let session_str = match s.session_active {
+                    Some(true) => "  ● active",
+                    _ => "",
+                };
                 println!(
-                    "{:<25} {:<22} {:<20}{}",
-                    s.name, ahead_behind, time_str, dirty_str
+                    "{:<25} {:<22} {:<20}{}{}",
+                    s.name, ahead_behind, time_str, dirty_str, session_str
                 );
             }
         }
@@ -2760,6 +2787,25 @@ fn scion_prune_command(name: &str) -> Result<()> {
     scion_prune(&repo_path, name, config.as_ref(), &dep_configs)
         .with_context(|| format!("Failed to prune scion '{name}'"))?;
     println!("Pruned scion '{name}'");
+    Ok(())
+}
+
+fn scion_start_command(name: &str) -> Result<()> {
+    let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
+    let config = try_load_graft_config(&repo_path);
+    let runtime = TmuxRuntime::new().context("tmux is required for scion sessions")?;
+    scion_start(&repo_path, name, config.as_ref(), &runtime)
+        .with_context(|| format!("Failed to start scion '{name}'"))?;
+    println!("Started scion '{name}' (session: graft-scion-{name})");
+    Ok(())
+}
+
+fn scion_stop_command(name: &str) -> Result<()> {
+    let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
+    let runtime = TmuxRuntime::new().context("tmux is required for scion sessions")?;
+    scion_stop(&repo_path, name, &runtime)
+        .with_context(|| format!("Failed to stop scion '{name}'"))?;
+    println!("Stopped scion '{name}'");
     Ok(())
 }
 

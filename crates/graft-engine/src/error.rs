@@ -82,3 +82,9 @@ impl From<graft_common::GitError> for GraftError {
         GraftError::Git(err.to_string())
     }
 }
+
+impl From<graft_common::RuntimeError> for GraftError {
+    fn from(err: graft_common::RuntimeError) -> Self {
+        GraftError::CommandExecution(err.to_string())
+    }
+}

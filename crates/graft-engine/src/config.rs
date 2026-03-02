@@ -538,6 +538,7 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
             pre_fuse: None,
             post_fuse: None,
             on_prune: None,
+            start: None,
         };
 
         for (key, value) in scions_obj {
@@ -546,6 +547,23 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
                 field: "scions".to_string(),
                 reason: "hook name must be a string".to_string(),
             })?;
+            // start is a single command name (not a hook list), handle separately
+            if key_str == "start" {
+                match value.as_str() {
+                    Some(s) => {
+                        hooks.start = Some(s.to_string());
+                    }
+                    None => {
+                        return Err(GraftError::ConfigValidation {
+                            path: path.to_string(),
+                            field: "scions.start".to_string(),
+                            reason: "start must be a single command name (string)".to_string(),
+                        });
+                    }
+                }
+                continue;
+            }
+
             let cmds = parse_hook_commands(value, path, &format!("scions.{key_str}"))?;
             match key_str {
                 "on_create" => hooks.on_create = cmds,
@@ -556,7 +574,7 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
                     return Err(GraftError::ConfigValidation {
                         path: path.to_string(),
                         field: format!("scions.{other}"),
-                        reason: format!("unknown hook point '{other}'; expected on_create, pre_fuse, post_fuse, or on_prune"),
+                        reason: format!("unknown hook point '{other}'; expected on_create, pre_fuse, post_fuse, on_prune, or start"),
                     });
                 }
             }
@@ -567,6 +585,7 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
             || hooks.pre_fuse.is_some()
             || hooks.post_fuse.is_some()
             || hooks.on_prune.is_some()
+            || hooks.start.is_some()
         {
             config.scion_hooks = Some(hooks);
         }
@@ -1229,5 +1248,60 @@ scions:
 "#;
         let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
         assert!(config.scion_hooks.is_some());
+    }
+
+    #[test]
+    fn scions_start_parses_correctly() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  agent:
+    run: "claude --model opus"
+scions:
+  start: agent
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let hooks = config.scion_hooks.unwrap();
+        assert_eq!(hooks.start.as_deref(), Some("agent"));
+        assert!(hooks.on_create.is_none());
+    }
+
+    #[test]
+    fn scions_start_nonexistent_command_fails() {
+        let yaml = r#"
+apiVersion: graft/v0
+scions:
+  start: nonexistent-worker
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("nonexistent-worker"),
+            "Error should mention the bad command name: {err}"
+        );
+    }
+
+    #[test]
+    fn scions_start_rejects_list_value() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  a:
+    run: "echo a"
+  b:
+    run: "echo b"
+scions:
+  start:
+    - a
+    - b
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("single command name"),
+            "Error should say start must be a single command name: {err}"
+        );
     }
 }

@@ -11,6 +11,7 @@
 use crate::domain::{GraftConfig, ScionHooks};
 use crate::error::{GraftError, Result};
 use graft_common::process::{run_to_completion_with_timeout, ProcessConfig};
+use graft_common::runtime::SessionRuntime;
 use graft_common::{
     git_ahead_behind, git_branch_delete, git_delete_ref, git_fast_forward, git_is_dirty,
     git_last_commit_time, git_merge_to_ref, git_reset_hard, git_worktree_add, git_worktree_list,
@@ -565,10 +566,73 @@ pub fn execute_hook_chain(
     Ok(completed)
 }
 
+/// Start a runtime session for a scion.
+///
+/// Resolves the command to run from `scions.start` in the config, then
+/// launches it in a detached session via the provided runtime.
+///
+/// Session ID convention: `graft-scion-<name>`.
+///
+/// # Errors
+/// Returns `GraftError` if:
+/// - The scion does not exist (no worktree at `.worktrees/<name>`)
+/// - No `scions.start` is configured
+/// - The referenced command is not found in the commands section
+/// - The runtime fails to launch the session
+pub fn scion_start(
+    repo_path: impl AsRef<Path>,
+    name: &str,
+    config: Option<&GraftConfig>,
+    runtime: &impl SessionRuntime,
+) -> Result<()> {
+    validate_scion_name(name)?;
+    let repo = repo_path.as_ref();
+    let wt_path = worktree_path(repo, name);
+    if !wt_path.exists() {
+        return Err(GraftError::CommandExecution(format!(
+            "scion '{name}' does not exist"
+        )));
+    }
+
+    let command_name = config
+        .and_then(|c| c.scion_hooks.as_ref())
+        .and_then(|h| h.start.as_ref())
+        .ok_or_else(|| {
+            GraftError::CommandExecution("no start command configured in scions.start".to_string())
+        })?;
+
+    let command = config.unwrap().get_command(command_name).ok_or_else(|| {
+        GraftError::CommandExecution(format!(
+            "start command '{command_name}' not found in commands"
+        ))
+    })?;
+
+    let session_id = format!("graft-scion-{name}");
+    runtime.launch(&session_id, &command.run, &wt_path)?;
+    Ok(())
+}
+
+/// Stop a runtime session for a scion.
+///
+/// Session ID convention: `graft-scion-<name>`.
+///
+/// # Errors
+/// Returns `GraftError` if the runtime fails to stop the session (e.g. not found).
+pub fn scion_stop(
+    _repo_path: impl AsRef<Path>,
+    name: &str,
+    runtime: &impl SessionRuntime,
+) -> Result<()> {
+    validate_scion_name(name)?;
+    let session_id = format!("graft-scion-{name}");
+    runtime.stop(&session_id)?;
+    Ok(())
+}
+
 /// Structured information about a scion workstream.
 ///
-/// Returned by `scion_list`. All fields are derived from git artifacts —
-/// no worker registry or heartbeat is needed.
+/// Returned by `scion_list`. Most fields are derived from git artifacts.
+/// `session_active` is derived from an optional runtime check.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScionInfo {
     /// Scion name (e.g. `my-feature`).
@@ -588,6 +652,9 @@ pub struct ScionInfo {
     pub last_commit_time: Option<i64>,
     /// Whether the worktree has uncommitted changes.
     pub dirty: bool,
+    /// Whether a runtime session is active for this scion.
+    /// `None` if no runtime was available for detection.
+    pub session_active: Option<bool>,
 }
 
 /// List all scions for the repository.
@@ -597,6 +664,8 @@ pub struct ScionInfo {
 ///
 /// # Arguments
 /// * `repo_path` - Absolute path to the main git repository
+/// * `runtime` - Optional session runtime for detecting active sessions.
+///   When `None`, `session_active` will be `None` for all scions.
 ///
 /// # Returns
 /// A list of `ScionInfo` structs, one per scion (in the order returned by
@@ -604,7 +673,10 @@ pub struct ScionInfo {
 ///
 /// # Errors
 /// Returns `GraftError` if the worktree enumeration fails.
-pub fn scion_list(repo_path: impl AsRef<Path>) -> Result<Vec<ScionInfo>> {
+pub fn scion_list(
+    repo_path: impl AsRef<Path>,
+    runtime: Option<&dyn SessionRuntime>,
+) -> Result<Vec<ScionInfo>> {
     let repo = repo_path.as_ref();
     let worktrees = git_worktree_list(repo).map_err(GraftError::from)?;
 
@@ -645,6 +717,11 @@ pub fn scion_list(repo_path: impl AsRef<Path>) -> Result<Vec<ScionInfo>> {
 
         let dirty = git_is_dirty(&wt.path).unwrap_or(false);
 
+        let session_active = runtime.map(|rt| {
+            let session_id = format!("graft-scion-{scion_name}");
+            rt.exists(&session_id).unwrap_or(false)
+        });
+
         scions.push(ScionInfo {
             name: scion_name,
             branch,
@@ -653,6 +730,7 @@ pub fn scion_list(repo_path: impl AsRef<Path>) -> Result<Vec<ScionInfo>> {
             behind,
             last_commit_time,
             dirty,
+            session_active,
         });
     }
 
@@ -784,7 +862,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         init_test_repo(temp.path());
 
-        let scions = scion_list(temp.path()).unwrap();
+        let scions = scion_list(temp.path(), None).unwrap();
         assert!(scions.is_empty());
     }
 
@@ -794,7 +872,7 @@ mod tests {
         init_test_repo(temp.path());
 
         scion_create(temp.path(), "alpha", None, &[]).unwrap();
-        let scions = scion_list(temp.path()).unwrap();
+        let scions = scion_list(temp.path(), None).unwrap();
 
         assert_eq!(scions.len(), 1);
         let s = &scions[0];
@@ -818,7 +896,7 @@ mod tests {
         make_commit(&wt_path, "a.txt", "feat: a");
         make_commit(&wt_path, "b.txt", "feat: b");
 
-        let scions = scion_list(temp.path()).unwrap();
+        let scions = scion_list(temp.path(), None).unwrap();
         let s = scions.iter().find(|s| s.name == "beta").unwrap();
         assert_eq!(s.ahead, Some(2));
         assert_eq!(s.behind, Some(0));
@@ -837,7 +915,7 @@ mod tests {
         // Write a file without committing
         fs::write(wt_path.join("dirty.txt"), "uncommitted").unwrap();
 
-        let scions = scion_list(temp.path()).unwrap();
+        let scions = scion_list(temp.path(), None).unwrap();
         let s = scions.iter().find(|s| s.name == "gamma").unwrap();
         assert!(s.dirty);
     }
@@ -870,6 +948,7 @@ mod tests {
             pre_fuse: None,
             post_fuse: None,
             on_prune: None,
+            start: None,
         });
         let chain = resolve_hook_chain(
             HookEvent::OnCreate,
@@ -893,6 +972,7 @@ mod tests {
             pre_fuse: None,
             post_fuse: None,
             on_prune: None,
+            start: None,
         });
         let chain = resolve_hook_chain(
             HookEvent::OnCreate,
@@ -913,18 +993,21 @@ mod tests {
             pre_fuse: None,
             post_fuse: None,
             on_prune: None,
+            start: None,
         });
         let dep_a = make_config_with_hooks(ScionHooks {
             on_create: Some(vec!["a-init".to_string()]),
             pre_fuse: None,
             post_fuse: None,
             on_prune: None,
+            start: None,
         });
         let dep_b = make_config_with_hooks(ScionHooks {
             on_create: Some(vec!["b-init".to_string(), "b-check".to_string()]),
             pre_fuse: None,
             post_fuse: None,
             on_prune: None,
+            start: None,
         });
         let chain = resolve_hook_chain(
             HookEvent::OnCreate,
@@ -948,6 +1031,7 @@ mod tests {
             pre_fuse: Some(vec!["b".to_string()]),
             post_fuse: None,
             on_prune: Some(vec!["c".to_string()]),
+            start: None,
         });
         let wt = Path::new("/worktree");
         let root = Path::new("/root");
@@ -972,6 +1056,7 @@ mod tests {
             pre_fuse: None,
             post_fuse: Some(vec!["notify".to_string()]),
             on_prune: None,
+            start: None,
         });
         let chain = resolve_hook_chain(
             HookEvent::PostFuse,
@@ -1015,6 +1100,7 @@ mod tests {
                 pre_fuse: None,
                 post_fuse: None,
                 on_prune: None,
+                start: None,
             }),
         );
         // Add a second command
@@ -1026,6 +1112,7 @@ mod tests {
             pre_fuse: None,
             post_fuse: None,
             on_prune: None,
+            start: None,
         });
 
         let chain = resolve_hook_chain(
@@ -1059,6 +1146,7 @@ mod tests {
             pre_fuse: None,
             post_fuse: None,
             on_prune: None,
+            start: None,
         });
 
         let chain = resolve_hook_chain(
@@ -1114,6 +1202,7 @@ mod tests {
             pre_fuse: None,
             post_fuse: None,
             on_prune: None,
+            start: None,
         });
 
         let chain = resolve_hook_chain(
@@ -1144,6 +1233,7 @@ mod tests {
             pre_fuse: None,
             post_fuse: None,
             on_prune: None,
+            start: None,
         });
 
         let result = scion_create(temp.path(), "rollback-test", Some(&config), &[]);
@@ -1171,6 +1261,7 @@ mod tests {
             pre_fuse: None,
             post_fuse: None,
             on_prune: None,
+            start: None,
         });
 
         let result = scion_create(temp.path(), "hook-pass", Some(&config), &[]);
@@ -1195,6 +1286,7 @@ mod tests {
             pre_fuse: None,
             post_fuse: None,
             on_prune: Some(vec!["fail-prune".to_string()]),
+            start: None,
         });
 
         let result = scion_prune(temp.path(), "preserve-test", Some(&config), &[]);
@@ -1386,7 +1478,7 @@ mod tests {
             .output()
             .unwrap();
 
-        let result = scion_list(temp.path());
+        let result = scion_list(temp.path(), None);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -1461,5 +1553,139 @@ mod tests {
             err_msg.contains("not found"),
             "expected missing worktree error, got: {err_msg}"
         );
+    }
+
+    // --- scion_start / scion_stop tests ---
+
+    /// A mock runtime that records calls for testing.
+    struct MockRuntime {
+        sessions: std::cell::RefCell<std::collections::HashSet<String>>,
+    }
+
+    impl MockRuntime {
+        fn new() -> Self {
+            Self {
+                sessions: std::cell::RefCell::new(std::collections::HashSet::new()),
+            }
+        }
+    }
+
+    impl SessionRuntime for MockRuntime {
+        fn launch(
+            &self,
+            session_id: &str,
+            _command: &str,
+            _working_dir: &Path,
+        ) -> std::result::Result<(), graft_common::RuntimeError> {
+            let mut sessions = self.sessions.borrow_mut();
+            if sessions.contains(session_id) {
+                return Err(graft_common::RuntimeError::SessionExists(
+                    session_id.to_string(),
+                ));
+            }
+            sessions.insert(session_id.to_string());
+            Ok(())
+        }
+
+        fn exists(
+            &self,
+            session_id: &str,
+        ) -> std::result::Result<bool, graft_common::RuntimeError> {
+            Ok(self.sessions.borrow().contains(session_id))
+        }
+
+        fn attach(&self, _session_id: &str) -> std::result::Result<(), graft_common::RuntimeError> {
+            Ok(())
+        }
+
+        fn stop(&self, session_id: &str) -> std::result::Result<(), graft_common::RuntimeError> {
+            let mut sessions = self.sessions.borrow_mut();
+            if !sessions.remove(session_id) {
+                return Err(graft_common::RuntimeError::SessionNotFound(
+                    session_id.to_string(),
+                ));
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn scion_start_no_config_errors() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "no-config", None, &[]).unwrap();
+
+        let runtime = MockRuntime::new();
+        let result = scion_start(temp.path(), "no-config", None, &runtime);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("no start command"),
+            "expected missing start config error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn scion_start_missing_scion_errors() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+
+        let runtime = MockRuntime::new();
+        let result = scion_start(temp.path(), "nonexistent", None, &runtime);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("does not exist"),
+            "expected missing scion error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn scion_start_and_stop_with_mock_runtime() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "worker", None, &[]).unwrap();
+
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        let cmd = crate::domain::Command::new("agent", "echo hello").unwrap();
+        config.commands.insert("agent".to_string(), cmd);
+        config.scion_hooks = Some(ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+            start: Some("agent".to_string()),
+        });
+
+        let runtime = MockRuntime::new();
+
+        // Start should succeed
+        scion_start(temp.path(), "worker", Some(&config), &runtime).unwrap();
+        assert!(runtime.exists("graft-scion-worker").unwrap());
+
+        // Stop should succeed
+        scion_stop(temp.path(), "worker", &runtime).unwrap();
+        assert!(!runtime.exists("graft-scion-worker").unwrap());
+    }
+
+    #[test]
+    fn scion_list_with_mock_runtime_shows_session_active() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "active-test", None, &[]).unwrap();
+
+        let runtime = MockRuntime::new();
+
+        // Without active session
+        let scions = scion_list(temp.path(), Some(&runtime)).unwrap();
+        assert_eq!(scions[0].session_active, Some(false));
+
+        // Simulate an active session
+        runtime
+            .launch("graft-scion-active-test", "echo", Path::new("/tmp"))
+            .unwrap();
+
+        let scions = scion_list(temp.path(), Some(&runtime)).unwrap();
+        assert_eq!(scions[0].session_active, Some(true));
     }
 }

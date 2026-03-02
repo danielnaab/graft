@@ -644,10 +644,12 @@ pub struct Metadata {
     pub changelog: Option<String>,
 }
 
-/// Lifecycle hooks for the scion workstream feature.
+/// Lifecycle hooks and runtime config for the scion workstream feature.
 ///
-/// Each hook point accepts a single command name (normalized to a one-element
-/// vec during parsing) or a list of command names. Commands are resolved in the
+/// Each hook point (`on_create`, `pre_fuse`, `post_fuse`, `on_prune`) accepts a
+/// single command name (normalized to a one-element vec during parsing) or a
+/// list of command names. The `start` field is a single command name used to
+/// launch a worker process via a runtime session. All names are resolved in the
 /// same `commands:` section of this graft.yaml.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScionHooks {
@@ -663,6 +665,9 @@ pub struct ScionHooks {
     /// Commands to run before worktree and branch removal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_prune: Option<Vec<String>>,
+    /// Command to run as the worker process in a runtime session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
 }
 
 /// Complete graft.yaml configuration.
@@ -817,6 +822,19 @@ impl GraftConfig {
                             });
                         }
                     }
+                }
+            }
+
+            // Validate scions.start command name
+            if let Some(ref start_cmd) = hooks.start {
+                if !self.commands.contains_key(start_cmd) {
+                    return Err(GraftError::ConfigValidation {
+                        path: "graft.yaml".to_string(),
+                        field: "scions.start".to_string(),
+                        reason: format!(
+                            "start command '{start_cmd}' not found in commands section"
+                        ),
+                    });
                 }
             }
         }

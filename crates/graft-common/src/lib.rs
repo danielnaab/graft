@@ -9,6 +9,7 @@ pub mod config;
 pub mod git;
 pub mod process;
 pub mod runs;
+pub mod runtime;
 pub mod state;
 
 use chrono::{DateTime, Utc};
@@ -71,6 +72,7 @@ pub use process::{
 pub use runs::{
     get_run_log_dir, list_runs, read_run_log, run_file_stem, run_log_path, write_run_meta, RunMeta,
 };
+pub use runtime::{RuntimeError, SessionRuntime, TmuxRuntime};
 pub use state::{
     compute_input_cache_key, compute_workspace_hash, get_cache_path, get_query_cache_dir,
     invalidate_cached_state, read_all_cached_for_query, read_cached_state, read_latest_cached,
