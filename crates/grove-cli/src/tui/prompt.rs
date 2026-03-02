@@ -716,16 +716,26 @@ impl PromptState {
                 let sub = sub_parts.first().copied().unwrap_or("");
                 let sub_lower = sub.to_ascii_lowercase();
 
-                match sub_lower.as_str() {
+                // Only match committed subcommands (with trailing space, i.e.
+                // sub_parts.len() > 1). Without a space after the subcommand,
+                // fall through to the subcommand-completion arm below.
+                match (sub_lower.as_str(), sub_parts.len() > 1) {
                     // list doesn't need a name
-                    "list" | "ls" => CompletionState::default(),
+                    ("list" | "ls", _) => CompletionState::default(),
                     // create needs a name but no completion (new name)
-                    "create" => CompletionState {
-                        completions: vec![],
-                        requires_more_input: true,
-                        arg_hint: Some("<name>".to_string()),
-                    },
-                    "start" | "stop" | "prune" | "fuse" => {
+                    ("create", true) => {
+                        let has_name = sub_parts.get(1).is_some_and(|s| !s.trim().is_empty());
+                        CompletionState {
+                            completions: vec![],
+                            requires_more_input: !has_name,
+                            arg_hint: if has_name {
+                                None
+                            } else {
+                                Some("<name>".to_string())
+                            },
+                        }
+                    }
+                    ("start" | "stop" | "prune" | "fuse", true) => {
                         // Complete scion name
                         let name_partial = sub_parts.get(1).unwrap_or(&"").trim();
                         if name_partial.contains(char::is_whitespace) {

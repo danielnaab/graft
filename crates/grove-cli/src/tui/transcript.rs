@@ -2037,6 +2037,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         let runtime = graft_common::TmuxRuntime::new().ok();
         let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
         let Ok(scions) = graft_engine::scion_list(&repo_path, runtime_ref) else {
+            self.context.cached_scion_completions = Some(Vec::new());
             return Vec::new();
         };
         let completions: Vec<super::prompt::ArgCompletion> = scions
