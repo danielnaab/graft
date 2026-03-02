@@ -5,7 +5,7 @@
 //! or I/O issues. The `GRAFT_PROCESS_TIMEOUT_MS` environment variable overrides
 //! this default when set.
 
-use crate::process::{run_to_completion_with_timeout, ProcessConfig, ProcessError};
+use crate::process::{run_to_completion_with_timeout, shell_quote, ProcessConfig, ProcessError};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -78,7 +78,7 @@ pub fn git_rev_parse(path: impl AsRef<Path>, git_ref: &str) -> Result<String, Gi
 
     for ref_name in refs_to_try {
         let config = ProcessConfig {
-            command: format!("git rev-parse {ref_name}"),
+            command: format!("git rev-parse {}", shell_quote(&ref_name)),
             working_dir: path.to_path_buf(),
             env: None,
             env_remove: vec![],
@@ -239,7 +239,11 @@ pub fn git_worktree_add(
         .to_str()
         .ok_or_else(|| GitError::CommandFailed("worktree path is not valid UTF-8".to_string()))?;
     let config = ProcessConfig {
-        command: format!("git worktree add {path_str} -b {branch}"),
+        command: format!(
+            "git worktree add {} -b {}",
+            shell_quote(path_str),
+            shell_quote(branch)
+        ),
         working_dir: repo.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -281,7 +285,7 @@ pub fn git_worktree_remove(repo: impl AsRef<Path>, path: impl AsRef<Path>) -> Re
         .to_str()
         .ok_or_else(|| GitError::CommandFailed("worktree path is not valid UTF-8".to_string()))?;
     let config = ProcessConfig {
-        command: format!("git worktree remove {path_str} --force"),
+        command: format!("git worktree remove {} --force", shell_quote(path_str)),
         working_dir: repo.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -312,7 +316,7 @@ pub fn git_worktree_remove(repo: impl AsRef<Path>, path: impl AsRef<Path>) -> Re
 pub fn git_branch_delete(repo: impl AsRef<Path>, branch: &str) -> Result<(), GitError> {
     let repo = repo.as_ref();
     let config = ProcessConfig {
-        command: format!("git branch -D {branch}"),
+        command: format!("git branch -D {}", shell_quote(branch)),
         working_dir: repo.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -351,7 +355,11 @@ pub fn git_ahead_behind(
 ) -> Result<(usize, usize), GitError> {
     let repo = repo.as_ref();
     let config = ProcessConfig {
-        command: format!("git rev-list --left-right --count {branch}...{base}"),
+        command: format!(
+            "git rev-list --left-right --count {}...{}",
+            shell_quote(branch),
+            shell_quote(base)
+        ),
         working_dir: repo.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -398,7 +406,7 @@ pub fn git_ahead_behind(
 pub fn git_last_commit_time(repo: impl AsRef<Path>, branch: &str) -> Result<i64, GitError> {
     let repo = repo.as_ref();
     let config = ProcessConfig {
-        command: format!("git log -1 --format=%ct {branch}"),
+        command: format!("git log -1 --format=%ct {}", shell_quote(branch)),
         working_dir: repo.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -441,7 +449,7 @@ pub fn git_is_dirty(worktree_path: impl AsRef<Path>) -> Result<bool, GitError> {
         .to_str()
         .ok_or_else(|| GitError::CommandFailed("worktree path is not valid UTF-8".to_string()))?;
     let config = ProcessConfig {
-        command: format!("git -C {path_str} status --porcelain"),
+        command: format!("git -C {} status --porcelain", shell_quote(path_str)),
         working_dir: path.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -471,7 +479,10 @@ pub fn git_has_tracked_changes(worktree_path: impl AsRef<Path>) -> Result<bool, 
         .to_str()
         .ok_or_else(|| GitError::CommandFailed("worktree path is not valid UTF-8".to_string()))?;
     let config = ProcessConfig {
-        command: format!("git -C {path_str} status --porcelain --untracked-files=no"),
+        command: format!(
+            "git -C {} status --porcelain --untracked-files=no",
+            shell_quote(path_str)
+        ),
         working_dir: path.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -503,7 +514,7 @@ pub fn git_has_tracked_changes(worktree_path: impl AsRef<Path>) -> Result<bool, 
 pub fn git_checkout(path: impl AsRef<Path>, commit: &str) -> Result<(), GitError> {
     let path = path.as_ref();
     let config = ProcessConfig {
-        command: format!("git checkout {commit}"),
+        command: format!("git checkout {}", shell_quote(commit)),
         working_dir: path.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -537,6 +548,7 @@ pub fn git_checkout(path: impl AsRef<Path>, commit: &str) -> Result<(), GitError
 ///
 /// # Errors
 /// Returns `GitError` if there are merge conflicts or any git command fails.
+#[allow(clippy::too_many_lines)]
 pub fn git_merge_to_ref(
     repo: impl AsRef<Path>,
     source: &str,
@@ -548,7 +560,7 @@ pub fn git_merge_to_ref(
     // Resolve source and target to commit hashes for commit-tree parents
     let target_hash = {
         let config = ProcessConfig {
-            command: format!("git rev-parse {target}"),
+            command: format!("git rev-parse {}", shell_quote(target)),
             working_dir: repo.to_path_buf(),
             env: None,
             env_remove: vec![],
@@ -568,7 +580,7 @@ pub fn git_merge_to_ref(
 
     let source_hash = {
         let config = ProcessConfig {
-            command: format!("git rev-parse {source}"),
+            command: format!("git rev-parse {}", shell_quote(source)),
             working_dir: repo.to_path_buf(),
             env: None,
             env_remove: vec![],
@@ -589,7 +601,11 @@ pub fn git_merge_to_ref(
     // Compute merged tree via merge-tree --write-tree
     let tree_hash = {
         let config = ProcessConfig {
-            command: format!("git merge-tree --write-tree {target} {source}"),
+            command: format!(
+                "git merge-tree --write-tree {} {}",
+                shell_quote(target),
+                shell_quote(source)
+            ),
             working_dir: repo.to_path_buf(),
             env: None,
             env_remove: vec![],
@@ -611,7 +627,11 @@ pub fn git_merge_to_ref(
     let commit_hash = {
         let config = ProcessConfig {
             command: format!(
-                "git commit-tree {tree_hash} -p {target_hash} -p {source_hash} -m \"Merge {source} into {target}\""
+                "git commit-tree {} -p {} -p {} -m {}",
+                shell_quote(&tree_hash),
+                shell_quote(&target_hash),
+                shell_quote(&source_hash),
+                shell_quote(&format!("Merge {source} into {target}"))
             ),
             working_dir: repo.to_path_buf(),
             env: None,
@@ -633,7 +653,11 @@ pub fn git_merge_to_ref(
     // Store the merge commit at the requested ref
     {
         let config = ProcessConfig {
-            command: format!("git update-ref {ref_name} {commit_hash}"),
+            command: format!(
+                "git update-ref {} {}",
+                shell_quote(ref_name),
+                shell_quote(&commit_hash)
+            ),
             working_dir: repo.to_path_buf(),
             env: None,
             env_remove: vec![],
@@ -672,7 +696,11 @@ pub fn git_fast_forward(
 ) -> Result<(), GitError> {
     let repo = repo.as_ref();
     let config = ProcessConfig {
-        command: format!("git update-ref refs/heads/{branch} {commit}"),
+        command: format!(
+            "git update-ref {} {}",
+            shell_quote(&format!("refs/heads/{branch}")),
+            shell_quote(commit)
+        ),
         working_dir: repo.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -736,7 +764,7 @@ pub fn git_reset_hard(path: impl AsRef<Path>) -> Result<(), GitError> {
 pub fn git_delete_ref(repo: impl AsRef<Path>, ref_name: &str) -> Result<(), GitError> {
     let repo = repo.as_ref();
     let config = ProcessConfig {
-        command: format!("git update-ref -d {ref_name}"),
+        command: format!("git update-ref -d {}", shell_quote(ref_name)),
         working_dir: repo.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -768,7 +796,11 @@ pub fn git_delete_ref(repo: impl AsRef<Path>, ref_name: &str) -> Result<(), GitE
 pub fn git_diff_stat(repo: impl AsRef<Path>, base: &str, head: &str) -> Result<String, GitError> {
     let repo = repo.as_ref();
     let config = ProcessConfig {
-        command: format!("git diff --stat {base}...{head}"),
+        command: format!(
+            "git diff --stat {}...{}",
+            shell_quote(base),
+            shell_quote(head)
+        ),
         working_dir: repo.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -800,7 +832,7 @@ pub fn git_diff_stat(repo: impl AsRef<Path>, base: &str, head: &str) -> Result<S
 pub fn git_diff_output(repo: impl AsRef<Path>, base: &str, head: &str) -> Result<String, GitError> {
     let repo = repo.as_ref();
     let config = ProcessConfig {
-        command: format!("git diff {base}...{head}"),
+        command: format!("git diff {}...{}", shell_quote(base), shell_quote(head)),
         working_dir: repo.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -832,7 +864,11 @@ pub fn git_diff_output(repo: impl AsRef<Path>, base: &str, head: &str) -> Result
 pub fn git_log_output(repo: impl AsRef<Path>, base: &str, head: &str) -> Result<String, GitError> {
     let repo = repo.as_ref();
     let config = ProcessConfig {
-        command: format!("git log {base}..{head} --oneline"),
+        command: format!(
+            "git log {}..{} --oneline",
+            shell_quote(base),
+            shell_quote(head)
+        ),
         working_dir: repo.to_path_buf(),
         env: None,
         env_remove: vec![],
@@ -1462,5 +1498,35 @@ mod tests {
         };
         let output = run_to_completion_with_timeout(&config).unwrap();
         assert!(!output.success);
+    }
+
+    #[test]
+    fn operations_work_with_spaces_in_path() {
+        let temp = TempDir::new().unwrap();
+        let spaced_path = temp.path().join("repo with spaces");
+        fs::create_dir_all(&spaced_path).unwrap();
+        init_test_repo(&spaced_path).unwrap();
+
+        // get_current_commit uses working_dir (no interpolation risk), but
+        // git_is_dirty and git_has_tracked_changes use -C with the path.
+        let commit = get_current_commit(&spaced_path).unwrap();
+        assert_eq!(commit.len(), 40);
+
+        assert!(!git_is_dirty(&spaced_path).unwrap());
+        assert!(!git_has_tracked_changes(&spaced_path).unwrap());
+
+        // Worktree operations interpolate paths and branch names.
+        let wt_path = spaced_path.join("worktree dir");
+        let returned = git_worktree_add(&spaced_path, &wt_path, "feature/spaced-test").unwrap();
+        assert!(returned.exists());
+
+        let worktrees = git_worktree_list(&spaced_path).unwrap();
+        assert_eq!(worktrees.len(), 2);
+
+        git_worktree_remove(&spaced_path, &wt_path).unwrap();
+        let worktrees = git_worktree_list(&spaced_path).unwrap();
+        assert_eq!(worktrees.len(), 1);
+
+        git_branch_delete(&spaced_path, "feature/spaced-test").unwrap();
     }
 }

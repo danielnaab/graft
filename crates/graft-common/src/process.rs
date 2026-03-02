@@ -782,6 +782,15 @@ impl ProcessRegistry for FsProcessRegistry {
     }
 }
 
+/// Shell-quote a single token using single quotes, escaping any embedded single quotes.
+///
+/// This produces a string safe for interpolation into `sh -c` commands:
+/// paths, refs, and branch names are protected from word-splitting and
+/// glob expansion.
+pub fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1407,5 +1416,39 @@ mod tests {
         let output = run_to_completion_with_timeout(&cfg).unwrap();
         assert!(output.success);
         assert_eq!(output.stdout, "ok");
+    }
+
+    // ── shell_quote tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn shell_quote_simple() {
+        assert_eq!(shell_quote("foo"), "'foo'");
+    }
+
+    #[test]
+    fn shell_quote_with_spaces() {
+        assert_eq!(shell_quote("path with spaces"), "'path with spaces'");
+    }
+
+    #[test]
+    fn shell_quote_empty() {
+        assert_eq!(shell_quote(""), "''");
+    }
+
+    #[test]
+    fn shell_quote_embedded_single_quote() {
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn shell_quote_multiple_single_quotes() {
+        assert_eq!(shell_quote("a'b'c"), "'a'\\''b'\\''c'");
+    }
+
+    #[test]
+    fn shell_quote_special_chars() {
+        assert_eq!(shell_quote("$HOME"), "'$HOME'");
+        assert_eq!(shell_quote("foo;rm -rf /"), "'foo;rm -rf /'");
+        assert_eq!(shell_quote("**/*.rs"), "'**/*.rs'");
     }
 }

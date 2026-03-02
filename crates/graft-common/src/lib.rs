@@ -67,8 +67,9 @@ pub use git::{
 };
 pub use process::{
     run_to_completion, run_to_completion_registered, run_to_completion_with_timeout,
-    run_to_completion_with_timeout_registered, FsProcessRegistry, ProcessConfig, ProcessEntry,
-    ProcessError, ProcessEvent, ProcessHandle, ProcessOutput, ProcessRegistry, ProcessStatus,
+    run_to_completion_with_timeout_registered, shell_quote, FsProcessRegistry, ProcessConfig,
+    ProcessEntry, ProcessError, ProcessEvent, ProcessHandle, ProcessOutput, ProcessRegistry,
+    ProcessStatus,
 };
 pub use runs::{
     get_run_log_dir, list_runs, read_run_log, run_file_stem, run_log_path, write_run_meta, RunMeta,

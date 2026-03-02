@@ -250,10 +250,7 @@ pub fn invalidate_cached_state(
     }
 }
 
-/// Shell-quote a single token using single quotes, escaping any embedded single quotes.
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
+use crate::process::shell_quote;
 
 /// Compute the cache key for a state query given its declared input file globs.
 ///

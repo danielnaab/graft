@@ -536,6 +536,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         // Load commands for the new repo
         self.load_commands_for_repo();
 
+        // Eagerly populate completion and option caches so that the first
+        // prompt open (`:`) doesn't block on subprocess I/O.
+        let _ = self.scion_completions();
+        let _ = self.commands_with_resolved_options();
+
         let status = self.registry.get_status(&repos[idx]);
         let branch_info = status
             .and_then(|s| s.branch.as_ref())

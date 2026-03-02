@@ -9,6 +9,54 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+/// Coerce a YAML value to a string suitable for env vars.
+///
+/// Accepts strings, numbers, and booleans. Returns `None` for nulls,
+/// sequences, and mappings (callers should error on those).
+fn yaml_value_to_env_string(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
+/// Human-readable name for a YAML value type (for error messages).
+fn yaml_type_name(v: &Value) -> &'static str {
+    match v {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Sequence(_) => "sequence",
+        Value::Mapping(_) => "mapping",
+        Value::Tagged(_) => "tagged",
+    }
+}
+
+/// Parse a YAML sequence into a `Vec<String>`, erroring on non-string elements.
+fn parse_string_list(seq: &[Value], path: &str, field: &str) -> Result<Vec<String>> {
+    let mut result = Vec::with_capacity(seq.len());
+    for (i, v) in seq.iter().enumerate() {
+        match v.as_str() {
+            Some(s) => result.push(s.to_string()),
+            None => {
+                return Err(GraftError::ConfigValidation {
+                    path: path.to_string(),
+                    field: field.to_string(),
+                    reason: format!(
+                        "element [{}] is {} but must be a string",
+                        i,
+                        yaml_type_name(v)
+                    ),
+                });
+            }
+        }
+    }
+    Ok(result)
+}
+
 /// Parse a graft.yaml file from a path.
 pub fn parse_graft_yaml(path: impl AsRef<Path>) -> Result<GraftConfig> {
     let path = path.as_ref();
@@ -172,9 +220,28 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
                 if let Some(env_map) = env_value.as_mapping() {
                     let mut env = HashMap::new();
                     for (k, v) in env_map {
-                        if let (Some(key), Some(val)) = (k.as_str(), v.as_str()) {
-                            env.insert(key.to_string(), val.to_string());
-                        }
+                        let key = k
+                            .as_str()
+                            .ok_or_else(|| GraftError::ConfigValidation {
+                                path: path.to_string(),
+                                field: format!("commands.{name}.env"),
+                                reason: format!(
+                                    "env key is {} but must be a string",
+                                    yaml_type_name(k)
+                                ),
+                            })?
+                            .to_string();
+                        let val = yaml_value_to_env_string(v).ok_or_else(|| {
+                            GraftError::ConfigValidation {
+                                path: path.to_string(),
+                                field: format!("commands.{name}.env.{key}"),
+                                reason: format!(
+                                    "env value is {} but must be a string, number, or bool",
+                                    yaml_type_name(v)
+                                ),
+                            }
+                        })?;
+                        env.insert(key, val);
                     }
                     command.env = Some(env);
                 }
@@ -204,30 +271,24 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
             // Parse context (optional)
             if let Some(ctx_value) = cmd_obj.get(Value::String("context".to_string())) {
                 if let Some(seq) = ctx_value.as_sequence() {
-                    command.context = seq
-                        .iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect();
+                    command.context =
+                        parse_string_list(seq, path, &format!("commands.{name}.context"))?;
                 }
             }
 
             // Parse writes (optional)
             if let Some(writes_value) = cmd_obj.get(Value::String("writes".to_string())) {
                 if let Some(seq) = writes_value.as_sequence() {
-                    command.writes = seq
-                        .iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect();
+                    command.writes =
+                        parse_string_list(seq, path, &format!("commands.{name}.writes"))?;
                 }
             }
 
             // Parse reads (optional)
             if let Some(reads_value) = cmd_obj.get(Value::String("reads".to_string())) {
                 if let Some(seq) = reads_value.as_sequence() {
-                    command.reads = seq
-                        .iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect();
+                    command.reads =
+                        parse_string_list(seq, path, &format!("commands.{name}.reads"))?;
                 }
             }
 
@@ -468,15 +529,15 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
                             reason: "cache must be an object".to_string(),
                         })?;
 
-                let inputs = cache_obj
+                let inputs = match cache_obj
                     .get(Value::String("inputs".to_string()))
                     .and_then(serde_yaml::Value::as_sequence)
-                    .map(|seq| {
-                        seq.iter()
-                            .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
+                {
+                    Some(seq) => {
+                        parse_string_list(seq, path, &format!("state.{name}.cache.inputs"))?
+                    }
+                    None => Vec::new(),
+                };
 
                 let ttl = cache_obj
                     .get(Value::String("ttl".to_string()))
@@ -628,10 +689,7 @@ fn parse_hook_commands(value: &Value, path: &str, field: &str) -> Result<Option<
     match value {
         Value::String(s) => Ok(Some(vec![s.clone()])),
         Value::Sequence(seq) => {
-            let cmds: Vec<String> = seq
-                .iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect();
+            let cmds = parse_string_list(seq, path, field)?;
             if cmds.is_empty() {
                 Ok(None)
             } else {
@@ -1325,6 +1383,112 @@ scions:
         assert!(
             err.contains("single command name"),
             "Error should say start must be a single command name: {err}"
+        );
+    }
+
+    // ── YAML value coercion / data-loss prevention tests ────────────────────
+
+    #[test]
+    fn env_integer_values_coerced_to_string() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  serve:
+    run: "echo ok"
+    env:
+      PORT: 8080
+      DEBUG: true
+      NAME: "app"
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let cmd = config.get_command("serve").unwrap();
+        let env = cmd.env.as_ref().unwrap();
+        assert_eq!(env.get("PORT").unwrap(), "8080");
+        assert_eq!(env.get("DEBUG").unwrap(), "true");
+        assert_eq!(env.get("NAME").unwrap(), "app");
+    }
+
+    #[test]
+    fn env_sequence_value_errors() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  serve:
+    run: "echo ok"
+    env:
+      PATHS:
+        - /usr/bin
+        - /usr/local/bin
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("sequence"),
+            "Error should mention the type: {err}"
+        );
+    }
+
+    #[test]
+    fn context_non_string_errors() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  gen:
+    run: "echo ok"
+    context:
+      - 42
+state:
+  coverage:
+    run: "echo 87.5"
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("number"),
+            "Error should mention the type: {err}"
+        );
+    }
+
+    #[test]
+    fn inputs_non_string_errors() {
+        let yaml = r#"
+apiVersion: graft/v0
+state:
+  verify:
+    run: "cargo test"
+    cache:
+      inputs:
+        - 42
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("number"),
+            "Error should mention the type: {err}"
+        );
+    }
+
+    #[test]
+    fn hook_commands_non_string_errors() {
+        let yaml = r#"
+apiVersion: graft/v0
+commands:
+  setup:
+    run: "echo setup"
+scions:
+  on_create:
+    - setup
+    - 123
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("number"),
+            "Error should mention the type: {err}"
         );
     }
 }

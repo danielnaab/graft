@@ -583,15 +583,14 @@ pub fn execute_hook_chain(
             scion_env.worktree.to_str().unwrap_or_default().to_string(),
         );
 
-        // Hook working_dir (event-specific) takes precedence; fall back to
-        // the command's working_dir if the hook doesn't override it.
-        let working_dir = if hook.working_dir.as_os_str().is_empty() {
-            cmd.working_dir
-                .as_ref()
-                .map_or_else(|| hook.working_dir.clone(), PathBuf::from)
-        } else {
-            hook.working_dir.clone()
-        };
+        let working_dir = hook.working_dir.clone();
+
+        // Forward literal stdin from the command definition (template
+        // stdin requires engine evaluation, which is not wired here).
+        let stdin = cmd.stdin.as_ref().and_then(|src| match src {
+            crate::domain::StdinSource::Literal(text) => Some(text.clone()),
+            crate::domain::StdinSource::Template { .. } => None,
+        });
 
         let process_config = ProcessConfig {
             command: cmd.run.clone(),
@@ -600,7 +599,7 @@ pub fn execute_hook_chain(
             env_remove: vec![],
             log_path: None,
             timeout: None,
-            stdin: None,
+            stdin,
         };
 
         let output =
@@ -1961,5 +1960,42 @@ mod tests {
 
         let session_id = scion_attach_check(temp.path(), "running", &runtime).unwrap();
         assert_eq!(session_id, "graft-scion-running");
+    }
+
+    // --- stdin forwarding tests ---
+
+    #[test]
+    fn execute_hook_chain_forwards_literal_stdin() {
+        let temp = TempDir::new().unwrap();
+        let out_file = temp.path().join("stdin_output.txt");
+        let out_path = out_file.to_str().unwrap();
+
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        let mut cmd =
+            crate::domain::Command::new("stdin-hook", &format!("cat > {out_path}")).unwrap();
+        cmd.stdin = Some(crate::domain::StdinSource::Literal(
+            "hello from stdin".to_string(),
+        ));
+        config.commands.insert("stdin-hook".to_string(), cmd);
+        config.scion_hooks = Some(ScionHooks {
+            on_create: Some(vec!["stdin-hook".to_string()]),
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+            start: None,
+        });
+
+        let chain = resolve_hook_chain(
+            HookEvent::OnCreate,
+            &config,
+            &[],
+            Path::new("/tmp"),
+            Path::new("/tmp"),
+        );
+        let result = execute_hook_chain(&chain, &config, &[], &make_scion_env());
+        assert!(result.is_ok());
+
+        let content = fs::read_to_string(&out_file).expect("stdin output file should exist");
+        assert_eq!(content, "hello from stdin");
     }
 }
