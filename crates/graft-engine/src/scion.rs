@@ -13,9 +13,9 @@ use crate::error::{GraftError, Result};
 use graft_common::process::{run_to_completion_with_timeout, ProcessConfig};
 use graft_common::runtime::SessionRuntime;
 use graft_common::{
-    git_ahead_behind, git_branch_delete, git_delete_ref, git_fast_forward, git_is_dirty,
-    git_last_commit_time, git_merge_to_ref, git_reset_hard, git_worktree_add, git_worktree_list,
-    git_worktree_remove,
+    git_ahead_behind, git_branch_delete, git_delete_ref, git_fast_forward, git_has_tracked_changes,
+    git_is_dirty, git_last_commit_time, git_merge_to_ref, git_reset_hard, git_worktree_add,
+    git_worktree_list, git_worktree_remove,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -296,10 +296,16 @@ pub fn scion_fuse(
         git_ahead_behind(repo, &branch, &base_branch).map_err(GraftError::from)?;
 
     let merge_commit = if ahead == 0 {
-        // Already merged — the base branch tip is the "merge" result
-        worktrees.first().map(|w| w.head.clone()).ok_or_else(|| {
-            GraftError::CommandExecution("no main worktree found in repository".to_string())
-        })?
+        // Already merged — use the scion branch tip (which equals the base since ahead==0)
+        let scion_head = worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some(&branch))
+            .map(|w| w.head.clone())
+            .or_else(|| worktrees.first().map(|w| w.head.clone()))
+            .ok_or_else(|| {
+                GraftError::CommandExecution("no worktree found in repository".to_string())
+            })?;
+        scion_head
     } else {
         // Step 1: Merge to temp ref
         let commit =
@@ -320,10 +326,20 @@ pub fn scion_fuse(
         }
 
         // Step 3: Fast-forward base branch to merge commit + sync worktree.
+        // Guard: bail if the main worktree has uncommitted tracked changes
+        // (git_reset_hard would destroy them). Uses git_has_tracked_changes to
+        // ignore untracked files, which reset --hard does not touch.
+        let main_worktree_path = &worktrees[0].path;
+        if git_has_tracked_changes(main_worktree_path).unwrap_or(false) {
+            let _ = git_delete_ref(repo, &temp_ref);
+            return Err(GraftError::CommandExecution(
+                "main worktree has uncommitted changes. Commit or stash them before fusing."
+                    .to_string(),
+            ));
+        }
         // Wrap in a closure so the temp ref is always cleaned up, even on failure.
         let result = (|| -> Result<String> {
             git_fast_forward(repo, &base_branch, &commit).map_err(GraftError::from)?;
-            let main_worktree_path = &worktrees[0].path;
             git_reset_hard(main_worktree_path).map_err(GraftError::from)?;
             Ok(commit)
         })();
@@ -1267,9 +1283,16 @@ mod tests {
 
     #[test]
     fn execute_hook_chain_merges_command_env() {
-        // Define a command with its own env vars
+        // Define a command that writes specific env vars to a file so we can verify them
+        let temp = TempDir::new().unwrap();
+        let out_file = temp.path().join("env_output.txt");
+        let out_path = out_file.to_str().unwrap();
+
         let mut config = GraftConfig::new("graft/v1").unwrap();
-        let mut cmd = crate::domain::Command::new("env-hook", "env").unwrap();
+        let cmd_str = format!(
+            "echo MY_VAR=$MY_VAR > {out_path} && echo GRAFT_SCION_NAME=$GRAFT_SCION_NAME >> {out_path}"
+        );
+        let mut cmd = crate::domain::Command::new("env-hook", &cmd_str).unwrap();
         let mut cmd_env = HashMap::new();
         cmd_env.insert("MY_VAR".to_string(), "hello".to_string());
         cmd.env = Some(cmd_env);
@@ -1291,8 +1314,17 @@ mod tests {
         );
         let result = execute_hook_chain(&chain, &config, &[], &make_scion_env());
         assert!(result.is_ok());
-        // If we get here, the command ran successfully with merged env —
-        // the env command succeeded, meaning both command env and scion env were set.
+
+        // Verify both command env and scion env were actually set
+        let output = std::fs::read_to_string(&out_file).expect("env output file should exist");
+        assert!(
+            output.contains("MY_VAR=hello"),
+            "command env var missing: {output}"
+        );
+        assert!(
+            output.contains("GRAFT_SCION_NAME=test-scion"),
+            "scion env var missing: {output}"
+        );
     }
 
     // --- Hook rollback integration tests ---

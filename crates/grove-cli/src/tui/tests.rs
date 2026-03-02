@@ -2409,3 +2409,146 @@ fn completions_sc_alias_shows_subcommands() {
     assert_eq!(cs.completions.len(), 6);
     assert!(cs.requires_more_input);
 }
+
+#[test]
+fn completions_scion_stop_shows_scion_names() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion stop ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let scions = vec![ArgCompletion {
+        value: "my-feature".to_string(),
+        description: "+1 [session]".to_string(),
+    }];
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
+    assert_eq!(cs.completions.len(), 1);
+    assert_eq!(cs.completions[0].value, "my-feature");
+}
+
+#[test]
+fn completions_scion_prune_shows_scion_names() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion prune ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let scions = vec![ArgCompletion {
+        value: "old-branch".to_string(),
+        description: String::new(),
+    }];
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
+    assert_eq!(cs.completions.len(), 1);
+    assert_eq!(cs.completions[0].value, "old-branch");
+}
+
+#[test]
+fn completions_scion_fuse_shows_scion_names() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion fuse ".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let scions = vec![ArgCompletion {
+        value: "ready-branch".to_string(),
+        description: "+5".to_string(),
+    }];
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
+    assert_eq!(cs.completions.len(), 1);
+    assert_eq!(cs.completions[0].value, "ready-branch");
+}
+
+#[test]
+fn completions_scion_list_no_extra_input_needed() {
+    // :scion list should not require more input (no args needed)
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion l".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &[]);
+    // "list" is the only match for "l", so requires_more_input should be false
+    assert_eq!(cs.completions.len(), 1);
+    assert_eq!(cs.completions[0].value, "list");
+    assert!(
+        !cs.requires_more_input,
+        "list takes no args, should submit on Enter"
+    );
+}
+
+#[test]
+fn completions_scion_bogus_subcommand_no_completions() {
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion zzz".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &[]);
+    assert!(cs.completions.is_empty(), "no subcommand matches 'zzz'");
+}
+
+#[test]
+fn completions_scion_create_with_name_submittable() {
+    // :scion create my-feature should be submittable (has a name)
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion create my-feature".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &[]);
+    assert!(
+        !cs.requires_more_input,
+        "name provided, should be submittable"
+    );
+}
+
+#[test]
+fn completions_scion_start_no_trailing_space_completes_subcommand() {
+    // :scion start (no trailing space) should complete the subcommand, not show names
+    let mut p = PromptState::new();
+    p.open();
+    for c in "scion st".chars() {
+        p.handle_key(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            &CompletionState::default(),
+        );
+    }
+    let scions = vec![ArgCompletion {
+        value: "my-feature".to_string(),
+        description: String::new(),
+    }];
+    let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
+    // Should show "start" and "stop" subcommands, not scion names
+    let values: Vec<&str> = cs.completions.iter().map(|c| c.value.as_str()).collect();
+    assert!(values.contains(&"start"), "should show start subcommand");
+    assert!(values.contains(&"stop"), "should show stop subcommand");
+    assert!(
+        !values.contains(&"my-feature"),
+        "should not show scion names without trailing space"
+    );
+}

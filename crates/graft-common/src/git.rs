@@ -460,6 +460,36 @@ pub fn git_is_dirty(worktree_path: impl AsRef<Path>) -> Result<bool, GitError> {
     Ok(!output.stdout.trim().is_empty())
 }
 
+/// Check whether a worktree has staged or unstaged changes to tracked files.
+///
+/// Unlike [`git_is_dirty`], this ignores untracked files. This is useful for
+/// checking if `git reset --hard` would destroy work, since reset does not
+/// touch untracked files.
+pub fn git_has_tracked_changes(worktree_path: impl AsRef<Path>) -> Result<bool, GitError> {
+    let path = worktree_path.as_ref();
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| GitError::CommandFailed("worktree path is not valid UTF-8".to_string()))?;
+    let config = ProcessConfig {
+        command: format!("git -C {path_str} status --porcelain --untracked-files=no"),
+        working_dir: path.to_path_buf(),
+        env: None,
+        env_remove: vec![],
+        log_path: None,
+        timeout: Some(Duration::from_secs(GIT_DEFAULT_TIMEOUT_SECS)),
+        stdin: None,
+    };
+    let output = run_to_completion_with_timeout(&config)?;
+    if !output.success {
+        return Err(GitError::CommandFailed(format!(
+            "git status failed in '{}': {}",
+            path.display(),
+            output.stderr
+        )));
+    }
+    Ok(!output.stdout.trim().is_empty())
+}
+
 /// Checkout a specific commit.
 ///
 /// Runs `git checkout <commit>` to move HEAD to the specified commit.

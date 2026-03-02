@@ -745,25 +745,31 @@ impl PromptState {
                     }
                     _ => {
                         // Complete subcommand name
-                        let subs = [
-                            ("list", "List all scions"),
-                            ("create", "Create a new scion"),
-                            ("start", "Start runtime session"),
-                            ("stop", "Stop runtime session"),
-                            ("prune", "Remove a scion"),
-                            ("fuse", "Fuse into main"),
+                        // (name, description, takes_args)
+                        let subs: &[(&str, &str, bool)] = &[
+                            ("list", "List all scions", false),
+                            ("create", "Create a new scion", true),
+                            ("start", "Start runtime session", true),
+                            ("stop", "Stop runtime session", true),
+                            ("prune", "Remove a scion", true),
+                            ("fuse", "Fuse into main", true),
                         ];
                         let partial = sub.to_ascii_lowercase();
+                        let filtered: Vec<_> = subs
+                            .iter()
+                            .filter(|(name, _, _)| name.starts_with(partial.as_str()))
+                            .collect();
+                        // requires_more_input is false only when the sole match takes no args
+                        let needs_more = filtered.len() != 1 || filtered[0].2;
                         CompletionState {
-                            completions: subs
+                            completions: filtered
                                 .iter()
-                                .filter(|(name, _)| name.starts_with(partial.as_str()))
-                                .map(|(name, desc)| ArgCompletion {
+                                .map(|(name, desc, _)| ArgCompletion {
                                     value: (*name).to_string(),
                                     description: (*desc).to_string(),
                                 })
                                 .collect(),
-                            requires_more_input: true,
+                            requires_more_input: needs_more,
                             arg_hint: None,
                         }
                     }
