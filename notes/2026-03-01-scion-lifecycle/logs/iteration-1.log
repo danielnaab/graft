@@ -1,0 +1,3 @@
+ALL TASKS COMPLETE
+
+Every task in the plan is marked `- [x]` — all 4 slices (worktree primitives, scion config/create/prune, scion list, hook composition and fuse) plus the final slice plan status update have been completed and committed.

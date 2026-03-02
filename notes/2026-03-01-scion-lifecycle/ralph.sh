@@ -20,7 +20,7 @@ trap 'echo ""; echo "Interrupted. Stopping..."; kill 0' SIGINT SIGTERM
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MAX_ITERATIONS=${1:-30}
-MODEL="${RALPH_MODEL:-sonnet}"
+MODEL="${RALPH_MODEL:-opus}"
 PROMPT_FILE="${SCRIPT_DIR}/prompt.md"
 PLAN_FILE="${SCRIPT_DIR}/plan.md"
 PROGRESS_FILE="${SCRIPT_DIR}/progress.md"
