@@ -1385,16 +1385,25 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                         Some(false) => {
                             Span::styled("\u{2013}", Style::default().fg(Color::DarkGray))
                         }
-                        None => Span::styled("\u{2013}", Style::default().fg(Color::DarkGray)),
+                        None => Span::styled("?", Style::default().fg(Color::DarkGray)),
                     };
+
+                    // Column 1 becomes the picker description, so include a
+                    // human-readable summary (ahead count + dirty + session).
+                    let mut summary_parts = Vec::new();
+                    summary_parts.push(format!("\u{2191}{ahead_str} \u{2193}{behind_str}"));
+                    if s.dirty {
+                        summary_parts.push("dirty".to_string());
+                    }
+                    if s.session_active == Some(true) {
+                        summary_parts.push("active".to_string());
+                    }
+                    let summary = summary_parts.join(", ");
 
                     actions.push(CliCommand::Review(s.name.clone(), false));
                     rows.push(vec![
                         Span::styled(s.name.clone(), Style::default().fg(Color::Cyan)),
-                        Span::styled(
-                            format!("\u{2191}{ahead_str} \u{2193}{behind_str}"),
-                            Style::default().fg(Color::Yellow),
-                        ),
+                        Span::styled(summary, Style::default().fg(Color::Yellow)),
                         dirty_span,
                         session_span,
                     ]);

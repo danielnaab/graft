@@ -2553,36 +2553,79 @@ fn completions_scion_start_no_trailing_space_completes_subcommand() {
     );
 }
 
-#[test]
-fn scion_list_table_structure_and_actions() {
-    // Verify the table block shape that cmd_scion_list produces.
-    // We construct it directly since scion_list requires a real git repo.
+/// Build a scion table block matching the shape that `cmd_scion_list` produces.
+///
+/// Note: we construct the block directly rather than calling `cmd_scion_list`
+/// because that function requires a real git repo with worktrees. The column
+/// layout, styling, and action wiring tested here mirror the implementation in
+/// `transcript.rs` — if the implementation changes, this helper must be updated
+/// to match.
+fn build_scion_table_block(
+    scions: &[(
+        &str,         // name
+        Option<u32>,  // ahead
+        Option<u32>,  // behind
+        bool,         // dirty
+        Option<bool>, // session_active
+    )],
+) -> ContentBlock {
     use ratatui::style::{Color, Style};
     use ratatui::text::Span;
 
-    let name = "my-feature";
     let headers = vec![
         "Name".to_string(),
         "Ahead/Behind".to_string(),
         "Dirty".to_string(),
         "Session".to_string(),
     ];
-    let rows = vec![vec![
-        Span::styled(name.to_string(), Style::default().fg(Color::Cyan)),
-        Span::styled("\u{2191}3 \u{2193}0", Style::default().fg(Color::Yellow)),
-        Span::styled("\u{25cb}", Style::default().fg(Color::Green)),
-        Span::styled("\u{2013}", Style::default().fg(Color::DarkGray)),
-    ]];
-    let actions = vec![CliCommand::Review(name.to_string(), false)];
+    let mut rows = Vec::new();
+    let mut actions = Vec::new();
+    for &(name, ahead, behind, dirty, session_active) in scions {
+        let ahead_str = ahead.map_or("?".to_string(), |a| a.to_string());
+        let behind_str = behind.map_or("?".to_string(), |b| b.to_string());
+        let dirty_span = if dirty {
+            Span::styled("\u{25cf}", Style::default().fg(Color::Yellow))
+        } else {
+            Span::styled("\u{25cb}", Style::default().fg(Color::Green))
+        };
+        let session_span = match session_active {
+            Some(true) => Span::styled("\u{25cf} active", Style::default().fg(Color::Green)),
+            Some(false) => Span::styled("\u{2013}", Style::default().fg(Color::DarkGray)),
+            None => Span::styled("?", Style::default().fg(Color::DarkGray)),
+        };
 
-    let block = ContentBlock::Table {
+        let mut summary_parts = Vec::new();
+        summary_parts.push(format!("\u{2191}{ahead_str} \u{2193}{behind_str}"));
+        if dirty {
+            summary_parts.push("dirty".to_string());
+        }
+        if session_active == Some(true) {
+            summary_parts.push("active".to_string());
+        }
+        let summary = summary_parts.join(", ");
+
+        actions.push(CliCommand::Review(name.to_string(), false));
+        rows.push(vec![
+            Span::styled(name.to_string(), Style::default().fg(Color::Cyan)),
+            Span::styled(summary, Style::default().fg(Color::Yellow)),
+            dirty_span,
+            session_span,
+        ]);
+    }
+
+    ContentBlock::Table {
         id: BlockId::new(),
         title: "Scions".to_string(),
-        headers: headers.clone(),
+        headers,
         rows,
         collapsed: false,
         actions: Some(actions),
-    };
+    }
+}
+
+#[test]
+fn scion_list_table_structure_and_actions() {
+    let block = build_scion_table_block(&[("my-feature", Some(3), Some(0), false, Some(false))]);
 
     // Verify structure
     if let ContentBlock::Table {
@@ -2596,8 +2639,16 @@ fn scion_list_table_structure_and_actions() {
         assert_eq!(title, "Scions");
         assert_eq!(h.len(), 4);
         assert_eq!(h[0], "Name");
+        assert_eq!(h[1], "Ahead/Behind");
+        assert_eq!(h[2], "Dirty");
+        assert_eq!(h[3], "Session");
         assert_eq!(r.len(), 1);
         assert_eq!(r[0][0].content, "my-feature");
+        // Column 1 is the picker description: human-readable summary
+        assert_eq!(r[0][1].content, "\u{2191}3 \u{2193}0");
+        // Clean, inactive session
+        assert_eq!(r[0][2].content, "\u{25cb}");
+        assert_eq!(r[0][3].content, "\u{2013}");
 
         let acts = a.as_ref().expect("scion table should have actions");
         assert_eq!(acts.len(), 1);
@@ -2623,4 +2674,82 @@ fn scion_list_table_structure_and_actions() {
         picker.items[0].action,
         CliCommand::Review("my-feature".to_string(), false)
     );
+}
+
+#[test]
+fn scion_list_table_multiple_scions() {
+    // Multiple scions covering dirty, active session, unknown ahead/behind,
+    // and no-tmux (None session) variants.
+    let block = build_scion_table_block(&[
+        ("clean-ahead", Some(5), Some(0), false, Some(false)),
+        ("dirty-active", Some(0), Some(2), true, Some(true)),
+        ("unknown-no-tmux", None, None, false, None),
+    ]);
+
+    if let ContentBlock::Table { rows, actions, .. } = &block {
+        assert_eq!(rows.len(), 3);
+        let acts = actions.as_ref().unwrap();
+        assert_eq!(acts.len(), 3);
+
+        // Row 0: clean, inactive — summary has only arrows
+        assert_eq!(rows[0][0].content, "clean-ahead");
+        assert_eq!(rows[0][1].content, "\u{2191}5 \u{2193}0");
+        assert_eq!(rows[0][2].content, "\u{25cb}"); // clean
+        assert_eq!(rows[0][3].content, "\u{2013}"); // inactive session
+
+        // Row 1: dirty + active — summary includes dirty & active
+        assert_eq!(rows[1][0].content, "dirty-active");
+        assert_eq!(rows[1][1].content, "\u{2191}0 \u{2193}2, dirty, active");
+        assert_eq!(rows[1][2].content, "\u{25cf}"); // dirty
+        assert_eq!(rows[1][3].content, "\u{25cf} active"); // active session
+
+        // Row 2: unknown counts, no tmux — summary has ? counts, session shows ?
+        assert_eq!(rows[2][0].content, "unknown-no-tmux");
+        assert_eq!(rows[2][1].content, "\u{2191}? \u{2193}?");
+        assert_eq!(rows[2][2].content, "\u{25cb}"); // clean
+        assert_eq!(rows[2][3].content, "?"); // no tmux — distinct from "–"
+
+        // Actions wire to :review for each
+        assert_eq!(
+            acts[0],
+            CliCommand::Review("clean-ahead".to_string(), false)
+        );
+        assert_eq!(
+            acts[1],
+            CliCommand::Review("dirty-active".to_string(), false)
+        );
+        assert_eq!(
+            acts[2],
+            CliCommand::Review("unknown-no-tmux".to_string(), false)
+        );
+    } else {
+        panic!("Expected Table block");
+    }
+}
+
+#[test]
+fn scion_list_table_picker_shows_descriptions() {
+    // When the picker opens, col 0 = label, col 1 = description.
+    // Verify the description carries the human-readable summary.
+    let block = build_scion_table_block(&[
+        ("feat-a", Some(1), Some(0), true, Some(true)),
+        ("feat-b", Some(0), Some(0), false, None),
+    ]);
+
+    let mut app = create_app(MockRegistry::with_repos(1));
+    app.scroll.push(block);
+    let last_idx = app.scroll.blocks.len() - 1;
+    app.scroll.focused_block = Some(last_idx);
+
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    let picker = app.picker.as_ref().expect("picker should open");
+
+    assert_eq!(picker.items.len(), 2);
+    assert_eq!(picker.items[0].label, "feat-a");
+    assert_eq!(
+        picker.items[0].description,
+        "\u{2191}1 \u{2193}0, dirty, active"
+    );
+    assert_eq!(picker.items[1].label, "feat-b");
+    assert_eq!(picker.items[1].description, "\u{2191}0 \u{2193}0");
 }
