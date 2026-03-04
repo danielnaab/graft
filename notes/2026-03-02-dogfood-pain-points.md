@@ -1,5 +1,5 @@
 ---
-status: working
+status: done
 purpose: "Pain points discovered while dogfooding the grove/graft scion workflow"
 ---
 
@@ -10,44 +10,36 @@ create slice → create scion → start worker → monitor → review → fuse.
 
 ## Pain Points
 
-1. **No output preview for running commands in the transcript log**
+1. **No output preview for running commands in the transcript log** — DEFERRED
    Running `:run new-slice ...` shows a spinner but no indication of what the
    command is doing. There's no streaming output preview in the log section —
    you can't tell if it's working, stuck, or erroring until it finishes. Ideally,
    the running block would show a live tail of the command's stdout (e.g. last
    2-3 lines) so you can confirm progress without needing to focus/expand.
+   **Status**: Deferred as independent grove UX work (see pain-point-strategy.md).
 
-2. **`new-slice` slug extraction is fragile**
-   The script requires Claude to output `slug: <value>` as the very first
-   non-empty line of its response. Claude frequently ignores this instruction
-   and starts generating plan content directly, causing the script to fail with
-   "missing or malformed slug: marker on first line." The prompt engineering
-   is fighting model behavior. Options: retry logic, extract slug from content
-   with a fallback regex, or derive the slug deterministically from the
-   description (e.g. first N words → kebab-case) instead of asking Claude.
-   **Action**: Fix `new-slice.sh` slug extraction reliability.
+2. **`new-slice` slug extraction is fragile** — RESOLVED
+   The script required Claude to output `slug: <value>` as the very first
+   non-empty line of its response, which was unreliable.
+   **Resolution**: software-factory refactor (c5721e8) replaced the extraction
+   approach with wrapper scripts that take slug as a CLI argument via `{slug}`
+   placeholder interpolation. The new `new-slice-create.sh` validates the slug
+   and exports it as `GRAFT_NEW_SLUG` env var.
 
-3. **`scion start` fails — no `scions:` config in root graft.yaml**
-   `scion start` requires `scions.start` to name a command to launch in the
-   runtime session. The root `graft.yaml` only has `deps:` — no `scions:`
-   section, no commands at all. Software-factory doesn't provide a default
-   `scions.start` either. The error message ("no start command configured in
-   scions.start") is accurate but unhelpful for a first-time user — it doesn't
-   tell you what to add or where.
-   **Action**: Add `scions.start` + a worker command to root `graft.yaml`.
-   Consider whether software-factory should provide a default start command.
-   Even with config added, the engine doesn't resolve command args or stdin
-   when launching via runtime — so `stdin: literal` prompts and `{slice}` arg
-   interpolation won't work through `scion start` without engine changes.
-   **Workaround**: cd into `.worktrees/<name>` and run claude manually.
+3. **`scion start` fails — no `scions:` config in root graft.yaml** — RESOLVED
+   `scion start` required `scions.start` to name a command but the root
+   `graft.yaml` had no `scions:` section or commands.
+   **Resolution**: Engine now supports `dep:command` format in `scions.start`
+   (e606162), so the root config can reference commands from dependencies.
+   Root `graft.yaml` now has `scions.start: "software-factory:implement"`
+   (278dbc8). Full command resolution pipeline (state queries, env vars,
+   stdin rendering, launcher script) works through `scion start`.
 
-4. **No path from `scion create` to working in the scion**
-   After creating a scion, `scion start` fails (no config) and `attach` fails
-   (no tmux session). There's no grove command to open a shell or editor in
-   the scion's worktree. The user has to leave grove, `cd .worktrees/<name>`,
-   and run claude manually. The scion provides branch isolation but no
-   integrated way to use it.
-   **Action**: At minimum, the engine needs to resolve `scions.start` commands
-   with arg interpolation and stdin forwarding to the runtime. Longer term,
-   software-factory should define `scions.start: implement` so it works out of
-   the box.
+4. **No path from `scion create` to working in the scion** — RESOLVED
+   After creating a scion, `scion start` failed and there was no integrated
+   way to launch a worker in the scion's worktree.
+   **Resolution**: `scion_start` now performs full command resolution identical
+   to `graft run` — arg interpolation, stdin forwarding, state queries, env
+   vars — and writes a self-contained launcher script for tmux (e606162).
+   The `dep:command` format lets the root config delegate to
+   `software-factory:implement`, which works out of the box.
