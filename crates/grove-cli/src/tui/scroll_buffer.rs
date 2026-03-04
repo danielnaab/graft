@@ -124,7 +124,7 @@ impl ContentBlock {
                 ..
             } => {
                 if *collapsed {
-                    1
+                    1 + output_lines.len().min(COLLAPSED_TAIL_LINES)
                 } else {
                     // 1 header + optional truncation notice + output lines
                     1 + usize::from(*output_truncated) + output_lines.len()
@@ -199,7 +199,7 @@ impl ContentBlock {
                     } else {
                         format!("{command}  {arg_str}")
                     };
-                    return vec![Line::from(vec![
+                    let mut out = vec![Line::from(vec![
                         Span::styled(format!("{spinner} "), Style::default().fg(Color::Yellow)),
                         Span::styled(summary, Style::default().fg(Color::DarkGray)),
                         Span::styled(
@@ -207,6 +207,19 @@ impl ContentBlock {
                             Style::default().fg(Color::DarkGray),
                         ),
                     ])];
+                    // Show the last few output lines as a dimmed tail preview.
+                    let tail_count = output_lines.len().min(COLLAPSED_TAIL_LINES);
+                    let dim = Style::default().fg(Color::DarkGray);
+                    for line in output_lines.iter().skip(output_lines.len() - tail_count) {
+                        let mut spans = vec![Span::styled("  ", dim)];
+                        for span in &line.spans {
+                            let mut s = span.clone();
+                            s.style = s.style.patch(dim);
+                            spans.push(s);
+                        }
+                        out.push(Line::from(spans));
+                    }
+                    return out;
                 }
 
                 let mut header = vec![
@@ -656,6 +669,9 @@ fn format_elapsed(d: Duration) -> String {
     }
 }
 
+/// Number of trailing output lines shown when a Running block is collapsed.
+const COLLAPSED_TAIL_LINES: usize = 3;
+
 const FORMAT_FIRST_LINE_MAX_CHARS: usize = 60;
 const FORMAT_FIRST_LINE_TRUNCATED_CHARS: usize = 57;
 
@@ -909,7 +925,7 @@ mod tests {
     }
 
     #[test]
-    fn running_render_collapsed_is_single_line() {
+    fn running_render_collapsed_shows_tail_preview() {
         let id = BlockId::new();
         let block = ContentBlock::Running {
             id,
@@ -922,7 +938,111 @@ mod tests {
         };
 
         let lines = block.render_lines_at(80, Instant::now());
+        // header + 3 tail lines
+        assert_eq!(lines.len(), 4);
+        // Tail lines should contain the output text, be indented, and be DarkGray
+        for (i, expected) in ["a", "b", "c"].iter().enumerate() {
+            let tail = &lines[i + 1];
+            let text: String = tail.spans.iter().map(|s| s.content.as_ref()).collect();
+            assert!(text.contains(expected), "tail {i}: got {text:?}");
+            // First span is the 2-space indent
+            assert_eq!(tail.spans[0].content.as_ref(), "  ", "tail {i} indent");
+            // All spans should be DarkGray (patch_style applies to every span)
+            for span in &tail.spans {
+                assert_eq!(
+                    span.style.fg,
+                    Some(Color::DarkGray),
+                    "tail {i} span {span:?} should be DarkGray"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn running_render_collapsed_partial_tail() {
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "test".into(),
+            args: vec![],
+            started_at: Instant::now(),
+            output_lines: vec![Line::raw("x"), Line::raw("y")],
+            output_truncated: false,
+            collapsed: true,
+        };
+
+        let lines = block.render_lines_at(80, Instant::now());
+        // header + 2 tail lines (fewer than cap)
+        assert_eq!(lines.len(), 3);
+        assert_eq!(block.line_count(), 3);
+        let text1: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+        let text2: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text1.contains("x"), "got: {text1}");
+        assert!(text2.contains("y"), "got: {text2}");
+    }
+
+    #[test]
+    fn running_render_collapsed_empty_output_is_single_line() {
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "build".into(),
+            args: vec![],
+            started_at: Instant::now(),
+            output_lines: vec![],
+            output_truncated: false,
+            collapsed: true,
+        };
+
+        let lines = block.render_lines_at(80, Instant::now());
         assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn running_render_collapsed_caps_at_three_lines() {
+        let id = BlockId::new();
+        let output: Vec<Line<'static>> = (0..10).map(|i| Line::raw(format!("line {i}"))).collect();
+        let block = ContentBlock::Running {
+            id,
+            command: "test".into(),
+            args: vec![],
+            started_at: Instant::now(),
+            output_lines: output,
+            output_truncated: false,
+            collapsed: true,
+        };
+
+        let lines = block.render_lines_at(80, Instant::now());
+        // header + 3 tail lines (capped)
+        assert_eq!(lines.len(), 4);
+        // Should show the LAST 3 lines (7, 8, 9)
+        let tail1: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+        let tail3: String = lines[3].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(tail1.contains("line 7"), "got: {tail1}");
+        assert!(tail3.contains("line 9"), "got: {tail3}");
+    }
+
+    #[test]
+    fn line_count_running_collapsed_matches_render() {
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "build".into(),
+            args: vec!["--release".into()],
+            started_at: Instant::now(),
+            output_lines: vec![
+                Line::raw("a"),
+                Line::raw("b"),
+                Line::raw("c"),
+                Line::raw("d"),
+                Line::raw("e"),
+            ],
+            output_truncated: false,
+            collapsed: true,
+        };
+
+        let rendered = block.render_lines_at(80, Instant::now()).len();
+        assert_eq!(block.line_count(), rendered);
     }
 
     #[test]
