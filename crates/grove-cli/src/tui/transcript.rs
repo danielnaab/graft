@@ -1361,44 +1361,61 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 });
             }
             Ok(scions) => {
-                let mut lines = vec![Line::from(vec![
-                    Span::styled(
-                        "Scions",
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        format!(" ({})", scions.len()),
-                        Style::default().fg(Color::Gray),
-                    ),
-                ])];
-                lines.push(Line::from(""));
+                let headers = vec![
+                    "Name".to_string(),
+                    "Ahead/Behind".to_string(),
+                    "Dirty".to_string(),
+                    "Session".to_string(),
+                ];
+
+                let mut rows = Vec::new();
+                let mut actions = Vec::new();
                 for s in &scions {
                     let ahead_str = s.ahead.map_or("?".to_string(), |a| a.to_string());
                     let behind_str = s.behind.map_or("?".to_string(), |b| b.to_string());
-                    let dirty_str = if s.dirty { " [dirty]" } else { "" };
-                    let session_str = match s.session_active {
-                        Some(true) => " [session]",
-                        Some(false) | None => "",
+                    let dirty_span = if s.dirty {
+                        Span::styled("\u{25cf}", Style::default().fg(Color::Yellow))
+                    } else {
+                        Span::styled("\u{25cb}", Style::default().fg(Color::Green))
                     };
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            format!("  {:<20}", s.name),
-                            Style::default().fg(Color::Cyan),
-                        ),
-                        Span::styled(
-                            format!("+{ahead_str}/-{behind_str}"),
-                            Style::default().fg(Color::Yellow),
-                        ),
-                        Span::styled(dirty_str, Style::default().fg(Color::Red)),
-                        Span::styled(session_str, Style::default().fg(Color::Green)),
-                    ]));
+                    let session_span = match s.session_active {
+                        Some(true) => {
+                            Span::styled("\u{25cf} active", Style::default().fg(Color::Green))
+                        }
+                        Some(false) => {
+                            Span::styled("\u{2013}", Style::default().fg(Color::DarkGray))
+                        }
+                        None => Span::styled("?", Style::default().fg(Color::DarkGray)),
+                    };
+
+                    // Column 1 becomes the picker description, so include a
+                    // human-readable summary (ahead count + dirty + session).
+                    let mut summary_parts = Vec::new();
+                    summary_parts.push(format!("\u{2191}{ahead_str} \u{2193}{behind_str}"));
+                    if s.dirty {
+                        summary_parts.push("dirty".to_string());
+                    }
+                    if s.session_active == Some(true) {
+                        summary_parts.push("active".to_string());
+                    }
+                    let summary = summary_parts.join(", ");
+
+                    actions.push(CliCommand::Review(s.name.clone(), false));
+                    rows.push(vec![
+                        Span::styled(s.name.clone(), Style::default().fg(Color::Cyan)),
+                        Span::styled(summary, Style::default().fg(Color::Yellow)),
+                        dirty_span,
+                        session_span,
+                    ]);
                 }
-                self.scroll.push(ContentBlock::Text {
+
+                self.scroll.push(ContentBlock::Table {
                     id: BlockId::new(),
-                    lines,
+                    title: "Scions".to_string(),
+                    headers,
+                    rows,
                     collapsed: false,
+                    actions: Some(actions),
                 });
             }
             Err(e) => {
