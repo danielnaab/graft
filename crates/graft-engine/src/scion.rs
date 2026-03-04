@@ -8,8 +8,12 @@
 //! Git primitives from `graft-common` take explicit paths and branch names.
 //! The naming convention lives here, not in the primitives.
 
-use crate::domain::{GraftConfig, ScionHooks};
+use crate::command::{
+    build_shell_command, get_git_branch, resolve_state_queries, setup_run_state, CommandContext,
+};
+use crate::domain::{Command, GraftConfig, ScionHooks};
 use crate::error::{GraftError, Result};
+use crate::template::{resolve_stdin, TemplateContext};
 use graft_common::process::{run_to_completion_with_timeout, ProcessConfig};
 use graft_common::runtime::SessionRuntime;
 use graft_common::{
@@ -623,10 +627,147 @@ pub fn execute_hook_chain(
     Ok(completed)
 }
 
+/// Parse a `scions.start` value into `(dep_name, command_name)`.
+///
+/// `"software-factory:implement"` → `(Some("software-factory"), "implement")`
+/// `"agent"` → `(None, "agent")`
+///
+/// Returns an error if either segment is empty when `:` is present
+/// (e.g. `":foo"`, `"foo:"`, `""`).
+fn parse_start_command(value: &str) -> Result<(Option<&str>, &str)> {
+    if let Some((dep, cmd)) = value.split_once(':') {
+        if dep.is_empty() {
+            return Err(GraftError::CommandExecution(format!(
+                "invalid start command '{value}': dependency name is empty"
+            )));
+        }
+        if cmd.is_empty() {
+            return Err(GraftError::CommandExecution(format!(
+                "invalid start command '{value}': command name is empty"
+            )));
+        }
+        Ok((Some(dep), cmd))
+    } else {
+        if value.is_empty() {
+            return Err(GraftError::CommandExecution(
+                "start command cannot be empty".to_string(),
+            ));
+        }
+        Ok((None, value))
+    }
+}
+
+/// Shell-escape a value by single-quoting with internal quote escaping.
+fn shell_escape(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+/// Build a self-contained launcher script for a scion session.
+///
+/// The script exports env vars, changes to the working directory, and execs the
+/// resolved command (with optional stdin redirection).
+///
+/// When `is_dep` is `false`, emits `unset GRAFT_DEP_DIR` after exports so that
+/// the subprocess does not inherit a stale value from the parent environment
+/// (mirrors the `env_remove` logic in `execute_command_with_context`).
+fn build_scion_launcher(
+    env_vars: &HashMap<String, String>,
+    working_dir: &Path,
+    shell_cmd: &str,
+    stdin_file: Option<&Path>,
+    is_dep: bool,
+) -> String {
+    use std::fmt::Write;
+
+    let mut script = String::from("#!/usr/bin/env bash\nset -euo pipefail\n\n");
+
+    let mut sorted_env: Vec<_> = env_vars.iter().collect();
+    sorted_env.sort_by_key(|(k, _)| (*k).clone());
+    for (key, value) in &sorted_env {
+        let _ = writeln!(script, "export {}={}", key, shell_escape(value));
+    }
+
+    // For local commands, unset GRAFT_DEP_DIR so the subprocess does not
+    // inherit it from the parent process environment.
+    if !is_dep {
+        let _ = writeln!(script, "unset GRAFT_DEP_DIR");
+    }
+
+    script.push('\n');
+    let _ = writeln!(
+        script,
+        "cd {}",
+        shell_escape(&working_dir.to_string_lossy())
+    );
+
+    if let Some(stdin_path) = stdin_file {
+        let _ = writeln!(
+            script,
+            "exec {shell_cmd} < {}",
+            shell_escape(&stdin_path.to_string_lossy())
+        );
+    } else {
+        let _ = writeln!(script, "exec {shell_cmd}");
+    }
+
+    script
+}
+
+/// Resolve the `scions.start` command, looking up dep or local command definitions.
+///
+/// Returns `(command, config, source_dir, is_dep)`.
+fn resolve_start_command<'a>(
+    start_value: &str,
+    cfg: &'a GraftConfig,
+    dep_configs: &'a [(String, GraftConfig)],
+    repo: &Path,
+) -> Result<(&'a Command, &'a GraftConfig, PathBuf, bool)> {
+    let (dep_name, command_name) = parse_start_command(start_value)?;
+
+    if let Some(dep) = dep_name {
+        let dep_cfg = dep_configs
+            .iter()
+            .find(|(name, _)| name == dep)
+            .map(|(_, c)| c)
+            .ok_or_else(|| {
+                GraftError::CommandExecution(format!(
+                    "dependency '{dep}' not found for start command '{start_value}'"
+                ))
+            })?;
+        let cmd = dep_cfg.get_command(command_name).ok_or_else(|| {
+            GraftError::CommandExecution(format!(
+                "start command '{command_name}' not found in dependency '{dep}'"
+            ))
+        })?;
+        let dep_dir = repo.join(".graft").join(dep);
+        Ok((cmd, dep_cfg, dep_dir, true))
+    } else {
+        let cmd = cfg.get_command(command_name).ok_or_else(|| {
+            GraftError::CommandExecution(format!(
+                "start command '{command_name}' not found in commands"
+            ))
+        })?;
+        Ok((cmd, cfg, repo.to_path_buf(), false))
+    }
+}
+
+/// Derive a short repo name from a path (last component of the canonical path).
+fn derive_repo_name(repo: &Path) -> String {
+    repo.canonicalize()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 /// Start a runtime session for a scion.
 ///
-/// Resolves the command to run from `scions.start` in the config, then
-/// launches it in a detached session via the provided runtime.
+/// Performs full command resolution (the same pipeline as `graft run`):
+/// resolves the `scions.start` command, sets up run-state, resolves state
+/// queries, builds env vars, renders stdin (if any), and writes a
+/// self-contained launcher script that tmux can execute.
+///
+/// Supports `dep:command` format in `scions.start` so the root graft.yaml
+/// can reference commands defined in dependencies.
 ///
 /// Session ID convention: `graft-scion-<name>`.
 ///
@@ -634,12 +775,14 @@ pub fn execute_hook_chain(
 /// Returns `GraftError` if:
 /// - The scion does not exist (no worktree at `.worktrees/<name>`)
 /// - No `scions.start` is configured
-/// - The referenced command is not found in the commands section
+/// - The referenced command is not found
+/// - State query resolution or template rendering fails
 /// - The runtime fails to launch the session
 pub fn scion_start(
     repo_path: impl AsRef<Path>,
     name: &str,
     config: Option<&GraftConfig>,
+    dep_configs: &[(String, GraftConfig)],
     runtime: &impl SessionRuntime,
 ) -> Result<()> {
     validate_scion_name(name)?;
@@ -654,23 +797,115 @@ pub fn scion_start(
     let cfg = config.ok_or_else(|| {
         GraftError::CommandExecution("no start command configured in scions.start".to_string())
     })?;
-
-    let command_name = cfg
+    let start_value = cfg
         .scion_hooks
         .as_ref()
         .and_then(|h| h.start.as_ref())
         .ok_or_else(|| {
             GraftError::CommandExecution("no start command configured in scions.start".to_string())
         })?;
+    let (command, resolved_config, source_dir, is_dep) =
+        resolve_start_command(start_value, cfg, dep_configs, repo)?;
 
-    let command = cfg.get_command(command_name).ok_or_else(|| {
-        GraftError::CommandExecution(format!(
-            "start command '{command_name}' not found in commands"
-        ))
+    // Build CommandContext — consumer_dir is the worktree (where commands execute)
+    let repo_name = derive_repo_name(repo);
+    let ctx = if is_dep {
+        CommandContext::dependency(&source_dir, &wt_path, &repo_name, &repo_name, false)
+    } else {
+        CommandContext::local(&wt_path, &repo_name, &repo_name, false)
+    };
+
+    // Args convention: scion name as first arg (doubles as slice slug)
+    let args = vec![name.to_string()];
+
+    // Set up run-state directory and enforce reads: preconditions
+    let run_state_dir = setup_run_state(command, resolved_config, &wt_path)?;
+
+    // Resolve state queries from command context
+    let state_results = resolve_state_queries(command, resolved_config, &ctx)?;
+
+    // Build env vars
+    let mut env_vars: HashMap<String, String> = command.env.clone().unwrap_or_default();
+    for (state_name, value) in &state_results {
+        let env_key = format!(
+            "GRAFT_STATE_{}",
+            state_name.to_uppercase().replace('-', "_")
+        );
+        let json_str = serde_json::to_string(value)
+            .map_err(|e| GraftError::CommandExecution(format!("Failed to serialize state: {e}")))?;
+        env_vars.insert(env_key, json_str);
+    }
+    env_vars.insert(
+        "GRAFT_STATE_DIR".to_string(),
+        run_state_dir.to_string_lossy().to_string(),
+    );
+    if ctx.is_dependency() {
+        env_vars.insert(
+            "GRAFT_DEP_DIR".to_string(),
+            ctx.source_dir.to_string_lossy().to_string(),
+        );
+    }
+    env_vars.insert("GRAFT_SCION_NAME".to_string(), name.to_string());
+    env_vars.insert("GRAFT_SCION_BRANCH".to_string(), branch_name(name));
+    env_vars.insert(
+        "GRAFT_SCION_WORKTREE".to_string(),
+        wt_path.to_string_lossy().to_string(),
+    );
+
+    // Resolve stdin (if command has it)
+    let stdin_file = if let Some(ref stdin_source) = command.stdin {
+        let git_branch = get_git_branch(&wt_path).unwrap_or_else(|_| "unknown".to_string());
+        let commit_hash =
+            graft_common::get_current_commit(&wt_path).unwrap_or_else(|_| "unknown".to_string());
+        let template_ctx =
+            TemplateContext::new(&wt_path, &commit_hash, &git_branch, &state_results, &args);
+        let rendered = resolve_stdin(stdin_source, &ctx.source_dir, &template_ctx)?;
+        let stdin_path = run_state_dir.join("scion-start-stdin.txt");
+        std::fs::write(&stdin_path, &rendered).map_err(|e| {
+            GraftError::CommandExecution(format!("Failed to write stdin file: {e}"))
+        })?;
+        Some(stdin_path)
+    } else {
+        None
+    };
+
+    // Build the resolved shell command
+    let shell_cmd = build_shell_command(command, &ctx.source_dir, &args);
+
+    // Working dir defaults to consumer_dir (the worktree)
+    let working_dir = if let Some(ref cmd_dir) = command.working_dir {
+        wt_path.join(cmd_dir)
+    } else {
+        wt_path.clone()
+    };
+
+    // Write launcher script
+    let launcher_path = run_state_dir.join("scion-start.sh");
+    let script = build_scion_launcher(
+        &env_vars,
+        &working_dir,
+        &shell_cmd,
+        stdin_file.as_deref(),
+        is_dep,
+    );
+
+    std::fs::write(&launcher_path, &script).map_err(|e| {
+        GraftError::CommandExecution(format!("Failed to write launcher script: {e}"))
     })?;
 
+    // Make launcher executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(&launcher_path, perms).map_err(|e| {
+            GraftError::CommandExecution(format!("Failed to set launcher permissions: {e}"))
+        })?;
+    }
+
     let session_id = scion_session_id(name);
-    runtime.launch(&session_id, &command.run, &wt_path)?;
+    let launch_cmd = format!("bash {}", shell_escape(&launcher_path.to_string_lossy()));
+    runtime.launch(&session_id, &launch_cmd, &wt_path)?;
     Ok(())
 }
 
@@ -1674,15 +1909,26 @@ mod tests {
     // --- scion_start / scion_stop tests ---
 
     /// A mock runtime that records calls for testing.
+    ///
+    /// Maps session_id → command string so tests can assert on what was launched.
+    /// Tracks the most recently launched command separately (HashMap has no
+    /// guaranteed iteration order).
     struct MockRuntime {
-        sessions: std::cell::RefCell<std::collections::HashSet<String>>,
+        sessions: std::cell::RefCell<HashMap<String, String>>,
+        last_command: std::cell::RefCell<Option<String>>,
     }
 
     impl MockRuntime {
         fn new() -> Self {
             Self {
-                sessions: std::cell::RefCell::new(std::collections::HashSet::new()),
+                sessions: std::cell::RefCell::new(HashMap::new()),
+                last_command: std::cell::RefCell::new(None),
             }
+        }
+
+        /// Return the command string for the most recently launched session.
+        fn last_command(&self) -> Option<String> {
+            self.last_command.borrow().clone()
         }
     }
 
@@ -1690,16 +1936,17 @@ mod tests {
         fn launch(
             &self,
             session_id: &str,
-            _command: &str,
+            command: &str,
             _working_dir: &Path,
         ) -> std::result::Result<(), graft_common::RuntimeError> {
             let mut sessions = self.sessions.borrow_mut();
-            if sessions.contains(session_id) {
+            if sessions.contains_key(session_id) {
                 return Err(graft_common::RuntimeError::SessionExists(
                     session_id.to_string(),
                 ));
             }
-            sessions.insert(session_id.to_string());
+            sessions.insert(session_id.to_string(), command.to_string());
+            *self.last_command.borrow_mut() = Some(command.to_string());
             Ok(())
         }
 
@@ -1707,7 +1954,7 @@ mod tests {
             &self,
             session_id: &str,
         ) -> std::result::Result<bool, graft_common::RuntimeError> {
-            Ok(self.sessions.borrow().contains(session_id))
+            Ok(self.sessions.borrow().contains_key(session_id))
         }
 
         fn attach(&self, _session_id: &str) -> std::result::Result<(), graft_common::RuntimeError> {
@@ -1716,7 +1963,7 @@ mod tests {
 
         fn stop(&self, session_id: &str) -> std::result::Result<(), graft_common::RuntimeError> {
             let mut sessions = self.sessions.borrow_mut();
-            if !sessions.remove(session_id) {
+            if sessions.remove(session_id).is_none() {
                 return Err(graft_common::RuntimeError::SessionNotFound(
                     session_id.to_string(),
                 ));
@@ -1732,7 +1979,7 @@ mod tests {
         scion_create(temp.path(), "no-config", None, &[]).unwrap();
 
         let runtime = MockRuntime::new();
-        let result = scion_start(temp.path(), "no-config", None, &runtime);
+        let result = scion_start(temp.path(), "no-config", None, &[], &runtime);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -1747,7 +1994,7 @@ mod tests {
         init_test_repo(temp.path());
 
         let runtime = MockRuntime::new();
-        let result = scion_start(temp.path(), "nonexistent", None, &runtime);
+        let result = scion_start(temp.path(), "nonexistent", None, &[], &runtime);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -1776,7 +2023,7 @@ mod tests {
         let runtime = MockRuntime::new();
 
         // Start should succeed
-        scion_start(temp.path(), "worker", Some(&config), &runtime).unwrap();
+        scion_start(temp.path(), "worker", Some(&config), &[], &runtime).unwrap();
         assert!(runtime.exists("graft-scion-worker").unwrap());
 
         // Stop should succeed
@@ -1997,5 +2244,265 @@ mod tests {
 
         let content = fs::read_to_string(&out_file).expect("stdin output file should exist");
         assert_eq!(content, "hello from stdin");
+    }
+
+    // --- parse_start_command tests ---
+
+    #[test]
+    fn parse_start_command_local() {
+        let (dep, cmd) = parse_start_command("agent").unwrap();
+        assert_eq!(dep, None);
+        assert_eq!(cmd, "agent");
+    }
+
+    #[test]
+    fn parse_start_command_dep() {
+        let (dep, cmd) = parse_start_command("software-factory:implement").unwrap();
+        assert_eq!(dep, Some("software-factory"));
+        assert_eq!(cmd, "implement");
+    }
+
+    #[test]
+    fn parse_start_command_empty_dep_errors() {
+        let result = parse_start_command(":foo");
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("dependency name is empty"),
+            "expected empty dep error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn parse_start_command_empty_cmd_errors() {
+        let result = parse_start_command("foo:");
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("command name is empty"),
+            "expected empty cmd error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn parse_start_command_multiple_colons() {
+        // split_once splits on the first colon: dep="a", cmd="b:c"
+        // The command name "b:c" is invalid per Command::new, but parse_start_command
+        // doesn't enforce that — it's caught at command lookup time.
+        let (dep, cmd) = parse_start_command("a:b:c").unwrap();
+        assert_eq!(dep, Some("a"));
+        assert_eq!(cmd, "b:c");
+    }
+
+    // --- scion_start launcher tests ---
+
+    #[test]
+    fn scion_start_writes_launcher_script() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "launcher-test", None, &[]).unwrap();
+
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        let cmd = crate::domain::Command::new("agent", "echo hello").unwrap();
+        config.commands.insert("agent".to_string(), cmd);
+        config.scion_hooks = Some(ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+            start: Some("agent".to_string()),
+        });
+
+        let runtime = MockRuntime::new();
+        scion_start(temp.path(), "launcher-test", Some(&config), &[], &runtime).unwrap();
+
+        // Launcher script should exist
+        let launcher = temp
+            .path()
+            .join(".worktrees/launcher-test/.graft/run-state/scion-start.sh");
+        assert!(launcher.exists(), "launcher script should exist");
+
+        let script = fs::read_to_string(&launcher).unwrap();
+        assert!(script.contains("#!/usr/bin/env bash"));
+        assert!(script.contains("set -euo pipefail"));
+        assert!(script.contains("GRAFT_STATE_DIR="));
+        assert!(script.contains("GRAFT_SCION_NAME='launcher-test'"));
+        assert!(script.contains("GRAFT_SCION_BRANCH='feature/launcher-test'"));
+        assert!(script.contains("exec echo hello launcher-test"));
+
+        // Local command should unset GRAFT_DEP_DIR
+        assert!(
+            script.contains("unset GRAFT_DEP_DIR"),
+            "local command launcher should unset GRAFT_DEP_DIR"
+        );
+
+        // MockRuntime should have captured the launch command referencing the launcher script
+        let captured = runtime
+            .last_command()
+            .expect("should have captured command");
+        assert!(
+            captured.contains("scion-start.sh"),
+            "captured command should reference scion-start.sh, got: {captured}"
+        );
+    }
+
+    #[test]
+    fn scion_start_dep_command() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "dep-start", None, &[]).unwrap();
+
+        // Root config with dep:command start
+        let mut root_config = GraftConfig::new("graft/v1").unwrap();
+        root_config.scion_hooks = Some(ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+            start: Some("my-dep:run-agent".to_string()),
+        });
+
+        // Dep config with the referenced command
+        let mut dep_config = GraftConfig::new("graft/v1").unwrap();
+        let cmd = crate::domain::Command::new("run-agent", "echo dep-hello").unwrap();
+        dep_config.commands.insert("run-agent".to_string(), cmd);
+
+        // Create dep directory in main repo
+        let dep_dir = temp.path().join(".graft/my-dep");
+        fs::create_dir_all(&dep_dir).unwrap();
+
+        let dep_configs = vec![("my-dep".to_string(), dep_config)];
+        let runtime = MockRuntime::new();
+
+        scion_start(
+            temp.path(),
+            "dep-start",
+            Some(&root_config),
+            &dep_configs,
+            &runtime,
+        )
+        .unwrap();
+
+        assert!(runtime.exists("graft-scion-dep-start").unwrap());
+
+        // Launcher should reference GRAFT_DEP_DIR
+        let launcher = temp
+            .path()
+            .join(".worktrees/dep-start/.graft/run-state/scion-start.sh");
+        let script = fs::read_to_string(&launcher).unwrap();
+        assert!(
+            script.contains("GRAFT_DEP_DIR="),
+            "dep command should set GRAFT_DEP_DIR"
+        );
+        assert!(
+            !script.contains("unset GRAFT_DEP_DIR"),
+            "dep command should NOT unset GRAFT_DEP_DIR"
+        );
+    }
+
+    #[test]
+    fn scion_start_launcher_has_stdin() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "stdin-start", None, &[]).unwrap();
+
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        let mut cmd = crate::domain::Command::new("agent", "cat").unwrap();
+        cmd.stdin = Some(crate::domain::StdinSource::Literal(
+            "hello stdin".to_string(),
+        ));
+        config.commands.insert("agent".to_string(), cmd);
+        config.scion_hooks = Some(ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+            start: Some("agent".to_string()),
+        });
+
+        let runtime = MockRuntime::new();
+        scion_start(temp.path(), "stdin-start", Some(&config), &[], &runtime).unwrap();
+
+        let run_state = temp.path().join(".worktrees/stdin-start/.graft/run-state");
+
+        // Stdin file should exist
+        let stdin_file = run_state.join("scion-start-stdin.txt");
+        assert!(stdin_file.exists(), "stdin file should exist");
+        let stdin_content = fs::read_to_string(&stdin_file).unwrap();
+        assert_eq!(stdin_content, "hello stdin");
+
+        // Launcher should redirect stdin
+        let launcher = run_state.join("scion-start.sh");
+        let script = fs::read_to_string(&launcher).unwrap();
+        assert!(
+            script.contains("< "),
+            "launcher should redirect stdin from file"
+        );
+        assert!(
+            script.contains("scion-start-stdin.txt"),
+            "launcher should reference stdin file"
+        );
+    }
+
+    #[test]
+    fn scion_start_dep_not_found_errors() {
+        let temp = TempDir::new().unwrap();
+        init_test_repo(temp.path());
+        scion_create(temp.path(), "bad-dep", None, &[]).unwrap();
+
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        config.scion_hooks = Some(ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+            start: Some("missing-dep:run".to_string()),
+        });
+
+        let runtime = MockRuntime::new();
+        let result = scion_start(temp.path(), "bad-dep", Some(&config), &[], &runtime);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("dependency 'missing-dep' not found"),
+            "expected dep not found error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn scions_start_dep_empty_parts_rejected() {
+        // ":foo" should fail domain validation
+        let mut config = GraftConfig::new("graft/v1").unwrap();
+        config.scion_hooks = Some(ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+            start: Some(":foo".to_string()),
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("non-empty"),
+            "expected non-empty validation error for ':foo', got: {err_msg}"
+        );
+
+        // "foo:" should also fail domain validation
+        let mut config2 = GraftConfig::new("graft/v1").unwrap();
+        config2.scion_hooks = Some(ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+            start: Some("foo:".to_string()),
+        });
+        let result2 = config2.validate();
+        assert!(result2.is_err());
+        let err_msg2 = result2.unwrap_err().to_string();
+        assert!(
+            err_msg2.contains("non-empty"),
+            "expected non-empty validation error for 'foo:', got: {err_msg2}"
+        );
     }
 }

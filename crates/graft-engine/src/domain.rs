@@ -827,14 +827,28 @@ impl GraftConfig {
 
             // Validate scions.start command name
             if let Some(ref start_cmd) = hooks.start {
-                if !self.commands.contains_key(start_cmd) {
-                    return Err(GraftError::ConfigValidation {
-                        path: "graft.yaml".to_string(),
-                        field: "scions.start".to_string(),
-                        reason: format!(
-                            "start command '{start_cmd}' not found in commands section"
-                        ),
-                    });
+                if let Some((dep, cmd)) = start_cmd.split_once(':') {
+                    // dep:command format — validate both parts are non-empty
+                    if dep.is_empty() || cmd.is_empty() {
+                        return Err(GraftError::ConfigValidation {
+                            path: "graft.yaml".to_string(),
+                            field: "scions.start".to_string(),
+                            reason: format!(
+                                "invalid start command '{start_cmd}': both dependency and command names must be non-empty"
+                            ),
+                        });
+                    }
+                } else {
+                    // Local command — must exist in commands section
+                    if !self.commands.contains_key(start_cmd) {
+                        return Err(GraftError::ConfigValidation {
+                            path: "graft.yaml".to_string(),
+                            field: "scions.start".to_string(),
+                            reason: format!(
+                                "start command '{start_cmd}' not found in commands section"
+                            ),
+                        });
+                    }
                 }
             }
         }
@@ -1486,5 +1500,38 @@ mod tests {
         config.commands.insert("implement".to_string(), cmd_a);
         config.commands.insert("verify".to_string(), cmd_b);
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn scions_start_dep_format_accepted() {
+        let mut config = GraftConfig::new("graft/v0").unwrap();
+        config.scion_hooks = Some(ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+            start: Some("software-factory:implement".to_string()),
+        });
+        // dep:command format should not require the command in the local commands section
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn scions_start_local_missing_command_rejected() {
+        let mut config = GraftConfig::new("graft/v0").unwrap();
+        config.scion_hooks = Some(ScionHooks {
+            on_create: None,
+            pre_fuse: None,
+            post_fuse: None,
+            on_prune: None,
+            start: Some("nonexistent".to_string()),
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not found in commands section"),
+            "expected validation error, got: {err_msg}"
+        );
     }
 }
