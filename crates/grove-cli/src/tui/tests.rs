@@ -2552,3 +2552,75 @@ fn completions_scion_start_no_trailing_space_completes_subcommand() {
         "should not show scion names without trailing space"
     );
 }
+
+#[test]
+fn scion_list_table_structure_and_actions() {
+    // Verify the table block shape that cmd_scion_list produces.
+    // We construct it directly since scion_list requires a real git repo.
+    use ratatui::style::{Color, Style};
+    use ratatui::text::Span;
+
+    let name = "my-feature";
+    let headers = vec![
+        "Name".to_string(),
+        "Ahead/Behind".to_string(),
+        "Dirty".to_string(),
+        "Session".to_string(),
+    ];
+    let rows = vec![vec![
+        Span::styled(name.to_string(), Style::default().fg(Color::Cyan)),
+        Span::styled("\u{2191}3 \u{2193}0", Style::default().fg(Color::Yellow)),
+        Span::styled("\u{25cb}", Style::default().fg(Color::Green)),
+        Span::styled("\u{2013}", Style::default().fg(Color::DarkGray)),
+    ]];
+    let actions = vec![CliCommand::Review(name.to_string(), false)];
+
+    let block = ContentBlock::Table {
+        id: BlockId::new(),
+        title: "Scions".to_string(),
+        headers: headers.clone(),
+        rows,
+        collapsed: false,
+        actions: Some(actions),
+    };
+
+    // Verify structure
+    if let ContentBlock::Table {
+        title,
+        headers: h,
+        rows: r,
+        actions: a,
+        ..
+    } = &block
+    {
+        assert_eq!(title, "Scions");
+        assert_eq!(h.len(), 4);
+        assert_eq!(h[0], "Name");
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0][0].content, "my-feature");
+
+        let acts = a.as_ref().expect("scion table should have actions");
+        assert_eq!(acts.len(), 1);
+        assert_eq!(acts[0], CliCommand::Review("my-feature".to_string(), false));
+    } else {
+        panic!("Expected Table block");
+    }
+
+    // Verify picker opens when table is focused and Enter is pressed
+    let mut app = create_app(MockRegistry::with_repos(1));
+    app.scroll.push(block);
+    let last_idx = app.scroll.blocks.len() - 1;
+    app.scroll.focused_block = Some(last_idx);
+
+    assert!(app.picker.is_none());
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(app.picker.is_some());
+
+    let picker = app.picker.as_ref().unwrap();
+    assert_eq!(picker.items.len(), 1);
+    assert_eq!(picker.items[0].label, "my-feature");
+    assert_eq!(
+        picker.items[0].action,
+        CliCommand::Review("my-feature".to_string(), false)
+    );
+}

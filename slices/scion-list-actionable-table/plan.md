@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-03-02
 depends_on: []
 ---
@@ -37,7 +37,7 @@ pattern: `:repos` → `CliCommand::Repo`, `:catalog` → `CliCommand::Run`,
 
 ## Steps
 
-- [ ] **Convert `:scion list` to render a `ContentBlock::Table` with review actions**
+- [x] **Convert `:scion list` to render a `ContentBlock::Table` with review actions**
   - **Delivers** — scion list as an actionable table, consistent with other list commands
   - **Done when** — `cmd_scion_list` builds `headers`, `rows`, and
     `actions: Some(vec![CliCommand::Review(name, false)])` per scion; renders as
