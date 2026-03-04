@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 created: 2026-03-02
 depends_on:
   - scion-attach
@@ -93,7 +93,7 @@ Five areas of work:
 
 ## Steps
 
-- [ ] **Add `:scion` and `:attach` command parsing to grove command dispatch**
+- [x] **Add `:scion` and `:attach` command parsing to grove command dispatch**
   - **Delivers** — command routing for scion subcommands
   - **Done when** — `PALETTE_COMMANDS` includes entries for `:scion list`,
     `:scion create`, `:scion start`, `:scion stop`, `:scion prune`, `:scion fuse`,
@@ -103,7 +103,7 @@ Five areas of work:
     available scion subcommands
   - **Files** — `crates/grove-cli/src/tui/command_line.rs`
 
-- [ ] **Implement `:scion list` with session status**
+- [x] **Implement `:scion list` with session status**
   - **Delivers** — scion overview in grove TUI
   - **Done when** — handler checks `self.context.selected_repo_path` (early return if
     none); calls `graft_engine::scion_list(repo_path, runtime)` where runtime is
@@ -115,7 +115,7 @@ Five areas of work:
   - **Files** — `crates/grove-cli/src/tui/transcript.rs`,
     `crates/grove-cli/src/tui/formatting.rs`
 
-- [ ] **Implement `:scion create/start/stop` handlers**
+- [x] **Implement `:scion create/start/stop` handlers**
   - **Delivers** — scion creation and session management from grove
   - **Done when** — all three check `self.context.selected_repo_path` first;
     `:scion create <name>` loads `GraftConfig` from repo's graft.yaml and assembles
@@ -126,7 +126,7 @@ Five areas of work:
     `scion_stop`, shows confirmation
   - **Files** — `crates/grove-cli/src/tui/transcript.rs`
 
-- [ ] **Implement `:scion prune/fuse` handlers with session-active error relay**
+- [x] **Implement `:scion prune/fuse` handlers with session-active error relay**
   - **Delivers** — lifecycle operations that surface session guard errors in the TUI
   - **Done when** — both check `self.context.selected_repo_path` first; load
     `GraftConfig` and assemble `dep_configs`; attempt `TmuxRuntime::new()` (pass
@@ -136,7 +136,7 @@ Five areas of work:
     show the error message
   - **Files** — `crates/grove-cli/src/tui/transcript.rs`
 
-- [ ] **Implement `:attach <name>` with TUI suspend/resume**
+- [x] **Implement `:attach <name>` with TUI suspend/resume**
   - **Delivers** — terminal handoff to runtime session (new TUI pattern)
   - **Done when** — handler checks `self.context.selected_repo_path` first; creates
     `TmuxRuntime` (error if unavailable); calls `scion_attach_check(repo_path, name,
@@ -148,7 +148,7 @@ Five areas of work:
     EnterAlternateScreen)`, triggers `terminal.clear()` and full state refresh
   - **Files** — `crates/grove-cli/src/tui/transcript.rs`
 
-- [ ] **Add tab completion for scion names**
+- [x] **Add tab completion for scion names**
   - **Delivers** — ergonomic scion name entry
   - **Done when** — after `:scion start `, `:scion stop `, `:scion prune `,
     `:scion fuse `, `:attach `, tab completion offers known scion names (from cached

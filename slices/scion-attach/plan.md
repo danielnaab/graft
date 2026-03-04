@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 created: 2026-03-02
 depends_on: []
 ---
@@ -62,7 +62,7 @@ implemented.
 
 ## Steps
 
-- [ ] **Extract `scion_session_id` helper and retrofit callsites**
+- [x] **Extract `scion_session_id` helper and retrofit callsites**
   - **Delivers** — shared session ID derivation, no inline format duplication
   - **Done when** — `pub fn scion_session_id(name: &str) -> String` returns
     `format!("graft-scion-{name}")`; `scion_start`, `scion_stop`, and `scion_list`
@@ -70,7 +70,7 @@ implemented.
     `graft-engine` for use by grove; all existing tests pass unchanged
   - **Files** — `crates/graft-engine/src/scion.rs`, `crates/graft-engine/src/lib.rs`
 
-- [ ] **Add `scion_attach_check` engine function and CLI command**
+- [x] **Add `scion_attach_check` engine function and CLI command**
   - **Delivers** — validated attach with two-phase API for TUI compatibility
   - **Done when** — `scion_attach_check(repo_path, name, runtime: &impl SessionRuntime)`
     calls `validate_scion_name`, checks `worktree_path(repo, name).exists()` (error if

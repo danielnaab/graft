@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 created: 2026-03-02
 depends_on:
   - scion-attach
@@ -63,7 +63,7 @@ Two areas of work:
 
 ## Steps
 
-- [ ] **Add session guard to `scion_fuse` and `scion_prune`, update all callers**
+- [x] **Add session guard to `scion_fuse` and `scion_prune`, update all callers**
   - **Delivers** — safety check preventing destruction of active sessions
   - **Done when** — `scion_fuse` and `scion_prune` accept additional parameters
     `runtime: Option<&dyn SessionRuntime>` and `force: bool`; when runtime is `Some`
@@ -76,7 +76,7 @@ Two areas of work:
     through; all existing engine tests updated to pass `None, false`
   - **Files** — `crates/graft-engine/src/scion.rs`, `crates/graft-cli/src/main.rs`
 
-- [ ] **Add engine tests for session guard behavior**
+- [x] **Add engine tests for session guard behavior**
   - **Delivers** — coverage of all session guard branches
   - **Done when** — tests using the existing `MockRuntime` verify: (1) active session
     + `force: false` → error with message containing "--force"; (2) active session +

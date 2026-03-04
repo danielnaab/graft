@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 created: 2026-03-02
 depends_on:
   - grove-scion-commands
@@ -79,14 +79,14 @@ Four areas of work:
 
 ## Steps
 
-- [ ] **Export `resolve_base_branch` from `graft-engine`**
+- [x] **Export `resolve_base_branch` from `graft-engine`**
   - **Delivers** — shared base branch resolution for review and future callers
   - **Done when** — `resolve_base_branch` in `graft-engine/src/scion.rs` changed from
     `fn` to `pub fn`; added to `pub use scion::{ ... }` in
     `graft-engine/src/lib.rs`; all existing tests pass unchanged
   - **Files** — `crates/graft-engine/src/scion.rs`, `crates/graft-engine/src/lib.rs`
 
-- [ ] **Add `git_diff_stat`, `git_diff_output`, and `git_log_output` to `graft-common`**
+- [x] **Add `git_diff_stat`, `git_diff_output`, and `git_log_output` to `graft-common`**
   - **Delivers** — raw git text output for review display
   - **Done when** — `git_diff_stat(repo, base, head)` runs
     `git diff --stat <base>...<head>` (three-dot, merge-base) and returns the output
@@ -99,7 +99,7 @@ Four areas of work:
     output contain expected content)
   - **Files** — `crates/graft-common/src/git.rs`
 
-- [ ] **Add `:review` command parsing with optional `full` modifier**
+- [x] **Add `:review` command parsing with optional `full` modifier**
   - **Delivers** — command routing for review with two display modes
   - **Done when** — `PALETTE_COMMANDS` includes `:review`; `CliCommand` enum has
     `Review(String, bool)` variant (name, full_diff flag); `parse_command()` handles
@@ -107,7 +107,7 @@ Four areas of work:
     completion offers scion names after `:review `; dispatches to review handler
   - **Files** — `crates/grove-cli/src/tui/command_line.rs`
 
-- [ ] **Implement review data gathering and rendering**
+- [x] **Implement review data gathering and rendering**
   - **Delivers** — formatted review display in grove TUI
   - **Done when** — handler checks `self.context.selected_repo_path` (early return if
     none); calls `graft_common::git_worktree_list(repo_path)` once; uses result for
