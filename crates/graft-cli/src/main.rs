@@ -2799,8 +2799,12 @@ fn scion_prune_command(name: &str, force: bool) -> Result<()> {
 fn scion_start_command(name: &str) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
     let config = try_load_graft_config(&repo_path);
+    let dep_configs = config
+        .as_ref()
+        .map(|c| load_dep_configs(&repo_path, c))
+        .unwrap_or_default();
     let runtime = TmuxRuntime::new().context("tmux is required for scion sessions")?;
-    scion_start(&repo_path, name, config.as_ref(), &runtime)
+    scion_start(&repo_path, name, config.as_ref(), &dep_configs, &runtime)
         .with_context(|| format!("Failed to start scion '{name}'"))?;
     println!("Started scion '{name}' (session: graft-scion-{name})");
     Ok(())

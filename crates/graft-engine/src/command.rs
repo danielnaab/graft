@@ -401,7 +401,7 @@ pub fn resolve_command_stdin(
 /// State query scripts execute in `ctx.consumer_dir` (the consumer's repo root).
 /// For dependency commands, state query `run:` fields have script paths resolved
 /// from `ctx.source_dir` (same heuristic as command `run:` fields).
-fn resolve_state_queries(
+pub(crate) fn resolve_state_queries(
     command: &Command,
     config: &GraftConfig,
     ctx: &CommandContext,
@@ -492,7 +492,7 @@ pub fn resolve_script_in_command(run: &str, source_dir: &Path) -> String {
 /// If the `run` field contains `{name}` placeholders (excluding `${VAR}` shell syntax),
 /// they are replaced with arg values in order. Otherwise, args are appended to the
 /// command (unless stdin is configured, in which case args go to the template).
-fn build_shell_command(command: &Command, source_dir: &Path, args: &[String]) -> String {
+pub(crate) fn build_shell_command(command: &Command, source_dir: &Path, args: &[String]) -> String {
     let resolved_run = resolve_script_in_command(&command.run, source_dir);
 
     let (substituted, had_placeholders) = substitute_placeholders(&resolved_run, args);
@@ -612,7 +612,7 @@ fn scan_placeholders<'a>(
 }
 
 /// Get current git branch name.
-fn get_git_branch(repo_path: &Path) -> Result<String> {
+pub(crate) fn get_git_branch(repo_path: &Path) -> Result<String> {
     let config = ProcessConfig {
         command: "git rev-parse --abbrev-ref HEAD".to_string(),
         working_dir: repo_path.to_path_buf(),

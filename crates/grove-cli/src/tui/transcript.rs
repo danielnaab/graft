@@ -1460,11 +1460,15 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         let config =
             graft_engine::parse_graft_yaml(std::path::Path::new(&repo_path).join("graft.yaml"))
                 .ok();
+        let dep_configs = config
+            .as_ref()
+            .map(|c| graft_engine::load_dep_configs(&repo_path, c))
+            .unwrap_or_default();
         let Ok(runtime) = graft_common::TmuxRuntime::new() else {
             self.status = Some(StatusMessage::error("tmux not available"));
             return;
         };
-        match graft_engine::scion_start(&repo_path, name, config.as_ref(), &runtime) {
+        match graft_engine::scion_start(&repo_path, name, config.as_ref(), &dep_configs, &runtime) {
             Ok(()) => {
                 self.status = Some(StatusMessage::success(format!("Started scion '{name}'")));
             }
