@@ -2569,6 +2569,25 @@ fn build_scion_table_block(
         Option<bool>, // session_active
     )],
 ) -> ContentBlock {
+    build_scion_table_block_with_verify(
+        &scions
+            .iter()
+            .map(|&(n, a, b, d, s)| (n, a, b, d, s, None))
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn build_scion_table_block_with_verify(
+    scions: &[(
+        &str,                              // name
+        Option<u32>,                       // ahead
+        Option<u32>,                       // behind
+        bool,                              // dirty
+        Option<bool>,                      // session_active
+        Option<graft_engine::VerifyLevel>, // verify_status
+    )],
+) -> ContentBlock {
+    use super::transcript::{scion_status_span, verify_level_span};
     use ratatui::style::{Color, Style};
     use ratatui::text::Span;
 
@@ -2577,10 +2596,12 @@ fn build_scion_table_block(
         "Ahead/Behind".to_string(),
         "Dirty".to_string(),
         "Session".to_string(),
+        "Verify".to_string(),
+        "Status".to_string(),
     ];
     let mut rows = Vec::new();
     let mut actions = Vec::new();
-    for &(name, ahead, behind, dirty, session_active) in scions {
+    for &(name, ahead, behind, dirty, session_active, verify_status) in scions {
         let ahead_str = ahead.map_or("?".to_string(), |a| a.to_string());
         let behind_str = behind.map_or("?".to_string(), |b| b.to_string());
         let dirty_span = if dirty {
@@ -2593,6 +2614,9 @@ fn build_scion_table_block(
             Some(false) => Span::styled("\u{2013}", Style::default().fg(Color::DarkGray)),
             None => Span::styled("?", Style::default().fg(Color::DarkGray)),
         };
+        let ahead_usize = ahead.map(|a| a as usize);
+        let verify_span = verify_level_span(verify_status);
+        let status_span = scion_status_span(verify_status, session_active, ahead_usize, dirty);
 
         let mut summary_parts = Vec::new();
         summary_parts.push(format!("\u{2191}{ahead_str} \u{2193}{behind_str}"));
@@ -2610,6 +2634,8 @@ fn build_scion_table_block(
             Span::styled(summary, Style::default().fg(Color::Yellow)),
             dirty_span,
             session_span,
+            verify_span,
+            status_span,
         ]);
     }
 
@@ -2637,11 +2663,13 @@ fn scion_list_table_structure_and_actions() {
     } = &block
     {
         assert_eq!(title, "Scions");
-        assert_eq!(h.len(), 4);
+        assert_eq!(h.len(), 6);
         assert_eq!(h[0], "Name");
         assert_eq!(h[1], "Ahead/Behind");
         assert_eq!(h[2], "Dirty");
         assert_eq!(h[3], "Session");
+        assert_eq!(h[4], "Verify");
+        assert_eq!(h[5], "Status");
         assert_eq!(r.len(), 1);
         assert_eq!(r[0][0].content, "my-feature");
         // Column 1 is the picker description: human-readable summary
@@ -2649,6 +2677,9 @@ fn scion_list_table_structure_and_actions() {
         // Clean, inactive session
         assert_eq!(r[0][2].content, "\u{25cb}");
         assert_eq!(r[0][3].content, "\u{2013}");
+        // Verify: no data, Status: dash
+        assert_eq!(r[0][4].content, "\u{2013}");
+        assert_eq!(r[0][5].content, "\u{2013}");
 
         let acts = a.as_ref().expect("scion table should have actions");
         assert_eq!(acts.len(), 1);
@@ -2752,4 +2783,62 @@ fn scion_list_table_picker_shows_descriptions() {
     );
     assert_eq!(picker.items[1].label, "feat-b");
     assert_eq!(picker.items[1].description, "\u{2191}0 \u{2193}0");
+}
+
+#[test]
+fn scion_list_table_verify_and_status_columns() {
+    use graft_engine::VerifyLevel;
+    let block = build_scion_table_block_with_verify(&[
+        // ready: pass, ahead, not dirty, not active
+        (
+            "ready-scion",
+            Some(3),
+            Some(0),
+            false,
+            Some(false),
+            Some(VerifyLevel::Ok),
+        ),
+        // working: active session
+        (
+            "working-scion",
+            Some(1),
+            Some(0),
+            false,
+            Some(true),
+            Some(VerifyLevel::Ok),
+        ),
+        // needs attention: fail, not active
+        (
+            "broken-scion",
+            Some(2),
+            Some(0),
+            false,
+            Some(false),
+            Some(VerifyLevel::Fail),
+        ),
+        // no verify data
+        ("new-scion", Some(0), Some(0), false, Some(false), None),
+    ]);
+
+    if let ContentBlock::Table { rows, .. } = &block {
+        assert_eq!(rows.len(), 4);
+
+        // ready-scion: verify=pass, status=ready
+        assert_eq!(rows[0][4].content, "\u{2713} pass");
+        assert_eq!(rows[0][5].content, "ready");
+
+        // working-scion: verify=pass, status=working (active overrides ready)
+        assert_eq!(rows[1][4].content, "\u{2713} pass");
+        assert_eq!(rows[1][5].content, "working");
+
+        // broken-scion: verify=fail, status=needs attention
+        assert_eq!(rows[2][4].content, "\u{2717} fail");
+        assert_eq!(rows[2][5].content, "needs attention");
+
+        // new-scion: verify=dash, status=dash
+        assert_eq!(rows[3][4].content, "\u{2013}");
+        assert_eq!(rows[3][5].content, "\u{2013}");
+    } else {
+        panic!("Expected Table block");
+    }
 }

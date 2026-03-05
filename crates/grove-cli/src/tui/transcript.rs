@@ -153,6 +153,234 @@ pub struct TranscriptApp<R, D> {
     pub(super) graft_loader: GraftYamlConfigLoader,
 }
 
+/// Render a `VerifyLevel` as a styled span for table display.
+pub(super) fn verify_level_span(level: Option<graft_engine::VerifyLevel>) -> Span<'static> {
+    match level {
+        Some(graft_engine::VerifyLevel::Ok) => {
+            Span::styled("\u{2713} pass", Style::default().fg(Color::Green))
+        }
+        Some(graft_engine::VerifyLevel::Fail) => {
+            Span::styled("\u{2717} fail", Style::default().fg(Color::Red))
+        }
+        Some(graft_engine::VerifyLevel::Unknown) => {
+            Span::styled("~ partial", Style::default().fg(Color::Yellow))
+        }
+        None => Span::styled("\u{2013}", Style::default().fg(Color::DarkGray)),
+    }
+}
+
+/// Derive a high-level scion status span from verify, session, ahead, and dirty state.
+pub(super) fn scion_status_span(
+    verify: Option<graft_engine::VerifyLevel>,
+    session_active: Option<bool>,
+    ahead: Option<usize>,
+    dirty: bool,
+) -> Span<'static> {
+    let active = session_active == Some(true);
+    let has_commits = ahead.is_some_and(|a| a > 0);
+    if active {
+        Span::styled("working", Style::default().fg(Color::Yellow))
+    } else if verify == Some(graft_engine::VerifyLevel::Ok) && has_commits && !dirty {
+        Span::styled("ready", Style::default().fg(Color::Green))
+    } else if verify == Some(graft_engine::VerifyLevel::Fail) {
+        Span::styled("needs attention", Style::default().fg(Color::Red))
+    } else {
+        Span::styled("\u{2013}", Style::default().fg(Color::DarkGray))
+    }
+}
+
+/// Build the commit log and diff (or diff stat) lines for a review block.
+fn review_diff_lines(
+    repo: &std::path::Path,
+    base: &str,
+    branch: &str,
+    full: bool,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+
+    // Commit log
+    if let Ok(log) = graft_common::git_log_output(repo, base, branch) {
+        if !log.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "Commits:",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for line in log.lines() {
+                lines.push(Line::from(Span::styled(
+                    format!("  {line}"),
+                    Style::default().fg(Color::White),
+                )));
+            }
+            lines.push(Line::from(""));
+        }
+    }
+
+    // Diff stat or full diff
+    if full {
+        if let Ok(diff) = graft_common::git_diff_output(repo, base, branch) {
+            lines.push(Line::from(Span::styled(
+                "Diff:",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for line in diff.lines() {
+                let style = if line.starts_with('+') && !line.starts_with("+++") {
+                    Style::default().fg(Color::Green)
+                } else if line.starts_with('-') && !line.starts_with("---") {
+                    Style::default().fg(Color::Red)
+                } else if line.starts_with("@@") {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                lines.push(Line::from(Span::styled(format!("  {line}"), style)));
+            }
+        }
+    } else if let Ok(stat) = graft_common::git_diff_stat(repo, base, branch) {
+        if !stat.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "Changes:",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for line in stat.lines() {
+                lines.push(Line::from(Span::styled(
+                    format!("  {line}"),
+                    Style::default().fg(Color::White),
+                )));
+            }
+            lines.push(Line::from(""));
+        }
+    }
+
+    lines
+}
+
+/// Build the "Verify:" lines for a review block.
+///
+/// Reads `.graft/run-state/verify.json` from `wt_path` and renders each field
+/// with color derived from [`graft_engine::classify_verify_value`].
+fn review_verify_lines(wt_path: &std::path::Path) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    lines.push(Line::from(Span::styled(
+        "Verify:",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )));
+    let verify_data = graft_engine::get_run_state_entry("verify", wt_path);
+    if let Some(ref obj) = verify_data {
+        if let Some(map) = obj.as_object() {
+            for (key, val) in map {
+                let val_str = val
+                    .as_str()
+                    .map_or_else(|| val.to_string(), ToString::to_string);
+                let style = match graft_engine::classify_verify_value(val) {
+                    graft_engine::VerifyLevel::Ok => Style::default().fg(Color::Green),
+                    graft_engine::VerifyLevel::Fail => Style::default().fg(Color::Red),
+                    graft_engine::VerifyLevel::Unknown => Style::default().fg(Color::Yellow),
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("  {key}: {val_str}"),
+                    style,
+                )));
+            }
+        } else {
+            lines.push(Line::from(Span::styled(
+                "  (unrecognized format)",
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    } else {
+        lines.push(Line::from(Span::styled(
+            "  (not run)",
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    lines.push(Line::from(""));
+    lines
+}
+
+/// Build the actionable follow-up table for a review.
+///
+/// Actions shown depend on context:
+/// - "Fuse to main" when there are commits ahead and the worktree is clean
+/// - "Re-launch worker" when no session is active
+/// - "Full diff" / "Stat summary" to toggle diff view (always shown)
+fn review_action_table(
+    name: &str,
+    ahead: usize,
+    dirty: bool,
+    session_active: bool,
+    full: bool,
+) -> ContentBlock {
+    let mut rows: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut cmds: Vec<super::command_line::CliCommand> = Vec::new();
+
+    if ahead > 0 && !dirty {
+        rows.push(vec![
+            Span::styled("Fuse to main", Style::default().fg(Color::Green)),
+            Span::styled(
+                format!(":scion fuse {name}"),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]);
+        cmds.push(super::command_line::CliCommand::ScionFuse(name.to_string()));
+    }
+
+    if !session_active {
+        rows.push(vec![
+            Span::styled("Re-launch worker", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!(":scion start {name}"),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]);
+        cmds.push(super::command_line::CliCommand::ScionStart(
+            name.to_string(),
+        ));
+    }
+
+    if full {
+        rows.push(vec![
+            Span::styled("Stat summary", Style::default().fg(Color::White)),
+            Span::styled(
+                format!(":review {name}"),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]);
+        cmds.push(super::command_line::CliCommand::Review(
+            name.to_string(),
+            false,
+        ));
+    } else {
+        rows.push(vec![
+            Span::styled("Full diff", Style::default().fg(Color::White)),
+            Span::styled(
+                format!(":review {name} full"),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]);
+        cmds.push(super::command_line::CliCommand::Review(
+            name.to_string(),
+            true,
+        ));
+    }
+
+    ContentBlock::Table {
+        id: BlockId::new(),
+        title: "Actions".to_string(),
+        headers: vec!["Action".to_string(), "Command".to_string()],
+        rows,
+        collapsed: false,
+        actions: Some(cmds),
+    }
+}
+
 impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     pub(super) fn new(registry: R, detail_provider: D, workspace_name: String) -> Self {
         let mut app = Self {
@@ -1366,6 +1594,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                     "Ahead/Behind".to_string(),
                     "Dirty".to_string(),
                     "Session".to_string(),
+                    "Verify".to_string(),
+                    "Status".to_string(),
                 ];
 
                 let mut rows = Vec::new();
@@ -1387,6 +1617,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                         }
                         None => Span::styled("?", Style::default().fg(Color::DarkGray)),
                     };
+                    let verify_span = verify_level_span(s.verify_status);
+                    let status_span =
+                        scion_status_span(s.verify_status, s.session_active, s.ahead, s.dirty);
 
                     // Column 1 becomes the picker description, so include a
                     // human-readable summary (ahead count + dirty + session).
@@ -1406,6 +1639,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                         Span::styled(summary, Style::default().fg(Color::Yellow)),
                         dirty_span,
                         session_span,
+                        verify_span,
+                        status_span,
                     ]);
                 }
 
@@ -1610,7 +1845,6 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     }
 
     /// `:review <name> [full]` — review a scion's changes.
-    #[allow(clippy::too_many_lines)]
     fn cmd_review(&mut self, name: &str, full: bool) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
             self.status = Some(StatusMessage::warning("No repository selected"));
@@ -1684,76 +1918,30 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         ])];
         lines.push(Line::from(""));
 
-        // Commit log
-        if let Ok(log) = graft_common::git_log_output(repo, &base, &branch) {
-            if !log.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    "Commits:",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )));
-                for line in log.lines() {
-                    lines.push(Line::from(Span::styled(
-                        format!("  {line}"),
-                        Style::default().fg(Color::White),
-                    )));
-                }
-                lines.push(Line::from(""));
-            }
-        }
+        lines.extend(review_diff_lines(repo, &base, &branch, full));
 
-        // Diff stat or full diff
-        if full {
-            if let Ok(diff) = graft_common::git_diff_output(repo, &base, &branch) {
-                lines.push(Line::from(Span::styled(
-                    "Diff:",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )));
-                for line in diff.lines() {
-                    let style = if line.starts_with('+') && !line.starts_with("+++") {
-                        Style::default().fg(Color::Green)
-                    } else if line.starts_with('-') && !line.starts_with("---") {
-                        Style::default().fg(Color::Red)
-                    } else if line.starts_with("@@") {
-                        Style::default().fg(Color::Cyan)
-                    } else {
-                        Style::default().fg(Color::White)
-                    };
-                    lines.push(Line::from(Span::styled(format!("  {line}"), style)));
-                }
-            }
-        } else if let Ok(stat) = graft_common::git_diff_stat(repo, &base, &branch) {
-            if !stat.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    "Changes:",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )));
-                for line in stat.lines() {
-                    lines.push(Line::from(Span::styled(
-                        format!("  {line}"),
-                        Style::default().fg(Color::White),
-                    )));
-                }
-                lines.push(Line::from(""));
-            }
-        }
-
-        // Follow-up suggestions
-        lines.push(Line::from(Span::styled(
-            "Tip: :review <name> full  for full diff  |  :scion fuse <name>  to merge",
-            Style::default().fg(Color::DarkGray),
-        )));
+        // Verify status section
+        lines.extend(review_verify_lines(&wt_path));
 
         self.scroll.push(ContentBlock::Text {
             id: BlockId::new(),
             lines,
             collapsed: false,
         });
+
+        // Actionable follow-up table
+        let dirty = graft_common::git_is_dirty(&wt_path).unwrap_or(false);
+        let session_active = graft_common::TmuxRuntime::new().ok().is_some_and(|rt| {
+            let sid = graft_engine::scion_session_id(name);
+            rt.exists(&sid).unwrap_or(false)
+        });
+        self.scroll.push(review_action_table(
+            name,
+            ahead,
+            dirty,
+            session_active,
+            full,
+        ));
     }
 
     // ===== Refresh =====

@@ -982,6 +982,84 @@ pub struct ScionInfo {
     /// Whether a runtime session is active for this scion.
     /// `None` if no runtime was available for detection.
     pub session_active: Option<bool>,
+    /// Verify status summary derived from `.graft/run-state/verify.json`.
+    /// `None` if no verify data exists.
+    pub verify_status: Option<VerifyLevel>,
+}
+
+/// Classification of a single verify check value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum VerifyLevel {
+    /// Value indicates success (string starting with "OK", or integer 0).
+    Ok,
+    /// Value indicates failure (string containing "FAIL"/"ERROR", or non-zero integer).
+    Fail,
+    /// Value is present but does not match OK or Fail heuristics.
+    Unknown,
+}
+
+/// Classify a single JSON value from a verify result.
+///
+/// Rules:
+/// - String starting with "OK" (case-insensitive) → `Ok`
+/// - String containing "FAIL" or starting with "ERROR" (case-insensitive) → `Fail`
+/// - Integer `0` → `Ok`
+/// - Non-zero integer → `Fail`
+/// - Anything else (other string, object, array, bool, null) → `Unknown`
+pub fn classify_verify_value(value: &serde_json::Value) -> VerifyLevel {
+    if let Some(s) = value.as_str() {
+        let upper = s.to_uppercase();
+        if upper.starts_with("OK") {
+            VerifyLevel::Ok
+        } else if upper.contains("FAIL") || upper.starts_with("ERROR") {
+            VerifyLevel::Fail
+        } else {
+            VerifyLevel::Unknown
+        }
+    } else if let Some(n) = value.as_i64() {
+        if n == 0 {
+            VerifyLevel::Ok
+        } else {
+            VerifyLevel::Fail
+        }
+    } else {
+        VerifyLevel::Unknown
+    }
+}
+
+/// Summarize a verify.json value into a high-level status.
+///
+/// - `Ok` if every top-level value classifies as `Ok`
+/// - `Fail` if any top-level value classifies as `Fail`
+/// - `Unknown` otherwise (mixed or all unrecognized)
+///
+/// Returns `None` if the JSON shape is not an object or is empty.
+fn summarize_verify_status(value: &serde_json::Value) -> Option<VerifyLevel> {
+    let obj = value.as_object()?;
+    if obj.is_empty() {
+        return None;
+    }
+    let mut all_ok = true;
+    let mut any_fail = false;
+    for v in obj.values() {
+        match classify_verify_value(v) {
+            VerifyLevel::Ok => {}
+            VerifyLevel::Fail => {
+                any_fail = true;
+                all_ok = false;
+            }
+            VerifyLevel::Unknown => {
+                all_ok = false;
+            }
+        }
+    }
+    if all_ok {
+        Some(VerifyLevel::Ok)
+    } else if any_fail {
+        Some(VerifyLevel::Fail)
+    } else {
+        Some(VerifyLevel::Unknown)
+    }
 }
 
 /// List all scions for the repository.
@@ -1049,6 +1127,9 @@ pub fn scion_list(
             rt.exists(&session_id).unwrap_or(false)
         });
 
+        let verify_status = crate::state::get_run_state_entry("verify", &wt.path)
+            .and_then(|v| summarize_verify_status(&v));
+
         scions.push(ScionInfo {
             name: scion_name,
             branch,
@@ -1058,6 +1139,7 @@ pub fn scion_list(
             last_commit_time,
             dirty,
             session_active,
+            verify_status,
         });
     }
 
@@ -2504,5 +2586,99 @@ mod tests {
             err_msg2.contains("non-empty"),
             "expected non-empty validation error for 'foo:', got: {err_msg2}"
         );
+    }
+
+    #[test]
+    fn classify_verify_value_strings() {
+        assert_eq!(
+            classify_verify_value(&serde_json::json!("OK")),
+            VerifyLevel::Ok
+        );
+        assert_eq!(
+            classify_verify_value(&serde_json::json!("OK - 42 passed")),
+            VerifyLevel::Ok
+        );
+        assert_eq!(
+            classify_verify_value(&serde_json::json!("FAIL: 3 errors")),
+            VerifyLevel::Fail
+        );
+        assert_eq!(
+            classify_verify_value(&serde_json::json!("ERROR: timeout")),
+            VerifyLevel::Fail
+        );
+        assert_eq!(
+            classify_verify_value(&serde_json::json!("running")),
+            VerifyLevel::Unknown
+        );
+    }
+
+    #[test]
+    fn classify_verify_value_integers() {
+        assert_eq!(
+            classify_verify_value(&serde_json::json!(0)),
+            VerifyLevel::Ok
+        );
+        assert_eq!(
+            classify_verify_value(&serde_json::json!(1)),
+            VerifyLevel::Fail
+        );
+    }
+
+    #[test]
+    fn classify_verify_value_other_types() {
+        assert_eq!(
+            classify_verify_value(&serde_json::json!(true)),
+            VerifyLevel::Unknown
+        );
+        assert_eq!(
+            classify_verify_value(&serde_json::json!(null)),
+            VerifyLevel::Unknown
+        );
+        assert_eq!(
+            classify_verify_value(&serde_json::json!([1, 2])),
+            VerifyLevel::Unknown
+        );
+    }
+
+    #[test]
+    fn summarize_verify_all_ok() {
+        let v = serde_json::json!({"lint": "OK", "test": "OK - 42 passed"});
+        assert_eq!(summarize_verify_status(&v), Some(VerifyLevel::Ok));
+    }
+
+    #[test]
+    fn summarize_verify_fail() {
+        let v = serde_json::json!({"lint": "OK", "test": "FAIL: 3 errors"});
+        assert_eq!(summarize_verify_status(&v), Some(VerifyLevel::Fail));
+    }
+
+    #[test]
+    fn summarize_verify_exit_code_fail() {
+        let v = serde_json::json!({"lint": "OK", "exit_code": 1});
+        assert_eq!(summarize_verify_status(&v), Some(VerifyLevel::Fail));
+    }
+
+    #[test]
+    fn summarize_verify_exit_code_zero() {
+        let v = serde_json::json!({"lint": "OK", "exit_code": 0});
+        assert_eq!(summarize_verify_status(&v), Some(VerifyLevel::Ok));
+    }
+
+    #[test]
+    fn summarize_verify_partial() {
+        let v = serde_json::json!({"lint": "OK", "test": "running"});
+        assert_eq!(summarize_verify_status(&v), Some(VerifyLevel::Unknown));
+    }
+
+    #[test]
+    fn summarize_verify_empty_object() {
+        let v = serde_json::json!({});
+        assert_eq!(summarize_verify_status(&v), None);
+    }
+
+    #[test]
+    fn summarize_verify_non_object() {
+        let v = serde_json::json!("just a string");
+        assert_eq!(summarize_verify_status(&v), None);
     }
 }

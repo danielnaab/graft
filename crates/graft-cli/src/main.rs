@@ -17,6 +17,7 @@ use graft_engine::{
     resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, scion_attach_check,
     scion_create, scion_fuse, scion_list, scion_prune, scion_start, scion_stop,
     sync_all_dependencies, validate_config_schema, validate_integrity, write_lock_file,
+    VerifyLevel,
 };
 use std::path::{Path, PathBuf};
 
@@ -2739,9 +2740,15 @@ fn scion_list_command(format: &OutputFormat) -> Result<()> {
                     Some(true) => "  ● active",
                     _ => "",
                 };
+                let verify_str = match s.verify_status {
+                    Some(VerifyLevel::Ok) => "  ✓ pass",
+                    Some(VerifyLevel::Fail) => "  ✗ fail",
+                    Some(VerifyLevel::Unknown) => "  ~ partial",
+                    None => "",
+                };
                 println!(
-                    "{:<25} {:<22} {:<20}{}{}",
-                    s.name, ahead_behind, time_str, dirty_str, session_str
+                    "{:<25} {:<22} {:<20}{}{}{}",
+                    s.name, ahead_behind, time_str, dirty_str, session_str, verify_str
                 );
             }
         }
