@@ -227,6 +227,26 @@ implemented scions.
 
 ---
 
+## Checkpoint Analysis (2026-03-04)
+
+Analysis of checkpoint.json: ownership split, use case exploration, four candidate
+models for human-in-the-loop gates, and resolution that scions-as-branches ARE the
+checkpoint mechanism. Fuse is approve. Checkpoint.json is redundant with structural
+git state and should be removed.
+
+**Active**:
+- [Checkpoint Analysis](2026-03-04-checkpoint-analysis.md) — full analysis,
+  model comparison, scions-as-checkpoints resolution
+
+**Relates to**:
+- [Sequence Primitives](2026-02-24-sequence-primitives-exploration.md) — sequence
+  design decisions
+- [Scion Orchestration Design](2026-03-01-scion-orchestration-design.md) — parallel
+  workers, grove as switchboard
+- [Pain Point Strategy](2026-03-04-pain-point-strategy.md) — checkpoint UI deferred
+
+---
+
 ## Adding New Notes
 
 When creating session logs or exploration notes:

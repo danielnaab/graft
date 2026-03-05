@@ -62,7 +62,7 @@ create and prune commands here perform only the git operations.
 
 ## Steps
 
-- [ ] **Update spec: add `scions:` section to `graft-yaml-format.md`**
+- [x] **Update spec: add `scions:` section to `graft-yaml-format.md`**
   - **Delivers** — clear contract for hook declarations before any code
   - **Done when** — `graft-yaml-format.md` documents `scions:` as an optional
     top-level key; each hook point (`on_create`, `pre_fuse`, `post_fuse`, `on_prune`)
@@ -71,7 +71,7 @@ create and prune commands here perform only the git operations.
     included
   - **Files** — `docs/specifications/graft/graft-yaml-format.md`
 
-- [ ] **Add `ScionHooks` type to `graft-engine/src/domain.rs` and parse in `config.rs`**
+- [x] **Add `ScionHooks` type to `graft-engine/src/domain.rs` and parse in `config.rs`**
   - **Delivers** — typed representation of scion hook configuration with validation
   - **Done when** — `ScionHooks { on_create, pre_fuse, post_fuse, on_prune }` struct
     in `domain.rs`, each field `Option<Vec<String>>` (single string normalized to
@@ -82,7 +82,7 @@ create and prune commands here perform only the git operations.
   - **Files** — `crates/graft-engine/src/domain.rs`,
     `crates/graft-engine/src/config.rs`
 
-- [ ] **Cross-validate hook command names in `GraftConfig::validate()`**
+- [x] **Cross-validate hook command names in `GraftConfig::validate()`**
   - **Delivers** — early detection of typos in hook command names (matching
     existing pattern for sequence steps and migration/verify commands)
   - **Done when** — `validate()` checks every command name in `scion_hooks`
@@ -90,13 +90,13 @@ create and prune commands here perform only the git operations.
     confirms invalid hook name is rejected, valid name passes
   - **Files** — `crates/graft-engine/src/domain.rs`
 
-- [ ] **Add `From<GitError> for GraftError` error bridging**
+- [x] **Add `From<GitError> for GraftError` error bridging**
   - **Delivers** — clean error propagation from git primitives to engine layer
   - **Done when** — `impl From<graft_common::GitError> for GraftError` added;
     scion engine functions can use `?` on git primitive results
   - **Files** — `crates/graft-engine/src/error.rs`
 
-- [ ] **Add `scion_create` and `scion_prune` to `graft-engine/src/scion.rs`**
+- [x] **Add `scion_create` and `scion_prune` to `graft-engine/src/scion.rs`**
   - **Delivers** — engine-level scion lifecycle operations with naming convention
   - **Done when** — new module `scion.rs` exports `scion_create(repo_path, name)`
     and `scion_prune(repo_path, name)`; `scion_create` builds
@@ -107,7 +107,7 @@ create and prune commands here perform only the git operations.
     module declared in `lib.rs`; integration test covers create-then-prune round-trip
   - **Files** — `crates/graft-engine/src/scion.rs`, `crates/graft-engine/src/lib.rs`
 
-- [ ] **Add `graft scion create/prune` CLI subcommands**
+- [x] **Add `graft scion create/prune` CLI subcommands**
   - **Delivers** — user-facing commands for scion lifecycle
   - **Done when** — `graft scion create <name>` calls `scion_create`, prints
     worktree path on success; `graft scion prune <name>` calls `scion_prune`, prints

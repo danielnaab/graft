@@ -79,7 +79,7 @@ Update the spec files before implementation (TDD).
 
 ## Steps
 
-- [ ] **Spec: add step object syntax to `graft-yaml-format.md` and
+- [x] **Spec: add step object syntax to `graft-yaml-format.md` and
   `sequence-execution.md`**
   - **Delivers** — unambiguous spec for step object syntax before any code is written
   - **Done when** — `graft-yaml-format.md` documents the step object form in the
@@ -91,7 +91,7 @@ Update the spec files before implementation (TDD).
   - **Files** — `docs/specifications/graft/graft-yaml-format.md`,
     `docs/specifications/graft/sequence-execution.md`
 
-- [ ] **Implement `StepEntry`/`StepDef` in `config.rs` and pass timeout in
+- [x] **Implement `StepEntry`/`StepDef` in `config.rs` and pass timeout in
   `sequence.rs`**
   - **Delivers** — sequences can declare per-step timeouts; the executor enforces them
   - **Done when** — `graft-common/src/config.rs` defines `StepEntry` as an untagged

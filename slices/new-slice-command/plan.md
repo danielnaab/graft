@@ -50,7 +50,7 @@ Add a `new-slice` command to `graft.yaml` with a required `description` string a
 
 ## Steps
 
-- [ ] **Write `scripts/new-slice.sh` and add `new-slice` command to `graft.yaml`**
+- [x] **Write `scripts/new-slice.sh` and add `new-slice` command to `graft.yaml`**
   - **Delivers** — `graft run software-factory:new-slice "description"` produces a
     drafted slice plan file
   - **Done when** — `new-slice.sh` reads context from `list-slices.sh` and

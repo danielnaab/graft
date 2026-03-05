@@ -84,7 +84,7 @@ The spec is written first (TDD — spec before code).
 
 ## Steps
 
-- [ ] **Spec: add `when` condition syntax to `graft-yaml-format.md` and
+- [x] **Spec: add `when` condition syntax to `graft-yaml-format.md` and
   `sequence-execution.md`**
   - **Delivers** — unambiguous spec for condition syntax before any code is written
   - **Done when** — `graft-yaml-format.md` documents the `when` field on step objects:
@@ -97,7 +97,7 @@ The spec is written first (TDD — spec before code).
   - **Files** — `docs/specifications/graft/graft-yaml-format.md`,
     `docs/specifications/graft/sequence-execution.md`
 
-- [ ] **Implement `WhenCondition` in `config.rs` and condition evaluation in
+- [x] **Implement `WhenCondition` in `config.rs` and condition evaluation in
   `sequence.rs`**
   - **Delivers** — conditional step execution based on run-state values
   - **Done when** — `graft-common/src/config.rs` adds `WhenCondition` struct with

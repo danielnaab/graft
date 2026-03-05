@@ -64,7 +64,7 @@ implement-verify-review cycle.
 
 ## Steps
 
-- [ ] **Add `checkpoint` flag to SequenceDef; sequence executor writes checkpoint.json on success**
+- [x] **Add `checkpoint` flag to SequenceDef; sequence executor writes checkpoint.json on success**
   - **Delivers** — sequences can declare a human review gate; checkpoint.json is
     observable in grove after successful completion
   - **Done when** — `SequenceDef` gains `checkpoint: Option<bool>` (treated as false
@@ -81,7 +81,7 @@ implement-verify-review cycle.
   - **Files** — `crates/graft-common/src/config.rs`,
     `crates/graft-engine/src/sequence.rs`, `Cargo.toml` (if chrono absent)
 
-- [ ] **Write approve.sh and reject.sh; register commands; wire checkpoint: true on implement-verified**
+- [x] **Write approve.sh and reject.sh; register commands; wire checkpoint: true on implement-verified**
   - **Delivers** — the complete implement-verify-review cycle is live: humans can
     approve or reject a pending checkpoint from CLI, Claude Code, or grove's Commands
     section; `implement-verified` is the one-command development cycle

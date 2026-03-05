@@ -42,7 +42,7 @@ git primitives. This matches the existing pattern: `git_checkout(path, commit)` 
 
 ## Steps
 
-- [ ] **Add `WorktreeInfo` type and `git_worktree_list` to `graft-common/src/git.rs`**
+- [x] **Add `WorktreeInfo` type and `git_worktree_list` to `graft-common/src/git.rs`**
   - **Delivers** — ability to enumerate worktrees with path, branch, and HEAD info
   - **Done when** — `WorktreeInfo { path, branch, head }` struct exists (fields
     match `git worktree list --porcelain` output: `worktree <path>`,
@@ -51,7 +51,7 @@ git primitives. This matches the existing pattern: `git_checkout(path, commit)` 
     verifies round-trip
   - **Files** — `crates/graft-common/src/git.rs`
 
-- [ ] **Add `git_worktree_add` to `graft-common/src/git.rs`**
+- [x] **Add `git_worktree_add` to `graft-common/src/git.rs`**
   - **Delivers** — worktree creation primitive with explicit arguments
   - **Done when** — `git_worktree_add(repo, path, branch)` runs
     `git worktree add <path> -b <branch>`; returns the absolute worktree path
@@ -59,7 +59,7 @@ git primitives. This matches the existing pattern: `git_checkout(path, commit)` 
     test creates a worktree and confirms it appears in `git_worktree_list`
   - **Files** — `crates/graft-common/src/git.rs`
 
-- [ ] **Add `git_worktree_remove` and `git_branch_delete` to `graft-common/src/git.rs`**
+- [x] **Add `git_worktree_remove` and `git_branch_delete` to `graft-common/src/git.rs`**
   - **Delivers** — worktree and branch cleanup primitives
   - **Done when** — `git_worktree_remove(repo, path)` runs
     `git worktree remove <path> --force`; `git_branch_delete(repo, branch)`
@@ -67,7 +67,7 @@ git primitives. This matches the existing pattern: `git_checkout(path, commit)` 
     after removal; removing a non-existent worktree returns `GitError`
   - **Files** — `crates/graft-common/src/git.rs`
 
-- [ ] **Add `git_ahead_behind` to `graft-common/src/git.rs`**
+- [x] **Add `git_ahead_behind` to `graft-common/src/git.rs`**
   - **Delivers** — commit count comparison between any two branches
   - **Done when** — `git_ahead_behind(repo, branch, base)` runs
     `git rev-list --left-right --count <branch>...<base>`, parses output into

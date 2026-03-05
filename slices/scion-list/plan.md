@@ -56,7 +56,7 @@ on the existing file avoids merge conflicts.
 
 ## Steps
 
-- [ ] **Add `git_last_commit_time` and `git_is_dirty` to `graft-common/src/git.rs`**
+- [x] **Add `git_last_commit_time` and `git_is_dirty` to `graft-common/src/git.rs`**
   - **Delivers** — git helpers for activity and dirty state
   - **Done when** — `git_last_commit_time(repo, branch)` runs
     `git log -1 --format=%ct <branch>` and returns a Unix timestamp (or `GitError`
@@ -65,7 +65,7 @@ on the existing file avoids merge conflicts.
     unit tests verify both
   - **Files** — `crates/graft-common/src/git.rs`
 
-- [ ] **Add `ScionInfo` and `scion_list` to `graft-engine/src/scion.rs`**
+- [x] **Add `ScionInfo` and `scion_list` to `graft-engine/src/scion.rs`**
   - **Delivers** — structured scion enumeration with artifact-derived state
   - **Done when** — `ScionInfo { name, branch, worktree_path, ahead, behind,
     last_commit_time, dirty }` struct exists with `Serialize` derive;
@@ -76,7 +76,7 @@ on the existing file avoids merge conflicts.
     verifies list output
   - **Files** — `crates/graft-engine/src/scion.rs`
 
-- [ ] **Add `graft scion list` CLI subcommand**
+- [x] **Add `graft scion list` CLI subcommand**
   - **Delivers** — user-facing scion enumeration
   - **Done when** — `graft scion list` calls `scion_list` and prints a formatted
     table with columns: name, ahead/behind, relative time, dirty indicator;

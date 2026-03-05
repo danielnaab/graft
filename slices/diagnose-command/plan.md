@@ -87,7 +87,7 @@ Add `diagnose` command to `graft.yaml` with `reads: [verify, session]`,
 
 ## Steps
 
-- [ ] **Write `scripts/diagnose.sh` and add `diagnose` command to `graft.yaml`**
+- [x] **Write `scripts/diagnose.sh` and add `diagnose` command to `graft.yaml`**
   - **Delivers** — standalone diagnosis command that produces `diagnose.json` from
     verify failures
   - **Done when** — `diagnose.sh` checks `verify.json` for failures; if all fields
@@ -100,7 +100,7 @@ Add `diagnose` command to `graft.yaml` with `reads: [verify, session]`,
   - **Files** — `.graft/software-factory/scripts/diagnose.sh`,
     `.graft/software-factory/graft.yaml`
 
-- [ ] **Inject `diagnose.json` into `resume.sh` prompt**
+- [x] **Inject `diagnose.json` into `resume.sh` prompt**
   - **Delivers** — resumed sessions start with a targeted diagnosis brief rather than
     a raw error dump
   - **Done when** — `resume.sh` checks for `diagnose.json`; if present, re-checks

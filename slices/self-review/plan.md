@@ -81,7 +81,7 @@ updates checkpoint.json directly after the sequence engine writes it.
 
 ## Steps
 
-- [ ] **Write `scripts/review.sh` and add `review` command to `graft.yaml`**
+- [x] **Write `scripts/review.sh` and add `review` command to `graft.yaml`**
   - **Delivers** — standalone `review` command produces a structured self-review against
     acceptance criteria
   - **Done when** — `review.sh` reads `baseline_sha` from `session.json` (fallback:
@@ -99,7 +99,7 @@ updates checkpoint.json directly after the sequence engine writes it.
   - **Files** — `.graft/software-factory/scripts/review.sh`,
     `.graft/software-factory/graft.yaml`
 
-- [ ] **Add `implement-reviewed` sequence to `graft.yaml`**
+- [x] **Add `implement-reviewed` sequence to `graft.yaml`**
   - **Delivers** — the full implement → verify → review → human-checkpoint cycle as a
     single command; since review always exits 0, the sequence completes normally even
     when verdict is "fail"; the human sees the verdict in grove's Run State

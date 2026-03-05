@@ -51,7 +51,7 @@ read it automatically and inject a structured failure summary into the Claude
 
 ## Steps
 
-- [ ] **Extend SequenceDef with on_step_fail retry config**
+- [x] **Extend SequenceDef with on_step_fail retry config**
   - **Delivers** — sequences can declare retry semantics in graft.yaml
   - **Done when** — `SequenceDef` gains an optional `on_step_fail: OnStepFail`
     field where `OnStepFail` has `step: String`, `recovery: String`, and
@@ -65,7 +65,7 @@ read it automatically and inject a structured failure summary into the Claude
     produces an error
   - **Files** — `crates/graft-common/src/config.rs`
 
-- [ ] **Implement retry logic in the sequence executor**
+- [x] **Implement retry logic in the sequence executor**
   - **Delivers** — a failing verify (or any named step) triggers the retry cycle
     automatically
   - **Done when** — when a step named in `on_step_fail.step` exits non-zero, the
@@ -87,7 +87,7 @@ read it automatically and inject a structured failure summary into the Claude
     further retries
   - **Files** — `crates/graft-engine/src/sequence.rs`
 
-- [ ] **Wire implement-verified sequence in software-factory**
+- [x] **Wire implement-verified sequence in software-factory**
   - **Delivers** — `graft run software-factory:implement-verified <slice>` is the
     new native ralph loop — no bash loop script required
   - **Done when** — `software-factory/graft.yaml` declares an `implement-verified`
@@ -100,7 +100,7 @@ read it automatically and inject a structured failure summary into the Claude
     is no longer the primary workflow path (it can remain as a reference)
   - **Files** — `.graft/software-factory/graft.yaml`
 
-- [ ] **Update resume.sh to inject verify.json failure context**
+- [x] **Update resume.sh to inject verify.json failure context**
   - **Delivers** — Claude receives a structured failure summary when resumed after
     a verify failure, rather than resuming with no context about what went wrong
   - **Done when** — `resume.sh` checks whether `$GRAFT_STATE_DIR/verify.json`

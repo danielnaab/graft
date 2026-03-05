@@ -200,7 +200,7 @@ new fields useful immediately.
     complete before implementation begins
   - **Files** — `docs/specifications/graft/graft-yaml-format.md`
 
-- [ ] **Add `category` and `example` to `CommandDef` and `SequenceDef` in
+- [x] **Add `category` and `example` to `CommandDef` and `SequenceDef` in
   `config.rs` and `domain.rs`**
   - **Delivers** — schema supports new fields end-to-end
   - **Done when** — `graft-common/src/config.rs` adds `category: Option<String>`
@@ -212,7 +212,7 @@ new fields useful immediately.
   - **Files** — `crates/graft-common/src/config.rs`,
     `crates/graft-engine/src/domain.rs`, `crates/grove-core/src/domain.rs`
 
-- [ ] **Add `graft help` subcommand (catalog and detail modes) and pre-execution
+- [x] **Add `graft help` subcommand (catalog and detail modes) and pre-execution
   reads/writes output**
   - **Delivers** — consuming repos can discover full command metadata via CLI and
     machine-readable JSON; execution output confirms data-flow before commands run
@@ -232,7 +232,7 @@ new fields useful immediately.
     --check` passes
   - **Files** — `crates/graft-cli/src/main.rs`
 
-- [ ] **Populate `category` and `example` in software-factory `graft.yaml`**
+- [x] **Populate `category` and `example` in software-factory `graft.yaml`**
   - **Delivers** — every software-factory command and sequence is immediately
     self-documenting via `graft help` and `graft catalog`
   - **Done when** — every command in `.graft/software-factory/graft.yaml` has both

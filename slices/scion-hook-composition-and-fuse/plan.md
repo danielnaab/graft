@@ -68,7 +68,7 @@ conflicts during fuse are detected and reported as errors — no automatic resol
 
 ## Steps
 
-- [ ] **Add `git_merge_to_ref` and `git_fast_forward` to `graft-common/src/git.rs`**
+- [x] **Add `git_merge_to_ref` and `git_fast_forward` to `graft-common/src/git.rs`**
   - **Delivers** — git plumbing for non-destructive merge and branch advancement
   - **Done when** — `git_merge_to_ref(repo, source, target, ref_name)` creates a
     merge commit of `source` into `target` stored at `ref_name` without touching
@@ -81,7 +81,7 @@ conflicts during fuse are detected and reported as errors — no automatic resol
     commit, conflicting merge returns error, branch ref advances after fast-forward
   - **Files** — `crates/graft-common/src/git.rs`
 
-- [ ] **Add `ResolvedHook` type and `resolve_hook_chain` to `graft-engine/src/scion.rs`**
+- [x] **Add `ResolvedHook` type and `resolve_hook_chain` to `graft-engine/src/scion.rs`**
   - **Delivers** — hook resolution across dependency scopes with event-aware
     working directories
   - **Done when** — `ResolvedHook { command_name, namespace, working_dir }` struct
@@ -94,7 +94,7 @@ conflicts during fuse are detected and reported as errors — no automatic resol
     hooks, dependency-only hooks, mixed, and correct working_dir per event
   - **Files** — `crates/graft-engine/src/scion.rs`
 
-- [ ] **Add `execute_hook_chain` to `graft-engine/src/scion.rs`**
+- [x] **Add `execute_hook_chain` to `graft-engine/src/scion.rs`**
   - **Delivers** — sequential hook execution with fail-fast semantics
   - **Done when** — `execute_hook_chain(chain, scion_env)` resolves each hook's
     command name via the existing `execute_command_by_name` infrastructure (from
@@ -106,7 +106,7 @@ conflicts during fuse are detected and reported as errors — no automatic resol
     third not attempted)
   - **Files** — `crates/graft-engine/src/scion.rs`
 
-- [ ] **Retrofit hooks into `scion_create` and `scion_prune`**
+- [x] **Retrofit hooks into `scion_create` and `scion_prune`**
   - **Delivers** — lifecycle hooks on create and prune with rollback
   - **Done when** — `scion_create` resolves and executes `on_create` chain after
     `git_worktree_add`; on hook failure, calls `git_worktree_remove` +
@@ -116,7 +116,7 @@ conflicts during fuse are detected and reported as errors — no automatic resol
     verify rollback behavior with a failing hook script
   - **Files** — `crates/graft-engine/src/scion.rs`
 
-- [ ] **Implement `scion_fuse` in `graft-engine/src/scion.rs`**
+- [x] **Implement `scion_fuse` in `graft-engine/src/scion.rs`**
   - **Delivers** — merge-to-main with hook gates and cleanup
   - **Done when** — `scion_fuse(repo, name, config, dep_configs)` performs:
     (1) `git_merge_to_ref` to merge `feature/<name>` into `main` at a temp ref;
@@ -128,7 +128,7 @@ conflicts during fuse are detected and reported as errors — no automatic resol
     branch), skip to step 4; integration test covers full fuse lifecycle
   - **Files** — `crates/graft-engine/src/scion.rs`
 
-- [ ] **Add `graft scion fuse <name>` CLI subcommand**
+- [x] **Add `graft scion fuse <name>` CLI subcommand**
   - **Delivers** — user-facing merge command with lifecycle hooks
   - **Done when** — `graft scion fuse <name>` calls `scion_fuse`, prints merge
     result and cleanup confirmation on success; prints hook failure details

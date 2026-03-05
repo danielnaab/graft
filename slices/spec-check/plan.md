@@ -69,7 +69,7 @@ as a composable step in a future `implement-spec-verified` sequence.
 
 ## Steps
 
-- [ ] **Write `scripts/spec-check.sh` and add `spec-check` command to `graft.yaml`**
+- [x] **Write `scripts/spec-check.sh` and add `spec-check` command to `graft.yaml`**
   - **Delivers** — standalone spec-check command that maps acceptance criteria to
     implementation evidence in the diff, flagging uncovered criteria
   - **Done when** — `spec-check.sh` reads `baseline_sha` from `session.json` (written

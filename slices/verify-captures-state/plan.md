@@ -47,7 +47,7 @@ referenceable in subsequent workflow slices (specifically the exit-code gate in
 
 ## Steps
 
-- [ ] **Fix consumer verify.sh to exit non-zero on check failures**
+- [x] **Fix consumer verify.sh to exit non-zero on check failures**
   - **Delivers** — verify is a proper gating mechanism; the sequence executor can
     detect failure via exit code and trigger retries
   - **Done when** — `scripts/verify.sh` computes an `overall_exit` from the
@@ -58,7 +58,7 @@ referenceable in subsequent workflow slices (specifically the exit-code gate in
     JSON; `cargo test` continues to pass
   - **Files** — `scripts/verify.sh`
 
-- [ ] **Write verify result to run-state before printing**
+- [x] **Write verify result to run-state before printing**
   - **Delivers** — verify output is persisted and observable in grove
   - **Done when** — `.graft/software-factory/scripts/verify.sh` is restructured
     so that ALL exit paths produce output and, when `$GRAFT_STATE_DIR` is set,
@@ -80,7 +80,7 @@ referenceable in subsequent workflow slices (specifically the exit-code gate in
     does NOT write or update `verify.json`
   - **Files** — `.graft/software-factory/scripts/verify.sh`
 
-- [ ] **Declare writes: [verify] on the verify command**
+- [x] **Declare writes: [verify] on the verify command**
   - **Delivers** — grove shows the producer annotation and the reads/writes
     relationship is machine-readable for future enforcement
   - **Done when** — `software-factory/graft.yaml` has `writes: [verify]` on the

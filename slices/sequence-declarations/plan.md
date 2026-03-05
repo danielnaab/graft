@@ -66,7 +66,7 @@ Design decisions (resolved from the prior draft):
 
 ## Steps
 
-- [ ] **Parse sequences: section in graft-common and grove-core**
+- [x] **Parse sequences: section in graft-common and grove-core**
   - **Delivers** — graft.yaml files can declare sequences without parse errors;
     the domain type is available for the execution layer
   - **Done when** — `graft-common` parses `sequences:` from graft.yaml into a
@@ -80,7 +80,7 @@ Design decisions (resolved from the prior draft):
   - **Files** — `crates/graft-common/src/config.rs`,
     `crates/grove-core/src/domain.rs`
 
-- [ ] **Execute sequences in graft-engine with live state writing**
+- [x] **Execute sequences in graft-engine with live state writing**
   - **Delivers** — `graft run <sequence-name>` works end-to-end; sequence progress
     is observable in grove via `sequence-state.json`
   - **Done when** — a new `execute_sequence(config, sequence_name, base_dir, args)`
@@ -98,7 +98,7 @@ Design decisions (resolved from the prior draft):
   - **Files** — `crates/graft-engine/src/sequence.rs` (new),
     `crates/graft-engine/src/command.rs`
 
-- [ ] **Show sequences in grove Commands section**
+- [x] **Show sequences in grove Commands section**
   - **Delivers** — sequences are discoverable in grove and executable via Enter
   - **Done when** — `load_commands_for_selected_repo()` in `repo_detail.rs` also
     loads sequences from the parsed config (root + deps); each `Sequence` is

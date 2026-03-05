@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-03-03
 depends_on: []
 ---
@@ -74,7 +74,7 @@ slug extraction. Description becomes the second arg.
 
 ## Steps
 
-- [ ] **Replace `implement` with `stdin: literal` and thin session wrapper**
+- [x] **Replace `implement` with `stdin: literal` and thin session wrapper**
   - **Delivers** — implement command that lets Claude read the plan directly
   - **Done when** — `implement` command uses `stdin: literal` telling Claude to
     read `slices/{slice}/plan.md`, find the next `- [ ]` step, implement it,
@@ -91,7 +91,7 @@ slug extraction. Description becomes the second arg.
     `.graft/software-factory/scripts/read-slice.sh` (deleted),
     `.graft/software-factory/scripts/lib.sh` (deleted if unused)
 
-- [ ] **Replace `new-slice` with `stdin: literal` and slug as arg**
+- [x] **Replace `new-slice` with `stdin: literal` and slug as arg**
   - **Delivers** — reliable slice creation without fragile slug extraction
   - **Done when** — `new-slice` command takes `slug` (string, required) and
     `description` (string, required) as args; uses `stdin: literal` to instruct
@@ -102,7 +102,7 @@ slug extraction. Description becomes the second arg.
   - **Files** — `.graft/software-factory/graft.yaml`,
     `.graft/software-factory/scripts/new-slice.sh` (deleted)
 
-- [ ] **Replace `review`, `diagnose`, and `spec-check` with `stdin: literal`**
+- [x] **Replace `review`, `diagnose`, and `spec-check` with `stdin: literal`**
   - **Delivers** — three Claude-calling commands simplified to yaml declarations
   - **Done when** — each command uses `stdin: literal` telling Claude to: read
     the slice plan for acceptance criteria, read the git diff since baseline
@@ -115,7 +115,7 @@ slug extraction. Description becomes the second arg.
     `.graft/software-factory/scripts/diagnose.sh` (deleted),
     `.graft/software-factory/scripts/spec-check.sh` (deleted)
 
-- [ ] **Replace `resume` with `stdin: literal` and session wrapper**
+- [x] **Replace `resume` with `stdin: literal` and session wrapper**
   - **Delivers** — resume command that lets Claude read state files for context
   - **Done when** — `resume` command uses `stdin: literal` telling Claude to
     read `$GRAFT_STATE_DIR/session.json`, `context-snapshot.json`,
