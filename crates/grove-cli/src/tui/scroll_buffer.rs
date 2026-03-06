@@ -55,6 +55,9 @@ pub(super) enum ContentBlock {
         /// Set when old output was dropped to stay within the line cap.
         output_truncated: bool,
         collapsed: bool,
+        /// True when the block was auto-expanded because an error indicator
+        /// was detected in the output.
+        auto_expanded: bool,
     },
     /// A data table with headers and rows.
     Table {
@@ -184,6 +187,7 @@ impl ContentBlock {
                 output_lines,
                 output_truncated,
                 collapsed,
+                auto_expanded,
                 ..
             } => {
                 const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -241,6 +245,12 @@ impl ContentBlock {
                     format!("    [{elapsed_str}]"),
                     Style::default().fg(Color::DarkGray),
                 ));
+                if *auto_expanded {
+                    header.push(Span::styled(
+                        "  (auto-expanded due to error)",
+                        Style::default().fg(Color::Red),
+                    ));
+                }
 
                 let mut out = vec![Line::from(header)];
                 if *output_truncated {
@@ -422,9 +432,22 @@ impl ScrollBuffer {
         if let Some(ContentBlock::Running {
             output_lines,
             output_truncated,
+            collapsed,
+            auto_expanded,
             ..
         }) = self.blocks.iter_mut().find(|b| b.id() == id)
         {
+            // Check new lines for error indicators before extending.
+            if *collapsed && !*auto_expanded {
+                let has_error = new_lines.iter().any(|line| {
+                    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+                    line_contains_error_indicator(&text)
+                });
+                if has_error {
+                    *collapsed = false;
+                    *auto_expanded = true;
+                }
+            }
             output_lines.extend(new_lines);
             if output_lines.len() > MAX_RUNNING_OUTPUT_LINES {
                 output_lines.drain(0..RUNNING_LINES_TO_DROP);
@@ -672,6 +695,19 @@ fn format_elapsed(d: Duration) -> String {
 /// Number of trailing output lines shown when a Running block is collapsed.
 const COLLAPSED_TAIL_LINES: usize = 3;
 
+/// Check if a line of output contains common error indicators.
+///
+/// Used as a heuristic to auto-expand collapsed Running blocks so users don't
+/// miss failures. False positives are acceptable — the user can re-collapse.
+fn line_contains_error_indicator(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    lower.contains("error")
+        || lower.contains("failed")
+        || lower.contains("panic")
+        || lower.contains("fatal")
+        || lower.contains("fail")
+}
+
 const FORMAT_FIRST_LINE_MAX_CHARS: usize = 60;
 const FORMAT_FIRST_LINE_TRUNCATED_CHARS: usize = 57;
 
@@ -783,6 +819,7 @@ mod tests {
             output_lines: output.into_iter().map(Line::raw).collect(),
             output_truncated: false,
             collapsed: false,
+            auto_expanded: false,
         };
         (id, block)
     }
@@ -935,6 +972,7 @@ mod tests {
             output_lines: vec![Line::raw("a"), Line::raw("b"), Line::raw("c")],
             output_truncated: false,
             collapsed: true,
+            auto_expanded: false,
         };
 
         let lines = block.render_lines_at(80, Instant::now());
@@ -969,6 +1007,7 @@ mod tests {
             output_lines: vec![Line::raw("x"), Line::raw("y")],
             output_truncated: false,
             collapsed: true,
+            auto_expanded: false,
         };
 
         let lines = block.render_lines_at(80, Instant::now());
@@ -992,6 +1031,7 @@ mod tests {
             output_lines: vec![],
             output_truncated: false,
             collapsed: true,
+            auto_expanded: false,
         };
 
         let lines = block.render_lines_at(80, Instant::now());
@@ -1010,6 +1050,7 @@ mod tests {
             output_lines: output,
             output_truncated: false,
             collapsed: true,
+            auto_expanded: false,
         };
 
         let lines = block.render_lines_at(80, Instant::now());
@@ -1039,6 +1080,7 @@ mod tests {
             ],
             output_truncated: false,
             collapsed: true,
+            auto_expanded: false,
         };
 
         let rendered = block.render_lines_at(80, Instant::now()).len();
@@ -1056,6 +1098,7 @@ mod tests {
             output_lines: vec![Line::raw("x")],
             output_truncated: true,
             collapsed: false,
+            auto_expanded: false,
         };
 
         let lines = block.render_lines_at(80, Instant::now());
@@ -1100,6 +1143,7 @@ mod tests {
             output_lines: vec![Line::raw("a"), Line::raw("b")],
             output_truncated: true,
             collapsed: false,
+            auto_expanded: false,
         };
         let rendered = block.render_lines_at(80, Instant::now()).len();
         assert_eq!(block.line_count(), rendered);
@@ -1132,5 +1176,165 @@ mod tests {
             "scroll_offset should be small, got {}",
             buf.scroll_offset
         );
+    }
+
+    // ── auto-expand on error ────────────────────────────────────────────────
+
+    #[test]
+    fn auto_expand_on_error_indicator() {
+        let mut buf = ScrollBuffer::new();
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "test".into(),
+            args: vec![],
+            started_at: Instant::now(),
+            output_lines: vec![],
+            output_truncated: false,
+            collapsed: true,
+            auto_expanded: false,
+        };
+        buf.push(block);
+
+        buf.append_lines_to_running(id, vec![Line::raw("error[E0308]: mismatched types")]);
+
+        if let ContentBlock::Running {
+            collapsed,
+            auto_expanded,
+            ..
+        } = &buf.blocks[0]
+        {
+            assert!(!collapsed, "block should be expanded after error");
+            assert!(auto_expanded, "auto_expanded flag should be set");
+        } else {
+            panic!("expected Running block");
+        }
+    }
+
+    #[test]
+    fn no_expand_without_error() {
+        let mut buf = ScrollBuffer::new();
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "test".into(),
+            args: vec![],
+            started_at: Instant::now(),
+            output_lines: vec![],
+            output_truncated: false,
+            collapsed: true,
+            auto_expanded: false,
+        };
+        buf.push(block);
+
+        buf.append_lines_to_running(id, vec![Line::raw("compiling crate v0.1.0")]);
+
+        if let ContentBlock::Running { collapsed, .. } = &buf.blocks[0] {
+            assert!(collapsed, "block should remain collapsed without error");
+        } else {
+            panic!("expected Running block");
+        }
+    }
+
+    #[test]
+    fn auto_expand_only_triggers_once() {
+        let mut buf = ScrollBuffer::new();
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "test".into(),
+            args: vec![],
+            started_at: Instant::now(),
+            output_lines: vec![],
+            output_truncated: false,
+            collapsed: true,
+            auto_expanded: false,
+        };
+        buf.push(block);
+
+        // First error triggers expansion
+        buf.append_lines_to_running(id, vec![Line::raw("FAILED test_foo")]);
+        assert!(!buf.blocks[0].is_collapsed());
+
+        // Manually re-collapse
+        buf.blocks[0].toggle_collapse();
+        assert!(buf.blocks[0].is_collapsed());
+
+        // Second error should NOT re-expand (auto_expanded is already true)
+        buf.append_lines_to_running(id, vec![Line::raw("FAILED test_bar")]);
+        assert!(
+            buf.blocks[0].is_collapsed(),
+            "should not re-expand after manual collapse"
+        );
+    }
+
+    #[test]
+    fn auto_expand_renders_indicator() {
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "build".into(),
+            args: vec![],
+            started_at: Instant::now(),
+            output_lines: vec![Line::raw("error: something went wrong")],
+            output_truncated: false,
+            collapsed: false,
+            auto_expanded: true,
+        };
+        let lines = block.render_lines_at(120, Instant::now());
+        let header: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            header.contains("auto-expanded due to error"),
+            "got: {header}"
+        );
+    }
+
+    #[test]
+    fn line_contains_error_indicator_cases() {
+        assert!(line_contains_error_indicator("error[E0308]: types"));
+        assert!(line_contains_error_indicator("test FAILED"));
+        assert!(line_contains_error_indicator("FAIL src/lib.rs"));
+        assert!(line_contains_error_indicator("thread 'main' panicked"));
+        assert!(line_contains_error_indicator("fatal: not a git repository"));
+        assert!(line_contains_error_indicator("fail: some check"));
+        assert!(!line_contains_error_indicator("compiling graft v0.1.0"));
+        assert!(!line_contains_error_indicator("Finished dev profile"));
+    }
+
+    #[test]
+    fn auto_expand_detects_error_in_multi_span_line() {
+        let mut buf = ScrollBuffer::new();
+        let id = BlockId::new();
+        let block = ContentBlock::Running {
+            id,
+            command: "test".into(),
+            args: vec![],
+            started_at: Instant::now(),
+            output_lines: vec![],
+            output_truncated: false,
+            collapsed: true,
+            auto_expanded: false,
+        };
+        buf.push(block);
+
+        // Error indicator split across multiple spans (as ratatui styled output)
+        let multi_span_line = Line::from(vec![
+            Span::styled("prefix: ", Style::default().fg(Color::White)),
+            Span::styled("error[E0308]", Style::default().fg(Color::Red)),
+            Span::raw(" in file.rs"),
+        ]);
+        buf.append_lines_to_running(id, vec![multi_span_line]);
+
+        if let ContentBlock::Running {
+            collapsed,
+            auto_expanded,
+            ..
+        } = &buf.blocks[0]
+        {
+            assert!(!collapsed, "should expand on multi-span error line");
+            assert!(auto_expanded, "auto_expanded should be set");
+        } else {
+            panic!("expected Running block");
+        }
     }
 }

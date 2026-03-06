@@ -95,81 +95,8 @@ pub fn execute_sequence(
         None,
     )?;
 
-    // Write checkpoint.json if checkpoint: true is set on this sequence
-    if seq_def.checkpoint == Some(true) {
-        write_checkpoint_json(&run_state_dir, sequence_name, args, &seq_def.args)?;
-    }
-
     eprintln!("\n✓ Sequence '{sequence_name}' completed successfully");
     Ok(0)
-}
-
-/// Write checkpoint.json to the run-state directory for sequences with `checkpoint: true`.
-///
-/// The checkpoint file signals that the sequence is awaiting review before proceeding.
-/// Format: `{"phase": "awaiting-review", "sequence": "...", "args": {...}, "message": "...", "created_at": "..."}`
-///
-/// `arg_schema` is the sequence's declared `args:` list; it is used to give each
-/// positional arg its declared name instead of a numeric index (e.g. `"slice"`
-/// rather than `"0"`). Any args beyond the schema length fall back to their index.
-pub fn write_checkpoint_json(
-    run_state_dir: &std::path::Path,
-    sequence: &str,
-    args: &[String],
-    arg_schema: &[graft_common::ArgDef],
-) -> Result<()> {
-    let checkpoint_file = run_state_dir.join("checkpoint.json");
-    let tmp_file = run_state_dir.join("checkpoint.json.tmp");
-
-    let created_at = chrono::Utc::now().to_rfc3339();
-
-    // Build args object: use declared arg name from schema when available,
-    // otherwise fall back to the positional index as a string key.
-    let mut args_map = serde_json::Map::new();
-    for (i, arg) in args.iter().enumerate() {
-        let key = arg_schema
-            .get(i)
-            .map(|a| a.name.as_str())
-            .unwrap_or_default();
-        if key.is_empty() {
-            args_map.insert(i.to_string(), serde_json::json!(arg));
-        } else {
-            args_map.insert(key.to_string(), serde_json::json!(arg));
-        }
-    }
-
-    let obj = serde_json::json!({
-        "phase": "awaiting-review",
-        "sequence": sequence,
-        "args": args_map,
-        "message": "Sequence complete. Review and approve or reject to continue.",
-        "created_at": created_at,
-    });
-
-    // Atomic write: write to .tmp then rename
-    {
-        let mut file = std::fs::File::create(&tmp_file).map_err(|e| {
-            GraftError::CommandExecution(format!(
-                "Failed to write checkpoint.json.tmp '{}': {e}",
-                tmp_file.display()
-            ))
-        })?;
-        serde_json::to_writer_pretty(&mut file, &obj).map_err(|e| {
-            GraftError::CommandExecution(format!("Failed to serialize checkpoint: {e}"))
-        })?;
-        writeln!(file).map_err(|e| {
-            GraftError::CommandExecution(format!("Failed to write checkpoint.json.tmp: {e}"))
-        })?;
-    }
-
-    std::fs::rename(&tmp_file, &checkpoint_file).map_err(|e| {
-        GraftError::CommandExecution(format!(
-            "Failed to rename checkpoint.json.tmp to checkpoint.json: {e}"
-        ))
-    })?;
-
-    eprintln!("\n⏸  Checkpoint written. Review and approve/reject to continue.");
-    Ok(())
 }
 
 /// Execute a single step, with retry logic if `on_step_fail` is configured for this step.
@@ -440,8 +367,7 @@ fn read_resume_index(run_state_dir: &std::path::Path, sequence_name: &str) -> Op
 
 /// Write sequence-state.json to the run-state directory atomically.
 ///
-/// Uses a `.tmp` + rename pattern so grove never observes a partial write,
-/// consistent with how `write_checkpoint_json` writes checkpoint.json.
+/// Uses a `.tmp` + rename pattern so grove never observes a partial write.
 pub fn write_sequence_state(
     run_state_dir: &std::path::Path,
     sequence: &str,
@@ -526,7 +452,6 @@ mod tests {
             example: None,
             args: vec![],
             on_step_fail: None,
-            checkpoint: None,
         };
         config.sequences.insert("test-seq".to_string(), seq);
 
@@ -564,7 +489,6 @@ mod tests {
             example: None,
             args: vec![],
             on_step_fail: None,
-            checkpoint: None,
         };
         config.sequences.insert("test-seq".to_string(), seq);
 
@@ -596,7 +520,6 @@ mod tests {
             example: None,
             args: vec![],
             on_step_fail: None,
-            checkpoint: None,
         };
         config.sequences.insert("my-seq".to_string(), seq);
 
@@ -655,7 +578,6 @@ mod tests {
                 recovery: "recovery-step".to_string(),
                 max: 3,
             }),
-            checkpoint: None,
         };
         config.sequences.insert("retry-seq".to_string(), seq);
 
@@ -689,7 +611,6 @@ mod tests {
                 recovery: "recovery".to_string(),
                 max: 2,
             }),
-            checkpoint: None,
         };
         config.sequences.insert("max-retry-seq".to_string(), seq);
 
@@ -722,7 +643,6 @@ mod tests {
                 recovery: "recovery".to_string(),
                 max: 3,
             }),
-            checkpoint: None,
         };
         config.sequences.insert("abort-seq".to_string(), seq);
 
@@ -737,245 +657,6 @@ mod tests {
 
         // Should not have retried (only 1 recovery attempt)
         let _ = out_file; // referenced to avoid unused warning
-    }
-
-    #[test]
-    fn checkpoint_true_writes_checkpoint_json() {
-        let tmp = TempDir::new().unwrap();
-
-        let mut config = make_echo_config(&[("echo-step", "echo hello")]);
-
-        let seq = graft_common::SequenceDef {
-            steps: vec![graft_common::StepDef::simple("echo-step")],
-            description: None,
-            category: None,
-            example: None,
-            args: vec![],
-            on_step_fail: None,
-            checkpoint: Some(true),
-        };
-        config.sequences.insert("checkpoint-seq".to_string(), seq);
-
-        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
-        let exit_code = execute_sequence(&config, "checkpoint-seq", &ctx, &[]).unwrap();
-        assert_eq!(exit_code, 0);
-
-        let checkpoint_file = tmp
-            .path()
-            .join(".graft")
-            .join("run-state")
-            .join("checkpoint.json");
-        assert!(
-            checkpoint_file.exists(),
-            "checkpoint.json should be written when checkpoint: true"
-        );
-
-        let content = std::fs::read_to_string(&checkpoint_file).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert_eq!(parsed["phase"], "awaiting-review");
-        assert_eq!(parsed["sequence"], "checkpoint-seq");
-        assert!(parsed["created_at"].is_string());
-        assert!(parsed["message"].is_string());
-    }
-
-    #[test]
-    fn checkpoint_args_use_schema_names_when_declared() {
-        let tmp = TempDir::new().unwrap();
-
-        let mut config = make_echo_config(&[("echo-step", "echo hello")]);
-
-        let seq = graft_common::SequenceDef {
-            steps: vec![graft_common::StepDef::simple("echo-step")],
-            description: None,
-            category: None,
-            example: None,
-            args: vec![graft_common::ArgDef {
-                name: "slice".to_string(),
-                arg_type: graft_common::ArgType::String,
-                description: None,
-                required: false,
-                default: None,
-                options: None,
-                options_from: None,
-                positional: true,
-            }],
-            on_step_fail: None,
-            checkpoint: Some(true),
-        };
-        config.sequences.insert("named-args-seq".to_string(), seq);
-
-        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
-        let exit_code = execute_sequence(
-            &config,
-            "named-args-seq",
-            &ctx,
-            &["slices/my-feature".to_string()],
-        )
-        .unwrap();
-        assert_eq!(exit_code, 0);
-
-        let checkpoint_file = tmp
-            .path()
-            .join(".graft")
-            .join("run-state")
-            .join("checkpoint.json");
-        let content = std::fs::read_to_string(&checkpoint_file).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-
-        // The arg should be keyed by its declared name, not "0"
-        assert_eq!(
-            parsed["args"]["slice"], "slices/my-feature",
-            "arg should use schema name 'slice', not positional index '0'"
-        );
-        assert!(
-            parsed["args"]["0"].is_null(),
-            "numeric key '0' must not appear when schema name is known"
-        );
-    }
-
-    #[test]
-    fn checkpoint_args_fall_back_to_index_when_no_schema() {
-        let tmp = TempDir::new().unwrap();
-
-        let mut config = make_echo_config(&[("echo-step", "echo hello")]);
-
-        // No args schema declared
-        let seq = graft_common::SequenceDef {
-            steps: vec![graft_common::StepDef::simple("echo-step")],
-            description: None,
-            category: None,
-            example: None,
-            args: vec![],
-            on_step_fail: None,
-            checkpoint: Some(true),
-        };
-        config.sequences.insert("no-schema-seq".to_string(), seq);
-
-        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
-        let exit_code = execute_sequence(
-            &config,
-            "no-schema-seq",
-            &ctx,
-            &["slices/my-feature".to_string()],
-        )
-        .unwrap();
-        assert_eq!(exit_code, 0);
-
-        let checkpoint_file = tmp
-            .path()
-            .join(".graft")
-            .join("run-state")
-            .join("checkpoint.json");
-        let content = std::fs::read_to_string(&checkpoint_file).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-
-        // Falls back to numeric key
-        assert_eq!(
-            parsed["args"]["0"], "slices/my-feature",
-            "should use numeric key when no schema is present"
-        );
-    }
-
-    #[test]
-    fn checkpoint_absent_does_not_write_checkpoint_json() {
-        let tmp = TempDir::new().unwrap();
-
-        let mut config = make_echo_config(&[("echo-step", "echo hello")]);
-
-        let seq = graft_common::SequenceDef {
-            steps: vec![graft_common::StepDef::simple("echo-step")],
-            description: None,
-            category: None,
-            example: None,
-            args: vec![],
-            on_step_fail: None,
-            checkpoint: None, // field absent
-        };
-        config
-            .sequences
-            .insert("no-checkpoint-seq".to_string(), seq);
-
-        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
-        let exit_code = execute_sequence(&config, "no-checkpoint-seq", &ctx, &[]).unwrap();
-        assert_eq!(exit_code, 0);
-
-        let checkpoint_file = tmp
-            .path()
-            .join(".graft")
-            .join("run-state")
-            .join("checkpoint.json");
-        assert!(
-            !checkpoint_file.exists(),
-            "checkpoint.json should NOT be written when checkpoint is absent"
-        );
-    }
-
-    #[test]
-    fn checkpoint_explicit_false_does_not_write_checkpoint_json() {
-        let tmp = TempDir::new().unwrap();
-
-        let mut config = make_echo_config(&[("echo-step", "echo hello")]);
-
-        let seq = graft_common::SequenceDef {
-            steps: vec![graft_common::StepDef::simple("echo-step")],
-            description: None,
-            category: None,
-            example: None,
-            args: vec![],
-            on_step_fail: None,
-            checkpoint: Some(false), // explicitly false
-        };
-        config
-            .sequences
-            .insert("no-checkpoint-seq".to_string(), seq);
-
-        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
-        let exit_code = execute_sequence(&config, "no-checkpoint-seq", &ctx, &[]).unwrap();
-        assert_eq!(exit_code, 0);
-
-        let checkpoint_file = tmp
-            .path()
-            .join(".graft")
-            .join("run-state")
-            .join("checkpoint.json");
-        assert!(
-            !checkpoint_file.exists(),
-            "checkpoint.json should NOT be written when checkpoint: false"
-        );
-    }
-
-    #[test]
-    fn checkpoint_not_written_on_failure() {
-        let tmp = TempDir::new().unwrap();
-
-        let mut config = make_echo_config(&[("fail-step", "exit 1")]);
-
-        let seq = graft_common::SequenceDef {
-            steps: vec![graft_common::StepDef::simple("fail-step")],
-            description: None,
-            category: None,
-            example: None,
-            args: vec![],
-            on_step_fail: None,
-            checkpoint: Some(true),
-        };
-        config
-            .sequences
-            .insert("fail-checkpoint-seq".to_string(), seq);
-
-        let ctx = CommandContext::local(tmp.path(), "test", "test", false);
-        let exit_code = execute_sequence(&config, "fail-checkpoint-seq", &ctx, &[]).unwrap();
-        assert_ne!(exit_code, 0);
-
-        let checkpoint_file = tmp
-            .path()
-            .join(".graft")
-            .join("run-state")
-            .join("checkpoint.json");
-        assert!(
-            !checkpoint_file.exists(),
-            "checkpoint.json should NOT be written when sequence fails"
-        );
     }
 
     // ── Crash resumability tests ─────────────────────────────────────────────
@@ -1017,7 +698,6 @@ mod tests {
             example: None,
             args: vec![],
             on_step_fail: None,
-            checkpoint: None,
         };
         config.sequences.insert("two-step".to_string(), seq);
         (config, "two-step")
@@ -1197,7 +877,6 @@ mod tests {
             example: None,
             args: vec![],
             on_step_fail: None,
-            checkpoint: None,
         };
         config.sequences.insert("cond-seq".to_string(), seq);
         config
@@ -1547,7 +1226,6 @@ mod tests {
             example: None,
             args: vec![],
             on_step_fail: None,
-            checkpoint: None,
         };
         config.sequences.insert("mixed-seq".to_string(), seq);
 

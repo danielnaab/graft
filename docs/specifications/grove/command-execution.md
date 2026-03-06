@@ -336,91 +336,6 @@ When the user presses Escape (command finished)
 Then the stack resets to [Dashboard]
 ```
 
-### Checkpoint Approval Overlay [Slice 5]
-
-When a sequence completes with `checkpoint: true`, it writes `checkpoint.json` to the
-run-state directory. Grove surfaces this as a special entry in the Run State section and
-provides an approval overlay so the user can approve or reject without leaving the TUI.
-
-#### Checkpoint Entry Rendering
-
-```gherkin
-Given a run-state entry named `checkpoint` with `phase: "awaiting-review"`
-When the Run State section of RepoDetail renders
-Then the entry is shown with a `! ` prefix (exclamation + space)
-And rendered in Yellow Bold style to indicate it requires action
-And the entry's `message` field is shown as the value
-```
-
-```gherkin
-Given a run-state entry named `checkpoint` with `phase` other than `awaiting-review`
-When the Run State section renders
-Then the entry is shown with the standard rendering (no `!` prefix, no Yellow Bold)
-```
-
-#### Opening the Approval Overlay
-
-```gherkin
-Given a pending checkpoint entry is highlighted in the Run State section
-When the user presses Enter
-Then the approval overlay appears (not expand/collapse)
-And the overlay shows the sequence name, message, and available actions
-```
-
-```gherkin
-Given a non-checkpoint run-state entry is highlighted
-When the user presses Enter
-Then normal expand/collapse behavior applies (no overlay)
-```
-
-```gherkin
-Given a pending checkpoint entry is highlighted
-When the hint bar renders
-Then it shows "Enter: review checkpoint" instead of "Enter: expand/collapse"
-```
-
-#### Approval Overlay Behavior
-
-```gherkin
-Given the approval overlay is displayed
-When the user presses "a"
-Then the overlay closes
-And Grove navigates to CommandOutput view
-And executes the approve command (`graft run <dep>:approve`)
-And after execution, run-state reloads so the checkpoint entry reflects phase: approved
-```
-
-```gherkin
-Given the approval overlay is displayed
-When the user presses "r"
-Then the overlay closes
-And Grove navigates to CommandOutput view
-And executes the reject command (`graft run <dep>:reject`)
-And after execution, run-state reloads so the checkpoint entry reflects phase: rejected
-```
-
-```gherkin
-Given the approval overlay is displayed
-When the user presses Escape
-Then the overlay closes without executing any command
-And focus returns to the RepoDetail view with the checkpoint still pending
-```
-
-```gherkin
-Given the approval overlay is displayed
-When the hint bar renders
-Then it shows: "a: approve  r: reject  Esc: cancel"
-```
-
-#### Keybinding Override for Approval Overlay
-
-```gherkin
-Given the approval overlay is displayed
-When ANY key is pressed
-Then the approval overlay handler intercepts it (before form/argument/command-line handlers)
-And only a/r/Esc have defined effects; all other keys are silently ignored
-```
-
 ### Run State Section
 
 ```gherkin
@@ -504,15 +419,6 @@ And the user can manually stop with "q" → "y"
 | `:` | Any view | Activate command line |
 | `:run <cmd> [args]` + `Enter` | Command line | Execute named command directly |
 
-### Approval Overlay
-
-| Key | Context | Action |
-|-----|---------|--------|
-| `Enter` | RepoDetail (pending checkpoint highlighted) | Open approval overlay |
-| `a` | Approval overlay | Approve checkpoint, execute approve command |
-| `r` | Approval overlay | Reject checkpoint, execute reject command |
-| `Esc` | Approval overlay | Dismiss overlay without action |
-
 See [TUI Behavior](tui-behavior.md) for the full command line keybinding reference.
 
 ## Open Questions
@@ -571,15 +477,6 @@ See [TUI Behavior](tui-behavior.md) for the full command line keybinding referen
   - `» ` prefix distinguishes sequences from individual commands at a glance
   - Both use the same argument input dialog and CommandOutput view
   - Sequence dispatch routes through `graft run <repo>:<sequence-name>` (same as commands)
-
-- **2026-02-25**: Checkpoint approval overlay for `checkpoint: true` sequences
-  - Pending checkpoints render with `! ` prefix + Yellow Bold in the Run State section
-  - Enter on a pending checkpoint opens an approval overlay (not expand/collapse)
-  - Overlay intercepts `a`/`r`/`Esc` before all other key handlers
-  - `a` and `r` execute approve/reject commands and reload run-state immediately
-  - Overlay dismiss (`Esc`) never executes a command
-  - Approval overlay pattern follows `form_input` / `argument_input` guard ordering (NOT the `show_stop_confirmation` bool pattern)
-  - Known wart: approve/reject command names are resolved at overlay-open time by scanning `available_commands` for names ending in `:approve`/`:reject`; fragile to naming conventions, earmarked for cleanup
 
 - **2026-02-13**: Command arguments via text input dialog
   - Modal dialog appears after command selection

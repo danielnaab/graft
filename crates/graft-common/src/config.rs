@@ -478,9 +478,6 @@ pub struct SequenceDef {
     /// Optional retry configuration for a named step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_step_fail: Option<OnStepFail>,
-    /// When true, writes checkpoint.json after all steps succeed for human review.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checkpoint: Option<bool>,
 }
 
 /// Parse sequences section from a graft.yaml content string.
@@ -661,11 +658,6 @@ fn parse_sequence(name: &str, config: &Value) -> Result<SequenceDef, String> {
         None
     };
 
-    // Parse checkpoint (optional)
-    let checkpoint = config
-        .get("checkpoint")
-        .and_then(serde_yaml::Value::as_bool);
-
     let category = config
         .get("category")
         .and_then(|v| v.as_str())
@@ -682,7 +674,6 @@ fn parse_sequence(name: &str, config: &Value) -> Result<SequenceDef, String> {
         example,
         args,
         on_step_fail,
-        checkpoint,
     })
 }
 

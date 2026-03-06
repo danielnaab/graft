@@ -11,7 +11,7 @@ status: draft
 Sequences are ordered lists of commands that share arguments and are executed
 as a unit. This specification covers the full execution lifecycle: normal
 execution, per-step retry (`on_step_fail`), run-state tracking
-(`sequence-state.json`), checkpoint gates, and crash resumability.
+(`sequence-state.json`) and crash resumability.
 
 ## Definitions
 
@@ -107,26 +107,6 @@ Given a step other than B (the on_step_fail.step) fails
 When that other step exits non-zero
 Then the sequence fails immediately with phase: "failed"
 And no recovery or retry is attempted for it
-```
-
----
-
-## Checkpoint Gate
-
-```gherkin
-Given a sequence with checkpoint: true
-When all steps complete successfully
-Then checkpoint.json is written to the run-state dir with:
-    {phase: "awaiting-review", sequence: "...", args: {...},
-     message: "Sequence complete. Review and approve or reject to continue.",
-     created_at: "<RFC 3339>"}
-And "⏸  Checkpoint written. Review and approve/reject to continue." is printed
-```
-
-```gherkin
-Given a sequence with checkpoint: false or no checkpoint field
-When all steps complete successfully
-Then checkpoint.json is NOT written
 ```
 
 ---

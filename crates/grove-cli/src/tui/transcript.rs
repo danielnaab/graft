@@ -992,6 +992,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             output_lines: vec![],
             output_truncated: false,
             collapsed: false,
+            auto_expanded: false,
         });
     }
 

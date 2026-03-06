@@ -2309,7 +2309,6 @@ fn help_command(dep_spec: &str, json: bool) -> Result<()> {
                                 "category": seq.category,
                                 "example": seq.example,
                                 "steps": step_names,
-                                "checkpoint": seq.checkpoint.unwrap_or(false),
                                 "on_step_fail": seq.on_step_fail.as_ref().map(|osf| serde_json::json!({
                                     "step": osf.step,
                                     "recovery": osf.recovery,
@@ -2374,9 +2373,6 @@ fn help_command(dep_spec: &str, json: bool) -> Result<()> {
                             seq.steps.iter().map(|s| s.name.as_str()).collect();
                         println!("  {name:<20}{cat_tag:<14} {desc}");
                         println!("    Steps: {}", step_names.join(" → "));
-                        if seq.checkpoint.unwrap_or(false) {
-                            println!("    Checkpoint: yes");
-                        }
                     }
                 }
             }
@@ -2457,7 +2453,6 @@ fn help_command(dep_spec: &str, json: bool) -> Result<()> {
                         "category": seq.category,
                         "example": seq.example,
                         "steps": step_names,
-                        "checkpoint": seq.checkpoint.unwrap_or(false),
                         "on_step_fail": seq.on_step_fail.as_ref().map(|osf| serde_json::json!({
                             "step": osf.step,
                             "recovery": osf.recovery,
@@ -2488,9 +2483,6 @@ fn help_command(dep_spec: &str, json: bool) -> Result<()> {
                             "  Retry:    {} fails → {} (max {})",
                             osf.step, osf.recovery, osf.max
                         );
-                    }
-                    if seq.checkpoint.unwrap_or(false) {
-                        println!("  Checkpoint: yes (human approval required)");
                     }
                     if !seq.args.is_empty() {
                         println!();

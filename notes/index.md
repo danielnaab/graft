@@ -244,6 +244,8 @@ git state and should be removed.
 - [Scion Orchestration Design](2026-03-01-scion-orchestration-design.md) — parallel
   workers, grove as switchboard
 - [Pain Point Strategy](2026-03-04-pain-point-strategy.md) — checkpoint UI deferred
+- [Gate Predicates Design](2026-03-06-gate-predicates.md) — gate step design
+  decisions, resolved open questions
 
 ---
 

@@ -95,7 +95,6 @@ sequences:
       step: string                # Required: step that triggers recovery
       recovery: string            # Required: recovery command name
       max: integer                # Required: max retry iterations
-    checkpoint: bool              # Optional: write checkpoint.json on success (default: false)
 
 # Dependencies (for Graft-aware dependencies)
 dependencies:
@@ -296,7 +295,7 @@ group and annotate output.
 
 | Value | Role |
 |-------|------|
-| `core` | Primary workflow steps run in normal operation (`implement`, `verify`, `approve`) |
+| `core` | Primary workflow steps run in normal operation (`implement`, `verify`, `review`) |
 | `diagnostic` | Run when something is wrong to investigate or recover (`diagnose`, `resume`) |
 | `optional` | Enrichment steps that improve quality but are not required (`spec-check`, `review`) |
 | `advanced` | Power-user or parallel variants not needed for basic use (`implement-parallel`) |
@@ -597,7 +596,7 @@ fi
 
 Defines multi-step command pipelines that the `graft run` tool can execute. Each sequence
 chains named commands in order, shares arguments across all steps, and can optionally
-retry on step failure or write a checkpoint gate when all steps succeed.
+retry on step failure.
 
 **Name Constraints**: Same as commands — no `:` character.
 
@@ -609,9 +608,11 @@ sequences:
     description: string              # Optional: human-readable summary
     category: string                 # Optional: role classification (core|diagnostic|optional|advanced)
     example: string                  # Optional: complete invocation example
-    steps:                           # Required: ordered list of command names
-      - <command-name>
-      - <command-name>
+    steps:                           # Required: ordered list of steps
+      - <command-name>               # Bare string form: command name
+      - name: <command-name>         # Object form: command with timeout/when
+        timeout: integer             # Optional
+        when: { ... }                # Optional: skip condition
     args:                            # Optional: positional/choice arg declarations
       - name: string
         type: string | choice | flag
@@ -624,7 +625,6 @@ sequences:
       step: string                   # Required: which step name triggers recovery
       recovery: string               # Required: command name to run before retry
       max: integer                   # Required: maximum retry iterations
-    checkpoint: bool                 # Optional: write checkpoint.json on success (default: false)
 ```
 
 ### Fields
@@ -749,34 +749,6 @@ on_step_fail:
 `iteration` is only present during retries. Phase transitions per step:
 `running → (retrying with iteration) → complete | failed`.
 
-#### checkpoint (optional)
-**Type**: `bool`
-
-**Default**: `false`
-
-**Description**: When `true`, writes `.graft/run-state/checkpoint.json` after all steps
-complete successfully. The checkpoint pauses automated orchestration until an explicit
-approve/reject command is run. Useful for human-review gates in automated pipelines.
-
-**checkpoint.json schema**:
-```json
-{
-  "phase": "awaiting-review",
-  "sequence": "<sequence-name>",
-  "args": { "<arg-name>": "<arg-value>" },
-  "message": "Sequence complete. Review and approve or reject to continue.",
-  "created_at": "<RFC 3339 timestamp>"
-}
-```
-
-After calling `graft run <dep>:approve`, the file is updated to `{"phase": "approved"}`.
-After `graft run <dep>:reject`, it becomes `{"phase": "rejected"}`.
-
-**Example**:
-```yaml
-checkpoint: true
-```
-
 ### Sequence Examples
 
 #### Simple build-test pipeline
@@ -798,12 +770,11 @@ sequences:
       - test
 ```
 
-#### Implement-verify with retry and checkpoint
+#### Implement-verify with retry
 
 This is the canonical `implement-verified` pattern used in software-factory workflows:
 an AI agent implements a slice, then a verification step checks correctness. If verify
 fails, a `resume` command re-runs the agent with failure context before retrying verify.
-A checkpoint gate requires human review before the result is accepted.
 
 ```yaml
 commands:
@@ -850,7 +821,6 @@ sequences:
       step: verify
       recovery: resume
       max: 3
-    checkpoint: true
 ```
 
 ---
@@ -1301,9 +1271,9 @@ Commands:
 
 Sequences:
   implement-verified [core]        Implement a slice and verify it passes, with retry
-                                   Steps: implement → verify → review  Checkpoint: yes
+                                   Steps: implement → verify → review
   implement-reviewed [core]        Implement, verify, and request code review
-                                   Steps: implement → verify → review  Checkpoint: yes
+                                   Steps: implement → verify → review
 ```
 
 #### Detail mode — `graft help <dep>:<name>`
@@ -1336,7 +1306,6 @@ $ graft help software-factory:implement-verified
 
   Steps:      implement → verify → review
   Retry:      verify fails → resume (max 3)
-  Checkpoint: yes (human approval required)
 
   Arguments:
     slice  (string, required, positional)  Path to the slice directory
@@ -1368,7 +1337,6 @@ Appending `--json` to either mode emits machine-readable JSON instead of human-r
       "example": "graft run software-factory:implement-verified slices/my-feature",
       "steps": ["implement", "verify", "review"],
       "on_step_fail": {"step": "verify", "recovery": "resume", "max": 3},
-      "checkpoint": true,
       "args": [
         {"name": "slice", "type": "string", "required": true, "positional": true, "description": "Path to the slice directory"}
       ]

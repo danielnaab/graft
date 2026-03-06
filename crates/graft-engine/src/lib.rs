@@ -56,7 +56,7 @@ pub use scion::{
     scion_session_id, scion_start, scion_stop, worktree_path, HookChainError, HookEvent,
     ResolvedHook, ScionEnv, ScionInfo, VerifyLevel,
 };
-pub use sequence::{execute_sequence, write_checkpoint_json, write_sequence_state};
+pub use sequence::{execute_sequence, write_sequence_state};
 pub use snapshot::SnapshotManager;
 pub use state::{
     execute_state_query, get_cache_path, get_run_state_entry, get_state, invalidate_cached_state,
