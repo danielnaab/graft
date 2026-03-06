@@ -471,6 +471,36 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             KeyCode::Char('q') => {
                 self.should_quit = true;
             }
+            // Home / Super+Up → first block or scroll to top
+            KeyCode::Home => {
+                if self.scroll.focused_block.is_some() {
+                    self.scroll.focus_first();
+                } else {
+                    self.scroll.scroll_offset = 0;
+                }
+            }
+            KeyCode::Up if modifiers.contains(crossterm::event::KeyModifiers::SUPER) => {
+                if self.scroll.focused_block.is_some() {
+                    self.scroll.focus_first();
+                } else {
+                    self.scroll.scroll_offset = 0;
+                }
+            }
+            // End / Super+Down → last block or scroll to bottom
+            KeyCode::End => {
+                if self.scroll.focused_block.is_some() {
+                    self.scroll.focus_last();
+                } else {
+                    self.scroll.scroll_to_bottom();
+                }
+            }
+            KeyCode::Down if modifiers.contains(crossterm::event::KeyModifiers::SUPER) => {
+                if self.scroll.focused_block.is_some() {
+                    self.scroll.focus_last();
+                } else {
+                    self.scroll.scroll_to_bottom();
+                }
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 if self.scroll.focused_block.is_some() {
                     self.scroll.focus_next();

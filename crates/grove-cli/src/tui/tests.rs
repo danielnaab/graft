@@ -273,21 +273,47 @@ fn focus_next_prev() {
     buf.focus_next();
     assert_eq!(buf.focused_block, Some(2)); // starts at last block
     buf.focus_next();
-    assert_eq!(buf.focused_block, Some(0)); // wraps to first
-    buf.focus_next();
-    assert_eq!(buf.focused_block, Some(1));
-    buf.focus_next();
-    assert_eq!(buf.focused_block, Some(2));
-    buf.focus_next();
-    assert_eq!(buf.focused_block, Some(0)); // wraps again
-
-    buf.focused_block = Some(0);
-    buf.focus_prev();
-    assert_eq!(buf.focused_block, Some(2)); // wraps from first to last
+    assert_eq!(buf.focused_block, Some(2)); // clamps at last
     buf.focus_prev();
     assert_eq!(buf.focused_block, Some(1));
     buf.focus_prev();
     assert_eq!(buf.focused_block, Some(0));
+    buf.focus_prev();
+    assert_eq!(buf.focused_block, Some(0)); // clamps at first
+
+    buf.focused_block = Some(1);
+    buf.focus_next();
+    assert_eq!(buf.focused_block, Some(2));
+    buf.focus_prev();
+    assert_eq!(buf.focused_block, Some(1));
+    buf.focus_prev();
+    assert_eq!(buf.focused_block, Some(0));
+}
+
+#[test]
+fn focus_first_last() {
+    let mut buf = ScrollBuffer::new();
+    for _ in 0..5 {
+        buf.push(ContentBlock::Text {
+            id: BlockId::new(),
+            lines: vec![ratatui::text::Line::from("line")],
+            collapsed: false,
+        });
+    }
+
+    buf.focus_first();
+    assert_eq!(buf.focused_block, Some(0));
+    buf.focus_last();
+    assert_eq!(buf.focused_block, Some(4));
+    buf.focus_first();
+    assert_eq!(buf.focused_block, Some(0));
+
+    // focus_first/last on empty buffer is a no-op
+    let mut empty = ScrollBuffer::new();
+    empty.focus_first();
+    assert_eq!(empty.focused_block, None);
+    empty.focus_last();
+    assert_eq!(empty.focused_block, None);
 }
 
 // ===== Formatting tests =====

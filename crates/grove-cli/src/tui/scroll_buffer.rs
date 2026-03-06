@@ -559,7 +559,7 @@ impl ScrollBuffer {
         self.scroll_offset = (self.scroll_offset.saturating_add(n)).min(max_offset);
     }
 
-    /// Move focus to the next block (wraps from last to first).
+    /// Move focus to the next block (clamps at last block).
     ///
     /// When no block is focused, focuses the last block.
     pub(super) fn focus_next(&mut self) {
@@ -568,18 +568,12 @@ impl ScrollBuffer {
         }
         self.focused_block = Some(match self.focused_block {
             None => self.blocks.len() - 1,
-            Some(i) => {
-                if i + 1 < self.blocks.len() {
-                    i + 1
-                } else {
-                    0
-                }
-            }
+            Some(i) => (i + 1).min(self.blocks.len() - 1),
         });
         self.scroll_to_focused();
     }
 
-    /// Move focus to the previous block (wraps from first to last).
+    /// Move focus to the previous block (clamps at first block).
     ///
     /// When no block is focused, focuses the last block.
     pub(super) fn focus_prev(&mut self) {
@@ -587,9 +581,27 @@ impl ScrollBuffer {
             return;
         }
         self.focused_block = Some(match self.focused_block {
-            None | Some(0) => self.blocks.len() - 1,
-            Some(i) => i - 1,
+            None => self.blocks.len() - 1,
+            Some(i) => i.saturating_sub(1),
         });
+        self.scroll_to_focused();
+    }
+
+    /// Move focus to the first block.
+    pub(super) fn focus_first(&mut self) {
+        if self.blocks.is_empty() {
+            return;
+        }
+        self.focused_block = Some(0);
+        self.scroll_to_focused();
+    }
+
+    /// Move focus to the last block.
+    pub(super) fn focus_last(&mut self) {
+        if self.blocks.is_empty() {
+            return;
+        }
+        self.focused_block = Some(self.blocks.len() - 1);
         self.scroll_to_focused();
     }
 
@@ -699,6 +711,7 @@ impl ScrollBuffer {
         let visible = &all_lines[offset..visible_end];
 
         // Apply gutter markers and focus highlight
+        let area_width = area.width as usize;
         let lines: Vec<Line<'static>> = visible
             .iter()
             .map(|(line, block_idx)| {
@@ -711,6 +724,14 @@ impl ScrollBuffer {
                         let gutter = Span::styled("\u{2590} ", Style::default().fg(Color::Cyan));
                         let mut spans = vec![gutter];
                         spans.extend(line.spans.iter().cloned());
+                        // Pad with spaces so the background color fills the full width
+                        let content_width: usize = spans.iter().map(Span::width).sum();
+                        if content_width < area_width {
+                            spans.push(Span::styled(
+                                " ".repeat(area_width - content_width),
+                                Style::default(),
+                            ));
+                        }
                         Line::from(spans).patch_style(Style::default().bg(Color::Rgb(40, 40, 70)))
                     }
                     Some(_) => {
