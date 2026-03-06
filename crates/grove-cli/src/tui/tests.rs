@@ -269,9 +269,7 @@ fn focus_next_prev() {
         });
     }
 
-    assert_eq!(buf.focused_block, None);
-    buf.focus_next();
-    assert_eq!(buf.focused_block, Some(2)); // starts at last block
+    assert_eq!(buf.focused_block, Some(2)); // auto-focused on last push
     buf.focus_next();
     assert_eq!(buf.focused_block, Some(2)); // clamps at last
     buf.focus_prev();

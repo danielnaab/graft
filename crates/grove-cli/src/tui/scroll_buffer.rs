@@ -386,6 +386,7 @@ impl ScrollBuffer {
     /// Push a new block and auto-scroll to show it.
     pub(super) fn push(&mut self, block: ContentBlock) {
         self.blocks.push(block);
+        self.focused_block = Some(self.blocks.len() - 1);
         self.scroll_to_bottom();
     }
 
