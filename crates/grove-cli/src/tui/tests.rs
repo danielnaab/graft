@@ -271,19 +271,22 @@ fn focus_next_prev() {
 
     assert_eq!(buf.focused_block, None);
     buf.focus_next();
-    assert_eq!(buf.focused_block, Some(0));
+    assert_eq!(buf.focused_block, Some(2)); // starts at last block
+    buf.focus_next();
+    assert_eq!(buf.focused_block, Some(0)); // wraps to first
     buf.focus_next();
     assert_eq!(buf.focused_block, Some(1));
     buf.focus_next();
     assert_eq!(buf.focused_block, Some(2));
-    buf.focus_next(); // should stay at 2
-    assert_eq!(buf.focused_block, Some(2));
+    buf.focus_next();
+    assert_eq!(buf.focused_block, Some(0)); // wraps again
 
+    buf.focused_block = Some(0);
+    buf.focus_prev();
+    assert_eq!(buf.focused_block, Some(2)); // wraps from first to last
     buf.focus_prev();
     assert_eq!(buf.focused_block, Some(1));
     buf.focus_prev();
-    assert_eq!(buf.focused_block, Some(0));
-    buf.focus_prev(); // should stay at 0
     assert_eq!(buf.focused_block, Some(0));
 }
 
@@ -1688,8 +1691,9 @@ fn state_table_has_actionable_rows() {
         let acts = actions.as_ref().expect("state table should have actions");
         assert_eq!(acts.len(), rows.len());
         assert_eq!(acts.len(), 2);
-        assert_eq!(acts[0], CliCommand::State(Some("coverage".to_string())));
-        assert_eq!(acts[1], CliCommand::State(Some("deps".to_string())));
+        // Uncached queries get StateRun (execute), cached get State (show detail)
+        assert_eq!(acts[0], CliCommand::StateRun("coverage".to_string()));
+        assert_eq!(acts[1], CliCommand::StateRun("deps".to_string()));
     } else {
         panic!("Expected Table block from :state");
     }
@@ -1719,9 +1723,10 @@ fn state_enter_opens_picker_with_query_names() {
     let picker = app.picker.as_ref().unwrap();
     assert_eq!(picker.items.len(), 1);
     assert_eq!(picker.items[0].label, "metrics");
+    // Uncached queries use StateRun (execute the query)
     assert_eq!(
         picker.items[0].action,
-        CliCommand::State(Some("metrics".to_string()))
+        CliCommand::StateRun("metrics".to_string())
     );
 }
 

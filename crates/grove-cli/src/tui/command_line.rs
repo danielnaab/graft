@@ -157,6 +157,10 @@ pub(super) enum CliCommand {
     Attach(String),
     /// `:review <name> [full]` — review a scion's changes.
     Review(String, bool),
+    /// Execute a single state query by name.
+    StateRun(String),
+    /// Pre-populate the prompt with text (used by catalog for commands needing args).
+    PopulatePrompt(String),
     /// An unknown command (the raw input is preserved for error display).
     Unknown(String),
 }

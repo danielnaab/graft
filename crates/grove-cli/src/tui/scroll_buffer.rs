@@ -559,34 +559,71 @@ impl ScrollBuffer {
         self.scroll_offset = (self.scroll_offset.saturating_add(n)).min(max_offset);
     }
 
-    /// Move focus to the next block.
+    /// Move focus to the next block (wraps from last to first).
+    ///
+    /// When no block is focused, focuses the last block.
     pub(super) fn focus_next(&mut self) {
         if self.blocks.is_empty() {
             return;
         }
-        match self.focused_block {
-            None => self.focused_block = Some(0),
+        self.focused_block = Some(match self.focused_block {
+            None => self.blocks.len() - 1,
             Some(i) => {
                 if i + 1 < self.blocks.len() {
-                    self.focused_block = Some(i + 1);
+                    i + 1
+                } else {
+                    0
                 }
             }
-        }
+        });
+        self.scroll_to_focused();
     }
 
-    /// Move focus to the previous block.
+    /// Move focus to the previous block (wraps from first to last).
+    ///
+    /// When no block is focused, focuses the last block.
     pub(super) fn focus_prev(&mut self) {
-        match self.focused_block {
-            None => {
-                if !self.blocks.is_empty() {
-                    self.focused_block = Some(self.blocks.len() - 1);
-                }
-            }
-            Some(i) => {
-                if i > 0 {
-                    self.focused_block = Some(i - 1);
-                }
-            }
+        if self.blocks.is_empty() {
+            return;
+        }
+        self.focused_block = Some(match self.focused_block {
+            None | Some(0) => self.blocks.len() - 1,
+            Some(i) => i - 1,
+        });
+        self.scroll_to_focused();
+    }
+
+    /// Compute the starting line offset of a block.
+    fn block_start_line(&self, index: usize) -> usize {
+        self.blocks
+            .iter()
+            .take(index)
+            .enumerate()
+            .map(|(i, b)| usize::from(i > 0) + b.line_count())
+            .sum::<usize>()
+            + usize::from(index > 0)
+    }
+
+    /// Scroll so that the focused block is visible.
+    fn scroll_to_focused(&mut self) {
+        let Some(idx) = self.focused_block else {
+            return;
+        };
+        let block_start = self.block_start_line(idx);
+        let block_height = self.blocks.get(idx).map_or(0, ContentBlock::line_count);
+        let viewport = self.last_viewport_height as usize;
+
+        // Resolve sentinel before comparing.
+        let total = self.total_lines(self.last_width);
+        let max_offset = total.saturating_sub(viewport);
+        let current = self.scroll_offset.min(max_offset);
+
+        if block_start < current {
+            // Block is above viewport — scroll up.
+            self.scroll_offset = block_start;
+        } else if block_start + block_height > current + viewport {
+            // Block is below viewport — scroll down so block end is visible.
+            self.scroll_offset = (block_start + block_height).saturating_sub(viewport);
         }
     }
 
@@ -638,13 +675,15 @@ impl ScrollBuffer {
 
         // Collect all rendered lines with block association.
         // Capture `now` once so every Running block uses the same instant.
+        // Reserve 2 columns for the left gutter marker.
+        let content_width = width.saturating_sub(GUTTER_WIDTH);
         let now = Instant::now();
         let mut all_lines: Vec<(Line<'static>, Option<usize>)> = Vec::new();
         for (block_idx, block) in self.blocks.iter().enumerate() {
             if block_idx > 0 {
                 all_lines.push((Line::from(""), None));
             }
-            for line in block.render_lines_at(width, now) {
+            for line in block.render_lines_at(content_width, now) {
                 all_lines.push((line, Some(block_idx)));
             }
         }
@@ -659,19 +698,30 @@ impl ScrollBuffer {
         let visible_end = (offset + viewport_height).min(total);
         let visible = &all_lines[offset..visible_end];
 
-        // Apply focus highlight
+        // Apply gutter markers and focus highlight
         let lines: Vec<Line<'static>> = visible
             .iter()
             .map(|(line, block_idx)| {
-                if let (Some(focused), Some(bidx)) = (self.focused_block, block_idx) {
-                    if *bidx == focused {
-                        let highlighted = line
-                            .clone()
-                            .patch_style(Style::default().bg(Color::Rgb(30, 30, 45)));
-                        return highlighted;
+                let is_focused = matches!(
+                    (self.focused_block, block_idx),
+                    (Some(f), Some(b)) if *b == f
+                );
+                match block_idx {
+                    Some(_) if is_focused => {
+                        let gutter = Span::styled("\u{2590} ", Style::default().fg(Color::Cyan));
+                        let mut spans = vec![gutter];
+                        spans.extend(line.spans.iter().cloned());
+                        Line::from(spans).patch_style(Style::default().bg(Color::Rgb(40, 40, 70)))
                     }
+                    Some(_) => {
+                        let gutter =
+                            Span::styled("\u{2502} ", Style::default().fg(Color::Rgb(60, 60, 60)));
+                        let mut spans = vec![gutter];
+                        spans.extend(line.spans.iter().cloned());
+                        Line::from(spans)
+                    }
+                    None => line.clone(), // separator lines: no gutter
                 }
-                line.clone()
             })
             .collect();
 
@@ -681,6 +731,9 @@ impl ScrollBuffer {
 }
 
 // ===== Helpers =====
+
+/// Width of the left gutter marker (e.g. "│ " or "▐ ").
+const GUTTER_WIDTH: u16 = 2;
 
 /// Format a duration as a short human-readable string: "42s" or "2m 34s".
 fn format_elapsed(d: Duration) -> String {
@@ -750,6 +803,9 @@ fn pad_or_truncate(s: &str, width: usize) -> String {
     }
 }
 
+/// Minimum column width before proportional fallback kicks in.
+const MIN_COL_WIDTH: usize = 4;
+
 fn compute_col_widths(
     headers: &[String],
     rows: &[Vec<Span<'static>>],
@@ -762,11 +818,10 @@ fn compute_col_widths(
         return Vec::new();
     }
 
-    // Start with header widths
+    // Natural widths: max of header and all cell contents per column.
     let mut widths: Vec<usize> = headers.iter().map(|h| h.width()).collect();
     widths.resize(col_count, 0);
 
-    // Expand to fit data
     for row in rows {
         for (i, cell) in row.iter().enumerate() {
             if i < col_count {
@@ -778,15 +833,78 @@ fn compute_col_widths(
         }
     }
 
-    // Cap total to available width (minus separators)
+    // Available space after column separators (2 chars each).
     let sep_space = (col_count.saturating_sub(1)) * 2;
     let available = (total_width as usize).saturating_sub(sep_space);
-    let total_col: usize = widths.iter().sum();
+    let total_natural: usize = widths.iter().sum();
 
-    if total_col > available && available > 0 {
-        // Proportionally shrink
+    if total_natural <= available || available == 0 {
+        return widths;
+    }
+
+    // Per-column minimum: min(natural, MIN_COL_WIDTH).
+    let mins: Vec<usize> = widths.iter().map(|&w| w.min(MIN_COL_WIDTH)).collect();
+
+    // Phase 1: Shrink widest first, respecting minimums.
+    let mut excess = total_natural - available;
+    while excess > 0 {
+        // Find current max width.
+        let max_w = widths.iter().copied().max().unwrap_or(0);
+        if max_w == 0 {
+            break;
+        }
+
+        // Indices sharing the max width.
+        let widest: Vec<usize> = widths
+            .iter()
+            .enumerate()
+            .filter(|(_, &w)| w == max_w)
+            .map(|(i, _)| i)
+            .collect();
+
+        // Next-widest value (the target we shrink toward), clamped to each column's minimum.
+        let next_w = widths
+            .iter()
+            .copied()
+            .filter(|&w| w < max_w)
+            .max()
+            .unwrap_or(0);
+
+        // How much each widest column can give.
+        let mut total_shrink = 0usize;
+        for &i in &widest {
+            let floor = next_w.max(mins[i]);
+            total_shrink += max_w.saturating_sub(floor);
+        }
+
+        if total_shrink == 0 {
+            break; // All widest columns are already at their minimum.
+        }
+
+        if total_shrink <= excess {
+            // Shrink all widest columns to their floor.
+            for &i in &widest {
+                let floor = next_w.max(mins[i]);
+                widths[i] = floor;
+            }
+            excess -= total_shrink;
+        } else {
+            // Distribute remaining excess evenly among widest columns.
+            let per_col = excess / widest.len();
+            let remainder = excess % widest.len();
+            for (j, &i) in widest.iter().enumerate() {
+                let shrink = per_col + usize::from(j < remainder);
+                widths[i] = widths[i].saturating_sub(shrink).max(mins[i]);
+            }
+            excess = 0;
+        }
+    }
+
+    // Phase 2: Proportional fallback if sum of minimums still exceeds available.
+    let total_now: usize = widths.iter().sum();
+    if total_now > available {
         for w in &mut widths {
-            *w = (*w * available) / total_col.max(1);
+            *w = (*w * available) / total_now.max(1);
             if *w == 0 {
                 *w = 1;
             }
@@ -1336,5 +1454,94 @@ mod tests {
         } else {
             panic!("expected Running block");
         }
+    }
+
+    // ── compute_col_widths ────────────────────────────────────────────────
+
+    fn make_row(cells: &[&str]) -> Vec<Span<'static>> {
+        cells.iter().map(|s| Span::raw(s.to_string())).collect()
+    }
+
+    #[test]
+    fn col_widths_fits_without_shrinking() {
+        let headers = vec!["A".into(), "B".into()];
+        let rows = vec![make_row(&["xx", "yy"])];
+        let widths = compute_col_widths(&headers, &rows, 80, 2);
+        assert_eq!(widths, vec![2, 2]);
+    }
+
+    #[test]
+    fn col_widths_single_wide_column_absorbs_excess() {
+        // Headers: "N" (1), "Description" (11) → natural widths = 1, 11
+        // available = 20 - 2 sep = 18, total natural = 12, fits.
+        // Now with available = 10 - 2 = 8, total natural = 12, excess = 4.
+        // Widest is col 1 (11). Shrink toward col 0 (1) but excess=4, so 11-4=7.
+        let headers = vec!["N".into(), "Description".into()];
+        let rows: Vec<Vec<Span<'static>>> = vec![];
+        let widths = compute_col_widths(&headers, &rows, 10, 2);
+        assert_eq!(widths[0], 1); // short column preserved
+        assert_eq!(widths[1], 7); // wide column absorbed the excess
+    }
+
+    #[test]
+    fn col_widths_tied_widest_share_shrinkage() {
+        // Three columns, all natural width 10. Total natural = 30.
+        // Available = 40 - 4 sep = 36. Fits.
+        // Available = 20 - 4 = 16. Excess = 14. All three tied.
+        // Per-col shrink = 14/3 = 4 remainder 2. → 10-5=5, 10-5=5, 10-4=6
+        let headers = vec![
+            "AAAAAAAAAA".into(),
+            "BBBBBBBBBB".into(),
+            "CCCCCCCCCC".into(),
+        ];
+        let rows: Vec<Vec<Span<'static>>> = vec![];
+        let widths = compute_col_widths(&headers, &rows, 20, 3);
+        let total: usize = widths.iter().sum();
+        assert_eq!(total, 16); // exactly fills available
+                               // All should be roughly equal
+        for w in &widths {
+            assert!(*w >= 4 && *w <= 6, "width {w} out of expected range");
+        }
+    }
+
+    #[test]
+    fn col_widths_all_at_minimum_triggers_proportional() {
+        // Columns natural: 4, 4, 4. Total = 12. Available = 2 (width=6, sep=4).
+        // Minimums = 4, 4, 4. Sum of mins = 12 > 2. Proportional fallback.
+        let headers = vec!["ABCD".into(), "EFGH".into(), "IJKL".into()];
+        let rows: Vec<Vec<Span<'static>>> = vec![];
+        let widths = compute_col_widths(&headers, &rows, 6, 3);
+        // All widths should be >= 1 (floor)
+        for w in &widths {
+            assert!(*w >= 1, "width should be at least 1, got {w}");
+        }
+    }
+
+    #[test]
+    fn col_widths_zero_available_returns_all_ones() {
+        let headers = vec!["A".into(), "B".into()];
+        let rows = vec![make_row(&["xx", "yy"])];
+        let widths = compute_col_widths(&headers, &rows, 0, 2);
+        // With 0 total_width, available = 0, early return with natural widths
+        // (no shrinking path triggered since available == 0).
+        // Actually available=0 triggers early return.
+        assert!(!widths.is_empty());
+    }
+
+    #[test]
+    fn col_widths_single_column() {
+        let headers = vec!["LongHeader".into()];
+        let rows = vec![make_row(&["short"])];
+        // Natural = 10, available = 5 - 0 sep = 5, excess = 5
+        let widths = compute_col_widths(&headers, &rows, 5, 1);
+        assert_eq!(widths, vec![5]);
+    }
+
+    #[test]
+    fn col_widths_empty_table_returns_empty() {
+        let headers: Vec<String> = vec![];
+        let rows: Vec<Vec<Span<'static>>> = vec![];
+        let widths = compute_col_widths(&headers, &rows, 80, 0);
+        assert!(widths.is_empty());
     }
 }

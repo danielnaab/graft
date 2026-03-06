@@ -2761,10 +2761,13 @@ fn try_load_graft_config(repo_path: &Path) -> Option<graft_engine::GraftConfig> 
 fn scion_create_command(name: &str) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
     let config = try_load_graft_config(&repo_path);
-    let dep_configs = config
+    let (dep_configs, dep_warnings) = config
         .as_ref()
         .map(|c| load_dep_configs(&repo_path, c))
         .unwrap_or_default();
+    for w in &dep_warnings {
+        eprintln!("warning: {w}");
+    }
     let wt_path = scion_create(&repo_path, name, config.as_ref(), &dep_configs)
         .with_context(|| format!("Failed to create scion '{name}'"))?;
     println!("Created scion '{name}' at {}", wt_path.display());
@@ -2776,10 +2779,13 @@ fn scion_create_command(name: &str) -> Result<()> {
 fn scion_prune_command(name: &str, force: bool) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
     let config = try_load_graft_config(&repo_path);
-    let dep_configs = config
+    let (dep_configs, dep_warnings) = config
         .as_ref()
         .map(|c| load_dep_configs(&repo_path, c))
         .unwrap_or_default();
+    for w in &dep_warnings {
+        eprintln!("warning: {w}");
+    }
     let runtime = TmuxRuntime::new().ok();
     let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
     scion_prune(
@@ -2798,10 +2804,13 @@ fn scion_prune_command(name: &str, force: bool) -> Result<()> {
 fn scion_start_command(name: &str) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
     let config = try_load_graft_config(&repo_path);
-    let dep_configs = config
+    let (dep_configs, dep_warnings) = config
         .as_ref()
         .map(|c| load_dep_configs(&repo_path, c))
         .unwrap_or_default();
+    for w in &dep_warnings {
+        eprintln!("warning: {w}");
+    }
     let runtime = TmuxRuntime::new().context("tmux is required for scion sessions")?;
     scion_start(&repo_path, name, config.as_ref(), &dep_configs, &runtime)
         .with_context(|| format!("Failed to start scion '{name}'"))?;
@@ -2832,10 +2841,13 @@ fn scion_attach_command(name: &str) -> Result<()> {
 fn scion_fuse_command(name: &str, force: bool) -> Result<()> {
     let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
     let config = try_load_graft_config(&repo_path);
-    let dep_configs = config
+    let (dep_configs, dep_warnings) = config
         .as_ref()
         .map(|c| load_dep_configs(&repo_path, c))
         .unwrap_or_default();
+    for w in &dep_warnings {
+        eprintln!("warning: {w}");
+    }
     let runtime = TmuxRuntime::new().ok();
     let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
     let merge_commit = scion_fuse(

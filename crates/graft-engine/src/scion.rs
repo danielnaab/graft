@@ -731,7 +731,7 @@ fn resolve_start_command<'a>(
             .map(|(_, c)| c)
             .ok_or_else(|| {
                 GraftError::CommandExecution(format!(
-                    "dependency '{dep}' not found for start command '{start_value}'"
+                    "dependency '{dep}' not found for start command '{start_value}'. Check that .graft/{dep}/ exists and contains a valid graft.yaml"
                 ))
             })?;
         let cmd = dep_cfg.get_command(command_name).ok_or_else(|| {

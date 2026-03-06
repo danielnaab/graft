@@ -78,26 +78,38 @@ pub fn parse_graft_yaml(path: impl AsRef<Path>) -> Result<GraftConfig> {
 }
 
 /// Load dependency configs from `.graft/<dep>/graft.yaml` for each dependency
-/// in the project config. Dependencies whose graft.yaml is missing or invalid
-/// are silently skipped (they simply won't contribute hooks).
+/// in the project config. Returns `(successes, warnings)` — dependencies whose
+/// graft.yaml is missing or invalid are reported in `warnings` instead of
+/// being silently skipped.
 pub fn load_dep_configs(
     repo_path: impl AsRef<Path>,
     config: &GraftConfig,
-) -> Vec<(String, GraftConfig)> {
-    config
-        .dependencies
-        .keys()
-        .filter_map(|dep_name| {
-            let dep_yaml = repo_path
-                .as_ref()
-                .join(".graft")
-                .join(dep_name)
-                .join("graft.yaml");
-            parse_graft_yaml(&dep_yaml)
-                .ok()
-                .map(|cfg| (dep_name.clone(), cfg))
-        })
-        .collect()
+) -> (Vec<(String, GraftConfig)>, Vec<String>) {
+    let mut successes = Vec::new();
+    let mut warnings = Vec::new();
+    for dep_name in config.dependencies.keys() {
+        let dep_yaml = repo_path
+            .as_ref()
+            .join(".graft")
+            .join(dep_name)
+            .join("graft.yaml");
+        match parse_graft_yaml(&dep_yaml) {
+            Ok(cfg) => successes.push((dep_name.clone(), cfg)),
+            Err(e) => {
+                let msg = if dep_yaml.exists() {
+                    format!(
+                        "dependency '{dep_name}': failed to parse .graft/{dep_name}/graft.yaml: {e}"
+                    )
+                } else {
+                    format!(
+                        "dependency '{dep_name}': .graft/{dep_name}/graft.yaml not found (submodule not initialized?)"
+                    )
+                };
+                warnings.push(msg);
+            }
+        }
+    }
+    (successes, warnings)
 }
 
 /// Parse graft.yaml from a string.

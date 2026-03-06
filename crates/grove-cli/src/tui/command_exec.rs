@@ -354,6 +354,122 @@ fn bridge_events(
     }
 }
 
+/// Spawn a single state query via `graft state query <name>`.
+///
+/// Bridges process events to [`CommandEvent`] for the TUI event loop.
+#[allow(clippy::needless_pass_by_value)]
+pub fn spawn_state_query(name: String, repo_path: String, tx: Sender<CommandEvent>) {
+    let shell_cmd = format!("graft state query {}", shell_words::quote(&name));
+    let working_dir = PathBuf::from(&repo_path);
+
+    let run_state_dir = working_dir.join(".graft").join("run-state");
+    let _ = std::fs::create_dir_all(&run_state_dir);
+
+    let config = ProcessConfig {
+        command: shell_cmd.clone(),
+        working_dir,
+        env: {
+            let mut env_map = std::collections::HashMap::new();
+            env_map.insert(
+                "GRAFT_STATE_DIR".to_string(),
+                run_state_dir.to_string_lossy().to_string(),
+            );
+            Some(env_map)
+        },
+        env_remove: vec![],
+        log_path: None,
+        timeout: None,
+        stdin: None,
+    };
+
+    let (_handle, rx) = match ProcessHandle::spawn(&config) {
+        Ok(pair) => pair,
+        Err(e) => {
+            let _ = tx.send(CommandEvent::Failed(format!(
+                "Failed to spawn state query: {e}"
+            )));
+            return;
+        }
+    };
+
+    bridge_events(rx, tx, None, &[], &shell_cmd);
+}
+
+/// Spawn all state queries sequentially, emitting progress markers.
+///
+/// For each query, emits `OutputLine("▶ <name>...")` before execution and
+/// `OutputLine("✓ <name>")` or `OutputLine("✗ <name>: <error>")` after.
+/// Completes with exit code 0 regardless of individual failures.
+#[allow(clippy::needless_pass_by_value)]
+pub fn spawn_state_refresh_all(
+    query_names: Vec<String>,
+    repo_path: String,
+    tx: Sender<CommandEvent>,
+) {
+    let _ = tx.send(CommandEvent::Started(0));
+    let working_dir = PathBuf::from(&repo_path);
+    let run_state_dir = working_dir.join(".graft").join("run-state");
+    let _ = std::fs::create_dir_all(&run_state_dir);
+
+    for name in &query_names {
+        let _ = tx.send(CommandEvent::OutputLine(format!("\u{25b6} {name}...")));
+
+        let shell_cmd = format!("graft state query {}", shell_words::quote(name));
+        let config = ProcessConfig {
+            command: shell_cmd,
+            working_dir: working_dir.clone(),
+            env: {
+                let mut env_map = std::collections::HashMap::new();
+                env_map.insert(
+                    "GRAFT_STATE_DIR".to_string(),
+                    run_state_dir.to_string_lossy().to_string(),
+                );
+                Some(env_map)
+            },
+            env_remove: vec![],
+            log_path: None,
+            timeout: None,
+            stdin: None,
+        };
+
+        match ProcessHandle::spawn(&config) {
+            Ok((_handle, rx)) => {
+                let mut exit_ok = false;
+                for event in rx {
+                    match event {
+                        ProcessEvent::OutputLine { line, .. } => {
+                            if tx.send(CommandEvent::OutputLine(line)).is_err() {
+                                return;
+                            }
+                        }
+                        ProcessEvent::Completed { exit_code } => {
+                            exit_ok = exit_code == 0;
+                        }
+                        ProcessEvent::Failed { error } => {
+                            let _ = tx.send(CommandEvent::OutputLine(format!(
+                                "\u{2717} {name}: {error}"
+                            )));
+                        }
+                        ProcessEvent::Started { .. } => {}
+                    }
+                }
+                if exit_ok {
+                    let _ = tx.send(CommandEvent::OutputLine(format!("\u{2713} {name}")));
+                } else if !exit_ok {
+                    let _ = tx.send(CommandEvent::OutputLine(format!(
+                        "\u{2717} {name}: non-zero exit"
+                    )));
+                }
+            }
+            Err(e) => {
+                let _ = tx.send(CommandEvent::OutputLine(format!("\u{2717} {name}: {e}")));
+            }
+        }
+    }
+
+    let _ = tx.send(CommandEvent::Completed(0));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

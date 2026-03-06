@@ -278,6 +278,16 @@ impl PromptState {
         });
     }
 
+    /// Open the command line prompt pre-populated with text (cursor at end).
+    pub(super) fn open_with(&mut self, text: &str) {
+        self.command_line = Some(CommandLineState {
+            text: TextBuffer::with_content(text, text.len()),
+            palette_selected: 0,
+            history_index: None,
+            history_draft: String::new(),
+        });
+    }
+
     /// Close the command line prompt without executing.
     pub(super) fn close(&mut self) {
         self.command_line = None;

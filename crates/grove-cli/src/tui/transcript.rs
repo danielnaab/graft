@@ -103,6 +103,8 @@ pub(super) struct ExecutionState {
     /// The `BlockId` of the active `ContentBlock::Running` in the scroll buffer.
     /// `None` when no command is executing.
     pub(super) active_output_block: Option<BlockId>,
+    /// When true, auto-refresh the state table after the current execution completes.
+    pub(super) pending_state_refresh: bool,
 }
 
 impl ExecutionState {
@@ -114,6 +116,7 @@ impl ExecutionState {
             command_name: None,
             current_log_path: None,
             active_output_block: None,
+            pending_state_refresh: false,
         }
     }
 }
@@ -469,10 +472,21 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.should_quit = true;
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                self.scroll.scroll_down(1);
+                if self.scroll.focused_block.is_some() {
+                    self.scroll.focus_next();
+                } else {
+                    self.scroll.scroll_down(1);
+                }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.scroll.scroll_up(1);
+                if self.scroll.focused_block.is_some() {
+                    self.scroll.focus_prev();
+                } else {
+                    self.scroll.scroll_up(1);
+                }
+            }
+            KeyCode::Esc => {
+                self.scroll.focused_block = None;
             }
             KeyCode::Char('G') => {
                 self.scroll.scroll_to_bottom();
@@ -531,12 +545,64 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             KeyCode::Char('r') => {
                 self.needs_refresh = true;
                 self.status = Some(StatusMessage::info("Refreshing..."));
+                // Also refresh state queries if no command is currently running.
+                if self.execution.command_state != CommandState::Running {
+                    self.cmd_state_refresh_all();
+                }
             }
             KeyCode::Char('?') => {
                 self.cmd_help();
             }
             _ => {}
         }
+    }
+
+    // ===== Scion error hints =====
+
+    /// Append a TUI-specific hint to a scion engine error message.
+    fn scion_error_with_hint(error: &str, name: &str) -> String {
+        let e = error.to_string();
+        if e.contains("does not exist") {
+            format!("{e}. Create it with :scion create {name}")
+        } else if e.contains("no active session") {
+            format!("{e}. Start it with :scion start {name}")
+        } else if e.contains("session is still active") {
+            format!("{e}. Stop it first with :scion stop {name}")
+        } else {
+            e
+        }
+    }
+
+    // ===== Durable messages =====
+
+    /// Show an error: flash in the status bar AND persist as a styled block in the transcript.
+    fn show_error(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        self.status = Some(StatusMessage::error(&text));
+        self.scroll.push(ContentBlock::Text {
+            id: BlockId::new(),
+            lines: vec![Line::from(Span::styled(
+                format!("\u{2717} {text}"),
+                Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
+            ))],
+            collapsed: false,
+        });
+    }
+
+    /// Show a warning: flash in the status bar AND persist as a styled block in the transcript.
+    fn show_warning(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        self.status = Some(StatusMessage::warning(&text));
+        self.scroll.push(ContentBlock::Text {
+            id: BlockId::new(),
+            lines: vec![Line::from(Span::styled(
+                format!("\u{26a0} {text}"),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::DIM),
+            ))],
+            collapsed: false,
+        });
     }
 
     // ===== Command execution =====
@@ -562,6 +628,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             CliCommand::Status => self.cmd_status(),
             CliCommand::Catalog(cat) => self.cmd_catalog(cat.as_deref()),
             CliCommand::State(name) => self.cmd_state(name.as_deref()),
+            CliCommand::StateRun(name) => self.cmd_state_run(&name),
             CliCommand::Invalidate(name) => self.cmd_invalidate(name.as_deref()),
             CliCommand::Focus(query, value) => {
                 self.cmd_focus(query.as_deref(), value.as_deref());
@@ -577,9 +644,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             CliCommand::ScionFuse(name) => self.cmd_scion_fuse(&name),
             CliCommand::Attach(name) => self.cmd_attach(&name),
             CliCommand::Review(name, full) => self.cmd_review(&name, full),
+            CliCommand::PopulatePrompt(text) => {
+                if !self.prompt.is_active() {
+                    self.prompt.open_with(&text);
+                }
+            }
             CliCommand::Unknown(raw) => {
                 if !raw.is_empty() {
-                    self.status = Some(StatusMessage::error(format!("Unknown command: :{raw}")));
+                    self.show_error(format!("Unknown command: :{raw}"));
                 }
             }
         }
@@ -732,7 +804,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.switch_repo(idx);
                 return;
             }
-            self.status = Some(StatusMessage::error(format!("No repository at index {n}")));
+            self.show_error(format!("No repository at index {n}"));
             return;
         }
 
@@ -746,9 +818,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             }
         }
 
-        self.status = Some(StatusMessage::error(format!(
-            "No repository matching: {name_or_index}"
-        )));
+        self.show_error(format!("No repository matching: {name_or_index}"));
     }
 
     /// Switch to a repo by index and push a confirmation block.
@@ -840,9 +910,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     fn cmd_run(&mut self, command_name: &str, args: Vec<String>) {
         // Guard: reject concurrent executions — one command at a time.
         if self.execution.command_state == CommandState::Running {
-            self.status = Some(StatusMessage::warning(
-                "A command is already running — wait for it to finish",
-            ));
+            self.show_warning("A command is already running \u{2014} wait for it to finish");
             return;
         }
 
@@ -852,7 +920,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             // Try to use first repo
             let repos = self.registry.list_repos();
             if repos.is_empty() {
-                self.status = Some(StatusMessage::warning("No repository selected"));
+                self.show_warning("No repository selected");
                 return;
             }
             let p = repos[0].as_path().display().to_string();
@@ -999,7 +1067,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:status` — show changed files and recent commits.
     fn cmd_status(&mut self) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
 
@@ -1116,7 +1184,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:catalog [category]` — list available commands and sequences.
     fn cmd_catalog(&mut self, category_filter: Option<&str>) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
 
@@ -1188,12 +1256,31 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         let mut actions = Vec::new();
         for (name, desc, cat) in entries {
             // Strip the sequence prefix (» ) to get the runnable name
+            let is_sequence = name.starts_with("\u{00bb} ");
             let run_name = if let Some(stripped) = name.strip_prefix("\u{00bb} ") {
                 stripped.to_string()
             } else {
                 name.clone()
             };
-            actions.push(CliCommand::Run(run_name, vec![]));
+
+            // For non-sequence commands, check if any arg requires prompting
+            let needs_prompt = !is_sequence
+                && self
+                    .context
+                    .available_commands
+                    .iter()
+                    .find(|(n, _)| *n == run_name)
+                    .is_some_and(|(_, cmd)| {
+                        cmd.args.as_ref().is_some_and(|args| {
+                            args.iter().any(|a| a.required && a.default.is_none())
+                        })
+                    });
+
+            if needs_prompt {
+                actions.push(CliCommand::PopulatePrompt(format!("run {run_name} ")));
+            } else {
+                actions.push(CliCommand::Run(run_name, vec![]));
+            }
             rows.push(vec![
                 Span::styled(name, Style::default().fg(Color::Cyan)),
                 Span::styled(desc, Style::default().fg(Color::White)),
@@ -1215,7 +1302,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     #[allow(clippy::too_many_lines)]
     fn cmd_state(&mut self, name: Option<&str>) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
 
@@ -1224,7 +1311,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             let (queries, warnings) =
                 crate::state::discover_all_state_queries(&PathBuf::from(&repo_path));
             if let Some(w) = warnings.first() {
-                self.status = Some(StatusMessage::warning(w.clone()));
+                self.show_warning(w.clone());
             }
             self.context.cached_state_queries = Some(queries);
         }
@@ -1270,7 +1357,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                         "no"
                     };
 
-                    actions.push(CliCommand::State(Some(q.name.clone())));
+                    if cached.is_some() {
+                        actions.push(CliCommand::State(Some(q.name.clone())));
+                    } else {
+                        actions.push(CliCommand::StateRun(q.name.clone()));
+                    }
                     rows.push(vec![
                         Span::styled(q.name.clone(), Style::default().fg(Color::Cyan)),
                         Span::styled(summary, Style::default().fg(Color::White)),
@@ -1301,7 +1392,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                             available.join(", ")
                         )
                     };
-                    self.status = Some(StatusMessage::warning(msg));
+                    self.show_warning(msg);
                     return;
                 }
 
@@ -1360,10 +1451,90 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         }
     }
 
+    /// Execute a single state query by name.
+    fn cmd_state_run(&mut self, name: &str) {
+        if self.execution.command_state == CommandState::Running {
+            self.status = Some(StatusMessage::info("A command is already running"));
+            return;
+        }
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.show_warning("No repository selected");
+            return;
+        };
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let name_owned = name.to_string();
+        let repo = repo_path.clone();
+        std::thread::spawn(move || {
+            super::command_exec::spawn_state_query(name_owned, repo, tx);
+        });
+
+        let block_id = BlockId::new();
+        self.scroll.push(ContentBlock::Running {
+            id: block_id,
+            command: format!("state query {name}"),
+            args: vec![],
+            started_at: std::time::Instant::now(),
+            output_lines: vec![],
+            output_truncated: false,
+            collapsed: true,
+            auto_expanded: false,
+        });
+
+        self.execution.command_event_rx = Some(rx);
+        self.execution.command_state = CommandState::Running;
+        self.execution.command_name = Some(format!("state query {name}"));
+        self.execution.active_output_block = Some(block_id);
+        self.execution.pending_state_refresh = true;
+    }
+
+    /// Execute all state queries (bulk refresh).
+    fn cmd_state_refresh_all(&mut self) {
+        if self.execution.command_state == CommandState::Running {
+            self.status = Some(StatusMessage::info("A command is already running"));
+            return;
+        }
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.show_warning("No repository selected");
+            return;
+        };
+
+        // Discover queries
+        let query_names = self.state_query_names();
+        if query_names.is_empty() {
+            self.status = Some(StatusMessage::info("No state queries defined"));
+            return;
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let repo = repo_path.clone();
+        std::thread::spawn(move || {
+            super::command_exec::spawn_state_refresh_all(query_names, repo, tx);
+        });
+
+        let block_id = BlockId::new();
+        self.scroll.push(ContentBlock::Running {
+            id: block_id,
+            command: "state refresh".to_string(),
+            args: vec![],
+            started_at: std::time::Instant::now(),
+            output_lines: vec![],
+            output_truncated: false,
+            collapsed: false,
+            auto_expanded: false,
+        });
+
+        self.execution.command_event_rx = Some(rx);
+        self.execution.command_state = CommandState::Running;
+        self.execution.command_name = Some("state refresh".to_string());
+        self.execution.active_output_block = Some(block_id);
+        self.execution.pending_state_refresh = true;
+    }
+
     /// `:invalidate [name]` — clear cached state.
     fn cmd_invalidate(&mut self, name: Option<&str>) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
 
@@ -1383,9 +1554,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.status = Some(StatusMessage::success(msg));
             }
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!(
-                    "Failed to invalidate cache: {e}"
-                )));
+                self.show_error(format!("Failed to invalidate cache: {e}"));
             }
         }
     }
@@ -1416,9 +1585,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                     .to_string();
                 let opts = self.resolve_options_from(q, &repo_name);
                 if opts.is_empty() {
-                    self.status = Some(StatusMessage::warning(format!(
-                        "No values found for query: {q}"
-                    )));
+                    self.show_warning(format!("No values found for query: {q}"));
                     return;
                 }
                 let q_owned = q.to_string();
@@ -1573,7 +1740,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:scion list` — list all scion workstreams.
     fn cmd_scion_list(&mut self) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
         let runtime = graft_common::TmuxRuntime::new().ok();
@@ -1655,7 +1822,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 });
             }
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!("scion list failed: {e}")));
+                self.show_error(format!("scion list failed: {e}"));
             }
         }
     }
@@ -1663,16 +1830,19 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:scion create <name>` — create a new scion.
     fn cmd_scion_create(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
         let config =
             graft_engine::parse_graft_yaml(std::path::Path::new(&repo_path).join("graft.yaml"))
                 .ok();
-        let dep_configs = config
+        let (dep_configs, dep_warnings) = config
             .as_ref()
             .map(|c| graft_engine::load_dep_configs(&repo_path, c))
             .unwrap_or_default();
+        for w in &dep_warnings {
+            self.show_warning(w);
+        }
         match graft_engine::scion_create(&repo_path, name, config.as_ref(), &dep_configs) {
             Ok(wt_path) => {
                 self.status = Some(StatusMessage::success(format!(
@@ -1681,7 +1851,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 )));
             }
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!("scion create failed: {e}")));
+                self.show_error(format!("scion create failed: {e}"));
             }
         }
         self.context.cached_scion_completions = None;
@@ -1690,18 +1860,21 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:scion start <name>` — start a scion's runtime session.
     fn cmd_scion_start(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
         let config =
             graft_engine::parse_graft_yaml(std::path::Path::new(&repo_path).join("graft.yaml"))
                 .ok();
-        let dep_configs = config
+        let (dep_configs, dep_warnings) = config
             .as_ref()
             .map(|c| graft_engine::load_dep_configs(&repo_path, c))
             .unwrap_or_default();
+        for w in &dep_warnings {
+            self.show_warning(w);
+        }
         let Ok(runtime) = graft_common::TmuxRuntime::new() else {
-            self.status = Some(StatusMessage::error("tmux not available"));
+            self.show_error("tmux not available");
             return;
         };
         match graft_engine::scion_start(&repo_path, name, config.as_ref(), &dep_configs, &runtime) {
@@ -1709,7 +1882,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.status = Some(StatusMessage::success(format!("Started scion '{name}'")));
             }
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!("scion start failed: {e}")));
+                self.show_error(format!("scion start failed: {e}"));
             }
         }
         self.context.cached_scion_completions = None;
@@ -1718,11 +1891,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:scion stop <name>` — stop a scion's runtime session.
     fn cmd_scion_stop(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
         let Ok(runtime) = graft_common::TmuxRuntime::new() else {
-            self.status = Some(StatusMessage::error("tmux not available"));
+            self.show_error("tmux not available");
             return;
         };
         match graft_engine::scion_stop(&repo_path, name, &runtime) {
@@ -1730,7 +1903,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.status = Some(StatusMessage::success(format!("Stopped scion '{name}'")));
             }
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!("scion stop failed: {e}")));
+                self.show_error(format!("scion stop failed: {e}"));
             }
         }
         self.context.cached_scion_completions = None;
@@ -1739,16 +1912,19 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:scion prune <name>` — remove a scion.
     fn cmd_scion_prune(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
         let config =
             graft_engine::parse_graft_yaml(std::path::Path::new(&repo_path).join("graft.yaml"))
                 .ok();
-        let dep_configs = config
+        let (dep_configs, dep_warnings) = config
             .as_ref()
             .map(|c| graft_engine::load_dep_configs(&repo_path, c))
             .unwrap_or_default();
+        for w in &dep_warnings {
+            self.show_warning(w);
+        }
         let runtime = graft_common::TmuxRuntime::new().ok();
         let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
         match graft_engine::scion_prune(
@@ -1763,7 +1939,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 self.status = Some(StatusMessage::success(format!("Pruned scion '{name}'")));
             }
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!("scion prune failed: {e}")));
+                self.show_error(Self::scion_error_with_hint(
+                    &format!("scion prune failed: {e}"),
+                    name,
+                ));
             }
         }
         self.context.cached_scion_completions = None;
@@ -1772,16 +1951,19 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:scion fuse <name>` — fuse a scion into main.
     fn cmd_scion_fuse(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
         let config =
             graft_engine::parse_graft_yaml(std::path::Path::new(&repo_path).join("graft.yaml"))
                 .ok();
-        let dep_configs = config
+        let (dep_configs, dep_warnings) = config
             .as_ref()
             .map(|c| graft_engine::load_dep_configs(&repo_path, c))
             .unwrap_or_default();
+        for w in &dep_warnings {
+            self.show_warning(w);
+        }
         let runtime = graft_common::TmuxRuntime::new().ok();
         let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
         match graft_engine::scion_fuse(
@@ -1809,7 +1991,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 });
             }
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!("scion fuse failed: {e}")));
+                self.show_error(Self::scion_error_with_hint(
+                    &format!("scion fuse failed: {e}"),
+                    name,
+                ));
             }
         }
         self.context.cached_scion_completions = None;
@@ -1818,17 +2003,17 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     /// `:attach <name>` — attach to a scion's runtime session.
     fn cmd_attach(&mut self, name: &str) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
         let Ok(runtime) = graft_common::TmuxRuntime::new() else {
-            self.status = Some(StatusMessage::error("tmux not available"));
+            self.show_error("tmux not available");
             return;
         };
         let session_id = match graft_engine::scion_attach_check(&repo_path, name, &runtime) {
             Ok(id) => id,
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!("{e}")));
+                self.show_error(Self::scion_error_with_hint(&e.to_string(), name));
                 return;
             }
         };
@@ -1841,14 +2026,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen).ok();
         self.needs_refresh = true;
         if let Err(e) = attach_result {
-            self.status = Some(StatusMessage::error(format!("attach failed: {e}")));
+            self.show_error(format!("attach failed: {e}"));
         }
     }
 
     /// `:review <name> [full]` — review a scion's changes.
     fn cmd_review(&mut self, name: &str, full: bool) {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
-            self.status = Some(StatusMessage::warning("No repository selected"));
+            self.show_warning("No repository selected");
             return;
         };
         let repo = std::path::Path::new(&repo_path);
@@ -1857,16 +2042,14 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         let worktrees = match graft_common::git_worktree_list(repo) {
             Ok(wts) => wts,
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!(
-                    "Failed to list worktrees: {e}"
-                )));
+                self.show_error(format!("Failed to list worktrees: {e}"));
                 return;
             }
         };
         let base = match graft_engine::resolve_base_branch(&worktrees) {
             Ok(b) => b,
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!("{e}")));
+                self.show_error(format!("{e}"));
                 return;
             }
         };
@@ -1874,9 +2057,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         // Check scion exists
         let wt_path = graft_engine::worktree_path(repo, name);
         if !wt_path.exists() {
-            self.status = Some(StatusMessage::error(format!(
-                "scion '{name}' does not exist"
-            )));
+            self.show_error(format!("scion '{name}' does not exist"));
             return;
         }
 
@@ -1886,9 +2067,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         let (ahead, _behind) = match graft_common::git_ahead_behind(repo, &branch, &base) {
             Ok(counts) => counts,
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!(
-                    "Failed to compute ahead/behind: {e}"
-                )));
+                self.show_error(format!("Failed to compute ahead/behind: {e}"));
                 return;
             }
         };
@@ -1954,22 +2133,22 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
 
         match self.registry.refresh_all() {
             Ok(stats) => {
-                self.status = if stats.all_successful() {
-                    Some(StatusMessage::success(format!(
+                if stats.all_successful() {
+                    self.status = Some(StatusMessage::success(format!(
                         "Refreshed {} repositories",
                         stats.successful
-                    )))
+                    )));
                 } else {
-                    Some(StatusMessage::warning(format!(
+                    self.show_warning(format!(
                         "Refreshed {}/{} repositories ({} errors)",
                         stats.successful,
                         stats.total(),
                         stats.failed
-                    )))
-                };
+                    ));
+                }
             }
             Err(e) => {
-                self.status = Some(StatusMessage::error(format!("Refresh failed: {e}")));
+                self.show_error(format!("Refresh failed: {e}"));
             }
         }
 
@@ -2040,6 +2219,13 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
 
         if should_close {
             self.execution.command_event_rx = None;
+
+            // Auto-refresh state table after state query execution completes.
+            if self.execution.pending_state_refresh {
+                self.execution.pending_state_refresh = false;
+                self.context.cached_state_queries = None;
+                self.cmd_state(None);
+            }
         }
     }
 
@@ -2303,9 +2489,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             }
             Err(e) => {
                 let label = dep_prefix.unwrap_or("graft.yaml");
-                self.status = Some(StatusMessage::warning(format!(
-                    "Failed to parse sequences from {label}: {e}"
-                )));
+                self.show_warning(format!("Failed to parse sequences from {label}: {e}"));
             }
         }
     }
@@ -2328,9 +2512,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 }
             }
             Err(e) => {
-                self.status = Some(StatusMessage::warning(format!(
-                    "Failed to parse graft.yaml: {e}"
-                )));
+                self.show_warning(format!("Failed to parse graft.yaml: {e}"));
             }
         }
 
@@ -2354,9 +2536,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                         }
                     }
                     Err(e) => {
-                        self.status = Some(StatusMessage::warning(format!(
-                            "Failed to parse {dep_name}/graft.yaml: {e}"
-                        )));
+                        self.show_warning(format!("Failed to parse {dep_name}/graft.yaml: {e}"));
                     }
                 }
             }
