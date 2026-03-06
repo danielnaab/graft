@@ -59,6 +59,8 @@ commands:
     env: object                   # Optional: environment variables
     stdin: string | object        # Optional: text piped to stdin (literal or template)
     context: list[string]         # Optional: state query names to resolve before running
+    reads: list[string]           # Optional: state names this command requires
+    writes: list[string]          # Optional: state names this command produces
 
 # State query definitions (see State Queries spec)
 state:
@@ -405,6 +407,22 @@ context:
   - test-results
 ```
 
+#### reads (optional)
+**Type**: `list[string]`
+
+**Description**: State names this command requires to exist before running. Informational
+metadata displayed by `graft help`; not enforced at runtime.
+
+**Default**: Empty list.
+
+#### writes (optional)
+**Type**: `list[string]`
+
+**Description**: State names this command produces after running. Informational metadata
+displayed by `graft help`; not enforced at runtime.
+
+**Default**: Empty list.
+
 ### Command Examples
 
 #### Simple Migration
@@ -630,9 +648,11 @@ sequences:
 ### Fields
 
 #### steps (required)
-**Type**: `list[string]`
+**Type**: `list[string | StepDef]`
 
-**Description**: Ordered list of command names to execute. Each entry must match a key
+**Description**: Ordered list of steps to execute. Each entry is either a bare command
+name (string) or an object with `name`, optional `timeout`, and optional `when` condition.
+Each step's command name must match a key
 in the same `commands:` section. Commands are executed left-to-right; if any step exits
 non-zero the sequence stops (unless `on_step_fail` is configured for that step).
 
@@ -1263,11 +1283,13 @@ $ graft help software-factory
 
 Commands:
   implement          [core]        Implement next slice step with Claude Code
-                                   Reads: session  Writes: session, context-snapshot
+    Reads:  session
+    Writes: session, context-snapshot
   verify             [core]        Run consumer project verification
-                                   Reads: —        Writes: verify
+    Writes: verify
   resume             [diagnostic]  Resume implementation after verify failure
-                                   Reads: session, verify  Writes: session
+    Reads:  session, verify
+    Writes: session
 
 Sequences:
   implement-verified [core]        Implement a slice and verify it passes, with retry
@@ -1289,11 +1311,11 @@ $ graft help software-factory:implement
   Category: core
   Example:  graft run software-factory:implement slices/my-feature
 
+  Reads:    session
+  Writes:   session, context-snapshot
+
   Arguments:
     slice  (string, required, positional)  Path to the slice directory
-
-  Reads:   session
-  Writes:  session, context-snapshot
 ```
 
 **Sequence example:**
@@ -1459,6 +1481,7 @@ are reported as validation errors.
 
 ## Related
 
+- [Specification: Sequence Execution](./sequence-execution.md)
 - [Specification: Change Model](./change-model.md)
 - [Specification: Lock File Format](./lock-file-format.md)
 - [Specification: Core Operations](./core-operations.md)

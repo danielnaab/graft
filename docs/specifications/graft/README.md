@@ -14,6 +14,7 @@ All specifications are currently **draft** status, defining version **v3** of gr
 - [**Lock File Format**](./lock-file-format.md) - Structure and semantics of graft.lock files
 - [**Core Operations**](./core-operations.md) - Apply, upgrade, and update operations
 - [**Change Model**](./change-model.md) - How dependencies specify and apply changes
+- [**Sequence Execution**](./sequence-execution.md) - Sequence lifecycle, retry, resumability
 
 ### Layout and Notifications
 
