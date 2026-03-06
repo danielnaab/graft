@@ -249,6 +249,23 @@ git state and should be removed.
 
 ---
 
+## Grove UI Review (2026-03-06)
+
+Hands-on review of grove TUI: 8 issues across state query execution, transient
+errors, navigation/visual clarity, and error message quality.
+
+**Active**:
+- [Grove UI Review](2026-03-06-grove-ui-review.md) — issue list with observed/
+  expected behavior, severity, and code references
+
+**Relevant code**:
+- `crates/grove-cli/src/tui/transcript.rs` — command handlers, key bindings
+- `crates/grove-cli/src/tui/scroll_buffer.rs` — rendering, focus, table layout
+- `crates/grove-cli/src/tui/status_bar.rs` — transient message expiry
+- `crates/grove-cli/src/tui/prompt.rs` — command history
+
+---
+
 ## Adding New Notes
 
 When creating session logs or exploration notes:
