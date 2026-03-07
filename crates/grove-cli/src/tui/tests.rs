@@ -81,6 +81,15 @@ fn create_app(registry: MockRegistry) -> TranscriptApp<MockRegistry, MockDetailP
     TranscriptApp::new(registry, MockDetailProvider, "test-workspace".to_string())
 }
 
+fn mouse_scroll(kind: crossterm::event::MouseEventKind) -> crossterm::event::MouseEvent {
+    crossterm::event::MouseEvent {
+        kind,
+        column: 0,
+        row: 0,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
 // ===== TranscriptApp tests =====
 
 #[test]
@@ -162,6 +171,83 @@ fn scroll_keys_work() {
     app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
     // k scrolls up
     app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+}
+
+#[test]
+fn mouse_scroll_down_increases_offset() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    // Push enough blocks to make scrolling possible
+    for _ in 0..20 {
+        app.scroll.push(ContentBlock::Text {
+            id: BlockId::new(),
+            lines: vec![ratatui::text::Line::from("test line")],
+            collapsed: false,
+        });
+    }
+    app.scroll.focused_block = None;
+    app.scroll.scroll_offset = 0;
+
+    app.handle_mouse(mouse_scroll(crossterm::event::MouseEventKind::ScrollDown));
+    assert_eq!(app.scroll.scroll_offset, 3);
+}
+
+#[test]
+fn mouse_scroll_up_decreases_offset() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    for _ in 0..20 {
+        app.scroll.push(ContentBlock::Text {
+            id: BlockId::new(),
+            lines: vec![ratatui::text::Line::from("test line")],
+            collapsed: false,
+        });
+    }
+    app.scroll.focused_block = None;
+    app.scroll.scroll_offset = 10;
+
+    app.handle_mouse(mouse_scroll(crossterm::event::MouseEventKind::ScrollUp));
+    assert_eq!(app.scroll.scroll_offset, 7);
+}
+
+#[test]
+fn mouse_scroll_clears_focus() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    for _ in 0..5 {
+        app.scroll.push(ContentBlock::Text {
+            id: BlockId::new(),
+            lines: vec![ratatui::text::Line::from("test line")],
+            collapsed: false,
+        });
+    }
+    // Focus a block, then scroll — focus should clear
+    app.scroll.focused_block = Some(2);
+
+    app.handle_mouse(mouse_scroll(crossterm::event::MouseEventKind::ScrollDown));
+    assert_eq!(app.scroll.focused_block, None);
+}
+
+#[test]
+fn mouse_scroll_blocked_by_picker() {
+    let mut app = create_app(MockRegistry::with_repos(1));
+    for _ in 0..20 {
+        app.scroll.push(ContentBlock::Text {
+            id: BlockId::new(),
+            lines: vec![ratatui::text::Line::from("test line")],
+            collapsed: false,
+        });
+    }
+    app.scroll.focused_block = None;
+    app.scroll.scroll_offset = 5;
+
+    // Open a picker overlay
+    app.picker = Some(PickerState::new(vec![PickerItem {
+        label: "item1".to_string(),
+        description: String::new(),
+        action: super::command_line::CliCommand::Help,
+    }]));
+
+    app.handle_mouse(mouse_scroll(crossterm::event::MouseEventKind::ScrollDown));
+    // Offset should not change while picker is open
+    assert_eq!(app.scroll.scroll_offset, 5);
 }
 
 #[test]

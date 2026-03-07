@@ -15,8 +15,8 @@ mod transcript;
 use anyhow::Result;
 use crossterm::{
     event::{
-        self, Event, KeyEventKind, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
-        PushKeyboardEnhancementFlags,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind,
+        KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -56,6 +56,7 @@ pub fn run<R: RepoRegistry, D: RepoDetailProvider>(
     execute!(
         stdout,
         EnterAlternateScreen,
+        EnableMouseCapture,
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
     )?;
     let backend = CrosstermBackend::new(stdout);
@@ -79,10 +80,14 @@ pub fn run<R: RepoRegistry, D: RepoDetailProvider>(
         }
 
         if event::poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
                     app.handle_key(key.code, key.modifiers);
                 }
+                Event::Mouse(mouse) => {
+                    app.handle_mouse(mouse);
+                }
+                _ => {}
             }
         }
     };
@@ -92,6 +97,7 @@ pub fn run<R: RepoRegistry, D: RepoDetailProvider>(
     execute!(
         terminal.backend_mut(),
         PopKeyboardEnhancementFlags,
+        DisableMouseCapture,
         LeaveAlternateScreen
     )?;
     terminal.show_cursor()?;

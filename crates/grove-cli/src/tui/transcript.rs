@@ -420,6 +420,26 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
 
     // ===== Event handling =====
 
+    /// Handle a mouse event (scroll wheel).
+    pub(super) fn handle_mouse(&mut self, event: crossterm::event::MouseEvent) {
+        use crossterm::event::MouseEventKind;
+        // Don't scroll the transcript while a picker overlay is open
+        if self.picker.is_some() {
+            return;
+        }
+        match event.kind {
+            MouseEventKind::ScrollUp => {
+                self.scroll.focused_block = None;
+                self.scroll.scroll_up(3);
+            }
+            MouseEventKind::ScrollDown => {
+                self.scroll.focused_block = None;
+                self.scroll.scroll_down(3);
+            }
+            _ => {}
+        }
+    }
+
     /// Handle a key press.
     #[allow(clippy::too_many_lines)]
     pub(super) fn handle_key(&mut self, code: KeyCode, modifiers: crossterm::event::KeyModifiers) {
