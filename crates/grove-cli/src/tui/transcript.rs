@@ -1337,14 +1337,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         };
 
         // Discover and cache state queries (root + all dep graft.yamls)
-        if self.context.cached_state_queries.is_none() {
-            let (queries, warnings) =
-                crate::state::discover_all_state_queries(&PathBuf::from(&repo_path));
-            if let Some(w) = warnings.first() {
-                self.show_warning(w.clone());
-            }
-            self.context.cached_state_queries = Some(queries);
-        }
+        self.ensure_state_queries_discovered();
 
         let queries = self
             .context
@@ -1481,22 +1474,64 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         }
     }
 
+    /// Ensure `cached_state_queries` is populated, running discovery if needed.
+    /// Returns `None` (and shows a warning) if no repo is selected.
+    fn ensure_state_queries_discovered(&mut self) -> Option<&Vec<crate::state::StateQuery>> {
+        let repo_path = self.context.selected_repo_path.as_ref()?;
+        if self.context.cached_state_queries.is_none() {
+            let (queries, warnings) =
+                crate::state::discover_all_state_queries(&PathBuf::from(repo_path));
+            if let Some(w) = warnings.first() {
+                self.show_warning(w.clone());
+            }
+            self.context.cached_state_queries = Some(queries);
+        }
+        self.context.cached_state_queries.as_ref()
+    }
+
     /// Execute a single state query by name.
     fn cmd_state_run(&mut self, name: &str) {
         if self.execution.command_state == CommandState::Running {
             self.status = Some(StatusMessage::info("A command is already running"));
             return;
         }
-        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+        if self.context.selected_repo_path.is_none() {
             self.show_warning("No repository selected");
+            return;
+        }
+
+        // Ensure discovery, then look up the query's run command and working_dir
+        self.ensure_state_queries_discovered();
+        let query = self
+            .context
+            .cached_state_queries
+            .as_ref()
+            .and_then(|qs| qs.iter().find(|q| q.name == name))
+            .cloned();
+
+        let Some(query) = query else {
+            self.show_warning(format!("State query '{name}' not found"));
             return;
         };
 
         let (tx, rx) = std::sync::mpsc::channel();
         let name_owned = name.to_string();
-        let repo = repo_path.clone();
+        let run_command = query.run.clone();
+        let working_dir = query.working_dir.clone();
+        let repo_path = self.context.selected_repo_path.clone().unwrap_or_default();
+        let cache_ctx = super::command_exec::StateCacheContext {
+            workspace_name: self.workspace_name.clone(),
+            repo_name: graft_common::repo_name_from_path(&repo_path).to_string(),
+            inputs: query.inputs.clone().unwrap_or_default(),
+        };
         std::thread::spawn(move || {
-            super::command_exec::spawn_state_query(name_owned, repo, tx);
+            super::command_exec::spawn_state_query(
+                name_owned,
+                run_command,
+                working_dir,
+                Some(cache_ctx),
+                tx,
+            );
         });
 
         let block_id = BlockId::new();
@@ -1529,17 +1564,45 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             return;
         };
 
-        // Discover queries
-        let query_names = self.state_query_names();
-        if query_names.is_empty() {
+        // Ensure discovery, then build (name, run_command, inputs) tuples
+        self.ensure_state_queries_discovered();
+        let queries: Vec<(String, String, Vec<String>)> = self
+            .context
+            .cached_state_queries
+            .as_ref()
+            .map(|qs| {
+                qs.iter()
+                    .map(|q| {
+                        (
+                            q.name.clone(),
+                            q.run.clone(),
+                            q.inputs.clone().unwrap_or_default(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if queries.is_empty() {
             self.status = Some(StatusMessage::info("No state queries defined"));
             return;
         }
 
+        // Use the working_dir from the first query (all queries share the consumer repo root)
+        let working_dir = self
+            .context
+            .cached_state_queries
+            .as_ref()
+            .and_then(|qs| qs.first())
+            .map_or_else(|| PathBuf::from(&repo_path), |q| q.working_dir.clone());
+
+        let cache_ctx = super::command_exec::StateCacheContext {
+            workspace_name: self.workspace_name.clone(),
+            repo_name: graft_common::repo_name_from_path(&repo_path).to_string(),
+            inputs: vec![], // per-query inputs are in the tuples
+        };
         let (tx, rx) = std::sync::mpsc::channel();
-        let repo = repo_path.clone();
         std::thread::spawn(move || {
-            super::command_exec::spawn_state_refresh_all(query_names, repo, tx);
+            super::command_exec::spawn_state_refresh_all(queries, working_dir, Some(cache_ctx), tx);
         });
 
         let block_id = BlockId::new();

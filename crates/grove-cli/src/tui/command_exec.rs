@@ -354,20 +354,88 @@ fn bridge_events(
     }
 }
 
-/// Spawn a single state query via `graft state query <name>`.
-///
-/// Bridges process events to [`CommandEvent`] for the TUI event loop.
-#[allow(clippy::needless_pass_by_value)]
-pub fn spawn_state_query(name: String, repo_path: String, tx: Sender<CommandEvent>) {
-    let shell_cmd = format!("graft state query {}", shell_words::quote(&name));
-    let working_dir = PathBuf::from(&repo_path);
+/// Context for caching a state query result after execution.
+#[derive(Debug, Clone)]
+pub struct StateCacheContext {
+    pub workspace_name: String,
+    pub repo_name: String,
+    /// Glob patterns declaring the query's input files.  Empty means "never cache".
+    pub inputs: Vec<String>,
+}
 
+/// After a successful state query execution, parse stdout as JSON and write to cache.
+/// Persist a state query result after successful execution.
+///
+/// For queries with declared `inputs`, the cache key is computed from file content
+/// (enabling cache-hit on unchanged inputs). For queries without inputs, a fixed
+/// `"latest"` key is used so the most recent result is always available for display
+/// in the state summary table.
+fn try_cache_state_result(
+    name: &str,
+    run_command: &str,
+    working_dir: &std::path::Path,
+    stdout_lines: &[String],
+    ctx: &StateCacheContext,
+) {
+    let stdout = stdout_lines.join("\n");
+    let data: serde_json::Value = match serde_json::from_str::<serde_json::Value>(&stdout) {
+        Ok(v) if v.is_object() => v,
+        _ => return,
+    };
+
+    let key = if ctx.inputs.is_empty() {
+        // No declared inputs — not eligible for input-keyed caching, but we still
+        // persist the result under a fixed key so the state summary table can show it.
+        "latest".to_string()
+    } else {
+        // Input-keyed caching: compute key from file content / commit hash.
+        let commit_output = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(working_dir)
+            .output();
+        let commit_hash = match commit_output {
+            Ok(ref out) if out.status.success() => {
+                String::from_utf8_lossy(&out.stdout).trim().to_string()
+            }
+            _ => return,
+        };
+        match graft_common::compute_input_cache_key(&ctx.inputs, working_dir, &commit_hash) {
+            Some(k) => k,
+            None => return,
+        }
+    };
+
+    let result = graft_common::state::StateResult {
+        metadata: graft_common::state::StateMetadata {
+            query_name: name.to_string(),
+            commit_hash: key,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            command: run_command.to_string(),
+        },
+        data,
+    };
+
+    let _ = graft_common::state::write_cached_state(&ctx.workspace_name, &ctx.repo_name, &result);
+}
+
+/// Spawn a single state query by executing its `run` command directly.
+///
+/// When `cache_ctx` is provided and the query completes successfully, the stdout
+/// is parsed as JSON and written to the state cache.
+#[allow(clippy::needless_pass_by_value)]
+pub fn spawn_state_query(
+    name: String,
+    run_command: String,
+    working_dir: PathBuf,
+    cache_ctx: Option<StateCacheContext>,
+    tx: Sender<CommandEvent>,
+) {
     let run_state_dir = working_dir.join(".graft").join("run-state");
     let _ = std::fs::create_dir_all(&run_state_dir);
 
     let config = ProcessConfig {
-        command: shell_cmd.clone(),
-        working_dir,
+        command: run_command.clone(),
+        working_dir: working_dir.clone(),
         env: {
             let mut env_map = std::collections::HashMap::new();
             env_map.insert(
@@ -386,37 +454,76 @@ pub fn spawn_state_query(name: String, repo_path: String, tx: Sender<CommandEven
         Ok(pair) => pair,
         Err(e) => {
             let _ = tx.send(CommandEvent::Failed(format!(
-                "Failed to spawn state query: {e}"
+                "Failed to spawn state query '{name}': {e}"
             )));
             return;
         }
     };
 
-    bridge_events(rx, tx, None, &[], &shell_cmd);
+    // Collect stdout lines for caching while bridging events to the TUI.
+    // Cache is written BEFORE Completed is sent so the TUI's post-completion
+    // state table refresh can read it.
+    let mut stdout_lines: Vec<String> = Vec::new();
+
+    for event in rx {
+        match event {
+            ProcessEvent::Started { pid } => {
+                let _ = tx.send(CommandEvent::Started(pid));
+            }
+            ProcessEvent::OutputLine { line, is_stderr } => {
+                if !is_stderr {
+                    stdout_lines.push(line.clone());
+                }
+                if tx.send(CommandEvent::OutputLine(line)).is_err() {
+                    break;
+                }
+            }
+            ProcessEvent::Completed { exit_code } => {
+                if exit_code == 0 {
+                    if let Some(ref ctx) = cache_ctx {
+                        try_cache_state_result(
+                            &name,
+                            &run_command,
+                            &working_dir,
+                            &stdout_lines,
+                            ctx,
+                        );
+                    }
+                }
+                let _ = tx.send(CommandEvent::Completed(exit_code));
+            }
+            ProcessEvent::Failed { error } => {
+                let _ = tx.send(CommandEvent::Failed(error));
+            }
+        }
+    }
 }
 
 /// Spawn all state queries sequentially, emitting progress markers.
+///
+/// Each entry in `queries` is a `(name, run_command, inputs)` tuple. The `run_command`
+/// is executed directly instead of going through `graft state query <name>`.
+/// When `cache_ctx` is provided, successful queries are cached.
 ///
 /// For each query, emits `OutputLine("▶ <name>...")` before execution and
 /// `OutputLine("✓ <name>")` or `OutputLine("✗ <name>: <error>")` after.
 /// Completes with exit code 0 regardless of individual failures.
 #[allow(clippy::needless_pass_by_value)]
 pub fn spawn_state_refresh_all(
-    query_names: Vec<String>,
-    repo_path: String,
+    queries: Vec<(String, String, Vec<String>)>,
+    working_dir: PathBuf,
+    cache_ctx: Option<StateCacheContext>,
     tx: Sender<CommandEvent>,
 ) {
     let _ = tx.send(CommandEvent::Started(0));
-    let working_dir = PathBuf::from(&repo_path);
     let run_state_dir = working_dir.join(".graft").join("run-state");
     let _ = std::fs::create_dir_all(&run_state_dir);
 
-    for name in &query_names {
+    for (name, run_command, inputs) in &queries {
         let _ = tx.send(CommandEvent::OutputLine(format!("\u{25b6} {name}...")));
 
-        let shell_cmd = format!("graft state query {}", shell_words::quote(name));
         let config = ProcessConfig {
-            command: shell_cmd,
+            command: run_command.clone(),
             working_dir: working_dir.clone(),
             env: {
                 let mut env_map = std::collections::HashMap::new();
@@ -435,9 +542,13 @@ pub fn spawn_state_refresh_all(
         match ProcessHandle::spawn(&config) {
             Ok((_handle, rx)) => {
                 let mut exit_ok = false;
+                let mut stdout_lines: Vec<String> = Vec::new();
                 for event in rx {
                     match event {
-                        ProcessEvent::OutputLine { line, .. } => {
+                        ProcessEvent::OutputLine { line, is_stderr } => {
+                            if !is_stderr {
+                                stdout_lines.push(line.clone());
+                            }
                             if tx.send(CommandEvent::OutputLine(line)).is_err() {
                                 return;
                             }
@@ -454,8 +565,24 @@ pub fn spawn_state_refresh_all(
                     }
                 }
                 if exit_ok {
+                    // Cache before emitting success marker so the TUI's
+                    // post-completion refresh can read the result.
+                    if let Some(ref ctx) = cache_ctx {
+                        let per_query_ctx = StateCacheContext {
+                            workspace_name: ctx.workspace_name.clone(),
+                            repo_name: ctx.repo_name.clone(),
+                            inputs: inputs.clone(),
+                        };
+                        try_cache_state_result(
+                            name,
+                            run_command,
+                            &working_dir,
+                            &stdout_lines,
+                            &per_query_ctx,
+                        );
+                    }
                     let _ = tx.send(CommandEvent::OutputLine(format!("\u{2713} {name}")));
-                } else if !exit_ok {
+                } else {
                     let _ = tx.send(CommandEvent::OutputLine(format!(
                         "\u{2717} {name}: non-zero exit"
                     )));
