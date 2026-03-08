@@ -1,5 +1,7 @@
 ---
-status: draft
+status: done
+completed: 2026-03-08
+completed_note: "All features implemented except circular wrapping, which was intentionally rejected in favor of clamping (commit a21bdfc)."
 created: 2026-03-06
 ---
 
@@ -72,7 +74,7 @@ Four changes to `scroll_buffer.rs` and one to `transcript.rs`:
 
 ## Steps
 
-- [ ] **Change focus_next/focus_prev to wrap circularly**
+- [x] **~~Change focus_next/focus_prev to wrap circularly~~ — rejected, clamping preferred**
   - **Delivers** — circular tab navigation so any block is reachable
   - **Done when** — `focus_next()` wraps from last block to 0 (currently
     clamps via `.min(self.blocks.len() - 1)`); `focus_prev()` wraps from 0
