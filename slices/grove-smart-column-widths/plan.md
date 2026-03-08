@@ -76,7 +76,7 @@ stay at their natural widths since 12+14+10=36 fits.
 
 ## Steps
 
-- [ ] **Replace `compute_col_widths` proportional scaling with shrink-widest-first**
+- [x] **Replace `compute_col_widths` proportional scaling with shrink-widest-first**
   - **Delivers** — readable tables at narrow terminal widths
   - **Done when** — `compute_col_widths()` in `scroll_buffer.rs` implements the
     two-phase algorithm: (1) shrink widest columns toward next-widest respecting
@@ -85,7 +85,7 @@ stay at their natural widths since 12+14+10=36 fits.
     max) is unchanged; `pad_or_truncate()` is unchanged
   - **Files** — `crates/grove-cli/src/tui/scroll_buffer.rs`
 
-- [ ] **Add unit tests for `compute_col_widths`**
+- [x] **Add unit tests for `compute_col_widths`**
   - **Delivers** — regression protection for column layout
   - **Done when** — tests in `scroll_buffer.rs` `mod tests` cover: table fits
     without shrinking, single wide column absorbs all excess, multiple columns
