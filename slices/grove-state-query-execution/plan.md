@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-03-06
 depends_on:
   - state-query-input-keyed-cache
@@ -100,7 +100,7 @@ state table will reflect which queries now have cached results.
 
 ## Steps
 
-- [ ] **Add `StateRun` and `StateRefresh` command variants**
+- [x] **Add `StateRun` and `StateRefresh` command variants**
   - **Delivers** — command dispatch for state query execution
   - **Done when** — `CliCommand` enum in `command_line.rs` has `StateRun(String)`
     and `StateRefresh` variants; `execute_cli_command()` routes `StateRun` to
@@ -109,7 +109,7 @@ state table will reflect which queries now have cached results.
   - **Files** — `crates/grove-cli/src/tui/command_line.rs`,
     `crates/grove-cli/src/tui/transcript.rs`
 
-- [ ] **Add spawn helpers for state query execution**
+- [x] **Add spawn helpers for state query execution**
   - **Delivers** — async subprocess execution for state queries
   - **Done when** — `spawn_state_query(name, repo_path, tx)` in `command_exec.rs`
     builds and runs `graft state query <name>` via `ProcessHandle`, bridges
@@ -118,7 +118,7 @@ state table will reflect which queries now have cached results.
     "▶ <name>..." before and "✓ <name>" / "✗ <name>" after each query
   - **Files** — `crates/grove-cli/src/tui/command_exec.rs`
 
-- [ ] **Implement `cmd_state_run` for individual query execution**
+- [x] **Implement `cmd_state_run` for individual query execution**
   - **Delivers** — single query execution from the state table
   - **Done when** — `cmd_state_run(&name)` guards against concurrent execution,
     creates mpsc channel, spawns thread calling `spawn_state_query`, pushes
@@ -126,21 +126,21 @@ state table will reflect which queries now have cached results.
     `pending_state_refresh = true`
   - **Files** — `crates/grove-cli/src/tui/transcript.rs`
 
-- [ ] **Change Enter action on uncached state table rows**
+- [x] **Change Enter action on uncached state table rows**
   - **Delivers** — Enter on uncached rows triggers execution instead of showing empty detail
   - **Done when** — in `cmd_state()`, the action for each table row is
     `CliCommand::StateRun(name)` when `read_latest_cached()` returns `None`,
     and `CliCommand::State(Some(name))` when cached
   - **Files** — `crates/grove-cli/src/tui/transcript.rs`
 
-- [ ] **Auto-refresh state table after execution completes**
+- [x] **Auto-refresh state table after execution completes**
   - **Delivers** — state table stays current without manual re-run
   - **Done when** — `handle_command_events()` checks `pending_state_refresh`
     after finalizing a Running block; if true, invalidates
     `cached_state_queries`, calls `cmd_state(None)`, resets flag to false
   - **Files** — `crates/grove-cli/src/tui/transcript.rs`
 
-- [ ] **Implement bulk refresh via `r` key**
+- [x] **Implement bulk refresh via `r` key**
   - **Delivers** — one-key refresh of all state queries (spec alignment)
   - **Done when** — `r` key handler dispatches `StateRefresh` after setting
     `needs_refresh`; `cmd_state_refresh_all()` discovers all state queries,

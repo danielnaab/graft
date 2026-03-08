@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-03-06
 depends_on:
   - grove-durable-error-messages
@@ -95,7 +95,7 @@ destructuring pattern. Print warnings to stderr via `eprintln!("warning: {w}")`.
 
 ## Steps
 
-- [ ] **Change `load_dep_configs` to return warnings**
+- [x] **Change `load_dep_configs` to return warnings**
   - **Delivers** — diagnostic visibility for dependency loading failures
   - **Done when** — `load_dep_configs` returns `(Vec<(String, GraftConfig)>,
     Vec<String>)`; for each dependency where `parse_graft_yaml` fails, the
@@ -104,20 +104,20 @@ destructuring pattern. Print warnings to stderr via `eprintln!("warning: {w}")`.
   - **Files** — `crates/graft-engine/src/config.rs`,
     `crates/graft-engine/src/lib.rs`
 
-- [ ] **Update grove scion handlers to surface dep warnings**
+- [x] **Update grove scion handlers to surface dep warnings**
   - **Delivers** — grove users see why dependency configs failed to load
   - **Done when** — all 4 `load_dep_configs` call sites in transcript.rs
     destructure the return tuple; each warning is displayed via
     `self.show_warning(w)` (from grove-durable-error-messages slice)
   - **Files** — `crates/grove-cli/src/tui/transcript.rs`
 
-- [ ] **Update graft-cli callers to print dep warnings**
+- [x] **Update graft-cli callers to print dep warnings**
   - **Delivers** — CLI users see why dependency configs failed to load
   - **Done when** — all 4 `load_dep_configs` call sites in main.rs
     destructure the return tuple; each warning is printed to stderr
   - **Files** — `crates/graft-cli/src/main.rs`
 
-- [ ] **Improve scion "dependency not found" error message**
+- [x] **Improve scion "dependency not found" error message**
   - **Delivers** — actionable guidance when dependency lookup fails
   - **Done when** — error at `scion.rs:732-735` includes diagnostic hint:
     "Check that .graft/{dep}/ exists and contains a valid graft.yaml";

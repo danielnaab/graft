@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-03-06
 ---
 
@@ -87,7 +87,7 @@ Collapsed blocks still render a title line — that line also gets a gutter.
 
 ## Steps
 
-- [ ] **Add gutter markers to block line rendering**
+- [x] **Add gutter markers to block line rendering**
   - **Delivers** — visible block boundaries and strong focus highlight
   - **Done when** — `render_visible()` in `scroll_buffer.rs` prepends a
     gutter `Span` to each block line: `│ ` in `Rgb(60, 60, 60)` for
@@ -96,7 +96,7 @@ Collapsed blocks still render a title line — that line also gets a gutter.
     unchanged; old `Rgb(30, 30, 45)` background removed
   - **Files** — `crates/grove-cli/src/tui/scroll_buffer.rs`
 
-- [ ] **Adjust content width for gutter**
+- [x] **Adjust content width for gutter**
   - **Delivers** — tables and text fit correctly with gutter present
   - **Done when** — the `width` passed to `render_lines_at()` and used for
     table column calculation is reduced by 2 to account for the gutter;

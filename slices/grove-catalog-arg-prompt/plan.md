@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 created: 2026-03-06
 ---
 
@@ -73,7 +73,7 @@ already open, the command is a no-op (avoids overwriting user input).
 
 ## Steps
 
-- [ ] **Ungear `TextBuffer::with_content()` and add `Prompt::open_with()`**
+- [x] **Ungear `TextBuffer::with_content()` and add `Prompt::open_with()`**
   - **Delivers** — prompt pre-population capability
   - **Done when** — `TextBuffer::with_content(s, cursor_pos)` has `#[cfg(test)]`
     removed; `Prompt::open_with(text: &str)` creates a `CommandLineState` with
@@ -81,7 +81,7 @@ already open, the command is a no-op (avoids overwriting user input).
   - **Files** — `crates/grove-cli/src/tui/text_buffer.rs`,
     `crates/grove-cli/src/tui/prompt.rs`
 
-- [ ] **Add `CliCommand::PopulatePrompt` variant and handler**
+- [x] **Add `CliCommand::PopulatePrompt` variant and handler**
   - **Delivers** — command dispatch for prompt pre-population
   - **Done when** — `CliCommand::PopulatePrompt(String)` variant exists in
     `command_line.rs`; `execute_cli_command()` handles it by calling
@@ -89,7 +89,7 @@ already open, the command is a no-op (avoids overwriting user input).
   - **Files** — `crates/grove-cli/src/tui/command_line.rs`,
     `crates/grove-cli/src/tui/transcript.rs`
 
-- [ ] **Route catalog actions based on required args**
+- [x] **Route catalog actions based on required args**
   - **Delivers** — catalog entries with required args open prompt instead of failing
   - **Done when** — in `cmd_catalog()`, for each command entry (not sequences),
     check `available_commands` for required args without defaults; if found, push
