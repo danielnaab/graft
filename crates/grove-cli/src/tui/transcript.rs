@@ -55,6 +55,9 @@ pub(super) struct RepoContext {
     /// Computed lazily on first access; cleared on repo switch, `:refresh`,
     /// and after scion-mutating commands (create, start, stop, prune, fuse).
     pub(super) cached_scion_completions: Option<Vec<super::prompt::ArgCompletion>>,
+    /// Cached parsed graft config for the selected repo.
+    /// Used to access scions.source for tab completion.
+    pub(super) cached_graft_config: Option<graft_engine::GraftConfig>,
 }
 
 impl RepoContext {
@@ -69,6 +72,7 @@ impl RepoContext {
             in_memory_state: std::collections::HashMap::new(),
             resolved_commands: None,
             cached_scion_completions: None,
+            cached_graft_config: None,
         }
     }
 
@@ -81,6 +85,7 @@ impl RepoContext {
         self.in_memory_state.clear();
         self.resolved_commands = None;
         self.cached_scion_completions = None;
+        self.cached_graft_config = None;
     }
 
     /// Full reset: clear caches and deselect repo.
@@ -2029,7 +2034,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                     wt_path.display()
                 )));
             }
-            Err(e) if e.to_string().contains("already has an active session") => {
+            Err(graft_engine::GraftError::SessionAlreadyActive { .. }) => {
                 self.show_warning(format!(
                     "Scion '{name}' already has an active session. Use :attach {name}"
                 ));
@@ -2581,6 +2586,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     }
 
     /// Get scion name completions for the selected repo (cached).
+    ///
+    /// When `scions.source` is configured, resolves the source state query
+    /// and merges those names with existing scions. Source names appear first
+    /// (what you *can* start), followed by orphaned scions not in the source.
     fn scion_completions(&mut self) -> Vec<super::prompt::ArgCompletion> {
         if let Some(cached) = &self.context.cached_scion_completions {
             return cached.clone();
@@ -2588,28 +2597,86 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         let Some(repo_path) = self.context.selected_repo_path.clone() else {
             return Vec::new();
         };
+
+        // Collect existing scions
         let runtime = graft_common::TmuxRuntime::new().ok();
         let runtime_ref = runtime.as_ref().map(|r| r as &dyn SessionRuntime);
-        let Ok(scions) = graft_engine::scion_list(&repo_path, runtime_ref) else {
-            self.context.cached_scion_completions = Some(Vec::new());
-            return Vec::new();
-        };
-        let completions: Vec<super::prompt::ArgCompletion> = scions
-            .iter()
-            .map(|s| {
-                let status = match (s.ahead, s.session_active) {
-                    (Some(a), Some(true)) => format!("+{a} [session]"),
-                    (Some(a), _) => format!("+{a}"),
-                    _ => String::new(),
+        let existing_scions = graft_engine::scion_list(&repo_path, runtime_ref).unwrap_or_default();
+        let existing_map: std::collections::HashMap<String, &graft_engine::ScionInfo> =
+            existing_scions
+                .iter()
+                .map(|s| (s.name.clone(), s))
+                .collect();
+
+        // Try to resolve source query names
+        let source_names = self.resolve_source_completions(&repo_path);
+
+        let mut completions: Vec<super::prompt::ArgCompletion> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        if !source_names.is_empty() {
+            // Source names first — annotate with scion status if it exists
+            for name in &source_names {
+                seen.insert(name.clone());
+                let description = if let Some(scion) = existing_map.get(name) {
+                    match (scion.ahead, scion.session_active) {
+                        (Some(a), Some(true)) => format!("+{a} [session]"),
+                        (Some(a), _) => format!("+{a}"),
+                        _ => "exists".to_string(),
+                    }
+                } else {
+                    String::new()
                 };
-                super::prompt::ArgCompletion {
-                    value: s.name.clone(),
-                    description: status,
-                }
-            })
-            .collect();
+                completions.push(super::prompt::ArgCompletion {
+                    value: name.clone(),
+                    description,
+                });
+            }
+        }
+
+        // Append existing scions not already in source names
+        for scion in &existing_scions {
+            if seen.contains(&scion.name) {
+                continue;
+            }
+            let status = match (scion.ahead, scion.session_active) {
+                (Some(a), Some(true)) => format!("+{a} [session]"),
+                (Some(a), _) => format!("+{a}"),
+                _ => String::new(),
+            };
+            completions.push(super::prompt::ArgCompletion {
+                value: scion.name.clone(),
+                description: status,
+            });
+        }
+
         self.context.cached_scion_completions = Some(completions.clone());
         completions
+    }
+
+    /// Resolve names from the `scions.source` state query, if configured.
+    fn resolve_source_completions(&mut self, repo_path: &str) -> Vec<String> {
+        // Lazily load graft config
+        if self.context.cached_graft_config.is_none() {
+            self.context.cached_graft_config =
+                graft_engine::parse_graft_yaml(std::path::Path::new(repo_path).join("graft.yaml"))
+                    .ok();
+        }
+
+        let source = self
+            .context
+            .cached_graft_config
+            .as_ref()
+            .and_then(|c| c.scion_hooks.as_ref())
+            .and_then(|h| h.source.as_ref())
+            .cloned();
+
+        let Some(source_query) = source else {
+            return Vec::new();
+        };
+
+        let repo_name = graft_common::repo_name_from_path(repo_path).to_string();
+        self.resolve_options_from(&source_query, &repo_name)
     }
 
     /// Load sequences from a graft.yaml into the catalog entries list.

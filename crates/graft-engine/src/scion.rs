@@ -953,9 +953,9 @@ pub fn scion_run(
     // Check for already-active session before attempting start
     let session_id = scion_session_id(name);
     if runtime.exists(&session_id).unwrap_or(false) {
-        return Err(GraftError::CommandExecution(format!(
-            "scion '{name}' already has an active session. Use attach to connect to it."
-        )));
+        return Err(GraftError::SessionAlreadyActive {
+            name: name.to_string(),
+        });
     }
 
     // Start the scion (scion_start also validates name)

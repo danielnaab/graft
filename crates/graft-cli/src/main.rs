@@ -2864,7 +2864,7 @@ fn scion_run_command(name: &str) -> Result<()> {
             println!("  attach:   graft scion attach {name}");
             Ok(())
         }
-        Err(e) if e.to_string().contains("already has an active session") => {
+        Err(graft_engine::GraftError::SessionAlreadyActive { .. }) => {
             println!("Scion '{name}' already has an active session.");
             println!("  attach: graft scion attach {name}");
             Ok(())

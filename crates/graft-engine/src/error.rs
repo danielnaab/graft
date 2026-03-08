@@ -65,6 +65,9 @@ pub enum GraftError {
     #[error("command execution error: {0}")]
     CommandExecution(String),
 
+    #[error("scion '{name}' already has an active session")]
+    SessionAlreadyActive { name: String },
+
     #[error("change not found: {0}")]
     ChangeNotFound(String),
 
