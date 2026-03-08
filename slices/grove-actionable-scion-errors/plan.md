@@ -1,6 +1,8 @@
 ---
-status: draft
+status: done
 created: 2026-03-06
+completed: 2026-03-06
+completed_note: "Implemented during grove TUI buildout; scion_error_with_hint() adds contextual hints to attach/prune/fuse errors."
 depends_on:
   - grove-durable-error-messages
 ---
@@ -53,7 +55,7 @@ not a separate block.
 
 ## Steps
 
-- [ ] **Add contextual hints to scion error displays in grove**
+- [x] **Add contextual hints to scion error displays in grove**
   - **Delivers** — actionable error messages for scion workflow failures
   - **Done when** — `cmd_attach`, `cmd_scion_prune`, and `cmd_scion_fuse` in
     `transcript.rs` enhance engine error messages with next-step hints based

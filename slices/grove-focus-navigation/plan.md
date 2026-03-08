@@ -72,16 +72,17 @@ Four changes to `scroll_buffer.rs` and one to `transcript.rs`:
 
 ## Steps
 
-- [ ] **Change focus_next/focus_prev to wrap and start at last block**
-  - **Delivers** — circular tab navigation starting from most recent block
-  - **Done when** — both methods early-return if `blocks.is_empty()`;
-    `focus_next()` sets `focused_block` to `blocks.len() - 1` when currently
-    `None`, wraps from last to 0 when at end; `focus_prev()` wraps from 0 to
-    `blocks.len() - 1` when at start; single-block case: both wrap to self
-    (index 0); existing behavior for mid-list focus is unchanged
+- [ ] **Change focus_next/focus_prev to wrap circularly**
+  - **Delivers** — circular tab navigation so any block is reachable
+  - **Done when** — `focus_next()` wraps from last block to 0 (currently
+    clamps via `.min(self.blocks.len() - 1)`); `focus_prev()` wraps from 0
+    to `blocks.len() - 1` (currently clamps via `.saturating_sub(1)`);
+    single-block case: both wrap to self (index 0); the "start at last
+    block when unfocused" behavior is already implemented and unchanged;
+    existing tests updated; new test asserts wrap-around in both directions
   - **Files** — `crates/grove-cli/src/tui/scroll_buffer.rs`
 
-- [ ] **Add auto-scroll on focus change**
+- [x] **Add auto-scroll on focus change**
   - **Delivers** — focused block is always visible in the viewport
   - **Done when** — new `block_start_line(index: usize) -> usize` method
     computes the line offset of a block by summing preceding blocks'
@@ -92,7 +93,7 @@ Four changes to `scroll_buffer.rs` and one to `transcript.rs`:
     already visible)
   - **Files** — `crates/grove-cli/src/tui/scroll_buffer.rs`
 
-- [ ] **Add Up/Down block navigation when focused and Esc to unfocus**
+- [x] **Add Up/Down block navigation when focused and Esc to unfocus**
   - **Delivers** — directional block navigation and clean exit from focus mode
   - **Done when** — in `handle_key_normal()`, when `self.scroll.focused_block`
     is `Some`: Up/k dispatches `focus_prev()`, Down/j dispatches

@@ -1,6 +1,8 @@
 ---
-status: draft
+status: done
 created: 2026-03-06
+completed: 2026-03-06
+completed_note: "Implemented during grove TUI buildout; show_error/show_warning dual-write to status bar + transcript block, all call sites migrated."
 ---
 
 # Persist errors and warnings in the transcript
@@ -71,7 +73,7 @@ Example transcript after a failed scion start:
 
 ## Steps
 
-- [ ] **Add `show_error()` and `show_warning()` helper methods**
+- [x] **Add `show_error()` and `show_warning()` helper methods**
   - **Delivers** — centralized dual-write for error/warning messages
   - **Done when** — `TranscriptApp` has `show_error(text: impl Into<String>)`
     and `show_warning(text: impl Into<String>)` methods; each sets
@@ -80,7 +82,7 @@ Example transcript after a failed scion start:
     `self.scroll`
   - **Files** — `crates/grove-cli/src/tui/transcript.rs`
 
-- [ ] **Replace all error/warning call sites with helpers**
+- [x] **Replace all error/warning call sites with helpers**
   - **Delivers** — all errors and warnings get durable transcript records
   - **Done when** — every `self.status = Some(StatusMessage::error(...))` is
     replaced with `self.show_error(...)` and every
