@@ -6,4 +6,4 @@ deps:
   living-specifications: "https://github.com/danielnaab/living-specifications.git#main"
   software-factory: "https://github.com/danielnaab/software-factory.git#main"
 scions:
-  start: "software-factory:implement"
+  start: "software-factory:agent"
