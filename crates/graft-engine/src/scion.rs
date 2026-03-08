@@ -926,6 +926,43 @@ pub fn scion_stop(
     Ok(())
 }
 
+/// Create a scion if it doesn't exist, then start it.
+///
+/// This is the combined workflow: if the worktree already exists, creation is
+/// skipped. If a session is already active, returns an error indicating
+/// the caller should attach instead.
+///
+/// # Errors
+/// Returns `GraftError` if creation fails (and the worktree didn't already
+/// exist), if start fails, or if a session is already active.
+pub fn scion_run(
+    repo_path: impl AsRef<Path>,
+    name: &str,
+    config: Option<&GraftConfig>,
+    dep_configs: &[(String, GraftConfig)],
+    runtime: &impl SessionRuntime,
+) -> Result<PathBuf> {
+    let repo = repo_path.as_ref();
+    let wt_path = worktree_path(repo, name);
+
+    // Create if worktree doesn't exist (scion_create validates name)
+    if !wt_path.exists() {
+        scion_create(repo, name, config, dep_configs)?;
+    }
+
+    // Check for already-active session before attempting start
+    let session_id = scion_session_id(name);
+    if runtime.exists(&session_id).unwrap_or(false) {
+        return Err(GraftError::CommandExecution(format!(
+            "scion '{name}' already has an active session. Use attach to connect to it."
+        )));
+    }
+
+    // Start the scion (scion_start also validates name)
+    scion_start(repo, name, config, dep_configs, runtime)?;
+    Ok(wt_path)
+}
+
 /// Check that a scion exists and has an active runtime session, returning the session ID.
 ///
 /// Used by the `attach` command to validate preconditions before handing off to
@@ -1358,6 +1395,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         });
         let chain = resolve_hook_chain(
             HookEvent::OnCreate,
@@ -1382,6 +1420,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         });
         let chain = resolve_hook_chain(
             HookEvent::OnCreate,
@@ -1403,6 +1442,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         });
         let dep_a = make_config_with_hooks(ScionHooks {
             on_create: Some(vec!["a-init".to_string()]),
@@ -1410,6 +1450,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         });
         let dep_b = make_config_with_hooks(ScionHooks {
             on_create: Some(vec!["b-init".to_string(), "b-check".to_string()]),
@@ -1417,6 +1458,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         });
         let chain = resolve_hook_chain(
             HookEvent::OnCreate,
@@ -1441,6 +1483,7 @@ mod tests {
             post_fuse: None,
             on_prune: Some(vec!["c".to_string()]),
             start: None,
+            source: None,
         });
         let wt = Path::new("/worktree");
         let root = Path::new("/root");
@@ -1466,6 +1509,7 @@ mod tests {
             post_fuse: Some(vec!["notify".to_string()]),
             on_prune: None,
             start: None,
+            source: None,
         });
         let chain = resolve_hook_chain(
             HookEvent::PostFuse,
@@ -1510,6 +1554,7 @@ mod tests {
                 post_fuse: None,
                 on_prune: None,
                 start: None,
+                source: None,
             }),
         );
         // Add a second command
@@ -1522,6 +1567,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         });
 
         let chain = resolve_hook_chain(
@@ -1556,6 +1602,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         });
 
         let chain = resolve_hook_chain(
@@ -1619,6 +1666,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         });
 
         let chain = resolve_hook_chain(
@@ -1659,6 +1707,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         });
 
         let result = scion_create(temp.path(), "rollback-test", Some(&config), &[]);
@@ -1687,6 +1736,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         });
 
         let result = scion_create(temp.path(), "hook-pass", Some(&config), &[]);
@@ -1712,6 +1762,7 @@ mod tests {
             post_fuse: None,
             on_prune: Some(vec!["fail-prune".to_string()]),
             start: None,
+            source: None,
         });
 
         let result = scion_prune(
@@ -2100,6 +2151,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: Some("agent".to_string()),
+            source: None,
         });
 
         let runtime = MockRuntime::new();
@@ -2312,6 +2364,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         });
 
         let chain = resolve_hook_chain(
@@ -2393,6 +2446,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: Some("agent".to_string()),
+            source: None,
         });
 
         let runtime = MockRuntime::new();
@@ -2442,6 +2496,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: Some("my-dep:run-agent".to_string()),
+            source: None,
         });
 
         // Dep config with the referenced command
@@ -2500,6 +2555,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: Some("agent".to_string()),
+            source: None,
         });
 
         let runtime = MockRuntime::new();
@@ -2539,6 +2595,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: Some("missing-dep:run".to_string()),
+            source: None,
         });
 
         let runtime = MockRuntime::new();
@@ -2561,6 +2618,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: Some(":foo".to_string()),
+            source: None,
         });
         let result = config.validate();
         assert!(result.is_err());
@@ -2578,6 +2636,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: Some("foo:".to_string()),
+            source: None,
         });
         let result2 = config2.validate();
         assert!(result2.is_err());

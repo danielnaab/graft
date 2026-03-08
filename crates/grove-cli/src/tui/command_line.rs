@@ -153,6 +153,8 @@ pub(super) enum CliCommand {
     ScionPrune(String),
     /// `:scion fuse <name>` — fuse a scion into main.
     ScionFuse(String),
+    /// `:scion run <name>` — create if needed and start (combined workflow).
+    ScionRun(String),
     /// `:attach <name>` — attach to a scion's runtime session.
     Attach(String),
     /// `:review <name> [full]` — review a scion's changes.
@@ -291,6 +293,14 @@ pub(super) fn parse_command(input: &str) -> CliCommand {
                         CliCommand::Unknown(input.to_string())
                     } else {
                         CliCommand::ScionFuse(name.to_string())
+                    }
+                }
+                Some("run") => {
+                    let name = parts.get(1).unwrap_or(&"").trim();
+                    if name.is_empty() {
+                        CliCommand::Unknown(input.to_string())
+                    } else {
+                        CliCommand::ScionRun(name.to_string())
                     }
                 }
                 _ => CliCommand::Unknown(input.to_string()),

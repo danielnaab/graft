@@ -1,7 +1,9 @@
 ---
-status: draft
+status: done
 created: 2026-03-08
 depends_on: []
+completed: 2026-03-08
+completed_note: "Source validation against local state section was removed because source may reference a dependency's state query (e.g., slices from software-factory). The source field is parsed and stored but not yet consumed for completion — :scion run <tab> completes from existing scion names, not from state query results. Source-based completion is a follow-up."
 ---
 
 # Collapse scion create + start into `:scion run`
@@ -57,7 +59,7 @@ that the software-factory slice names are available for completion.
 
 ## Steps
 
-- [ ] **Add `source` field to `ScionHooks` and parse from graft.yaml**
+- [x] **Add `source` field to `ScionHooks` and parse from graft.yaml**
   - **Delivers** — scions config can declare a state query for name completion
   - **Done when** — `ScionHooks` gains `pub source: Option<String>`;
     `config.rs` parses `source:` from the scions section as an optional
@@ -68,7 +70,7 @@ that the software-factory slice names are available for completion.
   - **Files** — `crates/graft-engine/src/domain.rs`,
     `crates/graft-engine/src/config.rs`
 
-- [ ] **Add `scion_run` engine function**
+- [x] **Add `scion_run` engine function**
   - **Delivers** — shared create-then-start logic for CLI and grove
   - **Done when** — `scion.rs` has a `pub fn scion_run()` with the same
     signature as `scion_start` plus the same config/dep_configs args as
@@ -82,7 +84,7 @@ that the software-factory slice names are available for completion.
     appropriate error
   - **Files** — `crates/graft-engine/src/scion.rs`
 
-- [ ] **Add `graft scion run` CLI subcommand**
+- [x] **Add `graft scion run` CLI subcommand**
   - **Delivers** — one-command scion workflow from the terminal
   - **Done when** — `ScionCommands` enum gains a `Run { name: String }`
     variant; the handler calls `scion_run` from the engine; on success
@@ -91,7 +93,7 @@ that the software-factory slice names are available for completion.
     `graft scion run --help` shows usage
   - **Files** — `crates/graft-cli/src/main.rs`
 
-- [ ] **Add `:scion run` grove command with source-based completion**
+- [x] **Add `:scion run` grove command with source-based completion**
   - **Delivers** — one-command scion workflow from grove with tab completion
   - **Done when** — `CliCommand` enum gains a `ScionRun(String)` variant;
     `parse_command` handles `:scion run <name>`; `cmd_scion_run` calls
@@ -104,7 +106,7 @@ that the software-factory slice names are available for completion.
   - **Files** — `crates/grove-cli/src/tui/transcript.rs`,
     `crates/grove-cli/src/tui/command_line.rs`
 
-- [ ] **Add `source: slices` to root graft.yaml**
+- [x] **Add `source: slices` to root graft.yaml**
   - **Delivers** — tab completion for slice names when running scions
   - **Done when** — root `graft.yaml` has `scions: { start: "software-factory:agent", source: slices }`; `graft scion run <tab>` and
     `:scion run <tab>` complete from the slices state query

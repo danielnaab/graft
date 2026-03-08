@@ -692,6 +692,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             CliCommand::ScionStop(name) => self.cmd_scion_stop(&name),
             CliCommand::ScionPrune(name) => self.cmd_scion_prune(&name),
             CliCommand::ScionFuse(name) => self.cmd_scion_fuse(&name),
+            CliCommand::ScionRun(name) => self.cmd_scion_run(&name),
             CliCommand::Attach(name) => self.cmd_attach(&name),
             CliCommand::Review(name, full) => self.cmd_review(&name, full),
             CliCommand::PopulatePrompt(text) => {
@@ -1996,6 +1997,45 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             }
             Err(e) => {
                 self.show_error(format!("scion start failed: {e}"));
+            }
+        }
+        self.context.cached_scion_completions = None;
+    }
+
+    /// `:scion run <name>` — create if needed and start (combined workflow).
+    fn cmd_scion_run(&mut self, name: &str) {
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.show_warning("No repository selected");
+            return;
+        };
+        let config =
+            graft_engine::parse_graft_yaml(std::path::Path::new(&repo_path).join("graft.yaml"))
+                .ok();
+        let (dep_configs, dep_warnings) = config
+            .as_ref()
+            .map(|c| graft_engine::load_dep_configs(&repo_path, c))
+            .unwrap_or_default();
+        for w in &dep_warnings {
+            self.show_warning(w);
+        }
+        let Ok(runtime) = graft_common::TmuxRuntime::new() else {
+            self.show_error("tmux not available");
+            return;
+        };
+        match graft_engine::scion_run(&repo_path, name, config.as_ref(), &dep_configs, &runtime) {
+            Ok(wt_path) => {
+                self.status = Some(StatusMessage::success(format!(
+                    "Scion '{name}' running at {}",
+                    wt_path.display()
+                )));
+            }
+            Err(e) if e.to_string().contains("already has an active session") => {
+                self.show_warning(format!(
+                    "Scion '{name}' already has an active session. Use :attach {name}"
+                ));
+            }
+            Err(e) => {
+                self.show_error(format!("scion run failed: {e}"));
             }
         }
         self.context.cached_scion_completions = None;

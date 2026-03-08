@@ -7,3 +7,4 @@ deps:
   software-factory: "https://github.com/danielnaab/software-factory.git#main"
 scions:
   start: "software-factory:agent"
+  source: slices

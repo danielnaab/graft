@@ -651,7 +651,7 @@ pub struct Metadata {
 /// list of command names. The `start` field is a single command name used to
 /// launch a worker process via a runtime session. All names are resolved in the
 /// same `commands:` section of this graft.yaml.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScionHooks {
     /// Commands to run after worktree and branch creation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -668,6 +668,9 @@ pub struct ScionHooks {
     /// Command to run as the worker process in a runtime session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start: Option<String>,
+    /// State query name used for tab completion of the scion name argument.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 /// Complete graft.yaml configuration.
@@ -851,6 +854,11 @@ impl GraftConfig {
                     }
                 }
             }
+
+            // Note: scions.source is NOT validated against local state queries
+            // because it may reference a query from a dependency config (e.g.,
+            // source: slices where slices is defined in software-factory's state section).
+            // Runtime resolution will fail gracefully if the query doesn't exist.
         }
 
         // Validate the dependency graph: duplicate producers are a hard error.
@@ -1511,6 +1519,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: Some("software-factory:implement".to_string()),
+            source: None,
         });
         // dep:command format should not require the command in the local commands section
         assert!(config.validate().is_ok());
@@ -1525,6 +1534,7 @@ mod tests {
             post_fuse: None,
             on_prune: None,
             start: Some("nonexistent".to_string()),
+            source: None,
         });
         let result = config.validate();
         assert!(result.is_err());

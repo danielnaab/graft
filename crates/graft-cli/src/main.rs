@@ -15,7 +15,7 @@ use graft_engine::{
     is_submodule, list_state_queries, load_dep_configs, parse_graft_yaml, parse_lock_file,
     remove_dependency_from_config, remove_dependency_from_lock, remove_submodule,
     resolve_all_dependencies, resolve_and_create_lock, resolve_dependency, scion_attach_check,
-    scion_create, scion_fuse, scion_list, scion_prune, scion_start, scion_stop,
+    scion_create, scion_fuse, scion_list, scion_prune, scion_run, scion_start, scion_stop,
     sync_all_dependencies, validate_config_schema, validate_integrity, write_lock_file,
     VerifyLevel,
 };
@@ -281,6 +281,11 @@ enum ScionCommands {
         /// Scion name
         name: String,
     },
+    /// Create a scion if needed and start it (combined workflow)
+    Run {
+        /// Scion name
+        name: String,
+    },
 }
 
 #[allow(clippy::too_many_lines)]
@@ -393,6 +398,9 @@ fn main() -> Result<()> {
             }
             ScionCommands::Attach { name } => {
                 scion_attach_command(&name)?;
+            }
+            ScionCommands::Run { name } => {
+                scion_run_command(&name)?;
             }
         },
     }
@@ -2836,6 +2844,33 @@ fn scion_attach_command(name: &str) -> Result<()> {
         .attach(&session_id)
         .with_context(|| format!("Failed to attach to session '{session_id}'"))?;
     Ok(())
+}
+
+fn scion_run_command(name: &str) -> Result<()> {
+    let repo_path = std::env::current_dir().context("Failed to determine current directory")?;
+    let config = try_load_graft_config(&repo_path);
+    let (dep_configs, dep_warnings) = config
+        .as_ref()
+        .map(|c| load_dep_configs(&repo_path, c))
+        .unwrap_or_default();
+    for w in &dep_warnings {
+        eprintln!("warning: {w}");
+    }
+    let runtime = TmuxRuntime::new().context("tmux is required for scion sessions")?;
+    match scion_run(&repo_path, name, config.as_ref(), &dep_configs, &runtime) {
+        Ok(wt_path) => {
+            println!("Scion '{name}' is running (session: graft-scion-{name})");
+            println!("  worktree: {}", wt_path.display());
+            println!("  attach:   graft scion attach {name}");
+            Ok(())
+        }
+        Err(e) if e.to_string().contains("already has an active session") => {
+            println!("Scion '{name}' already has an active session.");
+            println!("  attach: graft scion attach {name}");
+            Ok(())
+        }
+        Err(e) => Err(e).with_context(|| format!("Failed to run scion '{name}'")),
+    }
 }
 
 fn scion_fuse_command(name: &str, force: bool) -> Result<()> {

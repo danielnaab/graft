@@ -2371,7 +2371,8 @@ fn completions_scion_subcommands() {
     assert!(values.contains(&"stop"));
     assert!(values.contains(&"prune"));
     assert!(values.contains(&"fuse"));
-    assert_eq!(cs.completions.len(), 6);
+    assert!(values.contains(&"run"));
+    assert_eq!(cs.completions.len(), 7);
     assert!(cs.requires_more_input);
 }
 
@@ -2521,7 +2522,7 @@ fn completions_sc_alias_shows_subcommands() {
         );
     }
     let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &[]);
-    assert_eq!(cs.completions.len(), 6);
+    assert_eq!(cs.completions.len(), 7);
     assert!(cs.requires_more_input);
 }
 

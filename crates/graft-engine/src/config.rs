@@ -635,6 +635,7 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
             post_fuse: None,
             on_prune: None,
             start: None,
+            source: None,
         };
 
         for (key, value) in scions_obj {
@@ -643,17 +644,21 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
                 field: "scions".to_string(),
                 reason: "hook name must be a string".to_string(),
             })?;
-            // start is a single command name (not a hook list), handle separately
-            if key_str == "start" {
+            // start and source are single string fields, handle separately
+            if key_str == "start" || key_str == "source" {
                 match value.as_str() {
                     Some(s) => {
-                        hooks.start = Some(s.to_string());
+                        if key_str == "start" {
+                            hooks.start = Some(s.to_string());
+                        } else {
+                            hooks.source = Some(s.to_string());
+                        }
                     }
                     None => {
                         return Err(GraftError::ConfigValidation {
                             path: path.to_string(),
-                            field: "scions.start".to_string(),
-                            reason: "start must be a single command name (string)".to_string(),
+                            field: format!("scions.{key_str}"),
+                            reason: format!("{key_str} must be a string"),
                         });
                     }
                 }
@@ -670,7 +675,7 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
                     return Err(GraftError::ConfigValidation {
                         path: path.to_string(),
                         field: format!("scions.{other}"),
-                        reason: format!("unknown hook point '{other}'; expected on_create, pre_fuse, post_fuse, on_prune, or start"),
+                        reason: format!("unknown hook point '{other}'; expected on_create, pre_fuse, post_fuse, on_prune, start, or source"),
                     });
                 }
             }
@@ -682,6 +687,7 @@ pub fn parse_graft_yaml_str(content: &str, path: &str) -> Result<GraftConfig> {
             || hooks.post_fuse.is_some()
             || hooks.on_prune.is_some()
             || hooks.start.is_some()
+            || hooks.source.is_some()
         {
             config.scion_hooks = Some(hooks);
         }
@@ -1393,8 +1399,57 @@ scions:
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("single command name"),
-            "Error should say start must be a single command name: {err}"
+            err.contains("must be a string"),
+            "Error should say start must be a string: {err}"
+        );
+    }
+
+    #[test]
+    fn scions_source_parses_correctly() {
+        let yaml = r#"
+apiVersion: graft/v0
+state:
+  slices:
+    run: "echo slices"
+scions:
+  source: slices
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let hooks = config.scion_hooks.unwrap();
+        assert_eq!(hooks.source.as_deref(), Some("slices"));
+    }
+
+    #[test]
+    fn scions_source_unknown_query_accepted() {
+        // source is not validated against local state section because it may
+        // reference a query from a dependency config
+        let yaml = r#"
+apiVersion: graft/v0
+scions:
+  source: nonexistent
+"#;
+        let config = parse_graft_yaml_str(yaml, "test.yaml").unwrap();
+        let hooks = config.scion_hooks.unwrap();
+        assert_eq!(hooks.source.as_deref(), Some("nonexistent"));
+    }
+
+    #[test]
+    fn scions_source_rejects_list_value() {
+        let yaml = r#"
+apiVersion: graft/v0
+state:
+  slices:
+    run: "echo slices"
+scions:
+  source:
+    - slices
+"#;
+        let result = parse_graft_yaml_str(yaml, "test.yaml");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("must be a string"),
+            "Error should say source must be a string: {err}"
         );
     }
 

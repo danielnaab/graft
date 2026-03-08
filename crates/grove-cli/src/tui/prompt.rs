@@ -745,7 +745,7 @@ impl PromptState {
                             },
                         }
                     }
-                    ("start" | "stop" | "prune" | "fuse", true) => {
+                    ("start" | "stop" | "prune" | "fuse" | "run", true) => {
                         // Complete scion name
                         let name_partial = sub_parts.get(1).unwrap_or(&"").trim();
                         if name_partial.contains(char::is_whitespace) {
@@ -763,6 +763,7 @@ impl PromptState {
                             ("stop", "Stop runtime session", true),
                             ("prune", "Remove a scion", true),
                             ("fuse", "Fuse into main", true),
+                            ("run", "Create & start", true),
                         ];
                         let partial = sub.to_ascii_lowercase();
                         let filtered: Vec<_> = subs
