@@ -939,8 +939,8 @@ fn options_from_state_entity_default_collection() {
         ]
     });
     let opts = extract_options_from_state("slices", &data, Some(&entity));
-    // All items returned (no status filtering with entity)
-    assert_eq!(opts, vec!["retry-logic", "entity-focus"]);
+    // Items with status "done" are filtered out, same as the hardcoded path
+    assert_eq!(opts, vec!["retry-logic"]);
 }
 
 #[test]

@@ -2971,6 +2971,9 @@ pub(super) fn extract_options_from_state(
         return arr
             .iter()
             .filter_map(|item| {
+                if item.get("status").and_then(|v| v.as_str()) == Some("done") {
+                    return None;
+                }
                 item.get(&entity.key)
                     .and_then(|v| v.as_str())
                     .map(ToString::to_string)
