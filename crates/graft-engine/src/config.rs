@@ -93,19 +93,24 @@ pub fn load_dep_configs(
             .join(".graft")
             .join(dep_name)
             .join("graft.yaml");
+        let dep_dir = repo_path.as_ref().join(".graft").join(dep_name);
+        if !dep_dir.exists() {
+            warnings.push(format!(
+                "dependency '{dep_name}': .graft/{dep_name}/ not found (submodule not initialized?)"
+            ));
+            continue;
+        }
+        if !dep_yaml.exists() {
+            // Not every dependency is graft-aware (e.g. copier templates).
+            // Skip silently when the directory exists but has no graft.yaml.
+            continue;
+        }
         match parse_graft_yaml(&dep_yaml) {
             Ok(cfg) => successes.push((dep_name.clone(), cfg)),
             Err(e) => {
-                let msg = if dep_yaml.exists() {
-                    format!(
-                        "dependency '{dep_name}': failed to parse .graft/{dep_name}/graft.yaml: {e}"
-                    )
-                } else {
-                    format!(
-                        "dependency '{dep_name}': .graft/{dep_name}/graft.yaml not found (submodule not initialized?)"
-                    )
-                };
-                warnings.push(msg);
+                warnings.push(format!(
+                    "dependency '{dep_name}': failed to parse .graft/{dep_name}/graft.yaml: {e}"
+                ));
             }
         }
     }
