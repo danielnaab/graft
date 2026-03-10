@@ -95,6 +95,10 @@ pub struct EntityDef {
     /// name is used as the collection key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collection: Option<String>,
+    /// Field name used to group completions by category (e.g. `status`).
+    /// When set, `extract_options_from_state` populates `GroupedOption.group`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_by: Option<String>,
 }
 
 /// A state query definition from graft.yaml.
@@ -795,7 +799,15 @@ fn parse_state_query(name: &str, config: &Value) -> Result<StateQueryDef, String
             .get("collection")
             .and_then(|v| v.as_str())
             .map(std::string::ToString::to_string);
-        Some(EntityDef { key, collection })
+        let group_by = e
+            .get("group_by")
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string);
+        Some(EntityDef {
+            key,
+            collection,
+            group_by,
+        })
     });
 
     Ok(StateQueryDef {

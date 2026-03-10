@@ -222,6 +222,8 @@ pub(super) struct ArgCompletion {
     pub(super) value: String,
     /// Short description shown next to the value.
     pub(super) description: String,
+    /// Optional group label for sectioned completion popups.
+    pub(super) group: Option<String>,
 }
 
 /// Bundled completion state passed from the caller to prompt methods.
@@ -638,6 +640,7 @@ impl PromptState {
                         .map(|name| ArgCompletion {
                             value: name.clone(),
                             description: String::new(),
+                            group: None,
                         })
                         .collect(),
                     ..CompletionState::default()
@@ -655,6 +658,7 @@ impl PromptState {
                         .map(|name| ArgCompletion {
                             value: name.clone(),
                             description: String::new(),
+                            group: None,
                         })
                         .collect(),
                     ..CompletionState::default()
@@ -679,6 +683,7 @@ impl PromptState {
                         .map(|(name, desc)| ArgCompletion {
                             value: (*name).to_string(),
                             description: (*desc).to_string(),
+                            group: None,
                         })
                         .collect(),
                     ..CompletionState::default()
@@ -700,6 +705,7 @@ impl PromptState {
                             .map(|v| ArgCompletion {
                                 value: v.clone(),
                                 description: String::new(),
+                                group: None,
                             })
                             .collect(),
                         ..CompletionState::default()
@@ -714,6 +720,7 @@ impl PromptState {
                             .map(|n| ArgCompletion {
                                 value: n.clone(),
                                 description: String::new(),
+                                group: None,
                             })
                             .collect(),
                         ..CompletionState::default()
@@ -778,6 +785,7 @@ impl PromptState {
                                 .map(|(name, desc, _)| ArgCompletion {
                                     value: (*name).to_string(),
                                     description: (*desc).to_string(),
+                                    group: None,
                                 })
                                 .collect(),
                             requires_more_input: needs_more,
@@ -832,78 +840,7 @@ impl PromptState {
 
         // Argument completion popup (different styling — value only, DarkGray description).
         if !cs.completions.is_empty() {
-            let count = cs.completions.len();
-            let max_content_width = cs
-                .completions
-                .iter()
-                .map(|c| {
-                    c.value.len()
-                        + if c.description.is_empty() {
-                            0
-                        } else {
-                            2 + c.description.len()
-                        }
-                })
-                .max()
-                .unwrap_or(20);
-
-            let items: Vec<ListItem> = cs
-                .completions
-                .iter()
-                .map(|c| {
-                    let mut spans = vec![Span::styled(
-                        c.value.clone(),
-                        Style::default().fg(Color::Cyan),
-                    )];
-                    if !c.description.is_empty() {
-                        spans.push(Span::styled(
-                            format!("  {}", c.description),
-                            Style::default().fg(Color::DarkGray),
-                        ));
-                    }
-                    ListItem::new(Line::from(spans))
-                })
-                .collect();
-
-            let max_height = above_area.height.saturating_sub(1);
-            let count_u16 = u16::try_from(count).unwrap_or(u16::MAX);
-            let popup_height = count_u16.saturating_add(2).min(max_height);
-            if popup_height < 3 {
-                return;
-            }
-
-            let width_u16 = u16::try_from(max_content_width).unwrap_or(u16::MAX);
-            let popup_width = width_u16.saturating_add(4).min(above_area.width);
-
-            let x = above_area.x;
-            let y = above_area
-                .y
-                .saturating_add(above_area.height)
-                .saturating_sub(popup_height);
-
-            let popup_area = Rect {
-                x,
-                y,
-                width: popup_width,
-                height: popup_height,
-            };
-
-            frame.render_widget(Clear, popup_area);
-
-            let list = List::new(items)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" Completions ")
-                        .border_style(Style::default().fg(Color::Cyan))
-                        .style(Style::default().fg(Color::White).bg(Color::Black)),
-                )
-                .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
-
-            let mut list_state = ListState::default();
-            list_state.select(Some(state.palette_selected.min(count.saturating_sub(1))));
-
-            frame.render_stateful_widget(list, popup_area, &mut list_state);
+            render_completion_popup(frame, above_area, cs, state.palette_selected);
         }
     }
 
@@ -998,6 +935,7 @@ pub(super) fn compute_run_completions(
                 .map(|(name, def)| ArgCompletion {
                     value: name.clone(),
                     description: def.description.clone().unwrap_or_default(),
+                    group: None,
                 })
                 .collect(),
             // requires_more_input: true if every matching command has required args
@@ -1058,6 +996,7 @@ pub(super) fn compute_run_completions(
                     .map(|o| ArgCompletion {
                         value: o.clone(),
                         description: arg_def.description.clone().unwrap_or_default(),
+                        group: None,
                     })
                     .collect()
             } else {
@@ -1078,6 +1017,7 @@ pub(super) fn compute_run_completions(
                     .map(|o| ArgCompletion {
                         value: (*o).to_string(),
                         description: arg_def.description.clone().unwrap_or_default(),
+                        group: None,
                     })
                     .collect(),
                 requires_more_input: requires_more,
@@ -1093,6 +1033,153 @@ pub(super) fn compute_run_completions(
             }
         }
     }
+}
+
+// ===== Completion popup rendering =====
+
+/// Render the argument completion popup, with optional group headers.
+fn render_completion_popup(
+    frame: &mut ratatui::Frame,
+    above_area: Rect,
+    cs: &CompletionState,
+    palette_selected: usize,
+) {
+    // Show group headers only when there are at least two distinct groups.
+    // A single group produces a header that wastes space without aiding navigation.
+    let has_groups = {
+        let mut distinct = cs.completions.iter().filter_map(|c| c.group.as_deref());
+        match distinct.next() {
+            None => false,
+            Some(first) => distinct.any(|g| g != first),
+        }
+    };
+
+    // Build list items and determine the selected display row.
+    let (items, selected_display_row, max_content_width) = if has_groups {
+        build_grouped_items(cs, palette_selected)
+    } else {
+        build_flat_items(cs, palette_selected)
+    };
+
+    let total_rows = items.len();
+    let max_height = above_area.height.saturating_sub(1);
+    let count_u16 = u16::try_from(total_rows).unwrap_or(u16::MAX);
+    let popup_height = count_u16.saturating_add(2).min(max_height);
+    if popup_height < 3 {
+        return;
+    }
+
+    let width_u16 = u16::try_from(max_content_width).unwrap_or(u16::MAX);
+    let popup_width = width_u16.saturating_add(4).min(above_area.width);
+
+    let x = above_area.x;
+    let y = above_area
+        .y
+        .saturating_add(above_area.height)
+        .saturating_sub(popup_height);
+
+    let popup_area = Rect {
+        x,
+        y,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    frame.render_widget(Clear, popup_area);
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Completions ")
+                .border_style(Style::default().fg(Color::Cyan))
+                .style(Style::default().fg(Color::White).bg(Color::Black)),
+        )
+        .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
+
+    let mut list_state = ListState::default();
+    list_state.select(Some(selected_display_row));
+
+    frame.render_stateful_widget(list, popup_area, &mut list_state);
+}
+
+/// Build list items with group section headers interleaved.
+pub(super) fn build_grouped_items(
+    cs: &CompletionState,
+    palette_selected: usize,
+) -> (Vec<ListItem<'_>>, usize, usize) {
+    let mut items: Vec<ListItem> = Vec::new();
+    let mut selectable_to_display: Vec<usize> = Vec::new();
+    let mut current_group: Option<&str> = None;
+    let mut first = true;
+    let mut max_w = 0usize;
+
+    for c in &cs.completions {
+        let group_label = c.group.as_deref();
+        if first || group_label != current_group {
+            first = false;
+            let label = group_label.unwrap_or("other");
+            items.push(ListItem::new(Line::from(Span::styled(
+                format!("── {label} ──"),
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ))));
+            let hw = label.len() + 6;
+            if hw > max_w {
+                max_w = hw;
+            }
+            current_group = group_label;
+        }
+        let (item, w) = completion_list_item(c);
+        if w > max_w {
+            max_w = w;
+        }
+        items.push(item);
+        selectable_to_display.push(items.len() - 1);
+    }
+
+    let sel = palette_selected.min(cs.completions.len().saturating_sub(1));
+    let display_row = selectable_to_display.get(sel).copied().unwrap_or(0);
+    (items, display_row, max_w.max(20))
+}
+
+/// Build a flat list of completion items (no group headers).
+pub(super) fn build_flat_items(
+    cs: &CompletionState,
+    palette_selected: usize,
+) -> (Vec<ListItem<'_>>, usize, usize) {
+    let mut max_w = 0usize;
+    let items: Vec<ListItem> = cs
+        .completions
+        .iter()
+        .map(|c| {
+            let (item, w) = completion_list_item(c);
+            if w > max_w {
+                max_w = w;
+            }
+            item
+        })
+        .collect();
+    let sel = palette_selected.min(cs.completions.len().saturating_sub(1));
+    (items, sel, max_w.max(20))
+}
+
+/// Create a single completion `ListItem` from an `ArgCompletion`.
+fn completion_list_item(c: &ArgCompletion) -> (ListItem<'_>, usize) {
+    let mut spans = vec![Span::styled(
+        c.value.clone(),
+        Style::default().fg(Color::Cyan),
+    )];
+    let mut w = c.value.len();
+    if !c.description.is_empty() {
+        spans.push(Span::styled(
+            format!("  {}", c.description),
+            Style::default().fg(Color::DarkGray),
+        ));
+        w += 2 + c.description.len();
+    }
+    (ListItem::new(Line::from(spans)), w)
 }
 
 // ===== Scion name completion =====

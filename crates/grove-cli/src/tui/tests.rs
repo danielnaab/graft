@@ -9,8 +9,9 @@ use std::collections::HashMap;
 use super::command_line::{filtered_palette, parse_command, CliCommand, PALETTE_COMMANDS};
 use super::formatting::{compact_path, extract_basename, format_file_change_indicator};
 use super::prompt::{
-    compute_run_completions, extract_command_prefix, ghost_hint_suffix, ArgCompletion,
-    CompletionState, PickerItem, PickerOutcome, PickerState, PromptState,
+    build_flat_items, build_grouped_items, compute_run_completions, extract_command_prefix,
+    ghost_hint_suffix, ArgCompletion, CompletionState, PickerItem, PickerOutcome, PickerState,
+    PromptState,
 };
 use super::scroll_buffer::{BlockId, ContentBlock, ScrollBuffer};
 use super::transcript::{extract_options_from_state, TranscriptApp};
@@ -876,6 +877,18 @@ fn ghost_hint_suffix_no_space() {
 
 // ===== extract_options_from_state tests =====
 
+/// Helper to extract just the values from GroupedOptions for easy assertion.
+fn values(opts: &[super::transcript::GroupedOption]) -> Vec<&str> {
+    opts.iter().map(|o| o.value.as_str()).collect()
+}
+
+/// Helper to extract (value, group) pairs from GroupedOptions.
+fn values_with_groups(opts: &[super::transcript::GroupedOption]) -> Vec<(&str, Option<&str>)> {
+    opts.iter()
+        .map(|o| (o.value.as_str(), o.group.as_deref()))
+        .collect()
+}
+
 #[test]
 fn options_from_state_extracts_path_array() {
     let data = serde_json::json!({
@@ -886,7 +899,12 @@ fn options_from_state_extracts_path_array() {
         ]
     });
     let opts = extract_options_from_state("slices", &data, None);
-    assert_eq!(opts, vec!["slices/foo", "slices/bar", "slices/baz"]);
+    assert_eq!(
+        values(&opts),
+        vec!["slices/foo", "slices/bar", "slices/baz"]
+    );
+    // Legacy path never sets group
+    assert!(opts.iter().all(|o| o.group.is_none()));
 }
 
 #[test]
@@ -899,14 +917,14 @@ fn options_from_state_excludes_done_items() {
         ]
     });
     let opts = extract_options_from_state("slices", &data, None);
-    assert_eq!(opts, vec!["slices/active", "slices/wip"]);
+    assert_eq!(values(&opts), vec!["slices/active", "slices/wip"]);
 }
 
 #[test]
 fn options_from_state_extracts_string_array() {
     let data = serde_json::json!({"tags": ["alpha", "beta", "gamma"]});
     let opts = extract_options_from_state("tags", &data, None);
-    assert_eq!(opts, vec!["alpha", "beta", "gamma"]);
+    assert_eq!(values(&opts), vec!["alpha", "beta", "gamma"]);
 }
 
 #[test]
@@ -915,7 +933,7 @@ fn options_from_state_extracts_name_field() {
         "envs": [{"name": "staging"}, {"name": "production"}]
     });
     let opts = extract_options_from_state("envs", &data, None);
-    assert_eq!(opts, vec!["staging", "production"]);
+    assert_eq!(values(&opts), vec!["staging", "production"]);
 }
 
 #[test]
@@ -931,6 +949,7 @@ fn options_from_state_entity_default_collection() {
     let entity = graft_common::EntityDef {
         key: "slug".to_string(),
         collection: None,
+        group_by: None,
     };
     let data = serde_json::json!({
         "slices": [
@@ -940,7 +959,9 @@ fn options_from_state_entity_default_collection() {
     });
     let opts = extract_options_from_state("slices", &data, Some(&entity));
     // Items with status "done" are filtered out, same as the hardcoded path
-    assert_eq!(opts, vec!["retry-logic"]);
+    assert_eq!(values(&opts), vec!["retry-logic"]);
+    // No group_by → group is None
+    assert!(opts.iter().all(|o| o.group.is_none()));
 }
 
 #[test]
@@ -949,6 +970,7 @@ fn options_from_state_entity_explicit_collection() {
     let entity = graft_common::EntityDef {
         key: "id".to_string(),
         collection: Some("tasks".to_string()),
+        group_by: None,
     };
     let data = serde_json::json!({
         "tasks": [
@@ -957,7 +979,7 @@ fn options_from_state_entity_explicit_collection() {
         ]
     });
     let opts = extract_options_from_state("active-tasks", &data, Some(&entity));
-    assert_eq!(opts, vec!["task-a", "task-b"]);
+    assert_eq!(values(&opts), vec!["task-a", "task-b"]);
 }
 
 #[test]
@@ -966,6 +988,7 @@ fn options_from_state_entity_missing_collection_key_returns_empty() {
     let entity = graft_common::EntityDef {
         key: "name".to_string(),
         collection: Some("missing".to_string()),
+        group_by: None,
     };
     let data = serde_json::json!({"environments": [{"name": "staging"}]});
     let opts = extract_options_from_state("environments", &data, Some(&entity));
@@ -978,6 +1001,7 @@ fn options_from_state_entity_skips_items_without_key() {
     let entity = graft_common::EntityDef {
         key: "name".to_string(),
         collection: None,
+        group_by: None,
     };
     let data = serde_json::json!({
         "envs": [
@@ -987,7 +1011,54 @@ fn options_from_state_entity_skips_items_without_key() {
         ]
     });
     let opts = extract_options_from_state("envs", &data, Some(&entity));
-    assert_eq!(opts, vec!["staging", "production"]);
+    assert_eq!(values(&opts), vec!["staging", "production"]);
+}
+
+#[test]
+fn options_from_state_entity_grouped() {
+    // group_by populates the group field from each item
+    let entity = graft_common::EntityDef {
+        key: "slug".to_string(),
+        collection: None,
+        group_by: Some("status".to_string()),
+    };
+    let data = serde_json::json!({
+        "slices": [
+            {"slug": "alpha", "status": "in-progress"},
+            {"slug": "beta", "status": "draft"},
+            {"slug": "gamma", "status": "in-progress"},
+        ]
+    });
+    let opts = extract_options_from_state("slices", &data, Some(&entity));
+    assert_eq!(
+        values_with_groups(&opts),
+        vec![
+            ("alpha", Some("in-progress")),
+            ("beta", Some("draft")),
+            ("gamma", Some("in-progress")),
+        ]
+    );
+}
+
+#[test]
+fn options_from_state_entity_grouped_no_group_field() {
+    // Items missing the group_by field get group = None
+    let entity = graft_common::EntityDef {
+        key: "slug".to_string(),
+        collection: None,
+        group_by: Some("priority".to_string()),
+    };
+    let data = serde_json::json!({
+        "slices": [
+            {"slug": "has-priority", "priority": "high"},
+            {"slug": "no-priority", "status": "draft"},
+        ]
+    });
+    let opts = extract_options_from_state("slices", &data, Some(&entity));
+    assert_eq!(
+        values_with_groups(&opts),
+        vec![("has-priority", Some("high")), ("no-priority", None),]
+    );
 }
 
 #[test]
@@ -1289,10 +1360,12 @@ fn enter_blocked_when_required_arg_missing() {
             ArgCompletion {
                 value: "staging".to_string(),
                 description: String::new(),
+                group: None,
             },
             ArgCompletion {
                 value: "production".to_string(),
                 description: String::new(),
+                group: None,
             },
         ],
         requires_more_input: true,
@@ -2409,10 +2482,12 @@ fn completions_scion_start_shows_scion_names() {
         ArgCompletion {
             value: "my-feature".to_string(),
             description: "+3".to_string(),
+            group: None,
         },
         ArgCompletion {
             value: "bugfix".to_string(),
             description: "+1 [session]".to_string(),
+            group: None,
         },
     ];
     let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
@@ -2437,10 +2512,12 @@ fn completions_scion_start_partial_filters() {
         ArgCompletion {
             value: "my-feature".to_string(),
             description: "+3".to_string(),
+            group: None,
         },
         ArgCompletion {
             value: "bugfix".to_string(),
             description: String::new(),
+            group: None,
         },
     ];
     let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
@@ -2462,6 +2539,7 @@ fn completions_attach_shows_scion_names() {
     let scions = vec![ArgCompletion {
         value: "dev".to_string(),
         description: "+2 [session]".to_string(),
+        group: None,
     }];
     let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
     assert_eq!(cs.completions.len(), 1);
@@ -2483,10 +2561,12 @@ fn completions_review_shows_scion_names() {
         ArgCompletion {
             value: "alpha".to_string(),
             description: String::new(),
+            group: None,
         },
         ArgCompletion {
             value: "beta".to_string(),
             description: String::new(),
+            group: None,
         },
     ];
     let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
@@ -2540,6 +2620,7 @@ fn completions_scion_stop_shows_scion_names() {
     let scions = vec![ArgCompletion {
         value: "my-feature".to_string(),
         description: "+1 [session]".to_string(),
+        group: None,
     }];
     let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
     assert_eq!(cs.completions.len(), 1);
@@ -2560,6 +2641,7 @@ fn completions_scion_prune_shows_scion_names() {
     let scions = vec![ArgCompletion {
         value: "old-branch".to_string(),
         description: String::new(),
+        group: None,
     }];
     let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
     assert_eq!(cs.completions.len(), 1);
@@ -2580,6 +2662,7 @@ fn completions_scion_fuse_shows_scion_names() {
     let scions = vec![ArgCompletion {
         value: "ready-branch".to_string(),
         description: "+5".to_string(),
+        group: None,
     }];
     let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
     assert_eq!(cs.completions.len(), 1);
@@ -2657,6 +2740,7 @@ fn completions_scion_start_no_trailing_space_completes_subcommand() {
     let scions = vec![ArgCompletion {
         value: "my-feature".to_string(),
         description: String::new(),
+        group: None,
     }];
     let cs = p.compute_completions(&[], &[], &[], &HashMap::default(), &scions);
     // Should show "start" and "stop" subcommands, not scion names
@@ -2957,4 +3041,130 @@ fn scion_list_table_verify_and_status_columns() {
     } else {
         panic!("Expected Table block");
     }
+}
+
+// ===== build_grouped_items / build_flat_items tests =====
+
+fn make_completions(entries: &[(&str, &str, Option<&str>)]) -> CompletionState {
+    CompletionState {
+        completions: entries
+            .iter()
+            .map(|(val, desc, grp)| ArgCompletion {
+                value: val.to_string(),
+                description: desc.to_string(),
+                group: grp.map(|g| g.to_string()),
+            })
+            .collect(),
+        requires_more_input: false,
+        arg_hint: None,
+    }
+}
+
+#[test]
+fn grouped_items_inserts_headers_per_group() {
+    let cs = make_completions(&[
+        ("alpha", "", Some("in-progress")),
+        ("beta", "", Some("in-progress")),
+        ("gamma", "", Some("draft")),
+    ]);
+    let (items, _, _) = build_grouped_items(&cs, 0);
+    // 2 headers + 3 items = 5 display rows
+    assert_eq!(items.len(), 5);
+}
+
+#[test]
+fn grouped_items_selected_display_row_maps_correctly() {
+    let cs = make_completions(&[
+        ("alpha", "", Some("in-progress")),
+        ("beta", "", Some("draft")),
+        ("gamma", "", Some("draft")),
+    ]);
+    // palette_selected=0 → first selectable item (row 1, after first header)
+    let (_, row0, _) = build_grouped_items(&cs, 0);
+    assert_eq!(row0, 1);
+
+    // palette_selected=1 → first item of second group (row 3: header0, item0, header1, item1)
+    let (_, row1, _) = build_grouped_items(&cs, 1);
+    assert_eq!(row1, 3);
+
+    // palette_selected=2 → second item of second group (row 4)
+    let (_, row2, _) = build_grouped_items(&cs, 2);
+    assert_eq!(row2, 4);
+}
+
+#[test]
+fn grouped_items_none_group_gets_other_header() {
+    let cs = make_completions(&[("alpha", "", Some("wip")), ("beta", "", None)]);
+    let (items, _, _) = build_grouped_items(&cs, 0);
+    // 2 headers ("wip", "other") + 2 items = 4 rows
+    assert_eq!(items.len(), 4);
+}
+
+#[test]
+fn grouped_items_same_group_adjacent_share_header() {
+    let cs = make_completions(&[
+        ("a", "", Some("draft")),
+        ("b", "", Some("draft")),
+        ("c", "", Some("draft")),
+    ]);
+    let (items, _, _) = build_grouped_items(&cs, 0);
+    // 1 header + 3 items = 4
+    assert_eq!(items.len(), 4);
+}
+
+#[test]
+fn grouped_items_min_width_floor() {
+    let cs = make_completions(&[("x", "", Some("g"))]);
+    let (_, _, max_w) = build_grouped_items(&cs, 0);
+    assert!(
+        max_w >= 20,
+        "grouped items should have minimum width 20, got {max_w}"
+    );
+}
+
+#[test]
+fn flat_items_no_headers() {
+    let cs = make_completions(&[("alpha", "desc-a", None), ("beta", "desc-b", None)]);
+    let (items, _, _) = build_flat_items(&cs, 0);
+    assert_eq!(items.len(), 2);
+}
+
+#[test]
+fn flat_items_selected_equals_palette_selected() {
+    let cs = make_completions(&[("a", "", None), ("b", "", None), ("c", "", None)]);
+    let (_, sel, _) = build_flat_items(&cs, 1);
+    assert_eq!(sel, 1);
+}
+
+#[test]
+fn flat_items_min_width_floor() {
+    let cs = make_completions(&[("x", "", None)]);
+    let (_, _, max_w) = build_flat_items(&cs, 0);
+    assert!(
+        max_w >= 20,
+        "flat items should have minimum width 20, got {max_w}"
+    );
+}
+
+#[test]
+fn flat_items_clamps_out_of_bounds_selection() {
+    let cs = make_completions(&[("a", "", None), ("b", "", None)]);
+    let (_, sel, _) = build_flat_items(&cs, 99);
+    assert_eq!(sel, 1); // clamped to last
+}
+
+#[test]
+fn grouped_items_clamps_out_of_bounds_selection() {
+    let cs = make_completions(&[("a", "", Some("g1")), ("b", "", Some("g2"))]);
+    let (_, row, _) = build_grouped_items(&cs, 99);
+    // clamped to last selectable → second item → display row 3 (h1, item1, h2, item2)
+    assert_eq!(row, 3);
+}
+
+#[test]
+fn grouped_items_empty_completions() {
+    let cs = make_completions(&[]);
+    let (items, row, _) = build_grouped_items(&cs, 0);
+    assert!(items.is_empty());
+    assert_eq!(row, 0);
 }

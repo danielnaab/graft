@@ -1710,10 +1710,10 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 let q_owned = q.to_string();
                 let items: Vec<PickerItem> = opts
                     .into_iter()
-                    .map(|v| PickerItem {
-                        label: v.clone(),
+                    .map(|o| PickerItem {
+                        label: o.value.clone(),
                         description: String::new(),
-                        action: CliCommand::Focus(Some(q_owned.clone()), Some(v)),
+                        action: CliCommand::Focus(Some(q_owned.clone()), Some(o.value)),
                     })
                     .collect();
                 self.picker = Some(PickerState::new(items));
@@ -2508,7 +2508,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                     .and_then(|qs| qs.iter().find(|q| q.name == *query_name))
                     .and_then(|q| q.entity.as_ref());
                 let opts = extract_options_from_state(query_name, data, entity);
-                if !opts.contains(focused_value) {
+                if !opts.iter().any(|o| o.value == *focused_value) {
                     stale.insert(query_name.clone());
                 }
             }
@@ -2568,7 +2568,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             HashMap::new()
         } else {
             let mut map = HashMap::new();
-            map.insert(query_name, opts);
+            map.insert(query_name, opts.into_iter().map(|o| o.value).collect());
             map
         }
     }
@@ -2616,9 +2616,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
 
         if !source_names.is_empty() {
             // Source names first — annotate with scion status if it exists
-            for name in &source_names {
-                seen.insert(name.clone());
-                let description = if let Some(scion) = existing_map.get(name) {
+            for grouped_opt in &source_names {
+                seen.insert(grouped_opt.value.clone());
+                let description = if let Some(scion) = existing_map.get(&grouped_opt.value) {
                     match (scion.ahead, scion.session_active) {
                         (Some(a), Some(true)) => format!("+{a} [session]"),
                         (Some(a), _) => format!("+{a}"),
@@ -2628,8 +2628,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                     String::new()
                 };
                 completions.push(super::prompt::ArgCompletion {
-                    value: name.clone(),
+                    value: grouped_opt.value.clone(),
                     description,
+                    group: grouped_opt.group.clone(),
                 });
             }
         }
@@ -2647,6 +2648,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             completions.push(super::prompt::ArgCompletion {
                 value: scion.name.clone(),
                 description: status,
+                group: None,
             });
         }
 
@@ -2655,7 +2657,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     }
 
     /// Resolve names from the `scions.source` state query, if configured.
-    fn resolve_source_completions(&mut self, repo_path: &str) -> Vec<String> {
+    fn resolve_source_completions(&mut self, repo_path: &str) -> Vec<GroupedOption> {
         // Lazily load graft config
         if self.context.cached_graft_config.is_none() {
             self.context.cached_graft_config =
@@ -2822,7 +2824,11 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
         for (_, query_names) in &to_patch {
             for query_name in query_names {
                 if !resolved_map.contains_key(query_name) {
-                    let opts = self.resolve_options_from(query_name, &repo_name);
+                    let opts: Vec<String> = self
+                        .resolve_options_from(query_name, &repo_name)
+                        .into_iter()
+                        .map(|o| o.value)
+                        .collect();
                     resolved_map.insert(query_name.clone(), opts);
                 }
             }
@@ -2871,7 +2877,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     ///
     /// The `entity` declaration (if any) is threaded through to `extract_options_from_state`
     /// for all three paths so that entity-aware extraction is used consistently.
-    fn resolve_options_from(&mut self, query_name: &str, repo_name: &str) -> Vec<String> {
+    fn resolve_options_from(&mut self, query_name: &str, repo_name: &str) -> Vec<GroupedOption> {
         // Lazily discover state queries to obtain the entity declaration.
         // We do this up-front so all three cache paths can use it.
         let repo_path_opt = self.context.selected_repo_path.clone();
@@ -2948,20 +2954,28 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
     }
 }
 
-/// Extract a flat list of string options from a state query result.
+/// An option extracted from a state query, optionally tagged with a group.
+#[derive(Debug, Clone)]
+pub(super) struct GroupedOption {
+    pub(super) value: String,
+    pub(super) group: Option<String>,
+}
+
+/// Extract options from a state query result, with optional grouping.
 ///
 /// When `entity` is `Some`, uses `entity.collection` (falling back to `query_name`) as the
 /// JSON array key and `entity.key` to extract the identity value from each object.
+/// If `entity.group_by` is set, the corresponding field value is used as the group.
 ///
 /// When `entity` is `None`, preserves the existing hardcoded behavior: looks for a
 /// top-level array under `query_name`; bare strings are used as-is; objects with a `path`
 /// field yield the parent directory; objects with a `name` field yield that name; items
-/// with `status == "done"` are skipped.
+/// with `status == "done"` are skipped. Group is always `None` in this path.
 pub(super) fn extract_options_from_state(
     query_name: &str,
     data: &serde_json::Value,
     entity: Option<&graft_common::EntityDef>,
-) -> Vec<String> {
+) -> Vec<GroupedOption> {
     if let Some(entity) = entity {
         // Entity-aware extraction: use declared collection key and identity field.
         let collection_key = entity.collection.as_deref().unwrap_or(query_name);
@@ -2974,9 +2988,16 @@ pub(super) fn extract_options_from_state(
                 if item.get("status").and_then(|v| v.as_str()) == Some("done") {
                     return None;
                 }
-                item.get(&entity.key)
+                let value = item
+                    .get(&entity.key)
                     .and_then(|v| v.as_str())
-                    .map(ToString::to_string)
+                    .map(ToString::to_string)?;
+                let group = entity.group_by.as_ref().and_then(|field| {
+                    item.get(field)
+                        .and_then(|v| v.as_str())
+                        .map(ToString::to_string)
+                });
+                Some(GroupedOption { value, group })
             })
             .collect();
     }
@@ -2991,20 +3012,19 @@ pub(super) fn extract_options_from_state(
             if item.get("status").and_then(|v| v.as_str()) == Some("done") {
                 return None;
             }
-            if let Some(s) = item.as_str() {
-                Some(s.to_string())
+            let value = if let Some(s) = item.as_str() {
+                s.to_string()
             } else if let Some(path) = item.get("path").and_then(|v| v.as_str()) {
                 // Strip the trailing filename (e.g. "slices/foo/plan.md" → "slices/foo")
-                Some(
-                    path.rsplit_once('/')
-                        .map_or(path, |(dir, _)| dir)
-                        .to_string(),
-                )
+                path.rsplit_once('/')
+                    .map_or(path, |(dir, _)| dir)
+                    .to_string()
             } else {
                 item.get("name")
                     .and_then(|v| v.as_str())
-                    .map(ToString::to_string)
-            }
+                    .map(ToString::to_string)?
+            };
+            Some(GroupedOption { value, group: None })
         })
         .collect()
 }
