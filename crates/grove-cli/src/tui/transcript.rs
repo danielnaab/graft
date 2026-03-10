@@ -678,6 +678,7 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 // Clear in-memory and resolved-commands caches: a command may change repo state.
                 self.context.in_memory_state.clear();
                 self.context.resolved_commands = None;
+                self.context.cached_scion_completions = None;
                 self.cmd_run(&command_name, args);
             }
             CliCommand::Status => self.cmd_status(),
@@ -2889,19 +2890,26 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             }
         }
 
-        // Clone the entity so we can pass it through without holding a borrow.
-        let entity = self
+        // Clone the entity and inputs so we can use them without holding a borrow.
+        let (entity, query_inputs) = self
             .context
             .cached_state_queries
             .as_ref()
             .and_then(|queries| queries.iter().find(|q| q.name == query_name))
-            .and_then(|q| q.entity.clone());
+            .map_or((None, None), |q| (q.entity.clone(), q.inputs.clone()));
 
-        // 1. Try disk cache (may have been written by a previous `graft run … verify`)
-        if let Some(result) =
-            graft_common::read_latest_cached(&self.workspace_name, repo_name, query_name)
-        {
-            return extract_options_from_state(query_name, &result.data, entity.as_ref());
+        // 1. Try disk cache — but only for queries with declared inputs.
+        //    Queries without `cache.inputs` are non-deterministic and should
+        //    not be served from stale disk cache.
+        let has_inputs = query_inputs
+            .as_ref()
+            .is_some_and(|inputs| !inputs.is_empty());
+        if has_inputs {
+            if let Some(result) =
+                graft_common::read_latest_cached(&self.workspace_name, repo_name, query_name)
+            {
+                return extract_options_from_state(query_name, &result.data, entity.as_ref());
+            }
         }
 
         // 2. Try in-memory cache (populated by an earlier fresh run this session)
