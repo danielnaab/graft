@@ -189,7 +189,7 @@ args are visible in the log content itself.
     `crates/graft-common/src/runs.rs`,
     `crates/grove-cli/src/tui/scroll_buffer.rs`
 
-- [ ] **Add `graft logs` list and show subcommands**
+- [x] **Add `graft logs` list and show subcommands**
   - **Delivers** — run history accessible from the command line
   - **Done when** — `Logs` variant added to `Commands` enum with
     clap subcommands; `graft logs` lists recent runs with command,
