@@ -2567,10 +2567,15 @@ fn help_command(dep_spec: &str, json: bool) -> Result<()> {
 }
 
 /// Merge state queries from dependency graft.yaml files into the root config.
+///
+/// Rewrites relative script paths in `run` to absolute paths inside the dep
+/// directory, matching how grove's `discover_all_state_queries` works.
 fn merge_dep_state_queries(repo_path: &Path, config: &mut graft_engine::GraftConfig) {
     let (dep_configs, _warnings) = graft_engine::load_dep_configs(repo_path, config);
-    for (_dep_name, dep_config) in dep_configs {
-        for (name, query) in dep_config.state {
+    for (dep_name, dep_config) in dep_configs {
+        let dep_dir = repo_path.join(".graft").join(&dep_name);
+        for (name, mut query) in dep_config.state {
+            query.run = graft_engine::resolve_script_in_command(&query.run, &dep_dir);
             config.state.entry(name).or_insert(query);
         }
     }
