@@ -778,6 +778,7 @@ fn derive_repo_name(repo: &Path) -> String {
 /// - The referenced command is not found
 /// - State query resolution or template rendering fails
 /// - The runtime fails to launch the session
+#[allow(clippy::too_many_lines)]
 pub fn scion_start(
     repo_path: impl AsRef<Path>,
     name: &str,
@@ -906,7 +907,18 @@ pub fn scion_start(
     let session_id = scion_session_id(name);
     let launch_cmd = format!("bash {}", shell_escape(&launcher_path.to_string_lossy()));
     runtime.launch(&session_id, &launch_cmd, &wt_path)?;
-    Ok(())
+
+    // Give the session a moment to fail, then verify it's still alive.
+    // Without this check, a command that exits immediately (e.g. bad script)
+    // would silently disappear and grove would report success.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    match runtime.exists(&session_id) {
+        Ok(true) => Ok(()),
+        _ => Err(GraftError::CommandExecution(format!(
+            "scion '{name}' session exited immediately. Check the launcher script at {}",
+            launcher_path.display()
+        ))),
+    }
 }
 
 /// Stop a runtime session for a scion.

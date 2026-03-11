@@ -3015,8 +3015,9 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                 String::new()
             } else {
                 let joined = run.args.join(" ");
-                if joined.len() > 20 {
-                    format!("{}\u{2026}", &joined[..20])
+                if joined.chars().count() > 20 {
+                    let truncated: String = joined.chars().take(20).collect();
+                    format!("{truncated}\u{2026}")
                 } else {
                     joined
                 }
