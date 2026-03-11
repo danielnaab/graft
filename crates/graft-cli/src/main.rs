@@ -2566,23 +2566,34 @@ fn help_command(dep_spec: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// Merge state queries from dependency graft.yaml files into the root config.
+fn merge_dep_state_queries(repo_path: &Path, config: &mut graft_engine::GraftConfig) {
+    let (dep_configs, _warnings) = graft_engine::load_dep_configs(repo_path, config);
+    for (_dep_name, dep_config) in dep_configs {
+        for (name, query) in dep_config.state {
+            config.state.entry(name).or_insert(query);
+        }
+    }
+}
+
 fn state_list_command() -> Result<()> {
     // Find graft.yaml
     let graft_path =
         find_graft_yaml().context("No graft.yaml found in current directory or parents")?;
 
-    // Parse config
-    let config = parse_graft_yaml(&graft_path)?;
+    // Parse config and merge dependency state queries
+    let mut config = parse_graft_yaml(&graft_path)?;
+    let repo_path = graft_path
+        .parent()
+        .context("Failed to get repository path")?;
+    merge_dep_state_queries(repo_path, &mut config);
 
     if config.state.is_empty() {
-        println!("No state queries defined in graft.yaml");
+        println!("No state queries defined");
         return Ok(());
     }
 
     // Get current commit hash
-    let repo_path = graft_path
-        .parent()
-        .context("Failed to get repository path")?;
     let commit_hash = get_current_commit(repo_path)?;
 
     // Use repository name as both workspace and repo name (simplified for Stage 1)
@@ -2620,13 +2631,12 @@ fn state_query_command(name: &str, refresh: bool, raw: bool, pretty: bool) -> Re
     let graft_path =
         find_graft_yaml().context("No graft.yaml found in current directory or parents")?;
 
-    // Parse config
-    let config = parse_graft_yaml(&graft_path)?;
-
-    // Get repository path
+    // Parse config and merge dependency state queries
+    let mut config = parse_graft_yaml(&graft_path)?;
     let repo_path = graft_path
         .parent()
         .context("Failed to get repository path")?;
+    merge_dep_state_queries(repo_path, &mut config);
 
     // Get current commit hash
     let commit_hash = get_current_commit(repo_path)?;
