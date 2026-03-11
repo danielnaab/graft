@@ -175,7 +175,7 @@ args are visible in the log content itself.
 
 ## Steps
 
-- [ ] **Extract `format_duration` to graft-common and add
+- [x] **Extract `format_duration` to graft-common and add
   `RunMeta::duration_display()`**
   - **Delivers** — shared duration formatting for CLI and TUI
   - **Done when** — `format_elapsed` logic moved from
@@ -189,7 +189,7 @@ args are visible in the log content itself.
     `crates/graft-common/src/runs.rs`,
     `crates/grove-cli/src/tui/scroll_buffer.rs`
 
-- [ ] **Add `graft logs` list and show subcommands**
+- [x] **Add `graft logs` list and show subcommands**
   - **Delivers** — run history accessible from the command line
   - **Done when** — `Logs` variant added to `Commands` enum with
     clap subcommands; `graft logs` lists recent runs with command,
@@ -201,7 +201,7 @@ args are visible in the log content itself.
     when run outside a graft project
   - **Files** — `crates/graft-cli/src/main.rs`
 
-- [ ] **Add `:logs` command and `LogView` handler to grove TUI**
+- [x] **Add `:logs` command and `LogView` handler to grove TUI**
   - **Delivers** — run history browsable and viewable in the TUI
   - **Done when** — `CliCommand::Logs(Option<String>)` and
     `CliCommand::LogView(String)` variants added; `parse_command`

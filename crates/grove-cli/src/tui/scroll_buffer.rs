@@ -759,12 +759,7 @@ const GUTTER_WIDTH: u16 = 2;
 
 /// Format a duration as a short human-readable string: "42s" or "2m 34s".
 fn format_elapsed(d: Duration) -> String {
-    let secs = d.as_secs();
-    if secs < 60 {
-        format!("{secs}s")
-    } else {
-        format!("{}m {}s", secs / 60, secs % 60)
-    }
+    graft_common::format_duration(d)
 }
 
 /// Number of trailing output lines shown when a Running block is collapsed.

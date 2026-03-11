@@ -6,7 +6,8 @@ use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
 use graft_common::{
-    FsProcessRegistry, ProcessEntry, ProcessRegistry, ProcessStatus, SessionRuntime, TmuxRuntime,
+    list_runs, read_run_log, FsProcessRegistry, ProcessEntry, ProcessRegistry, ProcessStatus,
+    RunMeta, SessionRuntime, TmuxRuntime,
 };
 use graft_engine::{
     add_dependency_to_config, apply_lock, fetch_all_dependencies, fetch_dependency,
@@ -200,6 +201,40 @@ enum Commands {
     Scion {
         #[command(subcommand)]
         subcommand: ScionCommands,
+    },
+    /// View run history and logs
+    Logs {
+        #[command(subcommand)]
+        subcommand: Option<LogsSubcommands>,
+
+        /// Filter by command name prefix
+        #[arg(long)]
+        command: Option<String>,
+
+        /// Maximum number of results to show (default 20)
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum LogsSubcommands {
+    /// Show the full log content for a run (1-based index from list)
+    Show {
+        /// 1-based index of the run to view
+        index: usize,
+
+        /// Filter by command name prefix (same as parent --command)
+        #[arg(long)]
+        command: Option<String>,
+
+        /// Maximum number of results to resolve index against (default 20)
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
     },
 }
 
@@ -401,6 +436,23 @@ fn main() -> Result<()> {
             }
             ScionCommands::Run { name } => {
                 scion_run_command(&name)?;
+            }
+        },
+        Commands::Logs {
+            subcommand,
+            command,
+            limit,
+            json,
+        } => match subcommand {
+            None => {
+                logs_list_command(command.as_deref(), limit, json)?;
+            }
+            Some(LogsSubcommands::Show {
+                index,
+                command,
+                limit,
+            }) => {
+                logs_show_command(index, command.as_deref(), limit)?;
             }
         },
     }
@@ -2968,6 +3020,109 @@ fn get_current_commit(repo_path: &Path) -> Result<String> {
     let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
     Ok(commit)
+}
+
+/// Resolve workspace and repo names from the current directory.
+///
+/// Uses `find_graft_yaml()` to locate the project root, then extracts
+/// the directory name as both workspace and repo name (Stage 1 simplification).
+fn resolve_workspace_repo() -> Option<(String, String)> {
+    let graft_yaml_path = find_graft_yaml()?;
+    let base_dir = graft_yaml_path.parent()?;
+    let name = base_dir
+        .canonicalize()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_else(|| "unknown".to_string());
+    Some((name.clone(), name))
+}
+
+fn logs_list_command(command_filter: Option<&str>, limit: usize, json: bool) -> Result<()> {
+    let Some((workspace, repo)) = resolve_workspace_repo() else {
+        eprintln!("Error: No graft.yaml found in current directory or parent directories");
+        std::process::exit(1);
+    };
+
+    let mut runs = list_runs(&workspace, &repo, 0);
+
+    // Apply command filter (case-insensitive prefix match)
+    if let Some(filter) = command_filter {
+        let filter_lower = filter.to_lowercase();
+        runs.retain(|r| r.command.to_lowercase().starts_with(&filter_lower));
+    }
+
+    // Apply limit
+    runs.truncate(limit);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&runs)?);
+        return Ok(());
+    }
+
+    if runs.is_empty() {
+        println!("No runs found.");
+        return Ok(());
+    }
+
+    // Compute column widths
+    let cmd_width = runs
+        .iter()
+        .map(|r| r.command.len())
+        .max()
+        .unwrap_or(7)
+        .max(7);
+
+    println!(
+        "{:<3}  {:<cmd_width$}  {:<10}  {:<9}  Status",
+        "#", "Command", "Time", "Duration"
+    );
+    println!("{}", "-".repeat(3 + 2 + cmd_width + 2 + 10 + 2 + 9 + 2 + 6));
+
+    for (i, run) in runs.iter().enumerate() {
+        let duration = run.duration_display().unwrap_or_else(|| "-".to_string());
+        println!(
+            "{:<3}  {:<cmd_width$}  {:<10}  {:<9}  {}",
+            i + 1,
+            run.command,
+            run.time_ago(),
+            duration,
+            run.status_display(),
+        );
+    }
+
+    Ok(())
+}
+
+fn logs_show_command(index: usize, command_filter: Option<&str>, limit: usize) -> Result<()> {
+    let Some((workspace, repo)) = resolve_workspace_repo() else {
+        eprintln!("Error: No graft.yaml found in current directory or parent directories");
+        std::process::exit(1);
+    };
+
+    let mut runs = list_runs(&workspace, &repo, 0);
+
+    // Apply command filter (case-insensitive prefix match)
+    if let Some(filter) = command_filter {
+        let filter_lower = filter.to_lowercase();
+        runs.retain(|r: &RunMeta| r.command.to_lowercase().starts_with(&filter_lower));
+    }
+
+    runs.truncate(limit);
+
+    if index == 0 || index > runs.len() {
+        eprintln!("Error: index {index} is out of range (1..={})", runs.len());
+        std::process::exit(1);
+    }
+
+    let run = &runs[index - 1];
+
+    let Some(content) = read_run_log(&workspace, &repo, &run.log_file) else {
+        eprintln!("Error: Log file '{}' not found", run.log_file);
+        std::process::exit(1);
+    };
+
+    print!("{content}");
+    Ok(())
 }
 
 #[cfg(test)]
