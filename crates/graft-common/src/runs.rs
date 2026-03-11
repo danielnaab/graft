@@ -45,6 +45,16 @@ impl RunMeta {
         crate::format_time_ago(&self.start_time)
     }
 
+    /// Human-readable duration string (e.g. "2m 34s"), or `None` when still running.
+    pub fn duration_display(&self) -> Option<String> {
+        let end_str = self.end_time.as_deref()?;
+        let start = DateTime::parse_from_rfc3339(&self.start_time).ok()?;
+        let end = DateTime::parse_from_rfc3339(end_str).ok()?;
+        let delta = end.signed_duration_since(start);
+        let duration = std::time::Duration::from_secs(delta.num_seconds().max(0).cast_unsigned());
+        Some(crate::format_duration(duration))
+    }
+
     /// Short display string for the exit status.
     pub fn status_display(&self) -> &str {
         match self.exit_code {
@@ -324,5 +334,47 @@ mod tests {
             log_file: "test.log".to_string(),
         };
         assert_eq!(meta.time_ago(), "just now");
+    }
+
+    #[test]
+    fn duration_display_returns_none_when_no_end_time() {
+        let meta = RunMeta {
+            command: "test".to_string(),
+            args: vec![],
+            shell_cmd: "echo".to_string(),
+            start_time: "2026-02-22T15:30:00Z".to_string(),
+            end_time: None,
+            exit_code: None,
+            log_file: "test.log".to_string(),
+        };
+        assert!(meta.duration_display().is_none());
+    }
+
+    #[test]
+    fn duration_display_formats_seconds() {
+        let meta = RunMeta {
+            command: "test".to_string(),
+            args: vec![],
+            shell_cmd: "echo".to_string(),
+            start_time: "2026-02-22T15:30:00Z".to_string(),
+            end_time: Some("2026-02-22T15:30:42Z".to_string()),
+            exit_code: Some(0),
+            log_file: "test.log".to_string(),
+        };
+        assert_eq!(meta.duration_display(), Some("42s".to_string()));
+    }
+
+    #[test]
+    fn duration_display_formats_minutes() {
+        let meta = RunMeta {
+            command: "test".to_string(),
+            args: vec![],
+            shell_cmd: "echo".to_string(),
+            start_time: "2026-02-22T15:30:00Z".to_string(),
+            end_time: Some("2026-02-22T15:32:34Z".to_string()),
+            exit_code: Some(0),
+            log_file: "test.log".to_string(),
+        };
+        assert_eq!(meta.duration_display(), Some("2m 34s".to_string()));
     }
 }

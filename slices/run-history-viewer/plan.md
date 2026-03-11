@@ -175,7 +175,7 @@ args are visible in the log content itself.
 
 ## Steps
 
-- [ ] **Extract `format_duration` to graft-common and add
+- [x] **Extract `format_duration` to graft-common and add
   `RunMeta::duration_display()`**
   - **Delivers** — shared duration formatting for CLI and TUI
   - **Done when** — `format_elapsed` logic moved from

@@ -13,6 +13,17 @@ pub mod runtime;
 pub mod state;
 
 use chrono::{DateTime, Utc};
+use std::time::Duration;
+
+/// Format a duration as a short human-readable string: "42s" or "2m 34s".
+pub fn format_duration(d: Duration) -> String {
+    let secs = d.as_secs();
+    if secs < 60 {
+        format!("{secs}s")
+    } else {
+        format!("{}m {}s", secs / 60, secs % 60)
+    }
+}
 
 /// Format an RFC 3339 timestamp as a human-readable "time ago" string.
 ///
