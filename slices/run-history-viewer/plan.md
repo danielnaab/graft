@@ -201,7 +201,7 @@ args are visible in the log content itself.
     when run outside a graft project
   - **Files** — `crates/graft-cli/src/main.rs`
 
-- [ ] **Add `:logs` command and `LogView` handler to grove TUI**
+- [x] **Add `:logs` command and `LogView` handler to grove TUI**
   - **Delivers** — run history browsable and viewable in the TUI
   - **Done when** — `CliCommand::Logs(Option<String>)` and
     `CliCommand::LogView(String)` variants added; `parse_command`

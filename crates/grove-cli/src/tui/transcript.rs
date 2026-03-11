@@ -29,6 +29,9 @@ use super::status_bar::StatusMessage;
 /// Default number of recent commits to show.
 const DEFAULT_MAX_COMMITS: usize = 10;
 
+/// Maximum number of log lines to display when viewing a run log.
+const MAX_LOG_LINES: usize = 10_000;
+
 /// Active repository context.
 #[derive(Debug)]
 pub(super) struct RepoContext {
@@ -706,6 +709,8 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
                     self.prompt.open_with(&text);
                 }
             }
+            CliCommand::Logs(filter) => self.cmd_logs(filter.as_deref()),
+            CliCommand::LogView(log_file) => self.cmd_log_view(&log_file),
             CliCommand::Unknown(raw) => {
                 if !raw.is_empty() {
                     self.show_error(format!("Unknown command: :{raw}"));
@@ -2959,6 +2964,141 @@ impl<R: RepoRegistry, D: RepoDetailProvider> TranscriptApp<R, D> {
             .insert(query_name.to_string(), data.clone());
 
         extract_options_from_state(query_name, &data, entity.as_ref())
+    }
+
+    /// `:logs [filter]` — push a "Recent Runs" table into the scroll buffer.
+    fn cmd_logs(&mut self, filter: Option<&str>) {
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.show_warning("No repository selected");
+            return;
+        };
+
+        let repo_name = extract_basename(&repo_path).to_string();
+        let mut runs = graft_common::list_runs(&self.workspace_name, &repo_name, 20);
+
+        // Apply command filter (case-insensitive prefix match)
+        if let Some(f) = filter {
+            let f_lower = f.to_lowercase();
+            runs.retain(|r| r.command.to_lowercase().starts_with(&f_lower));
+        }
+
+        if runs.is_empty() {
+            let msg = if let Some(f) = filter {
+                format!("No runs matching: {f}")
+            } else {
+                "No runs found for this repository".to_string()
+            };
+            self.status = Some(StatusMessage::info(msg));
+            return;
+        }
+
+        let headers = vec![
+            "Command".to_string(),
+            "Args".to_string(),
+            "Time".to_string(),
+            "Duration".to_string(),
+            "Status".to_string(),
+        ];
+
+        let mut rows = Vec::new();
+        let mut actions = Vec::new();
+
+        for run in &runs {
+            let status_color = match run.status_display() {
+                "ok" => Color::Green,
+                "failed" => Color::Red,
+                _ => Color::Yellow,
+            };
+
+            // Truncate args to ~20 chars
+            let args_display = if run.args.is_empty() {
+                String::new()
+            } else {
+                let joined = run.args.join(" ");
+                if joined.len() > 20 {
+                    format!("{}\u{2026}", &joined[..20])
+                } else {
+                    joined
+                }
+            };
+
+            let duration = run.duration_display().unwrap_or_else(|| "-".to_string());
+
+            rows.push(vec![
+                Span::styled(run.command.clone(), Style::default().fg(Color::Cyan)),
+                Span::styled(args_display, Style::default().fg(Color::White)),
+                Span::styled(run.time_ago(), Style::default().fg(Color::DarkGray)),
+                Span::styled(duration, Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    run.status_display().to_string(),
+                    Style::default().fg(status_color),
+                ),
+            ]);
+            actions.push(CliCommand::LogView(run.log_file.clone()));
+        }
+
+        self.scroll.push(ContentBlock::Table {
+            id: BlockId::new(),
+            title: "Recent Runs".to_string(),
+            headers,
+            rows,
+            collapsed: false,
+            actions: Some(actions),
+        });
+        self.scroll.scroll_to_bottom();
+    }
+
+    /// Handle row selection in the logs table: read and display log content.
+    fn cmd_log_view(&mut self, log_file: &str) {
+        let Some(repo_path) = self.context.selected_repo_path.clone() else {
+            self.show_warning("No repository selected");
+            return;
+        };
+
+        let repo_name = extract_basename(&repo_path).to_string();
+
+        let Some(content) = graft_common::read_run_log(&self.workspace_name, &repo_name, log_file)
+        else {
+            self.show_warning(format!("Log file not found: {log_file}"));
+            return;
+        };
+
+        let raw_lines: Vec<&str> = content.lines().collect();
+        let truncated = raw_lines.len() > MAX_LOG_LINES;
+        let display_lines = if truncated {
+            &raw_lines[..MAX_LOG_LINES]
+        } else {
+            &raw_lines
+        };
+
+        let mut lines: Vec<Line<'static>> = Vec::with_capacity(display_lines.len() + 2);
+
+        if truncated {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "[Truncated: showing first {MAX_LOG_LINES} of {} lines]",
+                    raw_lines.len()
+                ),
+                Style::default().fg(Color::Yellow),
+            )));
+            lines.push(Line::from(""));
+        }
+
+        for l in display_lines {
+            lines.push(Line::from(l.to_string()));
+        }
+
+        // Build a descriptive title from the log filename
+        let title = format!("Log: {log_file}");
+
+        self.scroll.push(ContentBlock::Text {
+            id: BlockId::new(),
+            lines,
+            collapsed: false,
+        });
+        // Update status bar with the title
+        self.status = Some(StatusMessage::info(title));
+        self.scroll.scroll_to_bottom();
     }
 }
 

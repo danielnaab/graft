@@ -44,6 +44,11 @@ pub(super) const PALETTE_COMMANDS: &[PaletteEntry] = &[
         takes_args: false,
     },
     PaletteEntry {
+        command: "logs",
+        description: "Show recent run history for the current repository",
+        takes_args: false,
+    },
+    PaletteEntry {
         command: "quit",
         description: "Quit Grove",
         takes_args: false,
@@ -163,6 +168,10 @@ pub(super) enum CliCommand {
     StateRun(String),
     /// Pre-populate the prompt with text (used by catalog for commands needing args).
     PopulatePrompt(String),
+    /// `:logs [filter]` — show recent run history for the selected repo.
+    Logs(Option<String>),
+    /// View full log content for a run (triggered by selecting a row in the logs table).
+    LogView(String),
     /// An unknown command (the raw input is preserved for error display).
     Unknown(String),
 }
@@ -324,6 +333,13 @@ pub(super) fn parse_command(input: &str) -> CliCommand {
                     .map(str::trim)
                     .is_some_and(|s| s.eq_ignore_ascii_case("full"));
                 CliCommand::Review(name, full)
+            }
+        }
+        "logs" | "l" => {
+            if rest.is_empty() {
+                CliCommand::Logs(None)
+            } else {
+                CliCommand::Logs(Some(rest.to_string()))
             }
         }
         _ => CliCommand::Unknown(input.to_string()),
