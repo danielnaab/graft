@@ -39,10 +39,10 @@ Copier will:
 
 All template patterns and guides are available in `../python-starter/docs/`:
 
-- [Architecture Patterns](../python-starter/docs/architecture/)
-- [Architectural Decisions](../python-starter/docs/decisions/)
-- [Development Guides](../python-starter/docs/guides/)
-- [Technical Reference](../python-starter/docs/reference/)
+- [Architecture Patterns](../../.graft/python-starter/docs/architecture/)
+- [Architectural Decisions](../../.graft/python-starter/docs/decisions/)
+- [Development Guides](../../.graft/python-starter/docs/guides/)
+- [Technical Reference](../../.graft/python-starter/docs/reference/)
 
 ## Project Structure
 
@@ -53,7 +53,7 @@ This project uses the Python Starter Template architecture:
 - **Context objects**: Immutable dependency containers
 - **Testing with fakes**: Prefer fakes over mocks
 
-See [Template Architecture Overview](../python-starter/docs/architecture/overview.md) for details.
+See [Template Architecture Overview](../../.graft/python-starter/docs/architecture/architecture.md) for details.
 
 ## Customization
 

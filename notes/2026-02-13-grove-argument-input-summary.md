@@ -33,4 +33,4 @@ Implemented cursor navigation, command preview, and parse validation for the arg
 ## Sources
 
 - [Command execution spec](../docs/specifications/grove/command-execution.md)
-- [Grove TUI source](../grove/src/tui.rs)
+- [Grove TUI source](../crates/grove-cli/src/tui/)

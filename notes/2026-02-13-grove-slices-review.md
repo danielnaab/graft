@@ -36,4 +36,4 @@ Grove has evolved from repository viewer to workspace orchestration hub. Command
 
 - [Vertical slices evolution](2026-02-13-grove-vertical-slices-evolution.md)
 - [Original slices](2026-02-06-grove-vertical-slices.md)
-- [Grove agents](../grove/docs/agents.md)
+- Grove agents

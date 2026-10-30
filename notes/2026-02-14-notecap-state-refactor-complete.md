@@ -562,6 +562,6 @@ The state query system is now **maintainable, extensible, and production-ready**
 
 ## References
 
-- [State Queries Specification](/home/coder/src/graft/docs/specifications/graft/state-queries.md)
-- [Notebook State Implementation](/home/coder/src/graft/notes/2026-02-14-notebook-state-queries-implementation-complete.md)
-- [Notecap Repository](/home/coder/src/notebook/)
+- [State Queries Specification](../docs/specifications/graft/state-queries.md)
+- [Notebook State Implementation](2026-02-14-notebook-state-queries-implementation-complete.md)
+- Notecap Repository

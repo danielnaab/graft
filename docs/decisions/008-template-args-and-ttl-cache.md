@@ -1,3 +1,8 @@
+---
+status: stable
+date: 2026-02-21
+---
+
 # ADR 008: Template Args and TTL Cache
 
 **Date**: 2026-02-21
@@ -91,3 +96,11 @@ state:
       ttl: 120  # re-run if cache is older than 2 minutes
     timeout: 120
 ```
+
+## Sources
+
+- [crates/graft-engine/src/template.rs](../../crates/graft-engine/src/template.rs) - `TemplateContext::new()` (template args)
+- [crates/graft-engine/src/command.rs](../../crates/graft-engine/src/command.rs) - `execute_command_with_context()` (args with `stdin`)
+- [crates/graft-engine/src/domain.rs](../../crates/graft-engine/src/domain.rs) - `StateCache` `ttl` field
+- [crates/graft-engine/src/config.rs](../../crates/graft-engine/src/config.rs) - `cache.ttl` parsing
+- [crates/graft-engine/src/state.rs](../../crates/graft-engine/src/state.rs) - TTL expiry check

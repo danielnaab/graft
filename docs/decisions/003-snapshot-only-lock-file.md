@@ -152,7 +152,7 @@ During upgrade, we:
 - See ADR 002: Filesystem Snapshots for Rollback
 - Complements atomic upgrade guarantee
 
-## References
+## Sources
 
 - Implementation: `src/graft/adapters/snapshot.py`
 - Upgrade flow: `src/graft/services/upgrade_service.py`

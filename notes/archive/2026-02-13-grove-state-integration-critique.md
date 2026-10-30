@@ -444,4 +444,4 @@ fn load_state_queries(&mut self, repo_path: &str) {
 
 ## Next Steps
 
-See [GROVE-STATE-IMPROVEMENTS-PLAN.md](./GROVE-STATE-IMPROVEMENTS-PLAN.md) for detailed implementation plan.
+See GROVE-STATE-IMPROVEMENTS-PLAN.md for detailed implementation plan.

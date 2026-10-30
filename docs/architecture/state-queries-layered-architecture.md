@@ -1,5 +1,5 @@
 ---
-status: reference
+status: stable
 date: 2026-02-14
 context: Architectural documentation for state query system and domain integration
 ---

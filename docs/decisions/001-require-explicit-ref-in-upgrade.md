@@ -69,7 +69,7 @@ graft upgrade my-dep
 - Uses `graft changes` to help users discover available versions
 - Complements `graft status --check-updates` for update awareness
 
-## References
+## Sources
 
 - Specification: `core-operations.md` lines 336-425
 - Implementation: `src/graft/cli/commands/upgrade.py`

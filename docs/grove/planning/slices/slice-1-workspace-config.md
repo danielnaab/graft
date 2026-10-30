@@ -1,5 +1,5 @@
 ---
-status: completed
+status: stable
 started: 2026-02-10
 completed: 2026-02-10
 ---
@@ -155,6 +155,6 @@ shellexpand = "3"
 
 ## Sources
 
-- [Architecture Spec](../../../../specifications/grove/architecture.md)
-- [Workspace Config Spec](../../../../specifications/grove/workspace-config.md)
+- [Architecture Spec](../../../specifications/grove/architecture.md)
+- [Workspace Config Spec](../../../specifications/grove/workspace-config.md)
 - [Rust Starter Patterns](../../../../.graft/rust-starter/docs/architecture/architecture.md)

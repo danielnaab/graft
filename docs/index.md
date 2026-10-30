@@ -19,7 +19,7 @@ Complete index of all graft documentation.
 | **Understand graft.yaml format** | [configuration.md](configuration.md) |
 | **Start contributing code** | [contributing.md](guides/contributing.md) |
 | **Understand the architecture** | [docs/README.md](README.md) |
-| **Continue a development session** | [continue-here.md](../continue-here.md) |
+| **Continue a development session** | continue-here.md |
 | **See what's implemented** | [tasks.md](../tasks.md) |
 | **Understand a design decision** | [decisions/](decisions/) (ADRs) |
 
@@ -137,11 +137,11 @@ graft/
 
 ### For Active Contributors
 
-- **Session handoff**: [continue-here.md](../continue-here.md)
+- **Session handoff**: continue-here.md
 - **Current status**: [tasks.md](../tasks.md)
 - **Architecture**: [docs/README.md](README.md)
 - **Design decisions**: [decisions/](decisions/)
-- **Implementation notes**: [status/implementation.md](status/implementation.md)
+- **Implementation notes**: [status/implementation.md](../status/implementation.md)
 
 ### For Architectural Context
 
@@ -189,7 +189,7 @@ Read the ADRs (Architectural Decision Records):
 
 ### Continue Development
 
-- **Current state** → [continue-here.md](../continue-here.md)
+- **Current state** → continue-here.md
 - **Recent work** → [tasks.md](../tasks.md)
 - **What to do next** → [tasks.md](../tasks.md#backlog-not-prioritized)
 

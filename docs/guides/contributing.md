@@ -17,7 +17,7 @@ Read these files in order:
 
 1. **[README.md](../../README.md)** - Project overview and CLI commands (5 min)
 2. **[tasks.md](../../tasks.md)** - Current development status (2 min)
-3. **[continue-here.md](../../continue-here.md)** - Recent session context (3 min)
+3. **continue-here.md** - Recent session context (3 min)
 4. **[docs/README.md](../README.md)** - Architecture details (10 min)
 
 After reading, you should understand:
@@ -400,4 +400,4 @@ uv run pytest && uv run mypy src/ && uv run ruff check src/ tests/
 
 ---
 
-**Next**: Read [continue-here.md](../../continue-here.md) to understand current development state, then start contributing!
+**Next**: Read continue-here.md to understand current development state, then start contributing!

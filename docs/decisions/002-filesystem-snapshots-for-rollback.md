@@ -100,7 +100,7 @@ shutil.copy2(f"{snapshot_path}/graft.lock", "graft.lock")
 - See ADR 003: Snapshot Only graft.lock (not full workspace)
 - Complements atomic upgrade implementation
 
-## References
+## Sources
 
 - Implementation: `src/graft/adapters/snapshot.py`
 - Service: `src/graft/services/snapshot_service.py`

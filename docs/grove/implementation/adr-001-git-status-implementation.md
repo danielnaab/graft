@@ -163,7 +163,7 @@ Performance threshold for migration: If profiling shows subprocess overhead >100
 - [Gitoxide 0.66 API docs](https://docs.rs/gix/0.66.0/gix/)
 - [wait-timeout crate](https://docs.rs/wait-timeout/0.2.1/wait_timeout/)
 - Git porcelain format: `man git-status`
-- [Grove Phase 2 Review](../../notes/2026-02-10-grove-slice-1-review-phase-2.md)
+- [Grove Phase 2 Review](../../../notes/2026-02-10-grove-slice-1-review-phase-2.md)
 
 ## Date
 

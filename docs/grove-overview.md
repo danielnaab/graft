@@ -32,7 +32,7 @@ crates/
 
 ## Architecture & Patterns
 
-This project uses the [Rust Starter Template](.graft/rust-starter) patterns:
+This project uses the [Rust Starter Template](../.graft/rust-starter) patterns:
 
 - **Three-layer architecture**: Binary → Engine → Core
 - **Trait-based DI**: Services accept trait bounds, not concrete types
@@ -64,12 +64,12 @@ See [Architecture Overview](grove/implementation/architecture-overview.md) for d
 When working on Grove:
 
 1. **Read**: [Agent Entrypoint for Grove](#grove-agent-section) in main AGENTS.md
-2. **Follow**: Rust patterns from [rust-starter](.graft/rust-starter/)
+2. **Follow**: Rust patterns from [rust-starter](../.graft/rust-starter/)
 3. **Verify**: `cargo fmt --check && cargo clippy -- -D warnings && cargo test`
 4. **Authority**: Code is canonical for implementation, specs are canonical for behavior
 
 ## Sources
 
 - [Specifications](specifications/grove/) - Canonical requirements
-- [Rust Starter Template](.graft/rust-starter/docs/) - Architectural patterns
-- [Knowledge Base](knowledge-base.yaml) - Project structure
+- [Rust Starter Template](../.graft/rust-starter/docs/) - Architectural patterns
+- [Knowledge Base](../knowledge-base.yaml) - Project structure

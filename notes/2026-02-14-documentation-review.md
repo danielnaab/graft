@@ -386,5 +386,5 @@ echo "Next: Add status frontmatter to each moved file"
 - [Lifecycle Policy](/.graft/meta-knowledge-base/docs/policies/lifecycle.md)
 - [Provenance Policy](/.graft/meta-knowledge-base/docs/policies/provenance.md)
 - [knowledge-base.yaml](/knowledge-base.yaml) - Project structure and conventions
-- [State Panel Implementation](notes/2026-02-14-state-panel-phase1-complete.md) - What was built
-- [State Panel Critique](notes/2026-02-14-state-panel-critique.md) - Analysis and future work
+- [State Panel Implementation](2026-02-14-state-panel-phase1-complete.md) - What was built
+- [State Panel Critique](2026-02-14-state-panel-critique.md) - Analysis and future work
