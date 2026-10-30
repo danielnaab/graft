@@ -1487,7 +1487,7 @@ are reported as validation errors.
 - [Specification: Core Operations](./core-operations.md)
 - [Decision 0003: Explicit Change Declarations](../decisions/decision-0003-explicit-change-declarations.md)
 
-## References
+## Sources
 
 - YAML Specification: https://yaml.org/spec/
 - Git refs: https://git-scm.com/book/en/v2/Git-Internals-Git-References

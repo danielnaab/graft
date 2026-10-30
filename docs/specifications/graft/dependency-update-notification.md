@@ -376,7 +376,7 @@ Options:
 - [Specification: graft.yaml Format](./graft-yaml-format.md)
 - [Specification: Core Operations](./core-operations.md)
 
-## References
+## Sources
 
 - Forgejo Actions documentation: https://forgejo.org/docs/latest/user/actions/
 - Git ls-remote: https://git-scm.com/docs/git-ls-remote

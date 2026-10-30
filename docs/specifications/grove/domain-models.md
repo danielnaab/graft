@@ -117,8 +117,8 @@ Executed via `graft run`
 ```
 
 **References**:
-- [Graft Command Specification](../../graft/graft-command.md)
-- [Graft YAML Format](../../graft/graft-yaml-format.md)
+- [Graft Command Specification](../graft/graft-yaml-format.md#section-commands)
+- [Graft YAML Format](../graft/graft-yaml-format.md)
 
 ### Examples
 
@@ -415,8 +415,8 @@ state = CommandState::NotStarted;
 
 ### Related Specifications
 - [Grove Command Execution](command-execution.md) - User-facing command execution spec
-- [Graft Command](../../graft/graft-command.md) - Authoritative command schema
-- [Graft YAML Format](../../graft/graft-yaml-format.md) - Full graft.yaml specification
+- [Graft Command](../graft/graft-yaml-format.md#section-commands) - Authoritative command schema
+- [Graft YAML Format](../graft/graft-yaml-format.md) - Full graft.yaml specification
 
 ### Implementation
 - **Source**: `grove/crates/grove-core/src/domain.rs`
@@ -427,6 +427,11 @@ state = CommandState::NotStarted;
 - **Integration Tests**: `grove/tests/test_command_dispatch.rs`
 
 ---
+
+## Sources
+
+- [crates/grove-core/src/domain.rs](../../../crates/grove-core/src/domain.rs) - `Command`, `GraftYaml`, `CommandState`
+- [Graft YAML Format: commands](../graft/graft-yaml-format.md#section-commands) - command schema these types mirror
 
 ## Version History
 

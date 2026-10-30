@@ -1127,6 +1127,11 @@ spawned without registry integration are not listed.
 - [Decision 0004: Atomic Upgrades](../decisions/decision-0004-atomic-upgrades.md)
 - [Decision 0007: Flat-Only Dependency Model](../decisions/decision-0007-flat-only-dependencies.md)
 
+## Sources
+
+- [Decision 0004: Atomic Upgrades](../decisions/decision-0004-atomic-upgrades.md)
+- [Decision 0007: Flat-Only Dependency Model](../decisions/decision-0007-flat-only-dependencies.md)
+
 ## Changelog
 
 - **2026-01-31**: Updated for flat-only dependency model (v3)

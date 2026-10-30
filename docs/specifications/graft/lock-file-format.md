@@ -682,7 +682,7 @@ dependencies:
 - [Decision 0004: Atomic Upgrades](../decisions/decision-0004-atomic-upgrades.md)
 - [Decision 0007: Flat-Only Dependency Model](../decisions/decision-0007-flat-only-dependencies.md)
 
-## References
+## Sources
 
 - YAML Specification: https://yaml.org/spec/
 - ISO 8601 (datetime format): https://en.wikipedia.org/wiki/ISO_8601

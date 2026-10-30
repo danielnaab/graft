@@ -1,3 +1,7 @@
+---
+status: working
+---
+
 # Grove Specifications
 
 Living specifications for the Grove workspace management tool.

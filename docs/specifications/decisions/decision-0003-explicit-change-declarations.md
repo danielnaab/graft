@@ -373,7 +373,7 @@ $ graft validate meta-kb
 - [Specification: graft.yaml Format](../graft/graft-yaml-format.md)
 - [Specification: Change Model](../graft/change-model.md)
 
-## References
+## Sources
 
 - Keep a Changelog: https://keepachangelog.com/
 - Common Changelog: https://common-changelog.org/

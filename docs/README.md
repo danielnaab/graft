@@ -166,7 +166,6 @@ Canonical specifications for the Graft ecosystem live in [`specifications/`](spe
 **Status:**
 - [Implementation Status](../status/implementation.md)
 - [Gap Analysis](../status/gap-analysis.md)
-- Continue Here
 
 ---
 

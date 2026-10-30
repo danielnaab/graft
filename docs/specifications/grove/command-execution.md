@@ -498,5 +498,5 @@ See [TUI Behavior](tui-behavior.md) for the full command line keybinding referen
 ## Sources
 
 - [Grove Vertical Slices (2026-02-06)](../../../notes/2026-02-06-grove-vertical-slices.md) — Slice 7 scope definition
-- [Graft Core Operations Spec](../../graft/core-operations.md) — `graft run` command specification
+- [Graft Core Operations Spec](../graft/core-operations.md) — `graft run` command specification
 - [Grove Command Line and View Stack (2026-02-18)](../../../notes/2026-02-18-grove-command-prompt-exploration.md) — Command line design, `:run` direct execution path

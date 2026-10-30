@@ -197,7 +197,7 @@ Total execution: typically <5 seconds for small organizations.
 - [Decision 0005: No Partial Resolution](./decision-0005-no-partial-resolution.md)
 - Forgejo webhooks: https://forgejo.org/docs/latest/user/webhooks/
 
-## References
+## Sources
 
 - Organization webhooks: Common pattern in GitHub/GitLab/Forgejo for cross-repo automation
 - Event-driven architecture: https://martinfowler.com/articles/201701-event-driven.html

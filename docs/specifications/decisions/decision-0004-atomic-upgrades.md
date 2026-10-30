@@ -410,7 +410,7 @@ Graft follows the same pattern: operations are transactional.
 - [Specification: Core Operations](../graft/core-operations.md)
 - [Specification: Lock File Format](../graft/lock-file-format.md)
 
-## References
+## Sources
 
 - ACID properties: https://en.wikipedia.org/wiki/ACID
 - Git transactional model

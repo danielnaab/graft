@@ -272,7 +272,7 @@ graft.minimal.lock  # Explicit minimal subset
 - [Decision 0003: Explicit Change Declarations](./decision-0003-explicit-change-declarations.md) - Explicitness principle
 - [Lock File Format Specification](../graft/lock-file-format.md)
 
-## References
+## Sources
 
 - **All-or-nothing transactions**: https://en.wikipedia.org/wiki/Atomicity_(database_systems)
 - **Reproducible builds**: https://reproducible-builds.org/
