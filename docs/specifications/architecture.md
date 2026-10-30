@@ -354,7 +354,7 @@ Running verification...
 - [Brainstorming: Upgrade Mechanisms](../../notes/2026-01-01-upgrade-mechanisms.md)
 - [Use Cases](use-cases.md) (to be created)
 
-## References
+## Sources
 
 - Git internals: https://git-scm.com/book/en/v2/Git-Internals
 - Semantic Versioning: https://semver.org/ (optional, not required)

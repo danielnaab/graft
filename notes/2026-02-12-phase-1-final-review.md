@@ -292,5 +292,5 @@ Phase 1 demonstrates **production-ready quality**:
 - [Phase 1 Complete Summary](2026-02-12-phase-1-complete.md)
 - [Bug Discovery Analysis](2026-02-12-task-1.2-bug-discovery.md)
 - [Original Improvement Plan](2026-02-12-command-dispatch-improvements-plan.md)
-- [Grove Specification](../docs/specifications/grove/grove-spec.md)
-- [Graft Command Spec](../docs/specifications/graft/graft-command.md)
+- [Grove Specification](../docs/specifications/grove/README.md)
+- [Graft Command Spec](../docs/specifications/graft/graft-yaml-format.md#section-commands)

@@ -34,4 +34,4 @@ Architecture is clean (follows modal UI pattern, proper separation). Test covera
 ## Sources
 
 - [Command execution spec](../docs/specifications/grove/command-execution.md)
-- [Grove TUI source](../grove/src/tui.rs)
+- [Grove TUI source](../crates/grove-cli/src/tui/)

@@ -504,4 +504,4 @@ This session demonstrated **exemplary software development**:
 
 ### Specifications
 - [Grove Command Execution Spec](../docs/specifications/grove/command-execution.md)
-- [Graft Command Spec](../docs/specifications/graft/graft-command.md)
+- [Graft Command Spec](../docs/specifications/graft/graft-yaml-format.md#section-commands)

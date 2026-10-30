@@ -155,12 +155,12 @@ Deferred to future slices:
 
 **Implementation guidance**:
 - [Grove Architecture Spec](../docs/specifications/grove/architecture.md)
-- [Rust Starter Architecture](../grove/.graft/rust-starter/docs/architecture.md)
+- [Rust Starter Architecture](../.graft/rust-starter/docs/architecture/architecture.md)
 - [Grove Vertical Slices](./2026-02-06-grove-vertical-slices.md)
 
 **Tracking**:
-- [Grove Roadmap](../grove/docs/grove/planning/roadmap.md)
-- [Slice 1 Plan](../grove/docs/grove/planning/slices/slice-1-workspace-config.md)
+- [Grove Roadmap](../docs/grove/planning/roadmap.md)
+- [Slice 1 Plan](../docs/grove/planning/slices/slice-1-workspace-config.md)
 
 **Code location**: `/home/coder/src/graft/grove/`
 

@@ -62,7 +62,7 @@ Tasks are organized by priority and risk level for systematic implementation.
 
 ### Objective
 
-Add lifecycle status markers to all documentation files following [meta-KB lifecycle policy](../../.graft/meta-knowledge-base/policies/lifecycle.md).
+Add lifecycle status markers to all documentation files following [meta-KB lifecycle policy](../../.graft/meta-knowledge-base/docs/policies/lifecycle.md).
 
 ### Tasks
 
@@ -191,7 +191,7 @@ grep "^status:" docs/*.md docs/guides/*.md docs/plans/*.md status/*.md continue-
 
 ### Objective
 
-Add `## Sources` sections to documents making operational or architectural claims, following [meta-KB provenance policy](../../.graft/meta-knowledge-base/policies/provenance.md).
+Add `## Sources` sections to documents making operational or architectural claims, following [meta-KB provenance policy](../../.graft/meta-knowledge-base/docs/policies/provenance.md).
 
 ### Tasks
 
@@ -354,7 +354,7 @@ grep -r "graft-knowledge" docs/*.md docs/guides/*.md | wc -l
 
 ### Objective
 
-Make explicit which documents are interpretations of canonical specifications vs. canonical themselves, following [meta-KB authority policy](../../.graft/meta-knowledge-base/policies/authority.md).
+Make explicit which documents are interpretations of canonical specifications vs. canonical themselves, following [meta-KB authority policy](../../.graft/meta-knowledge-base/docs/policies/authority.md).
 
 ### Tasks
 
@@ -509,7 +509,7 @@ Add lifecycle guidance to architecture documentation.
 
 ### Temporal Layers
 
-Graft uses three temporal layers following [meta-KB temporal stratification](../../.graft/meta-knowledge-base/policies/temporal-layers.md):
+Graft uses three temporal layers following [meta-KB temporal stratification](../../.graft/meta-knowledge-base/docs/policies/temporal-layers.md):
 
 **Ephemeral (notes/):**
 - Purpose: Session logs, exploration, learning
@@ -634,7 +634,7 @@ ls -la notes/archive/
 
 ### Objective
 
-Ensure all links follow [meta-KB linking policy](../../.graft/meta-knowledge-base/policies/linking.md): real markdown links for navigation, backticks only for literal paths.
+Ensure all links follow [meta-KB linking policy](../../.graft/meta-knowledge-base/docs/policies/linking.md): real markdown links for navigation, backticks only for literal paths.
 
 ### Tasks
 
@@ -646,12 +646,12 @@ Ensure all links follow [meta-KB linking policy](../../.graft/meta-knowledge-bas
 
 Current:
 ```markdown
-See [meta-knowledge-base style policy](../../.graft/meta-knowledge-base/policies/style.md) for full standards.
+See [meta-knowledge-base style policy](../../.graft/meta-knowledge-base/docs/policies/style.md) for full standards.
 ```
 
 Fixed:
 ```markdown
-See [meta-knowledge-base style policy](../../.graft/meta-knowledge-base/policies/style.md) for full standards.
+See [meta-knowledge-base style policy](../../.graft/meta-knowledge-base/docs/policies/style.md) for full standards.
 ```
 
 #### Task 5.2: Audit for Other Linking Issues
@@ -870,10 +870,10 @@ This plan is based on:
 - [Meta-KB Compliance Analysis](../../notes/2026-01-05-meta-knowledge-base-compliance-analysis.md)
 
 **Policies:**
-- [Meta-KB Lifecycle Policy](../../.graft/meta-knowledge-base/policies/lifecycle.md)
-- [Meta-KB Provenance Policy](../../.graft/meta-knowledge-base/policies/provenance.md)
-- [Meta-KB Authority Policy](../../.graft/meta-knowledge-base/policies/authority.md)
-- [Meta-KB Linking Policy](../../.graft/meta-knowledge-base/policies/linking.md)
+- [Meta-KB Lifecycle Policy](../../.graft/meta-knowledge-base/docs/policies/lifecycle.md)
+- [Meta-KB Provenance Policy](../../.graft/meta-knowledge-base/docs/policies/provenance.md)
+- [Meta-KB Authority Policy](../../.graft/meta-knowledge-base/docs/policies/authority.md)
+- [Meta-KB Linking Policy](../../.graft/meta-knowledge-base/docs/policies/linking.md)
 
 **Project Context:**
 - [Graft Architecture](../architecture.md)

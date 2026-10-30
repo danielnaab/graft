@@ -70,8 +70,8 @@ Session documents from state panel Phase 1 implementation:
 
 **Canonical sources**:
 - **Spec**: [docs/specifications/grove/tui-behavior.md](../docs/specifications/grove/tui-behavior.md#state-panel)
-- **Code**: [grove/src/tui.rs](../grove/src/tui.rs)
-- **Tests**: [grove/src/tui_tests.rs](../grove/src/tui_tests.rs), [grove/tests/test_state_panel.rs](../grove/tests/test_state_panel.rs)
+- **Code**: [grove/src/tui.rs](../crates/grove-cli/src/tui/)
+- **Tests**: [grove/src/tui_tests.rs](../crates/grove-cli/src/tui/tests.rs), [grove/tests/test_state_panel.rs](../crates/grove-cli/tests/test_state_panel.rs)
 
 ---
 
@@ -89,7 +89,7 @@ All artifacts in [2026-02-15-rust-rewrite/](2026-02-15-rust-rewrite/).
 **Canonical sources**:
 - **Specs**: [docs/specifications/graft/](../docs/specifications/graft/)
 - **Python reference**: [src/graft/](../src/graft/)
-- **Rust crates**: [crates/graft-core/](../crates/graft-core/), [crates/graft-engine/](../crates/graft-engine/), [crates/graft-cli/](../crates/graft-cli/)
+- **Rust crates**: [crates/graft-engine/](../crates/graft-engine/), [crates/graft-cli/](../crates/graft-cli/)
 
 ---
 

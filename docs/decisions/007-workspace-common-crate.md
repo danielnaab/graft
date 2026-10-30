@@ -275,7 +275,7 @@ Total: ~600 lines of duplicate code eliminated, 27 new tests added.
 - **ADR 005**: Functional Service Layer (Python service design)
 - See grove-core traits for Rust equivalent of protocol-based DI
 
-## References
+## Sources
 
 ### Planning and Progress
 - Planning document: `notes/2026-02-16-workspace-unification/plan.md`

@@ -1,7 +1,7 @@
 ---
 title: "Quality Standards and CI/CD"
 date: 2026-01-05
-status: active
+status: working
 ---
 
 # Quality Standards and CI/CD

@@ -6,7 +6,7 @@ updated: 2026-02-10
 
 # Grove Architecture Overview
 
-> **Authority Note:** Implementation architecture document describing Grove's three-layer design. For canonical requirements, see [Grove Specifications](../../../specifications/grove/).
+> **Authority Note:** Implementation architecture document describing Grove's three-layer design. For canonical requirements, see [Grove Specifications](../../specifications/grove/).
 
 ## Table of Contents
 

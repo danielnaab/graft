@@ -179,7 +179,7 @@ The implementation is **merge-ready**. Integration tests (Task #6) are optional 
 ---
 
 **Related Documents:**
-- [Improvements Summary](IMPROVEMENTS-SUMMARY.md)
-- [Progress Tracker](docs/decisions/state-queries-stage1-improvements-progress.md)
-- [Original Critique](docs/decisions/state-queries-stage1-critique.md)
-- [Improvement Plan](docs/decisions/state-queries-stage1-improvements.md)
+- [Improvements Summary](2026-02-13-improvements-summary.md)
+- Progress Tracker
+- [Original Critique](../2026-02-13-state-queries-stage1-review.md)
+- Improvement Plan

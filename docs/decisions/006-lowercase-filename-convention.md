@@ -124,10 +124,10 @@ This decision ensures compliance with:
 - Prefer hyphens over underscores for readability
 - Consider renaming if a file's purpose changes significantly
 
-## References
+## Sources
 
 - Meta-knowledge-base examples: `.graft/meta-knowledge-base/examples/`
-- Meta-KB style policy: `.graft/meta-knowledge-base/policies/style.md`
+- Meta-KB style policy: `.graft/meta-knowledge-base/docs/policies/style.md`
 - Industry examples: Next.js, Tailwind CSS, Vite, Rust documentation
 
 ---

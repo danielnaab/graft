@@ -231,7 +231,7 @@ def load_config(fs: FileSystem, path: str) -> Config:
 - See ADR 005: Functional Service Layer
 - Complements immutable domain models
 
-## References
+## Sources
 
 - PEP 544: Protocols (Structural Subtyping)
 - Implementation: `src/graft/protocols/`

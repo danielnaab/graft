@@ -320,7 +320,7 @@ The notebook repository now has **powerful analytics** that enable:
 
 ## References
 
-- [State Queries Specification](/home/coder/src/graft/docs/specifications/graft/state-queries.md)
-- [State Queries Implementation](/home/coder/src/graft/STATE-QUERIES-COMPLETE.md)
-- [Notebook State Design](/home/coder/src/graft/notes/2026-02-13-notebook-state-queries-design.md)
-- [Notebook Repository](/home/coder/src/notebook/)
+- [State Queries Specification](../docs/specifications/graft/state-queries.md)
+- [State Queries Implementation](archive/2026-02-13-state-queries-complete.md)
+- [Notebook State Design](2026-02-13-notebook-state-queries-design.md)
+- Notebook Repository

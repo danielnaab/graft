@@ -19,7 +19,6 @@ Complete index of all graft documentation.
 | **Understand graft.yaml format** | [configuration.md](configuration.md) |
 | **Start contributing code** | [contributing.md](guides/contributing.md) |
 | **Understand the architecture** | [docs/README.md](README.md) |
-| **Continue a development session** | [continue-here.md](../continue-here.md) |
 | **See what's implemented** | [tasks.md](../tasks.md) |
 | **Understand a design decision** | [decisions/](decisions/) (ADRs) |
 
@@ -47,7 +46,6 @@ graft/
 ├── README.md                    # Project introduction and index
 ├── AGENTS.md                    # Agent entrypoint (full project context)
 ├── CLAUDE.md                    # Claude Code entrypoint (thin pointer)
-├── continue-here.md             # Session handoff document
 ├── tasks.md                     # Development status
 ├── grove/                       # Rust workspace tool (submodule)
 │   └── docs/agents.md          # Grove agent entrypoint
@@ -137,11 +135,10 @@ graft/
 
 ### For Active Contributors
 
-- **Session handoff**: [continue-here.md](../continue-here.md)
 - **Current status**: [tasks.md](../tasks.md)
 - **Architecture**: [docs/README.md](README.md)
 - **Design decisions**: [decisions/](decisions/)
-- **Implementation notes**: [status/implementation.md](status/implementation.md)
+- **Implementation notes**: [status/implementation.md](../status/implementation.md)
 
 ### For Architectural Context
 
@@ -189,7 +186,6 @@ Read the ADRs (Architectural Decision Records):
 
 ### Continue Development
 
-- **Current state** → [continue-here.md](../continue-here.md)
 - **Recent work** → [tasks.md](../tasks.md)
 - **What to do next** → [tasks.md](../tasks.md#backlog-not-prioritized)
 
@@ -219,7 +215,7 @@ Quick reference:
 | Change architecture | docs/README.md, new ADR in decisions/ |
 | Fix bug | No doc update (unless behavior changes) |
 | Add feature | README.md, possibly user-guide.md |
-| Update test count | README.md, continue-here.md |
+| Update test count | README.md |
 
 ### Documentation Quality Standards
 

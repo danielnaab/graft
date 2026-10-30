@@ -275,7 +275,7 @@ This decision is grounded in:
 ## References
 
 - [Effective Python Item 14](https://effectivepython.com/) - Prefer Exceptions to Returning None
-- [Python Starter Template Error Handling](../python-starter/docs/architecture/error-handling.md) (if exists)
+- Python Starter Template Error Handling (if exists)
 
 ## Alternatives Considered
 

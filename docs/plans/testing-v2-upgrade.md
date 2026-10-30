@@ -1,7 +1,7 @@
 ---
 title: "Plan: Testing graft-knowledge v2 Upgrade"
 date: 2026-01-05
-status: superseded
+status: deprecated
 version: 1.0
 superseded_by: "Decision 0007 - Flat-Only Dependency Model"
 ---

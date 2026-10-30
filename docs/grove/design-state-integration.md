@@ -1,5 +1,5 @@
 ---
-status: design
+status: deprecated
 date: 2026-02-14
 context: Initial Grove state query integration - UX design
 ---

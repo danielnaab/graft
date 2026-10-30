@@ -1,5 +1,6 @@
 ---
 title: "Example: Implementation Repository Structure"
+status: draft
 ---
 
 # Example: How graft Python Repository Would Track Specifications

@@ -1,7 +1,7 @@
 ---
 title: "Analysis: graft-knowledge v2 Upgrade Process"
 date: 2026-01-05
-status: superseded
+status: deprecated
 version: 0.2
 superseded_by: "Decision 0007 - Flat-Only Dependency Model"
 ---

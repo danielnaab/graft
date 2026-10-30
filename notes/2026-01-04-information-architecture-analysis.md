@@ -249,9 +249,9 @@ Add:
 
 ## Sources
 
-- [Meta-Knowledge-Base](../.graft/meta-knowledge-base/docs/meta.md) - Entrypoint patterns
-- [Meta-KB Style Policy](../.graft/meta-knowledge-base/policies/style.md) - Documentation standards
-- [Meta-KB Agent Workflow](../.graft/meta-knowledge-base/playbooks/agent-workflow.md) - Plan → Patch → Verify
+- [Meta-Knowledge-Base](../.graft/meta-knowledge-base/README.md) - Entrypoint patterns
+- [Meta-KB Style Policy](../.graft/meta-knowledge-base/docs/policies/style.md) - Documentation standards
+- [Meta-KB Agent Workflow](../.graft/meta-knowledge-base/docs/playbooks/agent-workflow.md) - Plan → Patch → Verify
 - [Superpowers](https://github.com/obra/superpowers) - Modular skill architecture
 - [Superpowers Codex Docs](https://github.com/obra/superpowers/blob/main/docs/README.codex.md) - Agent-oriented patterns
 

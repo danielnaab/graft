@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Graft Specifications
 
 Formal specifications for the graft dependency management system.

@@ -312,7 +312,7 @@ def test_upgrade_dependency_success():
 - See ADR 004: Protocol-Based Dependency Injection (complements this)
 - Immutable domain models support this approach
 
-## References
+## Sources
 
 - Implementation: `src/graft/services/`
 - Tests: `tests/unit/test_*_service.py`

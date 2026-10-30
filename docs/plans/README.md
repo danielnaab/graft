@@ -1,3 +1,7 @@
+---
+status: working
+---
+
 # Improvement Plans
 
 This directory contains strategic improvement plans for the Graft documentation and knowledge base.
@@ -55,7 +59,7 @@ This directory contains strategic improvement plans for the Graft documentation 
 **Related documentation:**
 - [Meta-knowledge-base policies](../../.graft/meta-knowledge-base/docs/policies/) - Upstream policies we're aligning to
 - [Graft architecture](../architecture.md) - Current information architecture
-- [Graft agents entrypoint](../agents.md) - Agent workflow and conventions
+- [Graft agents entrypoint](../../AGENTS.md) - Agent workflow and conventions
 
 **Related analysis:**
 - [Compliance analysis](../../notes/2026-01-05-meta-knowledge-base-compliance-analysis.md) - Deep dive into current state and gaps

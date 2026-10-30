@@ -446,7 +446,7 @@ deps:
 
 ---
 
-## References
+## Sources
 
 - **Related specifications:**
   - [graft.yaml Format](./graft-yaml-format.md)

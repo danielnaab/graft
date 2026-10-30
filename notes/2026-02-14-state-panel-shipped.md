@@ -221,13 +221,13 @@ aedae78  Feb 14  docs: Organize session documents per meta-KB policies
 - [State Format Spec](../docs/specifications/graft/state-queries.md) - graft.yaml state section
 
 ### Implementation
-- [State Panel Code](../grove/src/tui.rs#L1398-L1465) - Rendering and interaction
-- [State Query Discovery](../grove/src/state/discovery.rs) - YAML parsing
-- [Cache Reading](../grove/src/state/cache.rs) - File I/O and timestamps
+- [State Panel Code](../crates/grove-cli/src/tui/) - Rendering and interaction
+- [State Query Discovery](../crates/grove-cli/src/state/discovery.rs) - YAML parsing
+- Cache Reading - File I/O and timestamps
 
 ### Tests
-- [Unit Tests](../grove/src/tui_tests.rs) - 14 state panel tests
-- [Integration Tests](../grove/tests/test_state_panel.rs) - 12 discovery/cache tests
+- [Unit Tests](../crates/grove-cli/src/tui/tests.rs) - 14 state panel tests
+- [Integration Tests](../crates/grove-cli/tests/test_state_panel.rs) - 12 discovery/cache tests
 
 ### Session Documents
 - [Critique](2026-02-14-state-panel-critique.md) - Analysis and Phase 2/3 roadmap

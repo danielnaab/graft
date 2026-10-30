@@ -1,5 +1,5 @@
 ---
-status: recommendation
+status: draft
 date: 2026-02-14
 context: Performance optimization recommendations for state query system
 priority: critical-#3

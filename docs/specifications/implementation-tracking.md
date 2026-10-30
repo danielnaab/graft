@@ -1,6 +1,7 @@
 ---
 title: "Implementation Tracking Pattern"
 date: 2026-01-05
+status: draft
 ---
 
 # Implementation Tracking Pattern

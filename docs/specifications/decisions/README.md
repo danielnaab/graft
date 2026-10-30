@@ -1,3 +1,7 @@
+---
+status: working
+---
+
 # Architectural Decision Records
 
 This directory contains Architectural Decision Records (ADRs) documenting key design decisions for Graft.
