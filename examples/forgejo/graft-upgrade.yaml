@@ -55,22 +55,35 @@ jobs:
       - name: Push and open (or update) the PR
         if: steps.upgrade.outputs.changed == 'true'
         env:
+          WEB: ${{ github.server_url }}/${{ github.repository }}
           API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
           BASE: ${{ github.event.repository.default_branch }}
-          TOKEN: ${{ github.token }}
+          # The job token can push, but Forgejo (through 11 at least) refuses it when opening a PR
+          # on a private repo. A user's token, in the Actions secret GRAFT_PR_TOKEN (set it once for
+          # all your repos under Settings > Actions > Secrets), opens the PR as that user.
+          PR_TOKEN: ${{ secrets.GRAFT_PR_TOKEN || github.token }}
         run: |
           set -euo pipefail
+          changes=$(grep '^graft: .* -> ' "$LOG")
           git -c user.name="graft-upgrade" -c user.email="graft-upgrade@noreply.invalid" \
-            commit -q -m "graft: upgrade scions" -m "$(grep '^graft: .* -> ' "$LOG")"
+            commit -q -m "graft: upgrade scions" -m "$changes"
           git push -q --force origin "$BRANCH"
-          nix shell nixpkgs#jq nixpkgs#curl --command bash -euo pipefail -c '
-            open=$(curl -fsS -H "Authorization: token $TOKEN" "$API/pulls?state=open&limit=50" \
-              | jq --arg b "$BRANCH" "[.[] | select(.head.ref == \$b)] | length")
-            if [ "$open" != 0 ]; then echo "PR already open for $BRANCH: updated by the push"; exit 0; fi
-            body=$(printf "%s\n\n%s\n\n%s" "Scions behind their upstream'\''s newest tag, moved by \`nix run .#graft-upgrade\`:" \
-              "$(grep "^graft: .* -> " "$LOG" | sed "s/^graft: /- /")" \
-              "\`nix flake check\` passed on the result. The diff of the scions directory is the change you are taking; review and merge are yours.")
-            jq -n --arg head "$BRANCH" --arg base "$BASE" --arg body "$body" \
-              "{head: \$head, base: \$base, title: \"graft: upgrade scions\", body: \$body}" \
-              | curl -fsS -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" -d @- "$API/pulls" \
-              | jq -r .html_url'
+
+          jq=$(nix build --no-link --print-out-paths nixpkgs#jq.bin)/bin/jq
+          api() { curl -sS -w '\n%{http_code}' -H "Authorization: token $PR_TOKEN" -H "Content-Type: application/json" "$@"; }
+          out=$(api "$API/pulls?state=open&limit=50"); code=${out##*$'\n'}; out=${out%$'\n'*}
+          [ "$code" = 200 ] || { echo "::error::listing PRs: HTTP $code"; exit 1; }
+          if [ "$("$jq" --arg b "$BRANCH" '[.[] | select(.head.ref == $b)] | length' <<<"$out")" != 0 ]; then
+            echo "PR already open for $BRANCH: updated by the push"; exit 0
+          fi
+          list=""
+          while IFS= read -r line; do list+="- ${line#graft: }"$'\n'; done <<<"$changes"
+          body="Scions behind their upstream's newest tag, moved by \`nix run .#graft-upgrade\`:"$'\n\n'"$list"$'\n'
+          body+="\`nix flake check\` passed on the result. The diff of the scions directory is the change you are taking; review and merge are yours."
+          out=$("$jq" -n --arg head "$BRANCH" --arg base "$BASE" --arg body "$body" \
+              '{head: $head, base: $base, title: "graft: upgrade scions", body: $body}' | api -X POST -d @- "$API/pulls")
+          code=${out##*$'\n'}; out=${out%$'\n'*}
+          if [ "$code" = 201 ]; then "$jq" -r .html_url <<<"$out"; exit 0; fi
+          echo "::error::opening the PR: HTTP $code. $BRANCH is pushed; open it at $WEB/compare/$BASE...$BRANCH"
+          [ "$code" != 404 ] || echo "::error::a 404 here is Forgejo refusing the job token: set the GRAFT_PR_TOKEN secret"
+          exit 1

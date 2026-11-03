@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.2.2 - 2026-11-03
+
+### Fixed
+- `graft-upgrade.yaml` couldn't open its PR. Forgejo refuses the job token for that call on a
+  private repo (404 from `CreatePullRequest`), so the PR is now opened with the Actions secret
+  `GRAFT_PR_TOKEN`, falling back to the job token. On failure the branch is still pushed and
+  the error links to the compare page.
+- The PR step used `sed`, which the `nixos/nix` image doesn't have, and ran its API calls in
+  a nested `bash -c`. It now fetches `jq` by store path, and does the rest in plain bash.
+
 ## v2.2.1 - 2026-11-03
 
 ### Fixed
