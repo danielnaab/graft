@@ -78,6 +78,19 @@ nix run github:danielnaab/graft#upgrade  -- -C path/to/repo
 An upgrade rebuilds the directory with the `assemble.sh` of the graft version the repo pins, so
 it writes exactly what the repo's own `nix flake check` expects.
 
+## Working on a provider
+
+To try a provider's unreleased change in a repo that grafts it, override the input for one run:
+
+```
+nix run .#graft --override-input meta-knowledge-base "git+file://$HOME/src/meta-knowledge-base?exportIgnore=1"
+```
+
+This grafts the local checkout, uncommitted edits included, with its `export-ignore` rules applied
+(`path:` would skip them). `flake.lock` isn't touched, and the scions README records the commit as
+`…-dirty`, so `nix flake check` fails if this is committed by mistake. `nix run .#graft` puts the
+pinned version back. When the change is right, tag the provider and `nix run .#graft-upgrade`.
+
 ## In CI
 
 [`examples/forgejo/`](examples/forgejo/) has two workflows to copy into `.forgejo/workflows/`:
