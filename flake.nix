@@ -1,5 +1,5 @@
 {
-  description = "graft: copy pinned, provider-defined exports of other repos into vendor/";
+  description = "graft: copy pinned, provider-defined exports of other repos into scions/";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
 

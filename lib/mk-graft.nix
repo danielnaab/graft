@@ -1,44 +1,61 @@
-# mkGraft: a repo's grafts, from its flake inputs.
+# mkGraft: a repo's scions, from its flake inputs.
 #
-# Each dep is a flake input (flake = false) whose fetched tree is the provider's export: Nix applies
-# the provider's `export-ignore` rules for `github:` inputs and for `git+…?exportIgnore=1` inputs, and
-# pins the commit and a content hash in flake.lock. mkGraft builds `expected`, the vendor directory
-# those inputs make (one folder per dep, plus a README naming each pin), and gives the repo two
-# outputs over it:
+# A scion is another repository's export grafted onto this one. Each dep is a flake input
+# (flake = false) whose fetched tree is the provider's export: Nix applies the provider's
+# `export-ignore` rules for `github:` inputs and for `git+…?exportIgnore=1` inputs, and pins the
+# commit and a content hash in flake.lock. mkGraft builds `expected`, the directory those inputs
+# make (one folder per dep, plus a README naming each pin), and gives the repo two outputs over it:
 #
 #   apps.<system>.graft    replace <dir> with `expected`   (nix run .#graft)
 #   checks.<system>.graft  fail unless <dir> is `expected` (nix flake check)
+#
+# <dir> defaults to `scions` and may be any relative path inside the repo (`.scions`,
+# `docs/Grafted Docs`, …). graft owns it entirely and replaces it on every run, so the app refuses
+# to delete an existing directory that graft didn't write: a mistyped `dir = "src"` stops there.
 #
 # Nothing else: no config file, no lock of its own, no network access of its own. flake.lock is the
 # lock and `nix flake update <dep>` is the upgrade.
 { nixpkgs, systems }:
 
-{ inputs, deps, dir ? "vendor" }:
+{ inputs, deps, dir ? "scions" }:
 
 let
   lib = nixpkgs.lib;
   forAll = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
+  # the directory as given, minus trailing slashes
+  path = lib.removeSuffix "/" (lib.removeSuffix "/" dir);
+  segments = lib.splitString "/" path;
+  validDir = path != ""
+    && !(lib.hasPrefix "/" path)
+    && !(lib.hasInfix "\n" path)
+    && lib.all (s: s != "" && s != "." && s != "..") segments
+    && lib.head segments != ".git";
+  q = lib.escapeShellArg path;
+
   validName = n: builtins.match "[A-Za-z0-9][A-Za-z0-9._-]*" n != null;
-  validDir = builtins.match "[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*" dir != null
-    && !(lib.any (s: s == "." || s == "..") (lib.splitString "/" dir));
   bad = lib.filter (n: !validName n) deps;
   missing = lib.filter (n: !(inputs ? ${n})) deps;
 
   pin = n: inputs.${n}.rev or inputs.${n}.dirtyRev or "unpinned (no rev)";
 
+  # The first line marks the directory as graft's: the app only ever deletes a directory carrying
+  # it (or the sentence graft 2.0.0 wrote, so a 2.0.0 directory can be replaced).
+  marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->";
   readme = builtins.toFile "graft-README.md" ''
-    # ${dir}/
+    ${marker}
+    # ${path}/
 
-    Managed by [graft](https://github.com/danielnaab/graft): do not edit. Each folder is the export
-    of one flake input, pinned in `flake.lock`. To upgrade one: `nix flake update <name>`, then
-    `nix run .#graft`, then commit. `nix flake check` fails if this folder drifts from the pins.
+    Scions: each folder is another repository's export, grafted here by
+    [graft](https://github.com/danielnaab/graft) at the commit pinned in `flake.lock`. Do not edit
+    them. To upgrade one: `nix flake update <name>`, then `nix run .#graft`, then commit.
+    `nix flake check` fails if this directory drifts from the pins.
 
-    | Folder | Commit |
+    | Scion | Commit |
     |---|---|
     ${lib.concatMapStrings (n: "| [${n}](${n}/) | `${pin n}` |\n") deps}'';
 
-  expected = pkgs: pkgs.runCommand "graft-${baseNameOf dir}" { } ''
+  expected = pkgs: pkgs.runCommand "graft-scions" { } ''
     mkdir -p $out
     cp ${readme} $out/README.md
     ${lib.concatMapStrings (n: ''
@@ -50,28 +67,35 @@ let
 
   sync = pkgs: pkgs.writeShellApplication {
     name = "graft";
-    runtimeInputs = [ pkgs.coreutils ];
+    runtimeInputs = [ pkgs.coreutils pkgs.gnugrep ];
     text = ''
       if [ ! -f flake.nix ]; then
         echo "graft: run from the repo root (no flake.nix here)" >&2
         exit 1
       fi
-      rm -rf ${lib.escapeShellArg dir}
-      mkdir -p "$(dirname ${lib.escapeShellArg dir})"
-      cp -R --no-preserve=mode ${expected pkgs} ${lib.escapeShellArg dir}
+      if [ -e ${q} ]; then
+        if ! grep -qsF -e ${lib.escapeShellArg marker} -e 'Managed by [graft]' ${q}/README.md; then
+          echo ${lib.escapeShellArg "graft: ${path}/ exists and graft didn't write it (no marker in its README.md); not replacing it"} >&2
+          exit 1
+        fi
+      fi
+      rm -rf ${q}
+      mkdir -p "$(dirname ${q})"
+      cp -R --no-preserve=mode ${expected pkgs} ${q}
       ${lib.concatMapStrings (n: ''
-        echo "graft: ${dir}/${n} <- ${pin n}"
+        echo ${lib.escapeShellArg "graft: ${path}/${n} <- ${pin n}"}
       '') deps}
     '';
   };
 
   check = pkgs: pkgs.runCommand "graft-check" { } ''
-    if [ ! -d ${inputs.self}/${dir} ]; then
-      echo "graft: ${dir}/ is missing; run: nix run .#graft" >&2
+    actual=${inputs.self}/${q}
+    if [ ! -d "$actual" ]; then
+      echo ${lib.escapeShellArg "graft: ${path}/ is missing; run: nix run .#graft"} >&2
       exit 1
     fi
-    if ! diff -r ${expected pkgs} ${inputs.self}/${dir} >&2; then
-      echo "graft: ${dir}/ differs from the pins in flake.lock; run: nix run .#graft" >&2
+    if ! diff -r ${expected pkgs} "$actual" >&2; then
+      echo ${lib.escapeShellArg "graft: ${path}/ differs from the pins in flake.lock; run: nix run .#graft"} >&2
       echo "graft: (a file listed only on the left may be one your .gitignore drops)" >&2
       exit 1
     fi
@@ -81,7 +105,8 @@ in
 assert lib.assertMsg (deps != [ ]) "graft: deps is empty";
 assert lib.assertMsg (bad == [ ]) "graft: dep names must be plain folder names: ${toString bad}";
 assert lib.assertMsg (missing == [ ]) "graft: deps not among the flake's inputs: ${toString missing}";
-assert lib.assertMsg validDir "graft: dir must be a relative path inside the repo, got \"${dir}\"";
+assert lib.assertMsg validDir
+  "graft: dir must be a relative path inside the repo (no leading /, no . or .. segments, not .git), got \"${dir}\"";
 {
   apps = forAll (pkgs: { graft = { type = "app"; program = lib.getExe (sync pkgs); }; });
   checks = forAll (pkgs: { graft = check pkgs; });
