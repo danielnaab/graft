@@ -81,6 +81,12 @@ quiet nix run .#graft-upgrade -- provider@v2.0.0 && git_ add -A
 expect "upgrade to a named tag (here back to v2.0.0)" grep -q 'ref=v2.0.0' flake.nix
 expect "check passes after a named-tag upgrade" quiet nix flake check
 refuse "upgrade refuses an unknown scion" quiet nix run .#graft-upgrade -- nonesuch
+# an upstream that can't be read is an error, never "nothing to upgrade"
+mv "$p" "$p.away"
+expect "outdated: an unreachable upstream is unknown" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -q " unknown"'
+refuse "upgrade fails when it can't read an upstream" quiet nix run .#graft-upgrade
+expect "and changes nothing" git_ diff --quiet
+mv "$p.away" "$p"
 
 # dir: any relative path, here nested with a space and an apostrophe, and a hidden one
 consumer() {  # consumer <name> <dir-attr>: a fresh consumer of provider@v2 with mkGraft's dir set

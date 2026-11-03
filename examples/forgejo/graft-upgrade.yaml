@@ -20,9 +20,11 @@ jobs:
         experimental-features = nix-command flakes
         sandbox = false
       BRANCH: graft/upgrade
+      LOG: /tmp/graft-upgrade.log   # outside the checkout: steps share the job's container
     steps:
       - name: Checkout the default branch
         env:
+          SERVER: ${{ github.server_url }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           REF: ${{ github.event.repository.default_branch }}
           TOKEN: ${{ github.token }}
@@ -30,7 +32,8 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin "$REPO_URL.git"
-          git config http.extraheader "Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          # The token is for this server only (scoped), never for the providers graft-upgrade asks.
+          git config "http.$SERVER/.extraheader" "Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
           git fetch -q --no-tags origin "$REF"
           git checkout -q --force -B "$BRANCH" FETCH_HEAD
 
@@ -38,8 +41,8 @@ jobs:
         id: upgrade
         run: |
           set -euo pipefail
-          nix run .#graft-upgrade | tee upgrade.log
-          git add -A -- . ':!upgrade.log'
+          nix run .#graft-upgrade | tee "$LOG"
+          git add -A
           if git diff --cached --quiet; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
 
       - name: Check the result
@@ -58,14 +61,14 @@ jobs:
         run: |
           set -euo pipefail
           git -c user.name="graft-upgrade" -c user.email="graft-upgrade@noreply.invalid" \
-            commit -q -m "graft: upgrade scions" -m "$(grep '^graft: .* -> ' upgrade.log)"
+            commit -q -m "graft: upgrade scions" -m "$(grep '^graft: .* -> ' "$LOG")"
           git push -q --force origin "$BRANCH"
           nix shell nixpkgs#jq nixpkgs#curl --command bash -euo pipefail -c '
             open=$(curl -fsS -H "Authorization: token $TOKEN" "$API/pulls?state=open&limit=50" \
               | jq --arg b "$BRANCH" "[.[] | select(.head.ref == \$b)] | length")
             if [ "$open" != 0 ]; then echo "PR already open for $BRANCH: updated by the push"; exit 0; fi
             body=$(printf "%s\n\n%s\n\n%s" "Scions behind their upstream'\''s newest tag, moved by \`nix run .#graft-upgrade\`:" \
-              "$(grep "^graft: .* -> " upgrade.log | sed "s/^graft: /- /")" \
+              "$(grep "^graft: .* -> " "$LOG" | sed "s/^graft: /- /")" \
               "\`nix flake check\` passed on the result. The diff of the scions directory is the change you are taking; review and merge are yours.")
             jq -n --arg head "$BRANCH" --arg base "$BASE" --arg body "$body" \
               "{head: \$head, base: \$base, title: \"graft: upgrade scions\", body: \$body}" \

@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.2.1 - 2026-11-03
+
+### Fixed
+- `examples/forgejo/graft-upgrade.yaml` saved its checkout token as an unscoped
+  `http.extraheader`, so `graft-upgrade`'s `git ls-remote` sent it to every provider's server.
+  GitHub refused it, and the scion read as unknown. The header is now scoped to the repo's own
+  server, and graft clears `http.extraHeader` for its own `ls-remote` calls.
+- An upstream that can't be read made `graft-upgrade` report "nothing to upgrade". It now prints
+  git's error and fails without changing anything. A `git grep` failure (a repo git won't trust)
+  is an error too, not "no scions here".
+- The upgrade workflow's log is written outside the checkout: `git add` failed when the repo's
+  `.gitignore` ignored it.
+
 ## v2.2.0 - 2026-11-03
 
 ### Added

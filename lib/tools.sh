@@ -22,11 +22,15 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 nix_() { nix --extra-experimental-features 'nix-command flakes' "$@"; }
 die() { echo "graft: $*" >&2; exit 1; }
 
-# The scions directories in the repo: those whose README.md carries graft's marker.
+# The scions directories in the repo: those whose README.md carries graft's marker. git grep exits
+# 1 for no match; anything else (not a repo, a repo git won't trust) is an error, not "no scions".
 scion_dirs() {
-  local args=() m
+  local args=() m out rc=0
   for m in "${MARKERS[@]}"; do args+=(-e "$m"); done
-  git grep -l -F "${args[@]}" -- README.md '*/README.md' 2>/dev/null | sed -E 's#/?README\.md$##' | grep -v '^$' || true
+  out=$(git grep -l -F "${args[@]}" -- README.md '*/README.md') || rc=$?
+  [ "$rc" -le 1 ] || die "can't search $(pwd) with git (exit $rc; see above)"
+  [ -n "$out" ] || return 0
+  sed -E 's#/?README\.md$##' <<<"$out" | grep -v '^$' || true
 }
 
 # The scions a directory's README table names, one per line.
@@ -44,11 +48,15 @@ remote() {  # the git URL of a locked input's upstream
 semver_key() { sed -E 's/^v//' <<<"$1"; }
 is_semver() { [[ $1 =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 
-latest_tag() {  # the newest semver tag at URL, spelled like REF (with or without the v)
-  local url=$1 ref=$2 prefix=""
+# The newest semver tag at URL, spelled like REF (with or without the v). Nothing, with git's
+# error on stderr, if the remote can't be listed. http.extraHeader is cleared: a header the repo
+# configured for its own server (a CI checkout's token) must never be sent to a provider's.
+latest_tag() {
+  local url=$1 ref=$2 prefix="" tags
   [[ $ref == v* ]] && prefix=v
-  git ls-remote --tags --refs "$url" 2>/dev/null | sed -E 's#.*refs/tags/##' \
-    | grep -E "^${prefix}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true
+  tags=$(git -c http.extraHeader= ls-remote --tags --refs "$url" 2>&1) \
+    || { echo "graft: can't list tags at $url: $(tail -1 <<<"$tags")" >&2; return 0; }
+  sed -E 's#.*refs/tags/##' <<<"$tags" | grep -E "^${prefix}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true
 }
 
 # Rows: name<TAB>dir<TAB>pinned<TAB>latest<TAB>status (current|outdated|untagged|unknown)
@@ -170,6 +178,13 @@ cmd_upgrade() {
     if [ "$target" = "$pinned" ] || [ "$target" = - ]; then continue; fi
     is_semver "$target" || die "$name: $target is not a version tag"
     plan+=("$name"$'\t'"$dir"$'\t'"$pinned"$'\t'"$target")
+  done <<<"$rows"
+  # A scion whose upstream couldn't be read might be behind: say so and fail, not "nothing to do".
+  while IFS=$'\t' read -r name dir pinned latest status; do
+    [ "$status" = unknown ] || continue
+    if [ ${#want[@]} -eq 0 ] || printf '%s\n' "${want[@]%%@*}" | grep -qx "$name"; then
+      die "$name: can't tell whether $pinned is current (see above); nothing changed"
+    fi
   done <<<"$rows"
   [ ${#plan[@]} -gt 0 ] || { echo "graft: nothing to upgrade"; return 0; }
   asm=$(assembler) || exit 1
