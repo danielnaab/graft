@@ -34,18 +34,25 @@ It is a Nix flake library of about 100 lines. Nix does the real work:
 
   outputs = inputs: inputs.graft.lib.mkGraft {
     inherit inputs;
-    deps = [ "meta-knowledge-base" ];   # each becomes vendor/<name>/
-    # dir = "vendor";                   # the default
+    deps = [ "meta-knowledge-base" ];   # each becomes scions/<name>/
+    # dir = "scions";                   # the default; any relative path
   };
 }
 ```
 
-Then `nix run .#graft` and commit `vendor/`. `vendor/README.md` lists each folder's pinned commit.
-`nix flake check` fails if `vendor/` differs from what the pins produce: an edited vendored file,
-a pin moved without re-running graft, or a vendored file your `.gitignore` drops.
+Then `nix run .#graft` and commit `scions/`. A **scion** is the horticultural word for what's
+grafted on: another repository's export, joined to yours while yours keeps its own roots.
+`scions/README.md` lists each one's pinned commit. `nix flake check` fails if `scions/` differs
+from what the pins produce: an edited scion, a pin moved without re-running graft, or a grafted
+file your `.gitignore` drops.
+
+`dir` can be any relative path inside the repo: `.scions` keeps scions out of tools that skip
+hidden folders (an Obsidian vault, say), `docs/Grafted` puts them beside your docs. graft owns
+that directory and replaces it on every run, so it refuses to touch an existing directory it
+didn't write.
 
 To upgrade one dependency: change its ref if you pinned a tag, then `nix flake update <name>`,
-`nix run .#graft`, and commit. The diff of `vendor/` is the change you are taking.
+`nix run .#graft`, and commit. The diff of `scions/` is the change you are taking.
 
 A flake with outputs of its own merges them with `nixpkgs.lib.recursiveUpdate`, not `//`, which
 would drop one side's `checks`.
@@ -57,11 +64,11 @@ Mark what isn't part of your export in `.gitattributes`, and tag releases:
 ```
 tests/   export-ignore
 notes/   export-ignore
-vendor/  export-ignore   # always: consumers take your content, never your dependencies
+scions/  export-ignore   # always: consumers take your content, never your dependencies
 ```
 
 Your own dependencies stay yours. A consumer that needs one of them grafts it directly, so every
-repo has one level of `vendor/` and one copy of each dependency.
+repo has one level of scions and one copy of each dependency.
 
 ## Scope
 
