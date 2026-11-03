@@ -98,7 +98,10 @@ pinned version back. When the change is right, tag the provider and `nix run .#g
 - **graft-check.yaml**: on PRs and pushes to `main`, the scions match `flake.lock`.
 - **graft-upgrade.yaml**: weekly (and on demand), `graft-upgrade`; if anything moved, it checks
   the result, force-pushes the branch `graft/upgrade` and opens a PR from it (or updates the one
-  already open). It never pushes to the default branch.
+  already open). It never pushes to the default branch. Forgejo's job token can push but can't
+  open a PR on a private repo, so the PR is opened with the Actions secret `GRAFT_PR_TOKEN`: a
+  token with `write:repository` for a user who can write to the repo (a bot account is best: it
+  becomes the PR's author). A user-level secret covers all that user's repos.
 
 Both want a runner with Nix: `runs-on: nixos-latest` means a docker label for
 `docker://nixos/nix`. On GitHub, use the same steps after a Nix install action.
