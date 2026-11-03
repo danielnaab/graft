@@ -1,7 +1,9 @@
 # graft
 
 **This is graft v2, a new design. It does not read `graft.yaml`, `graft.lock` or `.graft/`;
-those belong to graft v1, kept on the `legacy` tag.**
+those belong to graft v1, on the `v1` branch.** Earlier lines of work are read-only branches too:
+`v1` (graft v1, Python then Rust, 2025-12 to 2026-10), `v0.2` (a Python experiment, 2025-11)
+and `v0.1` (a DVC experiment, 2025-11).
 
 graft copies other repositories' content into yours at a pinned commit, so agents and people
 read exactly the same text on every machine, with nothing to fetch or set up. The provider

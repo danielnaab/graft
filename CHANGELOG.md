@@ -55,5 +55,5 @@ Upgrading from 2.0.0: bump the input, `git mv vendor scions` (or set `dir = "ven
 
 ## v2.0.0 - 2026-11-02
 
-A new design, sharing no history with graft v1 (tag `legacy`): pinned, provider-defined exports
+A new design, sharing no history with graft v1 (branch `v1`): pinned, provider-defined exports
 via Nix flake inputs, copied by `nix run .#graft` and checked by `nix flake check`.
