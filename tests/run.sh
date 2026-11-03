@@ -25,7 +25,7 @@ echo "readme" > "$p/README.md"
 echo "test" > "$p/tests/t.sh"
 echo "nested dependency" > "$p/scions/upstream/x.md"
 printf 'tests/ export-ignore\nscions/ export-ignore\n' > "$p/.gitattributes"
-git_ -C "$p" init -q -b main && git_ -C "$p" add -A && git_ -C "$p" commit -qm v1 && git_ -C "$p" tag v1
+git_ -C "$p" init -q -b main && git_ -C "$p" add -A && git_ -C "$p" commit -qm v1 && git_ -C "$p" tag v1.0.0
 
 # consumer
 c=$work/consumer
@@ -33,7 +33,7 @@ mkdir -p "$c"
 cat > "$c/flake.nix" <<EOF
 {
   inputs.graft.url = "path:$graft";
-  inputs.provider = { url = "git+file://$p?ref=v1&exportIgnore=1"; flake = false; };
+  inputs.provider = { url = "git+file://$p?ref=v1.0.0&exportIgnore=1"; flake = false; };
   outputs = inputs: inputs.graft.lib.mkGraft { inherit inputs; deps = [ "provider" ]; };
 }
 EOF
@@ -44,7 +44,7 @@ quiet nix run .#graft || fail "nix run .#graft"
 expect "export grafted" test -f scions/provider/docs/policy.md
 expect "provider's export-ignore applied (tests/)" test ! -e scions/provider/tests
 expect "provider's own scions not nested" test ! -e scions/provider/scions
-rev1=$(git_ -C "$p" rev-parse v1)
+rev1=$(git_ -C "$p" rev-parse v1.0.0)
 expect "README names the pinned commit" grep -q "$rev1" scions/README.md
 
 git_ add -A
@@ -56,13 +56,31 @@ quiet nix run .#graft && git_ add -A
 expect "graft restores the pinned export" quiet nix flake check
 
 # upgrade: provider tags v2; the consumer moves the ref and updates the lock
-echo "policy v2" > "$p/docs/policy.md" && git_ -C "$p" commit -qam v2 && git_ -C "$p" tag v2
-sed -i.bak 's/ref=v1/ref=v2/' flake.nix && rm flake.nix.bak
+echo "policy v2" > "$p/docs/policy.md" && git_ -C "$p" commit -qam v2 && git_ -C "$p" tag v2.0.0
+sed -i.bak 's/ref=v1.0.0/ref=v2.0.0/' flake.nix && rm flake.nix.bak
 quiet nix flake update provider && git_ add -A
 refuse "check catches a pin moved without grafting" quiet nix flake check
 quiet nix run .#graft && git_ add -A
 expect "upgrade grafts v2" grep -q "policy v2" scions/provider/docs/policy.md
 expect "check passes after the upgrade" quiet nix flake check
+
+# graft-outdated / graft-upgrade: CI mode (the repo's own flake) and from outside (graft's flake)
+echo "policy v2.1" > "$p/docs/policy.md" && git_ -C "$p" commit -qam v2.1 && git_ -C "$p" tag v2.1.0
+git_ -C "$p" tag not-a-version
+expect "outdated: names the newer tag" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -qE "provider +scions +v2.0.0 +v2.1.0 +outdated"'
+expect "outdated --json" sh -c 'nix run .#graft-outdated -- --json 2>/dev/null | jq -e ".[0] | .status==\"outdated\" and .latest==\"v2.1.0\"" >/dev/null'
+expect "outdated from outside, without the repo's flake" sh -c "nix run '$graft'#outdated -- -C '$c' 2>/dev/null | grep -q outdated"
+quiet nix run .#graft-upgrade || fail "graft-upgrade"
+git_ add -A
+expect "upgrade moved the ref in flake.nix" grep -q 'ref=v2.1.0' flake.nix
+expect "upgrade grafted v2.1" grep -q "policy v2.1" scions/provider/docs/policy.md
+expect "upgrade kept the export rules" test ! -e scions/provider/tests
+expect "check passes after graft-upgrade" quiet nix flake check
+expect "a second upgrade has nothing to do" sh -c 'nix run .#graft-upgrade 2>/dev/null | grep -q "nothing to upgrade"'
+quiet nix run .#graft-upgrade -- provider@v2.0.0 && git_ add -A
+expect "upgrade to a named tag (here back to v2.0.0)" grep -q 'ref=v2.0.0' flake.nix
+expect "check passes after a named-tag upgrade" quiet nix flake check
+refuse "upgrade refuses an unknown scion" quiet nix run .#graft-upgrade -- nonesuch
 
 # dir: any relative path, here nested with a space and an apostrophe, and a hidden one
 consumer() {  # consumer <name> <dir-attr>: a fresh consumer of provider@v2 with mkGraft's dir set
@@ -71,7 +89,7 @@ consumer() {  # consumer <name> <dir-attr>: a fresh consumer of provider@v2 with
   cat > "$d/flake.nix" <<EOF
 {
   inputs.graft.url = "path:$graft";
-  inputs.provider = { url = "git+file://$p?ref=v2&exportIgnore=1"; flake = false; };
+  inputs.provider = { url = "git+file://$p?ref=v2.0.0&exportIgnore=1"; flake = false; };
   outputs = inputs: inputs.graft.lib.mkGraft { inherit inputs; deps = [ "provider" ]; $2 };
 }
 EOF

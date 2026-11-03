@@ -1,13 +1,13 @@
 # graft
 
 **This is graft v2, a new design. It does not read `graft.yaml`, `graft.lock` or `.graft/`;
-those belong to graft v1, which stays on `main` until v2 replaces it and is then tagged `legacy`.**
+those belong to graft v1, kept on the `legacy` tag.**
 
 graft copies other repositories' content into yours at a pinned commit, so agents and people
 read exactly the same text on every machine, with nothing to fetch or set up. The provider
 decides what it exports; the consumer decides which version it takes.
 
-It is a Nix flake library of about 100 lines. Nix does the real work:
+It is a Nix flake library and two small scripts. Nix does the real work:
 
 | Job | Done by |
 |---|---|
@@ -15,7 +15,8 @@ It is a Nix flake library of about 100 lines. Nix does the real work:
 | Fetching and pinning | flake inputs: `flake.lock` records the commit and a content hash |
 | Applying the export rules | Nix, for `github:` inputs and for `git+…?exportIgnore=1` inputs |
 | One copy of a shared dependency | `follows`, if two inputs share one |
-| Upgrading | `nix flake update <name>` |
+| Finding newer versions | graft: `nix run .#graft-outdated` (newest semver tag upstream) |
+| Upgrading | graft: `nix run .#graft-upgrade` (moves the tag, `nix flake update`, re-grafts) |
 | Copying into the repo | graft: `nix run .#graft` |
 | Checking the copy | graft: `nix flake check` |
 
@@ -51,8 +52,43 @@ hidden folders (an Obsidian vault, say), `docs/Grafted` puts them beside your do
 that directory and replaces it on every run, so it refuses to touch an existing directory it
 didn't write.
 
-To upgrade one dependency: change its ref if you pinned a tag, then `nix flake update <name>`,
-`nix run .#graft`, and commit. The diff of `scions/` is the change you are taking.
+## Upgrade
+
+```
+nix run .#graft-outdated                 # each scion: pinned tag, newest tag upstream, status
+nix run .#graft-upgrade                  # every outdated scion to its newest tag
+nix run .#graft-upgrade -- name@v1.2.0   # one scion to a named tag
+```
+
+`graft-upgrade` rewrites the tag in `flake.nix`, runs `nix flake update <name>`, and rebuilds
+the scions directory; then commit. The diff of `scions/` is the change you are taking. Only
+semver tags (`v1.2.3` or `1.2.3`) count as versions; a scion pinned to a branch or a commit is
+reported as `untagged` and left alone. By hand: change the ref, `nix flake update <name>`,
+`nix run .#graft`.
+
+Both read the repo as data (graft's README table says which inputs are scions; `flake.lock`
+says what each is pinned to) and never call the flake's `outputs`, so they also run from graft's
+own flake against any checkout, for a bot that watches many repos:
+
+```
+nix run github:danielnaab/graft#outdated -- -C path/to/repo [--json]
+nix run github:danielnaab/graft#upgrade  -- -C path/to/repo
+```
+
+An upgrade rebuilds the directory with the `assemble.sh` of the graft version the repo pins, so
+it writes exactly what the repo's own `nix flake check` expects.
+
+## In CI
+
+[`examples/forgejo/`](examples/forgejo/) has two workflows to copy into `.forgejo/workflows/`:
+
+- **graft-check.yaml**: on PRs and pushes to `main`, the scions match `flake.lock`.
+- **graft-upgrade.yaml**: weekly (and on demand), `graft-upgrade`; if anything moved, it checks
+  the result, force-pushes the branch `graft/upgrade` and opens a PR from it (or updates the one
+  already open). It never pushes to the default branch.
+
+Both want a runner with Nix: `runs-on: nixos-latest` means a docker label for
+`docker://nixos/nix`. On GitHub, use the same steps after a Nix install action.
 
 A flake with outputs of its own merges them with `nixpkgs.lib.recursiveUpdate`, not `//`, which
 would drop one side's `checks`.
@@ -72,10 +108,13 @@ repo has one level of scions and one copy of each dependency.
 
 ## Scope
 
-graft stays this small. It has no config file, no lock of its own, no CLI beyond `nix run`, and
-no update bot. A feature that can't be expressed as Nix plus a copy and a diff does not belong here.
+graft stays this small. It has no config file, no lock of its own and no CLI beyond `nix run`.
+It provides commands; any bot is a workflow in the repo that runs them (or a central job that runs
+them from graft's flake). A feature that can't be expressed as Nix plus a copy, a diff and a tag
+comparison does not belong here.
 
 ## Develop
 
-`tests/run.sh` runs the whole cycle against a throwaway provider repo: graft, check, drift, upgrade.
-`nix flake check` runs shellcheck on it.
+`tests/run.sh` runs the whole cycle against a throwaway provider repo: graft, check, drift,
+upgrade by hand, `graft-outdated` and `graft-upgrade` (in the repo and from outside), and the
+`dir` cases. `nix flake check` runs shellcheck on it and on `lib/*.sh`.

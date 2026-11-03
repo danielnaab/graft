@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.2.0 - 2026-11-03
+
+### Added
+- `nix run .#graft-outdated`: each scion's pinned tag against the newest semver tag upstream
+  (`git ls-remote`); `--json` for machines.
+- `nix run .#graft-upgrade [name[@tag]...]`: moves scions to newer tags, re-locks them and
+  rebuilds the scions directory.
+- Both read the repo as data and never call its flake's outputs, so graft's own flake runs them
+  against any checkout: `nix run github:danielnaab/graft#outdated -- -C <repo>`.
+- `examples/forgejo/`: a check workflow and a weekly upgrade workflow that opens a PR.
+
+### Changed
+- `lib/assemble.sh` builds the scions directory for both the check and graft-upgrade. The
+  directory's README now names `graft-upgrade`; repos moving to 2.2 re-run `nix run .#graft`.
+
 ## v2.1.0 - 2026-11-03
 
 ### Changed

@@ -6,8 +6,13 @@
 # commit and a content hash in flake.lock. mkGraft builds `expected`, the directory those inputs
 # make (one folder per dep, plus a README naming each pin), and gives the repo two outputs over it:
 #
-#   apps.<system>.graft    replace <dir> with `expected`   (nix run .#graft)
-#   checks.<system>.graft  fail unless <dir> is `expected` (nix flake check)
+#   apps.<system>.graft          replace <dir> with `expected`   (nix run .#graft)
+#   checks.<system>.graft        fail unless <dir> is `expected` (nix flake check)
+#   apps.<system>.graft-outdated each scion's pinned tag against the newest upstream
+#   apps.<system>.graft-upgrade  move scions to newer tags, re-lock, rebuild <dir>
+#
+# `expected` is built by lib/assemble.sh, which graft-upgrade also uses, so an upgrade writes
+# exactly what the check expects.
 #
 # <dir> defaults to `scions` and may be any relative path inside the repo (`.scions`,
 # `docs/Grafted Docs`, …). graft owns it entirely and replaces it on every run, so the app refuses
@@ -15,7 +20,7 @@
 #
 # Nothing else: no config file, no lock of its own, no network access of its own. flake.lock is the
 # lock and `nix flake update <dep>` is the upgrade.
-{ nixpkgs, systems }:
+{ nixpkgs, systems, tools }:
 
 { inputs, deps, dir ? "scions" }:
 
@@ -39,30 +44,13 @@ let
 
   pin = n: inputs.${n}.rev or inputs.${n}.dirtyRev or "unpinned (no rev)";
 
-  # The first line marks the directory as graft's: the app only ever deletes a directory carrying
-  # it (or the sentence graft 2.0.0 wrote, so a 2.0.0 directory can be replaced).
+  # The marker README.md's first line carries (lib/assemble.sh writes it): the app only ever
+  # deletes a directory carrying it (or the sentence graft 2.0.0 wrote, so a 2.0.0 directory can be
+  # replaced).
   marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->";
-  readme = builtins.toFile "graft-README.md" ''
-    ${marker}
-    # ${path}/
-
-    Scions: each folder is another repository's export, grafted here by
-    [graft](https://github.com/danielnaab/graft) at the commit pinned in `flake.lock`. Do not edit
-    them. To upgrade one: `nix flake update <name>`, then `nix run .#graft`, then commit.
-    `nix flake check` fails if this directory drifts from the pins.
-
-    | Scion | Commit |
-    |---|---|
-    ${lib.concatMapStrings (n: "| [${n}](${n}/) | `${pin n}` |\n") deps}'';
 
   expected = pkgs: pkgs.runCommand "graft-scions" { } ''
-    mkdir -p $out
-    cp ${readme} $out/README.md
-    ${lib.concatMapStrings (n: ''
-      cp -R --no-preserve=mode ${inputs.${n}} $out/${n}
-    '') deps}
-    # git can't hold an empty directory, so a checkout never has one: drop them here too
-    find $out -mindepth 1 -type d -empty -delete
+    ${pkgs.bash}/bin/bash ${./assemble.sh} $out ${q} ${lib.concatMapStringsSep " " (n: lib.escapeShellArg "${n}=${inputs.${n}}=${pin n}") deps}
   '';
 
   sync = pkgs: pkgs.writeShellApplication {
@@ -108,6 +96,10 @@ assert lib.assertMsg (missing == [ ]) "graft: deps not among the flake's inputs:
 assert lib.assertMsg validDir
   "graft: dir must be a relative path inside the repo (no leading /, no . or .. segments, not .git), got \"${dir}\"";
 {
-  apps = forAll (pkgs: { graft = { type = "app"; program = lib.getExe (sync pkgs); }; });
+  apps = forAll (pkgs: {
+    graft = { type = "app"; program = lib.getExe (sync pkgs); };
+    graft-outdated = { type = "app"; program = lib.getExe (tools pkgs).outdated; };
+    graft-upgrade = { type = "app"; program = lib.getExe (tools pkgs).upgrade; };
+  });
   checks = forAll (pkgs: { graft = check pkgs; });
 }

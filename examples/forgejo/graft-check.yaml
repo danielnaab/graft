@@ -1,0 +1,41 @@
+# graft's integrity check: the scions directory is exactly what flake.lock's pins produce.
+# Copy to .forgejo/workflows/ (or .github/workflows/ with a Nix install step instead of the image).
+name: graft-check
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: graft-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scions:
+    # Any runner with Nix. On Forgejo, a docker label for docker://nixos/nix keeps this off
+    # host runners; its jobs are short (a fetch and a diff).
+    runs-on: nixos-latest
+    timeout-minutes: 20
+    env:
+      NIX_CONFIG: |
+        experimental-features = nix-command flakes
+        sandbox = false
+    steps:
+      - name: Checkout
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin "$REPO_URL.git"
+          git -c "http.extraheader=Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" \
+            fetch -q --no-tags --depth=1 origin "$SHA"
+          git checkout -q --force --detach "$SHA"
+
+      - name: Scions match flake.lock
+        run: |
+          set -euo pipefail
+          system=$(nix eval --impure --raw --expr builtins.currentSystem)
+          nix build --no-link ".#checks.$system.graft"
