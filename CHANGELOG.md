@@ -1,5 +1,43 @@
 # Changelog
 
+## v2.3.0 - 2026-11-03
+
+### Added
+- graft upgrades itself. `graft-outdated` lists the `graft` input beside the scions, and
+  `graft-upgrade` moves it like one (`graft-upgrade graft@v2.3.0`, or with no arguments when
+  it's outdated). It moves first; then every scions directory is rebuilt with the new version's
+  `assemble.sh`, and graft's workflows are replaced with the new version's. A graft pinned to a
+  branch or a path is `untagged` and left alone.
+- `nix run .#graft-ci -- check|upgrade|pr` (`lib/ci.sh`): the steps of the two Forgejo
+  workflows, which now just call it, so they run the graft version the repo pins.
+- graft's workflows carry a marker line (`# managed by graft: …`). A marked file in
+  `.forgejo/workflows/` named like one in `examples/forgejo/` is graft's: `graft-upgrade`
+  replaces it when graft moves, `nix run .#graft` restores it, `nix flake check` fails if it
+  differs. Without the marker a workflow is yours and never read.
+
+### Changed
+- `graft-upgrade.yaml` runs as two jobs. `upgrade` (upgrade, check, push `graft/upgrade`) holds
+  only the job token, since moving graft runs the new version's code before review. `pr` opens
+  the PR with `GRAFT_PR_TOKEN` (falling back to the job token, as before) from a fresh checkout
+  of the default branch, never evaluating the upgraded flake. It opens nothing if the branch is
+  already in the default branch. The token reaches `curl` on a pipe, not in its command line.
+- The PR and commit are titled `graft: upgrade` (was `graft: upgrade scions`).
+- `graft-outdated`'s first column is `NAME` (was `SCION`), and `--json` has a row for graft
+  with `dir` `-`.
+
+Upgrading from 2.2.x (once per repo, by hand: 2.2 can't move its own pin):
+
+```
+nix run github:danielnaab/graft/v2.3.0#upgrade -- graft@v2.3.0
+src=$(nix flake prefetch --json github:danielnaab/graft/v2.3.0 | jq -r .storePath)
+cp --no-preserve=mode "$src"/examples/forgejo/graft-*.yaml .forgejo/workflows/
+nix flake check
+```
+
+then commit `flake.nix`, `flake.lock` and `.forgejo/workflows/`. The scions directory doesn't
+change (`assemble.sh` is the same as 2.2.2's). From then on the weekly `graft/upgrade` PR brings
+each new graft version, its workflows included.
+
 ## v2.2.2 - 2026-11-03
 
 ### Fixed
