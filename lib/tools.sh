@@ -58,12 +58,13 @@ is_semver() { [[ $1 =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 # The newest semver tag at URL, spelled like REF (with or without the v). Nothing, with git's
 # error on stderr, if the remote can't be listed. http.extraHeader is cleared: a header the repo
 # configured for its own server (a CI checkout's token) must never be sent to a provider's.
+# With MAJOR, only tags of that major version count.
 latest_tag() {
-  local url=$1 ref=$2 prefix="" tags
+  local url=$1 ref=$2 major=${3:-[0-9]+} prefix="" tags
   [[ $ref == v* ]] && prefix=v
   tags=$(git -c http.extraHeader= ls-remote --tags --refs "$url" 2>&1) \
     || { echo "graft: can't list tags at $url: $(tail -1 <<<"$tags")" >&2; return 0; }
-  sed -E 's#.*refs/tags/##' <<<"$tags" | grep -E "^${prefix}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true
+  sed -E 's#.*refs/tags/##' <<<"$tags" | grep -E "^${prefix}${major}\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true
 }
 
 # One row for input NAME, listed under DIR: name<TAB>dir<TAB>pinned<TAB>latest<TAB>status, status
@@ -78,7 +79,13 @@ row() {
     printf '%s\t%s\t%s\t-\tuntagged\n' "$name" "$dir" "${ref:-$(jq -r '.locked.rev[0:12] // .original.type // "-"' <<<"$n")}"
     return
   fi
-  latest=$(latest_tag "$url" "$ref")
+  # graft itself stays within its major version: a new major may change mkGraft's interface, so
+  # moving to it is a decision (graft@TAG), not something a weekly job does by itself
+  if [ "$dir" = - ]; then
+    latest=$(latest_tag "$url" "$ref" "$(semver_key "$ref" | cut -d. -f1)")
+  else
+    latest=$(latest_tag "$url" "$ref")
+  fi
   status=current
   if [ -z "$latest" ]; then status=unknown; latest=-
   elif [ "$(printf '%s\n%s\n' "$(semver_key "$ref")" "$(semver_key "$latest")" | sort -V | tail -1)" != "$(semver_key "$ref")" ]; then
@@ -113,9 +120,10 @@ cmd_outdated() {
   fi
 }
 
-# Swap NAME's ref in flake.nix from OLD to NEW. The URL's spelling must appear exactly once.
+# Swap NAME's ref in flake.nix from OLD to NEW. The URL's spelling must appear exactly once. With a
+# fourth argument, only check that it does.
 retarget() {
-  local name=$1 old=$2 new=$3 n from to text count
+  local name=$1 old=$2 new=$3 dry=${4:-} n from to text count
   n=$(node "$name")
   case $(jq -r .original.type <<<"$n") in
     github) from="$(jq -r '"github:\(.original.owner)/\(.original.repo)/"' <<<"$n")$old"
@@ -125,6 +133,7 @@ retarget() {
   esac
   count=$(grep -c -F -- "$from" flake.nix || true)
   [ "$count" = 1 ] || die "$name: expected \"$from\" once in flake.nix, found it $count times; change the ref by hand"
+  [ -z "$dry" ] || return 0
   text=$(<flake.nix)
   printf '%s\n' "${text/"$from"/"$to"}" > flake.nix
 }
@@ -205,6 +214,12 @@ cmd_upgrade() {
       [ "$status" != untagged ] || die "$name is pinned to $pinned, not a tag; change it by hand"
     else
       [ "$status" = outdated ] || continue
+      # graft's workflows before 2.3 run graft-upgrade and open the PR in one job: moving graft
+      # there would run the new version's code beside the PR token. graft-ci sets GRAFT_CI.
+      if [ "$dir" = - ] && [ -n "${CI:-}" ] && [ -z "${GRAFT_CI:-}" ]; then
+        echo "graft: not moving graft itself from a CI job that isn't graft-ci (copy graft's examples/forgejo/ workflows)" >&2
+        continue
+      fi
       target=$latest
     fi
     if [ "$target" = "$pinned" ] || [ "$target" = - ]; then continue; fi
@@ -220,11 +235,14 @@ cmd_upgrade() {
   done <<<"$rows"
   [ ${#plan[@]} -gt 0 ] || { echo "graft: nothing to upgrade"; return 0; }
   # graft's own pin moves first, so everything after is built by the new version. Fetch that
-  # version now: a tag that can't be fetched, or a graft too old to rebuild, stops here.
+  # version now, and check every ref can be rewritten: a tag that can't be fetched, a graft too
+  # old to keep the workflows working, or an ambiguous ref stops here, before any file changes.
   for spec in "${plan[@]}"; do
     IFS=$'\t' read -r name dir pinned target <<<"$spec"
+    retarget "$name" "$pinned" "$target" dry
     [ "$dir" = - ] || continue
-    graft_src "$target" >/dev/null || exit 1
+    src=$(graft_src "$target") || exit 1
+    [ -f "$src/lib/workflows.sh" ] || die "graft-upgrade moves graft only to 2.3.0 or later (its workflows call graft-ci); move it by hand"
     moved_graft="$spec"
   done
   [ -n "$moved_graft" ] || { asm=$(assembler) || exit 1; }

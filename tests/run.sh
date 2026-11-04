@@ -105,6 +105,10 @@ git_ -C "$g" init -q -b main && git_ -C "$g" add -A && git_ -C "$g" commit -qm v
 printf 'echo "assembled by graft v9.1.0" >> "$out/README.md"\n' >> "$g/lib/assemble.sh"
 echo "# changed in v9.1.0" >> "$g/examples/forgejo/graft-check.yaml"
 git_ -C "$g" commit -qam v9.1.0 && git_ -C "$g" tag v9.1.0
+git_ -C "$g" tag v10.0.0   # a new major: never taken unless named
+# v9.0.1: a graft without lib/workflows.sh, like 2.2, which graft-upgrade won't move graft to
+git_ -C "$g" checkout -q -b old v9.0.0 && git_ -C "$g" rm -q lib/workflows.sh && git_ -C "$g" commit -qm v9.0.1 \
+  && git_ -C "$g" tag v9.0.1 && git_ -C "$g" checkout -q main
 v9=$work/graft-v9.0.0
 git_ clone -q --branch v9.0.0 "$g" "$v9" 2>/dev/null
 
@@ -138,6 +142,11 @@ expect "graft restores its workflow" cmp -s .forgejo/workflows/graft-check.yaml 
 echo "# my edit" >> .forgejo/workflows/graft-upgrade.yaml && git_ add -A
 cp .forgejo/workflows/graft-upgrade.yaml "$work/mine.yaml"
 expect "a workflow without the marker is the repo's: check passes" quiet nix flake check
+refuse "upgrade won't move graft to a version without workflows.sh" quiet nix run .#graft-upgrade -- graft@v9.0.1
+expect "and changes nothing" git_ diff --quiet
+CI=true quiet nix run .#graft-upgrade || fail "graft-upgrade under CI"
+expect "a CI job other than graft-ci doesn't move graft" grep -q "ref=v9.0.0" flake.nix
+git_ checkout -q -- . && git_ clean -qfd
 quiet nix run .#graft-upgrade || fail "graft-upgrade (graft itself)"
 git_ add -A
 expect "upgrade moved graft's ref" grep -q "ref=v9.1.0" flake.nix
@@ -182,8 +191,29 @@ expect "and the refreshed workflow" grep -q "refreshed .forgejo/workflows/graft-
 : > "$work/ci-out"
 GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet nix run .#graft-ci -- upgrade || fail "graft-ci upgrade, again"
 expect "ci upgrade again: changed=false" grep -qx changed=false "$work/ci-out"
-expect "ci pr: no PR when the branch is already in the base" sh -c 'API=http://127.0.0.1:9 WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=x nix run .#graft-ci -- pr 2>/dev/null | grep -q "already in main"'
-refuse "ci pr: refuses without a token" quiet env API=x WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN= nix run .#graft-ci -- pr
+pr_env=(API=http://127.0.0.1:9 WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=x)
+expect "ci pr: no PR when the branch is already in the base" sh -c "env ${pr_env[*]} nix run .#graft-ci -- pr 2>/dev/null | grep -q 'already in main'"
+refuse "ci pr: refuses without a token" quiet env "${pr_env[@]}" PR_TOKEN= nix run .#graft-ci -- pr
+git_ reset -q --hard HEAD~1   # back to the default branch before the upgrade
+refuse "ci pr: no PR for a branch that changes workflows" quiet env "${pr_env[@]}" nix run .#graft-ci -- pr
+expect "and it says why" sh -c "env ${pr_env[*]} nix run .#graft-ci -- pr 2>/dev/null | grep -q 'changes CI workflows'"
+git_ checkout -q -b elsewhere "$(git_ -C "$work/origin.git" rev-parse graft/upgrade)"
+echo "sneaky" > sneaky.sh && git_ add -A && git_ commit -qm sneaky && git_ push -q --force origin HEAD:graft/upgrade
+git_ checkout -q main
+refuse "ci pr: no PR for a branch that changes other files" quiet env "${pr_env[@]}" nix run .#graft-ci -- pr
+
+# graft-ci pr against a stub API: a branch that only moves a scion gets its PR, token in a header
+selfc self-pr v9.1.0
+git_ commit -qm init
+git_ init -q --bare "$work/origin-pr.git" && git_ remote add origin "$work/origin-pr.git" && git_ push -q origin main
+BRANCH=graft/upgrade quiet nix run .#graft-ci -- upgrade || fail "graft-ci upgrade (scion only)"
+git_ reset -q --hard origin/main
+nix run nixpkgs#python3 -- "$graft/tests/stub-api.py" "$work/port" "$work/auth" & stub=$!
+for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.1; done
+out=$(env API="http://127.0.0.1:$(cat "$work/port")" WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=s3cret nix run .#graft-ci -- pr 2>/dev/null) || true
+kill "$stub" 2>/dev/null || true
+expect "ci pr: opens the PR for a scion-only branch" grep -q "http://stub/pulls/1" <<<"$out"
+expect "with the token in the Authorization header" grep -qx "POST token s3cret" "$work/auth"
 
 # dir: any relative path, here nested with a space and an apostrophe, and a hidden one
 consumer() {  # consumer <name> <dir-attr>: a fresh consumer of provider@v2 with mkGraft's dir set

@@ -16,6 +16,7 @@ set -euo pipefail
 mode=$1 repo=$2 examples=$3
 marker='# managed by graft: '
 rc=0
+case $mode in check|refresh) ;; *) echo "usage: workflows.sh check|refresh REPO EXAMPLES" >&2; exit 2 ;; esac
 
 # A symlink could point anywhere: graft only writes regular files inside the repo.
 for d in .forgejo .forgejo/workflows; do
@@ -35,7 +36,6 @@ for src in "$examples"/*; do
     refresh)
       cp --no-preserve=mode "$src" "$repo/$wf"
       echo "graft: refreshed $wf" ;;
-    *) echo "usage: workflows.sh check|refresh REPO EXAMPLES" >&2; exit 2 ;;
   esac
 done
 exit "$rc"

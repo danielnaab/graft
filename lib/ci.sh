@@ -12,7 +12,12 @@
 #   pr       open a PR from $BRANCH into $BASE, unless one is open already (the push updated it).
 #            Needs API, WEB, BASE, BRANCH and PR_TOKEN. Run it in a job of its own, checked out at
 #            the default branch: then it runs the graft that branch pins and never evaluates the
-#            upgraded flake, so a new graft version never sees PR_TOKEN.
+#            upgraded flake, so a new graft version never sees PR_TOKEN. Opening a PR runs the
+#            repo's pull_request workflows from the PR's head, with the repo's secrets, and the
+#            branch was written by code nobody has reviewed yet: so it opens one only when the
+#            branch changes nothing but flake.nix, flake.lock and the scions directories. A change
+#            to .forgejo/ (a new graft version's workflows) or anywhere else fails with a link to
+#            the diff: review it, then open the PR yourself.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -32,7 +37,7 @@ upgrade() {
   : "${BRANCH:?BRANCH is not set}"
   log=$(mktemp)   # outside the checkout: the repo's .gitignore can't refuse it, git add can't take it
   trap 'rm -f "$log"' EXIT
-  bash "$here/tools.sh" upgrade | tee "$log"
+  GRAFT_CI=1 bash "$here/tools.sh" upgrade | tee "$log"
   git add -A
   if git diff --cached --quiet; then output changed=false; return 0; fi
   check
@@ -44,7 +49,7 @@ upgrade() {
 }
 
 pr() {
-  local v head changes out code list line body jq_
+  local v head changes out code list line body jq_ path dirs=() d ok workflows="" other="" compare
   for v in API WEB BASE BRANCH PR_TOKEN; do [ -n "${!v:-}" ] || die "$v is not set"; done
   git fetch -q --no-tags origin "refs/heads/$BRANCH" || die "can't fetch $BRANCH"
   head=$(git rev-parse FETCH_HEAD)
@@ -52,6 +57,29 @@ pr() {
     echo "graft: $BRANCH is already in $BASE; no PR to open"; return 0
   fi
   changes=$(git log -1 --format=%b "$head")
+  compare="$WEB/compare/$BASE...$BRANCH"
+
+  # What the branch may change without review: the lock, its refs, and graft's scions directories
+  # as the default branch has them (a README.md carrying graft's marker).
+  while IFS= read -r path; do
+    path=${path#HEAD:}; path=${path%README.md}; dirs+=("${path%/}")
+  done < <(git grep -l -F -e '<!-- managed by graft: https://github.com/danielnaab/graft -->' \
+             -e 'Managed by [graft]' HEAD -- README.md '*/README.md' || true)
+  while IFS= read -r -d '' path; do
+    ok=""
+    case $path in flake.nix|flake.lock) ok=1 ;; esac
+    for d in "${dirs[@]}"; do [ -z "$d" ] || [[ $path != "$d"/* ]] || ok=1; done
+    [ -z "$ok" ] || continue
+    if [[ $path == .forgejo/* ]]; then workflows+=" $path"; else other+=" $path"; fi
+  done < <(git diff --name-only -z HEAD "$head")
+  if [ -n "$other" ]; then
+    echo "::error::$BRANCH changes files graft-upgrade never writes:$other. Not opening a PR; look at $compare"
+    exit 1
+  fi
+  if [ -n "$workflows" ]; then
+    echo "::error::this upgrade changes CI workflows:$workflows. A PR would run them with the repo's secrets before anyone reads them, so none is opened: review the diff at $compare, then open the PR yourself."
+    exit 1
+  fi
 
   # The token reaches curl as a header file on a pipe, never in a command line.
   api() { curl -sS -w '\n%{http_code}' -H @<(printf 'Authorization: token %s\n' "$PR_TOKEN") \
@@ -64,13 +92,15 @@ pr() {
   list=""
   while IFS= read -r line; do [ -z "$line" ] || list+="- ${line#graft: }"$'\n'; done <<<"$changes"
   body="Moved by \`nix run .#graft-upgrade\` (graft's own pin, and scions behind their upstream's newest tag):"$'\n\n'"$list"$'\n'
-  body+="graft's check (\`checks.<system>.graft\`) passed on the result. The diff of the scions directory is the change you are taking; review and merge are yours."
+  body+="graft's check (\`checks.<system>.graft\`) passed on the result: when graft itself moved, that is the new version's own check. The diff of the scions directory is the change you are taking; review and merge are yours."
   jq_=$(jq -n --arg head "$BRANCH" --arg base "$BASE" --arg body "$body" \
           '{head: $head, base: $base, title: "graft: upgrade", body: $body}')
   out=$(api -X POST -d @- "$API/pulls" <<<"$jq_")
   code=${out##*$'\n'}; out=${out%$'\n'*}
   if [ "$code" = 201 ]; then jq -r .html_url <<<"$out"; return 0; fi
-  echo "::error::opening the PR: HTTP $code. $BRANCH is pushed; open it at $WEB/compare/$BASE...$BRANCH"
+  # 409: a PR for this branch is open already (one the listing above didn't reach)
+  if [ "$code" = 409 ]; then echo "graft: a PR is already open for $BRANCH; the push updated it"; return 0; fi
+  echo "::error::opening the PR: HTTP $code. $BRANCH is pushed; open it at $compare"
   [ "$code" != 404 ] || echo "::error::a 404 here is Forgejo refusing the job token: set the GRAFT_PR_TOKEN secret"
   exit 1
 }

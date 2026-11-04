@@ -72,7 +72,8 @@ path is reported as `untagged` and left alone. By hand: change the ref, `nix fla
 graft's own pin (the input named `graft`) is listed and moved the same way. It moves first, and
 everything after it uses the new version: every scions directory is rebuilt by its `assemble.sh`,
 and graft's workflows (below) are replaced with the ones it ships. Pin graft to a tag for this;
-`github:danielnaab/graft/v2` follows the branch and is never moved.
+`github:danielnaab/graft/v2` follows the branch and is never moved. graft stays within its major
+version unless you name one (`graft@v3.0.0`): a new major may change `mkGraft`.
 
 Both read the repo as data (graft's README table says which inputs are scions; `flake.lock`
 says what each is pinned to) and never call the flake's `outputs`, so they also run from graft's
@@ -122,10 +123,15 @@ the graft version the repo pins and change with it. The files themselves start w
 Delete the line to keep your own edits; graft then never touches the file. graft never adds a
 workflow you didn't copy in.
 
-The upgrade runs in two jobs. Moving graft runs the new version's code (its `assemble.sh` and its
-check) before anyone has reviewed the PR, so that job holds nothing but the job token. The PR is
-opened by a second job, checked out at the default branch, that runs the graft that branch pins
-and never evaluates the upgraded flake: `GRAFT_PR_TOKEN` never meets unreviewed code.
+Moving graft runs the new version's code (its `assemble.sh` and its check) before anyone has
+reviewed it, so the upgrade runs in two jobs. The first upgrades, checks and pushes, and holds
+nothing but the job token; protect the default branch so that token can't push to it. The second,
+checked out at the default branch, runs the graft that branch pins and never evaluates the
+upgraded flake, and opens the PR with `GRAFT_PR_TOKEN`. Opening a PR runs the repo's
+`pull_request` workflows from the branch, with the repo's secrets, so it opens one only when the
+branch changes nothing but `flake.nix`, `flake.lock` and the scions directories. When a new graft
+version changes its workflows (rare: their logic is in `graft-ci`), or anything else changed, the
+job fails with a link to the diff: read it, then open the PR yourself.
 
 Both want a runner with Nix: `runs-on: nixos-latest` means a docker label for
 `docker://nixos/nix`. On GitHub, use the same steps after a Nix install action.
