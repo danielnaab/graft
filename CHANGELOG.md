@@ -1,5 +1,71 @@
 # Changelog
 
+## v2.4.0 - 2026-11-04
+
+### Added
+- The upgrade PR is gated by the repo's whole `nix flake check`, not only graft's check: the
+  repo's own checks (link checks into the scions, lint, tests) run on every upgrade, in the
+  `upgrade` job, which still holds only the job token. Each of `checks.<system>` is built on its
+  own, so a failure has a name. A failing check doesn't hide the upgrade: the branch is pushed,
+  the PR is titled `[checks failing] graft: upgrade` and carries a **Failing checks** section (each
+  failing check's name and the tail of its log), and the run fails.
+- The PR body says what changed upstream: for each input the branch moved, the provider's
+  CHANGELOG.md sections between the old and new tag (`## vX.Y.Z`, `## X.Y.Z` or `## [X.Y.Z]`
+  headings), or, without them, its `git log --oneline` for the range (up to 50 commits), with a
+  compare link on GitHub. Capped at 6000 characters an input. The `pr` job computes it, from the
+  default branch's graft: see Security below.
+- `graft-outdated` has a `MAJOR` column (`major` in `--json`, `null` if none): the newest tag of a
+  later major version, which is never taken unless named.
+- README: **Breaking changes and migrations**, the convention for providers (a major is the
+  declaration; CHANGELOG.md's **Upgrading** section says what to do, written so an agent can apply
+  it; optional redirect stubs at renamed paths for one major).
+
+### Changed
+- Scions no longer cross a major version by themselves, the rule graft already applied to its own
+  pin. `graft-upgrade` with no arguments, or `graft-upgrade name`, moves each to the newest tag of
+  its pinned major and prints `name: vN.0.0 is a new major version; not taken`; `name@vN.0.0`
+  crosses. A `0.y` series counts as a major (semver's 0.x: anything may change), so `v0.3.0` moves
+  to `v0.3.4` but not to `v0.4.0`. `LATEST` in `graft-outdated` is now the newest of the pinned
+  major, so a repo whose only newer tag is a new major reads `current`.
+- `graft-upgrade.yaml`: the `pr` job runs when the `upgrade` job pushed even if its checks
+  failed (`if: ${{ !cancelled() && needs.upgrade.outputs.changed == 'true' }}`); the `upgrade`
+  job's timeout is 60 minutes (the repo's own checks run there now).
+- When a PR for `graft/upgrade` is already open, `graft-ci pr` updates its title and body to
+  describe the new push (it used to leave them as first written).
+
+### Security
+- The PR body is untrusted upstream text, and it's written where `GRAFT_PR_TOKEN` is, so it stays
+  data: the `pr` job (the default branch's graft, never the upgraded flake) reads both
+  `flake.lock`s with `jq`; fetches each moved provider with `git fetch` into a bare repo (no
+  checkout, so no hooks or filters run) from the upstream named by the *default branch's* lock,
+  never the branch's (an input the branch points elsewhere is listed, not fetched); accepts the
+  branch's revs only as full commit hashes and its refs only as version tags; runs git without
+  `PR_TOKEN` in its environment and without `http.extraHeader`; and hands the text to `jq
+  --rawfile` for the request. Failing-check logs from the `upgrade` job go in as an indented code
+  block, which no log line can close. The `upgrade` job writes nothing for the `pr` job beyond
+  the branch and its commit message, both of which it already wrote.
+
+### Upgrading
+
+From 2.3.x: the weekly PR moves graft to 2.4.0, but its workflow changes, so the `pr` job refuses
+to open it and links to the diff. Read the diff of `.forgejo/workflows/graft-upgrade.yaml` (the
+`pr` job's `if:` and the timeout), then open the PR from that link yourself, or run the steps for
+2.2.x below.
+
+From 2.2.x (once per repo, by hand: 2.2 can't move its own pin), from the repo root:
+
+```
+nix run github:danielnaab/graft/v2.4.0#upgrade -- graft@v2.4.0
+src=$(nix eval --raw --impure --expr '(builtins.getFlake "github:danielnaab/graft/v2.4.0").outPath')
+cp -f --no-preserve=mode "$src"/examples/forgejo/graft-*.yaml .forgejo/workflows/
+nix flake check
+```
+
+then commit `flake.nix`, `flake.lock` and `.forgejo/workflows/`. The first line moves only graft
+(name it alone; the scions wait for the weekly PR), and leaves the scions directory as it was:
+`assemble.sh` is unchanged since 2.2.2. `nix flake check` is now what every upgrade PR must pass,
+so a check of the repo's own that fails today will mark every PR failing: fix it first.
+
 ## v2.3.0 - 2026-11-03
 
 ### Added

@@ -23,10 +23,12 @@ env:
 
 jobs:
   # Upgrade, check and push. An upgrade of graft itself runs the new version's code here (its
-  # check, its assemble.sh) before review, so this job is given no secret: only the job token.
+  # check, its assemble.sh), and the repo's own checks run over the new upstream content, all
+  # before review, so this job is given no secret: only the job token. If `nix flake check` fails
+  # the branch is still pushed (its commit names the failing checks) and this job fails.
   upgrade:
     runs-on: nixos-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     outputs:
       changed: ${{ steps.upgrade.outputs.changed }}
     steps:
@@ -49,12 +51,13 @@ jobs:
         id: upgrade
         run: nix run .#graft-ci -- upgrade
 
-  # Open the PR (or leave the open one, which the push updated). A fresh job, checked out at the
-  # default branch: it runs the graft that branch pins and never evaluates the upgraded flake, so
-  # the PR token never meets code nobody has reviewed yet.
+  # Open the PR (or retitle the open one, which the push updated), saying what changed upstream
+  # and whether the checks passed. A fresh job, checked out at the default branch: it runs the
+  # graft that branch pins and never evaluates the upgraded flake, so the PR token never meets
+  # code nobody has reviewed yet. It runs when the upgrade job pushed, even if its checks failed.
   pr:
     needs: upgrade
-    if: needs.upgrade.outputs.changed == 'true'
+    if: ${{ !cancelled() && needs.upgrade.outputs.changed == 'true' }}
     runs-on: nixos-latest
     timeout-minutes: 15
     steps:

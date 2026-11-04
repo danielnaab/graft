@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # tools.sh outdated|upgrade [-C REPO] [--json] [NAME[@TAG]...]
 #
-#   outdated  for graft itself and each scion, its pinned tag and the newest tag upstream.
-#   upgrade   move each named one (default: every outdated one) to TAG (default: the newest),
-#             re-lock it, and rebuild. Prints nothing to do when nothing is. NAME `graft` is the
-#             repo's graft input: it moves first, then every scions directory is rebuilt and
-#             graft's workflows refreshed with the new version's code.
+#   outdated  for graft itself and each scion, its pinned tag, the newest tag upstream within that
+#             major version, and the newest of a later major if there is one.
+#   upgrade   move each named one (default: every outdated one) to TAG (default: the newest of
+#             its pinned major), re-lock it, and rebuild. Prints nothing to do when nothing is.
+#             Only NAME@TAG crosses a major version. NAME `graft` is the repo's graft input: it
+#             moves first, then every scions directory is rebuilt and graft's workflows refreshed
+#             with the new version's code.
 #
 # Both read the repo as data: graft's README table in each scions directory says which flake
 # inputs are scions, and flake.lock says what each is pinned to. Neither evaluates the repo's
@@ -22,6 +24,11 @@
 #
 # Only tags shaped like semver (v1.2.3 or 1.2.3) count as versions. An input pinned to a branch, a
 # bare commit or a path is reported as `untagged` and never upgraded.
+#
+# A new major version is the provider saying it breaks something, so nothing crosses one by itself:
+# the default target is the newest tag of the pinned major, and a later major is only reported
+# (outdated's MAJOR column) until it's named (NAME@v3.0.0). As in semver's convention for 0.x (and
+# Cargo's), a 0.y series is its own major: 0.3.1 moves to 0.3.4 by itself, never to 0.4.0.
 set -euo pipefail
 
 MARKERS=("<!-- managed by graft: https://github.com/danielnaab/graft -->" "Managed by [graft]")
@@ -55,43 +62,52 @@ remote() {  # the git URL of a locked input's upstream
 semver_key() { sed -E 's/^v//' <<<"$1"; }
 is_semver() { [[ $1 =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 
-# The newest semver tag at URL, spelled like REF (with or without the v). Nothing, with git's
-# error on stderr, if the remote can't be listed. http.extraHeader is cleared: a header the repo
-# configured for its own server (a CI checkout's token) must never be sent to a provider's.
-# With MAJOR, only tags of that major version count.
-latest_tag() {
-  local url=$1 ref=$2 major=${3:-[0-9]+} prefix="" tags
+# The semver tags at URL, spelled like REF (with or without the v), oldest first. Nothing, with
+# git's error on stderr, if the remote can't be listed. http.extraHeader is cleared: a header the
+# repo configured for its own server (a CI checkout's token) must never be sent to a provider's.
+semver_tags() {
+  local url=$1 ref=$2 prefix="" tags
   [[ $ref == v* ]] && prefix=v
   tags=$(git -c http.extraHeader= ls-remote --tags --refs "$url" 2>&1) \
     || { echo "graft: can't list tags at $url: $(tail -1 <<<"$tags")" >&2; return 0; }
-  sed -E 's#.*refs/tags/##' <<<"$tags" | grep -E "^${prefix}${major}\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true
+  sed -E 's#.*refs/tags/##' <<<"$tags" | grep -E "^${prefix}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V || true
 }
 
-# One row for input NAME, listed under DIR: name<TAB>dir<TAB>pinned<TAB>latest<TAB>status, status
-# one of current|outdated|untagged|unknown.
+# A version's major series: X for X.y.z, and 0.Y for 0.Y.z (semver's 0.x: anything may break).
+major_of() {
+  local v
+  v=$(semver_key "$1")
+  if [[ $v == 0.* ]]; then cut -d. -f1-2 <<<"$v"; else cut -d. -f1 <<<"$v"; fi
+}
+
+newer() { [ "$(printf '%s\n%s\n' "$(semver_key "$1")" "$(semver_key "$2")" | sort -V | tail -1)" != "$(semver_key "$1")" ]; }
+
+# One row for input NAME, listed under DIR: name<TAB>dir<TAB>pinned<TAB>latest<TAB>status<TAB>major.
+# latest is the newest tag of the pinned major; status one of current|outdated|untagged|unknown,
+# against it; major the newest tag of a later major series, or -.
 row() {
-  local name=$1 dir=$2 n ref url latest status
+  local name=$1 dir=$2 n ref url tags t series latest="" major="" status
   n=$(node "$name")
-  [ -n "$n" ] || { printf '%s\t%s\t-\t-\tunknown\n' "$name" "$dir"; return; }
+  [ -n "$n" ] || { printf '%s\t%s\t-\t-\tunknown\t-\n' "$name" "$dir"; return; }
   ref=$(jq -r '.original.ref // empty' <<<"$n")
   url=$(remote "$n")
   if [ -z "$url" ] || ! is_semver "$ref"; then
-    printf '%s\t%s\t%s\t-\tuntagged\n' "$name" "$dir" "${ref:-$(jq -r '.locked.rev[0:12] // .original.type // "-"' <<<"$n")}"
+    printf '%s\t%s\t%s\t-\tuntagged\t-\n' "$name" "$dir" "${ref:-$(jq -r '.locked.rev[0:12] // .original.type // "-"' <<<"$n")}"
     return
   fi
-  # graft itself stays within its major version: a new major may change mkGraft's interface, so
-  # moving to it is a decision (graft@TAG), not something a weekly job does by itself
-  if [ "$dir" = - ]; then
-    latest=$(latest_tag "$url" "$ref" "$(semver_key "$ref" | cut -d. -f1)")
-  else
-    latest=$(latest_tag "$url" "$ref")
-  fi
+  tags=$(semver_tags "$url" "$ref")
+  series=$(major_of "$ref")
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    if [ "$(major_of "$t")" = "$series" ]; then latest=$t
+    elif newer "$ref" "$t"; then major=$t; fi
+  done <<<"$tags"
   status=current
-  if [ -z "$latest" ]; then status=unknown; latest=-
-  elif [ "$(printf '%s\n%s\n' "$(semver_key "$ref")" "$(semver_key "$latest")" | sort -V | tail -1)" != "$(semver_key "$ref")" ]; then
-    status=outdated
+  if [ -z "$tags" ]; then status=unknown; latest=-
+  elif [ -z "$latest" ]; then latest=$ref   # the pinned tag is gone upstream; nothing newer in its series
+  elif newer "$ref" "$latest"; then status=outdated
   fi
-  printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$dir" "$ref" "$latest" "$status"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$dir" "$ref" "$latest" "$status" "${major:--}"
 }
 
 # Rows for graft's own input (DIR `-`), when the flake has one, then for every scion.
@@ -112,11 +128,15 @@ cmd_outdated() {
   local rows
   rows=$(report)
   if [ "$json" = 1 ]; then
-    jq -R -s -c 'split("\n") | map(select(length>0) | split("\t") | {name:.[0], dir:.[1], pinned:.[2], latest:.[3], status:.[4]})' <<<"$rows"
+    jq -R -s -c 'split("\n") | map(select(length>0) | split("\t")
+      | {name:.[0], dir:.[1], pinned:.[2], latest:.[3], status:.[4], major:(if .[5]=="-" then null else .[5] end)})' <<<"$rows"
   elif [ -z "$rows" ]; then
     echo "graft: no scions here (no README.md carrying graft's marker)"
   else
-    { echo -e "NAME\tDIR\tPINNED\tLATEST\tSTATUS"; echo "$rows"; } | column -t -s $'\t'
+    { echo -e "NAME\tDIR\tPINNED\tLATEST\tSTATUS\tMAJOR"; echo "$rows"; } | column -t -s $'\t'
+    if grep -q $'\t[^\t]*[0-9]$' <<<"$rows"; then
+      echo "MAJOR: a newer major version, which graft-upgrade takes only when named (NAME@TAG): read its CHANGELOG first"
+    fi
   fi
 }
 
@@ -193,7 +213,7 @@ regraft() {
 }
 
 cmd_upgrade() {
-  local rows want=() name dir pinned latest status target dirs=() spec plan=() asm src moved_graft=""
+  local rows want=() name dir pinned latest status major target dirs=() spec plan=() held=() asm src moved_graft=""
   rows=$(report)
   for spec in "$@"; do want+=("$spec"); done
   if [ ${#want[@]} -gt 0 ]; then
@@ -202,9 +222,13 @@ cmd_upgrade() {
     done
   fi
   # Decide everything first, and check the repo's graft can rebuild, before changing any file.
-  while IFS=$'\t' read -r name dir pinned latest status; do
+  while IFS=$'\t' read -r name dir pinned latest status major; do
     [ -n "$name" ] || continue
     target=""
+    # a later major is reported, never taken unless named
+    if [ "$major" != - ] && { [ ${#want[@]} -eq 0 ] || printf '%s\n' "${want[@]}" | grep -qx "$name"; }; then
+      held+=("graft: $name: $major is a new major version; not taken (graft-upgrade $name@$major)")
+    fi
     if [ ${#want[@]} -gt 0 ]; then
       for spec in "${want[@]}"; do
         [ "${spec%%@*}" = "$name" ] || continue
@@ -227,12 +251,13 @@ cmd_upgrade() {
     plan+=("$name"$'\t'"$dir"$'\t'"$pinned"$'\t'"$target")
   done <<<"$rows"
   # An input whose upstream couldn't be read might be behind: say so and fail, not "nothing to do".
-  while IFS=$'\t' read -r name dir pinned latest status; do
+  while IFS=$'\t' read -r name dir pinned latest status major; do
     [ "$status" = unknown ] || continue
     if [ ${#want[@]} -eq 0 ] || printf '%s\n' "${want[@]%%@*}" | grep -qx "$name"; then
       die "$name: can't tell whether $pinned is current (see above); nothing changed"
     fi
   done <<<"$rows"
+  if [ ${#held[@]} -gt 0 ]; then printf '%s\n' "${held[@]}"; fi
   [ ${#plan[@]} -gt 0 ] || { echo "graft: nothing to upgrade"; return 0; }
   # graft's own pin moves first, so everything after is built by the new version. Fetch that
   # version now, and check every ref can be rewritten: a tag that can't be fetched, a graft too
