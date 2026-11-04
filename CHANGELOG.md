@@ -30,8 +30,10 @@
 - `graft-upgrade.yaml`: the `pr` job runs when the `upgrade` job pushed even if its checks
   failed (`if: ${{ !cancelled() && needs.upgrade.outputs.changed == 'true' }}`); the `upgrade`
   job's timeout is 60 minutes (the repo's own checks run there now).
-- When a PR for `graft/upgrade` is already open, `graft-ci pr` updates its title and body to
-  describe the new push (it used to leave them as first written).
+- When a PR for `graft/upgrade` is already open (from this repo's own branch, not a fork's),
+  `graft-ci pr` updates its title and body to describe the new push (it used to leave them as
+  first written). A new major that's held back is a `::warning::` in the upgrade job's log, even
+  when nothing else moved and no PR opens.
 
 ### Security
 - The PR body is untrusted upstream text, and it's written where `GRAFT_PR_TOKEN` is, so it stays
@@ -41,7 +43,8 @@
   never the branch's (an input the branch points elsewhere is listed, not fetched); accepts the
   branch's revs only as full commit hashes and its refs only as version tags; runs git without
   `PR_TOKEN` in its environment and without `http.extraHeader`; and hands the text to `jq
-  --rawfile` for the request. Failing-check logs from the `upgrade` job go in as an indented code
+  --rawfile` for the request, each provider's text in a block quote so a code fence it leaves
+  open can't swallow or fake the rest of the body. Failing-check logs from the `upgrade` job go in as an indented code
   block, which no log line can close. The `upgrade` job writes nothing for the `pr` job beyond
   the branch and its commit message, both of which it already wrote.
 
@@ -50,7 +53,8 @@
 From 2.3.x: the weekly PR moves graft to 2.4.0, but its workflow changes, so the `pr` job refuses
 to open it and links to the diff. Read the diff of `.forgejo/workflows/graft-upgrade.yaml` (the
 `pr` job's `if:` and the timeout), then open the PR from that link yourself, or run the steps for
-2.2.x below.
+2.2.x below. That one upgrade is still made by 2.3's code: it may move a scion across a major,
+it runs only graft's check, and its body has no upstream changes, so read its scion lines.
 
 From 2.2.x (once per repo, by hand: 2.2 can't move its own pin), from the repo root:
 

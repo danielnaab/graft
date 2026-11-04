@@ -116,7 +116,6 @@ echo "policy v3" > "$p/docs/policy.md" && git_ -C "$p" add -A && git_ -C "$p" co
 expect "outdated: newest within the major, and the new major beside it" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -qE "provider +scions +v2.0.0 +v2.1.0 +outdated +v3.0.0"'
 expect "outdated says what MAJOR means" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -q "^MAJOR: "'
 expect "outdated --json: a major field" sh -c 'nix run .#graft-outdated -- --json 2>/dev/null | jq -e ".[] | select(.name==\"provider\") | .latest==\"v2.1.0\" and .major==\"v3.0.0\"" >/dev/null'
-expect "outdated --json: major is null when there's none" sh -c 'nix run .#graft-outdated -- --json 2>/dev/null | jq -e ".[] | select(.name==\"graft\") | .major==null" >/dev/null'
 out=$(nix run .#graft-upgrade 2>/dev/null) || fail "graft-upgrade (within the major)"
 git_ add -A
 expect "upgrade stays within the pinned major" grep -q 'ref=v2.1.0' flake.nix
@@ -150,6 +149,8 @@ cd "$zc" && quiet nix run .#graft && git_ add -A
 expect "0.x: 0.3.0's newest is 0.3.1; 1.0.0 is the next major" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -qE "zero +scions +v0.3.0 +v0.3.1 +outdated +v1.0.0"'
 quiet nix run .#graft-upgrade && git_ add -A
 expect "0.x: upgrade takes 0.3.1, not 0.4.0" grep -q 'ref=v0.3.1' flake.nix
+quiet nix run .#graft-upgrade -- zero@v1.0.0 && git_ add -A
+expect "outdated --json: major is null when there's none" sh -c 'nix run .#graft-outdated -- --json 2>/dev/null | jq -e ".[] | select(.name==\"zero\") | .pinned==\"v1.0.0\" and .major==null" >/dev/null'
 cd "$c"
 
 # graft's own pin. A graft repo with this tree at v9.0.0, and at v9.1.0 an assemble.sh that writes
@@ -291,8 +292,8 @@ expect "titled graft: upgrade" quiet jq -e 'select(.method=="POST") | .body.titl
 expect "the body lists the move" grep -q "^- provider v2.0.0 -> v2.1.0" <<<"$body"
 expect "and the new majors not taken" grep -q "^- provider: v3.0.0 is a new major version" <<<"$body"
 expect "and that the whole check passed" grep -q "whole \`nix flake check\` passed" <<<"$body"
-expect "no CHANGELOG.md: the provider's commits instead" grep -q "^- [0-9a-f]* v2.1$" <<<"$body"
-refuse "and only those in the range" grep -q "^- [0-9a-f]* v2$" <<<"$body"
+expect "no CHANGELOG.md: the provider's commits instead" grep -q "^> - [0-9a-f]* v2.1$" <<<"$body"
+refuse "and only those in the range" grep -q "^> - [0-9a-f]* v2$" <<<"$body"
 
 # a branch crossing to v3.0.0, whose CHANGELOG.md has sections for it: those between the tags
 quiet nix run .#graft-upgrade -- provider@v3.0.0 && git_ add -A
@@ -300,15 +301,58 @@ git_ commit -qm "graft: upgrade" -m "graft: provider v2.0.0 -> v3.0.0" && git_ p
 git_ reset -q --hard origin/main
 stub_pr pr2
 body=$(post_body pr2)
-expect "changelog: the sections between the tags, headings moved down" grep -q "^#### v3.0.0 - 2026-11-04" <<<"$body"
-expect "changelog: subheadings too" grep -q "^##### Upgrading" <<<"$body"
-expect "changelog: a heading without the v" grep -q "^#### 2.1.0" <<<"$body"
-refuse "changelog: not the old tag's own section" grep -q "^#### v2.0.0" <<<"$body"
+expect "changelog: the sections between the tags, headings moved down" grep -q "^> #### v3.0.0 - 2026-11-04" <<<"$body"
+expect "changelog: subheadings too" grep -q "^> ##### Upgrading" <<<"$body"
+expect "changelog: a heading without the v" grep -q "^> #### 2.1.0" <<<"$body"
+refuse "changelog: not the old tag's own section" grep -q "^> #### v2.0.0" <<<"$body"
 refuse "changelog: not Unreleased" grep -q "not yet released" <<<"$body"
 # shellcheck disable=SC2016 # the literal text
 expect "changelog text arrives as text" grep -qF 'odd text: $(touch pwned) `touch pwned` "quoted" \n' <<<"$body"
-expect "and nothing in it ran" test ! -e pwned
+expect "and nothing in it ran" test -z "$(find "$work" -name pwned)"
 refuse "changelog: no commit list when there's a CHANGELOG section" grep -q "its commits:" <<<"$body"
+expect "changelog text is quoted" grep -qx '> - policy v2.1' <<<"$body"
+
+# a code fence: a longer one holds a shorter, so the old section after it isn't taken; and the
+# quote keeps any fence the provider leaves open from reaching the rest of the body
+cat > "$p/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## v3.1.0
+````
+```
+## v1.0.0 inside a fence
+````
+
+## v3.0.0
+```
+an unclosed fence
+
+## v1.0.0
+- old, must not appear
+EOF
+git_ -C "$p" commit -qam v3.1 && git_ -C "$p" tag v3.1.0
+quiet nix run .#graft-upgrade -- provider@v3.1.0 && git_ add -A
+git_ commit -qm "graft: upgrade" -m "graft: provider v2.0.0 -> v3.1.0" && git_ push -q --force origin HEAD:graft/upgrade
+git_ reset -q --hard origin/main
+stub_pr pr3
+body=$(post_body pr3)
+expect "fence: a heading inside one is text" grep -qx '> ## v1.0.0 inside a fence' <<<"$body"
+expect "fence: the unclosed one is inside the quote" grep -qx '> an unclosed fence' <<<"$body"
+refuse "fence: and the old section stays out" grep -q "old, must not appear" <<<"$body"
+
+# a branch whose lock points an input elsewhere, or carries a rev that isn't a commit hash: nothing
+# fetched, nothing run
+quiet nix run .#graft-upgrade -- provider@v3.0.0 && git_ add -A
+# shellcheck disable=SC2016 # jq programs
+jq '.nodes.provider.original.url = "file:///elsewhere" | .nodes.graft.locked.rev = "--upload-pack=touch pwned" | .nodes.graft.original.ref = "--upload-pack=touch pwned"' \
+  flake.lock > "$work/lock" && cp "$work/lock" flake.lock && git_ add -A
+git_ commit -qm "graft: upgrade" -m "graft: provider v2.0.0 -> v3.0.0" && git_ push -q --force origin HEAD:graft/upgrade
+git_ reset -q --hard origin/main
+stub_pr pr4
+body=$(post_body pr4)
+expect "an input the branch points elsewhere: not fetched" grep -q "points provider at a different source" <<<"$body"
+expect "a rev that isn't a commit hash: not used" grep -q "Not a git commit" <<<"$body"
+expect "and nothing ran" test -z "$(find "$work" -name pwned)"
 
 # graft-ci upgrade runs the repo's whole flake check: here a check of its own (a link into scions)
 # that the upgrade breaks. The branch is still pushed, the step fails, and the PR says why.
@@ -351,9 +395,12 @@ body=$(post_body gate1)
 expect "its body says the check fails" grep -q "fails on this branch" <<<"$body"
 expect "and which, in a section of its own" grep -qz $'## Failing checks\n\n    nix flake check failed: policy-link' <<<"$body"
 expect "and still says what changed upstream" grep -q "^### provider v2.0.0 -> v2.1.0" <<<"$body"
-echo '[{"number": 7, "head": {"ref": "graft/upgrade"}}]' > "$work/listing.json"
+echo '[{"number": 7, "head": {"ref": "graft/upgrade", "repo_id": 1}, "base": {"repo_id": 1}}]' > "$work/listing.json"
 stub_pr gate2 "$work/listing.json"
-expect "an open PR: retitled and described, not opened again" sh -c "jq -e 'select(.method==\"PATCH\") | .path == \"/pulls/7\" and .body.title == \"[checks failing] graft: upgrade\"' '$work/gate2.req' >/dev/null && ! grep -q '^POST' '$work/gate2.auth'"
+expect "an open PR: retitled and described, not opened again" sh -c "jq -e 'select(.method==\"PATCH\") | .path == \"/pulls/7\" and .body.title == \"[checks failing] graft: upgrade\" and (.body.body | contains(\"## Failing checks\"))' '$work/gate2.req' >/dev/null && ! grep -q '^POST' '$work/gate2.auth'"
+echo '[{"number": 9, "head": {"ref": "graft/upgrade", "repo_id": 2}, "base": {"repo_id": 1}}]' > "$work/listing.json"
+stub_pr gate3 "$work/listing.json"
+expect "a fork's PR from a branch of that name: left alone, ours opened" sh -c "! grep -q '^PATCH' '$work/gate3.auth' && grep -q '^POST' '$work/gate3.auth'"
 
 # dir: any relative path, here nested with a space and an apostrophe, and a hidden one
 consumer() {  # consumer <name> <dir-attr>: a fresh consumer of provider@v2 with mkGraft's dir set

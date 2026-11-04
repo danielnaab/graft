@@ -70,7 +70,8 @@ path is reported as `untagged` and left alone. By hand: change the ref, `nix fla
 `nix run .#graft`.
 
 Nothing crosses a major version by itself. `LATEST` is the newest tag of the major you pin (for
-`0.y.z`, of `0.y`: semver's convention that anything may change before 1.0, as Cargo reads it), and
+`0.y.z`, of `0.y`: semver's convention that anything may change before 1.0; unlike Cargo, `0.0.z`
+is one series too), and
 a later major shows in the `MAJOR` column (`major` in `--json`, `null` when there's none). The
 no-argument upgrade, and `name` without a tag, stay within the pinned major and say what they left;
 `name@v2.0.0` crosses, once you've read what it breaks (below).
@@ -145,7 +146,14 @@ also writes the PR body: it reads the two `flake.lock`s as data, and for each in
 fetches the provider with plain `git` (no checkout, nothing run) from the upstream the *default
 branch's* lock names, at the commit the branch's lock pins, without `GRAFT_PR_TOKEN` in git's
 environment. The upstream text goes into the body through `jq`, never a shell command line; it
-is the provider's text, rendered as Markdown, so read it as theirs. When a new graft
+is the provider's text, quoted, so read it as theirs.
+
+This split assumes each job gets a fresh environment (a container per job, as `docker://nixos/nix`
+gives): the `upgrade` job runs unreviewed code without Nix's sandbox (graft's new version, and now
+the repo's own checks over new upstream content), so on a runner that shares `$HOME` or a writable
+`/nix/store` between jobs it could leave something for the `pr` job to run. A failing check's log
+tail goes into the commit message and the PR body, which are as public as the repo; checks that
+print secrets would publish them there. When a new graft
 version changes its workflows (rare: their logic is in `graft-ci`), or anything else changed, the
 job fails with a link to the diff: read it, then open the PR yourself. The limit: `flake.nix` and
 `flake.lock` are code (a moved graft pin is the new version), so a `pull_request` workflow of your

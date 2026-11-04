@@ -106,6 +106,7 @@ row() {
   if [ -z "$tags" ]; then status=unknown; latest=-
   elif [ -z "$latest" ]; then latest=$ref   # the pinned tag is gone upstream; nothing newer in its series
   elif newer "$ref" "$latest"; then status=outdated
+  else latest=$ref   # never offer an older tag (the pinned one gone upstream)
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$dir" "$ref" "$latest" "$status" "${major:--}"
 }
@@ -218,7 +219,7 @@ cmd_upgrade() {
   for spec in "$@"; do want+=("$spec"); done
   if [ ${#want[@]} -gt 0 ]; then
     for spec in "${want[@]}"; do
-      grep -q "^${spec%%@*}"$'\t' <<<"$rows" || die "no scion (or graft input) named ${spec%%@*}"
+      cut -f1 <<<"$rows" | grep -qxF -- "${spec%%@*}" || die "no scion (or graft input) named ${spec%%@*}"
     done
   fi
   # Decide everything first, and check the repo's graft can rebuild, before changing any file.
@@ -226,7 +227,7 @@ cmd_upgrade() {
     [ -n "$name" ] || continue
     target=""
     # a later major is reported, never taken unless named
-    if [ "$major" != - ] && { [ ${#want[@]} -eq 0 ] || printf '%s\n' "${want[@]}" | grep -qx "$name"; }; then
+    if [ "$major" != - ] && { [ ${#want[@]} -eq 0 ] || printf '%s\n' "${want[@]}" | grep -qxF -- "$name"; }; then
       held+=("graft: $name: $major is a new major version; not taken (graft-upgrade $name@$major)")
     fi
     if [ ${#want[@]} -gt 0 ]; then
@@ -253,7 +254,7 @@ cmd_upgrade() {
   # An input whose upstream couldn't be read might be behind: say so and fail, not "nothing to do".
   while IFS=$'\t' read -r name dir pinned latest status major; do
     [ "$status" = unknown ] || continue
-    if [ ${#want[@]} -eq 0 ] || printf '%s\n' "${want[@]%%@*}" | grep -qx "$name"; then
+    if [ ${#want[@]} -eq 0 ] || printf '%s\n' "${want[@]%%@*}" | grep -qxF -- "$name"; then
       die "$name: can't tell whether $pinned is current (see above); nothing changed"
     fi
   done <<<"$rows"

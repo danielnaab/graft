@@ -82,6 +82,8 @@ upgrade() {
   log=$(mktemp) report=$(mktemp)   # outside the checkout: the repo's .gitignore can't refuse them, git add can't take them
   trap 'rm -f "$log" "$report"' EXIT
   GRAFT_CI=1 bash "$here/tools.sh" upgrade | tee "$log"
+  # a new major alone moves nothing and opens no PR: say so where the run's summary shows it
+  grep -E '^graft: .* is a new major version' "$log" | sed 's/^graft: /::warning::/' || true
   git add -A
   if git diff --cached --quiet; then output changed=false; return 0; fi
   full_check "$report" || checks=failed
@@ -126,27 +128,29 @@ upstream_notes() {
     cmp=$(jq -r --arg a "${ot:-$ov}" --arg b "${nt:-$nv}" \
       'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo)/compare/\($a)...\($b)" else empty end' <<<"$o")
     [ -n "$url" ] || { printf 'Not a git input; nothing to compare.\n\n'; continue; }
-    tmp=$(mktemp -d)
-    git init -q --bare "$tmp"
+    tmp=$(mktemp -d) || return 1
+    git init -q --bare "$tmp" || { rm -rf "$tmp"; return 1; }
     # by commit (GitHub and Forgejo serve any reachable one), else by tag; either way the commit
     # checked against the lock. No checkout, so nothing fetched runs (no hooks, no filters).
-    { git -C "$tmp" -c http.extraHeader= fetch -q --no-tags "$url" "$nv" \
-        || { [ -n "$nt" ] && git -C "$tmp" -c http.extraHeader= fetch -q --no-tags "$url" "refs/tags/$nt"; }; } 2>/dev/null || true
+    { git -C "$tmp" -c http.extraHeader= fetch -q --no-tags -- "$url" "$nv" \
+        || { [ -n "$nt" ] && git -C "$tmp" -c http.extraHeader= fetch -q --no-tags -- "$url" "refs/tags/$nt"; }; } 2>/dev/null || true
     if ! git -C "$tmp" cat-file -e "$nv^{commit}" 2>/dev/null; then
       printf "Couldn't fetch %s from %s.%s\n\n" "${nv:0:12}" "$url" "${cmp:+ Compare: $cmp}"
       rm -rf "$tmp"; continue
     fi
     git -C "$tmp" cat-file -e "$ov^{commit}" 2>/dev/null \
-      || git -C "$tmp" -c http.extraHeader= fetch -q --no-tags "$url" "$ov" 2>/dev/null || true
+      || git -C "$tmp" -c http.extraHeader= fetch -q --no-tags -- "$url" "$ov" 2>/dev/null || true
     text=""
     if [ -n "$ot" ] && [ -n "$nt" ]; then
-      text=$(git -C "$tmp" show "$nv:CHANGELOG.md" 2>/dev/null | changelog_between "$ot" "$nt") || text=""
+      text=$(git -C "$tmp" show "$nv:CHANGELOG.md" 2>/dev/null | head -c 1000000 | changelog_between "$ot" "$nt") || text=""
     fi
+    # Quoted: a code fence the provider's text leaves open ends with the quote, so it can't swallow
+    # (or fake) what follows in the body.
     if [ -n "$text" ]; then
-      printf 'From its CHANGELOG.md:\n\n%s\n\n' "$(cap 6000 <<<"$text")"
+      printf 'From its CHANGELOG.md:\n\n%s\n\n' "$(cap 6000 <<<"$text" | quote)"
     elif git -C "$tmp" cat-file -e "$ov^{commit}" 2>/dev/null; then
       text=$(git -C "$tmp" log --oneline --no-decorate -n 51 "$ov..$nv" 2>/dev/null | sed 's/^/- /') || text=""
-      printf 'No CHANGELOG.md section for this range; its commits:\n\n%s\n\n' "$(cap 6000 < <(head -n 50 <<<"${text:-"- (none)"}"))"
+      printf 'No CHANGELOG.md section for this range; its commits:\n\n%s\n\n' "$(cap 6000 < <(head -n 50 <<<"${text:-"- (none)"}") | quote)"
       [ "$(wc -l <<<"$text")" -le 50 ] || printf '(more than 50; see the compare link)\n\n'
     else
       printf 'No CHANGELOG.md section for this range, and %s is not in its history.\n\n' "${ov:0:12}"
@@ -169,17 +173,45 @@ changelog_between() {
       for (i = 1; i <= 3; i++) { if (x[i] + 0 < y[i] + 0) return -1; if (x[i] + 0 > y[i] + 0) return 1 }
       return 0
     }
-    /^(```|~~~)/ { fence = !fence }
-    !fence && /^## / {
-      v = ""
-      if (match($0, /^## \[?v?[0-9]+\.[0-9]+\.[0-9]+/)) { v = substr($0, RSTART, RLENGTH); sub(/^## \[?v?/, "", v) }
-      keep = (v != "" && cmp(v, old) > 0 && cmp(v, new) <= 0)
+    { line[NR] = $0 }
+    END {
+      # Code fences first, over the whole file: up to 3 spaces and 3 or more ` or ~, closed by a
+      # bare run of the same character at least as long. An opener never closed is plain text, so
+      # one stray fence cannot hide the headings after it.
+      open = 0
+      for (i = 1; i <= NR; i++) {
+        if (!match(line[i], /^ {0,3}(```+|~~~+)/)) continue
+        run = substr(line[i], RSTART, RLENGTH); sub(/^ +/, "", run)
+        if (!open) { open = i; fence = run }
+        else if (substr(run, 1, 1) == substr(fence, 1, 1) && length(run) >= length(fence) \
+                 && line[i] ~ /^ {0,3}(`+|~+)[ \t]*$/) { inside[open] = i; open = 0 }
+      }
+      # then the sections, skipping headings inside a fence, headings moved two levels down
+      keep = 0; skip_to = 0
+      for (i = 1; i <= NR; i++) {
+        l = line[i]
+        if (i <= skip_to) { if (keep) print l; continue }
+        if (i in inside) { skip_to = inside[i]; if (keep) print l; continue }
+        if (l ~ /^## /) {
+          v = ""
+          if (match(l, /^## \[?v?[0-9]+\.[0-9]+\.[0-9]+([] \t]|$)/)) {
+            v = substr(l, RSTART, RLENGTH); sub(/^## \[?v?/, "", v); sub(/[] \t]$/, "", v)
+          }
+          keep = (v != "" && cmp(v, old) > 0 && cmp(v, new) <= 0)
+        }
+        if (l ~ /^# /) keep = 0
+        if (!keep) continue
+        if (l ~ /^#+ /) {
+          h = l; sub(/^#+/, "", h); n = length(l) - length(h) + 2; if (n > 6) n = 6
+          print substr("######", 1, n) h
+        } else print l
+      }
     }
-    !fence && /^# / { keep = 0 }
-    keep && !fence && /^#{1,4} / { print "##" $0; next }
-    keep { print }
   '
 }
+
+# stdin as a Markdown block quote
+quote() { sed 's/^/> /'; }
 
 # At most N characters of stdin, cut at a line, with a note when cut.
 cap() {
@@ -239,15 +271,17 @@ pr() {
   trap 'rm -f "$base_lock" "$head_lock" "$notes" "$body" "$req"' EXIT
   git show HEAD:flake.lock > "$base_lock"
   git show "$head:flake.lock" > "$head_lock" 2>/dev/null || echo '{"nodes":{"root":{"inputs":{}}}}' > "$head_lock"
+  # errexit is off in here (a provider that can't be fetched is reported, not fatal); a list cut
+  # short is kept, with a note
   ( unset PR_TOKEN; upstream_notes "$base_lock" "$head_lock" ) > "$notes" \
-    || echo "(couldn't read what changed upstream; see the diff of flake.lock)" > "$notes"
+    || echo "(stopped early; the rest is in the diff of flake.lock)" >> "$notes"
 
   title="graft: upgrade"
   # shellcheck disable=SC2016 # backticks here are markdown
   {
     if [ -n "$failing" ]; then
       title="[checks failing] graft: upgrade"
-      printf '> [!WARNING]\n> **`nix flake check` fails on this branch.** The upgrade is pushed so the breakage can be read; fix it here (or in the provider) before merging.\n\n'
+      printf '> [!WARNING]\n> **`nix flake check` fails on this branch.** The upgrade is pushed so the breakage can be read. Fix it in the provider, or on a branch of your own made from this one: the next run force-pushes `graft/upgrade`.\n\n'
     fi
     printf 'Moved by `nix run .#graft-upgrade` (graft'"'"'s own pin, and scions behind the newest tag of their pinned major):\n\n%s\n' "${moved:-"- (see the commit)"$'\n'}"
     if [ -n "$held" ]; then printf 'Not taken: a new major version is the provider saying something breaks. Read its CHANGELOG (an **Upgrading** section, if it has one), then name it:\n\n%s\n' "$held"; fi
@@ -271,7 +305,8 @@ pr() {
     '{head: $head, base: $base, title: $title, body: $body}' > "$req"
   out=$(api "$API/pulls?state=open&limit=50"); code=${out##*$'\n'}; out=${out%$'\n'*}
   [ "$code" = 200 ] || { echo "::error::listing PRs: HTTP $code"; exit 1; }
-  number=$(jq -r --arg b "$BRANCH" '[.[] | select(.head.ref == $b)][0].number // empty' <<<"$out")
+  # only a PR from this repo's own branch: a fork's PR from a branch of that name isn't ours to retitle
+  number=$(jq -r --arg b "$BRANCH" '[.[] | select(.head.ref == $b and .head.repo_id == .base.repo_id)][0].number // empty' <<<"$out")
   if [ -n "$number" ]; then
     out=$(jq '{title, body}' "$req" | api -X PATCH -d @- "$API/pulls/$number"); code=${out##*$'\n'}
     if [ "$code" = 201 ] || [ "$code" = 200 ]; then
