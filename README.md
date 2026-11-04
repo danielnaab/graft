@@ -18,7 +18,7 @@ It is a Nix flake library and two small scripts. Nix does the real work:
 | Applying the export rules | Nix, for `github:` inputs and for `git+…?exportIgnore=1` inputs |
 | One copy of a shared dependency | `follows`, if two inputs share one |
 | Finding newer versions | graft: `nix run .#graft-outdated` (newest semver tag upstream) |
-| Upgrading | graft: `nix run .#graft-upgrade` (moves the tag, `nix flake update`, re-grafts) |
+| Upgrading, graft itself too | graft: `nix run .#graft-upgrade` (moves the tag, `nix flake update`, re-grafts) |
 | Copying into the repo | graft: `nix run .#graft` |
 | Checking the copy | graft: `nix flake check` |
 
@@ -27,7 +27,7 @@ It is a Nix flake library and two small scripts. Nix does the real work:
 ```nix
 # flake.nix
 {
-  inputs.graft.url = "github:danielnaab/graft/v2";
+  inputs.graft.url = "github:danielnaab/graft/v2.3.0";        # a tag: graft-upgrade moves it
   inputs.meta-knowledge-base = {
     url = "github:danielnaab/meta-knowledge-base/v1.0.0";   # github: applies export-ignore
     flake = false;
@@ -57,16 +57,23 @@ didn't write.
 ## Upgrade
 
 ```
-nix run .#graft-outdated                 # each scion: pinned tag, newest tag upstream, status
-nix run .#graft-upgrade                  # every outdated scion to its newest tag
+nix run .#graft-outdated                 # graft and each scion: pinned tag, newest tag upstream, status
+nix run .#graft-upgrade                  # graft and every scion that's outdated, to its newest tag
 nix run .#graft-upgrade -- name@v1.2.0   # one scion to a named tag
+nix run .#graft-upgrade -- graft@v2.3.0  # graft itself to a named tag
 ```
 
 `graft-upgrade` rewrites the tag in `flake.nix`, runs `nix flake update <name>`, and rebuilds
 the scions directory; then commit. The diff of `scions/` is the change you are taking. Only
-semver tags (`v1.2.3` or `1.2.3`) count as versions; a scion pinned to a branch or a commit is
-reported as `untagged` and left alone. By hand: change the ref, `nix flake update <name>`,
+semver tags (`v1.2.3` or `1.2.3`) count as versions; an input pinned to a branch, a commit or a
+path is reported as `untagged` and left alone. By hand: change the ref, `nix flake update <name>`,
 `nix run .#graft`.
+
+graft's own pin (the input named `graft`) is listed and moved the same way. It moves first, and
+everything after it uses the new version: every scions directory is rebuilt by its `assemble.sh`,
+and graft's workflows (below) are replaced with the ones it ships. Pin graft to a tag for this;
+`github:danielnaab/graft/v2` follows the branch and is never moved. graft stays within its major
+version unless you name one (`graft@v3.0.0`): a new major may change `mkGraft`.
 
 Both read the repo as data (graft's README table says which inputs are scions; `flake.lock`
 says what each is pinned to) and never call the flake's `outputs`, so they also run from graft's
@@ -77,8 +84,9 @@ nix run github:danielnaab/graft#outdated -- -C path/to/repo [--json]
 nix run github:danielnaab/graft#upgrade  -- -C path/to/repo
 ```
 
-An upgrade rebuilds the directory with the `assemble.sh` of the graft version the repo pins, so
-it writes exactly what the repo's own `nix flake check` expects.
+An upgrade rebuilds the directory with the `assemble.sh` of the graft version the repo pins (after
+moving it, if graft is being upgraded), so it writes exactly what the repo's own `nix flake check`
+expects.
 
 ## Working on a provider
 
@@ -97,13 +105,36 @@ pinned version back. When the change is right, tag the provider and `nix run .#g
 
 [`examples/forgejo/`](examples/forgejo/) has two workflows to copy into `.forgejo/workflows/`:
 
-- **graft-check.yaml**: on PRs and pushes to `main`, the scions match `flake.lock`.
+- **graft-check.yaml**: on PRs and pushes to `main`, the scions (and graft's workflows) match
+  `flake.lock`.
 - **graft-upgrade.yaml**: weekly (and on demand), `graft-upgrade`; if anything moved, it checks
-  the result, force-pushes the branch `graft/upgrade` and opens a PR from it (or updates the one
-  already open). It never pushes to the default branch. Forgejo's job token can push but can't
-  open a PR on a private repo, so the PR is opened with the Actions secret `GRAFT_PR_TOKEN`: a
-  token with `write:repository` for a user who can write to the repo (a bot account is best: it
-  becomes the PR's author). A user-level secret covers all that user's repos.
+  the result, force-pushes the branch `graft/upgrade` and opens a PR from it (or leaves the one
+  already open, which the push updated). It never pushes to the default branch. Forgejo's job
+  token can push but can't open a PR on a private repo, so the PR is opened with the Actions
+  secret `GRAFT_PR_TOKEN`: a token with `write:repository` for a user who can write to the repo
+  (a bot account is best: it becomes the PR's author). A user-level secret covers all that
+  user's repos.
+
+Their steps are `nix run .#graft-ci -- check|upgrade|pr` ([`lib/ci.sh`](lib/ci.sh)), so they run
+the graft version the repo pins and change with it. The files themselves start with a marker line,
+`# managed by graft: …`. A file in `.forgejo/workflows/` with the name of one in
+`examples/forgejo/` and that line is graft's: `graft-upgrade` replaces it when it moves graft,
+`nix run .#graft` puts back the pinned version's copy, and `nix flake check` fails if it differs.
+Delete the line to keep your own edits; graft then never touches the file. graft never adds a
+workflow you didn't copy in.
+
+Moving graft runs the new version's code (its `assemble.sh` and its check) before anyone has
+reviewed it, so the upgrade runs in two jobs. The first upgrades, checks and pushes, and holds
+nothing but the job token; protect the default branch so that token can't push to it. The second,
+checked out at the default branch, runs the graft that branch pins and never evaluates the
+upgraded flake, and opens the PR with `GRAFT_PR_TOKEN`. Opening a PR runs the repo's
+`pull_request` workflows from the branch, with the repo's secrets, so it opens one only when the
+branch changes nothing but `flake.nix`, `flake.lock` and the scions directories. When a new graft
+version changes its workflows (rare: their logic is in `graft-ci`), or anything else changed, the
+job fails with a link to the diff: read it, then open the PR yourself. The limit: `flake.nix` and
+`flake.lock` are code (a moved graft pin is the new version), so a `pull_request` workflow of your
+own that evaluates or builds the flake with secrets would run it before review. graft's own
+workflows don't; keep yours that way, or don't let graft move itself in CI.
 
 Both want a runner with Nix: `runs-on: nixos-latest` means a docker label for
 `docker://nixos/nix`. On GitHub, use the same steps after a Nix install action.
@@ -134,5 +165,6 @@ comparison does not belong here.
 ## Develop
 
 `tests/run.sh` runs the whole cycle against a throwaway provider repo: graft, check, drift,
-upgrade by hand, `graft-outdated` and `graft-upgrade` (in the repo and from outside), and the
-`dir` cases. `nix flake check` runs shellcheck on it and on `lib/*.sh`.
+upgrade by hand, `graft-outdated` and `graft-upgrade` (in the repo and from outside), graft
+upgrading its own pin (from a throwaway copy of this tree, tagged twice) and its workflows,
+`graft-ci` against a local origin, and the `dir` cases. `nix flake check` runs shellcheck on it and on `lib/*.sh`.

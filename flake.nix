@@ -8,15 +8,20 @@
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
-      # graft-outdated and graft-upgrade: lib/tools.sh, which reads a repo as data (see its header)
+      # graft-outdated and graft-upgrade: lib/tools.sh, which reads a repo as data (see its header);
+      # graft-ci: lib/ci.sh, the steps of the Forgejo workflows in examples/forgejo/
       tools = pkgs:
         let
-          tool = sub: pkgs.writeShellApplication {
-            name = "graft-${sub}";
-            runtimeInputs = with pkgs; [ bash coreutils gnugrep gnused jq git util-linux ];
-            text = ''exec bash ${./lib}/tools.sh ${sub} "$@"'';
+          tool = name: script: pkgs.writeShellApplication {
+            inherit name;
+            runtimeInputs = with pkgs; [ bash coreutils diffutils gnugrep gnused jq git util-linux curl ];
+            text = ''exec bash ${./lib}/${script} "$@"'';
           };
-        in { outdated = tool "outdated"; upgrade = tool "upgrade"; };
+        in {
+          outdated = tool "graft-outdated" "tools.sh outdated";
+          upgrade = tool "graft-upgrade" "tools.sh upgrade";
+          ci = tool "graft-ci" "ci.sh";
+        };
       app = drv: { type = "app"; program = nixpkgs.lib.getExe drv; };
     in
     {
@@ -25,11 +30,11 @@
       # Run against any checkout without evaluating its flake:
       #   nix run github:danielnaab/graft#outdated -- -C path/to/repo
       packages = forAll (pkgs: tools pkgs);
-      apps = forAll (pkgs: { outdated = app (tools pkgs).outdated; upgrade = app (tools pkgs).upgrade; });
+      apps = forAll (pkgs: builtins.mapAttrs (_: app) (tools pkgs));
 
       checks = forAll (pkgs: {
         shellcheck = pkgs.runCommand "graft-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
-          shellcheck -x ${./tests/run.sh} ${./lib/assemble.sh} ${./lib/tools.sh}
+          shellcheck -x ${./tests/run.sh} ${./lib/assemble.sh} ${./lib/tools.sh} ${./lib/ci.sh} ${./lib/workflows.sh}
           touch $out
         '';
       });

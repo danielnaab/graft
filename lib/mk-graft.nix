@@ -8,11 +8,16 @@
 #
 #   apps.<system>.graft          replace <dir> with `expected`   (nix run .#graft)
 #   checks.<system>.graft        fail unless <dir> is `expected` (nix flake check)
-#   apps.<system>.graft-outdated each scion's pinned tag against the newest upstream
-#   apps.<system>.graft-upgrade  move scions to newer tags, re-lock, rebuild <dir>
+#   apps.<system>.graft-outdated graft's and each scion's pinned tag against the newest upstream
+#   apps.<system>.graft-upgrade  move graft and scions to newer tags, re-lock, rebuild <dir>
+#   apps.<system>.graft-ci       the steps of graft's Forgejo workflows (lib/ci.sh)
 #
 # `expected` is built by lib/assemble.sh, which graft-upgrade also uses, so an upgrade writes
 # exactly what the check expects.
+#
+# graft's workflows: a file in .forgejo/workflows/ named like one in examples/forgejo/ and carrying
+# graft's marker line is graft's (lib/workflows.sh). The app replaces it with this version's copy
+# and the check fails if it differs; a workflow without the marker is never read.
 #
 # <dir> defaults to `scions` and may be any relative path inside the repo (`.scions`,
 # `docs/Grafted Docs`, …). graft owns it entirely and replaces it on every run, so the app refuses
@@ -49,13 +54,16 @@ let
   # replaced).
   marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->";
 
+  # this graft version's workflows, which the repo's marked copies must match
+  examples = ../examples/forgejo;
+
   expected = pkgs: pkgs.runCommand "graft-scions" { } ''
     ${pkgs.bash}/bin/bash ${./assemble.sh} $out ${q} ${lib.concatMapStringsSep " " (n: lib.escapeShellArg "${n}=${inputs.${n}}=${pin n}") deps}
   '';
 
   sync = pkgs: pkgs.writeShellApplication {
     name = "graft";
-    runtimeInputs = [ pkgs.coreutils pkgs.gnugrep ];
+    runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.gnugrep ];
     text = ''
       if [ ! -f flake.nix ]; then
         echo "graft: run from the repo root (no flake.nix here)" >&2
@@ -73,6 +81,7 @@ let
       ${lib.concatMapStrings (n: ''
         echo ${lib.escapeShellArg "graft: ${path}/${n} <- ${pin n}"}
       '') deps}
+      bash ${./workflows.sh} refresh . ${examples}
     '';
   };
 
@@ -87,6 +96,7 @@ let
       echo "graft: (a file listed only on the left may be one your .gitignore drops)" >&2
       exit 1
     fi
+    ${pkgs.bash}/bin/bash ${./workflows.sh} check ${inputs.self} ${examples}
     touch $out
   '';
 in
@@ -100,6 +110,7 @@ assert lib.assertMsg validDir
     graft = { type = "app"; program = lib.getExe (sync pkgs); };
     graft-outdated = { type = "app"; program = lib.getExe (tools pkgs).outdated; };
     graft-upgrade = { type = "app"; program = lib.getExe (tools pkgs).upgrade; };
+    graft-ci = { type = "app"; program = lib.getExe (tools pkgs).ci; };
   });
   checks = forAll (pkgs: { graft = check pkgs; });
 }

@@ -1,5 +1,53 @@
 # Changelog
 
+## v2.3.0 - 2026-11-03
+
+### Added
+- graft upgrades itself. `graft-outdated` lists the `graft` input beside the scions, and
+  `graft-upgrade` moves it like one (`graft-upgrade graft@v2.3.0`, or with no arguments when
+  it's outdated). It moves first; then every scions directory is rebuilt with the new version's
+  `assemble.sh`, and graft's workflows are replaced with the new version's. A graft pinned to a
+  branch or a path is `untagged` and left alone.
+- `nix run .#graft-ci -- check|upgrade|pr` (`lib/ci.sh`): the steps of the two Forgejo
+  workflows, which now just call it, so they run the graft version the repo pins.
+- graft's workflows carry a marker line (`# managed by graft: …`). A marked file in
+  `.forgejo/workflows/` named like one in `examples/forgejo/` is graft's: `graft-upgrade`
+  replaces it when graft moves, `nix run .#graft` restores it, `nix flake check` fails if it
+  differs. Without the marker a workflow is yours and never read.
+- graft stays within its pinned major version unless one is named (`graft@v3.0.0`).
+
+### Changed
+- `graft-upgrade.yaml` runs as two jobs. `upgrade` (upgrade, check, push `graft/upgrade`) holds
+  only the job token, since moving graft runs the new version's code before review. `pr` opens
+  the PR with `GRAFT_PR_TOKEN` (falling back to the job token, as before) from a fresh checkout
+  of the default branch, never evaluating the upgraded flake. A PR runs the repo's
+  `pull_request` workflows from its branch with the repo's secrets, so `pr` opens one only when
+  the branch changes nothing but `flake.nix`, `flake.lock` and the scions directories; a change
+  to `.forgejo/` or anything else fails with a link to the diff, to review and open by hand. It
+  opens nothing if the branch is already in the default branch, and takes a 409 as "already
+  open". The token reaches `curl` on a pipe, not in its command line.
+- `graft-upgrade` checks every ref it will rewrite before changing any file, refuses to move graft
+  below 2.3.0, and, in a CI job that isn't `graft-ci` (2.2's single-job workflow), leaves graft
+  itself alone so the new version's code never runs beside the PR token.
+- The PR and commit are titled `graft: upgrade` (was `graft: upgrade scions`).
+- `graft-outdated`'s first column is `NAME` (was `SCION`), and `--json` has a row for graft
+  with `dir` `-`.
+
+Upgrading from 2.2.x (once per repo, by hand: 2.2 can't move its own pin), from the repo root:
+
+```
+nix run github:danielnaab/graft/v2.3.0#upgrade -- graft@v2.3.0
+src=$(nix eval --raw --impure --expr '(builtins.getFlake "github:danielnaab/graft/v2.3.0").outPath')
+cp --no-preserve=mode "$src"/examples/forgejo/graft-*.yaml .forgejo/workflows/
+nix flake check
+```
+
+then commit `flake.nix`, `flake.lock` and `.forgejo/workflows/`. If graft is pinned to the
+branch (`github:danielnaab/graft/v2`), the first line refuses it: change the URL to
+`github:danielnaab/graft/v2.3.0` by hand and run `nix flake update graft` instead. The scions directory doesn't
+change (`assemble.sh` is the same as 2.2.2's). From then on the weekly `graft/upgrade` PR brings
+each new graft version, its workflows included.
+
 ## v2.2.2 - 2026-11-03
 
 ### Fixed
