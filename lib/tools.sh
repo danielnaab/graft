@@ -125,22 +125,27 @@ cmd_outdated() {
   fi
 }
 
-# Swap NAME's ref in flake.nix from OLD to NEW. The URL's spelling must appear exactly once. With a
-# fourth argument, only check that it does.
-retarget() {
-  local name=$1 old=$2 new=$3 dry=${4:-} n from to text count
+# Swap NAME's ref from OLD to NEW in the flake.nix text on stdin, finding NAME's url by its whole
+# spelling from flake.lock (lib/retarget.jq), so two inputs pinned to one tag never collide. Prints
+# the new text, or fails saying why.
+retarget_text() {
+  local name=$1 old=$2 new=$3 n type prefix
   n=$(node "$name")
-  case $(jq -r .original.type <<<"$n") in
-    github) from="$(jq -r '"github:\(.original.owner)/\(.original.repo)/"' <<<"$n")$old"
-            to="$(jq -r '"github:\(.original.owner)/\(.original.repo)/"' <<<"$n")$new" ;;
-    git)    from="ref=$old"; to="ref=$new" ;;
-    *)      die "$name: can't retarget a $(jq -r .original.type <<<"$n") input" ;;
+  type=$(jq -r .original.type <<<"$n")
+  case $type in
+    github) prefix=$(jq -r '"github:\(.original.owner)/\(.original.repo)"' <<<"$n") ;;
+    git)    prefix=$(jq -r '"git+\(.original.url)"' <<<"$n") ;;
+    *)      die "$name: can't retarget a $type input" ;;
   esac
-  count=$(grep -c -F -- "$from" flake.nix || true)
-  [ "$count" = 1 ] || die "$name: expected \"$from\" once in flake.nix, found it $count times; change the ref by hand"
-  [ -z "$dry" ] || return 0
-  text=$(<flake.nix)
-  printf '%s\n' "${text/"$from"/"$to"}" > flake.nix
+  jq -Rsj -f "$here/retarget.jq" --arg name "$name" --arg type "$type" --arg prefix "$prefix" \
+    --arg old "$old" --arg new "$new"
+}
+
+# Swap NAME's ref in flake.nix from OLD to NEW (see retarget_text).
+retarget() {
+  local text
+  text=$(retarget_text "$1" "$2" "$3" < flake.nix) || exit 1
+  printf '%s\n' "$text" > flake.nix
 }
 
 # The flake reference that fetches NAME's locked export (Nix applies export-ignore to these).
@@ -198,7 +203,7 @@ regraft() {
 }
 
 cmd_upgrade() {
-  local rows want=() name dir pinned latest status major target dirs=() spec plan=() held=() asm src moved_graft=""
+  local rows want=() name dir pinned latest status major target named dirs=() spec plan=() held=() asm src moved_graft="" text
   rows=$(report)
   for spec in "$@"; do want+=("$spec"); done
   if [ ${#want[@]} -gt 0 ]; then
@@ -209,7 +214,7 @@ cmd_upgrade() {
   # Decide everything first, and check the repo's graft can rebuild, before changing any file.
   while IFS=$'\t' read -r name dir pinned latest status major; do
     [ -n "$name" ] || continue
-    target=""
+    target="" named=""
     # a later major is reported, never taken unless named
     if [ "$major" != - ] && { [ ${#want[@]} -eq 0 ] || printf '%s\n' "${want[@]}" | grep -qxF -- "$name"; }; then
       held+=("graft: $name: $major is a new major version; not taken (graft-upgrade $name@$major)")
@@ -217,7 +222,7 @@ cmd_upgrade() {
     if [ ${#want[@]} -gt 0 ]; then
       for spec in "${want[@]}"; do
         [ "${spec%%@*}" = "$name" ] || continue
-        if [[ $spec == *@* ]]; then target=${spec#*@}; else target=$latest; fi
+        if [[ $spec == *@* ]]; then target=${spec#*@}; named=1; else target=$latest; named=""; fi
       done
       [ -n "$target" ] || continue
       [ "$status" != untagged ] || die "$name is pinned to $pinned, not a tag; change it by hand"
@@ -233,6 +238,11 @@ cmd_upgrade() {
     fi
     if [ "$target" = "$pinned" ] || [ "$target" = - ]; then continue; fi
     is_semver "$target" || die "$name: $target is not a version tag"
+    # a named tag must exist upstream, or the run would stop at its `nix flake update`, part-done
+    if [ -n "${named:-}" ]; then
+      semver_tags "$(remote "$(node "$name")")" "$target" | grep -qxF -- "$target" \
+        || die "$name: no tag $target upstream; nothing changed"
+    fi
     plan+=("$name"$'\t'"$dir"$'\t'"$pinned"$'\t'"$target")
   done <<<"$rows"
   # An input whose upstream couldn't be read might be behind: say so and fail, not "nothing to do".
@@ -245,15 +255,28 @@ cmd_upgrade() {
   if [ ${#held[@]} -gt 0 ]; then printf '%s\n' "${held[@]}"; fi
   [ ${#plan[@]} -gt 0 ] || { echo "graft: nothing to upgrade"; return 0; }
   # graft's own pin moves first, so everything after is built by the new version. Fetch that
-  # version now, and check every ref can be rewritten: a tag that can't be fetched, a graft too
-  # old to keep the workflows working, or an ambiguous ref stops here, before any file changes.
+  # version now: a tag that can't be fetched, or a graft too old to keep the workflows working,
+  # stops here, before any file changes.
   for spec in "${plan[@]}"; do
     IFS=$'\t' read -r name dir pinned target <<<"$spec"
-    retarget "$name" "$pinned" "$target" dry
     [ "$dir" = - ] || continue
     src=$(graft_src "$target") || exit 1
     [ -f "$src/lib/workflows.sh" ] || die "graft-upgrade moves graft only to 2.3.0 or later (its workflows call graft-ci); move it by hand"
     moved_graft="$spec"
+  done
+  # Every flake.nix edit, made in memory in the order the run below makes them (graft first): one
+  # that can't be made (a url not found exactly once) stops the run here, before any file changes.
+  # jq reads text as UTF-8 and would write any other byte back as U+FFFD: refuse such a file.
+  jq -Rsj . flake.nix | cmp -s - flake.nix || die "flake.nix isn't valid UTF-8; nothing changed: change the refs by hand"
+  text=$(<flake.nix)
+  if [ -n "$moved_graft" ]; then
+    IFS=$'\t' read -r name dir pinned target <<<"$moved_graft"
+    text=$(retarget_text "$name" "$pinned" "$target" <<<"$text") || exit 1
+  fi
+  for spec in "${plan[@]}"; do
+    IFS=$'\t' read -r name dir pinned target <<<"$spec"
+    [ "$dir" != - ] || continue
+    text=$(retarget_text "$name" "$pinned" "$target" <<<"$text") || exit 1
   done
   [ -n "$moved_graft" ] || { asm=$(assembler) || exit 1; }
 

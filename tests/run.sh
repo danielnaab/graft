@@ -159,6 +159,91 @@ quiet nix run .#graft-upgrade -- zero@v1.0.0 && git_ add -A
 expect "outdated --json: major is null when there's none" sh -c 'nix run .#graft-outdated -- --json 2>/dev/null | jq -e ".[] | select(.name==\"zero\") | .pinned==\"v1.0.0\" and .major==null" >/dev/null'
 cd "$c"
 
+# Two inputs at one tag. graft-upgrade finds each input's url by its whole spelling (lib/retarget.jq),
+# never by `ref=` alone, so one run can move a to the tag b is pinned at while b moves on.
+q=$work/second
+mkdir -p "$q" && echo "second v1" > "$q/s.md"
+git_ -C "$q" init -q -b main && git_ -C "$q" add -A && git_ -C "$q" commit -qm v1 && git_ -C "$q" tag v1.0.0
+for t in v2.0.0 v2.1.0; do echo "second $t" > "$q/s.md" && git_ -C "$q" commit -qam "$t" && git_ -C "$q" tag "$t"; done
+# twoc <name> <url of a> <url of b>: a fresh consumer grafting a and b, committed
+twoc() {
+  local d=$work/$1
+  mkdir -p "$d"
+  cat > "$d/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  inputs.a = { url = "$2"; flake = false; };
+  inputs.b = { url = "$3"; flake = false; };
+  outputs = inputs: inputs.graft.lib.mkGraft { inherit inputs; deps = [ "a" "b" ]; };
+}
+EOF
+  git_ -C "$d" init -q -b main && git_ -C "$d" add -A
+  cd "$d" && quiet nix run .#graft && git_ add -A && git_ commit -qm init
+}
+twoc shared "git+file://$p?ref=v1.0.0&exportIgnore=1" "git+file://$q?ref=v2.0.0&exportIgnore=1"
+quiet nix run .#graft-upgrade -- a@v2.0.0 b || fail "graft-upgrade a@v2.0.0 b (a to the tag b is at, b on to v2.1.0)"
+git_ add -A
+expect "shared tag: a moved to b's tag" grep -qF "$p?ref=v2.0.0&" flake.nix
+expect "shared tag: and b moved on, in the same run" grep -qF "$q?ref=v2.1.0&" flake.nix
+expect "shared tag: both grafted" grep -q "second v2.1.0" scions/b/s.md
+expect "shared tag: check passes" quiet nix flake check
+out=$(nix run .#graft-upgrade -- a@v2.1.0 b@v2.9.0 2>&1) && fail "graft-upgrade took a tag that isn't upstream"
+expect "a named tag not upstream: refused" grep -q "graft: b: no tag v2.9.0 upstream; nothing changed" <<<"$out"
+expect "and nothing changed, a's move neither" git_ diff --quiet
+printf '# \xff\n' >> flake.nix && cp flake.nix "$work/latin1.nix"
+refuse "a flake.nix that isn't UTF-8 is refused" quiet nix run .#graft-upgrade -- a@v2.1.0
+expect "and left as it was" cmp -s flake.nix "$work/latin1.nix"
+git_ checkout -q -- flake.nix
+
+# the same repo twice: a url is ambiguous when two inputs spell it with the same ref. Moving a to
+# b's tag first would make b's ambiguous; every edit is tried before any is written, so nothing is.
+twoc same-url "git+file://$q?ref=v1.0.0&exportIgnore=1" "git+file://$q?exportIgnore=1&ref=v2.0.0"
+out=$(nix run .#graft-upgrade -- a@v2.0.0 b 2>&1) && fail "graft-upgrade made an ambiguous edit"
+expect "same url: refused, naming the ambiguous input" grep -q "graft: b: expected its url (git+file://$q at v2.0.0) once in flake.nix, found it 2 times" <<<"$out"
+expect "and nothing changed, flake.nix nor flake.lock" git_ diff --quiet
+quiet nix run .#graft-upgrade -- b || fail "graft-upgrade b (same url, its own ref)"
+expect "same url, refs differ: b moves" grep -qF "$q?exportIgnore=1&ref=v2.1.0\"" flake.nix
+expect "and a stays" grep -qF "$q?ref=v1.0.0&" flake.nix
+git_ add -A && expect "same url: check passes" quiet nix flake check
+
+# mixed: a github: input written with ?ref= at the tag a git+ input moves from. Locked by hand to
+# graft's own nixpkgs (already fetched), so the test needs no network; it isn't a scion.
+twoc mixed "git+file://$p?ref=v2.0.0&exportIgnore=1" "git+file://$q?ref=v2.0.0&exportIgnore=1"
+sed -i.bak 's#^  outputs#  inputs.np = { url = "github:NixOS/nixpkgs?ref=v2.0.0"; flake = false; };\n  outputs#' flake.nix && rm flake.nix.bak
+jq --argjson np "$(jq '.nodes.nixpkgs.locked' "$graft/flake.lock")" \
+  '.nodes.np = {flake: false, locked: $np, original: {owner: "NixOS", repo: "nixpkgs", ref: "v2.0.0", type: "github"}} | .nodes.root.inputs.np = "np"' \
+  flake.lock > flake.lock.new && mv flake.lock.new flake.lock
+git_ add -A && git_ commit -qm np
+expect "mixed: the hand-made lock holds" quiet nix flake check
+quiet nix run .#graft-upgrade -- a b || fail "graft-upgrade a b, beside a github: input at their tag"
+expect "mixed: a moved" grep -qF "$p?ref=v2.1.0&" flake.nix
+expect "mixed: b moved" grep -qF "$q?ref=v2.1.0&" flake.nix
+expect "mixed: the github: input at the same tag untouched" grep -qF '"github:NixOS/nixpkgs?ref=v2.0.0"' flake.nix
+git_ add -A && expect "mixed: check passes" quiet nix flake check
+
+# retarget.jq alone, on text: github: urls in both spellings, prefixes, and what counts as a match
+rt() {  # rt TYPE PREFIX OLD NEW TEXT: the new text, or (failing) the error
+  printf '%s' "$5" | jq -Rsj -f "$graft/lib/retarget.jq" --arg name x --arg type "$1" --arg prefix "$2" --arg old "$3" --arg new "$4" 2>&1
+}
+expect "retarget: github:, the ref as a path" test "$(rt github github:o/r v1.0.0 v1.1.0 'u = "github:o/r/v1.0.0";')" = 'u = "github:o/r/v1.1.0";'
+expect "retarget: github:, as ?ref=, beside a git+ url at that ref" \
+  test "$(rt github github:o/r v1.0.0 v1.1.0 'a = "git+ssh://h/r?ref=v1.0.0"; b = "github:o/r?dir=d&ref=v1.0.0";')" = 'a = "git+ssh://h/r?ref=v1.0.0"; b = "github:o/r?dir=d&ref=v1.1.0";'
+expect "retarget: git+, beside a github: url at that ref" \
+  test "$(rt git git+ssh://h/r v1.0.0 v1.1.0 'a = "github:o/r?ref=v1.0.0"; b = "git+ssh://h/r?ref=v1.0.0";')" = 'a = "github:o/r?ref=v1.0.0"; b = "git+ssh://h/r?ref=v1.1.0";'
+expect "retarget: github:, path then query" test "$(rt github github:o/r v1.0.0 v1.1.0 '"github:o/r/v1.0.0?dir=d"')" = '"github:o/r/v1.1.0?dir=d"'
+expect "retarget: not a longer repo, owner or tag" \
+  test "$(rt github github:o/r v1.0.0 v1.1.0 '"github:o/r2/v1.0.0" "github:xo/r/v1.0.0" "github:o/r/v1.0.01" "github:o/r/v1.0.0"')" = '"github:o/r2/v1.0.0" "github:xo/r/v1.0.0" "github:o/r/v1.0.01" "github:o/r/v1.1.0"'
+expect "retarget: not a longer path, nor ref=v1.0.0 inside another parameter" \
+  test "$(rt git git+ssh://h/n v1.0.0 v1.1.0 '"git+ssh://h/notes?ref=v1.0.0" "git+ssh://h/n?xref=v1.0.0&ref=v1.0.0"')" = '"git+ssh://h/notes?ref=v1.0.0" "git+ssh://h/n?xref=v1.0.0&ref=v1.1.0"'
+expect "retarget: an unquoted url, and text outside ASCII before it" \
+  test "$(rt git git+ssh://h/n v1 v2 $'# — café ✓\nurl = git+ssh://h/n?ref=v1;')" = $'# — café ✓\nurl = git+ssh://h/n?ref=v2;'
+refuse "retarget: twice is ambiguous (a commented-out copy too)" quiet rt git git+ssh://h/n v1 v2 '"git+ssh://h/n?ref=v1" # "git+ssh://h/n?ref=v1"'
+expect "retarget: only where a url starts (after a quote or a space)" \
+  test "$(rt git git+file:///p v1 v2 '"path:/q?x=git+file:///p?ref=v1" "agit+file:///p?ref=v1" u= git+file:///p?ref=v1')" = '"path:/q?x=git+file:///p?ref=v1" "agit+file:///p?ref=v1" u= git+file:///p?ref=v2'
+refuse "retarget: absent is an error" quiet rt git git+ssh://h/n v1 v2 '"git+ssh://h/n?ref=v10"'
+expect "retarget: the error says which input, and why" grep -q "^graft: x: expected its url (git+ssh://h/n at v1) once in flake.nix, found it 0 times" <<<"$(rt git git+ssh://h/n v1 v2 '"git+ssh://h/n?ref=v10"')"
+cd "$c"
+
 # graft's own pin. A graft repo with this tree at v9.0.0, and at v9.1.0 an assemble.sh that writes
 # one more line and a graft-check.yaml with one more comment; consumers pin it by tag.
 g=$work/graft-repo
@@ -483,10 +568,8 @@ git_ reset -q --hard && git_ clean -qfd
 
 # the branch: both moved, committed
 git_ checkout -q -b graft/upgrade
-# two runs: graft-upgrade retargets a git+ input by its `ref=` alone, so one run moving mp to v2.0.0
-# would make provider's ref=v2.0.0 ambiguous
-quiet nix run .#graft-upgrade -- provider@v2.1.0 || fail "graft-upgrade provider@v2.1.0"
-quiet nix run .#graft-upgrade -- mp@v2.0.0 || fail "graft-upgrade mp@v2.0.0, on the branch"
+# one run: mp moves to v2.0.0, the tag provider moves from
+quiet nix run .#graft-upgrade -- mp@v2.0.0 provider@v2.1.0 || fail "graft-upgrade mp@v2.0.0 provider@v2.1.0, on the branch"
 git_ add -A && git_ commit -qm "graft: upgrade"
 out=$(mig_) || fail "graft-migrate exits 0 with a failing check"
 printf '%s\n' "$out" > "$work/brief.txt"

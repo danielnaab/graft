@@ -1,5 +1,28 @@
 # Changelog
 
+## v2.5.1 - 2026-11-04
+
+### Fixed
+- `graft-upgrade` found a `git+…` input's url in `flake.nix` by the bare string `ref=<old>`, so a
+  run that moved one input to the tag another was pinned at (mp v1.0.0 -> v2.0.0 while provider
+  moved on from v2.0.0) found `ref=v2.0.0` twice at the second edit and stopped with `flake.nix`
+  half-edited. Each input's url is now found by its whole spelling from `flake.lock`'s
+  `original` (`git+URL?` with `ref=<old>` among its parameters, `github:OWNER/REPO` with `/<old>`
+  or `?ref=<old>`), from a quote or space to the next quote, space or `;`, so another
+  input's url, or a longer one that starts with it, never matches (`lib/retarget.jq`). And every
+  edit is now made in memory, in the order the run makes them, before `flake.nix` is written: an
+  edit that can't be made (the same url twice at one ref) stops the run with nothing changed.
+  `github:` urls written with `?ref=` can now be moved too.
+- `graft-upgrade NAME@TAG` with a TAG that isn't upstream wrote the ref, then failed at
+  `nix flake update`, leaving `flake.nix` and `flake.lock` out of step (and any input moved before
+  it already moved). The tag is now looked for upstream first, and the run refused with nothing
+  changed. A `flake.nix` that isn't valid UTF-8 is refused too, rather than rewritten.
+
+### Upgrading
+
+`nix run .#graft-upgrade -- graft@v2.5.1` (the weekly PR does it too), `nix flake check`, then
+commit `flake.nix` and `flake.lock`. The workflows don't change.
+
 ## v2.5.0 - 2026-11-04
 
 ### Added

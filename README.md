@@ -28,7 +28,7 @@ It is a Nix flake library and two small scripts. Nix does the real work:
 ```nix
 # flake.nix
 {
-  inputs.graft.url = "github:danielnaab/graft/v2.5.0";        # a tag: graft-upgrade moves it
+  inputs.graft.url = "github:danielnaab/graft/v2.5.1";        # a tag: graft-upgrade moves it
   inputs.meta-knowledge-base = {
     url = "github:danielnaab/meta-knowledge-base/v1.0.0";   # github: applies export-ignore
     flake = false;
@@ -61,11 +61,15 @@ didn't write.
 nix run .#graft-outdated                 # graft and each scion: pinned, newest in its major, status, newer major
 nix run .#graft-upgrade                  # graft and every scion that's outdated, to the newest tag of its major
 nix run .#graft-upgrade -- name@v1.2.0   # one scion to a named tag (the only way across a major)
-nix run .#graft-upgrade -- graft@v2.5.0  # graft itself to a named tag
+nix run .#graft-upgrade -- graft@v2.5.1  # graft itself to a named tag
 ```
 
 `graft-upgrade` rewrites the tag in `flake.nix`, runs `nix flake update <name>`, and rebuilds
-the scions directory; then commit. The diff of `scions/` is the change you are taking. Only
+the scions directory; then commit. It finds each input's url in `flake.nix` by the whole spelling
+`flake.lock` records (`github:owner/repo/v1.2.0`, `github:owner/repo?ref=v1.2.0`, or
+`git+URL?…ref=v1.2.0…`), and makes every edit in memory before writing any: a url it can't find
+exactly once (two inputs with the same url and ref), or a named tag that isn't upstream, stops
+the run with nothing changed. The diff of `scions/` is the change you are taking. Only
 semver tags (`v1.2.3` or `1.2.3`) count as versions; an input pinned to a branch, a commit or a
 path is reported as `untagged` and left alone. By hand: change the ref, `nix flake update <name>`,
 `nix run .#graft`.
@@ -217,7 +221,7 @@ graft does the mechanical part of a migration; the judgment is left to an agent 
 git switch graft/upgrade
 nix run .#graft-migrate                        # the brief, against the merge-base with origin/HEAD
 nix run .#graft-migrate -- --base v2-start     # against another base; --json for the same data
-nix run github:danielnaab/graft/v2.5.0#migrate -- -C path/to/repo --no-check   # reads, runs nothing of it
+nix run github:danielnaab/graft/v2.5.1#migrate -- -C path/to/repo --no-check   # reads, runs nothing of it
 workmux add graft-upgrade -p "$(nix run .#graft-migrate)"   # an agent in a worktree branched from here
 claude -p "$(nix run .#graft-migrate)"                       # or any agent that takes a prompt
 ```
@@ -246,7 +250,9 @@ comparison does not belong here.
 ## Develop
 
 `tests/run.sh` runs the whole cycle against a throwaway provider repo: graft, check, drift,
-upgrade by hand, `graft-outdated` and `graft-upgrade` (in the repo and from outside), majors
+upgrade by hand, `graft-outdated` and `graft-upgrade` (in the repo and from outside; two
+inputs at one tag, one url twice, a `github:` input beside `git+` ones, `lib/retarget.jq` on
+text), majors
 (reported, crossed only when named, 0.x), graft upgrading its own pin (from a throwaway copy of
 this tree, tagged twice) and its workflows, `graft-ci` against a local origin (the full-check gate
 with a failing check of the consumer's own) and a stub API (the PR body: changelog sections, the
