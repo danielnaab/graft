@@ -1,5 +1,45 @@
 # Changelog
 
+## v2.5.0 - 2026-11-04
+
+### Added
+- `graft-migrate` (`nix run .#graft-migrate`, or `nix run github:danielnaab/graft#migrate -- -C
+  REPO`): on a branch where an upgrade is already applied (the bot's `graft/upgrade`, say), prints
+  a migration brief for an agent or a person: what moved, from which tag to which; the rules (fix
+  this repo's own files; never the scions directory, graft's workflows or the pins); each moved
+  provider's CHANGELOG.md sections between the tags, **Upgrading** subsections first, or its
+  commits, quoted and labelled as the provider's text, not instructions; the scions diff, renames
+  and deletions first, then modified and added files with line counts; the lines of the repo's own
+  files that name a renamed or deleted scion path (or a directory that's gone), which may need
+  updating; each of the repo's checks by name, with the failing ones' log tails; and what done
+  means. The base is the merge-base with `origin/HEAD` (else `origin/main`, `origin/master`,
+  `main`, `master`), or `--base REF`; uncommitted changes count. `--no-check` skips the checks
+  (run from graft's flake with `-C`, it then only reads the branch); `--json` prints the same data as JSON. It never runs
+  an agent and never changes the repo; it exits 0 whenever it prints a brief, failing checks or
+  not. README: **graft-migrate**, under **Breaking changes and migrations**.
+- The upgrade PR's body ends with a hint: check out `graft/upgrade` and run
+  `nix run github:danielnaab/graft/<the default branch's graft tag>#migrate -- -C .` to hand the
+  migration to an agent (the tag read from the default branch's `flake.lock`, so the hint never
+  names code from the branch).
+
+### Fixed
+- Upstream text in the PR body (CHANGELOG sections, commit subjects) has its control characters
+  replaced: a lone CR could end the block quote and put unquoted text in the body, and ESC
+  sequences could rewrite a terminal. CRLF CHANGELOGs now match their version headings, a
+  CHANGELOG over 1 MB is cut rather than dropped, and a cut at a line's end keeps that line.
+
+### Changed
+- `lib/common.sh`: what `tools.sh`, `ci.sh` and `migrate.sh` share (the scions directories, the
+  lock reading, the full check, the upstream fetch and the changelog extraction), so the PR body
+  and the brief read upstream the same way. The `pr` job's behaviour is unchanged: it still runs
+  the default branch's graft, never evaluates the upgraded flake, and fetches upstream with plain
+  git from the default branch's lock, without `PR_TOKEN` in git's environment.
+
+### Upgrading
+
+`nix run .#graft-upgrade -- graft@v2.5.0` (the weekly PR does it too), `nix flake check`, then
+commit `flake.nix` and `flake.lock`. The workflows don't change.
+
 ## v2.4.1 - 2026-11-04
 
 ### Fixed

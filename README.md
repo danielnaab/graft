@@ -20,6 +20,7 @@ It is a Nix flake library and two small scripts. Nix does the real work:
 | Finding newer versions | graft: `nix run .#graft-outdated` (newest semver tag upstream, and any new major) |
 | Upgrading, graft itself too | graft: `nix run .#graft-upgrade` (moves the tag, `nix flake update`, re-grafts) |
 | Copying into the repo | graft: `nix run .#graft` |
+| Briefing a migration | graft: `nix run .#graft-migrate` (what moved, what upstream says, what broke) |
 | Checking the copy | graft: `nix flake check` |
 
 ## Use it
@@ -27,7 +28,7 @@ It is a Nix flake library and two small scripts. Nix does the real work:
 ```nix
 # flake.nix
 {
-  inputs.graft.url = "github:danielnaab/graft/v2.4.1";        # a tag: graft-upgrade moves it
+  inputs.graft.url = "github:danielnaab/graft/v2.5.0";        # a tag: graft-upgrade moves it
   inputs.meta-knowledge-base = {
     url = "github:danielnaab/meta-knowledge-base/v1.0.0";   # github: applies export-ignore
     flake = false;
@@ -60,7 +61,7 @@ didn't write.
 nix run .#graft-outdated                 # graft and each scion: pinned, newest in its major, status, newer major
 nix run .#graft-upgrade                  # graft and every scion that's outdated, to the newest tag of its major
 nix run .#graft-upgrade -- name@v1.2.0   # one scion to a named tag (the only way across a major)
-nix run .#graft-upgrade -- graft@v2.4.1  # graft itself to a named tag
+nix run .#graft-upgrade -- graft@v2.5.0  # graft itself to a named tag
 ```
 
 `graft-upgrade` rewrites the tag in `flake.nix`, runs `nix flake update <name>`, and rebuilds
@@ -195,9 +196,45 @@ graft's convention for a provider that breaks its consumers:
   that names the new one, so links into the scion still land somewhere useful. Drop it at the next
   major.
 
-Applying those steps for the consumer (an agent that reads the **Upgrading** section, edits the
-repo and opens the PR) is a steward's job, not graft's: graft reports the new major and quotes
-the changelog, and that's where it stops.
+### graft-migrate
+
+graft does the mechanical part of a migration; the judgment is left to an agent or a person, and
+`graft-migrate` hands it over. On a branch where the upgrade is already applied (the bot's
+`graft/upgrade`, or your own after `graft-upgrade name@v2.0.0`), it prints a brief:
+
+- what moved (each input's old and new tag) and the rules: fix this repo's own files, never the
+  scions directory, graft's workflows or the pins;
+- what upstream says: each provider's CHANGELOG.md sections between the tags, **Upgrading** first
+  (or its commits), quoted and labelled as the provider's text, not instructions;
+- what moved in the scions directory, renames and deletions first;
+- the lines of this repo's own files that name a renamed or deleted path, which may need updating
+  (found even when the repo has no link check);
+- what broke: each of the repo's checks by name, with the failing ones' log tails (`--no-check`
+  skips them);
+- when it's done: `nix flake check` passes, committed on the branch.
+
+```
+git switch graft/upgrade
+nix run .#graft-migrate                        # the brief, against the merge-base with origin/HEAD
+nix run .#graft-migrate -- --base v2-start     # against another base; --json for the same data
+nix run github:danielnaab/graft/v2.5.0#migrate -- -C path/to/repo --no-check   # reads, runs nothing of it
+workmux add graft-upgrade -p "$(nix run .#graft-migrate)"   # an agent in a worktree branched from here
+claude -p "$(nix run .#graft-migrate)"                       # or any agent that takes a prompt
+```
+
+The bot force-pushes `graft/upgrade` every week, so an agent's fix belongs on a branch made from
+it (as workmux does above) or merged before the next run.
+
+It never runs an agent itself, and changes nothing in the repo: it prints, and exits 0 whether
+the checks pass or not (nonzero only when it can't make a brief). Nothing moved since the base is
+one line saying so. A steward that watches many repos can run it from graft's flake with `-C` and
+pass the brief to whatever agent it uses.
+
+`nix run .#graft-migrate` evaluates the branch's flake and runs the graft it pins (a new version,
+if graft moved), and the checks run the branch's code, as `nix flake check` would. On a branch
+nobody has reviewed yet, run it from a graft you trust with `-C`, and `--no-check` to only read
+the branch. The weekly PR's body ends with that form of the command, at the graft version the
+default branch pins.
 
 ## Scope
 
@@ -213,4 +250,6 @@ upgrade by hand, `graft-outdated` and `graft-upgrade` (in the repo and from outs
 (reported, crossed only when named, 0.x), graft upgrading its own pin (from a throwaway copy of
 this tree, tagged twice) and its workflows, `graft-ci` against a local origin (the full-check gate
 with a failing check of the consumer's own) and a stub API (the PR body: changelog sections, the
-commit-list fallback, an open PR retitled), and the `dir` cases. `nix flake check` runs shellcheck on it and on `lib/*.sh`.
+commit-list fallback, an open PR retitled), `graft-migrate` (a provider major that renames and
+deletes, references to those paths, a failing check, `--no-check`, `--json`, `-C`), and the `dir`
+cases. `KEEP=1 tests/run.sh` leaves its work directory behind. `nix flake check` runs shellcheck on it and on `lib/*.sh`.

@@ -31,27 +31,12 @@
 # Cargo's), a 0.y series is its own major: 0.3.1 moves to 0.3.4 by itself, never to 0.4.0.
 set -euo pipefail
 
-MARKERS=("<!-- managed by graft: https://github.com/danielnaab/graft -->" "Managed by [graft]")
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-nix_() { nix --extra-experimental-features 'nix-command flakes' "$@"; }
-die() { echo "graft: $*" >&2; exit 1; }
-
-# The scions directories in the repo: those whose README.md carries graft's marker. git grep exits
-# 1 for no match; anything else (not a repo, a repo git won't trust) is an error, not "no scions".
-scion_dirs() {
-  local args=() m out rc=0
-  for m in "${MARKERS[@]}"; do args+=(-e "$m"); done
-  out=$(git grep -l -F "${args[@]}" -- README.md '*/README.md') || rc=$?
-  [ "$rc" -le 1 ] || die "can't search $(pwd) with git (exit $rc; see above)"
-  [ -n "$out" ] || return 0
-  sed -E 's#/?README\.md$##' <<<"$out" | grep -v '^$' || true
-}
-
-# The scions a directory's README table names, one per line.
-scions_in() { sed -nE 's/^\| \[([A-Za-z0-9][A-Za-z0-9._-]*)\]\(\1\/\) \|.*/\1/p' "$1/README.md"; }
+# shellcheck source-path=SCRIPTDIR source=common.sh
+. "$here/common.sh"
 
 # flake.lock's node for a root input, as JSON, or nothing.
-node() { jq -c --arg n "$1" '.nodes.root.inputs[$n] as $k | if ($k|type)=="string" then .nodes[$k] else empty end' flake.lock; }
+node() { lock_node flake.lock "$1"; }
 
 remote() {  # the git URL of a locked input's upstream
   jq -r 'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo).git"
@@ -60,7 +45,6 @@ remote() {  # the git URL of a locked input's upstream
 }
 
 semver_key() { sed -E 's/^v//' <<<"$1"; }
-is_semver() { [[ $1 =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 
 # The semver tags at URL, spelled like REF (with or without the v), oldest first. Nothing, with
 # git's error on stderr, if the remote can't be listed. http.extraHeader is cleared: a header the

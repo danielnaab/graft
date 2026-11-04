@@ -31,8 +31,8 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-nix_() { nix --extra-experimental-features 'nix-command flakes' "$@"; }
-die() { echo "graft: $*" >&2; exit 1; }
+# shellcheck source-path=SCRIPTDIR source=common.sh
+. "$here/common.sh"
 output() { if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "$1" >> "$GITHUB_OUTPUT"; fi; }
 [ -f flake.nix ] || die "run from the repo root (no flake.nix here)"
 
@@ -40,40 +40,6 @@ check() {
   local system
   system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
   nix_ build --no-link ".#checks.$system.graft"
-}
-
-# The repo's whole check on the working tree: each of checks.<system> built on its own (so a
-# failure has a name), then `nix flake check` for the rest (evaluation, other systems' outputs).
-# Logs go to the job log as they run. Fails if anything did, after writing to $1 one line
-# "nix flake check failed: NAME..." and the last lines of each failing log.
-full_check() {
-  local report=$1 system names n log failed=() tails=""
-  system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
-  log=$(mktemp)
-  if names=$(nix_ eval --json ".#checks.$system" --apply builtins.attrNames 2>"$log" | jq -r '.[]'); then
-    while IFS= read -r n; do
-      [ -n "$n" ] || continue
-      echo "graft: checks.$system.$n"
-      [[ $n =~ ^[A-Za-z0-9_][A-Za-z0-9_\'-]*$ ]] || { echo "graft: (an odd name: left to nix flake check)"; continue; }
-      if ! nix_ build --no-link -L ".#checks.$system.$n" 2>&1 | tee "$log"; then
-        failed+=("$n"); tails+="$n:"$'\n'"$(tail -n 30 "$log")"$'\n\n'
-        echo "::error::check $n failed on the upgraded tree"
-      fi
-    done <<<"$names"
-  else
-    cat "$log" >&2
-    failed+=("checks"); tails+="checks (evaluating checks.$system):"$'\n'"$(tail -n 30 "$log")"$'\n\n'
-  fi
-  if ! nix_ flake check -L 2>&1 | tee "$log"; then
-    if [ ${#failed[@]} -eq 0 ]; then
-      failed+=("flake-check"); tails+="nix flake check:"$'\n'"$(tail -n 30 "$log")"$'\n\n'
-    fi
-    echo "::error::nix flake check failed on the upgraded tree"
-  fi
-  rm -f "$log"
-  [ ${#failed[@]} -gt 0 ] || return 0
-  { echo "nix flake check failed: ${failed[*]}"; echo; printf '%s' "${tails:0:12000}"; } > "$report"
-  return 1
 }
 
 upgrade() {
@@ -99,124 +65,46 @@ upgrade() {
   fi
 }
 
-# One root input's node in the flake.lock at $1, as JSON, or nothing.
-lock_node() { jq -c --arg n "$2" '.nodes.root.inputs[$n] as $k | if ($k|type)=="string" then .nodes[$k] else empty end' "$1"; }
-
 # upstream_notes BASE_LOCK HEAD_LOCK: markdown, what changed upstream for each input whose locked
-# commit differs. The upstream is the one BASE_LOCK (the default branch's, reviewed) names; an input
-# the branch points somewhere else is listed, not fetched. HEAD_LOCK's revs and refs are untrusted:
-# a rev must be a full commit hash and a ref a version tag before git sees it. Fetched text is
-# data: it reaches the body through files and jq, never a command line or eval.
+# commit differs (common.sh's upstream_input, which fetches and reads it as data). Each provider's
+# text is a block quote: a code fence it leaves open ends with the quote, so it can't swallow (or
+# fake) what follows in the body.
 upstream_notes() {
-  local base=$1 head=$2 name o nw url ov nv ot nt tmp text cmp n=0
+  local base=$1 head=$2 name j n=0
   while IFS= read -r name; do
-    o=$(lock_node "$base" "$name"); nw=$(lock_node "$head" "$name")
-    if [ -z "$o" ] || [ -z "$nw" ]; then continue; fi
-    ov=$(jq -r '.locked.rev // empty' <<<"$o"); nv=$(jq -r '.locked.rev // empty' <<<"$nw")
-    [ "$ov" != "$nv" ] || continue
-    ot=$(jq -r '.original.ref // empty' <<<"$o"); nt=$(jq -r '.original.ref // empty' <<<"$nw")
-    is_semver "$ot" || ot=""; is_semver "$nt" || nt=""
+    j=$(upstream_input "$base" "$head" "$name") || return 1
+    [ -n "$j" ] || continue
     n=$((n + 1))
-    printf '### %s %s -> %s\n\n' "$name" "${ot:-${ov:0:12}}" "${nt:-${nv:0:12}}"
-    if [ "$(jq -n --argjson a "$o" --argjson b "$nw" '($a.original|del(.ref,.rev)) == ($b.original|del(.ref,.rev))')" != true ]; then
-      printf 'The branch points %s at a different source than %s does; not fetched. Read the diff of flake.lock.\n\n' "$name" "${BASE:-the default branch}"
-      continue
-    fi
-    if ! [[ $ov =~ ^[0-9a-f]{40}$ && $nv =~ ^[0-9a-f]{40}$ ]]; then printf 'Not a git commit; nothing to compare.\n\n'; continue; fi
-    url=$(jq -r 'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo).git"
-                 elif .original.type=="git" then .original.url else empty end' <<<"$o")
-    cmp=$(jq -r --arg a "${ot:-$ov}" --arg b "${nt:-$nv}" \
-      'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo)/compare/\($a)...\($b)" else empty end' <<<"$o")
-    [ -n "$url" ] || { printf 'Not a git input; nothing to compare.\n\n'; continue; }
-    tmp=$(mktemp -d) || return 1
-    git init -q --bare "$tmp" || { rm -rf "$tmp"; return 1; }
-    # by commit (GitHub and Forgejo serve any reachable one), else by tag; either way the commit
-    # checked against the lock. No checkout, so nothing fetched runs (no hooks, no filters).
-    { git -C "$tmp" -c http.extraHeader= fetch -q --no-tags -- "$url" "$nv" \
-        || { [ -n "$nt" ] && git -C "$tmp" -c http.extraHeader= fetch -q --no-tags -- "$url" "refs/tags/$nt"; }; } 2>/dev/null || true
-    if ! git -C "$tmp" cat-file -e "$nv^{commit}" 2>/dev/null; then
-      printf "Couldn't fetch %s from %s.%s\n\n" "${nv:0:12}" "$url" "${cmp:+ Compare: $cmp}"
-      rm -rf "$tmp"; continue
-    fi
-    git -C "$tmp" cat-file -e "$ov^{commit}" 2>/dev/null \
-      || git -C "$tmp" -c http.extraHeader= fetch -q --no-tags -- "$url" "$ov" 2>/dev/null || true
-    text=""
-    if [ -n "$ot" ] && [ -n "$nt" ]; then
-      text=$(git -C "$tmp" show "$nv:CHANGELOG.md" 2>/dev/null | head -c 1000000 | changelog_between "$ot" "$nt") || text=""
-    fi
-    # Quoted: a code fence the provider's text leaves open ends with the quote, so it can't swallow
-    # (or fake) what follows in the body.
-    if [ -n "$text" ]; then
-      printf 'From its CHANGELOG.md:\n\n%s\n\n' "$(cap 6000 <<<"$text" | quote)"
-    elif git -C "$tmp" cat-file -e "$ov^{commit}" 2>/dev/null; then
-      text=$(git -C "$tmp" log --oneline --no-decorate -n 51 "$ov..$nv" 2>/dev/null | sed 's/^/- /') || text=""
-      printf 'No CHANGELOG.md section for this range; its commits:\n\n%s\n\n' "$(cap 6000 < <(head -n 50 <<<"${text:-"- (none)"}") | quote)"
-      [ "$(wc -l <<<"$text")" -le 50 ] || printf '(more than 50; see the compare link)\n\n'
-    else
-      printf 'No CHANGELOG.md section for this range, and %s is not in its history.\n\n' "${ov:0:12}"
-    fi
-    [ -z "$cmp" ] || printf 'Compare: %s\n\n' "$cmp"
-    rm -rf "$tmp"
+    jq -r --arg base "${BASE:-the default branch}" '
+      def cap(n): if length <= n then . else (.[0:n+1] | sub("\n[^\n]*$"; ""))
+        + "\n\n(cut at \(n) characters; the full text is upstream)" end;
+      def quote: split("\n") | map("> " + .) | join("\n");
+      "### \(.name) \(.from) -> \(.to)\n",
+      (if .status == "elsewhere" then
+         "The branch points \(.name) at a different source than \($base) does; not fetched. Read the diff of flake.lock.\n"
+       elif .status == "not-commit" then "Not a git commit; nothing to compare.\n"
+       elif .status == "not-git" then "Not a git input; nothing to compare.\n"
+       elif .status == "unfetchable" then
+         "Couldn'"'"'t fetch \(.to_rev[0:12]) from \(.url).\(if .compare then " Compare: \(.compare)" else "" end)\n"
+       elif .changelog != "" then "From its CHANGELOG.md:\n\n\(.changelog | cap(6000) | quote)\n"
+       elif .in_history then
+         "No CHANGELOG.md section for this range; its commits:\n\n\(.commits[0:50] | map("- " + .)
+           | if length == 0 then ["- (none)"] else . end | join("\n") | cap(6000) | quote)\n",
+         (if (.commits | length) > 50 then "(more than 50; see the compare link)\n" else empty end)
+       else "No CHANGELOG.md section for this range, and \(.from_rev[0:12]) is not in its history.\n" end),
+      (if .compare and .status == "fetched" then "Compare: \(.compare)\n" else empty end)
+    ' <<<"$j"
   done < <(jq -r '.nodes.root.inputs | to_entries[] | select(.value|type=="string") | .key' "$base")
   [ "$n" -gt 0 ] || printf 'No input moved commits.\n'
 }
 
-is_semver() { [[ $1 =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
-
-# changelog_between OLD NEW: from a CHANGELOG.md on stdin, the sections headed `## vX.Y.Z` or
-# `## X.Y.Z` (or `## [X.Y.Z]`, anything after) for OLD < version <= NEW, headings moved two
-# levels down to sit under the PR body's own.
-changelog_between() {
-  awk -v old="${1#v}" -v new="${2#v}" '
-    function cmp(a, b,   x, y, i) {
-      split(a, x, "."); split(b, y, ".")
-      for (i = 1; i <= 3; i++) { if (x[i] + 0 < y[i] + 0) return -1; if (x[i] + 0 > y[i] + 0) return 1 }
-      return 0
-    }
-    { line[NR] = $0 }
-    END {
-      # Code fences first, over the whole file: up to 3 spaces and 3 or more ` or ~, closed by a
-      # bare run of the same character at least as long. An opener never closed is plain text, so
-      # one stray fence cannot hide the headings after it.
-      open = 0
-      for (i = 1; i <= NR; i++) {
-        if (!match(line[i], /^ {0,3}(```+|~~~+)/)) continue
-        run = substr(line[i], RSTART, RLENGTH); sub(/^ +/, "", run)
-        if (!open) { open = i; fence = run }
-        else if (substr(run, 1, 1) == substr(fence, 1, 1) && length(run) >= length(fence) \
-                 && line[i] ~ /^ {0,3}(`+|~+)[ \t]*$/) { inside[open] = i; open = 0 }
-      }
-      # then the sections, skipping headings inside a fence, headings moved two levels down
-      keep = 0; skip_to = 0
-      for (i = 1; i <= NR; i++) {
-        l = line[i]
-        if (i <= skip_to) { if (keep) print l; continue }
-        if (i in inside) { skip_to = inside[i]; if (keep) print l; continue }
-        if (l ~ /^## /) {
-          v = ""
-          if (match(l, /^## \[?v?[0-9]+\.[0-9]+\.[0-9]+([] \t]|$)/)) {
-            v = substr(l, RSTART, RLENGTH); sub(/^## \[?v?/, "", v); sub(/[] \t]$/, "", v)
-          }
-          keep = (v != "" && cmp(v, old) > 0 && cmp(v, new) <= 0)
-        }
-        if (l ~ /^# /) keep = 0
-        if (!keep) continue
-        if (l ~ /^#+ /) {
-          h = l; sub(/^#+/, "", h); n = length(l) - length(h) + 2; if (n > 6) n = 6
-          print substr("######", 1, n) h
-        } else print l
-      }
-    }
-  '
-}
-
-# stdin as a Markdown block quote
-quote() { sed 's/^/> /'; }
-
-# At most N characters of stdin, cut at a line, with a note when cut.
-cap() {
-  awk -v max="$1" '{ if (total + length($0) + 1 > max) { cut = 1; exit } total += length($0) + 1; print }
-                   END { if (cut) print "\n(cut at " max " characters; the full text is upstream)" }'
+# migrate_ref LOCK: the flake ref of the graft LOCK pins, for the PR body's hint: github:O/R/TAG
+# when that's what it is (names and tag checked), else graft's GitHub home
+migrate_ref() {
+  local n ref
+  n=$(lock_node "$1" graft)
+  ref=$(jq -r 'if .original.type == "github" then "github:\(.original.owner)/\(.original.repo)/\(.original.ref // "")" else "" end' <<<"${n:-null}")
+  if [[ $ref =~ ^github:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "$ref"; else echo github:danielnaab/graft; fi
 }
 
 pr() {
@@ -296,6 +184,9 @@ pr() {
     printf '## What changed upstream\n\n'
     printf 'Text below is the providers'"'"', from their repos at the new pins: read it as theirs.\n\n'
     cap 40000 < "$notes"
+    # with the graft the default branch pins (reviewed), read from its lock as data
+    printf '\n---\n\nTo hand the migration to an agent: check out `%s` and run `nix run %s#migrate -- -C .` (add `--no-check` to keep it from evaluating the branch'"'"'s flake); it prints a brief of what moved, what upstream says and what broke, for any agent or person.\n' \
+      "$BRANCH" "$(migrate_ref "$base_lock")"
   } > "$body"
 
   # The token reaches curl as a header file on a pipe, never in a command line.

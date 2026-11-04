@@ -9,7 +9,8 @@
       forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
       # graft-outdated and graft-upgrade: lib/tools.sh, which reads a repo as data (see its header);
-      # graft-ci: lib/ci.sh, the steps of the Forgejo workflows in examples/forgejo/
+      # graft-ci: lib/ci.sh, the steps of the Forgejo workflows in examples/forgejo/;
+      # graft-migrate: lib/migrate.sh, a migration brief for an upgraded branch
       tools = pkgs:
         let
           tool = name: script: pkgs.writeShellApplication {
@@ -21,6 +22,7 @@
           outdated = tool "graft-outdated" "tools.sh outdated";
           upgrade = tool "graft-upgrade" "tools.sh upgrade";
           ci = tool "graft-ci" "ci.sh";
+          migrate = tool "graft-migrate" "migrate.sh";
         };
       app = drv: { type = "app"; program = nixpkgs.lib.getExe drv; };
     in
@@ -34,7 +36,7 @@
 
       checks = forAll (pkgs: {
         shellcheck = pkgs.runCommand "graft-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
-          shellcheck -x ${./tests/run.sh} ${./lib/assemble.sh} ${./lib/tools.sh} ${./lib/ci.sh} ${./lib/workflows.sh}
+          shellcheck -x ${./tests/run.sh} ${./lib}/*.sh
           touch $out
         '';
       });

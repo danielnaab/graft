@@ -11,6 +11,7 @@
 #   apps.<system>.graft-outdated graft's and each scion's pinned tag against the newest upstream
 #   apps.<system>.graft-upgrade  move graft and scions to newer tags, re-lock, rebuild <dir>
 #   apps.<system>.graft-ci       the steps of graft's Forgejo workflows (lib/ci.sh)
+#   apps.<system>.graft-migrate  a migration brief for an upgraded branch, for an agent (lib/migrate.sh)
 #
 # `expected` is built by lib/assemble.sh, which graft-upgrade also uses, so an upgrade writes
 # exactly what the check expects.
@@ -111,6 +112,7 @@ assert lib.assertMsg validDir
     graft-outdated = { type = "app"; program = lib.getExe (tools pkgs).outdated; };
     graft-upgrade = { type = "app"; program = lib.getExe (tools pkgs).upgrade; };
     graft-ci = { type = "app"; program = lib.getExe (tools pkgs).ci; };
+    graft-migrate = { type = "app"; program = lib.getExe (tools pkgs).migrate; };
   });
   checks = forAll (pkgs: { graft = check pkgs; });
 }
