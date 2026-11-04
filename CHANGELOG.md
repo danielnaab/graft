@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.4.1 - 2026-11-04
+
+### Fixed
+- `graft-ci pr` failed in CI with `awk: command not found`: the `nixos/nix` image has no awk,
+  and graft's tools didn't bring one. They now carry gawk and findutils too, and `tests/run.sh`
+  runs `graft-ci` with nothing but `nix` on PATH, as the image does, so a missing tool fails there.
+
+### Upgrading
+
+From 2.4.0, by hand (2.4.0's `pr` job is the broken one, so its weekly PR can't open):
+`nix run .#graft-upgrade -- graft@v2.4.1`, `nix flake check`, then commit `flake.nix` and
+`flake.lock`. The workflows don't change. From earlier versions, follow 2.4.0's steps with
+`v2.4.1` in place of `v2.4.0`.
+
 ## v2.4.0 - 2026-11-04
 
 ### Added

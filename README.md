@@ -27,7 +27,7 @@ It is a Nix flake library and two small scripts. Nix does the real work:
 ```nix
 # flake.nix
 {
-  inputs.graft.url = "github:danielnaab/graft/v2.4.0";        # a tag: graft-upgrade moves it
+  inputs.graft.url = "github:danielnaab/graft/v2.4.1";        # a tag: graft-upgrade moves it
   inputs.meta-knowledge-base = {
     url = "github:danielnaab/meta-knowledge-base/v1.0.0";   # github: applies export-ignore
     flake = false;
@@ -60,7 +60,7 @@ didn't write.
 nix run .#graft-outdated                 # graft and each scion: pinned, newest in its major, status, newer major
 nix run .#graft-upgrade                  # graft and every scion that's outdated, to the newest tag of its major
 nix run .#graft-upgrade -- name@v1.2.0   # one scion to a named tag (the only way across a major)
-nix run .#graft-upgrade -- graft@v2.4.0  # graft itself to a named tag
+nix run .#graft-upgrade -- graft@v2.4.1  # graft itself to a named tag
 ```
 
 `graft-upgrade` rewrites the tag in `flake.nix`, runs `nix flake update <name>`, and rebuilds

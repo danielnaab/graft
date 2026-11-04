@@ -14,7 +14,7 @@
         let
           tool = name: script: pkgs.writeShellApplication {
             inherit name;
-            runtimeInputs = with pkgs; [ bash coreutils diffutils gnugrep gnused jq git util-linux curl ];
+            runtimeInputs = with pkgs; [ bash coreutils diffutils findutils gawk gnugrep gnused jq git util-linux curl ];
             text = ''exec bash ${./lib}/${script} "$@"'';
           };
         in {

@@ -17,6 +17,12 @@ expect() { local d=$1; shift; if "$@"; then pass "$d"; else fail "$d"; fi; }
 # refuse <description> <command...>: the command must fail
 refuse() { local d=$1; shift; if "$@"; then fail "$d"; else pass "$d"; fi; }
 quiet() { "$@" >/dev/null 2>&1; }
+# graft-ci as CI runs it: the nixos/nix image has little beyond nix, so every tool graft-ci needs
+# must come from its own runtimeInputs. ci_ runs it with nothing but nix on PATH.
+bare=$work/bare-bin
+mkdir -p "$bare" && ln -s "$(command -v nix)" "$bare/nix"
+# ci_ [VAR=VALUE...] STEP
+ci_() { local vars=(); while [[ ${1:-} == *=* ]]; do vars+=("$1"); shift; done; env "${vars[@]}" PATH="$bare" nix run .#graft-ci -- "$@"; }
 
 # provider: exports docs, keeps tests/ and its own scions/ to itself
 p=$work/provider
@@ -241,26 +247,26 @@ expect "check passes" quiet nix flake check
 selfc self-ci v9.0.0
 git_ commit -qm init
 git_ init -q --bare "$work/origin.git" && git_ remote add origin "$work/origin.git" && git_ push -q origin main
-expect "ci check passes" quiet nix run .#graft-ci -- check
-GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet nix run .#graft-ci -- upgrade || fail "graft-ci upgrade"
+expect "ci check passes" quiet ci_ check
+GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade"
 expect "ci upgrade: changed=true" grep -qx changed=true "$work/ci-out"
 expect "ci upgrade pushed graft/upgrade" quiet git_ -C "$work/origin.git" rev-parse --verify refs/heads/graft/upgrade
 body=$(git_ -C "$work/origin.git" log -1 --format=%b graft/upgrade)
 expect "its commit names graft's move" grep -q "graft v9.0.0 -> v9.1.0" <<<"$body"
 expect "and the refreshed workflow" grep -q "refreshed .forgejo/workflows/graft-check.yaml" <<<"$body"
 : > "$work/ci-out"
-GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet nix run .#graft-ci -- upgrade || fail "graft-ci upgrade, again"
+GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade, again"
 expect "ci upgrade again: changed=false" grep -qx changed=false "$work/ci-out"
 pr_env=(API=http://127.0.0.1:9 WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=x)
 expect "ci pr: no PR when the branch is already in the base" sh -c "env ${pr_env[*]} nix run .#graft-ci -- pr 2>/dev/null | grep -q 'already in main'"
-refuse "ci pr: refuses without a token" quiet env "${pr_env[@]}" PR_TOKEN= nix run .#graft-ci -- pr
+refuse "ci pr: refuses without a token" quiet ci_ "${pr_env[@]}" PR_TOKEN= pr
 git_ reset -q --hard HEAD~1   # back to the default branch before the upgrade
-refuse "ci pr: no PR for a branch that changes workflows" quiet env "${pr_env[@]}" nix run .#graft-ci -- pr
+refuse "ci pr: no PR for a branch that changes workflows" quiet ci_ "${pr_env[@]}" pr
 expect "and it says why" sh -c "env ${pr_env[*]} nix run .#graft-ci -- pr 2>/dev/null | grep -q 'changes CI workflows'"
 git_ checkout -q -b elsewhere "$(git_ -C "$work/origin.git" rev-parse graft/upgrade)"
 echo "sneaky" > sneaky.sh && git_ add -A && git_ commit -qm sneaky && git_ push -q --force origin HEAD:graft/upgrade
 git_ checkout -q main
-refuse "ci pr: no PR for a branch that changes other files" quiet env "${pr_env[@]}" nix run .#graft-ci -- pr
+refuse "ci pr: no PR for a branch that changes other files" quiet ci_ "${pr_env[@]}" pr
 
 # graft-ci pr against a stub API. stub_pr NAME [LISTING]: run `graft-ci pr` in the current repo
 # against a fresh stub (GET answers LISTING), with output in $work/NAME.out, the request log in
@@ -270,8 +276,8 @@ stub_pr() {
   rm -f "$port"
   nix run nixpkgs#python3 -- "$graft/tests/stub-api.py" "$port" "$work/$1.auth" "$work/$1.req" "${2:-/nonexistent}" & stub=$!
   for _ in $(seq 100); do [ -s "$port" ] && break; sleep 0.1; done
-  env API="http://127.0.0.1:$(cat "$port")" WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=s3cret \
-    nix run .#graft-ci -- pr > "$work/$1.out" 2>&1 || true
+  ci_ API="http://127.0.0.1:$(cat "$port")" WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=s3cret \
+    pr > "$work/$1.out" 2>&1 || true
   kill "$stub" 2>/dev/null || true
 }
 # post_body NAME: the body of the PR the stub was asked to open
@@ -282,7 +288,7 @@ post_body() { jq -r 'select(.method=="POST") | .body.body' "$work/$1.req"; }
 selfc self-pr v9.1.0
 git_ commit -qm init
 git_ init -q --bare "$work/origin-pr.git" && git_ remote add origin "$work/origin-pr.git" && git_ push -q origin main
-BRANCH=graft/upgrade quiet nix run .#graft-ci -- upgrade || fail "graft-ci upgrade (scion only)"
+BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade (scion only)"
 git_ reset -q --hard origin/main
 stub_pr pr1
 expect "ci pr: opens the PR for a scion-only branch" grep -q "http://stub/pulls/1" "$work/pr1.out"
@@ -381,7 +387,7 @@ expect "gate: the repo's own check passes before the upgrade" quiet nix flake ch
 git_ commit -qm init
 git_ init -q --bare "$work/origin-gate.git" && git_ remote add origin "$work/origin-gate.git" && git_ push -q origin main
 : > "$work/gate-out"
-refuse "gate: ci upgrade fails when the repo's own check fails" quiet env GITHUB_OUTPUT="$work/gate-out" BRANCH=graft/upgrade nix run .#graft-ci -- upgrade
+refuse "gate: ci upgrade fails when the repo's own check fails" quiet ci_ GITHUB_OUTPUT="$work/gate-out" BRANCH=graft/upgrade upgrade
 expect "but says it changed" grep -qx changed=true "$work/gate-out"
 expect "and pushed the branch" quiet git_ -C "$work/origin-gate.git" rev-parse --verify refs/heads/graft/upgrade
 body=$(git_ -C "$work/origin-gate.git" log -1 --format=%b graft/upgrade)
