@@ -17,7 +17,9 @@
 #            branch was written by code nobody has reviewed yet: so it opens one only when the
 #            branch changes nothing but flake.nix, flake.lock and the scions directories. A change
 #            to .forgejo/ (a new graft version's workflows) or anywhere else fails with a link to
-#            the diff: review it, then open the PR yourself.
+#            the diff: review it, then open the PR yourself. The limit: flake.nix and flake.lock
+#            are code (a moved graft pin is the new version), so any OTHER pull_request workflow
+#            of the repo's that evaluates or builds the flake with secrets runs it unreviewed.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -71,9 +73,9 @@ pr() {
     for d in "${dirs[@]}"; do [ -z "$d" ] || [[ $path != "$d"/* ]] || ok=1; done
     [ -z "$ok" ] || continue
     if [[ $path == .forgejo/* ]]; then workflows+=" $path"; else other+=" $path"; fi
-  done < <(git diff --name-only -z HEAD "$head")
+  done < <(git diff --no-renames --name-only -z HEAD "$head")
   if [ -n "$other" ]; then
-    echo "::error::$BRANCH changes files graft-upgrade never writes:$other. Not opening a PR; look at $compare"
+    echo "::error::$BRANCH changes files graft-upgrade never writes:$other. Not opening a PR; look at $compare (if $BASE moved since the upgrade job, re-run the workflow)"
     exit 1
   fi
   if [ -n "$workflows" ]; then

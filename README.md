@@ -131,7 +131,10 @@ upgraded flake, and opens the PR with `GRAFT_PR_TOKEN`. Opening a PR runs the re
 `pull_request` workflows from the branch, with the repo's secrets, so it opens one only when the
 branch changes nothing but `flake.nix`, `flake.lock` and the scions directories. When a new graft
 version changes its workflows (rare: their logic is in `graft-ci`), or anything else changed, the
-job fails with a link to the diff: read it, then open the PR yourself.
+job fails with a link to the diff: read it, then open the PR yourself. The limit: `flake.nix` and
+`flake.lock` are code (a moved graft pin is the new version), so a `pull_request` workflow of your
+own that evaluates or builds the flake with secrets would run it before review. graft's own
+workflows don't; keep yours that way, or don't let graft move itself in CI.
 
 Both want a runner with Nix: `runs-on: nixos-latest` means a docker label for
 `docker://nixos/nix`. On GitHub, use the same steps after a Nix install action.
