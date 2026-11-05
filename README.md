@@ -247,6 +247,30 @@ It provides commands; any bot is a workflow in the repo that runs them (or a cen
 them from graft's flake). A feature that can't be expressed as Nix plus a copy, a diff and a tag
 comparison does not belong here.
 
+Two more rules follow from that:
+
+- **A checkout needs no setup.** Scions are committed files, so a fresh clone or a new worktree
+  (an agent's, say) has them at once, with nothing to fetch or initialise. Nix is needed only to
+  change a pin or check one.
+- **graft hands text to agents; it never runs one.** `graft-migrate` prints a brief and the
+  upgrade PR carries notes, so any agent tool (or a person) can take them, and graft doesn't
+  change when the tool does.
+
+### Where graft v1's features went
+
+graft v1 (branch `v1`) had grown into a workflow runner as well as a dependency manager. None of
+that returns here:
+
+| v1 | Now |
+|---|---|
+| `changes:`, migration commands, atomic upgrade with rollback | The upgrade PR is the transaction: a branch, checked by the repo's whole `nix flake check`, merged or closed. Semver majors declare a break; the provider's CHANGELOG says what to do; `graft-migrate` briefs an agent. |
+| `commands:`, `graft run dep:command` | A provider's own flake apps (`nix run provider#task`), with the provider as an ordinary flake input. |
+| State queries, run logs | The repo's own checks and CI. |
+| Grove (multi-repo TUI) | Out of scope. `nix run github:danielnaab/graft#outdated -- -C <repo>` reads any checkout. |
+| Scions as agent sessions (software-factory slices, `scion run`) | Agent tooling outside graft. A "scion" now means a grafted export only. |
+| Transitive dependencies (`.graft/` within `.graft/`) | One level: a consumer grafts what it needs directly. |
+| Providers placing files anywhere in a consumer | Only graft's own workflows (by their marker). Generalising it waits for a second real case. |
+
 ## Develop
 
 `tests/run.sh` runs the whole cycle against a throwaway provider repo: graft, check, drift,
