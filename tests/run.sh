@@ -674,11 +674,14 @@ sed -i.bak 's#^  outputs#  inputs.src = { url = "git+file://'"$q"'?ref=v2.0.0\&e
 quiet nix run .#graft && git_ add -A
 expect "scions: a named list leaves other non-flake inputs out" test ! -e scions/src
 consumer inferred ''
+quiet nix flake lock && git_ add -A && git_ commit -qm init   # a tracked lock, as a real repo has
 sed -i.bak 's#^  outputs#  inputs.src = { url = "git+file://'"$q"'?ref=v2.0.0\&exportIgnore=1"; flake = false; };\n  outputs#' flake.nix && rm flake.nix.bak
 quiet nix run .#graft
 expect "scions: inferred, every non-flake input" test -d scions/src
 expect "scions: not graft, a flake" test ! -e scions/graft
 expect "a new scion passes the check before anything is staged" quiet nix flake check
+expect "and leaves the repo able to stash" quiet git_ stash
+git_ stash pop -q
 consumer nodeps ''
 sed -i.bak '/inputs.provider/d' flake.nix && rm flake.nix.bak
 expect "no scions at all is an error naming the cause" sh -c 'nix run .#graft 2>&1 | grep -q "graft: no scions"'
@@ -687,6 +690,18 @@ expect "no scions at all is an error naming the cause" sh -c 'nix run .#graft 2>
 consumer own 'dir = "../outside"; outputs.apps = builtins.mapAttrs (_: _: { own = { type = "app"; program = "/bin/true"; }; }) inputs.graft.packages; outputs.answer = 42;'
 expect "own outputs evaluate without graft's argument checks" test "$(nix eval .#answer 2>/dev/null)" = 42
 expect "and sit beside graft's" test "$(nix eval --json .#apps --apply 'a: builtins.attrNames (builtins.head (builtins.attrValues a))' 2>/dev/null)" = '["graft","own"]'
+
+# a flake input that can't be evaluated is no business of graft's
+consumer broken ''
+mkdir -p "$work/broken-flake"
+printf '{ outputs = _: throw "broken"; }\n' > "$work/broken-flake/flake.nix"
+sed -i.bak 's#^  outputs#  inputs.other.url = "path:'"$work"'/broken-flake";\n  outputs#' flake.nix && rm flake.nix.bak
+expect "an input that throws doesn't stop graft" quiet nix run .#graft
+
+# graft's outputs can't be replaced by a same-named one of the repo's
+consumer shadow 'outputs.apps = builtins.mapAttrs (_: _: { graft = { type = "app"; program = "/bin/false"; }; }) inputs.graft.packages;'
+quiet nix run .#graft || fail "a repo's apps.graft replaced graft's"
+pass "a repo's apps.graft doesn't replace graft's"
 
 # the template: a working repo, at the version this tree releases
 t=$work/template

@@ -10,9 +10,9 @@
 #             with the new version's code.
 #
 # Both read the repo as data: graft's README table in each scions directory says which flake
-# inputs are scions, and flake.lock says what each is pinned to. Neither evaluates the repo's
-# flake outputs, so they can run from graft's own flake against any checkout (a central bot) as
-# well as from the repo's own (`nix run .#graft outdated`, CI). One exception, in upgrade:
+# inputs are scions, and flake.lock says what each is pinned to. Run from graft's own flake with -C
+# (a central bot), neither evaluates the repo's flake outputs; `nix run .#graft outdated`, as CI
+# runs it, does, to reach this script. One exception, in upgrade:
 # `nix flake update <name>` re-locks the input, which reads the flake's `inputs` but never calls
 # `outputs`. The rebuilt directory comes from lib/assemble.sh, the same script mkFlake's check
 # builds from, so `nix flake check` passes after an upgrade exactly when the copy is right.
@@ -201,7 +201,7 @@ regraft() {
   mv "$tmp/out" "$dir"
   rm -rf "$tmp"
   # a flake sees only what git tracks: without this, a new file fails the check
-  git add --intent-to-add -- "$dir" 2>/dev/null || true
+  git add -- "$dir" 2>/dev/null || true
 }
 
 cmd_upgrade() {

@@ -20,7 +20,7 @@
 #            run, so the app refuses to delete an existing directory that graft didn't write: a
 #            mistyped `dir = "src"` stops there.
 #   outputs  the repo's own flake outputs, merged with graft's at every level, so a repo's `checks`
-#            sit beside graft's rather than replacing them.
+#            sit beside graft's. `apps.<system>.graft` and `checks.<system>.graft` stay graft's.
 #
 # `expected` is built by lib/assemble.sh, which `graft upgrade` also uses, so an upgrade writes
 # exactly what the check expects.
@@ -30,8 +30,11 @@
 # version's copy and the check fails if it differs; a workflow without the marker is never read.
 #
 # Nothing else: no config file, no lock of its own, no network access of its own. flake.lock is the
-# lock. Everything that looks at `inputs` is inside `apps` and `checks`, so a repo's own outputs
-# (`nix develop`) evaluate without it.
+# lock. Everything that looks at the arguments is inside `apps` and `checks`, so a repo's own
+# outputs (`nix develop`) evaluate without it.
+#
+# The app depends on `expected`, so `nix run .#graft COMMAND` needs every scion's pin fetchable. If
+# one has vanished, move it from outside: nix run github:danielnaab/graft -- upgrade -C . NAME
 { nixpkgs, systems, cli }:
 
 { inputs, scions ? null, dir ? "scions", outputs ? { } }:
@@ -50,9 +53,11 @@ let
     && lib.head segments != ".git";
   q = lib.escapeShellArg path;
 
-  # A fetched flake carries `_type = "flake"`; a `flake = false` input is only its source.
-  isScion = n: v: n != "self" && (v._type or null) != "flake";
-  names = if scions != null then scions else lib.attrNames (lib.filterAttrs isScion inputs);
+  # flake.nix's `inputs` is a literal, so it's read here as data: asking the fetched inputs instead
+  # would fetch every one, and call every flake input's outputs.
+  declared = (import "${inputs.self}/flake.nix").inputs or { };
+  names = if scions != null then scions
+    else lib.attrNames (lib.filterAttrs (_: v: (v.flake or true) == false) declared);
 
   validName = n: builtins.match "[A-Za-z0-9][A-Za-z0-9._-]*" n != null;
   bad = lib.filter (n: !validName n) names;
@@ -93,7 +98,7 @@ let
         echo ${lib.escapeShellArg "graft: ${path}/${n} <- ${pin n}"}
       '') names}
       # A flake sees only what git tracks: without this, a new scion's files fail the check.
-      git add --intent-to-add -- ${q} 2>/dev/null || true
+      git add -- ${q} 2>/dev/null || true
       bash ${./workflows.sh} refresh . ${examples}
     '';
   };
@@ -122,7 +127,8 @@ let
       "graft: dir must be a relative path inside the repo (no leading /, no . or .. segments, not .git), got \"${dir}\"";
     x;
 in
-lib.recursiveUpdate
+# graft's side last: a repo's own `checks.<system>.graft` must not replace the drift check
+lib.recursiveUpdate outputs
   {
     apps = forAll (pkgs: {
       graft = valid {
@@ -133,4 +139,3 @@ lib.recursiveUpdate
     });
     checks = forAll (pkgs: { graft = valid (check pkgs); });
   }
-  outputs

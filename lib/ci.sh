@@ -28,6 +28,8 @@
 #            provider's CHANGELOG.md sections between the two tags (or its git log), read by this
 #            job with git from the upstream the DEFAULT branch's flake.lock names, at the commit
 #            the branch's flake.lock pins. Both locks are read as data; nothing fetched is run.
+#            Building the app already fetched the default branch's scions through Nix, with
+#            PR_TOKEN in its environment: the reviewed lock's urls, and the build only copies.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

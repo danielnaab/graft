@@ -76,7 +76,8 @@ outputs = { graft, nixpkgs, ... }@inputs: graft.lib.mkFlake {
 - `scions` names the inputs to graft, for a repo with a non-flake input that isn't one (source it
   builds from, say).
 - `outputs` is the repo's own flake outputs, merged with graft's at every level, so its `apps` and
-  `checks` sit beside graft's.
+  `checks` sit beside graft's. The names `apps.<system>.graft` and `checks.<system>.graft` stay
+  graft's.
 
 Everything is one app: `nix run .#graft` rebuilds the scions directory, and
 `nix run .#graft help` lists the rest. A subcommand needs no `--`; a flag does, because Nix would
@@ -115,8 +116,9 @@ and graft's workflows (below) are replaced with the ones it ships. Pin graft to 
 version unless you name one (`graft@v3.0.0`): a new major may change `mkFlake`.
 
 Both read the repo as data (graft's README table says which inputs are scions; `flake.lock`
-says what each is pinned to) and never call the flake's `outputs`, so they also run from graft's
-own flake against any checkout, for a bot that watches many repos:
+says what each is pinned to). Run from graft's own flake they never call the repo's `outputs`, so
+that form suits a bot that watches many repos. It's also the way out when a scion's pinned commit
+has vanished, which stops `nix run .#graft COMMAND` because the app is built from the pins:
 
 ```
 nix run github:danielnaab/graft -- outdated -C path/to/repo [--json]
@@ -177,7 +179,9 @@ branch changes nothing but `flake.nix`, `flake.lock` and the scions directories.
 also writes the PR body: it reads the two `flake.lock`s as data, and for each input that moved
 fetches the provider with plain `git` (no checkout, nothing run) from the upstream the *default
 branch's* lock names, at the commit the branch's lock pins, without `GRAFT_PR_TOKEN` in git's
-environment. The upstream text goes into the body through `jq`, never a shell command line; it
+environment. (Building the `graft` app itself fetches the default branch's scions through Nix, whose
+environment does carry the token; those are the reviewed lock's urls, nothing is sent to them and
+the build only copies.) The upstream text goes into the body through `jq`, never a shell command line; it
 is the provider's text, quoted, so read it as theirs.
 
 This split assumes each job gets a fresh environment (a container per job, as `docker://nixos/nix`
@@ -246,7 +250,7 @@ git switch graft/upgrade
 nix run .#graft migrate                        # the brief, against the merge-base with origin/HEAD
 nix run .#graft -- migrate --base v2-start     # against another base; --json for the same data
 nix run github:danielnaab/graft/v2.6.0 -- migrate -C path/to/repo --no-check   # reads, runs nothing of it
-workmux add graft upgrade -p "$(nix run .#graft migrate)"   # an agent in a worktree branched from here
+workmux add graft-upgrade -p "$(nix run .#graft migrate)"   # an agent in a worktree branched from here
 claude -p "$(nix run .#graft migrate)"                       # or any agent that takes a prompt
 ```
 
