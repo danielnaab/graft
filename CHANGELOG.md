@@ -1,5 +1,48 @@
 # Changelog
 
+## v2.6.0 - 2026-11-06
+
+### Changed
+- **`lib.mkGraft` is now `lib.mkFlake`**, the conventional name for a function that returns a
+  flake's outputs, and `deps` is now `scions`. `mkGraft` is gone: graft has one user, who moved
+  every consumer in this release, so this breaking change stays in v2.
+- **`scions` is optional.** It defaults to every `flake = false` input, so a repo declares a scion
+  once. It's read from `flake.nix` as data, so nothing extra is fetched. Name them when a non-flake
+  input isn't one.
+- **One command.** The apps `graft-outdated`, `graft-upgrade`, `graft-migrate` and `graft-ci` are
+  now subcommands of the one app: `nix run .#graft upgrade name@v1.2.0`. A subcommand needs no
+  `--`; a flag still does (`nix run .#graft -- outdated --json`). `nix run .#graft` alone still
+  rebuilds the scions directory, also spelled `nix run .#graft sync`. From graft's own flake it's
+  `nix run github:danielnaab/graft -- outdated -C REPO`, replacing `#outdated`, `#upgrade`,
+  `#migrate` and `#ci`. The one app is built from the pins, so every subcommand now needs each
+  scion's pin fetchable; if one has vanished, use that outside form.
+- graft's workflows moved from `examples/forgejo/` to `template/.forgejo/workflows/`, and call
+  `nix run .#graft ci STEP`.
+
+### Added
+- `mkFlake`'s `outputs` argument takes the repo's own flake outputs and merges them with graft's
+  at every level. This replaces wrapping the call in `nixpkgs.lib.recursiveUpdate`, and the `//`
+  that silently dropped one side's `checks`. A repo can't replace `checks.<system>.graft`.
+- `nix flake init -t github:danielnaab/graft` scaffolds a repo: `flake.nix` and graft's workflows.
+- The `graft` app has a `meta.description`, which Nix's `lacks attribute 'meta'` warning asks for.
+
+### Fixed
+- A new scion failed `nix flake check` until its files were staged, with a message saying to run
+  the command that had just been run. `graft sync` and `graft upgrade` now stage the scions
+  directory, and the check's message says what a file only on the left means.
+- A repo's own outputs no longer evaluate graft's checks on its arguments: `nix develop` never
+  looks at the inputs on graft's behalf.
+
+### Upgrading
+
+In `flake.nix`: move graft to `v2.6.0`; replace `mkGraft` with `mkFlake`; delete `deps` (or rename
+it `scions`, if some `flake = false` input isn't a scion); and replace any
+`recursiveUpdate (mkGraft { … }) { … }` with `mkFlake { …; outputs = { … }; }`. Then
+`nix run .#graft`, which refreshes the scions README and graft's workflows, and commit. Done when
+`nix flake check` passes. Search the repo's own docs and scripts for `#graft-` and replace each
+with the subcommand. `graft upgrade` can't do this one: 2.5's upgrade only moves the tag, and
+`mkGraft` no longer exists at the new one.
+
 ## v2.5.1 - 2026-11-04
 
 ### Fixed

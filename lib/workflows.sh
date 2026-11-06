@@ -2,14 +2,14 @@
 # workflows.sh check|refresh REPO EXAMPLES
 #
 # graft's CI workflows in REPO: each file in REPO/.forgejo/workflows/ named like one in EXAMPLES
-# (graft's examples/forgejo/, at the version the repo pins) whose text has graft's marker line.
+# (graft's template/.forgejo/workflows/, at the version the repo pins) whose text has graft's marker line.
 # graft owns those and nothing else: a workflow without the marker is yours and is never touched,
 # and graft never adds one you didn't copy in.
 #
 #   check    fail, naming each of graft's workflows that differs from EXAMPLES
 #   refresh  replace each of graft's workflows that differs from EXAMPLES with EXAMPLES' copy
 #
-# mkGraft's check and `nix run .#graft` call this with their own examples; graft-upgrade calls the
+# mkFlake's check and `nix run .#graft` call this with their own examples; graft upgrade calls the
 # copy in the version it moves to, with that version's examples.
 set -euo pipefail
 

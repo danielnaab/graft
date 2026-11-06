@@ -10,11 +10,11 @@
 #             with the new version's code.
 #
 # Both read the repo as data: graft's README table in each scions directory says which flake
-# inputs are scions, and flake.lock says what each is pinned to. Neither evaluates the repo's
-# flake outputs, so they can run from graft's own flake against any checkout (a central bot) as
-# well as from the repo's own (`nix run .#graft-outdated`, CI). One exception, in upgrade:
+# inputs are scions, and flake.lock says what each is pinned to. Run from graft's own flake with -C
+# (a central bot), neither evaluates the repo's flake outputs; `nix run .#graft outdated`, as CI
+# runs it, does, to reach this script. One exception, in upgrade:
 # `nix flake update <name>` re-locks the input, which reads the flake's `inputs` but never calls
-# `outputs`. The rebuilt directory comes from lib/assemble.sh, the same script mkGraft's check
+# `outputs`. The rebuilt directory comes from lib/assemble.sh, the same script mkFlake's check
 # builds from, so `nix flake check` passes after an upgrade exactly when the copy is right.
 #
 # graft's own pin (the flake input named `graft`) is listed and moved like a scion. Moving it
@@ -120,7 +120,7 @@ cmd_outdated() {
   else
     { echo -e "NAME\tDIR\tPINNED\tLATEST\tSTATUS\tMAJOR"; echo "$rows"; } | column -t -s $'\t'
     if grep -q $'\t[^\t]*[0-9]$' <<<"$rows"; then
-      echo "MAJOR: a newer major version, which graft-upgrade takes only when named (NAME@TAG): read its CHANGELOG first"
+      echo "MAJOR: a newer major version, which graft upgrade takes only when named (NAME@TAG): read its CHANGELOG first"
     fi
   fi
 }
@@ -200,6 +200,8 @@ regraft() {
   rm -rf "$dir"
   mv "$tmp/out" "$dir"
   rm -rf "$tmp"
+  # a flake sees only what git tracks: without this, a new file fails the check
+  git add -- "$dir" 2>/dev/null || true
 }
 
 cmd_upgrade() {
@@ -217,7 +219,7 @@ cmd_upgrade() {
     target="" named=""
     # a later major is reported, never taken unless named
     if [ "$major" != - ] && { [ ${#want[@]} -eq 0 ] || printf '%s\n' "${want[@]}" | grep -qxF -- "$name"; }; then
-      held+=("graft: $name: $major is a new major version; not taken (graft-upgrade $name@$major)")
+      held+=("graft: $name: $major is a new major version; not taken (graft upgrade $name@$major)")
     fi
     if [ ${#want[@]} -gt 0 ]; then
       for spec in "${want[@]}"; do
@@ -228,10 +230,10 @@ cmd_upgrade() {
       [ "$status" != untagged ] || die "$name is pinned to $pinned, not a tag; change it by hand"
     else
       [ "$status" = outdated ] || continue
-      # graft's workflows before 2.3 run graft-upgrade and open the PR in one job: moving graft
-      # there would run the new version's code beside the PR token. graft-ci sets GRAFT_CI.
+      # graft's workflows before 2.3 run graft upgrade and open the PR in one job: moving graft
+      # there would run the new version's code beside the PR token. graft ci sets GRAFT_CI.
       if [ "$dir" = - ] && [ -n "${CI:-}" ] && [ -z "${GRAFT_CI:-}" ]; then
-        echo "graft: not moving graft itself from a CI job that isn't graft-ci (copy graft's examples/forgejo/ workflows)" >&2
+        echo "graft: not moving graft itself from a CI job that isn't graft ci (copy graft's template/.forgejo/workflows/ workflows)" >&2
         continue
       fi
       target=$latest
@@ -261,7 +263,7 @@ cmd_upgrade() {
     IFS=$'\t' read -r name dir pinned target <<<"$spec"
     [ "$dir" = - ] || continue
     src=$(graft_src "$target") || exit 1
-    [ -f "$src/lib/workflows.sh" ] || die "graft-upgrade moves graft only to 2.3.0 or later (its workflows call graft-ci); move it by hand"
+    [ -f "$src/lib/workflows.sh" ] || die "graft upgrade moves graft only to 2.3.0 or later (its workflows call graft ci); move it by hand"
     moved_graft="$spec"
   done
   # Every flake.nix edit, made in memory in the order the run below makes them (graft first): one
@@ -300,7 +302,7 @@ cmd_upgrade() {
   done
   for dir in "${dirs[@]}"; do regraft "$dir" "$asm"; echo "graft: rebuilt $dir/"; done
   if [ -n "$moved_graft" ] && [ -f "$src/lib/workflows.sh" ]; then
-    bash "$src/lib/workflows.sh" refresh . "$src/examples/forgejo"
+    bash "$src/lib/workflows.sh" refresh . "$src/template/.forgejo/workflows"
   fi
 }
 
@@ -319,5 +321,5 @@ cd "$repo"
 case $sub in
   outdated) cmd_outdated ;;
   upgrade) cmd_upgrade "${args[@]}" ;;
-  *) die "usage: graft-outdated|graft-upgrade [-C REPO] [--json] [NAME[@TAG]...]" ;;
+  *) die "usage: graft outdated|upgrade [-C REPO] [--json] [NAME[@TAG]...]" ;;
 esac

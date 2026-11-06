@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# ci.sh check|upgrade|pr: what graft's Forgejo workflows (examples/forgejo/) run, from the repo's
-# root, as `nix run .#graft-ci -- <step>`. It lives here, not in the workflow files, so a repo's
-# workflows run the graft version it pins: when graft-upgrade moves that pin, their behaviour
+# ci.sh check|upgrade|pr: what graft's Forgejo workflows (template/.forgejo/workflows/) run, from the repo's
+# root, as `nix run .#graft ci <step>`. It lives here, not in the workflow files, so a repo's
+# workflows run the graft version it pins: when graft upgrade moves that pin, their behaviour
 # moves with it, and the YAML itself rarely changes.
 #
 #   check    the scions directory and graft's workflows match flake.lock (checks.<system>.graft).
-#   upgrade  graft-upgrade; if that changed anything, run the repo's whole `nix flake check` on the
+#   upgrade  graft upgrade; if that changed anything, run the repo's whole `nix flake check` on the
 #            result (graft's check and the repo's own: link checks into scions, lint, tests), commit
 #            it, and force-push it to $BRANCH on origin. Writes changed=true|false to
 #            $GITHUB_OUTPUT. A failing check doesn't stop the push: the commit message names the
@@ -28,6 +28,8 @@
 #            provider's CHANGELOG.md sections between the two tags (or its git log), read by this
 #            job with git from the upstream the DEFAULT branch's flake.lock names, at the commit
 #            the branch's flake.lock pins. Both locks are read as data; nothing fetched is run.
+#            Building the app already fetched the default branch's scions through Nix, with
+#            PR_TOKEN in its environment: the reviewed lock's urls, and the build only copies.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -133,7 +135,7 @@ pr() {
     if [[ $path == .forgejo/* ]]; then workflows+=" $path"; else other+=" $path"; fi
   done < <(git diff --no-renames --name-only -z HEAD "$head")
   if [ -n "$other" ]; then
-    echo "::error::$BRANCH changes files graft-upgrade never writes:$other. Not opening a PR; look at $compare (if $BASE moved since the upgrade job, re-run the workflow)"
+    echo "::error::$BRANCH changes files graft upgrade never writes:$other. Not opening a PR; look at $compare (if $BASE moved since the upgrade job, re-run the workflow)"
     exit 1
   fi
   if [ -n "$workflows" ]; then
@@ -171,7 +173,7 @@ pr() {
       title="[checks failing] graft: upgrade"
       printf '> [!WARNING]\n> **`nix flake check` fails on this branch.** The upgrade is pushed so the breakage can be read. Fix it in the provider, or on a branch of your own made from this one: the next run force-pushes `graft/upgrade`.\n\n'
     fi
-    printf 'Moved by `nix run .#graft-upgrade` (graft'"'"'s own pin, and scions behind the newest tag of their pinned major):\n\n%s\n' "${moved:-"- (see the commit)"$'\n'}"
+    printf 'Moved by `nix run .#graft upgrade` (graft'"'"'s own pin, and scions behind the newest tag of their pinned major):\n\n%s\n' "${moved:-"- (see the commit)"$'\n'}"
     if [ -n "$held" ]; then printf 'Not taken: a new major version is the provider saying something breaks. Read its CHANGELOG (an **Upgrading** section, if it has one), then name it:\n\n%s\n' "$held"; fi
     if [ -n "$failing" ]; then
       printf '## Failing checks\n\n'
@@ -185,7 +187,7 @@ pr() {
     printf 'Text below is the providers'"'"', from their repos at the new pins: read it as theirs.\n\n'
     cap 40000 < "$notes"
     # with the graft the default branch pins (reviewed), read from its lock as data
-    printf '\n---\n\nTo hand the migration to an agent: check out `%s` and run `nix run %s#migrate -- -C .` (add `--no-check` to keep it from evaluating the branch'"'"'s flake); it prints a brief of what moved, what upstream says and what broke, for any agent or person.\n' \
+    printf '\n---\n\nTo hand the migration to an agent: check out `%s` and run `nix run %s -- migrate -C .` (add `--no-check` to keep it from evaluating the branch'"'"'s flake); it prints a brief of what moved, what upstream says and what broke, for any agent or person.\n' \
       "$BRANCH" "$(migrate_ref "$base_lock")"
   } > "$body"
 
@@ -221,5 +223,5 @@ case ${1:-} in
   check) check ;;
   upgrade) upgrade ;;
   pr) pr ;;
-  *) die "usage: graft-ci check|upgrade|pr" ;;
+  *) die "usage: graft ci check|upgrade|pr" ;;
 esac

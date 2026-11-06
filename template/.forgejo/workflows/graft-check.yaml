@@ -1,7 +1,7 @@
 # managed by graft: https://github.com/danielnaab/graft (delete this line to keep your own edits)
 # graft's integrity check: the scions directory, and graft's workflows, match flake.lock's pins.
-# Copy to .forgejo/workflows/. The step itself is `nix run .#graft-ci -- check` (graft's lib/ci.sh)
-# at the graft version the repo pins, and graft-upgrade replaces this file with the copy each new
+# Copy to .forgejo/workflows/. The step itself is `nix run .#graft ci check` (graft's lib/ci.sh)
+# at the graft version the repo pins, and `graft upgrade` replaces this file with the copy each new
 # version ships, as long as the line above is here.
 name: graft-check
 on:
@@ -38,4 +38,4 @@ jobs:
           git checkout -q --force --detach "$SHA"
 
       - name: Scions match flake.lock
-        run: nix run .#graft-ci -- check
+        run: nix run .#graft ci check
