@@ -3,7 +3,7 @@
 # upgrade is already applied (the bot's graft/upgrade, say): what moved, what upstream says about
 # it, what in this repo refers to what moved, and what `nix flake check` says broke. Printed for an
 # agent or a person to act on; graft never runs an agent itself.
-#   nix run .#graft-migrate | claude -p        (or: workmux add x -p "$(nix run .#graft-migrate)")
+#   nix run .#graft migrate | claude -p        (or: workmux add x -p "$(nix run .#graft migrate)")
 #
 # The base is the merge-base of HEAD with REF (default: origin/HEAD, else origin/main,
 # origin/master, main, master). Moved inputs come from flake.lock at the base against the working
@@ -12,12 +12,12 @@
 #
 # Sections, each also a field of --json: the header (repo, branch, what moved, the rules);
 # `upstream` (each moved provider's CHANGELOG.md sections between the two tags, Upgrading
-# subsections first, or its commits: fetched with plain git as graft-ci pr does, quoted as the
+# subsections first, or its commits: fetched with plain git as graft ci pr does, quoted as the
 # provider's text); `changes` (the scions diff, renames and deletions first); `references` (lines
 # of the repo's own files, outside graft's directories and workflows, that name a renamed or
 # deleted scion path); `checks` (each of checks.<system> by name, then `nix flake check`, unless
-# --no-check). Run as `nix run .#graft-migrate` this is the branch's own graft, from its evaluated
-# flake; run from graft's flake (`nix run github:danielnaab/graft/vX.Y.Z#migrate -- -C .`) with
+# --no-check). Run as `nix run .#graft migrate` this is the branch's own graft, from its evaluated
+# flake; run from graft's flake (`nix run github:danielnaab/graft/vX.Y.Z -- migrate -C .`) with
 # --no-check, nothing of the branch's is evaluated or run: its files are only read.
 #
 # Exit 0 whenever a brief is printed, failing checks or not: it's a report. Nonzero only when it
@@ -37,7 +37,7 @@ while [ $# -gt 0 ]; do
     --no-check) check=0; shift ;;
     --json) json=1; shift ;;
     -h|--help) sed -n '2,6p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) die "usage: graft-migrate [-C REPO] [--base REF] [--no-check] [--json]" ;;
+    *) die "usage: graft migrate [-C REPO] [--base REF] [--no-check] [--json]" ;;
   esac
 done
 cd "$repo"

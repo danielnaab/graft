@@ -3,7 +3,7 @@
 #
 # Builds a scions directory at OUT: one folder per scion, copied from its fetched export at PATH,
 # and a README naming each pinned REV. DIR is the directory's path in the repo, for the README's
-# heading. mkGraft's derivation (what `nix flake check` expects) and graft-upgrade (what an upgrade
+# heading. mkFlake's derivation (what `nix flake check` expects) and graft upgrade (what an upgrade
 # writes) both call this, so the two can't drift apart.
 set -euo pipefail
 
@@ -17,8 +17,8 @@ mkdir -p "$out"
   echo
   echo "Scions: each folder is another repository's export, grafted here by"
   echo "[graft](https://github.com/danielnaab/graft) at the commit pinned in \`flake.lock\`. Do not edit"
-  echo "them. To upgrade: \`nix run .#graft-upgrade\` (or \`nix flake update <name>\`, then \`nix run .#graft\`),"
-  echo "then commit. \`nix flake check\` fails if this directory drifts from the pins."
+  echo "them. To upgrade: \`nix run .#graft upgrade\` (or change the tag in \`flake.nix\`, then"
+  echo "\`nix run .#graft\`), then commit. \`nix flake check\` fails if this directory drifts from the pins."
   echo
   echo "| Scion | Commit |"
   echo "|---|---|"

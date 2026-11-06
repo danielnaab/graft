@@ -8,31 +8,34 @@
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
-      # graft-outdated and graft-upgrade: lib/tools.sh, which reads a repo as data (see its header);
-      # graft-ci: lib/ci.sh, the steps of the Forgejo workflows in examples/forgejo/;
-      # graft-migrate: lib/migrate.sh, a migration brief for an upgraded branch
-      tools = pkgs:
-        let
-          tool = name: script: pkgs.writeShellApplication {
-            inherit name;
-            runtimeInputs = with pkgs; [ bash coreutils diffutils findutils gawk gnugrep gnused jq git util-linux curl ];
-            text = ''exec bash ${./lib}/${script} "$@"'';
-          };
-        in {
-          outdated = tool "graft-outdated" "tools.sh outdated";
-          upgrade = tool "graft-upgrade" "tools.sh upgrade";
-          ci = tool "graft-ci" "ci.sh";
-          migrate = tool "graft-migrate" "migrate.sh";
-        };
-      app = drv: { type = "app"; program = nixpkgs.lib.getExe drv; };
+      # The graft command (lib/graft.sh). A repo's copy carries its `sync` (lib/mk-flake.nix);
+      # graft's own has none, and reads any checkout with -C.
+      cli = pkgs: sync: pkgs.writeShellApplication {
+        name = "graft";
+        runtimeInputs = with pkgs; [ bash coreutils diffutils findutils gawk gnugrep gnused jq git util-linux curl ];
+        text = ''
+          export GRAFT_SYNC=${sync}
+          exec bash ${./lib}/graft.sh "$@"
+        '';
+        meta.description = "Copy pinned, provider-defined exports of other repos into this one";
+      };
     in
     {
-      lib.mkGraft = import ./lib/mk-graft.nix { inherit nixpkgs systems tools; };
+      lib.mkFlake = import ./lib/mk-flake.nix { inherit nixpkgs systems cli; };
 
       # Run against any checkout without evaluating its flake:
-      #   nix run github:danielnaab/graft#outdated -- -C path/to/repo
-      packages = forAll (pkgs: tools pkgs);
-      apps = forAll (pkgs: builtins.mapAttrs (_: app) (tools pkgs));
+      #   nix run github:danielnaab/graft -- outdated -C path/to/repo
+      packages = forAll (pkgs: { default = cli pkgs ""; });
+
+      # A new repo's flake.nix and graft's workflows: nix flake init -t github:danielnaab/graft
+      templates.default = {
+        path = ./template;
+        description = "A repo that grafts other repos' exports, with graft's Forgejo workflows";
+        welcomeText = ''
+          Edit `description` and the inputs in flake.nix (each `flake = false` input is a scion),
+          then `nix run .#graft` and commit. See https://github.com/danielnaab/graft.
+        '';
+      };
 
       checks = forAll (pkgs: {
         shellcheck = pkgs.runCommand "graft-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''

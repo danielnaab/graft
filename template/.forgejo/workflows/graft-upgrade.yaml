@@ -2,8 +2,8 @@
 # graft's upgrade bot, run by the repo itself: weekly, move graft's own pin and the scions pinned to
 # a tag to the newest tag upstream, and propose the change as a PR from the branch graft/upgrade.
 # Nothing is pushed to the default branch: review and merge are yours. Copy to .forgejo/workflows/.
-# The steps are `nix run .#graft-ci -- upgrade|pr` (graft's lib/ci.sh) at the graft version the
-# repo pins, and graft-upgrade replaces this file with the copy each new version ships, as long as
+# The steps are `nix run .#graft ci upgrade|pr` (graft's lib/ci.sh) at the graft version the
+# repo pins, and `graft upgrade` replaces this file with the copy each new version ships, as long as
 # the line above is here.
 name: graft-upgrade
 on:
@@ -49,7 +49,7 @@ jobs:
 
       - name: Upgrade, check the result, push it to graft/upgrade
         id: upgrade
-        run: nix run .#graft-ci -- upgrade
+        run: nix run .#graft ci upgrade
 
   # Open the PR (or retitle the open one, which the push updated), saying what changed upstream
   # and whether the checks passed. A fresh job, checked out at the default branch: it runs the
@@ -84,4 +84,4 @@ jobs:
           # on a private repo. A user's token, in the Actions secret GRAFT_PR_TOKEN (set it once for
           # all your repos under Settings > Actions > Secrets), opens the PR as that user.
           PR_TOKEN: ${{ secrets.GRAFT_PR_TOKEN || github.token }}
-        run: nix run .#graft-ci -- pr
+        run: nix run .#graft ci pr

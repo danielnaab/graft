@@ -1,4 +1,4 @@
-# migrate.jq: the text of graft-migrate's brief, from the JSON migrate.sh assembles (what --json
+# migrate.jq: the text of graft migrate's brief, from the JSON migrate.sh assembles (what --json
 # prints). Provider text arrives only through that JSON and leaves as a block quote; paths and
 # logs as indented code blocks, which no line in them can close.
 
@@ -21,7 +21,7 @@ def delta: [if .added then "+\(.added)" else empty end, if .deleted and .deleted
 | (if ($dirs | length) > 0 then $dirs | list else "the scions directory" end) as $dirtext
 | ($b.branch // "HEAD (\($b.head))") as $branch
 | if $b.nothing_moved then
-    "graft-migrate: nothing moved since \($b.base.commit[0:12]) (the merge-base with \($b.base.ref | safe)): graft's and the scions' pins and \($dirtext) are as they were. No migration to do."
+    "graft migrate: nothing moved since \($b.base.commit[0:12]) (the merge-base with \($b.base.ref | safe)): graft's and the scions' pins and \($dirtext) are as they were. No migration to do."
   else
   # 1. the header
   (if ($b.moved | length) == 0 then
@@ -114,5 +114,5 @@ def delta: [if .added then "+\(.added)" else empty end, if .deleted and .deleted
   # 6. done when
   "## Done when",
   "",
-  "`nix flake check` passes, with \($dirtext) and the pins as graft left them. Commit on the branch you're on (this brief was made on \($branch | safe)), one line per file changed in the message. If nothing here needs to change, say so and commit nothing.\(if $b.branch == "graft/upgrade" then " The weekly graft-upgrade run force-pushes graft/upgrade: work on a branch made from it, or merge before then." else "" end)"
+  "`nix flake check` passes, with \($dirtext) and the pins as graft left them. Commit on the branch you're on (this brief was made on \($branch | safe)), one line per file changed in the message. If nothing here needs to change, say so and commit nothing.\(if $b.branch == "graft/upgrade" then " The weekly graft upgrade run force-pushes graft/upgrade: work on a branch made from it, or merge before then." else "" end)"
   end

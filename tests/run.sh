@@ -17,12 +17,12 @@ expect() { local d=$1; shift; if "$@"; then pass "$d"; else fail "$d"; fi; }
 # refuse <description> <command...>: the command must fail
 refuse() { local d=$1; shift; if "$@"; then fail "$d"; else pass "$d"; fi; }
 quiet() { "$@" >/dev/null 2>&1; }
-# graft-ci as CI runs it: the nixos/nix image has little beyond nix, so every tool graft-ci needs
+# graft ci as CI runs it: the nixos/nix image has little beyond nix, so every tool graft-ci needs
 # must come from its own runtimeInputs. ci_ runs it with nothing but nix on PATH.
 bare=$work/bare-bin
 mkdir -p "$bare" && ln -s "$(command -v nix)" "$bare/nix"
 # ci_ [VAR=VALUE...] STEP
-ci_() { local vars=(); while [[ ${1:-} == *=* ]]; do vars+=("$1"); shift; done; env "${vars[@]}" PATH="$bare" nix run .#graft-ci -- "$@"; }
+ci_() { local vars=(); while [[ ${1:-} == *=* ]]; do vars+=("$1"); shift; done; env "${vars[@]}" PATH="$bare" nix run .#graft -- ci "$@"; }
 
 # provider: exports docs, keeps tests/ and its own scions/ to itself
 p=$work/provider
@@ -41,7 +41,7 @@ cat > "$c/flake.nix" <<EOF
 {
   inputs.graft.url = "path:$graft";
   inputs.provider = { url = "git+file://$p?ref=v1.0.0&exportIgnore=1"; flake = false; };
-  outputs = inputs: inputs.graft.lib.mkGraft { inherit inputs; deps = [ "provider" ]; };
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
 }
 EOF
 git_ -C "$c" init -q -b main && git_ -C "$c" add -A
@@ -74,28 +74,28 @@ expect "check passes after the upgrade" quiet nix flake check
 # graft-outdated / graft-upgrade: CI mode (the repo's own flake) and from outside (graft's flake)
 echo "policy v2.1" > "$p/docs/policy.md" && git_ -C "$p" commit -qam v2.1 && git_ -C "$p" tag v2.1.0
 git_ -C "$p" tag not-a-version
-expect "outdated: names the newer tag" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -qE "provider +scions +v2.0.0 +v2.1.0 +outdated"'
-expect "outdated --json" sh -c 'nix run .#graft-outdated -- --json 2>/dev/null | jq -e ".[] | select(.name==\"provider\") | .status==\"outdated\" and .latest==\"v2.1.0\"" >/dev/null'
-expect "outdated from outside, without the repo's flake" sh -c "nix run '$graft'#outdated -- -C '$c' 2>/dev/null | grep -q outdated"
-quiet nix run .#graft-upgrade || fail "graft-upgrade"
+expect "outdated: names the newer tag" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "provider +scions +v2.0.0 +v2.1.0 +outdated"'
+expect "outdated --json" sh -c 'nix run .#graft -- outdated --json 2>/dev/null | jq -e ".[] | select(.name==\"provider\") | .status==\"outdated\" and .latest==\"v2.1.0\"" >/dev/null'
+expect "outdated from outside, without the repo's flake" sh -c "nix run '$graft' -- outdated -C '$c' 2>/dev/null | grep -q outdated"
+quiet nix run .#graft upgrade || fail "graft-upgrade"
 git_ add -A
 expect "upgrade moved the ref in flake.nix" grep -q 'ref=v2.1.0' flake.nix
 expect "upgrade grafted v2.1" grep -q "policy v2.1" scions/provider/docs/policy.md
 expect "upgrade kept the export rules" test ! -e scions/provider/tests
 expect "check passes after graft-upgrade" quiet nix flake check
-expect "a second upgrade has nothing to do" sh -c 'nix run .#graft-upgrade 2>/dev/null | grep -q "nothing to upgrade"'
-quiet nix run .#graft-upgrade -- provider@v2.0.0 && git_ add -A
+expect "a second upgrade has nothing to do" sh -c 'nix run .#graft upgrade 2>/dev/null | grep -q "nothing to upgrade"'
+quiet nix run .#graft upgrade provider@v2.0.0 && git_ add -A
 expect "upgrade to a named tag (here back to v2.0.0)" grep -q 'ref=v2.0.0' flake.nix
 expect "check passes after a named-tag upgrade" quiet nix flake check
-refuse "upgrade refuses an unknown scion" quiet nix run .#graft-upgrade -- nonesuch
+refuse "upgrade refuses an unknown scion" quiet nix run .#graft upgrade nonesuch
 # graft pinned by path (here) or branch is untagged: listed, and never moved
-expect "outdated: a path-pinned graft is untagged" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -qE "^graft +- +path +- +untagged"'
-refuse "upgrade refuses to move an untagged graft" quiet nix run .#graft-upgrade -- graft
+expect "outdated: a path-pinned graft is untagged" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "^graft +- +path +- +untagged"'
+refuse "upgrade refuses to move an untagged graft" quiet nix run .#graft upgrade graft
 expect "and graft's pin is left alone" grep -q "path:$graft" flake.nix
 # an upstream that can't be read is an error, never "nothing to upgrade"
 mv "$p" "$p.away"
-expect "outdated: an unreachable upstream is unknown" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -q " unknown"'
-refuse "upgrade fails when it can't read an upstream" quiet nix run .#graft-upgrade
+expect "outdated: an unreachable upstream is unknown" sh -c 'nix run .#graft outdated 2>/dev/null | grep -q " unknown"'
+refuse "upgrade fails when it can't read an upstream" quiet nix run .#graft upgrade
 expect "and changes nothing" git_ diff --quiet
 mv "$p.away" "$p"
 
@@ -119,22 +119,22 @@ cat > "$p/CHANGELOG.md" <<'EOF'
 - policy v2
 EOF
 echo "policy v3" > "$p/docs/policy.md" && git_ -C "$p" add -A && git_ -C "$p" commit -qm v3 && git_ -C "$p" tag v3.0.0
-expect "outdated: newest within the major, and the new major beside it" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -qE "provider +scions +v2.0.0 +v2.1.0 +outdated +v3.0.0"'
-expect "outdated says what MAJOR means" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -q "^MAJOR: "'
-expect "outdated --json: a major field" sh -c 'nix run .#graft-outdated -- --json 2>/dev/null | jq -e ".[] | select(.name==\"provider\") | .latest==\"v2.1.0\" and .major==\"v3.0.0\"" >/dev/null'
-out=$(nix run .#graft-upgrade 2>/dev/null) || fail "graft-upgrade (within the major)"
+expect "outdated: newest within the major, and the new major beside it" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "provider +scions +v2.0.0 +v2.1.0 +outdated +v3.0.0"'
+expect "outdated says what MAJOR means" sh -c 'nix run .#graft outdated 2>/dev/null | grep -q "^MAJOR: "'
+expect "outdated --json: a major field" sh -c 'nix run .#graft -- outdated --json 2>/dev/null | jq -e ".[] | select(.name==\"provider\") | .latest==\"v2.1.0\" and .major==\"v3.0.0\"" >/dev/null'
+out=$(nix run .#graft upgrade 2>/dev/null) || fail "graft-upgrade (within the major)"
 git_ add -A
 expect "upgrade stays within the pinned major" grep -q 'ref=v2.1.0' flake.nix
-expect "and says the new major wasn't taken" grep -q "provider: v3.0.0 is a new major version; not taken (graft-upgrade provider@v3.0.0)" <<<"$out"
+expect "and says the new major wasn't taken" grep -q "provider: v3.0.0 is a new major version; not taken (graft upgrade provider@v3.0.0)" <<<"$out"
 expect "check passes" quiet nix flake check
-expect "a named scion without a tag stays within its major too" sh -c 'nix run .#graft-upgrade -- provider 2>/dev/null | grep -q "nothing to upgrade"'
-quiet nix run .#graft-upgrade -- provider@v3.0.0 || fail "graft-upgrade provider@v3.0.0"
+expect "a named scion without a tag stays within its major too" sh -c 'nix run .#graft upgrade provider 2>/dev/null | grep -q "nothing to upgrade"'
+quiet nix run .#graft upgrade provider@v3.0.0 || fail "graft-upgrade provider@v3.0.0"
 git_ add -A
 expect "NAME@TAG crosses a major" grep -q 'ref=v3.0.0' flake.nix
 expect "and grafts it" grep -q "policy v3" scions/provider/docs/policy.md
 expect "check passes after crossing" quiet nix flake check
-expect "outdated: current, no newer major" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -qE "provider +scions +v3.0.0 +v3.0.0 +current +-"'
-quiet nix run .#graft-upgrade -- provider@v2.0.0 && git_ add -A
+expect "outdated: current, no newer major" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "provider +scions +v3.0.0 +v3.0.0 +current +-"'
+quiet nix run .#graft upgrade provider@v2.0.0 && git_ add -A
 
 # 0.x: a 0.y series is its own major (semver: anything may change before 1.0)
 z=$work/zero
@@ -147,16 +147,16 @@ cat > "$zc/flake.nix" <<EOF
 {
   inputs.graft.url = "path:$graft";
   inputs.zero = { url = "git+file://$z?ref=v0.3.0&exportIgnore=1"; flake = false; };
-  outputs = inputs: inputs.graft.lib.mkGraft { inherit inputs; deps = [ "zero" ]; };
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
 }
 EOF
 git_ -C "$zc" init -q -b main && git_ -C "$zc" add -A
 cd "$zc" && quiet nix run .#graft && git_ add -A
-expect "0.x: 0.3.0's newest is 0.3.1; 1.0.0 is the next major" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -qE "zero +scions +v0.3.0 +v0.3.1 +outdated +v1.0.0"'
-quiet nix run .#graft-upgrade && git_ add -A
+expect "0.x: 0.3.0's newest is 0.3.1; 1.0.0 is the next major" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "zero +scions +v0.3.0 +v0.3.1 +outdated +v1.0.0"'
+quiet nix run .#graft upgrade && git_ add -A
 expect "0.x: upgrade takes 0.3.1, not 0.4.0" grep -q 'ref=v0.3.1' flake.nix
-quiet nix run .#graft-upgrade -- zero@v1.0.0 && git_ add -A
-expect "outdated --json: major is null when there's none" sh -c 'nix run .#graft-outdated -- --json 2>/dev/null | jq -e ".[] | select(.name==\"zero\") | .pinned==\"v1.0.0\" and .major==null" >/dev/null'
+quiet nix run .#graft upgrade zero@v1.0.0 && git_ add -A
+expect "outdated --json: major is null when there's none" sh -c 'nix run .#graft -- outdated --json 2>/dev/null | jq -e ".[] | select(.name==\"zero\") | .pinned==\"v1.0.0\" and .major==null" >/dev/null'
 cd "$c"
 
 # Two inputs at one tag. graft-upgrade finds each input's url by its whole spelling (lib/retarget.jq),
@@ -174,34 +174,34 @@ twoc() {
   inputs.graft.url = "path:$graft";
   inputs.a = { url = "$2"; flake = false; };
   inputs.b = { url = "$3"; flake = false; };
-  outputs = inputs: inputs.graft.lib.mkGraft { inherit inputs; deps = [ "a" "b" ]; };
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; scions = [ "a" "b" ]; };
 }
 EOF
   git_ -C "$d" init -q -b main && git_ -C "$d" add -A
   cd "$d" && quiet nix run .#graft && git_ add -A && git_ commit -qm init
 }
 twoc shared "git+file://$p?ref=v1.0.0&exportIgnore=1" "git+file://$q?ref=v2.0.0&exportIgnore=1"
-quiet nix run .#graft-upgrade -- a@v2.0.0 b || fail "graft-upgrade a@v2.0.0 b (a to the tag b is at, b on to v2.1.0)"
+quiet nix run .#graft upgrade a@v2.0.0 b || fail "graft-upgrade a@v2.0.0 b (a to the tag b is at, b on to v2.1.0)"
 git_ add -A
 expect "shared tag: a moved to b's tag" grep -qF "$p?ref=v2.0.0&" flake.nix
 expect "shared tag: and b moved on, in the same run" grep -qF "$q?ref=v2.1.0&" flake.nix
 expect "shared tag: both grafted" grep -q "second v2.1.0" scions/b/s.md
 expect "shared tag: check passes" quiet nix flake check
-out=$(nix run .#graft-upgrade -- a@v2.1.0 b@v2.9.0 2>&1) && fail "graft-upgrade took a tag that isn't upstream"
+out=$(nix run .#graft upgrade a@v2.1.0 b@v2.9.0 2>&1) && fail "graft-upgrade took a tag that isn't upstream"
 expect "a named tag not upstream: refused" grep -q "graft: b: no tag v2.9.0 upstream; nothing changed" <<<"$out"
 expect "and nothing changed, a's move neither" git_ diff --quiet
 printf '# \xff\n' >> flake.nix && cp flake.nix "$work/latin1.nix"
-refuse "a flake.nix that isn't UTF-8 is refused" quiet nix run .#graft-upgrade -- a@v2.1.0
+refuse "a flake.nix that isn't UTF-8 is refused" quiet nix run .#graft upgrade a@v2.1.0
 expect "and left as it was" cmp -s flake.nix "$work/latin1.nix"
 git_ checkout -q -- flake.nix
 
 # the same repo twice: a url is ambiguous when two inputs spell it with the same ref. Moving a to
 # b's tag first would make b's ambiguous; every edit is tried before any is written, so nothing is.
 twoc same-url "git+file://$q?ref=v1.0.0&exportIgnore=1" "git+file://$q?exportIgnore=1&ref=v2.0.0"
-out=$(nix run .#graft-upgrade -- a@v2.0.0 b 2>&1) && fail "graft-upgrade made an ambiguous edit"
+out=$(nix run .#graft upgrade a@v2.0.0 b 2>&1) && fail "graft-upgrade made an ambiguous edit"
 expect "same url: refused, naming the ambiguous input" grep -q "graft: b: expected its url (git+file://$q at v2.0.0) once in flake.nix, found it 2 times" <<<"$out"
 expect "and nothing changed, flake.nix nor flake.lock" git_ diff --quiet
-quiet nix run .#graft-upgrade -- b || fail "graft-upgrade b (same url, its own ref)"
+quiet nix run .#graft upgrade b || fail "graft-upgrade b (same url, its own ref)"
 expect "same url, refs differ: b moves" grep -qF "$q?exportIgnore=1&ref=v2.1.0\"" flake.nix
 expect "and a stays" grep -qF "$q?ref=v1.0.0&" flake.nix
 git_ add -A && expect "same url: check passes" quiet nix flake check
@@ -215,7 +215,7 @@ jq --argjson np "$(jq '.nodes.nixpkgs.locked' "$graft/flake.lock")" \
   flake.lock > flake.lock.new && mv flake.lock.new flake.lock
 git_ add -A && git_ commit -qm np
 expect "mixed: the hand-made lock holds" quiet nix flake check
-quiet nix run .#graft-upgrade -- a b || fail "graft-upgrade a b, beside a github: input at their tag"
+quiet nix run .#graft upgrade a b || fail "graft-upgrade a b, beside a github: input at their tag"
 expect "mixed: a moved" grep -qF "$p?ref=v2.1.0&" flake.nix
 expect "mixed: b moved" grep -qF "$q?ref=v2.1.0&" flake.nix
 expect "mixed: the github: input at the same tag untouched" grep -qF '"github:NixOS/nixpkgs?ref=v2.0.0"' flake.nix
@@ -254,7 +254,7 @@ git -C "$graft" ls-files -coz --exclude-standard \
 git_ -C "$g" init -q -b main && git_ -C "$g" add -A && git_ -C "$g" commit -qm v9.0.0 && git_ -C "$g" tag v9.0.0
 # shellcheck disable=SC2016 # a line of assemble.sh, expanded when it runs
 printf 'echo "assembled by graft v9.1.0" >> "$out/README.md"\n' >> "$g/lib/assemble.sh"
-echo "# changed in v9.1.0" >> "$g/examples/forgejo/graft-check.yaml"
+echo "# changed in v9.1.0" >> "$g/template/.forgejo/workflows/graft-check.yaml"
 git_ -C "$g" commit -qam v9.1.0 && git_ -C "$g" tag v9.1.0
 git_ -C "$g" tag v10.0.0   # a new major: never taken unless named
 # v9.0.1: a graft without lib/workflows.sh, like 2.2, which graft-upgrade won't move graft to
@@ -272,11 +272,11 @@ selfc() {
 {
   inputs.graft.url = "git+file://$g?ref=$2";
   inputs.provider = { url = "git+file://$p?ref=v2.0.0&exportIgnore=1"; flake = false; };
-  outputs = inputs: inputs.graft.lib.mkGraft { inherit inputs; deps = [ "provider" ]; };
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
 }
 EOF
-  cp "$v9/examples/forgejo/graft-check.yaml" "$d/.forgejo/workflows/"
-  tail -n +2 "$v9/examples/forgejo/graft-upgrade.yaml" > "$d/.forgejo/workflows/graft-upgrade.yaml"
+  cp "$v9/template/.forgejo/workflows/graft-check.yaml" "$d/.forgejo/workflows/"
+  tail -n +2 "$v9/template/.forgejo/workflows/graft-upgrade.yaml" > "$d/.forgejo/workflows/graft-upgrade.yaml"
   git_ -C "$d" init -q -b main && git_ -C "$d" add -A
   cd "$d"
   quiet nix run .#graft || fail "nix run .#graft in $1"
@@ -285,50 +285,50 @@ EOF
 
 selfc self v9.0.0
 expect "graft pinned by tag: check passes" quiet nix flake check
-expect "outdated lists graft's own pin" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -qE "^graft +- +v9.0.0 +v9.1.0 +outdated"'
+expect "outdated lists graft's own pin" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "^graft +- +v9.0.0 +v9.1.0 +outdated"'
 echo "# my edit" >> .forgejo/workflows/graft-check.yaml && git_ add -A
 refuse "check catches an edited graft workflow" quiet nix flake check
 quiet nix run .#graft && git_ add -A
-expect "graft restores its workflow" cmp -s .forgejo/workflows/graft-check.yaml "$v9/examples/forgejo/graft-check.yaml"
+expect "graft restores its workflow" cmp -s .forgejo/workflows/graft-check.yaml "$v9/template/.forgejo/workflows/graft-check.yaml"
 echo "# my edit" >> .forgejo/workflows/graft-upgrade.yaml && git_ add -A
 cp .forgejo/workflows/graft-upgrade.yaml "$work/mine.yaml"
 expect "a workflow without the marker is the repo's: check passes" quiet nix flake check
-refuse "upgrade won't move graft to a version without workflows.sh" quiet nix run .#graft-upgrade -- graft@v9.0.1
+refuse "upgrade won't move graft to a version without workflows.sh" quiet nix run .#graft upgrade graft@v9.0.1
 expect "and changes nothing" git_ diff --quiet
-CI=true quiet nix run .#graft-upgrade || fail "graft-upgrade under CI"
+CI=true quiet nix run .#graft upgrade || fail "graft-upgrade under CI"
 expect "a CI job other than graft-ci doesn't move graft" grep -q "ref=v9.0.0" flake.nix
 git_ checkout -q -- . && git_ clean -qfd
-quiet nix run .#graft-upgrade || fail "graft-upgrade (graft itself)"
+quiet nix run .#graft upgrade || fail "graft-upgrade (graft itself)"
 git_ add -A
 expect "upgrade moved graft's ref" grep -q "ref=v9.1.0" flake.nix
 # shellcheck disable=SC2016 # jq's $r
 expect "upgrade re-locked graft" quiet jq -e --arg r "$(git_ -C "$g" rev-parse v9.1.0)" '.nodes.graft.locked.rev == $r' flake.lock
 expect "scions rebuilt by the new version's assemble.sh" grep -q "assembled by graft v9.1.0" scions/README.md
-expect "graft's workflow refreshed to the new version's" cmp -s .forgejo/workflows/graft-check.yaml "$g/examples/forgejo/graft-check.yaml"
+expect "graft's workflow refreshed to the new version's" cmp -s .forgejo/workflows/graft-check.yaml "$g/template/.forgejo/workflows/graft-check.yaml"
 expect "a workflow without the marker untouched" cmp -s .forgejo/workflows/graft-upgrade.yaml "$work/mine.yaml"
 expect "check passes under the new pin" quiet nix flake check
-quiet nix run .#graft-upgrade -- graft@v9.0.0 && git_ add -A
+quiet nix run .#graft upgrade graft@v9.0.0 && git_ add -A
 expect "graft@TAG: graft moved to a named tag" grep -q "ref=v9.0.0" flake.nix
 refuse "and the scions rebuilt by that version" grep -q "assembled by graft v9.1.0" scions/README.md
 expect "check passes after graft@TAG" quiet nix flake check
 
 selfc self-outside v9.0.0
 cd "$work"
-quiet nix run "$graft"#upgrade -- -C "$work/self-outside" graft@v9.1.0 || fail "graft-upgrade -C (graft itself)"
+quiet nix run "$graft" -- upgrade -C "$work/self-outside" graft@v9.1.0 || fail "graft-upgrade -C (graft itself)"
 cd "$work/self-outside" && git_ add -A
 expect "-C: graft moved" grep -q "ref=v9.1.0" flake.nix
 expect "-C: scions rebuilt by the new version" grep -q "assembled by graft v9.1.0" scions/README.md
-expect "-C: workflow refreshed" cmp -s .forgejo/workflows/graft-check.yaml "$g/examples/forgejo/graft-check.yaml"
+expect "-C: workflow refreshed" cmp -s .forgejo/workflows/graft-check.yaml "$g/template/.forgejo/workflows/graft-check.yaml"
 expect "-C: check passes under the new pin" quiet nix flake check
 
 selfc self-branch main
-expect "outdated: a branch-pinned graft is untagged" sh -c 'nix run .#graft-outdated 2>/dev/null | grep -qE "^graft +- +main +- +untagged"'
-quiet nix run .#graft-upgrade && git_ add -A
+expect "outdated: a branch-pinned graft is untagged" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "^graft +- +main +- +untagged"'
+quiet nix run .#graft upgrade && git_ add -A
 expect "upgrade moves the scion" grep -q "ref=v2.1.0" flake.nix
 expect "but leaves graft's branch pin alone" grep -q "graft-repo?ref=main" flake.nix
 expect "check passes" quiet nix flake check
 
-# graft-ci, the workflows' steps, against a local origin
+# graft ci, the workflows' steps, against a local origin
 selfc self-ci v9.0.0
 git_ commit -qm init
 git_ init -q --bare "$work/origin.git" && git_ remote add origin "$work/origin.git" && git_ push -q origin main
@@ -343,17 +343,17 @@ expect "and the refreshed workflow" grep -q "refreshed .forgejo/workflows/graft-
 GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade, again"
 expect "ci upgrade again: changed=false" grep -qx changed=false "$work/ci-out"
 pr_env=(API=http://127.0.0.1:9 WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=x)
-expect "ci pr: no PR when the branch is already in the base" sh -c "env ${pr_env[*]} nix run .#graft-ci -- pr 2>/dev/null | grep -q 'already in main'"
+expect "ci pr: no PR when the branch is already in the base" sh -c "env ${pr_env[*]} nix run .#graft ci pr 2>/dev/null | grep -q 'already in main'"
 refuse "ci pr: refuses without a token" quiet ci_ "${pr_env[@]}" PR_TOKEN= pr
 git_ reset -q --hard HEAD~1   # back to the default branch before the upgrade
 refuse "ci pr: no PR for a branch that changes workflows" quiet ci_ "${pr_env[@]}" pr
-expect "and it says why" sh -c "env ${pr_env[*]} nix run .#graft-ci -- pr 2>/dev/null | grep -q 'changes CI workflows'"
+expect "and it says why" sh -c "env ${pr_env[*]} nix run .#graft ci pr 2>/dev/null | grep -q 'changes CI workflows'"
 git_ checkout -q -b elsewhere "$(git_ -C "$work/origin.git" rev-parse graft/upgrade)"
 echo "sneaky" > sneaky.sh && git_ add -A && git_ commit -qm sneaky && git_ push -q --force origin HEAD:graft/upgrade
 git_ checkout -q main
 refuse "ci pr: no PR for a branch that changes other files" quiet ci_ "${pr_env[@]}" pr
 
-# graft-ci pr against a stub API. stub_pr NAME [LISTING]: run `graft-ci pr` in the current repo
+# graft ci pr against a stub API. stub_pr NAME [LISTING]: run `graft-ci pr` in the current repo
 # against a fresh stub (GET answers LISTING), with output in $work/NAME.out, the request log in
 # $work/NAME.auth and the requests in $work/NAME.req
 stub_pr() {
@@ -383,12 +383,12 @@ expect "titled graft: upgrade" quiet jq -e 'select(.method=="POST") | .body.titl
 expect "the body lists the move" grep -q "^- provider v2.0.0 -> v2.1.0" <<<"$body"
 expect "and the new majors not taken" grep -q "^- provider: v3.0.0 is a new major version" <<<"$body"
 expect "and that the whole check passed" grep -q "whole \`nix flake check\` passed" <<<"$body"
-expect "and a hint for handing the migration to an agent" grep -q "run \`nix run github:danielnaab/graft#migrate -- -C .\`" <<<"$body"
+expect "and a hint for handing the migration to an agent" grep -q "run \`nix run github:danielnaab/graft -- migrate -C .\`" <<<"$body"
 expect "no CHANGELOG.md: the provider's commits instead" grep -q "^> - [0-9a-f]* v2.1$" <<<"$body"
 refuse "and only those in the range" grep -q "^> - [0-9a-f]* v2$" <<<"$body"
 
 # a branch crossing to v3.0.0, whose CHANGELOG.md has sections for it: those between the tags
-quiet nix run .#graft-upgrade -- provider@v3.0.0 && git_ add -A
+quiet nix run .#graft upgrade provider@v3.0.0 && git_ add -A
 git_ commit -qm "graft: upgrade" -m "graft: provider v2.0.0 -> v3.0.0" && git_ push -q --force origin HEAD:graft/upgrade
 git_ reset -q --hard origin/main
 stub_pr pr2
@@ -423,7 +423,7 @@ an unclosed fence
 - old, must not appear
 EOF
 git_ -C "$p" commit -qam v3.1 && git_ -C "$p" tag v3.1.0
-quiet nix run .#graft-upgrade -- provider@v3.1.0 && git_ add -A
+quiet nix run .#graft upgrade provider@v3.1.0 && git_ add -A
 git_ commit -qm "graft: upgrade" -m "graft: provider v2.0.0 -> v3.1.0" && git_ push -q --force origin HEAD:graft/upgrade
 git_ reset -q --hard origin/main
 stub_pr pr3
@@ -434,7 +434,7 @@ refuse "fence: and the old section stays out" grep -q "old, must not appear" <<<
 
 # a branch whose lock points an input elsewhere, or carries a rev that isn't a commit hash: nothing
 # fetched, nothing run
-quiet nix run .#graft-upgrade -- provider@v3.0.0 && git_ add -A
+quiet nix run .#graft upgrade provider@v3.0.0 && git_ add -A
 # shellcheck disable=SC2016 # jq programs
 jq '.nodes.provider.original.url = "file:///elsewhere" | .nodes.graft.locked.rev = "--upload-pack=touch pwned" | .nodes.graft.original.ref = "--upload-pack=touch pwned"' \
   flake.lock > "$work/lock" && cp "$work/lock" flake.lock && git_ add -A
@@ -446,7 +446,7 @@ expect "an input the branch points elsewhere: not fetched" grep -q "points provi
 expect "a rev that isn't a commit hash: not used" grep -q "Not a git commit" <<<"$body"
 expect "and nothing ran" test -z "$(find "$work" -name pwned)"
 
-# graft-ci upgrade runs the repo's whole flake check: here a check of its own (a link into scions)
+# graft ci upgrade runs the repo's whole flake check: here a check of its own (a link into scions)
 # that the upgrade breaks. The branch is still pushed, the step fails, and the PR says why.
 gc=$work/gate
 mkdir -p "$gc/.forgejo/workflows"
@@ -455,7 +455,7 @@ cat > "$gc/flake.nix" <<EOF
   inputs.graft.url = "path:$graft";
   inputs.provider = { url = "git+file://$p?ref=v2.0.0&exportIgnore=1"; flake = false; };
   outputs = inputs:
-    let g = inputs.graft.lib.mkGraft { inherit inputs; deps = [ "provider" ]; };
+    let g = inputs.graft.lib.mkFlake { inherit inputs; };
     in g // {
       checks = builtins.mapAttrs (system: checks: checks // {
         policy-link = inputs.graft.inputs.nixpkgs.legacyPackages.\${system}.runCommand "policy-link" { } ''
@@ -534,16 +534,15 @@ cat > "$mc/flake.nix" <<EOF
   inputs.graft.url = "path:$graft";
   inputs.mp = { url = "git+file://$mp?ref=v1.0.0&exportIgnore=1"; flake = false; };
   inputs.provider = { url = "git+file://$p?ref=v2.0.0&exportIgnore=1"; flake = false; };
-  outputs = inputs:
-    let g = inputs.graft.lib.mkGraft { inherit inputs; deps = [ "mp" "provider" ]; };
-    in g // {
-      checks = builtins.mapAttrs (system: checks: checks // {
-        links = inputs.graft.inputs.nixpkgs.legacyPackages.\${system}.runCommand "links" { } ''
-          test -e \${inputs.self}/scions/mp/docs/old-name.md || { echo "links: AGENTS.md:1 -> scions/mp/docs/old-name.md is missing" >&2; exit 1; }
-          touch \$out
-        '';
-      }) g.checks;
-    };
+  outputs = inputs: inputs.graft.lib.mkFlake {
+    inherit inputs;
+    outputs.checks = builtins.mapAttrs (system: _: {
+      links = inputs.graft.inputs.nixpkgs.legacyPackages.\${system}.runCommand "links" { } ''
+        test -e \${inputs.self}/scions/mp/docs/old-name.md || { echo "links: AGENTS.md:1 -> scions/mp/docs/old-name.md is missing" >&2; exit 1; }
+        touch \$out
+      '';
+    }) inputs.graft.packages;
+  };
 }
 EOF
 printf 'Read scions/mp/docs/old-name.md first.\nNot this: scions/mp/docs/old-name.mdx\nSee [it](scions/mp/docs/authority.md).\n' > "$mc/AGENTS.md"
@@ -552,15 +551,15 @@ git_ -C "$mc" init -q -b main && git_ -C "$mc" add -A
 cd "$mc" && quiet nix run .#graft && git_ add -A && git_ commit -qm init
 expect "migrate: the consumer's checks pass before the upgrade" quiet nix flake check
 # mig_ ARGS...: graft-migrate as the repo runs it, with nothing but nix on PATH
-mig_() { env PATH="$bare" nix run .#graft-migrate -- "$@" 2>/dev/null; }
+mig_() { env PATH="$bare" nix run .#graft -- migrate "$@" 2>/dev/null; }
 out=$(mig_) || fail "graft-migrate on the default branch"
-expect "migrate: nothing moved, said in one line" grep -qx "graft-migrate: nothing moved since .*No migration to do." <<<"$out"
+expect "migrate: nothing moved, said in one line" grep -qx "graft migrate: nothing moved since .*No migration to do." <<<"$out"
 
 # uncommitted: graft-upgrade's result in the working tree, renames found through a throwaway index
-quiet nix run .#graft-upgrade -- mp@v2.0.0 || fail "graft-upgrade mp@v2.0.0"
+quiet nix run .#graft upgrade mp@v2.0.0 || fail "graft-upgrade mp@v2.0.0"
 touch AGENTS.md && git_ add flake.nix   # something staged, and a stat that's stale
 idx=$(sha256sum .git/index)
-out=$(mig_ --no-check) || fail "graft-migrate, uncommitted"
+out=$(mig_ --no-check) || fail "graft migrate, uncommitted"
 expect "migrate: an uncommitted upgrade is said to be" grep -q "^The upgrade is applied on main but not committed" <<<"$out"
 expect "and its renames found" grep -q "R  scions/mp/docs/old-name.md -> scions/mp/docs/new-name.md" <<<"$out"
 expect "without touching the repo's index" test "$idx" = "$(sha256sum .git/index)"
@@ -569,7 +568,7 @@ git_ reset -q --hard && git_ clean -qfd
 # the branch: both moved, committed
 git_ checkout -q -b graft/upgrade
 # one run: mp moves to v2.0.0, the tag provider moves from
-quiet nix run .#graft-upgrade -- mp@v2.0.0 provider@v2.1.0 || fail "graft-upgrade mp@v2.0.0 provider@v2.1.0, on the branch"
+quiet nix run .#graft upgrade mp@v2.0.0 provider@v2.1.0 || fail "graft-upgrade mp@v2.0.0 provider@v2.1.0, on the branch"
 git_ add -A && git_ commit -qm "graft: upgrade"
 out=$(mig_) || fail "graft-migrate exits 0 with a failing check"
 printf '%s\n' "$out" > "$work/brief.txt"
@@ -607,11 +606,11 @@ expect "with its log" grep -q "links: AGENTS.md:1 -> scions/mp/docs/old-name.md 
 expect "done when" grep -q "^\`nix flake check\` passes, with scions/ and the pins as graft left them. Commit on the branch you're on (this brief was made on graft/upgrade)" <<<"$out"
 out=$(mig_ --no-check) || fail "graft-migrate --no-check"
 expect "--no-check: the checks not run" grep -q "^Not run (--no-check)" <<<"$out"
-expect "--json: valid, the same data" sh -c "env PATH='$bare' nix run .#graft-migrate -- --json 2>/dev/null | jq -e '(.moved | map(.name) == [\"mp\", \"provider\"]) and (.moved[0].upgrading | contains(\"new-name.md\")) and .checks.failed == [\"links\"] and (.references | map(.file + \":\" + (.line|tostring)) | sort) == [\"AGENTS.md:1\", \"docs/notes.md:3\", \"docs/notes.md:3\", \"docs/notes.md:4\", \"flake.nix:10\"] and (.changes | map(select(.status == \"R\")) | length) == 1' >/dev/null"
+expect "--json: valid, the same data" sh -c "env PATH='$bare' nix run .#graft -- migrate --json 2>/dev/null | jq -e '(.moved | map(.name) == [\"mp\", \"provider\"]) and (.moved[0].upgrading | contains(\"new-name.md\")) and .checks.failed == [\"links\"] and (.references | map(.file + \":\" + (.line|tostring)) | sort) == [\"AGENTS.md:1\", \"docs/notes.md:3\", \"docs/notes.md:3\", \"docs/notes.md:4\", \"flake.nix:9\"] and (.changes | map(select(.status == \"R\")) | length) == 1' >/dev/null"
 cd "$work"
-expect "-C: from graft's flake, outside the repo" sh -c "env PATH='$bare' nix run '$graft'#migrate -- -C '$mc' --no-check 2>/dev/null | grep -q '^Migrate this repo (migrate-consumer)'"
+expect "-C: from graft's flake, outside the repo" sh -c "env PATH='$bare' nix run '$graft' -- migrate -C '$mc' --no-check 2>/dev/null | grep -q '^Migrate this repo (migrate-consumer)'"
 cd "$mc"
-expect "--base: an explicit base (here the branch: nothing moved)" sh -c "env PATH='$bare' nix run .#graft-migrate -- --base graft/upgrade 2>/dev/null | grep -q 'nothing moved'"
+expect "--base: an explicit base (here the branch: nothing moved)" sh -c "env PATH='$bare' nix run .#graft -- migrate --base graft/upgrade 2>/dev/null | grep -q 'nothing moved'"
 # no pin moved, but the scions differ from the base
 echo "edited" >> scions/mp/docs/authority.md
 out=$(mig_ --no-check --base graft/upgrade) || fail "graft-migrate, scions edited"
@@ -620,14 +619,14 @@ expect "and lists it" grep -q "^    M  scions/mp/docs/authority.md   (+1)$" <<<"
 git_ checkout -q -- .
 
 # dir: any relative path, here nested with a space and an apostrophe, and a hidden one
-consumer() {  # consumer <name> <dir-attr>: a fresh consumer of provider@v2 with mkGraft's dir set
+consumer() {  # consumer <name> <dir-attr>: a fresh consumer of provider@v2 with mkFlake's dir set
   local d=$work/$1
   mkdir -p "$d"
   cat > "$d/flake.nix" <<EOF
 {
   inputs.graft.url = "path:$graft";
   inputs.provider = { url = "git+file://$p?ref=v2.0.0&exportIgnore=1"; flake = false; };
-  outputs = inputs: inputs.graft.lib.mkGraft { inherit inputs; deps = [ "provider" ]; $2 };
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; $2 };
 }
 EOF
   git_ -C "$d" init -q -b main && git_ -C "$d" add -A
@@ -652,5 +651,53 @@ expect "and the directory is untouched" grep -q "my code" src/main.py
 consumer escape 'dir = "../outside";'
 refuse "a dir outside the repo is rejected" quiet nix flake check
 expect "and nothing is written outside" test ! -e "$work/outside"
+
+# the command: subcommands read without `--`, a typo never syncs, and the app says what it is
+consumer cmd ''
+quiet nix run .#graft && git_ add -A
+system=$(nix eval --impure --raw --expr builtins.currentSystem)
+expect "app: has a description" sh -c "nix eval --raw .#apps.$system.graft.meta.description 2>/dev/null | grep -q sync"
+expect "sync, by name" quiet nix run .#graft sync
+refuse "sync takes no arguments" quiet nix run .#graft sync extra
+expect "a subcommand needs no --" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "^provider +scions"'
+expect "help lists the commands" sh -c 'nix run .#graft help 2>/dev/null | grep -q "^  migrate"'
+echo "edit" >> scions/provider/README.md
+refuse "a mistyped command fails" quiet nix run .#graft upgarde
+expect "and rebuilds nothing" grep -q "^edit$" scions/provider/README.md
+git_ checkout -q -- .
+refuse "graft's own flake has no sync" quiet nix run "path:$graft" -- sync
+expect "and with no command prints usage" sh -c "nix run 'path:$graft' 2>&1 | grep -q '^usage:'"
+
+# which inputs are scions: every flake = false one, unless the repo names them
+consumer named 'scions = [ "provider" ];'
+sed -i.bak 's#^  outputs#  inputs.src = { url = "git+file://'"$q"'?ref=v2.0.0\&exportIgnore=1"; flake = false; };\n  outputs#' flake.nix && rm flake.nix.bak
+quiet nix run .#graft && git_ add -A
+expect "scions: a named list leaves other non-flake inputs out" test ! -e scions/src
+consumer inferred ''
+sed -i.bak 's#^  outputs#  inputs.src = { url = "git+file://'"$q"'?ref=v2.0.0\&exportIgnore=1"; flake = false; };\n  outputs#' flake.nix && rm flake.nix.bak
+quiet nix run .#graft
+expect "scions: inferred, every non-flake input" test -d scions/src
+expect "scions: not graft, a flake" test ! -e scions/graft
+expect "a new scion passes the check before anything is staged" quiet nix flake check
+consumer nodeps ''
+sed -i.bak '/inputs.provider/d' flake.nix && rm flake.nix.bak
+expect "no scions at all is an error naming the cause" sh -c 'nix run .#graft 2>&1 | grep -q "graft: no scions"'
+
+# a repo's own outputs: merged at every level, and evaluated without graft's checks on the inputs
+consumer own 'dir = "../outside"; outputs.apps = builtins.mapAttrs (_: _: { own = { type = "app"; program = "/bin/true"; }; }) inputs.graft.packages; outputs.answer = 42;'
+expect "own outputs evaluate without graft's argument checks" test "$(nix eval .#answer 2>/dev/null)" = 42
+expect "and sit beside graft's" test "$(nix eval --json .#apps --apply 'a: builtins.attrNames (builtins.head (builtins.attrValues a))' 2>/dev/null)" = '["graft","own"]'
+
+# the template: a working repo, at the version this tree releases
+t=$work/template
+mkdir -p "$t" && git_ -C "$t" init -q -b main
+cd "$t"
+quiet nix flake init -t "path:$graft" || fail "nix flake init -t"
+expect "template: graft's workflows arrive, marked" grep -q "^# managed by graft: " .forgejo/workflows/graft-check.yaml
+expect "template: pins the version this tree releases" \
+  grep -qF "github:danielnaab/graft/$(sed -nE 's/^## (v[0-9.]+).*/\1/p' "$graft/CHANGELOG.md" | head -1)\"" flake.nix
+sed -i.bak -e "s#github:danielnaab/graft/v[0-9.]*#path:$graft#" -e "s#github:danielnaab/meta-knowledge-base/v[0-9.]*#git+file://$p?ref=v2.0.0\&exportIgnore=1#" flake.nix && rm flake.nix.bak
+quiet nix run .#graft || fail "nix run .#graft in the template"
+expect "template: grafts and passes the check" quiet nix flake check
 
 echo "all passed"
