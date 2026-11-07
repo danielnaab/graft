@@ -18,6 +18,7 @@ It is a Nix flake library and one `graft` command. Nix does the real work:
 | Applying the export rules | Nix, for `github:` inputs and for `git+…?exportIgnore=1` inputs |
 | One copy of a shared dependency | `follows`, if two inputs share one |
 | Finding newer versions | graft: `nix run .#graft outdated` (newest semver tag upstream, and any new major) |
+| Reading what an upgrade brings | graft: `nix run .#graft changelog` (the provider's CHANGELOG.md between the tags) |
 | Upgrading, graft itself too | graft: `nix run .#graft upgrade` (moves the tag, `nix flake update`, re-grafts) |
 | Copying into the repo | graft: `nix run .#graft` |
 | Briefing a migration | graft: `nix run .#graft migrate` (what moved, what upstream says, what broke) |
@@ -87,10 +88,20 @@ otherwise take it (`nix run .#graft -- outdated --json`).
 
 ```
 nix run .#graft outdated                 # graft and each scion: pinned, newest in its major, status, newer major
+nix run .#graft changelog                # what upgrade would take: each outdated one's CHANGELOG.md sections
+nix run .#graft changelog name@v2.0.0    # what one named tag would bring (across a major too)
 nix run .#graft upgrade                  # graft and every scion that's outdated, to the newest tag of its major
 nix run .#graft upgrade name@v1.2.0   # one scion to a named tag (the only way across a major)
 nix run .#graft upgrade graft@v2.6.0  # graft itself to a named tag
 ```
+
+`graft changelog` says what you'd be taking before you take it. For each input `outdated` reports
+behind (or each one named), it prints the provider's CHANGELOG.md sections between the pinned tag
+and the target, **Upgrading** subsections first, or its commits when there's no CHANGELOG.md, as
+`graft migrate` does: quoted and labelled as the provider's text, not instructions. The target is
+`LATEST` unless named (`name@v2.0.0`, which may cross a major); an input with nothing to show is one
+line (`up to date`, naming a new major if there is one). It fetches with plain git, changes
+nothing, and `--json` gives the same data. It fails, after printing, when an upstream can't be read.
 
 `graft upgrade` rewrites the tag in `flake.nix`, re-locks that input, and rebuilds
 the scions directory; then commit. It finds each input's url in `flake.nix` by the whole spelling
@@ -115,13 +126,14 @@ and graft's workflows (below) are replaced with the ones it ships. Pin graft to 
 `github:danielnaab/graft/v2` follows the branch and is never moved. graft stays within its major
 version unless you name one (`graft@v3.0.0`): a new major may change `mkFlake`.
 
-Both read the repo as data (graft's README table says which inputs are scions; `flake.lock`
+All three read the repo as data (graft's README table says which inputs are scions; `flake.lock`
 says what each is pinned to). Run from graft's own flake they never call the repo's `outputs`, so
 that form suits a bot that watches many repos. It's also the way out when a scion's pinned commit
 has vanished, which stops `nix run .#graft COMMAND` because the app is built from the pins:
 
 ```
 nix run github:danielnaab/graft -- outdated -C path/to/repo [--json]
+nix run github:danielnaab/graft -- changelog -C path/to/repo [--json]
 nix run github:danielnaab/graft -- upgrade -C path/to/repo
 ```
 
@@ -302,7 +314,8 @@ that returns here:
 ## Develop
 
 `tests/run.sh` runs the whole cycle against a throwaway provider repo: graft, check, drift,
-upgrade by hand, `graft outdated` and `graft upgrade` (in the repo and from outside; two
+upgrade by hand, `graft outdated`, `graft changelog` (sections, Upgrading first, the commit
+fallback, a named tag across a major, `-C`, `--json`, nothing behind) and `graft upgrade` (in the repo and from outside; two
 inputs at one tag, one url twice, a `github:` input beside `git+` ones, `lib/retarget.jq` on
 text), majors
 (reported, crossed only when named, 0.x), graft upgrading its own pin (from a throwaway copy of

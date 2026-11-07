@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `graft changelog [-C REPO] [--json] [NAME[@TAG]...]`: what an upgrade would take, read before
+  taking it. For each input `outdated` reports behind (or each one named), the provider's
+  CHANGELOG.md sections between the pinned tag and the target (`LATEST`, or the named tag, which
+  may cross a major), Upgrading subsections first, or its commits when there's no CHANGELOG.md.
+  Quoted and labelled as the provider's text, as `graft migrate` does; one line for an input with
+  nothing to show. Fetched with plain git; reads the repo as data, so it runs from graft's own
+  flake with `-C`, and changes nothing.
+
+### Changed
+- The upstream notes are one implementation: `upstream_range` (lib/common.sh) fetches and extracts
+  for `ci pr`, `migrate` and `changelog`, and `lib/upstream.jq` renders them for `migrate` and
+  `changelog`.
+
 ## v2.6.0 - 2026-11-06
 
 ### Changed
