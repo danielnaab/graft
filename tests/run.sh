@@ -17,6 +17,8 @@ expect() { local d=$1; shift; if "$@"; then pass "$d"; else fail "$d"; fi; }
 # refuse <description> <command...>: the command must fail
 refuse() { local d=$1; shift; if "$@"; then fail "$d"; else pass "$d"; fi; }
 quiet() { "$@" >/dev/null 2>&1; }
+# rest_first TEXT: the first quoted line of upstream notes' "The rest of its CHANGELOG.md" part
+rest_first() { awk '/^The rest of its CHANGELOG.md/ { getline; getline; print; exit }' <<<"$1"; }
 # graft ci as CI runs it: the nixos/nix image has little beyond nix, so every tool graft-ci needs
 # must come from its own runtimeInputs. ci_ runs it with nothing but nix on PATH.
 bare=$work/bare-bin
@@ -58,8 +60,16 @@ git_ add -A
 expect "check passes on a fresh graft" quiet nix flake check
 
 echo "local edit" >> scions/provider/docs/policy.md && git_ add -A
-refuse "check catches an edited scion" quiet nix flake check
+out=$(nix flake check -L 2>&1) && fail "check catches an edited scion"
+pass "check catches an edited scion"
+expect "and shows the diff" grep -q "local edit" <<<"$out"
+refuse "no only-on-the-left hint when no file is only on the left" grep -q "only on the left" <<<"$out"
 quiet nix run .#graft && git_ add -A
+git_ rm -q --cached scions/provider/docs/policy.md
+out=$(nix flake check -L 2>&1) && fail "check catches a scion file git doesn't track"
+pass "check catches a scion file git doesn't track"
+expect "and says what a file only on the left means" grep -q "only on the left is one Nix can't see" <<<"$out"
+git_ add -A
 expect "graft restores the pinned export" quiet nix flake check
 
 # upgrade: provider tags v2; the consumer moves the ref and updates the lock
@@ -137,6 +147,8 @@ refuse "changelog: not Unreleased" grep -q "not yet released" <<<"$out"
 refuse "changelog: only the input named" grep -q "^graft " <<<"$out"
 up=$(grep -n "^> ##### Upgrading" <<<"$out" | cut -d: -f1); rest=$(grep -n "^> - policy v2.1" <<<"$out" | cut -d: -f1)
 expect "changelog: Upgrading first, then the rest" test "${up:-9999}" -lt "${rest:-0}"
+expect "changelog: a version with only an Upgrading section has no heading in the rest" test "$(rest_first "$out")" = "> #### 2.1.0"
+expect "changelog: so its heading appears once" test "$(grep -c "^> #### v3.0.0" <<<"$out")" = 1
 # shellcheck disable=SC2016 # the literal text
 expect "changelog: odd text arrives as text" grep -qF '> - odd text: $(touch pwned) `touch pwned` "quoted" \n' <<<"$out"
 expect "and nothing in it ran" test -z "$(find "$work" -name pwned)"
@@ -774,7 +786,10 @@ expect "subdir: graft check passes" quiet nix run path:nix/workspace#graft check
 expect "subdir: nix flake check passes" quiet nix flake check path:nix/workspace
 git_ add -A && git_ commit -qm graft
 echo "local edit" >> .scions/provider/docs/policy.md
-refuse "subdir: graft check catches an edited scion" quiet nix run path:nix/workspace#graft check
+out=$(nix run path:nix/workspace#graft check 2>&1) && fail "subdir: graft check catches an edited scion"
+pass "subdir: graft check catches an edited scion"
+expect "subdir: and shows the diff" grep -q "local edit" <<<"$out"
+refuse "subdir: no only-on-the-left hint when no file is only on the left" grep -q "only on the left" <<<"$out"
 echo "stray" > .scions/provider/new.md
 quiet nix run path:nix/workspace#graft
 expect "subdir: sync restores it" quiet nix run path:nix/workspace#graft check
@@ -783,7 +798,9 @@ refuse "subdir: graft check catches an edited graft workflow" quiet nix run path
 quiet nix run path:nix/workspace#graft
 expect "subdir: sync restores the workflow" cmp -s .forgejo/workflows/graft-check.yaml "$graft/template/.forgejo/workflows/graft-check.yaml"
 echo ".scions/provider/docs/" > .gitignore && git_ rm -rq --cached .scions/provider/docs
-refuse "subdir: graft check catches a grafted file .gitignore drops" quiet nix run path:nix/workspace#graft check
+out=$(nix run path:nix/workspace#graft check 2>&1) && fail "subdir: graft check catches a grafted file .gitignore drops"
+pass "subdir: graft check catches a grafted file .gitignore drops"
+expect "subdir: and says what a file only on the left means" grep -q "only on the left is one git can't see" <<<"$out"
 rm .gitignore && git_ reset -q
 refuse "subdir: check from graft's own flake says where it runs" quiet nix run "path:$graft" -- check
 # the workflow's own step finds the flake from the scions README
@@ -838,6 +855,8 @@ quiet nix run path:nix/workspace#graft upgrade provider@v3.0.0 || fail "subdir: 
 git_ add -A && git_ commit -qm "graft: upgrade"
 out=$(env PATH="$bare" nix run path:nix/workspace#graft -- migrate --base main 2>/dev/null) || fail "subdir: graft migrate"
 expect "subdir: migrate names the move" grep -qx "Migrate this repo (origin-subdir) to provider v3.0.0 (from v2.0.0)." <<<"$out"
+expect "subdir: migrate: a version with only an Upgrading section has no heading in the rest" test "$(rest_first "$out")" = "> #### 2.1.0"
+expect "subdir: migrate: so its heading appears once" test "$(grep -c "^> #### v3.0.0" <<<"$out")" = 1
 expect "subdir: from the flake's lock" grep -q "^Branch graft/upgrade already has the upgrade committed (nix/workspace/flake.lock and .scions/)" <<<"$out"
 expect "subdir: its checks ran and passed" grep -q "pass as the branch stands" <<<"$out"
 # shellcheck disable=SC2016 # the literal text

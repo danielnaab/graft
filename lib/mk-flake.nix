@@ -155,9 +155,14 @@ let
             cp -RP --no-preserve=mode ${q}/. "$tmp/actual/"${q}
           fi
           rc=0
-          if ! diff -r ${expected pkgs} "$tmp/actual/"${q} >&2; then
+          left=${expected pkgs}
+          if ! drift=$(diff -r "$left" "$tmp/actual/"${q}); then
+            printf '%s\n' "$drift" >&2
             echo ${lib.escapeShellArg "graft: ${path}/ differs from the pins in ${if root then "" else "${fd}/"}flake.lock; run: ${run}"} >&2
-            echo "graft: (a file listed only on the left is one git can't see: dropped by your .gitignore, say)" >&2
+            # the hint only when diff did list a file only on the left
+            if grep -q -e "^Only in $left:" -e "^Only in $left/" <<<"$drift"; then
+              echo "graft: (a file listed only on the left is one git can't see: dropped by your .gitignore, say)" >&2
+            fi
             rc=1
           fi
           bash ${./workflows.sh} check . ${examples} ${lib.escapeShellArg run} || rc=1
@@ -175,9 +180,13 @@ let
       echo ${lib.escapeShellArg "graft: ${path}/ is missing; run: nix run .#graft"} >&2
       exit 1
     fi
-    if ! diff -r ${expected pkgs} "$actual" >&2; then
+    left=${expected pkgs}
+    if ! drift=$(diff -r "$left" "$actual"); then
+      printf '%s\n' "$drift" >&2
       echo ${lib.escapeShellArg "graft: ${path}/ differs from the pins in flake.lock; run: nix run .#graft"} >&2
-      echo "graft: (a file listed only on the left is one Nix can't see: not in git yet, or dropped by your .gitignore)" >&2
+      if grep -q -e "^Only in $left:" -e "^Only in $left/" <<<"$drift"; then
+        echo "graft: (a file listed only on the left is one Nix can't see: not in git yet, or dropped by your .gitignore)" >&2
+      fi
       exit 1
     fi
     ${pkgs.bash}/bin/bash ${./workflows.sh} check ${inputs.self} ${examples}

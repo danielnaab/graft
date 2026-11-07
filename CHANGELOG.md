@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- `graft check`, and `checks.<system>.graft`, print what a file listed only on the left means only
+  when the diff lists one, not after every diff (a single edited file, say).
+- `graft changelog` and `graft migrate`: in the rest of a CHANGELOG.md, after its Upgrading
+  subsections, a version whose only content was an Upgrading subsection printed its heading with
+  nothing under it. It's left out.
+
 ## v2.7.0 - 2026-11-07
 
 ### Added

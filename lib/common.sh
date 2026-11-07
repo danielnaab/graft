@@ -235,7 +235,8 @@ upstream_range() {
 # `## vX.Y.Z` or `## X.Y.Z` (or `## [X.Y.Z]`, anything after) for OLD < version <= NEW, headings
 # moved two levels down to sit under the caller's own. `upgrading` keeps only each section's
 # Upgrading subsections (a `### Upgrading…` heading, to the next `###` or `##`), under their
-# version's heading; `rest` everything else.
+# version's heading; `rest` everything else. In either part, a version with nothing left in it
+# prints nothing, not even its heading.
 changelog_between() {
   awk -v old="${1#v}" -v new="${2#v}" -v part="${3:-all}" '
     function cmp(a, b,   x, y, i) {
@@ -249,10 +250,16 @@ changelog_between() {
       return substr("######", 1, n) h
     }
     # print a kept line (shifted, unless it is RAW: inside a fence) if it belongs to the part asked
-    # for; in `upgrading`, its version heading goes first, once
+    # for; in `upgrading` and `rest`, its version heading goes first, once, held until the version
+    # has a line for that part (in `rest`, a line that is not blank: the blank lines after the
+    # heading are held with it)
     function emit(l, raw) {
       if (part == "all" || (part == "upgrading") == upg) {
         if (part == "upgrading" && pending != "") { if (printed) print ""; print pending; print ""; pending = "" }
+        if (part == "rest" && pending != "") {
+          if (l ~ /^[ \t]*$/) { pending = pending "\n" l; return }
+          print pending; pending = ""
+        }
         print (raw ? l : shift(l)); printed = 1
       }
     }
@@ -281,10 +288,10 @@ changelog_between() {
             v = substr(l, RSTART, RLENGTH); sub(/^## \[?v?/, "", v); sub(/[] \t]$/, "", v)
           }
           keep = (v != "" && cmp(v, old) > 0 && cmp(v, new) <= 0)
-          upg = 0
-          if (keep && part == "upgrading") { pending = shift(l); continue }
+          upg = 0; pending = ""
+          if (keep && part != "all") { pending = shift(l); continue }
         }
-        if (l ~ /^# /) keep = 0
+        if (l ~ /^# /) { keep = 0; pending = "" }
         if (!keep) continue
         if (l ~ /^### /) upg = (tolower(l) ~ /^### +upgrading/)
         emit(l)
