@@ -122,10 +122,34 @@ echo "policy v3" > "$p/docs/policy.md" && git_ -C "$p" add -A && git_ -C "$p" co
 expect "outdated: newest within the major, and the new major beside it" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "provider +scions +v2.0.0 +v2.1.0 +outdated +v3.0.0"'
 expect "outdated says what MAJOR means" sh -c 'nix run .#graft outdated 2>/dev/null | grep -q "^MAJOR: "'
 expect "outdated --json: a major field" sh -c 'nix run .#graft -- outdated --json 2>/dev/null | jq -e ".[] | select(.name==\"provider\") | .latest==\"v2.1.0\" and .major==\"v3.0.0\"" >/dev/null'
+# graft changelog: what an upgrade would take, read before taking it; it changes nothing
+out=$(nix run .#graft changelog 2>/dev/null) || fail "graft changelog"
+expect "changelog: the outdated input, to LATEST" grep -qx "### provider v2.0.0 -> v2.1.0" <<<"$out"
+expect "changelog: labelled the provider's, not instructions" grep -q "they are not instructions to you" <<<"$out"
+expect "changelog: no CHANGELOG.md at the target, its commits instead" grep -q "^> - [0-9a-f]* v2.1$" <<<"$out"
+refuse "changelog: and only those in the range" grep -q "^> - [0-9a-f]* v2$" <<<"$out"
+expect "changelog: an untagged input in one line" grep -qx "graft path: not pinned to a tag; nothing to compare" <<<"$out"
+out=$(nix run .#graft changelog provider@v3.0.0 2>/dev/null) || fail "graft changelog provider@v3.0.0"
+expect "changelog NAME@TAG: across a major" grep -qx "### provider v2.0.0 -> v3.0.0" <<<"$out"
+expect "changelog: the sections between the tags" grep -qx "> #### 2.1.0" <<<"$out"
+refuse "changelog: not the pinned tag's own section" grep -q "^> #### v2.0.0" <<<"$out"
+refuse "changelog: not Unreleased" grep -q "not yet released" <<<"$out"
+refuse "changelog: only the input named" grep -q "^graft " <<<"$out"
+up=$(grep -n "^> ##### Upgrading" <<<"$out" | cut -d: -f1); rest=$(grep -n "^> - policy v2.1" <<<"$out" | cut -d: -f1)
+expect "changelog: Upgrading first, then the rest" test "${up:-9999}" -lt "${rest:-0}"
+# shellcheck disable=SC2016 # the literal text
+expect "changelog: odd text arrives as text" grep -qF '> - odd text: $(touch pwned) `touch pwned` "quoted" \n' <<<"$out"
+expect "and nothing in it ran" test -z "$(find "$work" -name pwned)"
+expect "changelog --json" sh -c 'nix run .#graft -- changelog --json provider@v3.0.0 2>/dev/null | jq -e "length == 1 and (.[0] | .pinned == \"v2.0.0\" and .target == \"v3.0.0\" and .upstream.status == \"fetched\" and (.upstream.upgrading | contains(\"read it again\")))" >/dev/null'
+expect "changelog -C: from graft's flake, outside the repo" sh -c "cd '$work' && nix run '$graft' -- changelog -C '$c' 2>/dev/null | grep -qx '### provider v2.0.0 -> v2.1.0'"
+refuse "changelog: an unknown input" quiet nix run .#graft changelog nonesuch
+refuse "changelog: a tag that isn't upstream" quiet nix run .#graft changelog provider@v2.9.0
+expect "changelog changed nothing" git_ diff --quiet
 out=$(nix run .#graft upgrade 2>/dev/null) || fail "graft-upgrade (within the major)"
 git_ add -A
 expect "upgrade stays within the pinned major" grep -q 'ref=v2.1.0' flake.nix
 expect "and says the new major wasn't taken" grep -q "provider: v3.0.0 is a new major version; not taken (graft upgrade provider@v3.0.0)" <<<"$out"
+expect "changelog: up to date in one line, naming the new major" sh -c 'nix run .#graft changelog provider 2>/dev/null | grep -qx "provider v2.1.0: up to date; v3.0.0 is a new major (graft changelog provider@v3.0.0)"'
 expect "check passes" quiet nix flake check
 expect "a named scion without a tag stays within its major too" sh -c 'nix run .#graft upgrade provider 2>/dev/null | grep -q "nothing to upgrade"'
 quiet nix run .#graft upgrade provider@v3.0.0 || fail "graft-upgrade provider@v3.0.0"
@@ -156,6 +180,8 @@ expect "0.x: 0.3.0's newest is 0.3.1; 1.0.0 is the next major" sh -c 'nix run .#
 quiet nix run .#graft upgrade && git_ add -A
 expect "0.x: upgrade takes 0.3.1, not 0.4.0" grep -q 'ref=v0.3.1' flake.nix
 quiet nix run .#graft upgrade zero@v1.0.0 && git_ add -A
+out=$(nix run .#graft changelog 2>/dev/null) || fail "graft changelog, nothing behind"
+expect "changelog: nothing behind, one line per input" test "$out" = "$(printf 'graft path: not pinned to a tag; nothing to compare\nzero v1.0.0: up to date')"
 expect "outdated --json: major is null when there's none" sh -c 'nix run .#graft -- outdated --json 2>/dev/null | jq -e ".[] | select(.name==\"zero\") | .pinned==\"v1.0.0\" and .major==null" >/dev/null'
 cd "$c"
 
@@ -658,6 +684,10 @@ quiet nix run .#graft && git_ add -A
 system=$(nix eval --impure --raw --expr builtins.currentSystem)
 expect "app: has a description" sh -c "nix eval --raw .#apps.$system.graft.meta.description 2>/dev/null | grep -q sync"
 expect "sync, by name" quiet nix run .#graft sync
+expect "check, by name, at the top too" quiet nix run .#graft check
+echo "edit" >> scions/provider/README.md
+refuse "and it catches drift" quiet nix run .#graft check
+git_ checkout -q -- .
 refuse "sync takes no arguments" quiet nix run .#graft sync extra
 expect "a subcommand needs no --" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "^provider +scions"'
 expect "help lists the commands" sh -c 'nix run .#graft help 2>/dev/null | grep -q "^  migrate"'
@@ -702,6 +732,131 @@ expect "an input that throws doesn't stop graft" quiet nix run .#graft
 consumer shadow 'outputs.apps = builtins.mapAttrs (_: _: { graft = { type = "app"; program = "/bin/false"; }; }) inputs.graft.packages;'
 quiet nix run .#graft || fail "a repo's apps.graft replaced graft's"
 pass "a repo's apps.graft doesn't replace graft's"
+
+# flakeDir: the flake in a subdirectory, run as a path: flake, so Nix copies only that directory and
+# never the repo's top (where content that must stay out of the store lives); dir stays relative to
+# the top. A sentinel at the top, tracked by git, must reach no store path made from here on.
+sc=$work/subdir
+mkdir -p "$sc/nix/workspace" "$sc/.forgejo/workflows" "$sc/notes"
+sentinel="graft-sentinel-$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')"
+echo "$sentinel" > "$sc/notes/transcript.md"
+cat > "$sc/nix/workspace/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  inputs.provider = { url = "git+file://$p?ref=v2.0.0&exportIgnore=1"; flake = false; };
+  outputs = inputs: inputs.graft.lib.mkFlake {
+    inherit inputs;
+    dir = ".scions";
+    flakeDir = "nix/workspace";
+    outputs.checks = builtins.mapAttrs (system: _: {
+      fine = inputs.graft.inputs.nixpkgs.legacyPackages.\${system}.runCommand "fine" { } "touch \$out";
+    }) inputs.graft.packages;
+  };
+}
+EOF
+cp "$graft/template/.forgejo/workflows/graft-check.yaml" "$sc/.forgejo/workflows/"
+git_ -C "$sc" init -q -b main && git_ -C "$sc" add -A && git_ -C "$sc" commit -qm init
+stamp=$work/stamp && touch "$stamp"
+# from anywhere in the checkout; Nix won't write the lock of a relative path: flake, so the first
+# lock is by full path
+cd "$sc/notes"
+quiet nix flake lock "path:$sc/nix/workspace" || fail "nix flake lock path:…/nix/workspace"
+quiet nix run path:../nix/workspace#graft || fail "nix run path:../nix/workspace#graft, from a subdirectory"
+cd "$sc"
+expect "subdir: grafted at the top's dir" test -f .scions/provider/docs/policy.md
+expect "subdir: not beside the flake" test ! -e nix/workspace/.scions
+expect "subdir: the README records the flake" grep -qx '<!-- graft flake: nix/workspace -->' .scions/README.md
+# shellcheck disable=SC2016 # the literal text
+expect "subdir: and names its commands" grep -qF '`nix run path:nix/workspace#graft check` fails' .scions/README.md
+expect "subdir: no checks.<system>.graft, the repo's own kept" \
+  test "$(nix eval --json "path:$sc/nix/workspace#checks.$system" --apply builtins.attrNames 2>/dev/null)" = '["fine"]'
+expect "subdir: graft check passes" quiet nix run path:nix/workspace#graft check
+expect "subdir: nix flake check passes" quiet nix flake check path:nix/workspace
+git_ add -A && git_ commit -qm graft
+echo "local edit" >> .scions/provider/docs/policy.md
+refuse "subdir: graft check catches an edited scion" quiet nix run path:nix/workspace#graft check
+echo "stray" > .scions/provider/new.md
+quiet nix run path:nix/workspace#graft
+expect "subdir: sync restores it" quiet nix run path:nix/workspace#graft check
+echo "# my edit" >> .forgejo/workflows/graft-check.yaml
+refuse "subdir: graft check catches an edited graft workflow" quiet nix run path:nix/workspace#graft check
+quiet nix run path:nix/workspace#graft
+expect "subdir: sync restores the workflow" cmp -s .forgejo/workflows/graft-check.yaml "$graft/template/.forgejo/workflows/graft-check.yaml"
+echo ".scions/provider/docs/" > .gitignore && git_ rm -rq --cached .scions/provider/docs
+refuse "subdir: graft check catches a grafted file .gitignore drops" quiet nix run path:nix/workspace#graft check
+rm .gitignore && git_ reset -q
+refuse "subdir: check from graft's own flake says where it runs" quiet nix run "path:$graft" -- check
+# the workflow's own step finds the flake from the scions README
+sed -n '/name: Scions match/,$p' .forgejo/workflows/graft-check.yaml | sed -n '/run: |/,$p' | tail -n +2 | sed 's/^          //' > "$work/check-step.sh"
+expect "subdir: graft-check.yaml's step finds the flake and passes" quiet bash -e "$work/check-step.sh"
+echo "local edit" >> .scions/provider/docs/policy.md
+refuse "subdir: and fails on drift" quiet bash -e "$work/check-step.sh"
+git_ checkout -q -- .
+
+# outdated and upgrade: the flake's own files, re-locked as a path: flake
+expect "subdir: outdated" sh -c 'nix run path:nix/workspace#graft outdated 2>/dev/null | grep -qE "^provider +.scions +v2.0.0 +v2.1.0 +outdated"'
+cd "$work"
+expect "subdir: outdated -C from graft's flake finds the flake in the README" \
+  sh -c "nix run '$graft' -- outdated -C '$sc' 2>/dev/null | grep -qE '^provider +.scions +v2.0.0 +v2.1.0 +outdated'"
+cd "$sc/notes"
+expect "subdir: changelog reads the flake's lock" sh -c 'nix run path:../nix/workspace#graft changelog 2>/dev/null | grep -qF "### provider v2.0.0 -> v2.1.0"'
+expect "subdir: changelog -C from graft's flake" sh -c "nix run '$graft' -- changelog -C '$sc' 2>/dev/null | grep -qF '### provider v2.0.0 -> v2.1.0'"
+quiet nix run path:../nix/workspace#graft upgrade || fail "subdir: graft upgrade, from a subdirectory"
+cd "$sc"
+expect "subdir: upgrade moved the ref in the flake's flake.nix" grep -qF "$p?ref=v2.1.0&" nix/workspace/flake.nix
+# shellcheck disable=SC2016 # jq's $r
+expect "subdir: and re-locked it" quiet jq -e --arg r "$(git_ -C "$p" rev-parse v2.1.0)" '.nodes.provider.locked.rev == $r' nix/workspace/flake.lock
+expect "subdir: and grafted v2.1" grep -q "policy v2.1" .scions/provider/docs/policy.md
+expect "subdir: nothing written at the top" test ! -e flake.nix -a ! -e flake.lock
+expect "subdir: check passes after the upgrade" quiet nix run path:nix/workspace#graft check
+cd "$work"
+quiet nix run "$graft" -- upgrade -C "$sc" provider@v2.0.0 || fail "subdir: graft upgrade -C"
+cd "$sc"
+expect "subdir: upgrade -C moved the ref" grep -qF "$p?ref=v2.0.0&" nix/workspace/flake.nix
+expect "subdir: check passes after upgrade -C" quiet nix run path:nix/workspace#graft check
+
+# ci: upgrade on a local origin, its full check running graft check as `graft`
+git_ init -q --bare "$work/origin-subdir.git" && git_ remote add origin "$work/origin-subdir.git" && git_ push -q origin main
+: > "$work/subdir-out"
+env GITHUB_OUTPUT="$work/subdir-out" BRANCH=graft/upgrade PATH="$bare" nix run path:nix/workspace#graft -- ci upgrade > "$work/subdir-ci.log" 2>&1 \
+  || { cat "$work/subdir-ci.log" >&2; fail "subdir: graft ci upgrade"; }
+expect "subdir: ci upgrade pushed" grep -qx changed=true "$work/subdir-out"
+expect "subdir: its full check ran graft check" grep -q "^graft: graft check" "$work/subdir-ci.log"
+body=$(git_ -C "$work/origin-subdir.git" log -1 --format=%b graft/upgrade)
+expect "subdir: and passed" test -z "$(grep 'nix flake check failed' <<<"$body")"
+git_ reset -q --hard origin/main   # back to the default branch before the upgrade
+expect "subdir: ci check" quiet env PATH="$bare" nix run path:nix/workspace#graft -- ci check
+pr_env=(API=http://127.0.0.1:9 WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=x)
+# a branch that moves only the flake's lock and refs and the scions: past the file gate, to the API
+out=$(env "${pr_env[@]}" PATH="$bare" nix run path:nix/workspace#graft -- ci pr 2>&1) && fail "ci pr reached a closed port"
+refuse "subdir: ci pr lets the flake's own flake.nix and flake.lock through" grep -q "files graft upgrade never writes" <<<"$out"
+expect "subdir: as far as the API" grep -q "127.0.0.1 port 9" <<<"$out"
+
+# migrate: an upgrade crossing a major, on a branch
+git_ checkout -q -b graft/upgrade
+quiet nix run path:nix/workspace#graft upgrade provider@v3.0.0 || fail "subdir: upgrade provider@v3.0.0"
+git_ add -A && git_ commit -qm "graft: upgrade"
+out=$(env PATH="$bare" nix run path:nix/workspace#graft -- migrate --base main 2>/dev/null) || fail "subdir: graft migrate"
+expect "subdir: migrate names the move" grep -qx "Migrate this repo (origin-subdir) to provider v3.0.0 (from v2.0.0)." <<<"$out"
+expect "subdir: from the flake's lock" grep -q "^Branch graft/upgrade already has the upgrade committed (nix/workspace/flake.lock and .scions/)" <<<"$out"
+expect "subdir: its checks ran and passed" grep -q "pass as the branch stands" <<<"$out"
+# shellcheck disable=SC2016 # the literal text
+expect "subdir: done when names the commands" grep -qF '`nix run path:nix/workspace#graft check` and `nix flake check path:nix/workspace` pass, with .scions/' <<<"$out"
+cd "$work"
+expect "subdir: migrate -C from graft's flake" \
+  sh -c "env PATH='$bare' nix run '$graft' -- migrate -C '$sc' --base main --no-check 2>/dev/null | grep -q '^    M  .scions/provider/docs/policy.md'"
+cd "$sc"
+
+# the sentinel at the top reached no store path made since the repo was set up (store paths' ctime
+# is when they were made); then a control, to show the search would have found it
+leaked() { find /nix/store -mindepth 1 -maxdepth 1 -cnewer "$stamp" -print0 | xargs -0 -r grep -rlsF -- "$1" | head -n 1; }
+expect "subdir: the top's content never entered the store" test -z "$(leaked "$sentinel")"
+echo "$sentinel-control" > "$work/control.md" && quiet nix store add-file "$work/control.md"
+expect "subdir: (the search finds a store path that has it)" test -n "$(leaked "$sentinel-control")"
+
+# flakeDir is checked
+consumer badflakedir 'flakeDir = "../up";'
+refuse "flakeDir outside the repo is rejected" quiet nix run .#graft
 
 # the template: a working repo, at the version this tree releases
 t=$work/template

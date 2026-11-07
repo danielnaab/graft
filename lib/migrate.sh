@@ -28,7 +28,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source-path=SCRIPTDIR source=common.sh
 . "$here/common.sh"
 
-repo=. base_ref="" check=1 json=0
+repo="" base_ref="" check=1 json=0
 while [ $# -gt 0 ]; do
   case $1 in
     -C) [ $# -ge 2 ] || die "-C needs a directory"; repo=$2; shift 2 ;;
@@ -40,8 +40,8 @@ while [ $# -gt 0 ]; do
     *) die "usage: graft migrate [-C REPO] [--base REF] [--no-check] [--json]" ;;
   esac
 done
-cd "$repo"
-[ -f flake.lock ] || die "no flake.lock in $(pwd)"
+locate "$repo"
+[ -f "$FLAKE_LOCK" ] || die "no $FLAKE_LOCK in $(pwd)"
 top=$(git rev-parse --show-toplevel 2>/dev/null) || die "$(pwd) is not a git repository"
 [ "$(cd "$top" && pwd -P)" = "$(pwd -P)" ] || die "run from the repo root ($top)"
 git rev-parse -q --verify 'HEAD^{commit}' >/dev/null || die "no commits here yet"
@@ -63,10 +63,12 @@ base=$(git merge-base --end-of-options "$base_ref" HEAD) || die "$base_ref and H
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 empty_lock='{"nodes":{"root":{"inputs":{}}}}'
-git show "$base:flake.lock" > "$tmp/base.lock" 2>/dev/null || echo "$empty_lock" > "$tmp/base.lock"
+# (a base from before the flake moved into a subdirectory has it at the top)
+git show "$base:$FLAKE_LOCK" > "$tmp/base.lock" 2>/dev/null || git show "$base:flake.lock" > "$tmp/base.lock" 2>/dev/null \
+  || echo "$empty_lock" > "$tmp/base.lock"
 jq -e . "$tmp/base.lock" >/dev/null 2>&1 || echo "$empty_lock" > "$tmp/base.lock"
-jq -e . flake.lock >/dev/null 2>&1 || die "flake.lock isn't JSON"
-cp flake.lock "$tmp/head.lock"
+jq -e . "$FLAKE_LOCK" >/dev/null 2>&1 || die "$FLAKE_LOCK isn't JSON"
+cp "$FLAKE_LOCK" "$tmp/head.lock"
 
 # graft's directories and workflows here, and which input is which
 dirs=() pathspec=()
@@ -175,7 +177,7 @@ if [ -s "$tmp/gone" ]; then
     printf '%s\n' "${!target[@]}" | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2- \
       | LC_ALL=C sed 's/[!-/:-@[-`{-~]/\\&/g' > "$tmp/keys"
     split -l 200 "$tmp/keys" "$tmp/keys."
-    excl=(":(exclude)flake.lock")
+    excl=(":(exclude,literal)$FLAKE_LOCK")
     for d in "${dirs[@]}"; do excl+=(":(exclude,literal)$d"); done
     for f in "${workflows[@]}"; do excl+=(":(exclude,literal)$f"); done
     : > "$tmp/hits"
@@ -222,12 +224,14 @@ name=${name%/}; name=${name%.git}; name=${name##*/}; name=${name##*:}
 [ -n "$name" ] || name=$(basename "$top")
 branch=$(git branch --show-current)
 applied=committed
-if [ -n "$(git --no-optional-locks status --porcelain -- flake.lock "${pathspec[@]}")" ]; then applied=uncommitted; fi
+if [ -n "$(git --no-optional-locks status --porcelain -- "$FLAKE_LOCK" "${pathspec[@]}")" ]; then applied=uncommitted; fi
 
 jq -n --arg repo "$name" --arg branch "$branch" --arg head "$(git rev-parse --short HEAD)" \
   --arg base_ref "$base_ref" --arg base "$base" --arg applied "$applied" --arg refs_error "$refs_error" \
+  --arg flake "$FLAKE" \
   --argjson nothing "$([ "$nothing" = 1 ] && echo true || echo false)" \
   --args '{repo: $repo, branch: (if $branch == "" then null else $branch end), head: $head,
+     flake: (if $flake == "." then null else $flake end),
      base: {ref: $base_ref, commit: $base}, applied: $applied, nothing_moved: $nothing,
      references_error: (if $refs_error == "" then null else $refs_error end),
      scion_dirs: $ARGS.positional}' "${dirs[@]}" > "$tmp/top"
@@ -237,4 +241,4 @@ jq -s --slurpfile top "$tmp/top" --slurpfile wf "$tmp/workflows" --slurpfile che
   '$top[0] + {graft_workflows: $wf[0], moved: ., also_moved: $other, changes: $changes,
              references: $refs, checks: $checks[0]}' "$tmp/moved" > "$tmp/brief.json"
 
-if [ "$json" = 1 ]; then jq . "$tmp/brief.json"; else jq -r -f "$here/migrate.jq" "$tmp/brief.json"; fi
+if [ "$json" = 1 ]; then jq . "$tmp/brief.json"; else jq -r -L "$here" -f "$here/migrate.jq" "$tmp/brief.json"; fi

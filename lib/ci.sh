@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # ci.sh check|upgrade|pr: what graft's Forgejo workflows (template/.forgejo/workflows/) run, from the repo's
-# root, as `nix run .#graft ci <step>`. It lives here, not in the workflow files, so a repo's
+# root, as `nix run .#graft ci <step>` (or `nix run path:DIR#graft ci <step>` when the flake is in
+# DIR, mkFlake's flakeDir; the workflows find it in the scions README). It lives here, not in the workflow files, so a repo's
 # workflows run the graft version it pins: when graft upgrade moves that pin, their behaviour
 # moves with it, and the YAML itself rarely changes.
 #
-#   check    the scions directory and graft's workflows match flake.lock (checks.<system>.graft).
+#   check    the scions directory and graft's workflows match flake.lock (checks.<system>.graft, or
+#            `graft check` for a flake in a subdirectory, which has none).
 #   upgrade  graft upgrade; if that changed anything, run the repo's whole `nix flake check` on the
 #            result (graft's check and the repo's own: link checks into scions, lint, tests), commit
 #            it, and force-push it to $BRANCH on origin. Writes changed=true|false to
@@ -19,7 +21,7 @@
 #            upgraded flake, so a new graft version never sees PR_TOKEN. Opening a PR runs the
 #            repo's pull_request workflows from the PR's head, with the repo's secrets, and the
 #            branch was written by code nobody has reviewed yet: so it opens one only when the
-#            branch changes nothing but flake.nix, flake.lock and the scions directories. A change
+#            branch changes nothing but the flake's flake.nix and flake.lock and the scions directories. A change
 #            to .forgejo/ (a new graft version's workflows) or anywhere else fails with a link to
 #            the diff: review it, then open the PR yourself. The limit: flake.nix and flake.lock
 #            are code (a moved graft pin is the new version), so any OTHER pull_request workflow
@@ -36,10 +38,12 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source-path=SCRIPTDIR source=common.sh
 . "$here/common.sh"
 output() { if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "$1" >> "$GITHUB_OUTPUT"; fi; }
-[ -f flake.nix ] || die "run from the repo root (no flake.nix here)"
+locate ""
+[ -f "$FLAKE_NIX" ] || die "run from the repo root (no $FLAKE_NIX here)"
 
 check() {
   local system
+  if [ "$FLAKE" != . ]; then nix_ run "$FLAKE_REF#graft" check; return; fi
   system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
   nix_ build --no-link ".#checks.$system.graft"
 }
@@ -129,7 +133,7 @@ pr() {
              -e 'Managed by [graft]' HEAD -- README.md '*/README.md' || true)
   while IFS= read -r -d '' path; do
     ok=""
-    case $path in flake.nix|flake.lock) ok=1 ;; esac
+    if [ "$path" = "$FLAKE_NIX" ] || [ "$path" = "$FLAKE_LOCK" ]; then ok=1; fi
     for d in "${dirs[@]}"; do [ -z "$d" ] || [[ $path != "$d"/* ]] || ok=1; done
     [ -z "$ok" ] || continue
     if [[ $path == .forgejo/* ]]; then workflows+=" $path"; else other+=" $path"; fi
@@ -159,8 +163,8 @@ pr() {
   # What changed upstream, computed here from the two locks (no PR_TOKEN in git's environment).
   base_lock=$(mktemp) head_lock=$(mktemp) notes=$(mktemp) body=$(mktemp) req=$(mktemp)
   trap 'rm -f "$base_lock" "$head_lock" "$notes" "$body" "$req"' EXIT
-  git show HEAD:flake.lock > "$base_lock"
-  git show "$head:flake.lock" > "$head_lock" 2>/dev/null || echo '{"nodes":{"root":{"inputs":{}}}}' > "$head_lock"
+  git show "HEAD:$FLAKE_LOCK" > "$base_lock"
+  git show "$head:$FLAKE_LOCK" > "$head_lock" 2>/dev/null || echo '{"nodes":{"root":{"inputs":{}}}}' > "$head_lock"
   # errexit is off in here (a provider that can't be fetched is reported, not fatal); a list cut
   # short is kept, with a note
   ( unset PR_TOKEN; upstream_notes "$base_lock" "$head_lock" ) > "$notes" \

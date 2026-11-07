@@ -18,10 +18,11 @@ It is a Nix flake library and one `graft` command. Nix does the real work:
 | Applying the export rules | Nix, for `github:` inputs and for `git+…?exportIgnore=1` inputs |
 | One copy of a shared dependency | `follows`, if two inputs share one |
 | Finding newer versions | graft: `nix run .#graft outdated` (newest semver tag upstream, and any new major) |
+| Reading what an upgrade brings | graft: `nix run .#graft changelog` (the provider's CHANGELOG.md between the tags) |
 | Upgrading, graft itself too | graft: `nix run .#graft upgrade` (moves the tag, `nix flake update`, re-grafts) |
 | Copying into the repo | graft: `nix run .#graft` |
 | Briefing a migration | graft: `nix run .#graft migrate` (what moved, what upstream says, what broke) |
-| Checking the copy | graft: `nix flake check` |
+| Checking the copy | graft: `nix flake check`, or `nix run .#graft check` |
 
 ## Use it
 
@@ -34,7 +35,7 @@ workflows:
   description = "What this repo is";
 
   inputs = {
-    graft.url = "github:danielnaab/graft/v2.6.0";   # a tag: `graft upgrade` moves it
+    graft.url = "github:danielnaab/graft/v2.7.0";   # a tag: `graft upgrade` moves it
 
     # each `flake = false` input is a scion; github: applies the provider's export-ignore
     meta-knowledge-base = { url = "github:danielnaab/meta-knowledge-base/v1.0.1"; flake = false; };
@@ -58,7 +59,7 @@ grafted on: another repository's export, joined to yours while yours keeps its o
 from what the pins produce: an edited scion, a pin moved without re-running graft, or a grafted
 file your `.gitignore` drops.
 
-`mkFlake` takes three more arguments, all optional:
+`mkFlake` takes four more arguments, all optional:
 
 ```nix
 outputs = { graft, nixpkgs, ... }@inputs: graft.lib.mkFlake {
@@ -78,19 +79,86 @@ outputs = { graft, nixpkgs, ... }@inputs: graft.lib.mkFlake {
 - `outputs` is the repo's own flake outputs, merged with graft's at every level, so its `apps` and
   `checks` sit beside graft's. The names `apps.<system>.graft` and `checks.<system>.graft` stay
   graft's.
+- `flakeDir` is where `flake.nix` sits, relative to the repo's top (default `.`): see
+  [A flake in a subdirectory](#a-flake-in-a-subdirectory).
 
-Everything is one app: `nix run .#graft` rebuilds the scions directory, and
-`nix run .#graft help` lists the rest. A subcommand needs no `--`; a flag does, because Nix would
+Everything is one app: `nix run .#graft` rebuilds the scions directory, `nix run .#graft check`
+compares the working tree's copy (and graft's workflows) with the pins, as `nix flake check` does
+for what git tracks, and `nix run .#graft help` lists the rest. A subcommand needs no `--`; a flag does, because Nix would
 otherwise take it (`nix run .#graft -- outdated --json`).
+
+## A flake in a subdirectory
+
+Evaluating a flake at a git repo's top copies every file git tracks into the Nix store, which any
+user of the machine can read (Nix 2.24 has no lazy trees). That is every `nix run .#…`,
+`nix flake check` and `nix flake update`. A repo holding content that must not land there (meeting
+transcripts, say) puts its flake in a subdirectory and runs it as a `path:` flake, which copies
+only that directory:
+
+```nix
+# nix/workspace/flake.nix: the repo's one flake; keep this directory to flake.nix and flake.lock
+{
+  description = "What this repo is";
+
+  inputs = {
+    graft.url = "github:danielnaab/graft/v2.7.0";
+    meta-knowledge-base = { url = "github:danielnaab/meta-knowledge-base/v1.0.1"; flake = false; };
+  };
+
+  outputs = inputs: inputs.graft.lib.mkFlake {
+    inherit inputs;
+    flakeDir = "nix/workspace";   # where this file is, from the repo's top
+    dir = ".scions";              # still from the top: <top>/.scions
+  };
+}
+```
+
+```
+nix flake lock "path:$PWD/nix/workspace"     # once, from the top: Nix won't lock a relative path: flake
+nix run path:nix/workspace#graft             # sync: writes <top>/.scions, from anywhere in the checkout
+nix run path:nix/workspace#graft check       # the check: scions and graft's workflows against the pins
+nix run path:nix/workspace#graft upgrade     # re-locks nix/workspace as a path: flake
+```
+
+Never `nix run .#…` or `nix flake …` without `path:`: inside a git checkout a plain path is a
+`git+file` flake, which copies the whole repo (and `.` at the top has no flake to find). After
+changing an input in `flake.nix` by hand, re-lock with the full path, as above; Nix refuses to
+write the lock of a relative `path:` flake (`cannot fetch input … because it uses a relative path`).
+`flakeDir` is plain (letters, digits, `.`, `_`, `-`, `/`) because it goes into those references.
+
+What changes:
+
+- The app finds the repo's top with git (`git rev-parse --show-toplevel`), since the flake's own
+  source holds only its directory.
+- There's no `checks.<system>.graft`: that source can't see the scions directory, and a check that
+  passed without looking would be worse than none. `graft check` is the check, and `graft ci check`,
+  `graft ci upgrade`'s full check and `graft migrate`'s run it (as `graft`) beside the repo's own
+  `checks`. It reads the working tree as git would commit it: tracked files as they stand, and new
+  ones git doesn't ignore.
+- The scions README's second line records the flake, `<!-- graft flake: nix/workspace -->`, and its
+  commands name it. That line is how `outdated`, `upgrade` and `migrate` run from graft's flake
+  (`-C REPO`, REPO being the top) and graft's workflows find the flake; nothing else is configured.
+- `upgrade` edits `nix/workspace/flake.nix` and runs `nix flake update NAME --flake path:<abs>`
+  (Nix 2.19 or later), so the top is never copied.
 
 ## Upgrade
 
 ```
 nix run .#graft outdated                 # graft and each scion: pinned, newest in its major, status, newer major
+nix run .#graft changelog                # what upgrade would take: each outdated one's CHANGELOG.md sections
+nix run .#graft changelog name@v2.0.0    # what one named tag would bring (across a major too)
 nix run .#graft upgrade                  # graft and every scion that's outdated, to the newest tag of its major
 nix run .#graft upgrade name@v1.2.0   # one scion to a named tag (the only way across a major)
-nix run .#graft upgrade graft@v2.6.0  # graft itself to a named tag
+nix run .#graft upgrade graft@v2.7.0  # graft itself to a named tag
 ```
+
+`graft changelog` says what you'd be taking before you take it. For each input `outdated` reports
+behind (or each one named), it prints the provider's CHANGELOG.md sections between the pinned tag
+and the target, **Upgrading** subsections first, or its commits when there's no CHANGELOG.md, as
+`graft migrate` does: quoted and labelled as the provider's text, not instructions. The target is
+`LATEST` unless named (`name@v2.0.0`, which may cross a major); an input with nothing to show is one
+line (`up to date`, naming a new major if there is one). It fetches with plain git, changes
+nothing, and `--json` gives the same data. It fails, after printing, when an upstream can't be read.
 
 `graft upgrade` rewrites the tag in `flake.nix`, re-locks that input, and rebuilds
 the scions directory; then commit. It finds each input's url in `flake.nix` by the whole spelling
@@ -115,13 +183,14 @@ and graft's workflows (below) are replaced with the ones it ships. Pin graft to 
 `github:danielnaab/graft/v2` follows the branch and is never moved. graft stays within its major
 version unless you name one (`graft@v3.0.0`): a new major may change `mkFlake`.
 
-Both read the repo as data (graft's README table says which inputs are scions; `flake.lock`
+All three read the repo as data (graft's README table says which inputs are scions; `flake.lock`
 says what each is pinned to). Run from graft's own flake they never call the repo's `outputs`, so
 that form suits a bot that watches many repos. It's also the way out when a scion's pinned commit
 has vanished, which stops `nix run .#graft COMMAND` because the app is built from the pins:
 
 ```
 nix run github:danielnaab/graft -- outdated -C path/to/repo [--json]
+nix run github:danielnaab/graft -- changelog -C path/to/repo [--json]
 nix run github:danielnaab/graft -- upgrade -C path/to/repo
 ```
 
@@ -147,7 +216,8 @@ pinned version back. When the change is right, tag the provider and `nix run .#g
 [`template/.forgejo/workflows/`](template/.forgejo/workflows/) has two workflows, which `nix flake init` brings with it; in an existing repo, copy them into `.forgejo/workflows/`:
 
 - **graft-check.yaml**: on PRs and pushes to `main`, the scions (and graft's workflows) match
-  `flake.lock`.
+  `flake.lock`. Each step finds graft's flake from the scions README: at the top, or the
+  `path:` flake it records.
 - **graft-upgrade.yaml**: weekly (and on demand), `graft upgrade`; if anything moved, it runs the
   repo's whole `nix flake check` on the result (graft's check and the repo's own: link checks into
   the scions, lint, tests), force-pushes the branch `graft/upgrade` and opens a PR from it (or
@@ -249,7 +319,7 @@ graft does the mechanical part of a migration; the judgment is left to an agent 
 git switch graft/upgrade
 nix run .#graft migrate                        # the brief, against the merge-base with origin/HEAD
 nix run .#graft -- migrate --base v2-start     # against another base; --json for the same data
-nix run github:danielnaab/graft/v2.6.0 -- migrate -C path/to/repo --no-check   # reads, runs nothing of it
+nix run github:danielnaab/graft/v2.7.0 -- migrate -C path/to/repo --no-check   # reads, runs nothing of it
 workmux add graft-upgrade -p "$(nix run .#graft migrate)"   # an agent in a worktree branched from here
 claude -p "$(nix run .#graft migrate)"                       # or any agent that takes a prompt
 ```
@@ -302,7 +372,8 @@ that returns here:
 ## Develop
 
 `tests/run.sh` runs the whole cycle against a throwaway provider repo: graft, check, drift,
-upgrade by hand, `graft outdated` and `graft upgrade` (in the repo and from outside; two
+upgrade by hand, `graft outdated`, `graft changelog` (sections, Upgrading first, the commit
+fallback, a named tag across a major, `-C`, `--json`, nothing behind) and `graft upgrade` (in the repo and from outside; two
 inputs at one tag, one url twice, a `github:` input beside `git+` ones, `lib/retarget.jq` on
 text), majors
 (reported, crossed only when named, 0.x), graft upgrading its own pin (from a throwaway copy of
@@ -310,4 +381,6 @@ this tree, tagged twice) and its workflows, `graft ci` against a local origin (t
 with a failing check of the consumer's own) and a stub API (the PR body: changelog sections, the
 commit-list fallback, an open PR retitled), `graft migrate` (a provider major that renames and
 deletes, references to those paths, a failing check, `--no-check`, `--json`, `-C`), and the `dir`
-cases. `KEEP=1 tests/run.sh` leaves its work directory behind. `nix flake check` runs shellcheck on it and on `lib/*.sh`.
+cases, and a flake in a subdirectory (sync from below the top, check and drift, outdated and upgrade
+in the repo and with `-C`, `graft ci`, migrate, and a random string at the repo's top that must
+reach no store path the run made). `KEEP=1 tests/run.sh` leaves its work directory behind. `nix flake check` runs shellcheck on it and on `lib/*.sh`.

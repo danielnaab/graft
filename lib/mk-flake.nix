@@ -7,8 +7,10 @@
 # make (one folder per scion, plus a README naming each pin), and gives the repo two outputs:
 #
 #   apps.<system>.graft    the graft command (lib/graft.sh); with no arguments, replace <dir> with
-#                          `expected` (nix run .#graft)
-#   checks.<system>.graft  fail unless <dir> is `expected` (nix flake check)
+#                          `expected` (nix run .#graft); `graft check` compares the working tree's
+#                          <dir> (and graft's workflows) with it
+#   checks.<system>.graft  fail unless <dir> is `expected` (nix flake check); only when the flake is
+#                          at the repo's top, the only place its source holds <dir>
 #
 # Arguments:
 #
@@ -21,6 +23,13 @@
 #            mistyped `dir = "src"` stops there.
 #   outputs  the repo's own flake outputs, merged with graft's at every level, so a repo's `checks`
 #            sit beside graft's. `apps.<system>.graft` and `checks.<system>.graft` stay graft's.
+#   flakeDir where this flake.nix sits, relative to the repo's top; default `.`, the top. A
+#            subdirectory (`nix/workspace`) is for a repo with content that must never be copied
+#            into the world-readable Nix store: run as a `path:` flake (nix run path:nix/workspace#graft)
+#            Nix copies only that directory, never the repo's top, so the app finds the top with git
+#            and `dir` stays relative to it. Such a flake has no `checks.<system>.graft` (its source
+#            can't see <dir>): `graft check` is the check. The scions README records flakeDir, which
+#            is how graft's other commands, and its workflows, find the flake.
 #
 # `expected` is built by lib/assemble.sh, which `graft upgrade` also uses, so an upgrade writes
 # exactly what the check expects.
@@ -37,7 +46,7 @@
 # one has vanished, move it from outside: nix run github:danielnaab/graft -- upgrade -C . NAME
 { nixpkgs, systems, cli }:
 
-{ inputs, scions ? null, dir ? "scions", outputs ? { } }:
+{ inputs, scions ? null, dir ? "scions", flakeDir ? ".", outputs ? { } }:
 
 let
   lib = nixpkgs.lib;
@@ -52,6 +61,17 @@ let
     && lib.all (s: s != "" && s != "." && s != "..") segments
     && lib.head segments != ".git";
   q = lib.escapeShellArg path;
+
+  # where this flake sits under the repo's top: `.`, or a plain relative path (it goes into `path:`
+  # flake references and the scions README, so no spaces or URL punctuation)
+  fd = lib.removeSuffix "/" flakeDir;
+  root = fd == "." || fd == "";
+  validFlakeDir = root || (builtins.match "[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*" fd != null
+    && lib.all (s: s != "." && s != "..") (lib.splitString "/" fd)
+    && lib.head (lib.splitString "/" fd) != ".git");
+  flakeArg = if root then "." else fd;
+  # how a person runs this flake's app, from the repo's top
+  run = if root then "nix run .#graft" else "nix run path:${fd}#graft";
 
   # flake.nix's `inputs` is a literal, so it's read here as data: asking the fetched inputs instead
   # would fetch every one, and call every flake input's outputs.
@@ -74,32 +94,78 @@ let
   examples = ../template/.forgejo/workflows;
 
   expected = pkgs: pkgs.runCommand "graft-scions" { } ''
-    ${pkgs.bash}/bin/bash ${./assemble.sh} $out ${q} ${lib.concatMapStringsSep " " (n: lib.escapeShellArg "${n}=${inputs.${n}}=${pin n}") names}
+    GRAFT_FLAKE_DIR=${flakeArg} ${pkgs.bash}/bin/bash ${./assemble.sh} $out ${q} ${lib.concatMapStringsSep " " (n: lib.escapeShellArg "${n}=${inputs.${n}}=${pin n}") names}
   '';
 
+  # The app's own work, `graft-sync [sync|check]`: sync replaces <dir> with `expected`; check compares
+  # the working tree's <dir> with it, as git would commit it (tracked files as they stand, and new
+  # ones git doesn't ignore), and graft's workflows with this version's.
   sync = pkgs: pkgs.writeShellApplication {
     name = "graft-sync";
     runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.git pkgs.gnugrep ];
     text = ''
-      if [ ! -f flake.nix ]; then
-        echo "graft: run from the repo root (no flake.nix here)" >&2
-        exit 1
-      fi
-      if [ -e ${q} ]; then
-        if ! grep -qsF -e ${lib.escapeShellArg marker} -e 'Managed by [graft]' ${q}/README.md; then
-          echo ${lib.escapeShellArg "graft: ${path}/ exists and graft didn't write it (no marker in its README.md); not replacing it"} >&2
+      mode=''${1:-sync}
+      ${if root then ''
+        if [ ! -f flake.nix ]; then
+          echo "graft: run from the repo root (no flake.nix here)" >&2
           exit 1
         fi
-      fi
-      rm -rf ${q}
-      mkdir -p "$(dirname ${q})"
-      cp -R --no-preserve=mode ${expected pkgs} ${q}
-      ${lib.concatMapStrings (n: ''
-        echo ${lib.escapeShellArg "graft: ${path}/${n} <- ${pin n}"}
-      '') names}
-      # A flake sees only what git tracks: without this, a new scion's files fail the check.
-      git add -- ${q} 2>/dev/null || true
-      bash ${./workflows.sh} refresh . ${examples}
+      '' else ''
+        # the flake's source is only ${fd}/: the repo is the git checkout this runs in
+        top=$(git rev-parse --show-toplevel 2>/dev/null) \
+          || { echo ${lib.escapeShellArg "graft: run inside the repo's git checkout (this flake is its ${fd}/)"} >&2; exit 1; }
+        cd "$top"
+        if [ ! -f ${fd}/flake.nix ]; then
+          echo "graft: no ${fd}/flake.nix in $top: run inside the checkout this flake belongs to" >&2
+          exit 1
+        fi
+      ''}
+      case $mode in
+        sync)
+          if [ -e ${q} ]; then
+            if ! grep -qsF -e ${lib.escapeShellArg marker} -e 'Managed by [graft]' ${q}/README.md; then
+              echo ${lib.escapeShellArg "graft: ${path}/ exists and graft didn't write it (no marker in its README.md); not replacing it"} >&2
+              exit 1
+            fi
+          fi
+          rm -rf ${q}
+          mkdir -p "$(dirname ${q})"
+          cp -R --no-preserve=mode ${expected pkgs} ${q}
+          ${lib.concatMapStrings (n: ''
+            echo ${lib.escapeShellArg "graft: ${path}/${n} <- ${pin n}"}
+          '') names}
+          # A flake sees only what git tracks: without this, a new scion's files fail the check.
+          git add -- ${q} 2>/dev/null || true
+          bash ${./workflows.sh} refresh . ${examples} ${lib.escapeShellArg run}
+          ;;
+        check)
+          if [ ! -d ${q} ]; then
+            echo ${lib.escapeShellArg "graft: ${path}/ is missing; run: ${run}"} >&2
+            exit 1
+          fi
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          mkdir -p "$tmp/actual/"${q}
+          if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            git ls-files -z --cached --others --exclude-standard -- ${lib.escapeShellArg ":(literal)${path}"} \
+              | while IFS= read -r -d ''' f; do
+                  if [ -e "$f" ] || [ -L "$f" ]; then cp -P --parents --no-preserve=mode -- "$f" "$tmp/actual/"; fi
+                done
+          else
+            cp -RP --no-preserve=mode ${q}/. "$tmp/actual/"${q}
+          fi
+          rc=0
+          if ! diff -r ${expected pkgs} "$tmp/actual/"${q} >&2; then
+            echo ${lib.escapeShellArg "graft: ${path}/ differs from the pins in ${if root then "" else "${fd}/"}flake.lock; run: ${run}"} >&2
+            echo "graft: (a file listed only on the left is one git can't see: dropped by your .gitignore, say)" >&2
+            rc=1
+          fi
+          bash ${./workflows.sh} check . ${examples} ${lib.escapeShellArg run} || rc=1
+          if [ "$rc" = 0 ]; then echo ${lib.escapeShellArg "graft: ${path}/ and graft's workflows match the pins"}; fi
+          exit "$rc"
+          ;;
+        *) echo "graft-sync: sync|check" >&2; exit 2 ;;
+      esac
     '';
   };
 
@@ -125,17 +191,25 @@ let
     assert lib.assertMsg (missing == [ ]) "graft: scions not among the flake's inputs: ${toString missing}";
     assert lib.assertMsg validDir
       "graft: dir must be a relative path inside the repo (no leading /, no . or .. segments, not .git), got \"${dir}\"";
+    assert lib.assertMsg validFlakeDir
+      "graft: flakeDir must be `.` or a relative path of letters, digits, `.`, `_`, `-` and `/` (no . or .. segments, not .git), got \"${flakeDir}\"";
     x;
+
+  # without a check of graft's own, the name still isn't the repo's to take
+  own = if root || !(outputs ? checks) then outputs
+    else outputs // { checks = lib.mapAttrs (_: c: removeAttrs c [ "graft" ]) outputs.checks; };
 in
 # graft's side last: a repo's own `checks.<system>.graft` must not replace the drift check
-lib.recursiveUpdate outputs
+lib.recursiveUpdate own
   {
     apps = forAll (pkgs: {
       graft = valid {
         type = "app";
-        program = lib.getExe (cli pkgs (lib.getExe (sync pkgs)));
-        meta.description = "graft: sync, outdated, upgrade, migrate, ci";
+        program = lib.getExe (cli pkgs (lib.getExe (sync pkgs)) flakeArg);
+        meta.description = "graft: sync, check, outdated, upgrade, migrate, ci";
       };
     });
-    checks = forAll (pkgs: { graft = valid (check pkgs); });
+    # in a subdirectory, an empty set where a repo with no checks of its own would have none, so
+    # `checks.<system>` always evaluates (graft ci and migrate list it)
+    checks = forAll (pkgs: lib.optionalAttrs root { graft = valid (check pkgs); });
   }
