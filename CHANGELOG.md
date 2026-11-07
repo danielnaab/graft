@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.7.0 - 2026-11-07
 
 ### Added
 - **A flake in a subdirectory.** `mkFlake`'s `flakeDir` (default `.`) says where `flake.nix` sits
