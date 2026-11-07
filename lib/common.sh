@@ -5,19 +5,17 @@
 #   locate, flake_update    the repo's top and where its graft flake sits (mkFlake's flakeDir)
 #   lock_node, is_semver    a flake.lock's root inputs, read as data
 #   full_check              the repo's whole `nix flake check`, each check by name
-#   upstream_input          what changed upstream for one moved input (CHANGELOG sections or
-#                           commits), fetched with plain git and returned as JSON
+#   upstream_input          what changed upstream for one moved input between two locks
+#   upstream_range          the same between two commits or tags (CHANGELOG sections or commits),
+#                           fetched with plain git and returned as JSON
 #   changelog_between, cap  the text helpers under them
 
 MARKERS=("<!-- managed by graft: https://github.com/danielnaab/graft -->" "Managed by [graft]")
 nix_() { nix --extra-experimental-features 'nix-command flakes' "$@"; }
 # git whose output parses the same whatever the user's config: no colour, no grep column
 git() { command git -c color.ui=never -c grep.column=false "$@"; }
-# jq: text from upstream as plain lines: CR and CRLF become LF, and every other control character
-# (ESC, BEL, NUL, NEL, the line/paragraph separators, bidi overrides) a ?, so nothing in it can end
-# a quote, move the cursor, write the clipboard or hide text
-# shellcheck disable=SC2034 # used by ci.sh and migrate.sh
-JQ_CLEAN='def clean: gsub("\r\n?"; "\n") | gsub("[\u0001-\u0008\u000b-\u001f\u007f\u0085\u2028\u2029\u202a-\u202e\u2066-\u2069]"; "?") | gsub("\u0000"; "?");'
+# graft's lib/, for jq's -L: upstream.jq's helpers (clean: upstream text as plain lines)
+GRAFT_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "graft: $*" >&2; exit 1; }
 
@@ -140,49 +138,64 @@ full_check() {
 }
 
 # upstream_input BASE_LOCK HEAD_LOCK NAME: what changed upstream for root input NAME between the two
-# flake.locks, as one JSON object, or nothing when its locked commit is the same in both (or it's
-# missing from either). The upstream is the one BASE_LOCK names (the default branch's: reviewed);
-# an input HEAD_LOCK points somewhere else is reported, not fetched. HEAD_LOCK's revs and refs are
-# untrusted: a rev must be a full commit hash and a ref a version tag before git sees it. The
-# provider is fetched with `git fetch` into a bare repo (no checkout: no hooks, no filters run),
-# without http.extraHeader. Fetched text is data: it reaches the JSON through files and jq, never
-# a command line or eval. Fields:
+# flake.locks, as upstream_range's JSON, or nothing when its locked commit is the same in both (or
+# it's missing from either). The upstream is the one BASE_LOCK names (the default branch's:
+# reviewed); an input HEAD_LOCK points somewhere else is reported (status elsewhere), not fetched.
+# HEAD_LOCK's revs and refs are untrusted: upstream_range checks them before git sees them.
+upstream_input() {
+  local base=$1 head=$2 name=$3 o nw ov nv status=""
+  o=$(lock_node "$base" "$name"); nw=$(lock_node "$head" "$name")
+  if [ -z "$o" ] || [ -z "$nw" ]; then return 0; fi
+  ov=$(jq -r '.locked.rev // empty' <<<"$o"); nv=$(jq -r '.locked.rev // empty' <<<"$nw")
+  [ "$ov" != "$nv" ] || return 0
+  if [ "$(jq -n --argjson a "$o" --argjson b "$nw" '($a.original|del(.ref,.rev)) == ($b.original|del(.ref,.rev))')" != true ]; then
+    status=elsewhere
+  fi
+  upstream_range "$name" "$o" "$ov" "$nv" "$(jq -r '.original.ref // empty' <<<"$o")" \
+    "$(jq -r '.original.ref // empty' <<<"$nw")" "$status"
+}
+
+# upstream_range NAME NODE FROM_REV TO_REV FROM_REF TO_REF [STATUS]: what changed upstream for an
+# input (NODE, its flake.lock node, says where it comes from) between two commits, as one JSON
+# object. TO_REV may be empty when TO_REF is a version tag: the tag is fetched and its commit used
+# (graft changelog, which has no lock for the target). A rev must be a full commit hash and a ref a
+# version tag before git sees it; a ref that isn't one is dropped. STATUS, if given, is reported
+# with nothing fetched. The provider is fetched with `git fetch` into a bare repo (no checkout: no
+# hooks, no filters run), without http.extraHeader. Fetched text is data: it reaches the JSON
+# through files and jq, never a command line or eval. Fields:
 #   name from to from_rev to_rev  from/to: the tags, or the first 12 of the commits
-#   status    fetched | elsewhere (HEAD_LOCK points it at another source) | not-commit | not-git
-#             | unfetchable
+#   status    fetched | elsewhere (the caller's) | not-commit | not-git | unfetchable
 #   url compare                   where it was fetched from; a compare link (GitHub only), or null
 #   changelog upgrading rest      CHANGELOG.md's sections for from < version <= to (headings two
 #                                 levels down), all of them, only their Upgrading subsections, and
 #                                 all but those; "" when there are none
 #   commits   up to 51 lines of `git log --oneline` for the range, when there's no changelog text
 #   in_history                    whether from_rev was found upstream
-upstream_input() {
-  local base=$1 head=$2 name=$3 o nw ov nv ot nt url cmp tmp status=fetched hist=false
-  o=$(lock_node "$base" "$name"); nw=$(lock_node "$head" "$name")
-  if [ -z "$o" ] || [ -z "$nw" ]; then return 0; fi
-  ov=$(jq -r '.locked.rev // empty' <<<"$o"); nv=$(jq -r '.locked.rev // empty' <<<"$nw")
-  [ "$ov" != "$nv" ] || return 0
-  ot=$(jq -r '.original.ref // empty' <<<"$o"); nt=$(jq -r '.original.ref // empty' <<<"$nw")
+upstream_range() {
+  local name=$1 o=$2 ov=$3 nv=$4 ot=$5 nt=$6 status=${7:-} url cmp tmp hist=false
   is_semver "$ot" || ot=""; is_semver "$nt" || nt=""
   url=$(jq -r 'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo).git"
                elif .original.type=="git" then .original.url else empty end' <<<"$o")
-  cmp=$(jq -r --arg a "${ot:-$ov}" --arg b "${nt:-$nv}" \
-    'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo)/compare/\($a)...\($b)" else empty end' <<<"$o")
   tmp=$(mktemp -d) || return 1
   : > "$tmp/changelog"; : > "$tmp/upgrading"; : > "$tmp/rest"; : > "$tmp/commits"
-  if [ "$(jq -n --argjson a "$o" --argjson b "$nw" '($a.original|del(.ref,.rev)) == ($b.original|del(.ref,.rev))')" != true ]; then
-    status=elsewhere
-  elif ! [[ $ov =~ ^[0-9a-f]{40}$ && $nv =~ ^[0-9a-f]{40}$ ]]; then
+  if [ -n "$status" ]; then
+    :
+  elif ! [[ $ov =~ ^[0-9a-f]{40}$ ]] || ! [[ $nv =~ ^[0-9a-f]{40}$ || ( -z $nv && -n $nt ) ]]; then
     status=not-commit
   elif [ -z "$url" ]; then
     status=not-git
   else
+    status=fetched
     git init -q --bare "$tmp/git" || { rm -rf "$tmp"; return 1; }
     # by commit (GitHub and Forgejo serve any reachable one), else by tag; either way the commit
-    # checked against the lock
-    { git -C "$tmp/git" -c http.extraHeader= fetch -q --no-tags -- "$url" "$nv" \
-        || { [ -n "$nt" ] && git -C "$tmp/git" -c http.extraHeader= fetch -q --no-tags -- "$url" "refs/tags/$nt"; }; } 2>/dev/null || true
-    if ! git -C "$tmp/git" cat-file -e "$nv^{commit}" 2>/dev/null; then
+    # checked against the lock. With no commit, the tag's.
+    if [ -n "$nv" ]; then
+      { git -C "$tmp/git" -c http.extraHeader= fetch -q --no-tags -- "$url" "$nv" \
+          || { [ -n "$nt" ] && git -C "$tmp/git" -c http.extraHeader= fetch -q --no-tags -- "$url" "refs/tags/$nt"; }; } 2>/dev/null || true
+    elif git -C "$tmp/git" -c http.extraHeader= fetch -q --no-tags -- "$url" "refs/tags/$nt" 2>/dev/null; then
+      nv=$(git -C "$tmp/git" rev-parse -q --verify 'FETCH_HEAD^{commit}' 2>/dev/null) || nv=""
+    fi
+    if [ -z "$nv" ] || ! git -C "$tmp/git" cat-file -e "$nv^{commit}" 2>/dev/null; then
       status=unfetchable
     else
       git -C "$tmp/git" cat-file -e "$ov^{commit}" 2>/dev/null \
@@ -200,14 +213,16 @@ upstream_input() {
       fi
     fi
   fi
-  # a rev the branch's lock gives is shown only if it is one
+  # a rev the caller gives is shown only if it is one
   [[ $ov =~ ^[0-9a-f]{40}$ ]] || ov="?"
   [[ $nv =~ ^[0-9a-f]{40}$ ]] || nv="?"
-  jq -n --arg name "$name" --arg from "${ot:-${ov:0:12}}" --arg to "${nt:-${nv:0:12}}" \
+  cmp=$(jq -r --arg a "${ot:-$ov}" --arg b "${nt:-$nv}" \
+    'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo)/compare/\($a)...\($b)" else empty end' <<<"$o")
+  jq -n -L "$GRAFT_LIB" --arg name "$name" --arg from "${ot:-${ov:0:12}}" --arg to "${nt:-${nv:0:12}}" \
     --arg from_rev "$ov" --arg to_rev "$nv" --arg status "$status" --arg url "$url" --arg compare "$cmp" \
     --rawfile changelog "$tmp/changelog" --rawfile upgrading "$tmp/upgrading" --rawfile rest "$tmp/rest" \
     --rawfile commits "$tmp/commits" --argjson hist "$hist" \
-    "$JQ_CLEAN"'def trim: sub("^\\s+"; "") | sub("\\s+$"; "");
+    'include "upstream"; def trim: sub("^\\s+"; "") | sub("\\s+$"; "");
      {name: $name, from: $from, to: $to, from_rev: $from_rev, to_rev: $to_rev, status: $status,
       url: (if $url == "" then null else $url end), compare: (if $compare == "" then null else $compare end),
       changelog: ($changelog | clean | trim), upgrading: ($upgrading | clean | trim), rest: ($rest | clean | trim),

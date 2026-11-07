@@ -241,4 +241,4 @@ jq -s --slurpfile top "$tmp/top" --slurpfile wf "$tmp/workflows" --slurpfile che
   '$top[0] + {graft_workflows: $wf[0], moved: ., also_moved: $other, changes: $changes,
              references: $refs, checks: $checks[0]}' "$tmp/moved" > "$tmp/brief.json"
 
-if [ "$json" = 1 ]; then jq . "$tmp/brief.json"; else jq -r -f "$here/migrate.jq" "$tmp/brief.json"; fi
+if [ "$json" = 1 ]; then jq . "$tmp/brief.json"; else jq -r -L "$here" -f "$here/migrate.jq" "$tmp/brief.json"; fi
