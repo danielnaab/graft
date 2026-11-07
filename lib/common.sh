@@ -2,6 +2,7 @@
 # common.sh: functions tools.sh, ci.sh and migrate.sh share. Sourced, never run; defines only.
 #
 #   scion_dirs, scions_in   which directories are graft's, and which scions each holds
+#   locate, flake_update    the repo's top and where its graft flake sits (mkFlake's flakeDir)
 #   lock_node, is_semver    a flake.lock's root inputs, read as data
 #   full_check              the repo's whole `nix flake check`, each check by name
 #   upstream_input          what changed upstream for one moved input (CHANGELOG sections or
@@ -34,25 +35,90 @@ scion_dirs() {
 # The scions a directory's README table names, one per line.
 scions_in() { sed -nE 's/^\| \[([A-Za-z0-9][A-Za-z0-9._-]*)\]\(\1\/\) \|.*/\1/p' "$1/README.md"; }
 
+# The flake directory the scions READMEs record (`<!-- graft flake: DIR -->`, assemble.sh's second
+# line), or nothing when none does (the flake is at the top). Read from the repo, so checked: a
+# plain relative path, the same in every README.
+recorded_flake_dir() {
+  local sd d fds
+  sd=$(scion_dirs) || exit 1
+  fds=$(while IFS= read -r d; do
+          [ -z "$d" ] || sed -n 's/^<!-- graft flake: \(.*\) -->$/\1/p' "$d/README.md"
+        done <<<"$sd" | sort -u)
+  [ -n "$fds" ] || return 0
+  [ "$(wc -l <<<"$fds")" -eq 1 ] || die "the scions READMEs name different flake directories: $(paste -sd ' ' <<<"$fds")"
+  [[ $fds =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ && ! $fds =~ (^|/)\.\.?(/|$) ]] \
+    || die "the scions README names a flake directory graft won't use: $fds"
+  echo "$fds"
+}
+
+# locate [REPO]: cd to the repo's top and set where its graft flake is. With REPO (-C) that's the
+# top, and the flake is where the scions README records it, else at the top; run from graft's own
+# flake without -C, the same for the current directory. Run from the repo's own flake, the flake
+# says (GRAFT_FLAKE_DIR): at the top, the current directory is the top as it always was; in a
+# subdirectory, the top is the git checkout's. Sets:
+#   FLAKE       the flake's directory under the top: `.`, or `nix/workspace` say
+#   FLAKE_REF   the reference that evaluates it: `.`, or `path:/abs/top/nix/workspace`, which copies
+#               only that directory to the store (a git+file flake at the top would copy the repo).
+#               Absolute, since Nix won't write the lock of a relative `path:` flake, and
+#               percent-encoded, so a space in the path parses.
+#   FLAKE_NIX FLAKE_LOCK   its flake.nix and flake.lock, relative to the top
+#   GRAFT_RUN   how a person runs its app from the top: `nix run .#graft`, `nix run path:DIR#graft`
+# shellcheck disable=SC2034 # set for the scripts that source this
+locate() {
+  local fd="" top
+  if [ -n "${1:-}" ]; then
+    cd "$1" || die "can't cd to $1"
+  elif [ -n "${GRAFT_FLAKE_DIR:-}" ] && [ "$GRAFT_FLAKE_DIR" != . ]; then
+    fd=$GRAFT_FLAKE_DIR
+    top=$(git rev-parse --show-toplevel 2>/dev/null) || die "run inside the repo's git checkout (graft's flake is its $fd/)"
+    cd "$top" || exit 1
+  elif [ "${GRAFT_FLAKE_DIR:-}" = . ]; then
+    fd=.
+  fi
+  [ -n "$fd" ] || fd=$(recorded_flake_dir) || exit 1
+  FLAKE=${fd:-.}
+  if [ "$FLAKE" = . ]; then
+    FLAKE_REF=. FLAKE_NIX=flake.nix FLAKE_LOCK=flake.lock GRAFT_RUN="nix run .#graft"
+  else
+    FLAKE_REF="path:$(jq -rn --arg p "$(pwd -P)/$FLAKE" '$p | split("/") | map(@uri) | join("/")')" FLAKE_NIX=$FLAKE/flake.nix FLAKE_LOCK=$FLAKE/flake.lock
+    GRAFT_RUN="nix run path:$FLAKE#graft"
+    [ -f "$FLAKE_NIX" ] || die "no $FLAKE_NIX in $(pwd)"
+  fi
+}
+
+# flake_update NAME...: re-lock inputs of the flake locate found, as a path: flake when it's in a
+# subdirectory (needs Nix 2.19 or later for --flake), so the repo's top is never copied.
+flake_update() {
+  if [ "$FLAKE" = . ]; then nix_ flake update "$@"; else nix_ flake update --flake "$FLAKE_REF" "$@"; fi
+}
+
 # One root input's node in the flake.lock at $1, as JSON, or nothing.
 lock_node() { jq -c --arg n "$2" '.nodes.root.inputs[$n] as $k | if ($k|type)=="string" then .nodes[$k] else empty end' "$1"; }
 
 is_semver() { [[ $1 =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 
-# full_check REPORT: the repo's whole check on the working tree: each of checks.<system> built on
-# its own (so a failure has a name), then `nix flake check` for the rest (evaluation, other
-# systems' outputs). Logs go to stdout as they run. Fails if anything did, after writing to REPORT
-# one line "nix flake check failed: NAME..." and the last lines of each failing log.
+# full_check REPORT: the repo's whole check on the working tree (of the flake locate found): each of
+# checks.<system> built on its own (so a failure has a name), then `nix flake check` for the rest
+# (evaluation, other systems' outputs). A flake in a subdirectory has no checks.<system>.graft, so
+# `graft check` runs first, as `graft`. Logs go to stdout as they run. Fails if anything did, after
+# writing to REPORT one line "nix flake check failed: NAME..." and the last lines of each failing log.
 full_check() {
   local report=$1 system names n log failed=() tails=""
   system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
   log=$(mktemp)
-  if names=$(nix_ eval --json ".#checks.$system" --apply builtins.attrNames 2>"$log" | jq -r '.[]'); then
+  if [ "$FLAKE" != . ]; then
+    echo "graft: graft check"
+    if ! nix_ run "$FLAKE_REF#graft" check 2>&1 | tee "$log"; then
+      failed+=("graft"); tails+="graft:"$'\n'"$(tail -n 30 "$log")"$'\n\n'
+      echo "::error::check graft failed on the upgraded tree"
+    fi
+  fi
+  if names=$(nix_ eval --json "$FLAKE_REF#checks.$system" --apply builtins.attrNames 2>"$log" | jq -r '.[]'); then
     while IFS= read -r n; do
       [ -n "$n" ] || continue
       echo "graft: checks.$system.$n"
       [[ $n =~ ^[A-Za-z0-9_][A-Za-z0-9_\'-]*$ ]] || { echo "graft: (an odd name: left to nix flake check)"; continue; }
-      if ! nix_ build --no-link -L ".#checks.$system.$n" 2>&1 | tee "$log"; then
+      if ! nix_ build --no-link -L "$FLAKE_REF#checks.$system.$n" 2>&1 | tee "$log"; then
         failed+=("$n"); tails+="$n:"$'\n'"$(tail -n 30 "$log")"$'\n\n'
         echo "::error::check $n failed on the upgraded tree"
       fi
@@ -61,7 +127,7 @@ full_check() {
     cat "$log" >&2
     failed+=("checks"); tails+="checks (evaluating checks.$system):"$'\n'"$(tail -n 30 "$log")"$'\n\n'
   fi
-  if ! nix_ flake check -L 2>&1 | tee "$log"; then
+  if ! nix_ flake check -L "$FLAKE_REF" 2>&1 | tee "$log"; then
     if [ ${#failed[@]} -eq 0 ]; then
       failed+=("flake-check"); tails+="nix flake check:"$'\n'"$(tail -n 30 "$log")"$'\n\n'
     fi

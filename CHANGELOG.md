@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **A flake in a subdirectory.** `mkFlake`'s `flakeDir` (default `.`) says where `flake.nix` sits
+  under the repo's top, for a repo with content that must never be copied into the world-readable
+  Nix store: run as `nix run path:nix/workspace#graft`, Nix copies only that directory. `dir` stays
+  relative to the top, and the app finds the top with git, from anywhere in the checkout. The scions
+  README records the flake (`<!-- graft flake: nix/workspace -->`) and names its commands; that line
+  is how `outdated`, `upgrade` and `migrate` (also with `-C`), `graft ci` and graft's workflows find
+  it. `upgrade` re-locks it with `nix flake update --flake path:…` (Nix 2.19 or later). Such a flake
+  has no `checks.<system>.graft`, which couldn't see the scions directory.
+- **`graft check`**: the working tree's scions directory, as git would commit it, and graft's
+  workflows against the pins. In either layout; in a subdirectory it is the check, and
+  `graft ci check`, `graft ci upgrade`'s full check and `graft migrate` run it as `graft`.
+
+### Changed
+- graft's workflows find the flake from the scions README before running `graft ci`. A repo whose
+  flake is at its top runs exactly what it did, but the files differ, so the upgrade that brings
+  this version changes `.forgejo/workflows/` and `graft ci pr` won't open its PR: review the diff
+  and open it yourself, once.
+- `graft migrate`'s brief names the flake's `flake.lock` and check commands when it's in a
+  subdirectory.
+
 ## v2.6.0 - 2026-11-06
 
 ### Changed

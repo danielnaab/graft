@@ -38,4 +38,8 @@ jobs:
           git checkout -q --force --detach "$SHA"
 
       - name: Scions match flake.lock
-        run: nix run .#graft ci check
+        run: |
+          # graft's flake: at the top, or where the scions README records it (mkFlake's flakeDir)
+          d=$(git grep -h '^<!-- graft flake: ' -- README.md '*/README.md' | sed -n 's/^<!-- graft flake: \(.*\) -->$/\1/p' | head -n 1 || true)
+          flake=.; if [ -n "$d" ]; then flake=path:$PWD/$d; fi
+          nix run "$flake#graft" ci check

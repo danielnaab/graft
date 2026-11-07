@@ -10,7 +10,10 @@
 #             with the new version's code.
 #
 # Both read the repo as data: graft's README table in each scions directory says which flake
-# inputs are scions, and flake.lock says what each is pinned to. Run from graft's own flake with -C
+# inputs are scions, and flake.lock says what each is pinned to. The flake may sit in a
+# subdirectory of the repo (mkFlake's flakeDir, which the scions README records): its flake.nix and
+# flake.lock are read and written there, and `nix flake update` runs on it as a `path:` flake, so
+# the repo's top is never copied to the store (common.sh's locate). Run from graft's own flake with -C
 # (a central bot), neither evaluates the repo's flake outputs; `nix run .#graft outdated`, as CI
 # runs it, does, to reach this script. One exception, in upgrade:
 # `nix flake update <name>` re-locks the input, which reads the flake's `inputs` but never calls
@@ -36,7 +39,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/common.sh"
 
 # flake.lock's node for a root input, as JSON, or nothing.
-node() { lock_node flake.lock "$1"; }
+node() { lock_node "$FLAKE_LOCK" "$1"; }
 
 remote() {  # the git URL of a locked input's upstream
   jq -r 'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo).git"
@@ -144,8 +147,8 @@ retarget_text() {
 # Swap NAME's ref in flake.nix from OLD to NEW (see retarget_text).
 retarget() {
   local text
-  text=$(retarget_text "$1" "$2" "$3" < flake.nix) || exit 1
-  printf '%s\n' "$text" > flake.nix
+  text=$(retarget_text "$1" "$2" "$3" < "$FLAKE_NIX") || exit 1
+  printf '%s\n' "$text" > "$FLAKE_NIX"
 }
 
 # The flake reference that fetches NAME's locked export (Nix applies export-ignore to these).
@@ -196,7 +199,7 @@ regraft() {
     specs+=("$name=$path=$(jq -r .locked.rev <<<"$(node "$name")")")
   done < <(scions_in "$dir")
   tmp=$(mktemp -d)
-  bash "$asm" "$tmp/out" "$dir" "${specs[@]}"
+  GRAFT_FLAKE_DIR=$FLAKE bash "$asm" "$tmp/out" "$dir" "${specs[@]}"
   rm -rf "$dir"
   mv "$tmp/out" "$dir"
   rm -rf "$tmp"
@@ -269,8 +272,8 @@ cmd_upgrade() {
   # Every flake.nix edit, made in memory in the order the run below makes them (graft first): one
   # that can't be made (a url not found exactly once) stops the run here, before any file changes.
   # jq reads text as UTF-8 and would write any other byte back as U+FFFD: refuse such a file.
-  jq -Rsj . flake.nix | cmp -s - flake.nix || die "flake.nix isn't valid UTF-8; nothing changed: change the refs by hand"
-  text=$(<flake.nix)
+  jq -Rsj . "$FLAKE_NIX" | cmp -s - "$FLAKE_NIX" || die "$FLAKE_NIX isn't valid UTF-8; nothing changed: change the refs by hand"
+  text=$(<"$FLAKE_NIX")
   if [ -n "$moved_graft" ]; then
     IFS=$'\t' read -r name dir pinned target <<<"$moved_graft"
     text=$(retarget_text "$name" "$pinned" "$target" <<<"$text") || exit 1
@@ -286,7 +289,7 @@ cmd_upgrade() {
     IFS=$'\t' read -r name dir pinned target <<<"$moved_graft"
     echo "graft: graft $pinned -> $target"
     retarget graft "$pinned" "$target"
-    nix_ flake update graft >/dev/null 2>&1 || nix_ flake update graft
+    flake_update graft >/dev/null 2>&1 || flake_update graft
     src=$(graft_src) || exit 1
     asm=$src/lib/assemble.sh
     # every scions directory: the new assemble.sh may write them differently
@@ -297,17 +300,17 @@ cmd_upgrade() {
     [ "$dir" != - ] || continue
     echo "graft: $name $pinned -> $target"
     retarget "$name" "$pinned" "$target"
-    nix_ flake update "$name" >/dev/null 2>&1 || nix_ flake update "$name"
+    flake_update "$name" >/dev/null 2>&1 || flake_update "$name"
     [[ " ${dirs[*]} " == *" $dir "* ]] || dirs+=("$dir")
   done
   for dir in "${dirs[@]}"; do regraft "$dir" "$asm"; echo "graft: rebuilt $dir/"; done
   if [ -n "$moved_graft" ] && [ -f "$src/lib/workflows.sh" ]; then
-    bash "$src/lib/workflows.sh" refresh . "$src/template/.forgejo/workflows"
+    bash "$src/lib/workflows.sh" refresh . "$src/template/.forgejo/workflows" "$GRAFT_RUN"
   fi
 }
 
 sub=${1:-}; shift || true
-repo=. json=0 args=()
+repo="" json=0 args=()
 while [ $# -gt 0 ]; do
   case $1 in
     -C) repo=$2; shift 2 ;;
@@ -316,8 +319,8 @@ while [ $# -gt 0 ]; do
     *) args+=("$1"); shift ;;
   esac
 done
-cd "$repo"
-[ -f flake.lock ] || die "no flake.lock in $(pwd)"
+locate "$repo"
+[ -f "$FLAKE_LOCK" ] || die "no $FLAKE_LOCK in $(pwd)"
 case $sub in
   outdated) cmd_outdated ;;
   upgrade) cmd_upgrade "${args[@]}" ;;

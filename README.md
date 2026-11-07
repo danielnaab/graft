@@ -21,7 +21,7 @@ It is a Nix flake library and one `graft` command. Nix does the real work:
 | Upgrading, graft itself too | graft: `nix run .#graft upgrade` (moves the tag, `nix flake update`, re-grafts) |
 | Copying into the repo | graft: `nix run .#graft` |
 | Briefing a migration | graft: `nix run .#graft migrate` (what moved, what upstream says, what broke) |
-| Checking the copy | graft: `nix flake check` |
+| Checking the copy | graft: `nix flake check`, or `nix run .#graft check` |
 
 ## Use it
 
@@ -58,7 +58,7 @@ grafted on: another repository's export, joined to yours while yours keeps its o
 from what the pins produce: an edited scion, a pin moved without re-running graft, or a grafted
 file your `.gitignore` drops.
 
-`mkFlake` takes three more arguments, all optional:
+`mkFlake` takes four more arguments, all optional:
 
 ```nix
 outputs = { graft, nixpkgs, ... }@inputs: graft.lib.mkFlake {
@@ -78,10 +78,67 @@ outputs = { graft, nixpkgs, ... }@inputs: graft.lib.mkFlake {
 - `outputs` is the repo's own flake outputs, merged with graft's at every level, so its `apps` and
   `checks` sit beside graft's. The names `apps.<system>.graft` and `checks.<system>.graft` stay
   graft's.
+- `flakeDir` is where `flake.nix` sits, relative to the repo's top (default `.`): see
+  [A flake in a subdirectory](#a-flake-in-a-subdirectory).
 
-Everything is one app: `nix run .#graft` rebuilds the scions directory, and
-`nix run .#graft help` lists the rest. A subcommand needs no `--`; a flag does, because Nix would
+Everything is one app: `nix run .#graft` rebuilds the scions directory, `nix run .#graft check`
+compares the working tree's copy (and graft's workflows) with the pins, as `nix flake check` does
+for what git tracks, and `nix run .#graft help` lists the rest. A subcommand needs no `--`; a flag does, because Nix would
 otherwise take it (`nix run .#graft -- outdated --json`).
+
+## A flake in a subdirectory
+
+Evaluating a flake at a git repo's top copies every file git tracks into the Nix store, which any
+user of the machine can read (Nix 2.24 has no lazy trees). That is every `nix run .#…`,
+`nix flake check` and `nix flake update`. A repo holding content that must not land there (meeting
+transcripts, say) puts its flake in a subdirectory and runs it as a `path:` flake, which copies
+only that directory:
+
+```nix
+# nix/workspace/flake.nix: the repo's one flake; keep this directory to flake.nix and flake.lock
+{
+  description = "What this repo is";
+
+  inputs = {
+    graft.url = "github:danielnaab/graft/v2.7.0";
+    meta-knowledge-base = { url = "github:danielnaab/meta-knowledge-base/v1.0.1"; flake = false; };
+  };
+
+  outputs = inputs: inputs.graft.lib.mkFlake {
+    inherit inputs;
+    flakeDir = "nix/workspace";   # where this file is, from the repo's top
+    dir = ".scions";              # still from the top: <top>/.scions
+  };
+}
+```
+
+```
+nix flake lock "path:$PWD/nix/workspace"     # once, from the top: Nix won't lock a relative path: flake
+nix run path:nix/workspace#graft             # sync: writes <top>/.scions, from anywhere in the checkout
+nix run path:nix/workspace#graft check       # the check: scions and graft's workflows against the pins
+nix run path:nix/workspace#graft upgrade     # re-locks nix/workspace as a path: flake
+```
+
+Never `nix run .#…` or `nix flake …` without `path:`: inside a git checkout a plain path is a
+`git+file` flake, which copies the whole repo (and `.` at the top has no flake to find). After
+changing an input in `flake.nix` by hand, re-lock with the full path, as above; Nix refuses to
+write the lock of a relative `path:` flake (`cannot fetch input … because it uses a relative path`).
+`flakeDir` is plain (letters, digits, `.`, `_`, `-`, `/`) because it goes into those references.
+
+What changes:
+
+- The app finds the repo's top with git (`git rev-parse --show-toplevel`), since the flake's own
+  source holds only its directory.
+- There's no `checks.<system>.graft`: that source can't see the scions directory, and a check that
+  passed without looking would be worse than none. `graft check` is the check, and `graft ci check`,
+  `graft ci upgrade`'s full check and `graft migrate`'s run it (as `graft`) beside the repo's own
+  `checks`. It reads the working tree as git would commit it: tracked files as they stand, and new
+  ones git doesn't ignore.
+- The scions README's second line records the flake, `<!-- graft flake: nix/workspace -->`, and its
+  commands name it. That line is how `outdated`, `upgrade` and `migrate` run from graft's flake
+  (`-C REPO`, REPO being the top) and graft's workflows find the flake; nothing else is configured.
+- `upgrade` edits `nix/workspace/flake.nix` and runs `nix flake update NAME --flake path:<abs>`
+  (Nix 2.19 or later), so the top is never copied.
 
 ## Upgrade
 
@@ -147,7 +204,8 @@ pinned version back. When the change is right, tag the provider and `nix run .#g
 [`template/.forgejo/workflows/`](template/.forgejo/workflows/) has two workflows, which `nix flake init` brings with it; in an existing repo, copy them into `.forgejo/workflows/`:
 
 - **graft-check.yaml**: on PRs and pushes to `main`, the scions (and graft's workflows) match
-  `flake.lock`.
+  `flake.lock`. Each step finds graft's flake from the scions README: at the top, or the
+  `path:` flake it records.
 - **graft-upgrade.yaml**: weekly (and on demand), `graft upgrade`; if anything moved, it runs the
   repo's whole `nix flake check` on the result (graft's check and the repo's own: link checks into
   the scions, lint, tests), force-pushes the branch `graft/upgrade` and opens a PR from it (or
@@ -310,4 +368,6 @@ this tree, tagged twice) and its workflows, `graft ci` against a local origin (t
 with a failing check of the consumer's own) and a stub API (the PR body: changelog sections, the
 commit-list fallback, an open PR retitled), `graft migrate` (a provider major that renames and
 deletes, references to those paths, a failing check, `--no-check`, `--json`, `-C`), and the `dir`
-cases. `KEEP=1 tests/run.sh` leaves its work directory behind. `nix flake check` runs shellcheck on it and on `lib/*.sh`.
+cases, and a flake in a subdirectory (sync from below the top, check and drift, outdated and upgrade
+in the repo and with `-C`, `graft ci`, migrate, and a random string at the repo's top that must
+reach no store path the run made). `KEEP=1 tests/run.sh` leaves its work directory behind. `nix flake check` runs shellcheck on it and on `lib/*.sh`.

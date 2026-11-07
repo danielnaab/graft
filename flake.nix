@@ -8,13 +8,14 @@
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
-      # The graft command (lib/graft.sh). A repo's copy carries its `sync` (lib/mk-flake.nix);
-      # graft's own has none, and reads any checkout with -C.
-      cli = pkgs: sync: pkgs.writeShellApplication {
+      # The graft command (lib/graft.sh). A repo's copy carries its `sync` (lib/mk-flake.nix) and
+      # where its flake sits under the repo's top (mkFlake's flakeDir); graft's own has neither, and
+      # reads any checkout with -C.
+      cli = pkgs: sync: flakeDir: pkgs.writeShellApplication {
         name = "graft";
         runtimeInputs = with pkgs; [ bash coreutils diffutils findutils gawk gnugrep gnused jq git util-linux curl ];
         text = ''
-          export GRAFT_SYNC=${sync}
+          export GRAFT_SYNC=${nixpkgs.lib.escapeShellArg sync} GRAFT_FLAKE_DIR=${nixpkgs.lib.escapeShellArg flakeDir}
           exec bash ${./lib}/graft.sh "$@"
         '';
         meta.description = "Copy pinned, provider-defined exports of other repos into this one";
@@ -25,7 +26,7 @@
 
       # Run against any checkout without evaluating its flake:
       #   nix run github:danielnaab/graft -- outdated -C path/to/repo
-      packages = forAll (pkgs: { default = cli pkgs ""; });
+      packages = forAll (pkgs: { default = cli pkgs "" ""; });
 
       # A new repo's flake.nix and graft's workflows: nix flake init -t github:danielnaab/graft
       templates.default = {
