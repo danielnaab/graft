@@ -35,7 +35,7 @@ workflows:
   description = "What this repo is";
 
   inputs = {
-    graft.url = "github:danielnaab/graft/v2.7.0";   # a tag: `graft upgrade` moves it
+    graft.url = "github:danielnaab/graft/v2.7.1";   # a tag: `graft upgrade` moves it
 
     # each `flake = false` input is a scion; github: applies the provider's export-ignore
     meta-knowledge-base = { url = "github:danielnaab/meta-knowledge-base/v1.0.1"; flake = false; };
@@ -101,7 +101,7 @@ only that directory:
   description = "What this repo is";
 
   inputs = {
-    graft.url = "github:danielnaab/graft/v2.7.0";
+    graft.url = "github:danielnaab/graft/v2.7.1";
     meta-knowledge-base = { url = "github:danielnaab/meta-knowledge-base/v1.0.1"; flake = false; };
   };
 
@@ -149,7 +149,7 @@ nix run .#graft changelog                # what upgrade would take: each outdate
 nix run .#graft changelog name@v2.0.0    # what one named tag would bring (across a major too)
 nix run .#graft upgrade                  # graft and every scion that's outdated, to the newest tag of its major
 nix run .#graft upgrade name@v1.2.0   # one scion to a named tag (the only way across a major)
-nix run .#graft upgrade graft@v2.7.0  # graft itself to a named tag
+nix run .#graft upgrade graft@v2.7.1  # graft itself to a named tag
 ```
 
 `graft changelog` says what you'd be taking before you take it. For each input `outdated` reports
@@ -319,7 +319,7 @@ graft does the mechanical part of a migration; the judgment is left to an agent 
 git switch graft/upgrade
 nix run .#graft migrate                        # the brief, against the merge-base with origin/HEAD
 nix run .#graft -- migrate --base v2-start     # against another base; --json for the same data
-nix run github:danielnaab/graft/v2.7.0 -- migrate -C path/to/repo --no-check   # reads, runs nothing of it
+nix run github:danielnaab/graft/v2.7.1 -- migrate -C path/to/repo --no-check   # reads, runs nothing of it
 workmux add graft-upgrade -p "$(nix run .#graft migrate)"   # an agent in a worktree branched from here
 claude -p "$(nix run .#graft migrate)"                       # or any agent that takes a prompt
 ```

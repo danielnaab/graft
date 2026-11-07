@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.7.1 - 2026-11-07
 
 ### Fixed
 - `graft check`, and `checks.<system>.graft`, print what a file listed only on the left means only
