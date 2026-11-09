@@ -805,9 +805,16 @@ rm .gitignore && git_ reset -q
 refuse "subdir: check from graft's own flake says where it runs" quiet nix run "path:$graft" -- check
 # the workflow's own step finds the flake from the scions README
 sed -n '/name: Scions match/,$p' .forgejo/workflows/graft-check.yaml | sed -n '/run: |/,$p' | tail -n +2 | sed 's/^          //' > "$work/check-step.sh"
-expect "subdir: graft-check.yaml's step finds the flake and passes" quiet bash -e "$work/check-step.sh"
+# as CI runs it: the nixos/nix image has nix and git, and no sed, awk or head (graft 2.7.0-2.7.1's
+# workflows used sed here, fell back to `.` and failed)
+cibin=$work/ci-bin
+mkdir -p "$cibin" && ln -sf "$(command -v nix)" "$cibin/nix" && ln -sf "$(command -v git)" "$cibin/git"
+step() { env PATH="$cibin" "$(command -v bash)" -e "$work/check-step.sh"; }
+expect "subdir: graft-check.yaml's step finds the flake and passes" quiet step
+expect "subdir: graft-upgrade.yaml finds it the same way, in both jobs" \
+  test "$(grep -c -F "$(grep -F 'd=$(git grep' .forgejo/workflows/graft-check.yaml)" "$graft/template/.forgejo/workflows/graft-upgrade.yaml")" = 2
 echo "local edit" >> .scions/provider/docs/policy.md
-refuse "subdir: and fails on drift" quiet bash -e "$work/check-step.sh"
+refuse "subdir: and fails on drift" quiet step
 git_ checkout -q -- .
 
 # outdated and upgrade: the flake's own files, re-locked as a path: flake

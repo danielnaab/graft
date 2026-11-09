@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.7.2 - 2026-11-09
+
+### Fixed
+- graft's workflows failed in a repo whose flake is in a subdirectory (`flakeDir`): the step that
+  reads the flake's place from the scions README used `sed`, which the `nixos/nix` image doesn't
+  have, so it fell back to the top and found no `flake.nix`. It reads it with bash alone now, and
+  the test runs that step with only `nix` and `git` on PATH, as CI does.
+
+### Upgrading
+- `nix run path:<flakeDir>#graft upgrade graft` replaces both workflows with the fixed copies (as
+  long as their `# managed by graft:` line is there). The failing workflow can't do this upgrade
+  itself, so run it by hand.
+
 ## v2.7.1 - 2026-11-07
 
 ### Fixed
