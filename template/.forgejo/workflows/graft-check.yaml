@@ -39,7 +39,9 @@ jobs:
 
       - name: Scions match flake.lock
         run: |
-          # graft's flake: at the top, or where the scions README records it (mkFlake's flakeDir)
-          d=$(git grep -h '^<!-- graft flake: ' -- README.md '*/README.md' | sed -n 's/^<!-- graft flake: \(.*\) -->$/\1/p' | head -n 1 || true)
+          # graft's flake: at the top, or where the scions README records it (mkFlake's flakeDir).
+          # Bash and git only: the nixos/nix image has no sed.
+          d=$(git grep -h '^<!-- graft flake: .* -->$' -- README.md '*/README.md' || true)
+          d=${d%%$'\n'*} && d=${d#'<!-- graft flake: '} && d=${d%' -->'}
           flake=.; if [ -n "$d" ]; then flake=path:$PWD/$d; fi
           nix run "$flake#graft" ci check
