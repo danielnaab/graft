@@ -198,6 +198,7 @@ assembler() {
 regraft() {
   local dir=$1 asm=$2 name ref path specs=() names=() ignored=() tmp
   mapfile -t names < <(scions_in "$dir")
+  [ ${#names[@]} -gt 0 ] || die "$dir/README.md names no scions"
   # one it can't check is left as locked: the export check below still catches an unfiltered one
   peel_locks "${names[@]}" || exit 1
   for name in "${names[@]}"; do
@@ -405,8 +406,8 @@ locate "$repo"
 [ -f "$FLAKE_LOCK" ] || die "no $FLAKE_LOCK in $(pwd)"
 case $sub in
   # internal, before `nix run .#graft` syncs (graft.sh): re-pin any lock at an annotated tag's
-  # object; when it did, print the flake reference to run graft from again, on the new lock
-  peel) peel_locks || exit 1; if [ -n "$PEELED" ]; then echo "$FLAKE_REF"; fi ;;
+  # object; when it did, print how to run graft again, on the new lock
+  peel) peel_locks || exit 1; if [ -n "$PEELED" ]; then echo "$GRAFT_RUN"; fi ;;
   outdated) cmd_outdated ;;
   upgrade) cmd_upgrade "${args[@]}" ;;
   changelog) cmd_changelog "${args[@]}" ;;

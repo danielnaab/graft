@@ -250,7 +250,13 @@ tag_lock "$atag" && git_ add -A
 expect "annotated: the lock pins the tag object, as Nix 2.24 writes it" quiet jq -e --arg r "$atag" '.nodes.annotated.locked.rev == $r' flake.lock
 bugged=$(nix flake prefetch --json "git+$aurl?ref=v1.0.0&rev=$atag&exportIgnore=1" 2>/dev/null | jq -r .storePath)
 expect "annotated: (the bug: at the tag object, Nix's export ignores nothing)" test -e "$bugged/tests/t.sh"
-# sync re-pins the tag's commit, then grafts the real export
+# sync re-pins the tag's commit and stops (its scions were built from the old lock); run again, it
+# grafts the real export
+refused "annotated: sync re-pins, then stops" nix run .#graft
+expect "and says to run it again" grep -q "flake.lock re-pinned; nothing synced yet: run nix run .#graft again" <<<"$out"
+expect "and says what it re-pinned" grep -q "flake.lock held annotated tag v1.0.0's object" <<<"$out"
+expect "and wrote no scions" test ! -e scions
+git_ add -A
 quiet nix run .#graft || fail "nix run .#graft, annotated"
 git_ add -A
 # shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
@@ -280,6 +286,7 @@ refused "annotated: sync, upstream unreachable, refuses to write the unfiltered 
 expect "and says it couldn't check" grep -q "can't check whether annotated's tag" <<<"$out"
 expect "and the scions directory is as it was" test -e scions/annotated/secret.md
 serve_git "$aport"
+refuse "annotated: sync re-pins" quiet nix run .#graft
 quiet nix run .#graft || fail "nix run .#graft, annotated, again"
 git_ add -A
 # shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions

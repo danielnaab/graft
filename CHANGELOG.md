@@ -14,7 +14,8 @@
     `ref=TAG` over HTTP or ssh into a cache that never saw the tag, which stopped `nix flake
     update` in a fresh CI container.
   - `nix run .#graft` first re-pins a lock that holds an annotated tag's object to its commit,
-    then runs again on the new lock; the regraft inside `graft upgrade` does the same.
+    then stops and asks to be run again (that run was built from the old lock); the regraft
+    inside `graft upgrade` re-pins too.
   - `nix flake check`, `graft check` and `graft ci check` fail when a fetched `exportIgnore`
     export still holds a path its own `.gitattributes` marks `export-ignore`, and say why;
     `nix run .#graft` refuses to write one.
@@ -39,9 +40,9 @@
   export Nix fetched is unfiltered.
 
 ### Upgrading
-- `nix run .#graft upgrade graft` (or the weekly PR) takes it. Then run `nix run .#graft` once:
-  if a `git+` scion's lock held an annotated tag's object, it re-pins the commit and rebuilds the
-  scion without the files its provider export-ignores. Review that diff of `scions/` and
+- `nix run .#graft upgrade graft` (or the weekly PR) takes it. Then run `nix run .#graft`: if a
+  `git+` scion's lock held an annotated tag's object, it re-pins the commit and stops; run it again
+  to rebuild the scion without the files its provider export-ignores. Review that diff of `scions/` and
   `flake.lock` and commit it; `nix flake check` fails until you do.
 - A provider whose `.gitattributes` has `dir/ export-ignore` and is grafted as `git+`: change it to
   `dir export-ignore` (or `/dir export-ignore`) and tag a release; nothing else ignores it.

@@ -133,20 +133,22 @@ relock_git() {
   jq -e --arg rev "$rev" '.locked.rev == $rev' <<<"$pre" >/dev/null \
     || { echo "graft: $name: Nix locked something other than $rev" >&2; return 1; }
   tmp=$(mktemp)
-  jq --arg k "$key" --arg ref "$ref" --argjson l "$(jq -c .locked <<<"$pre")" \
-    '.nodes[$k].locked = $l | if $ref == "" then . else .nodes[$k].original.ref = $ref end' "$FLAKE_LOCK" > "$tmp" \
-    && cat "$tmp" > "$FLAKE_LOCK"
+  if ! jq --arg k "$key" --arg ref "$ref" --argjson l "$(jq -c .locked <<<"$pre")" \
+      '.nodes[$k].locked = $l | if $ref == "" then . else .nodes[$k].original.ref = $ref end' "$FLAKE_LOCK" > "$tmp" \
+      || ! cat "$tmp" > "$FLAKE_LOCK"; then
+    rm -f "$tmp"; echo "graft: $name: can't write $FLAKE_LOCK" >&2; return 1
+  fi
   rm -f "$tmp"
 }
 
 # peel_locks [NAME...]: for each git input with exportIgnore (default: every one in flake.lock)
 # whose lock holds the object of the annotated tag it names, re-lock it at the tag's commit. An
-# upstream that can't be listed is said and left. Prints a line per change (stderr); sets PEELED=1
-# when there was one, and UNCHECKED to the names it couldn't check.
+# upstream that can't be listed is said and left (the export check, lib/export-ignored.sh, still
+# stops an unfiltered export). Prints a line per change (stderr); sets PEELED=1 when there was one.
 # shellcheck disable=SC2034 # PEELED is for the scripts that source this
 peel_locks() {
   local name n url ref rev shas names=("$@")
-  PEELED="" UNCHECKED=""
+  PEELED=""
   if [ ${#names[@]} -eq 0 ]; then
     mapfile -t names < <(jq -r '.nodes.root.inputs | to_entries[] | select(.value | type == "string") | .key' "$FLAKE_LOCK")
   fi
@@ -158,7 +160,7 @@ peel_locks() {
     url=$(jq -r .locked.url <<<"$n"); ref=$(jq -r .original.ref <<<"$n"); rev=$(jq -r .locked.rev <<<"$n")
     if ! shas=$(tag_shas "$url" "$ref"); then
       echo "graft: can't check whether $name's tag $ref is annotated (see above)" >&2
-      UNCHECKED+=" $name"; continue
+      continue
     fi
     [ -n "$shas" ] || continue   # a branch, or a tag gone upstream
     if [ "$rev" = "${shas% *}" ] && [ "$rev" != "${shas#* }" ]; then

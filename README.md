@@ -214,8 +214,8 @@ its `ref`:
   `nix flake update`, which in Nix 2.24 can't fetch `ref=v1.0.0` over HTTP or ssh into a cache that
   hasn't seen the tag.)
 - `nix run .#graft` first re-pins any lock that holds an annotated tag's object to its commit,
-  then runs again on the new lock. A tag that moved upstream since is left alone: that's an
-  upgrade, not a repair.
+  then stops, since that run was built from the old lock: run it again. A tag that moved upstream
+  since is left alone: that's an upgrade, not a repair.
 - `nix flake check`, `graft check` and `graft ci check` fail when a fetched export still holds a
   path its own `.gitattributes` marks `export-ignore`, naming it; without that, the scions
   directory and the check would agree on the wrong tree. `nix run .#graft` refuses to write such
