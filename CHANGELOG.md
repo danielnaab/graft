@@ -8,9 +8,11 @@
   those pushes and PRs: one line, `paths-ignore: ["notebook/**"]`, under both its `push:` and
   `pull_request:` triggers. It is the one edit graft keeps in its workflows: `nix run .#graft`, the
   check and `graft upgrade` read it from the repo's copy and write it under both triggers of the
-  new one, so it survives upgrades. A glob that starts with `*`, `/` or `.forgejo` is refused (it
-  could match the scions directory, the flake or the workflows), as are a block list and two lines
-  that differ. graft-check has no `schedule:` trigger and needs none; checks of the ignored files
+  new one, so it survives upgrades. A glob that could match the scions directory, the flake or
+  graft's workflows is refused, in any spelling (`scions/**`, `flake.*`, `?forgejo/**`), as is
+  one that starts with `*` or `/`, a block list, a comment after the line, and two lines that
+  differ. The line is kept only in graft-check.yaml: in a workflow of graft's with no `push:` or
+  `pull_request:` trigger (graft-upgrade.yaml) it fails the check rather than being dropped. graft-check has no `schedule:` trigger and needs none; checks of the ignored files
   are the repo's own (README, "Pushes that touch only some paths").
 
 ### Changed

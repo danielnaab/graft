@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# workflows.sh check|refresh REPO EXAMPLES [RUN]
+# workflows.sh check|refresh REPO EXAMPLES [RUN [FLAKEDIR [DIR...]]]
 #
 # graft's CI workflows in REPO: each file in REPO/.forgejo/workflows/ named like one in EXAMPLES
 # (graft's template/.forgejo/workflows/, at the version the repo pins) whose text has graft's marker line.
@@ -17,8 +17,11 @@
 #
 #     paths-ignore: ["notebook/**", "drafts/**"]
 #
-# A glob that starts with `*`, `/` or `.forgejo` is refused: it could match graft's own files (the
-# scions directory, flake.lock, these workflows), and a push that changes those must be checked.
+# A glob that could match a file graft-check reads is refused, since a push that changes only those
+# must be checked: one that starts with `*`, `/` or `.forgejo`, and one that could match a file in
+# .forgejo/, in a scions directory DIR (default `scions`), or the flake: FLAKEDIR's flake.nix and
+# flake.lock at the top (FLAKEDIR `.`, the default), or anything in FLAKEDIR otherwise. Each glob
+# is read as a shell pattern, where `*` and `?` also match `/`, so it errs toward refusing.
 #
 # mkFlake's check and `nix run .#graft` call this with their own examples; graft upgrade calls the
 # copy in the version it moves to, with that version's examples. RUN is how the repo runs graft, for
@@ -26,10 +29,32 @@
 # nothing else.
 set -euo pipefail
 
-mode=$1 repo=$2 examples=$3 run=${4:-nix run .#graft}
+mode=$1 repo=$2 examples=$3 run=${4:-nix run .#graft} flakedir=${5:-.}
+shift $(($# < 5 ? $# : 5))
 marker='# managed by graft: '
 rc=0
-case $mode in check|refresh) ;; *) echo "usage: workflows.sh check|refresh REPO EXAMPLES [RUN]" >&2; exit 2 ;; esac
+case $mode in check|refresh) ;; *) echo "usage: workflows.sh check|refresh REPO EXAMPLES [RUN [FLAKEDIR [DIR...]]]" >&2; exit 2 ;; esac
+
+# What graft-check reads, which no paths-ignore glob may match: a path ending in / is a directory
+# (any file in it), any other a file.
+flakedir=${flakedir%/}
+if [ -z "$flakedir" ] || [ "$flakedir" = . ]; then protected=(flake.nix flake.lock); else protected=("$flakedir/"); fi
+protected+=(.forgejo/)
+if [ $# -eq 0 ]; then set -- scions; fi
+for d in "$@"; do protected+=("${d%/}/"); done
+
+# could_match GLOB PATH: whether GLOB, read as a shell pattern, matches PATH, or (PATH ending in /)
+# the directory's own name or any path under it: some prefix of GLOB matches PATH.
+# shellcheck disable=SC2053 # the glob is the pattern
+could_match() {
+  local g=$1 p=$2 i
+  if [[ ${p%/} == $g ]]; then return 0; fi
+  if [[ $p != */ ]]; then return 1; fi
+  for ((i = 1; i <= ${#g}; i++)); do
+    if [[ $p == ${g:0:i} ]]; then return 0; fi
+  done
+  return 1
+}
 
 # A symlink could point anywhere: graft only writes regular files inside the repo.
 for d in .forgejo .forgejo/workflows; do
@@ -39,8 +64,8 @@ done
 # paths_ignore FILE WF: FILE's paths-ignore line as graft writes it (`    paths-ignore: ["a", "b"]`),
 # or nothing when it has none. Fails, saying why, on a line graft can't read, or two that differ.
 paths_ignore() {
-  local file=$1 wf=$2 line want="" got item parts globs
-  local form='one line under push: and pull_request:, a list of quoted globs, like paths-ignore: ["notebook/**"]'
+  local file=$1 wf=$2 line want="" got item parts globs p
+  local form='one line under push: and pull_request:, a list of quoted globs and no comment after it, like paths-ignore: ["notebook/**"]'
   while IFS= read -r line || [ -n "$line" ]; do
     [[ $line =~ ^[[:space:]]*paths-ignore: ]] || continue
     [[ $line =~ ^\ \ \ \ paths-ignore:\ *\[(.*)\][[:space:]]*$ ]] \
@@ -56,6 +81,10 @@ paths_ignore() {
         || { echo "graft: $wf: paths-ignore glob \"$item\": use only letters, digits, . _ / * ? and -" >&2; return 1; }
       [[ ! $item =~ ^(\*|/|\.forgejo) ]] \
         || { echo "graft: $wf: paths-ignore glob \"$item\" could match graft's own files (it starts with *, / or .forgejo); name a directory, like \"notebook/**\"" >&2; return 1; }
+      for p in "${protected[@]}"; do
+        ! could_match "$item" "$p" \
+          || { echo "graft: $wf: paths-ignore glob \"$item\" could match $p, which graft-check reads; name another directory, like \"notebook/**\"" >&2; return 1; }
+      done
       globs+=("\"$item\"")
     done
     [ ${#globs[@]} -gt 0 ] || { echo "graft: $wf: its paths-ignore is empty; delete the line instead" >&2; return 1; }
@@ -73,25 +102,25 @@ paths_ignore() {
 # render SRC LINE: SRC with LINE as the last child of each `push:` and `pull_request:` trigger in
 # its top-level `on:` block. With no LINE, SRC itself.
 render() {
-  local src=$1 pi=$2 line inon="" pending="" held=0
+  local src=$1 pi=$2 line inon="" pending="" held=()
   if [ -z "$pi" ]; then cat "$src"; return; fi
   while IFS= read -r line || [ -n "$line" ]; do
     if [ -n "$inon" ]; then
-      # blank lines wait: the line goes after a trigger's last child, before any blank line
-      if [ -z "$line" ]; then held=$((held + 1)); continue; fi
+      # blank lines and comments wait: the line goes after a trigger's last child, before them
+      if [[ $line =~ ^[[:space:]]*(#.*)?$ ]]; then held+=("$line"); continue; fi
       if [[ ! $line =~ ^\ \ \  ]]; then   # not a trigger's child: the trigger (or `on:`) ends here
         if [ -n "$pending" ]; then printf '%s\n' "$pi"; pending=""; fi
         if [[ ! $line =~ ^\  ]]; then inon=""; fi
         if [[ $line =~ ^\ \ (push|pull_request):[[:space:]]*$ ]]; then pending=1; fi
       fi
-      while [ "$held" -gt 0 ]; do echo; held=$((held - 1)); done
+      if [ ${#held[@]} -gt 0 ]; then printf '%s\n' "${held[@]}"; held=(); fi
     elif [[ $line =~ ^on:[[:space:]]*$ ]]; then
       inon=1
     fi
     printf '%s\n' "$line"
   done < "$src"
   if [ -n "$pending" ]; then printf '%s\n' "$pi"; fi
-  while [ "$held" -gt 0 ]; do echo; held=$((held - 1)); done
+  if [ ${#held[@]} -gt 0 ]; then printf '%s\n' "${held[@]}"; fi
 }
 
 want=$(mktemp)
@@ -105,6 +134,10 @@ for src in "$examples"/*; do
     rc=1; continue
   fi
   render "$src" "$pi" > "$want"
+  if [ -n "$pi" ] && ! grep -qxF -- "$pi" "$want"; then
+    echo "graft: $wf: its paths-ignore is kept only under push: and pull_request:, and this graft version's copy has neither; delete the line" >&2
+    rc=1; continue
+  fi
   if cmp -s "$want" "$repo/$wf"; then continue; fi
   case $mode in
     check)

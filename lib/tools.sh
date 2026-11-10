@@ -308,7 +308,7 @@ cmd_upgrade() {
   done
   for dir in "${dirs[@]}"; do regraft "$dir" "$asm"; echo "graft: rebuilt $dir/"; done
   if [ -n "$moved_graft" ] && [ -f "$src/lib/workflows.sh" ]; then
-    bash "$src/lib/workflows.sh" refresh . "$src/template/.forgejo/workflows" "$GRAFT_RUN"
+    bash "$src/lib/workflows.sh" refresh . "$src/template/.forgejo/workflows" "$GRAFT_RUN" "$FLAKE" "${dirs[@]}"
   fi
 }
 

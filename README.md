@@ -263,8 +263,10 @@ file is graft's copy byte for byte. The rules:
   both triggers. Under one trigger only, `nix run .#graft` writes it under the other; a block list
   (`- "notebook/**"` lines), or two lines that differ, fail the check until fixed by hand.
 - A push or PR is skipped only when every file it changes matches a glob. graft-check reads the
-  scions directory, `flake.nix`, `flake.lock` and graft's workflows, so a glob must not match
-  those: one that starts with `*`, `/` or `.forgejo` is refused. Name a directory, as above.
+  scions directory, `flake.nix`, `flake.lock` (for a flake in a subdirectory, that whole
+  directory) and graft's workflows, so a glob that could match any of those is refused, in any
+  spelling (`scions/**`, `flake.*`, `?forgejo/**`), as is one that starts with `*` or `/`. Name a
+  directory, as above.
 - graft-check has no `schedule:` trigger and needs none: a push that changes only ignored files
   can't change anything it checks. What checks the ignored files themselves (a notes lint, a link
   check) is the repo's own: a pre-commit hook, or a workflow of the repo's with a daily

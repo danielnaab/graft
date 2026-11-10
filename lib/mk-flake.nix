@@ -38,7 +38,8 @@
 # and carrying graft's marker line is graft's (lib/workflows.sh). The app replaces it with this
 # version's copy and the check fails if it differs; a workflow without the marker is never read.
 # The one line of graft's copy that is the repo's, `paths-ignore:` under its push and pull_request
-# triggers, is read from the repo's copy and kept.
+# triggers, is read from the repo's copy and kept; `dir` and flakeDir are passed so a glob that
+# could match them is refused.
 #
 # Nothing else: no config file, no lock of its own, no network access of its own. flake.lock is the
 # lock. Everything that looks at the arguments is inside `apps` and `checks`, so a repo's own
@@ -138,7 +139,7 @@ let
           '') names}
           # A flake sees only what git tracks: without this, a new scion's files fail the check.
           git add -- ${q} 2>/dev/null || true
-          bash ${./workflows.sh} refresh . ${examples} ${lib.escapeShellArg run}
+          bash ${./workflows.sh} refresh . ${examples} ${lib.escapeShellArg run} ${flakeArg} ${q}
           ;;
         check)
           if [ ! -d ${q} ]; then
@@ -167,7 +168,7 @@ let
             fi
             rc=1
           fi
-          bash ${./workflows.sh} check . ${examples} ${lib.escapeShellArg run} || rc=1
+          bash ${./workflows.sh} check . ${examples} ${lib.escapeShellArg run} ${flakeArg} ${q} || rc=1
           if [ "$rc" = 0 ]; then echo ${lib.escapeShellArg "graft: ${path}/ and graft's workflows match the pins"}; fi
           exit "$rc"
           ;;
@@ -191,7 +192,7 @@ let
       fi
       exit 1
     fi
-    ${pkgs.bash}/bin/bash ${./workflows.sh} check ${inputs.self} ${examples}
+    ${pkgs.bash}/bin/bash ${./workflows.sh} check ${inputs.self} ${examples} ${lib.escapeShellArg run} . ${q}
     touch $out
   '';
 
