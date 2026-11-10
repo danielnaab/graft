@@ -93,6 +93,21 @@ let
   # replaced).
   marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->";
 
+  # The scions flake.lock fetches as git inputs with exportIgnore. If such a lock holds an annotated
+  # tag's object, not its commit, Nix's exportIgnore ignores nothing (lib/common.sh, "Annotated
+  # tags"), and `expected` is the provider's whole tree: the check and the app look for that
+  # (lib/export-ignored.sh) and fail, naming it, where the drift diff alone would agree with it.
+  # Read from the lock as data; nothing is fetched beyond the inputs themselves.
+  lockFile = "${inputs.self}/flake.lock";
+  lock = if builtins.pathExists lockFile then builtins.fromJSON (builtins.readFile lockFile) else { };
+  lockedOf = n:
+    let k = lock.nodes.root.inputs.${n} or null;
+    in if builtins.isString k then lock.nodes.${k}.locked or { } else { };
+  exportIgnored = lib.filter (n: (lockedOf n).type or "" == "git" && (lockedOf n).exportIgnore or false) names;
+  # the command, or nothing when no scion needs it
+  exportCheck = pkgs: lib.optionalString (exportIgnored != [ ]) ''
+    PATH=${lib.makeBinPath [ pkgs.git pkgs.findutils pkgs.coreutils ]}:$PATH ${pkgs.bash}/bin/bash ${./export-ignored.sh} ${lib.escapeShellArg run} ${lib.concatMapStringsSep " " (n: lib.escapeShellArg "${n}=${inputs.${n}}") exportIgnored}'';
+
   # this graft version's workflows, which the repo's marked copies must match
   examples = ../template/.forgejo/workflows;
 
@@ -125,6 +140,9 @@ let
       ''}
       case $mode in
         sync)
+          ${lib.optionalString (exportIgnored != [ ]) ''
+            ${exportCheck pkgs} || { echo ${lib.escapeShellArg "graft: not replacing ${path}/ with an export Nix didn't filter"} >&2; exit 1; }
+          ''}
           if [ -e ${q} ]; then
             if ! grep -qsF -e ${lib.escapeShellArg marker} -e 'Managed by [graft]' ${q}/README.md; then
               echo ${lib.escapeShellArg "graft: ${path}/ exists and graft didn't write it (no marker in its README.md); not replacing it"} >&2
@@ -158,6 +176,7 @@ let
             cp -RP --no-preserve=mode ${q}/. "$tmp/actual/"${q}
           fi
           rc=0
+          ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || rc=1"}
           left=${expected pkgs}
           if ! drift=$(diff -r "$left" "$tmp/actual/"${q}); then
             printf '%s\n' "$drift" >&2
@@ -183,6 +202,7 @@ let
       echo ${lib.escapeShellArg "graft: ${path}/ is missing; run: nix run .#graft"} >&2
       exit 1
     fi
+    ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || exit 1"}
     left=${expected pkgs}
     if ! drift=$(diff -r "$left" "$actual"); then
       printf '%s\n' "$drift" >&2

@@ -193,14 +193,24 @@ assembler() {
 }
 
 # Rebuild DIR from flake.lock with the repo's assemble.sh, then swap it in (only over graft's own dir).
+# A git scion's lock at an annotated tag's object is re-pinned to its commit first (common.sh's
+# peel_locks), and an export that still holds what its .gitattributes marks export-ignore stops it.
 regraft() {
-  local dir=$1 asm=$2 name ref path specs=() tmp
-  while IFS= read -r name; do
+  local dir=$1 asm=$2 name ref path specs=() names=() ignored=() tmp
+  mapfile -t names < <(scions_in "$dir")
+  [ ${#names[@]} -gt 0 ] || die "$dir/README.md names no scions"
+  # one it can't check is left as locked: the export check below still catches an unfiltered one
+  peel_locks "${names[@]}" || exit 1
+  for name in "${names[@]}"; do
     ref=$(locked_ref "$name")
     [ -n "$ref" ] || die "$name: no fetchable lock entry"
     path=$(nix_ flake prefetch --json "$ref" | jq -r .storePath)
     specs+=("$name=$path=$(jq -r .locked.rev <<<"$(node "$name")")")
-  done < <(scions_in "$dir")
+    if jq -e '.locked.type == "git" and .locked.exportIgnore == true' <<<"$(node "$name")" >/dev/null; then
+      ignored+=("$name=$path")
+    fi
+  done
+  if [ ${#ignored[@]} -gt 0 ]; then bash "$here/export-ignored.sh" "$GRAFT_RUN" "${ignored[@]}" || exit 1; fi
   tmp=$(mktemp -d)
   GRAFT_FLAKE_DIR=$FLAKE bash "$asm" "$tmp/out" "$dir" "${specs[@]}"
   rm -rf "$dir"
@@ -211,7 +221,7 @@ regraft() {
 }
 
 cmd_upgrade() {
-  local rows want=() name dir pinned latest status major target named dirs=() spec plan=() held=() asm src moved_graft="" text
+  local rows want=() name dir pinned latest status major target named dirs=() spec plan=() held=() asm src moved_graft="" text shas
   rows=$(report)
   for spec in "$@"; do want+=("$spec"); done
   if [ ${#want[@]} -gt 0 ]; then
@@ -303,7 +313,15 @@ cmd_upgrade() {
     [ "$dir" != - ] || continue
     echo "graft: $name $pinned -> $target"
     retarget "$name" "$pinned" "$target"
-    flake_update "$name" >/dev/null 2>&1 || flake_update "$name"
+    if [ "$(jq -r .locked.type <<<"$(node "$name")")" = git ]; then
+      # locked by hand at the tag's commit (common.sh's relock_git: an annotated tag's object
+      # defeats exportIgnore, and Nix 2.24 can't fetch `ref=TAG` fresh over HTTP or ssh)
+      shas=$(tag_shas "$(remote "$(node "$name")")" "$target") || exit 1
+      [ -n "$shas" ] || die "$name: no tag $target upstream"
+      relock_git "$name" "${shas#* }" "$target" || exit 1
+    else
+      flake_update "$name" >/dev/null 2>&1 || flake_update "$name"
+    fi
     [[ " ${dirs[*]} " == *" $dir "* ]] || dirs+=("$dir")
   done
   for dir in "${dirs[@]}"; do regraft "$dir" "$asm"; echo "graft: rebuilt $dir/"; done
@@ -387,6 +405,9 @@ done
 locate "$repo"
 [ -f "$FLAKE_LOCK" ] || die "no $FLAKE_LOCK in $(pwd)"
 case $sub in
+  # internal, before `nix run .#graft` syncs (graft.sh): re-pin any lock at an annotated tag's
+  # object; when it did, print how to run graft again, on the new lock
+  peel) peel_locks || exit 1; if [ -n "$PEELED" ]; then echo "$GRAFT_RUN"; fi ;;
   outdated) cmd_outdated ;;
   upgrade) cmd_upgrade "${args[@]}" ;;
   changelog) cmd_changelog "${args[@]}" ;;

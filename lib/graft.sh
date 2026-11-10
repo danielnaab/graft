@@ -42,6 +42,17 @@ case $cmd in
   sync|check)
     [ -n "$sync" ] || { echo "graft: $cmd runs from the repo's own flake: nix run .#graft $cmd" >&2; exit 2; }
     [ $# -eq 0 ] || { echo "graft: $cmd takes no arguments" >&2; exit 2; }
+    # sync first re-pins a lock at an annotated tag's object to its commit (tools.sh peel). This
+    # run's scions were built from the old lock, so it stops there and asks for another: run again
+    # by graft, it would lose the flags given to nix run (--override-input). check only reports
+    # one (mkFlake's check).
+    if [ "$cmd" = sync ]; then
+      again=$(bash "$here/tools.sh" peel)
+      if [ -n "$again" ]; then
+        echo "graft: flake.lock re-pinned; nothing synced yet: run $again again" >&2
+        exit 1
+      fi
+    fi
     exec "$sync" "$cmd" ;;
   outdated|upgrade|changelog) exec bash "$here/tools.sh" "$cmd" "$@" ;;
   migrate) exec bash "$here/migrate.sh" "$@" ;;

@@ -95,6 +95,82 @@ lock_node() { jq -c --arg n "$2" '.nodes.root.inputs[$n] as $k | if ($k|type)=="
 
 is_semver() { [[ $1 =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 
+# Annotated tags. Nix 2.24 locks `?ref=TAG` at an annotated tag to the tag OBJECT's sha, and its
+# exportIgnore filter then looks up .gitattributes at that "commit", finds none, and silently
+# ignores nothing: the scion gets the provider's whole tree. Fetched by the tag's commit, the export
+# is right. So graft keeps a git input's lock at the commit: what every reader of the lock (Nix's
+# check, `nix run .#graft`, CI under any Nix version) then fetches, and what newer Nix writes itself.
+
+# tag_shas URL TAG: "OBJECT COMMIT" for tag TAG at URL (OBJECT the ref's sha: the tag object for an
+# annotated tag, the commit for a lightweight one), or nothing when URL has no such tag. Fails,
+# with git's error on stderr, when URL can't be listed. http.extraHeader is cleared (semver_tags).
+tag_shas() {
+  local url=$1 tag=${2#refs/tags/} out obj peeled
+  out=$(git -c http.extraHeader= ls-remote -- "$url" "refs/tags/$tag" "refs/tags/$tag^{}" 2>&1) \
+    || { echo "graft: can't list $url: $(tail -1 <<<"$out")" >&2; return 1; }
+  obj=$(awk -v r="refs/tags/$tag" '$2 == r { print $1 }' <<<"$out")
+  peeled=$(awk -v r="refs/tags/$tag^{}" '$2 == r { print $1 }' <<<"$out")
+  [[ $obj =~ ^[0-9a-f]{40}$ ]] || return 0
+  [[ $peeled =~ ^[0-9a-f]{40}$ ]] || peeled=$obj
+  echo "$obj $peeled"
+}
+
+# relock_git NAME COMMIT [REF]: write flake.lock's entry for git input NAME as Nix locks it at
+# COMMIT (and, given REF, with REF as its ref, in `original` too, where flake.nix now names it).
+# Fetched by commit with `ref` beside it, which also works on a cache that never saw the tag (a
+# fresh fetch of `ref=TAG` over HTTP or ssh fails in Nix 2.24: it asks for refs/heads/TAG).
+relock_git() {
+  local name=$1 rev=$2 ref=${3:-} n key url q pre tmp
+  n=$(lock_node "$FLAKE_LOCK" "$name")
+  key=$(jq -r --arg n "$name" '.nodes.root.inputs[$n]' "$FLAKE_LOCK")
+  url=$(jq -r '.original.url' <<<"$n")
+  q=$(jq -r --arg rev "$rev" --arg ref "$ref" '.original | del(.type, .url, .rev)
+        + {rev: $rev} + (if $ref == "" then {} else {ref: $ref} end) | to_entries
+        | map("\(.key)=\(if .value == true then "1" elif .value == false then "0" else .value | tostring | @uri end)")
+        | join("&")' <<<"$n")
+  pre=$(nix_ flake prefetch --json "git+$url?$q" 2>/dev/null) || pre=$(nix_ flake prefetch --json "git+$url?$q") \
+    || { echo "graft: $name: can't fetch $rev from $url" >&2; return 1; }
+  jq -e --arg rev "$rev" '.locked.rev == $rev' <<<"$pre" >/dev/null \
+    || { echo "graft: $name: Nix locked something other than $rev" >&2; return 1; }
+  tmp=$(mktemp)
+  if ! jq --arg k "$key" --arg ref "$ref" --argjson l "$(jq -c .locked <<<"$pre")" \
+      '.nodes[$k].locked = $l | if $ref == "" then . else .nodes[$k].original.ref = $ref end' "$FLAKE_LOCK" > "$tmp" \
+      || ! cat "$tmp" > "$FLAKE_LOCK"; then
+    rm -f "$tmp"; echo "graft: $name: can't write $FLAKE_LOCK" >&2; return 1
+  fi
+  rm -f "$tmp"
+}
+
+# peel_locks [NAME...]: for each git input with exportIgnore (default: every one in flake.lock)
+# whose lock holds the object of the annotated tag it names, re-lock it at the tag's commit. An
+# upstream that can't be listed is said and left (the export check, lib/export-ignored.sh, still
+# stops an unfiltered export). Prints a line per change (stderr); sets PEELED=1 when there was one.
+# shellcheck disable=SC2034 # PEELED is for the scripts that source this
+peel_locks() {
+  local name n url ref rev shas names=("$@")
+  PEELED=""
+  if [ ${#names[@]} -eq 0 ]; then
+    mapfile -t names < <(jq -r '.nodes.root.inputs | to_entries[] | select(.value | type == "string") | .key' "$FLAKE_LOCK")
+  fi
+  for name in "${names[@]}"; do
+    n=$(lock_node "$FLAKE_LOCK" "$name")
+    [ -n "$n" ] || continue
+    jq -e '.locked.type == "git" and .locked.exportIgnore == true and (.original.ref // "") != ""
+           and (.original.rev // "") == ""' <<<"$n" >/dev/null || continue
+    url=$(jq -r .locked.url <<<"$n"); ref=$(jq -r .original.ref <<<"$n"); rev=$(jq -r .locked.rev <<<"$n")
+    if ! shas=$(tag_shas "$url" "$ref"); then
+      echo "graft: can't check whether $name's tag $ref is annotated (see above)" >&2
+      continue
+    fi
+    [ -n "$shas" ] || continue   # a branch, or a tag gone upstream
+    if [ "$rev" = "${shas% *}" ] && [ "$rev" != "${shas#* }" ]; then
+      relock_git "$name" "${shas#* }" || return 1
+      echo "graft: $name: flake.lock held annotated tag $ref's object ${rev:0:12}; re-pinned its commit ${shas#* }" >&2
+      PEELED=1
+    fi
+  done
+}
+
 # full_check REPORT: the repo's whole check on the working tree (of the flake locate found): each of
 # checks.<system> built on its own (so a failure has a name), then `nix flake check` for the rest
 # (evaluation, other systems' outputs). A flake in a subdirectory has no checks.<system>.graft, so
