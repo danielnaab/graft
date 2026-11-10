@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.8.0 - 2026-11-09
+
+### Added
+- **`paths-ignore` in graft-check.yaml.** A repo where something pushes often to files graft's
+  check never reads (a notes vault synced by a bot, say) can keep graft-check from running for
+  those pushes and PRs: one line, `paths-ignore: ["notebook/**"]`, under both its `push:` and
+  `pull_request:` triggers. It is the one edit graft keeps in its workflows: `nix run .#graft`, the
+  check and `graft upgrade` read it from the repo's copy and write it under both triggers of the
+  new one, so it survives upgrades. A glob that starts with `*`, `/` or `.forgejo` is refused (it
+  could match the scions directory, the flake or the workflows), as are a block list and two lines
+  that differ. graft-check has no `schedule:` trigger and needs none; checks of the ignored files
+  are the repo's own (README, "Pushes that touch only some paths").
+
+### Changed
+- Nothing for a repo without `paths-ignore`: graft's workflows are byte for byte 2.7.2's, so the
+  upgrade that brings this version changes nothing in `.forgejo/` and its PR opens as usual.
+
+### Upgrading
+- No step is needed: `nix run .#graft upgrade graft` (or the weekly PR) takes it.
+- To skip pushes that touch only some paths, after the upgrade is merged: in
+  `.forgejo/workflows/graft-check.yaml`, add `    paths-ignore: ["notebook/**"]` (four spaces, your
+  own globs) as the last line under `  pull_request:` and under `  push:` (after
+  `    branches: [main]`). Run `nix run .#graft check` (`nix run path:<flakeDir>#graft check` for a
+  flake in a subdirectory): it passes when the line is right, and says what's wrong when it isn't.
+  Add it only after graft 2.8.0 is pinned: 2.7.x reports the edited file as differing.
+- If branch protection requires the graft-check status, a PR that changes only ignored files never
+  gets one; stop requiring it before adding the line.
+
 ## v2.7.2 - 2026-11-09
 
 ### Fixed
