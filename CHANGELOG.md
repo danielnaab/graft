@@ -1,5 +1,35 @@
 # Changelog
 
+## v2.8.0 - 2026-11-09
+
+### Added
+- **`paths-ignore` in graft-check.yaml.** A repo where something pushes often to files graft's
+  check never reads (a notes vault synced by a bot, say) can keep graft-check from running for
+  those pushes and PRs: one line, `paths-ignore: ["notebook/**"]`, under both its `push:` and
+  `pull_request:` triggers. It is the one edit graft keeps in its workflows: `nix run .#graft`, the
+  check and `graft upgrade` read it from the repo's copy and write it under both triggers of the
+  new one, so it survives upgrades. A glob that could match the scions directory, the flake or
+  graft's workflows is refused, in any spelling (`scions/**`, `flake.*`, `?forgejo/**`), as is
+  one that starts with `*` or `/`, a block list, a comment after the line, and two lines that
+  differ. The line is kept only in graft-check.yaml: in a workflow of graft's with no `push:` or
+  `pull_request:` trigger (graft-upgrade.yaml) it fails the check rather than being dropped. graft-check has no `schedule:` trigger and needs none; checks of the ignored files
+  are the repo's own (README, "Pushes that touch only some paths").
+
+### Changed
+- Nothing for a repo without `paths-ignore`: graft's workflows are byte for byte 2.7.2's, so the
+  upgrade that brings this version changes nothing in `.forgejo/` and its PR opens as usual.
+
+### Upgrading
+- No step is needed: `nix run .#graft upgrade graft` (or the weekly PR) takes it.
+- To skip pushes that touch only some paths, after the upgrade is merged: in
+  `.forgejo/workflows/graft-check.yaml`, add `    paths-ignore: ["notebook/**"]` (four spaces, your
+  own globs) as the last line under `  pull_request:` and under `  push:` (after
+  `    branches: [main]`). Run `nix run .#graft check` (`nix run path:<flakeDir>#graft check` for a
+  flake in a subdirectory): it passes when the line is right, and says what's wrong when it isn't.
+  Add it only after graft 2.8.0 is pinned: 2.7.x reports the edited file as differing.
+- If branch protection requires the graft-check status, a PR that changes only ignored files never
+  gets one; stop requiring it before adding the line.
+
 ## v2.7.2 - 2026-11-09
 
 ### Fixed

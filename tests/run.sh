@@ -359,6 +359,95 @@ expect "-C: scions rebuilt by the new version" grep -q "assembled by graft v9.1.
 expect "-C: workflow refreshed" cmp -s .forgejo/workflows/graft-check.yaml "$g/template/.forgejo/workflows/graft-check.yaml"
 expect "-C: check passes under the new pin" quiet nix flake check
 
+# paths-ignore: the one line of graft's workflow that is the repo's. It is kept by sync, check and
+# an upgrade of graft, and written under both triggers.
+selfc self-paths v9.0.0
+wf=.forgejo/workflows/graft-check.yaml
+# pi_on FILE: graft-check.yaml's `on:` block, through the line after it
+pi_on() { grep -A7 '^on:' "$1"; }
+pi_want=$(printf '%s\n' 'on:' '  pull_request:' '    paths-ignore: ["notebook/**", "drafts/**"]' '  push:' \
+  '    branches: [main]' '    paths-ignore: ["notebook/**", "drafts/**"]' '' 'concurrency:')
+# refused <description> <command...>: the command must fail; its output (both streams) in $out
+refused() { local d=$1; shift; if out=$("$@" 2>&1); then fail "$d"; else pass "$d"; fi; }
+sed -i -e 's|^  pull_request:$|&\n    paths-ignore: ["notebook/**", "drafts/**"]|' \
+  -e 's|^    branches: \[main\]$|&\n    paths-ignore: ["notebook/**", "drafts/**"]|' "$wf"
+git_ add -A
+expect "paths-ignore: the check accepts it" quiet nix flake check
+expect "paths-ignore: graft check too" quiet nix run .#graft check
+quiet nix run .#graft || fail "nix run .#graft with paths-ignore"
+expect "paths-ignore: sync keeps it" test "$(pi_on "$wf")" = "$pi_want"
+expect "paths-ignore: and the rest is graft's copy" \
+  cmp -s <(grep -v '^    paths-ignore: ' "$wf") "$v9/template/.forgejo/workflows/graft-check.yaml"
+expect "paths-ignore: YAML that means it, under both triggers" \
+  test "$(nix run nixpkgs#yq-go -- -o=json -I=0 '[.on.push["paths-ignore"], .on.pull_request["paths-ignore"], .on.push.branches]' "$wf")" \
+  = '[["notebook/**","drafts/**"],["notebook/**","drafts/**"],["main"]]'
+# under one trigger, in another spelling: the check says so, and sync writes graft's form under both
+grep -v '^    paths-ignore: ' "$wf" > "$work/wf" && cp "$work/wf" "$wf"
+sed -i "s|^    branches: \[main\]$|&\n    paths-ignore: [ 'notebook/**',\"drafts/**\" ]|" "$wf" && git_ add -A
+refuse "paths-ignore: under push alone, the check fails" quiet nix flake check
+quiet nix run .#graft && git_ add -A
+expect "paths-ignore: sync writes it under both triggers, in graft's form" test "$(pi_on "$wf")" = "$pi_want"
+expect "paths-ignore: then the check passes" quiet nix flake check
+# what graft won't read: two that differ, a block list, a glob that could match graft's own files
+cp "$wf" "$work/wf-good"
+sed -i '0,/notebook/s|"notebook/\*\*", ||' "$wf" && git_ add -A
+refuse "paths-ignore: two that differ fail the check" quiet nix flake check
+refused "paths-ignore: sync refuses two that differ" nix run .#graft
+expect "and says why" grep -q "its paths-ignore lines differ" <<<"$out"
+expect "and leaves the file alone" grep -q '^    paths-ignore: \["drafts/\*\*"\]$' "$wf"
+cp "$work/wf-good" "$wf"
+sed -i 's|^    paths-ignore: .*|    paths-ignore:\n      - "notebook/**"|' "$wf" && git_ add -A
+refused "paths-ignore: a block list fails" nix run .#graft check
+expect "and says how to write it" grep -qF 'paths-ignore: ["notebook/**"]' <<<"$out"
+cp "$work/wf-good" "$wf"
+sed -i 's|"drafts/\*\*"|"**/*.md"|g' "$wf" && git_ add -A
+refused "paths-ignore: a glob starting with * fails" nix run .#graft check
+expect "and says why" grep -q "could match graft's own files" <<<"$out"
+# a glob that could match what graft-check reads, in any spelling: the scions directory, the flake
+# pi_glob GLOB: wf-good with its second glob replaced by GLOB, under both triggers
+pi_glob() { sed "s|\"drafts/\*\*\"|\"$1\"|g" "$work/wf-good" > "$wf" && git_ add -A; }
+for glob in 'scions/**' 'sc?ons/x.md' 'scions' 'flake.lock' 'flake.*' '?forgejo/**'; do
+  pi_glob "$glob"
+  refused "paths-ignore: \"$glob\" fails graft check" nix run .#graft check
+  expect "and says what it could match" grep -qF "paths-ignore glob \"$glob\" could match" <<<"$out"
+  refuse "paths-ignore: \"$glob\" fails nix flake check" quiet nix flake check
+done
+for glob in 'scionsx/**' 'docs/scions/**' 'flake/**'; do
+  pi_glob "$glob"
+  expect "paths-ignore: \"$glob\" is fine" quiet nix run .#graft check
+done
+cp "$work/wf-good" "$wf" && git_ add -A
+expect "paths-ignore: put back, the check passes" quiet nix flake check
+# graft upgrading itself writes the new version's copy, with the repo's paths-ignore in it
+quiet nix run .#graft upgrade graft@v9.1.0 && git_ add -A
+expect "paths-ignore: upgrade moved graft" grep -q "ref=v9.1.0" flake.nix
+expect "paths-ignore: and wrote the new version's workflow" grep -q "^# changed in v9.1.0$" "$wf"
+expect "paths-ignore: keeping the repo's line" test "$(pi_on "$wf")" = "$pi_want"
+expect "paths-ignore: check passes under the new pin" quiet nix flake check
+# without one, graft's copy byte for byte: the cmp tests above
+# lib/workflows.sh itself, on examples a later graft might ship: a comment at column 0 between
+# triggers doesn't end the `on:` block, and the line is written under both triggers
+wx=$work/wf-examples wr=$work/wf-repo
+mkdir -p "$wx" "$wr/.forgejo/workflows"
+sed 's|^  push:$|# pushes to main too\n&|' "$v9/template/.forgejo/workflows/graft-check.yaml" > "$wx/graft-check.yaml"
+cp "$wx/graft-check.yaml" "$wr/.forgejo/workflows/graft-check.yaml"
+sed -i 's|^  pull_request:$|&\n    paths-ignore: ["notebook/**"]|' "$wr/.forgejo/workflows/graft-check.yaml"
+quiet bash "$graft/lib/workflows.sh" refresh "$wr" "$wx" || fail "workflows.sh refresh, a comment between triggers"
+expect "paths-ignore: a comment between triggers keeps the line under both" \
+  test "$(grep -c '^    paths-ignore: \["notebook/\*\*"\]$' "$wr/.forgejo/workflows/graft-check.yaml")" = 2
+expect "and the comment where it was" grep -qx '# pushes to main too' "$wr/.forgejo/workflows/graft-check.yaml"
+expect "and the check passes" quiet bash "$graft/lib/workflows.sh" check "$wr" "$wx"
+# a workflow with no push: or pull_request: (graft-upgrade.yaml) can't keep one: said, not dropped
+cp "$v9/template/.forgejo/workflows/graft-upgrade.yaml" "$wx/" && cp "$wx/graft-upgrade.yaml" "$wr/.forgejo/workflows/"
+sed -i 's|^  workflow_dispatch:$|&\n    paths-ignore: ["notebook/**"]|' "$wr/.forgejo/workflows/graft-upgrade.yaml"
+refused "paths-ignore: graft-upgrade.yaml's fails refresh" bash "$graft/lib/workflows.sh" refresh "$wr" "$wx"
+expect "and says it's kept only under push: and pull_request:" grep -q "kept only under push: and pull_request:" <<<"$out"
+expect "and leaves the file alone" grep -q 'paths-ignore' "$wr/.forgejo/workflows/graft-upgrade.yaml"
+# a comment on the line: said plainly
+sed -i 's|^\(    paths-ignore: .*\)$|\1  # the bot|' "$wr/.forgejo/workflows/graft-check.yaml"
+refused "paths-ignore: a comment on the line fails" bash "$graft/lib/workflows.sh" check "$wr" "$wx"
+expect "and says so" grep -q "no comment after it" <<<"$out"
+
 selfc self-branch main
 expect "outdated: a branch-pinned graft is untagged" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "^graft +- +main +- +untagged"'
 quiet nix run .#graft upgrade && git_ add -A
@@ -811,10 +900,21 @@ cibin=$work/ci-bin
 mkdir -p "$cibin" && ln -sf "$(command -v nix)" "$cibin/nix" && ln -sf "$(command -v git)" "$cibin/git"
 step() { env PATH="$cibin" "$(command -v bash)" -e "$work/check-step.sh"; }
 expect "subdir: graft-check.yaml's step finds the flake and passes" quiet step
+# shellcheck disable=SC2016 # the literal text of the step's line
 expect "subdir: graft-upgrade.yaml finds it the same way, in both jobs" \
   test "$(grep -c -F "$(grep -F 'd=$(git grep' .forgejo/workflows/graft-check.yaml)" "$graft/template/.forgejo/workflows/graft-upgrade.yaml")" = 2
 echo "local edit" >> .scions/provider/docs/policy.md
 refuse "subdir: and fails on drift" quiet step
+git_ checkout -q -- .
+# paths-ignore: a glob that could match this repo's scions directory or its flake is refused
+for glob in '.scions/**' 'nix/**' 'nix/workspace/x.nix'; do
+  sed -i "s|^  pull_request:\$|&\n    paths-ignore: [\"$glob\"]|; s|^    branches: \[main\]\$|&\n    paths-ignore: [\"$glob\"]|" .forgejo/workflows/graft-check.yaml
+  refused "subdir: paths-ignore \"$glob\" fails the check" nix run path:nix/workspace#graft check
+  expect "and says what it could match" grep -qF "paths-ignore glob \"$glob\" could match" <<<"$out"
+  git_ checkout -q -- .
+done
+sed -i 's|^  pull_request:$|&\n    paths-ignore: ["notes/**"]|; s|^    branches: \[main\]$|&\n    paths-ignore: ["notes/**"]|' .forgejo/workflows/graft-check.yaml
+expect "subdir: paths-ignore of another directory passes" quiet nix run path:nix/workspace#graft check
 git_ checkout -q -- .
 
 # outdated and upgrade: the flake's own files, re-locked as a path: flake

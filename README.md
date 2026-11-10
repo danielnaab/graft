@@ -35,7 +35,7 @@ workflows:
   description = "What this repo is";
 
   inputs = {
-    graft.url = "github:danielnaab/graft/v2.7.2";   # a tag: `graft upgrade` moves it
+    graft.url = "github:danielnaab/graft/v2.8.0";   # a tag: `graft upgrade` moves it
 
     # each `flake = false` input is a scion; github: applies the provider's export-ignore
     meta-knowledge-base = { url = "github:danielnaab/meta-knowledge-base/v1.0.1"; flake = false; };
@@ -101,7 +101,7 @@ only that directory:
   description = "What this repo is";
 
   inputs = {
-    graft.url = "github:danielnaab/graft/v2.7.2";
+    graft.url = "github:danielnaab/graft/v2.8.0";
     meta-knowledge-base = { url = "github:danielnaab/meta-knowledge-base/v1.0.1"; flake = false; };
   };
 
@@ -149,7 +149,7 @@ nix run .#graft changelog                # what upgrade would take: each outdate
 nix run .#graft changelog name@v2.0.0    # what one named tag would bring (across a major too)
 nix run .#graft upgrade                  # graft and every scion that's outdated, to the newest tag of its major
 nix run .#graft upgrade name@v1.2.0   # one scion to a named tag (the only way across a major)
-nix run .#graft upgrade graft@v2.7.2  # graft itself to a named tag
+nix run .#graft upgrade graft@v2.8.0  # graft itself to a named tag
 ```
 
 `graft changelog` says what you'd be taking before you take it. For each input `outdated` reports
@@ -239,6 +239,41 @@ the graft version the repo pins and change with it. The files themselves start w
 Delete the line to keep your own edits; graft then never touches the file. graft never adds a
 workflow you didn't copy in.
 
+### Pushes that touch only some paths
+
+A repo where something pushes often to files graft's check never reads (a notes vault synced by a
+bot, say) can keep graft-check from running for those pushes. Add one `paths-ignore` line under both
+of graft-check.yaml's triggers, then run `nix run .#graft check` (graft 2.8.0 or later):
+
+```yaml
+on:
+  pull_request:
+    paths-ignore: ["notebook/**"]
+  push:
+    branches: [main]
+    paths-ignore: ["notebook/**"]
+```
+
+That line is the one edit graft keeps in its workflows: `nix run .#graft`, the check and
+`graft upgrade` read it from the repo's copy and write it under both triggers of the new copy, so
+it stays across upgrades and the upgrade PR still changes nothing in `.forgejo/`. Without it the
+file is graft's copy byte for byte. The rules:
+
+- One line, a list of quoted globs (Actions' syntax: `**` crosses directories), the same under
+  both triggers. Under one trigger only, `nix run .#graft` writes it under the other; a block list
+  (`- "notebook/**"` lines), or two lines that differ, fail the check until fixed by hand.
+- A push or PR is skipped only when every file it changes matches a glob. graft-check reads the
+  scions directory, `flake.nix`, `flake.lock` (for a flake in a subdirectory, that whole
+  directory) and graft's workflows, so a glob that could match any of those is refused, in any
+  spelling (`scions/**`, `flake.*`, `?forgejo/**`), as is one that starts with `*` or `/`. Name a
+  directory, as above.
+- graft-check has no `schedule:` trigger and needs none: a push that changes only ignored files
+  can't change anything it checks. What checks the ignored files themselves (a notes lint, a link
+  check) is the repo's own: a pre-commit hook, or a workflow of the repo's with a daily
+  `schedule:` (`- cron: "17 5 * * *"`) beside its own triggers.
+- A PR that changes only ignored files never gets a graft-check status. If branch protection
+  requires that check, such a PR can't merge: don't require it, or don't use `paths-ignore`.
+
 Moving graft runs the new version's code (its `assemble.sh` and its check) before anyone has
 reviewed it, so the upgrade runs in two jobs. The first upgrades, checks and pushes, and holds
 nothing but the job token; protect the default branch so that token can't push to it. The second,
@@ -319,7 +354,7 @@ graft does the mechanical part of a migration; the judgment is left to an agent 
 git switch graft/upgrade
 nix run .#graft migrate                        # the brief, against the merge-base with origin/HEAD
 nix run .#graft -- migrate --base v2-start     # against another base; --json for the same data
-nix run github:danielnaab/graft/v2.7.2 -- migrate -C path/to/repo --no-check   # reads, runs nothing of it
+nix run github:danielnaab/graft/v2.8.0 -- migrate -C path/to/repo --no-check   # reads, runs nothing of it
 workmux add graft-upgrade -p "$(nix run .#graft migrate)"   # an agent in a worktree branched from here
 claude -p "$(nix run .#graft migrate)"                       # or any agent that takes a prompt
 ```
@@ -377,7 +412,7 @@ fallback, a named tag across a major, `-C`, `--json`, nothing behind) and `graft
 inputs at one tag, one url twice, a `github:` input beside `git+` ones, `lib/retarget.jq` on
 text), majors
 (reported, crossed only when named, 0.x), graft upgrading its own pin (from a throwaway copy of
-this tree, tagged twice) and its workflows, `graft ci` against a local origin (the full-check gate
+this tree, tagged twice) and its workflows (a repo's `paths-ignore` line kept by sync, check and upgrade, and the forms refused), `graft ci` against a local origin (the full-check gate
 with a failing check of the consumer's own) and a stub API (the PR body: changelog sections, the
 commit-list fallback, an open PR retitled), `graft migrate` (a provider major that renames and
 deletes, references to those paths, a failing check, `--no-check`, `--json`, `-C`), and the `dir`
