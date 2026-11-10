@@ -37,6 +37,8 @@
 # graft's workflows: a file in .forgejo/workflows/ named like one in template/.forgejo/workflows/
 # and carrying graft's marker line is graft's (lib/workflows.sh). The app replaces it with this
 # version's copy and the check fails if it differs; a workflow without the marker is never read.
+# The one line of graft's copy that is the repo's, `paths-ignore:` under its push and pull_request
+# triggers, is read from the repo's copy and kept.
 #
 # Nothing else: no config file, no lock of its own, no network access of its own. flake.lock is the
 # lock. Everything that looks at the arguments is inside `apps` and `checks`, so a repo's own
