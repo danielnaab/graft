@@ -7,7 +7,8 @@ set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
-trap '[ -n "${KEEP:-}" ] || rm -rf "$work"' EXIT   # KEEP=1: leave it, to debug a failure
+srv=""   # the HTTP server of the annotated-tag tests, stopped on the way out
+trap '[ -z "$srv" ] || kill "$srv" 2>/dev/null; [ -n "${KEEP:-}" ] || rm -rf "$work"' EXIT   # KEEP=1: leave it, to debug a failure
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 git_() { git -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
 pass() { echo "ok   $*"; }
@@ -17,6 +18,8 @@ expect() { local d=$1; shift; if "$@"; then pass "$d"; else fail "$d"; fi; }
 # refuse <description> <command...>: the command must fail
 refuse() { local d=$1; shift; if "$@"; then fail "$d"; else pass "$d"; fi; }
 quiet() { "$@" >/dev/null 2>&1; }
+# refused <description> <command...>: the command must fail; its output (both streams) in $out
+refused() { local d=$1; shift; if out=$("$@" 2>&1); then fail "$d"; else pass "$d"; fi; }
 # rest_first TEXT: the first quoted line of upstream notes' "The rest of its CHANGELOG.md" part
 rest_first() { awk '/^The rest of its CHANGELOG.md/ { getline; getline; print; exit }' <<<"$1"; }
 # graft ci as CI runs it: the nixos/nix image has little beyond nix, so every tool graft-ci needs
@@ -197,6 +200,111 @@ expect "changelog: nothing behind, one line per input" test "$out" = "$(printf '
 expect "outdated --json: major is null when there's none" sh -c 'nix run .#graft -- outdated --json 2>/dev/null | jq -e ".[] | select(.name==\"zero\") | .pinned==\"v1.0.0\" and .major==null" >/dev/null'
 cd "$c"
 
+# Annotated tags. Nix 2.24 locks `?ref=v1.0.0` at an annotated tag to the tag OBJECT's sha, and its
+# exportIgnore filter then looks for .gitattributes at a commit that isn't one, finds nothing, and
+# ignores nothing: the scion gets the whole tree. A git+file worktree hides it (libgit2 falls back
+# to the worktree's .gitattributes), so this provider is a bare repo served over (dumb) HTTP. A
+# fresh fetch of `ref=v1.0.0` over HTTP or ssh fails in Nix 2.24 (it asks for refs/heads/v1.0.0),
+# so the lock starts as the one Nix wrote for a consumer whose cache already had the tag.
+ap=$work/annotated
+mkdir -p "$ap/docs" "$ap/tests" "$work/srv"
+echo "annotated v1" > "$ap/docs/a.md" && echo "test" > "$ap/tests/t.sh" && echo "secret" > "$ap/secret.md"
+printf 'tests export-ignore\n/secret.md export-ignore\n' > "$ap/.gitattributes"
+git_ -C "$ap" init -q -b main && git_ -C "$ap" add -A && git_ -C "$ap" commit -qm v1 && git_ -C "$ap" tag -a -m v1.0.0 v1.0.0
+git_ clone -q --bare "$ap" "$work/srv/annotated.git" && git_ -C "$work/srv/annotated.git" update-server-info
+# serve_git [PORT]: start an HTTP server on $work/srv (on PORT, else any free port); its port in $aport
+serve_git() {
+  rm -f "$work/srv.port"
+  nix run nixpkgs#python3 -- -c 'import functools, http.server, sys
+s = http.server.HTTPServer(("127.0.0.1", int(sys.argv[3])), functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1]))
+open(sys.argv[2], "w").write(str(s.server_port))
+s.serve_forever()' "$work/srv" "$work/srv.port" "${1:-0}" 2>/dev/null & srv=$!
+  for _ in $(seq 300); do [ -s "$work/srv.port" ] && break; sleep 0.1; done
+  aport=$(cat "$work/srv.port")
+}
+serve_git
+aurl=http://127.0.0.1:$aport/annotated.git
+atag=$(git_ -C "$ap" rev-parse v1.0.0) acommit=$(git_ -C "$ap" rev-parse 'v1.0.0^{}')
+ac=$work/annotated-consumer
+mkdir -p "$ac"
+cat > "$ac/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  inputs.annotated = { url = "git+$aurl?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
+}
+EOF
+# tag_lock REV: write the consumer's lock of annotated at REV, as Nix writes it (graft's input added by nix flake lock)
+tag_lock() {
+  local pre
+  # (fetching a tag object by its sha, git complains it isn't a commit, and Nix carries on)
+  pre=$(nix flake prefetch --json "git+$aurl?ref=v1.0.0&rev=$1&exportIgnore=1" 2>/dev/null) || fail "prefetch annotated at $1"
+  jq -n --argjson l "$(jq .locked <<<"$pre")" --arg url "$aurl" \
+    '{nodes: {annotated: {flake: false, locked: $l, original: {exportIgnore: true, ref: "v1.0.0", type: "git", url: $url}},
+              root: {inputs: {annotated: "annotated"}}}, root: "root", version: 7}' > flake.lock
+  quiet nix flake lock || fail "nix flake lock"
+}
+cd "$ac" && git_ init -q -b main && git_ add flake.nix
+tag_lock "$atag" && git_ add -A
+# shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
+expect "annotated: the lock pins the tag object, as Nix 2.24 writes it" quiet jq -e --arg r "$atag" '.nodes.annotated.locked.rev == $r' flake.lock
+bugged=$(nix flake prefetch --json "git+$aurl?ref=v1.0.0&rev=$atag&exportIgnore=1" 2>/dev/null | jq -r .storePath)
+expect "annotated: (the bug: at the tag object, Nix's export ignores nothing)" test -e "$bugged/tests/t.sh"
+# sync re-pins the tag's commit, then grafts the real export
+quiet nix run .#graft || fail "nix run .#graft, annotated"
+git_ add -A
+# shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
+expect "annotated: sync re-pinned the tag's commit" quiet jq -e --arg r "$acommit" '.nodes.annotated.locked.rev == $r' flake.lock
+expect "annotated: and kept the tag as the ref" quiet jq -e '.nodes.annotated.original.ref == "v1.0.0" and .nodes.annotated.locked.ref == "v1.0.0"' flake.lock
+expect "annotated: the export grafted" test -f scions/annotated/docs/a.md
+expect "annotated: export-ignore applied (tests)" test ! -e scions/annotated/tests
+expect "annotated: export-ignore applied (/secret.md)" test ! -e scions/annotated/secret.md
+expect "annotated: README names the commit" grep -q "$acommit" scions/README.md
+expect "annotated: check passes" quiet nix flake check
+expect "annotated: graft check passes" quiet nix run .#graft check
+# shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
+expect "annotated: nix flake lock leaves the re-pinned lock alone" sh -c 'cp flake.lock "$1/lock.before" && nix flake lock >/dev/null 2>&1 && cmp -s flake.lock "$1/lock.before"' _ "$work"
+# a lock at the tag object, with a scions directory grafted from it (what graft 2.8 wrote): every
+# check fails, saying why, though the directory matches what Nix fetched
+cp -R "$bugged/." scions/annotated/ && chmod -R u+w scions/annotated && sed -i "s/$acommit/$atag/" scions/README.md
+tag_lock "$atag" && git_ add -A
+refused "annotated: nix flake check fails on a lock at the tag object" nix flake check -L
+expect "and says what it found" grep -q "annotated: its fetched export still holds what its .gitattributes marks export-ignore" <<<"$out"
+expect "and why" grep -q "annotated tag's object" <<<"$out"
+refused "annotated: graft check fails too" nix run .#graft check
+expect "and says what it found" grep -q "marks export-ignore: .*secret.md" <<<"$out"
+refuse "annotated: graft ci check fails too" quiet ci_ check
+# the upstream unreachable: sync can't re-pin, and won't write the wrong export
+kill "$srv" 2>/dev/null; wait "$srv" 2>/dev/null || true; srv=""
+refused "annotated: sync, upstream unreachable, refuses to write the unfiltered export" nix run .#graft
+expect "and says it couldn't check" grep -q "can't check whether annotated's tag" <<<"$out"
+expect "and the scions directory is as it was" test -e scions/annotated/secret.md
+serve_git "$aport"
+quiet nix run .#graft || fail "nix run .#graft, annotated, again"
+git_ add -A
+# shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
+expect "annotated: sync repairs it" quiet jq -e --arg r "$acommit" '.nodes.annotated.locked.rev == $r' flake.lock
+expect "annotated: (the export)" test ! -e scions/annotated/secret.md
+expect "annotated: then the check passes" quiet nix flake check
+# graft upgrade to a newer annotated tag pins its commit (by hand: `nix flake update` can't fetch
+# `ref=v1.1.0` fresh over HTTP or ssh in Nix 2.24)
+echo "annotated v1.1" > "$ap/docs/a.md" && git_ -C "$ap" commit -qam v1.1 && git_ -C "$ap" tag -a -m v1.1.0 v1.1.0
+git_ -C "$ap" push -q "$work/srv/annotated.git" main v1.1.0 && git_ -C "$work/srv/annotated.git" update-server-info
+quiet nix run .#graft upgrade || fail "graft upgrade, annotated"
+git_ add -A
+expect "annotated: upgrade moved the ref" grep -q 'ref=v1.1.0' flake.nix
+# shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
+expect "annotated: and pinned the new tag's commit" quiet jq -e --arg r "$(git_ -C "$ap" rev-parse 'v1.1.0^{}')" \
+  '.nodes.annotated.locked.rev == $r and .nodes.annotated.original.ref == "v1.1.0" and .nodes.annotated.locked.ref == "v1.1.0"' flake.lock
+expect "annotated: upgrade grafted v1.1" grep -q "annotated v1.1" scions/annotated/docs/a.md
+expect "annotated: with export-ignore applied" test ! -e scions/annotated/secret.md
+expect "annotated: check passes after the upgrade" quiet nix flake check
+# shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
+expect "annotated: nix flake lock agrees with the upgraded lock" sh -c 'cp flake.lock "$1/lock.before" && nix flake lock >/dev/null 2>&1 && cmp -s flake.lock "$1/lock.before"' _ "$work"
+expect "annotated: graft ci check passes" quiet ci_ check
+kill "$srv" 2>/dev/null; wait "$srv" 2>/dev/null || true; srv=""
+cd "$c"
+
 # Two inputs at one tag. graft-upgrade finds each input's url by its whole spelling (lib/retarget.jq),
 # never by `ref=` alone, so one run can move a to the tag b is pinned at while b moves on.
 q=$work/second
@@ -367,8 +475,6 @@ wf=.forgejo/workflows/graft-check.yaml
 pi_on() { grep -A7 '^on:' "$1"; }
 pi_want=$(printf '%s\n' 'on:' '  pull_request:' '    paths-ignore: ["notebook/**", "drafts/**"]' '  push:' \
   '    branches: [main]' '    paths-ignore: ["notebook/**", "drafts/**"]' '' 'concurrency:')
-# refused <description> <command...>: the command must fail; its output (both streams) in $out
-refused() { local d=$1; shift; if out=$("$@" 2>&1); then fail "$d"; else pass "$d"; fi; }
 sed -i -e 's|^  pull_request:$|&\n    paths-ignore: ["notebook/**", "drafts/**"]|' \
   -e 's|^    branches: \[main\]$|&\n    paths-ignore: ["notebook/**", "drafts/**"]|' "$wf"
 git_ add -A
@@ -447,6 +553,81 @@ expect "and leaves the file alone" grep -q 'paths-ignore' "$wr/.forgejo/workflow
 sed -i 's|^\(    paths-ignore: .*\)$|\1  # the bot|' "$wr/.forgejo/workflows/graft-check.yaml"
 refused "paths-ignore: a comment on the line fails" bash "$graft/lib/workflows.sh" check "$wr" "$wx"
 expect "and says so" grep -q "no comment after it" <<<"$out"
+
+# `# graft ssh:`: the other line of graft-check.yaml that is the repo's. With it, graft writes a step
+# that sets up an ssh key from an Actions secret before the check (a private git+ssh scion); the
+# line is kept by sync, check and an upgrade of graft. (A made-up host key: test data, not a key.)
+hk='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGraftTestHostKeyNotARealOne+/0123456789abcdefgh'
+sshl="# graft ssh: host=[git.example]:2222 address=192.0.2.7 hostkey=$hk"
+cp "$v9/template/.forgejo/workflows/graft-check.yaml" "$wr/.forgejo/workflows/graft-check.yaml"
+rm -f "$wr/.forgejo/workflows/graft-upgrade.yaml"
+swf=$wr/.forgejo/workflows/graft-check.yaml
+echo "$sshl" >> "$swf"
+refused "ssh: a line graft hasn't written its step for fails the check" bash "$graft/lib/workflows.sh" check "$wr" "$wx"
+quiet bash "$graft/lib/workflows.sh" refresh "$wr" "$v9/template/.forgejo/workflows" || fail "workflows.sh refresh, ssh"
+expect "ssh: refresh keeps the line, above name:" test "$(grep -B1 '^name: graft-check$' "$swf" | head -1)" = "$sshl"
+expect "ssh: then the check passes" quiet bash "$graft/lib/workflows.sh" check "$wr" "$v9/template/.forgejo/workflows"
+# shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
+expect "ssh: and a second refresh changes nothing" sh -c 'cp "$1" "$1.before" && bash "$2" refresh "$3" "$4" >/dev/null && cmp -s "$1" "$1.before"' \
+  _ "$swf" "$graft/lib/workflows.sh" "$wr" "$v9/template/.forgejo/workflows"
+steps=$(nix run nixpkgs#yq-go -- -o=json -I=0 '[.jobs.scions.steps[] | .name]' "$swf")
+expect "ssh: the step goes before the check" test "$steps" = '["Checkout","SSH key for private scions","Scions match flake.lock"]'
+# shellcheck disable=SC2016 # the literal expression
+expect "ssh: reading the default secret, GRAFT_SSH_KEY" \
+  test "$(nix run nixpkgs#yq-go -- '.jobs.scions.steps[1].env.GRAFT_SSH_KEY' "$swf")" = '${{ secrets.GRAFT_SSH_KEY }}'
+srun=$(nix run nixpkgs#yq-go -- '.jobs.scions.steps[1].run' "$swf")
+expect "ssh: known_hosts under the host's name and its address" grep -qxF "echo '[git.example]:2222,[192.0.2.7]:2222 $hk' >> ~/.ssh/known_hosts" <<<"$srun"
+expect "ssh: an ssh config for the host" grep -qF "'Host git.example' '  HostName 192.0.2.7' '  IdentityFile ~/.ssh/graft_scions'" <<<"$srun"
+expect "ssh: the rest is graft's copy" cmp -s <(grep -v '^# graft ssh: ' "$swf" | nix run nixpkgs#yq-go -- 'del(.jobs.scions.steps[1])') \
+  <(nix run nixpkgs#yq-go -- '.' "$v9/template/.forgejo/workflows/graft-check.yaml")
+# the step itself, run here (with ssh on PATH, so it takes none from Nix)
+sk=$work/ssh-home
+mkdir -p "$sk"
+expect "ssh: the step writes the key, known_hosts and config" \
+  env HOME="$sk" GRAFT_SSH_KEY="not a real key" GITHUB_PATH="$sk/path" bash -c "$srun"
+expect "ssh: (the key)" test "$(cat "$sk/.ssh/graft_scions")" = "not a real key"
+# shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
+expect "ssh: (ssh reads the config: as root's ~/.ssh/config, in CI)" sh -c 'ssh -G -F "$1/.ssh/config" -p 2222 git.example 2>/dev/null | grep -qx "hostname 192.0.2.7"' _ "$sk"
+refused "ssh: the step fails on an empty secret" env HOME="$sk" GRAFT_SSH_KEY= GITHUB_PATH="$sk/path" bash -c "$srun"
+expect "and says which secret" grep -q "the GRAFT_SSH_KEY secret is empty or not set" <<<"$out"
+# secret= names another secret; no address: no HostName
+sed -i "s|^# graft ssh: .*|# graft ssh: hostkey=$hk secret=NOTEBOOK_APP_DEPLOY_KEY host=git.example|" "$swf"
+quiet bash "$graft/lib/workflows.sh" refresh "$wr" "$v9/template/.forgejo/workflows" || fail "workflows.sh refresh, ssh secret="
+# shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
+expect "ssh: secret= names the secret" grep -qxF '          GRAFT_SSH_KEY: ${{ secrets.NOTEBOOK_APP_DEPLOY_KEY }}' "$swf"
+expect "ssh: and the line is written in graft's order" grep -qxF "# graft ssh: secret=NOTEBOOK_APP_DEPLOY_KEY host=git.example hostkey=$hk" "$swf"
+refuse "ssh: no address, no HostName" grep -q HostName "$swf"
+expect "ssh: known_hosts under the host alone" grep -qF "echo 'git.example $hk'" "$swf"
+# what graft won't read
+for bad in "host=git.example" "host=git.example hostkey=ssh-ed25519" "host=git'x hostkey=$hk" \
+           "host=git.example hostkey=$hk secret=a-b" "host=git.example address=1.2.3.4;id hostkey=$hk" "host=git.example hostkey=$hk extra"; do
+  cp "$v9/template/.forgejo/workflows/graft-check.yaml" "$swf" && echo "# graft ssh: $bad" >> "$swf"
+  refused "ssh: \"$bad\" fails" bash "$graft/lib/workflows.sh" refresh "$wr" "$v9/template/.forgejo/workflows"
+  expect "and says how to write it" grep -qF '# graft ssh: host=[HOST]:PORT' <<<"$out"
+done
+cp "$v9/template/.forgejo/workflows/graft-check.yaml" "$swf" && printf '%s\n' "$sshl" "# graft ssh: host=other hostkey=$hk" >> "$swf"
+refused "ssh: two that differ fail" bash "$graft/lib/workflows.sh" check "$wr" "$v9/template/.forgejo/workflows"
+expect "and says why" grep -q 'its "# graft ssh:" lines differ' <<<"$out"
+# graft-upgrade.yaml has no check step to put it before: said, not dropped
+cp "$v9/template/.forgejo/workflows/graft-check.yaml" "$swf"
+cp "$v9/template/.forgejo/workflows/graft-upgrade.yaml" "$wr/.forgejo/workflows/" && echo "$sshl" >> "$wr/.forgejo/workflows/graft-upgrade.yaml"
+refused "ssh: graft-upgrade.yaml's fails" bash "$graft/lib/workflows.sh" refresh "$wr" "$v9/template/.forgejo/workflows"
+expect "and says it's kept only in graft-check.yaml" grep -q "kept only in graft-check.yaml" <<<"$out"
+# in a repo, beside paths-ignore: sync writes it, both checks pass, and an upgrade of graft keeps it
+selfc self-ssh v9.0.0
+wf=.forgejo/workflows/graft-check.yaml
+echo "$sshl" >> "$wf" && sed -i 's|^  pull_request:$|&\n    paths-ignore: ["notebook/**"]|' "$wf" && git_ add -A
+refuse "ssh: nix flake check fails until graft writes the step" quiet nix flake check
+quiet nix run .#graft && git_ add -A
+expect "ssh: sync wrote the step" grep -qxF '      - name: SSH key for private scions' "$wf"
+expect "ssh: and kept paths-ignore" test "$(grep -c '^    paths-ignore: \["notebook/\*\*"\]$' "$wf")" = 2
+expect "ssh: nix flake check passes" quiet nix flake check
+expect "ssh: graft check passes" quiet nix run .#graft check
+quiet nix run .#graft upgrade graft@v9.1.0 && git_ add -A
+expect "ssh: upgrade wrote the new version's workflow" grep -q "^# changed in v9.1.0$" "$wf"
+# shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
+expect "ssh: keeping the line and its step" sh -c 'grep -qxF "$1" "$2" && grep -qxF "      - name: SSH key for private scions" "$2"' _ "$sshl" "$wf"
+expect "ssh: check passes under the new pin" quiet nix flake check
 
 selfc self-branch main
 expect "outdated: a branch-pinned graft is untagged" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "^graft +- +main +- +untagged"'

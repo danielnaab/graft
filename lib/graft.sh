@@ -42,6 +42,16 @@ case $cmd in
   sync|check)
     [ -n "$sync" ] || { echo "graft: $cmd runs from the repo's own flake: nix run .#graft $cmd" >&2; exit 2; }
     [ $# -eq 0 ] || { echo "graft: $cmd takes no arguments" >&2; exit 2; }
+    # sync first re-pins a lock at an annotated tag's object to its commit, and if it did, runs
+    # graft again on the new lock (tools.sh peel); check only reports one (mkFlake's check)
+    if [ "$cmd" = sync ] && [ -z "${GRAFT_PEELED:-}" ]; then
+      again=$(bash "$here/tools.sh" peel)
+      if [ -n "$again" ]; then
+        echo "graft: running graft again on the re-pinned flake.lock" >&2
+        GRAFT_PEELED=1 exec nix --extra-experimental-features 'nix-command flakes' run "$again#graft" -- sync
+      fi
+    fi
+    unset GRAFT_PEELED
     exec "$sync" "$cmd" ;;
   outdated|upgrade|changelog) exec bash "$here/tools.sh" "$cmd" "$@" ;;
   migrate) exec bash "$here/migrate.sh" "$@" ;;

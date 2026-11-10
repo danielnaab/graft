@@ -35,7 +35,7 @@ workflows:
   description = "What this repo is";
 
   inputs = {
-    graft.url = "github:danielnaab/graft/v2.8.0";   # a tag: `graft upgrade` moves it
+    graft.url = "github:danielnaab/graft/v2.9.0";   # a tag: `graft upgrade` moves it
 
     # each `flake = false` input is a scion; github: applies the provider's export-ignore
     meta-knowledge-base = { url = "github:danielnaab/meta-knowledge-base/v1.0.1"; flake = false; };
@@ -101,7 +101,7 @@ only that directory:
   description = "What this repo is";
 
   inputs = {
-    graft.url = "github:danielnaab/graft/v2.8.0";
+    graft.url = "github:danielnaab/graft/v2.9.0";
     meta-knowledge-base = { url = "github:danielnaab/meta-knowledge-base/v1.0.1"; flake = false; };
   };
 
@@ -149,7 +149,7 @@ nix run .#graft changelog                # what upgrade would take: each outdate
 nix run .#graft changelog name@v2.0.0    # what one named tag would bring (across a major too)
 nix run .#graft upgrade                  # graft and every scion that's outdated, to the newest tag of its major
 nix run .#graft upgrade name@v1.2.0   # one scion to a named tag (the only way across a major)
-nix run .#graft upgrade graft@v2.8.0  # graft itself to a named tag
+nix run .#graft upgrade graft@v2.9.0  # graft itself to a named tag
 ```
 
 `graft changelog` says what you'd be taking before you take it. For each input `outdated` reports
@@ -197,6 +197,33 @@ nix run github:danielnaab/graft -- upgrade -C path/to/repo
 An upgrade rebuilds the directory with the `assemble.sh` of the graft version the repo pins (after
 moving it, if graft is being upgraded), so it writes exactly what the repo's own `nix flake check`
 expects.
+
+### Annotated tags
+
+A `git+` scion pinned to an annotated tag (`git tag -a`) needs its lock at the tag's commit. Nix
+2.24 locks `?ref=v1.0.0` at an annotated tag to the tag *object's* sha; its `exportIgnore` filter
+then looks for `.gitattributes` at a commit that isn't one, finds none, and silently ignores
+nothing, so the scion gets the provider's whole tree, tests and all. (A `git+file` checkout hides
+this: Nix reads the working tree's `.gitattributes` instead. `github:` inputs aren't affected.)
+
+So graft keeps the lock of every `git+…&exportIgnore=1` input at the commit, with the tag still
+its `ref`:
+
+- `graft upgrade` locks a moved `git+` input itself: `git ls-remote` for the tag, peeled
+  (`v1.0.0^{}`), then the lock Nix writes for `?ref=v1.0.0&rev=<commit>`. (This also avoids
+  `nix flake update`, which in Nix 2.24 can't fetch `ref=v1.0.0` over HTTP or ssh into a cache that
+  hasn't seen the tag.)
+- `nix run .#graft` first re-pins any lock that holds an annotated tag's object to its commit,
+  then runs again on the new lock. A tag that moved upstream since is left alone: that's an
+  upgrade, not a repair.
+- `nix flake check`, `graft check` and `graft ci check` fail when a fetched export still holds a
+  path its own `.gitattributes` marks `export-ignore`, naming it; without that, the scions
+  directory and the check would agree on the wrong tree. `nix run .#graft` refuses to write such
+  an export.
+
+The lock is the place for the commit because everything reads it: Nix's own check, the app, and CI
+under any Nix version. Newer Nix locks a `refs/tags/…` ref at the commit itself, and accepts the
+re-pinned lock as it is (`nix flake lock` leaves it alone).
 
 ## Working on a provider
 
@@ -274,6 +301,46 @@ file is graft's copy byte for byte. The rules:
 - A PR that changes only ignored files never gets a graft-check status. If branch protection
   requires that check, such a PR can't merge: don't require it, or don't use `paths-ignore`.
 
+### Private scions over ssh
+
+graft-check's job runs in a fresh `nixos/nix` container with no ssh key, so it can't fetch a
+private `git+ssh` scion. One more line of graft-check.yaml is the repo's, a comment, which makes
+graft write a step before the check that installs a key from an Actions secret:
+
+```yaml
+# graft ssh: host=[platform-vm]:2222 address=192.168.1.51 hostkey=ssh-rsa AAAAB3NzaC1yc2E...
+```
+
+- `host`: the host as the scion's url names it, `[host]:port` when the port isn't 22.
+- `address` (optional): what that name resolves to, for a runner that can't (the `HostName` of an
+  ssh config for the host).
+- `hostkey`: the host's public key, `TYPE KEY` as in its `.pub` file (for Forgejo's built-in ssh
+  server, `data/ssh/gitea.rsa.pub`, or `ssh-keyscan -p 2222 host` checked against it). It's
+  pinned: `StrictHostKeyChecking yes`.
+- `secret` (optional, default `GRAFT_SSH_KEY`): the name of the Actions secret holding the
+  private key, `secret=NOTEBOOK_APP_DEPLOY_KEY` say.
+
+Add the line anywhere in the file (graft keeps it above `name:`), create the secret, then run
+`nix run .#graft` (graft 2.9.0 or later), which writes the step, and commit. The secret holds the
+private half of a key that can read the scion's repo: on Forgejo, a read-only deploy key on that
+repo (Settings, Deploy keys), its private key in the consumer repo's Settings, Actions, Secrets:
+
+```
+ssh-keygen -t ed25519 -N '' -C "graft-check@<repo>" -f graft_ssh_key
+# graft_ssh_key.pub: a read-only deploy key on the scion's repo
+# graft_ssh_key:     the GRAFT_SSH_KEY secret of the repo that grafts it; then delete both files
+```
+
+The step writes the key to `~/.ssh/graft_scions`, the host key to `~/.ssh/known_hosts` (under the
+host's name and its address), and a `Host` entry to `~/.ssh/config`; Nix's git fetch uses them.
+`nixos/nix` has an ssh client; on an image without one, the step takes `openssh` from Nix. Like
+`paths-ignore`, the line is kept by `nix run .#graft`, the check and `graft upgrade`, and without
+it the file is graft's copy byte for byte. It's kept only in graft-check.yaml: graft-upgrade.yaml
+runs unreviewed code (below), which shouldn't hold a key, so a private scion is upgraded by hand
+(`nix run .#graft upgrade`) or from a runner that has the key.
+
+### The upgrade's two jobs
+
 Moving graft runs the new version's code (its `assemble.sh` and its check) before anyone has
 reviewed it, so the upgrade runs in two jobs. The first upgrades, checks and pushes, and holds
 nothing but the job token; protect the default branch so that token can't push to it. The second,
@@ -313,6 +380,12 @@ tests/   export-ignore
 notes/   export-ignore
 scions/  export-ignore   # always: consumers take your content, never your dependencies
 ```
+
+For a consumer that pins you as `git+…&exportIgnore=1` (a private repo, say), write a directory
+without the trailing slash (`tests export-ignore`, or `/tests export-ignore` for the top-level one
+only): Nix applies these rules from a bare clone, where it can't tell a directory from a file, so
+`tests/` matches nothing (Nix 2.24 to 2.35). `github:` inputs come from GitHub's own `git archive`,
+which honours both.
 
 Your own dependencies stay yours. A consumer that needs one of them grafts it directly, so every
 repo has one level of scions and one copy of each dependency.
@@ -354,7 +427,7 @@ graft does the mechanical part of a migration; the judgment is left to an agent 
 git switch graft/upgrade
 nix run .#graft migrate                        # the brief, against the merge-base with origin/HEAD
 nix run .#graft -- migrate --base v2-start     # against another base; --json for the same data
-nix run github:danielnaab/graft/v2.8.0 -- migrate -C path/to/repo --no-check   # reads, runs nothing of it
+nix run github:danielnaab/graft/v2.9.0 -- migrate -C path/to/repo --no-check   # reads, runs nothing of it
 workmux add graft-upgrade -p "$(nix run .#graft migrate)"   # an agent in a worktree branched from here
 claude -p "$(nix run .#graft migrate)"                       # or any agent that takes a prompt
 ```

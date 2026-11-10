@@ -23,6 +23,18 @@
 # flake.lock at the top (FLAKEDIR `.`, the default), or anything in FLAKEDIR otherwise. Each glob
 # is read as a shell pattern, where `*` and `?` also match `/`, so it errs toward refusing.
 #
+# One more line is yours, in graft-check.yaml only: `# graft ssh: ...`, for a repo whose scions
+# include a private git+ssh one. Its job's container has no key, so with this line graft-check gets
+# a step, before the check, that writes an ssh key from an Actions secret, a known_hosts entry and
+# an ssh config for the host. The line (a comment, so it can sit anywhere; graft keeps it above
+# `name:`) names the host as the scion's url spells it, optionally the address it resolves to, the
+# host's public key, and optionally the secret (default GRAFT_SSH_KEY):
+#
+#     # graft ssh: host=[platform-vm]:2222 address=192.168.1.51 hostkey=ssh-rsa AAAA...
+#     # graft ssh: secret=NOTEBOOK_APP_DEPLOY_KEY host=git.example.com hostkey=ssh-ed25519 AAAA...
+#
+# Without it, the file is EXAMPLES' copy (with any paths-ignore) byte for byte.
+#
 # mkFlake's check and `nix run .#graft` call this with their own examples; graft upgrade calls the
 # copy in the version it moves to, with that version's examples. RUN is how the repo runs graft, for
 # the message (default `nix run .#graft`). Bash, grep, cmp and coreutils only: mkFlake's app has
@@ -99,6 +111,102 @@ paths_ignore() {
   printf '%s' "$want"
 }
 
+# ssh_parse LINE: the fields of a `# graft ssh:` line into SSH_SECRET SSH_HOST SSH_ALIAS SSH_ADDR
+# SSH_HOSTKEY, each checked to be plain enough to sit in YAML and single-quoted shell; fails,
+# saying why, otherwise. ssh_form is the line in graft's form.
+ssh_parse() {
+  local rest=${1#*graft ssh:} toks tok key="" val
+  SSH_SECRET=GRAFT_SSH_KEY SSH_HOST="" SSH_ALIAS="" SSH_ADDR="" SSH_HOSTKEY=""
+  read -ra toks <<<"$rest"   # read, not $rest unquoted: [host]:port is a glob
+  for tok in "${toks[@]}"; do
+    if [[ $tok =~ ^(secret|host|address|hostkey)= ]]; then   # (a key's base64 may end in =)
+      key=${tok%%=*} val=${tok#*=}
+      case $key in
+        secret) SSH_SECRET=$val ;; host) SSH_HOST=$val ;; address) SSH_ADDR=$val ;; hostkey) SSH_HOSTKEY=$val ;;
+      esac
+    elif [ "$key" = hostkey ] && [[ -n $SSH_HOSTKEY && $SSH_HOSTKEY != *" "* ]]; then
+      SSH_HOSTKEY+=" $tok"
+    else
+      echo "can't read \"$tok\""; return 1
+    fi
+  done
+  [[ $SSH_SECRET =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "secret= must be an Actions secret's name (letters, digits, _)"; return 1; }
+  if [[ $SSH_HOST =~ ^\[([A-Za-z0-9.-]+)\]:[0-9]{1,5}$ ]]; then SSH_ALIAS=${BASH_REMATCH[1]}
+  elif [[ $SSH_HOST =~ ^[A-Za-z0-9.-]+$ ]]; then SSH_ALIAS=$SSH_HOST
+  else echo "host= must be the host as known_hosts names it: host, or [host]:port"; return 1; fi
+  [[ -z $SSH_ADDR || $SSH_ADDR =~ ^[A-Za-z0-9.:-]+$ ]] || { echo "address= must be a host name or an IP address"; return 1; }
+  [[ $SSH_HOSTKEY =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521))\ [A-Za-z0-9+/]+={0,2}$ ]] \
+    || { echo "hostkey= must be the host's public key, TYPE KEY (as in its .pub file, no comment)"; return 1; }
+}
+ssh_form() {
+  local f="# graft ssh:"
+  [ "$SSH_SECRET" = GRAFT_SSH_KEY ] || f+=" secret=$SSH_SECRET"
+  f+=" host=$SSH_HOST"
+  [ -z "$SSH_ADDR" ] || f+=" address=$SSH_ADDR"
+  printf '%s hostkey=%s' "$f" "$SSH_HOSTKEY"
+}
+
+# ssh_line FILE WF: FILE's `# graft ssh:` line in graft's form, or nothing when it has none. Fails,
+# saying why, on a line graft can't read, or two that differ.
+ssh_line() {
+  local file=$1 wf=$2 line want="" got why
+  local form='# graft ssh: host=[HOST]:PORT address=ADDRESS hostkey=TYPE KEY (address= and secret=NAME optional)'
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ $line =~ ^[[:space:]]*#[[:space:]]*graft\ ssh: ]] || continue
+    why=$(ssh_parse "$line") || { echo "graft: $wf: its \"# graft ssh:\" line: $why; write it as $form" >&2; return 1; }
+    ssh_parse "$line" >/dev/null
+    got=$(ssh_form)
+    if [ -z "$want" ]; then want=$got
+    elif [ "$want" != "$got" ]; then
+      echo "graft: $wf: its \"# graft ssh:\" lines differ; keep one" >&2; return 1
+    fi
+  done < "$file"
+  printf '%s' "$want"
+}
+
+# ssh_step: the step a `# graft ssh:` line asks for (ssh_parse's fields), and a blank line after it
+ssh_step() {
+  local cfg="'Host $SSH_ALIAS'" names=$SSH_HOST
+  # ssh looks the key up under the name it connects to: with an address, that's the address
+  if [ -n "$SSH_ADDR" ]; then cfg+=" '  HostName $SSH_ADDR'" names+=",${SSH_HOST/"$SSH_ALIAS"/"$SSH_ADDR"}"; fi
+  cat <<EOF
+      - name: SSH key for private scions
+        # graft writes this step from the "# graft ssh:" line at the top of this file
+        env:
+          GRAFT_SSH_KEY: \${{ secrets.$SSH_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "\$GRAFT_SSH_KEY" ]; then
+            echo "::error::the $SSH_SECRET secret is empty or not set"; exit 1
+          fi
+          # nixos/nix has an ssh client; another image may not
+          if ! command -v ssh >/dev/null; then
+            ssh_pkg=\$(nix build --no-link --print-out-paths nixpkgs#openssh)
+            echo "\$ssh_pkg/bin" >> "\$GITHUB_PATH"
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "\$GRAFT_SSH_KEY" > ~/.ssh/graft_scions && chmod 600 ~/.ssh/graft_scions
+          echo '$names $SSH_HOSTKEY' >> ~/.ssh/known_hosts
+          printf '%s\n' $cfg '  IdentityFile ~/.ssh/graft_scions' '  IdentitiesOnly yes' \\
+            '  StrictHostKeyChecking yes' '  CheckHostIP no' '  BatchMode yes' >> ~/.ssh/config
+
+EOF
+}
+
+# render_ssh FILE LINE: FILE with LINE (a `# graft ssh:` line, graft's form) above its first line
+# that isn't a comment, and ssh_step before its check step. Fails, saying why, when FILE has no
+# check step (a workflow other than graft-check.yaml).
+render_ssh() {
+  local file=$1 line top="" step="" l
+  ssh_parse "$2" >/dev/null || return 1
+  while IFS= read -r l || [ -n "$l" ]; do
+    if [ -z "$top" ] && [[ ! $l =~ ^# ]]; then printf '%s\n' "$2"; top=1; fi
+    if [ "$l" = "      - name: Scions match flake.lock" ]; then ssh_step; step=1; fi
+    printf '%s\n' "$l"
+  done < "$file"
+  [ -n "$step" ]
+}
+
 # render SRC LINE: SRC with LINE as the last child of each `push:` and `pull_request:` trigger in
 # its top-level `on:` block. With no LINE, SRC itself.
 render() {
@@ -124,7 +232,7 @@ render() {
 }
 
 want=$(mktemp)
-trap 'rm -f "$want"' EXIT
+trap 'rm -f "$want" "$want.ssh"' EXIT
 for src in "$examples"/*; do
   [ -f "$src" ] || continue
   wf=.forgejo/workflows/${src##*/}
@@ -133,10 +241,21 @@ for src in "$examples"/*; do
     echo "graft: (that line is the only edit graft keeps in $wf; to keep others, delete its \"$marker\" line)" >&2
     rc=1; continue
   fi
+  if ! sl=$(ssh_line "$repo/$wf" "$wf"); then
+    echo "graft: (that line, and paths-ignore, are the only edits graft keeps in $wf; to keep others, delete its \"$marker\" line)" >&2
+    rc=1; continue
+  fi
   render "$src" "$pi" > "$want"
   if [ -n "$pi" ] && ! grep -qxF -- "$pi" "$want"; then
     echo "graft: $wf: its paths-ignore is kept only under push: and pull_request:, and this graft version's copy has neither; delete the line" >&2
     rc=1; continue
+  fi
+  if [ -n "$sl" ]; then
+    if ! render_ssh "$want" "$sl" > "$want.ssh"; then
+      echo "graft: $wf: its \"# graft ssh:\" line is kept only in graft-check.yaml, before its check step, and this graft version's copy has none; delete the line" >&2
+      rc=1; continue
+    fi
+    mv "$want.ssh" "$want"
   fi
   if cmp -s "$want" "$repo/$wf"; then continue; fi
   case $mode in

@@ -1,5 +1,61 @@
 # Changelog
 
+## v2.9.0 - 2026-11-10
+
+### Fixed
+- **Annotated tags defeated `exportIgnore`.** Nix 2.24 locks a `git+…?ref=v1.0.0&exportIgnore=1`
+  input at an annotated tag to the tag object's sha, and its export-ignore filter then finds no
+  commit there and silently ignores nothing: the scion got the provider's whole tree (405 files
+  for a 197-file export), and `nix flake check` passed, since the check's expected tree was
+  fetched the same way. graft now keeps such a lock at the tag's commit (README, "Annotated
+  tags"):
+  - `graft upgrade` locks a moved `git+` input itself, at the tag's peeled commit (`git
+    ls-remote`, `^{}`), with the tag as its ref. This also gets past Nix 2.24 failing to fetch
+    `ref=TAG` over HTTP or ssh into a cache that never saw the tag, which stopped `nix flake
+    update` in a fresh CI container.
+  - `nix run .#graft` first re-pins a lock that holds an annotated tag's object to its commit,
+    then runs again on the new lock; the regraft inside `graft upgrade` does the same.
+  - `nix flake check`, `graft check` and `graft ci check` fail when a fetched `exportIgnore`
+    export still holds a path its own `.gitattributes` marks `export-ignore`, and say why;
+    `nix run .#graft` refuses to write one.
+
+### Added
+- **Private scions in CI: `# graft ssh:` in graft-check.yaml.** One comment line,
+  `# graft ssh: host=[platform-vm]:2222 address=192.168.1.51 hostkey=ssh-rsa AAAA…` (and
+  `secret=NAME` when the secret isn't `GRAFT_SSH_KEY`), makes graft write a step before the check
+  that installs an ssh key from that Actions secret, the host's pinned key in `known_hosts`, and
+  an ssh config for the host, so the job can fetch a private `git+ssh` scion. Like `paths-ignore`,
+  the line is read from the repo's copy and kept by `nix run .#graft`, the check and `graft
+  upgrade`; a line graft can't read, or two that differ, fail the check, and it's refused in
+  graft-upgrade.yaml (README, "Private scions over ssh").
+- README, "As a provider": for `git+` consumers, write `tests export-ignore`, not `tests/`; Nix
+  applies the rules from a bare clone, where a pattern only a directory matches matches nothing.
+
+### Changed
+- Nothing in graft's workflows for a repo without `# graft ssh:`: they are byte for byte 2.8.0's,
+  so the upgrade PR changes nothing in `.forgejo/`.
+- `nix run .#graft` lists the tags of each `git+…&exportIgnore=1` input (`git ls-remote`) before it
+  syncs. When the upstream can't be reached it says so and goes on; it then fails only if the
+  export Nix fetched is unfiltered.
+
+### Upgrading
+- `nix run .#graft upgrade graft` (or the weekly PR) takes it. Then run `nix run .#graft` once:
+  if a `git+` scion's lock held an annotated tag's object, it re-pins the commit and rebuilds the
+  scion without the files its provider export-ignores. Review that diff of `scions/` and
+  `flake.lock` and commit it; `nix flake check` fails until you do.
+- A provider whose `.gitattributes` has `dir/ export-ignore` and is grafted as `git+`: change it to
+  `dir export-ignore` (or `/dir export-ignore`) and tag a release; nothing else ignores it.
+- To fetch a private `git+ssh` scion in graft-check, after this version is pinned:
+  1. Make an ssh key (`ssh-keygen -t ed25519 -N '' -f graft_ssh_key`), add `graft_ssh_key.pub` as a
+     read-only deploy key on the scion's repo, and `graft_ssh_key` as the Actions secret
+     `GRAFT_SSH_KEY` on the repo that grafts it; delete both files.
+  2. Add one line to `.forgejo/workflows/graft-check.yaml`, with the host as the scion's url names
+     it, its address if the runner can't resolve it, and the host's public key, e.g.
+     `# graft ssh: host=[platform-vm]:2222 address=192.168.1.51 hostkey=ssh-rsa AAAA…`
+     (add `secret=NAME` for another secret's name).
+  3. `nix run .#graft` (it writes the step), `nix run .#graft check`, commit.
+  Add it only after graft 2.9.0 is pinned: 2.8.x reports the edited file as differing.
+
 ## v2.8.0 - 2026-11-09
 
 ### Added
