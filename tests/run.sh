@@ -1180,7 +1180,7 @@ quiet nix flake init -t "path:$graft" || fail "nix flake init -t"
 expect "template: graft's workflows arrive, marked" grep -q "^# managed by graft: " .forgejo/workflows/graft-check.yaml
 expect "template: pins the version this tree releases" \
   grep -qF "github:danielnaab/graft/$(sed -nE 's/^## (v[0-9.]+).*/\1/p' "$graft/CHANGELOG.md" | head -1)\"" flake.nix
-sed -i.bak -e "s#github:danielnaab/graft/v[0-9.]*#path:$graft#" -e "s#github:danielnaab/meta-knowledge-base/v[0-9.]*#git+file://$p?ref=v2.0.0\&exportIgnore=1#" flake.nix && rm flake.nix.bak
+sed -i.bak -e "s#github:danielnaab/graft/v[0-9.]*#path:$graft#" -e "s#github:danielnaab/knowledge-base-kit/v[0-9.]*#git+file://$p?ref=v2.0.0\&exportIgnore=1#" flake.nix && rm flake.nix.bak
 quiet nix run .#graft || fail "nix run .#graft in the template"
 expect "template: grafts and passes the check" quiet nix flake check
 

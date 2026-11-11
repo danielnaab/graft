@@ -35,11 +35,11 @@ workflows:
   description = "What this repo is";
 
   inputs = {
-    graft.url = "github:danielnaab/graft/v2.9.0";   # a tag: `graft upgrade` moves it
+    graft.url = "github:danielnaab/graft/v2.10.0";   # a tag: `graft upgrade` moves it
 
     # each `flake = false` input is a scion; github: applies the provider's export-ignore
-    meta-knowledge-base = { url = "github:danielnaab/meta-knowledge-base/v1.0.1"; flake = false; };
-    python-starter      = { url = "github:danielnaab/python-starter/v1.3.0";      flake = false; };
+    knowledge-base-kit = { url = "github:danielnaab/knowledge-base-kit/v2.0.0"; flake = false; };
+    python-kit         = { url = "github:danielnaab/python-kit/v2.0.1";         flake = false; };
 
     # a private Forgejo repo: git+ssh, and exportIgnore=1 or its export rules are skipped
     # notes = { url = "git+ssh://forgejo@platform-vm:2222/daniel/notes?ref=v1&exportIgnore=1"; flake = false; };
@@ -65,7 +65,7 @@ file your `.gitignore` drops.
 outputs = { graft, nixpkgs, ... }@inputs: graft.lib.mkFlake {
   inherit inputs;
   dir = ".scions";                  # default "scions"
-  scions = [ "meta-knowledge-base" ];   # default: every `flake = false` input
+  scions = [ "knowledge-base-kit" ];    # default: every `flake = false` input
   outputs.devShells.x86_64-linux.default = nixpkgs.legacyPackages.x86_64-linux.mkShell { };
 };
 ```
@@ -101,8 +101,8 @@ only that directory:
   description = "What this repo is";
 
   inputs = {
-    graft.url = "github:danielnaab/graft/v2.9.0";
-    meta-knowledge-base = { url = "github:danielnaab/meta-knowledge-base/v1.0.1"; flake = false; };
+    graft.url = "github:danielnaab/graft/v2.10.0";
+    knowledge-base-kit = { url = "github:danielnaab/knowledge-base-kit/v2.0.0"; flake = false; };
   };
 
   outputs = inputs: inputs.graft.lib.mkFlake {
@@ -149,7 +149,7 @@ nix run .#graft changelog                # what upgrade would take: each outdate
 nix run .#graft changelog name@v2.0.0    # what one named tag would bring (across a major too)
 nix run .#graft upgrade                  # graft and every scion that's outdated, to the newest tag of its major
 nix run .#graft upgrade name@v1.2.0   # one scion to a named tag (the only way across a major)
-nix run .#graft upgrade graft@v2.9.0  # graft itself to a named tag
+nix run .#graft upgrade graft@v2.10.0  # graft itself to a named tag
 ```
 
 `graft changelog` says what you'd be taking before you take it. For each input `outdated` reports
@@ -230,7 +230,7 @@ re-pinned lock as it is (`nix flake lock` leaves it alone).
 To try a provider's unreleased change in a repo that grafts it, override the input for one run:
 
 ```
-nix run .#graft --override-input meta-knowledge-base "git+file://$HOME/src/meta-knowledge-base?exportIgnore=1"
+nix run .#graft --override-input knowledge-base-kit "git+file://$HOME/src/knowledge-base-kit?exportIgnore=1"
 ```
 
 This grafts the local checkout, uncommitted edits included, with its `export-ignore` rules applied
@@ -390,6 +390,36 @@ which honours both.
 Your own dependencies stay yours. A consumer that needs one of them grafts it directly, so every
 repo has one level of scions and one copy of each dependency.
 
+If consumers need something of yours beyond what they read (a tool's source, say), export it and
+have them use the same input: a second input for your repo at the same commit (`github:` for the
+scion, `git+https` for the full tree) shares one entry in Nix's fetch cache with the first, and
+whichever was fetched first decides the tree for both (seen on Nix 2.24 and 2.33).
+
+### Naming a repo you graft
+
+A repo's name ends in what its content is, not the role it plays (one repo is often both provider
+and consumer):
+
+| Suffix | Content | A consumer should |
+|---|---|---|
+| `-kit` | something you take on and keep upgrading: tools, skills, structure, often with the rules they enforce | run or adopt it |
+| `-conventions` | rules only | comply with it |
+| `-knowledge` | a topical knowledge base | read it |
+
+A repo that defines a named methodology carries its name (`living-specifications`). Avoid role
+words (`-provider`, `-scion`), words other tools own (`-pack`, `-bundle`, `-template`), and words
+that imply a one-time copy (`-seed`, `-starter`): everything grafted keeps being upgraded. Give
+every repo that can be grafted the topic `graft-provider` on its forge.
+
+### Glossary
+
+- **Provider:** a repo others graft. **Consumer:** a repo that grafts others. Roles, not kinds:
+  most repos are both.
+- **Export:** what a provider gives: its tree at a tag, minus the paths `.gitattributes` marks
+  `export-ignore`.
+- **Scion:** a provider's export as grafted into a consumer: a committed directory under
+  `scions/` (or the `dir` you choose), pinned by `flake.lock`.
+
 ## Breaking changes and migrations
 
 graft's convention for a provider that breaks its consumers:
@@ -427,7 +457,7 @@ graft does the mechanical part of a migration; the judgment is left to an agent 
 git switch graft/upgrade
 nix run .#graft migrate                        # the brief, against the merge-base with origin/HEAD
 nix run .#graft -- migrate --base v2-start     # against another base; --json for the same data
-nix run github:danielnaab/graft/v2.9.0 -- migrate -C path/to/repo --no-check   # reads, runs nothing of it
+nix run github:danielnaab/graft/v2.10.0 -- migrate -C path/to/repo --no-check   # reads, runs nothing of it
 workmux add graft-upgrade -p "$(nix run .#graft migrate)"   # an agent in a worktree branched from here
 claude -p "$(nix run .#graft migrate)"                       # or any agent that takes a prompt
 ```

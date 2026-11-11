@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.10.0 - 2026-11-11
+
+Docs only: nothing graft runs changes.
+
+### Changed
+- **README and template:** examples use the providers' new names, knowledge-base-kit (was
+  meta-knowledge-base) and python-kit (was python-starter).
+- **README, "As a provider":** naming a repo you graft (a suffix for what the content is: `-kit`,
+  `-conventions`, `-knowledge`), a glossary (provider, consumer, scion, export), the
+  `graft-provider` topic, and why one repo shouldn't be taken through two inputs at one commit.
+
 ## v2.9.0 - 2026-11-10
 
 ### Fixed
