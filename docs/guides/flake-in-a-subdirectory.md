@@ -64,4 +64,4 @@ repository. `.` at the root has no flake to find.
 - **`upgrade` locks with `--flake path:<absolute path>`**, which needs Nix 2.19 or later.
 - `flakeDir` can contain only letters, digits, `.`, `_`, `-` and `/`.
 
-Related: [Graft a repository](graft-a-repository.md), [Nix behaviours](../reference/nix-behaviours.md).
+Related: [Graft your first pattern](graft-a-repository.md), [Nix behaviours](../reference/nix-behaviours.md).
