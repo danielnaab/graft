@@ -1,21 +1,24 @@
 # graft
 
-Share rules, agent instructions and checks across your repositories, and keep them current with pull requests you review.
+Apply well-defined patterns to your repository, and get each improvement to them as a pull request you review.
 
-You keep conventions in one place: how to write docs, what an agent reads first, which checks must pass.
-You want ten repositories to follow them, and to keep following them as they change. Copied files drift,
-and nothing says which version a repository has. Submodules are missing from fresh clones, new worktrees
-and agent sandboxes until someone fetches them. A template is copied once and then left behind.
+Your repository gets better when the patterns it follows do.
 
-graft commits a copy of what another repository exports, pinned to a release. That copy is a **scion**.
-graft checks that the scion matches its pin, and proposes newer releases as pull requests. It is built on
-Nix flakes.
+A **pattern** is a way of working that someone writes down and keeps improving. It defines how a
+repository changes: instructions that tell a person or agent what to do, tools that make the change, and
+checks that decide whether the result is valid. Copy one into your repository and it stops improving
+there. Upgrading it later is detective work: what changed upstream, and what must change here?
+
+graft applies a pattern as a **scion**: a committed copy of what the pattern's repository exports, pinned
+to a release. graft checks that the scion matches its pin. It proposes each newer release as a pull
+request that quotes the pattern's CHANGELOG, where the pattern says what to change. It is built on Nix
+flakes.
 
 ## How it works
 
-1. **Graft a provider.** Pin a repository, such as a conventions kit, at a tag. graft writes its export
-   to `scions/<name>/`, and you commit it. Every clone, worktree and forge view then has the same files.
-   `nix flake check` fails if `scions/` differs from the pin.
+1. **Graft a pattern.** Pin the repository that publishes it, its **provider**, at a tag. graft writes
+   the export to `scions/<name>/`, and you commit it. Every clone, worktree and forge view then has the
+   same files. `nix flake check` fails if `scions/` differs from the pin.
 2. **Wire it in.** Point your own files at the scion:
 
    ```
@@ -23,34 +26,60 @@ Nix flakes.
    ├── flake.nix                     # pins each provider at a tag
    ├── scions/knowledge-base-kit/    # the committed copy: never edit it
    ├── AGENTS.md                     # "Follow scions/knowledge-base-kit/docs/playbooks/agent-workflow.md"
-   ├── justfile                      # import "scions/notebook-kit/tools/kit.just" (a kit's recipes)
+   ├── justfile                      # import "scions/notebook-kit/tools/kit.just": move, index, check
    └── .forgejo/workflows/ci.yaml    # PYTHONPATH=scions/knowledge-base-kit/src python3 -B -m kb_linter .
    ```
 
    Every change in your repository then starts from the same agent instructions, runs the same tools and
    passes the same checks. The scion steers your repository only where your files point at it.
-3. **The provider releases.** It changes on its own schedule. A release that asks consumers to change
-   something says how in an **Upgrading** section of its CHANGELOG. A breaking release is a new major
-   version.
-4. **Take the release.** Each week, a CI job moves your pins to the newest release in their major version,
+3. **The pattern improves.** Its provider releases on its own schedule. A release that asks consumers to
+   change something says how in an **Upgrading** section of its CHANGELOG. A breaking release is a new
+   major version.
+4. **Take the improvement.** Each week, a CI job moves your pins to the newest release in their major version,
    runs your whole `nix flake check`, and opens a pull request that quotes each provider's CHANGELOG. A
    person, or an agent given the brief that `graft migrate` prints, edits your files to match. Your checks,
    many of them from the scion, show when the migration is done. A new major version waits until a person
    names it: `nix run .#graft upgrade NAME@TAG`.
 
-The pin records which release your repository follows. The provider evolves on its own, and your
-repository moves to its next release only by a reviewed change.
+The pin records which release of the pattern your repository follows. The pattern evolves on its own, and
+your repository takes each improvement by a reviewed change. Apply one pattern to many repositories, and
+they improve together.
 
 Nix fetches and pins. graft copies, checks the copy against the pin, and moves pins. In CI it also runs
 your repository's own checks on the upgrade and opens the pull request. graft never runs an agent.
+
+## Every change is a transaction
+
+Under a pattern, each change to your repository is a transaction. It starts from a state that passes the
+pattern's checks. A person or agent makes the change with the pattern's instructions and tools. It lands
+as one commit or pull request when the checks pass again, and does not land when they fail. Your hooks
+and CI enforce this by running the pattern's checks.
+
+A knowledge-base pattern, for example, tells an agent how to record a session, gives it a command that
+moves a note and rewrites every link to it, and has checks that fail on a broken link.
+
+There are two kinds of transaction:
+
+| | A change under the pinned pattern | An upgrade to a newer release of the pattern |
+|---|---|---|
+| What changes | Your content: code, docs, notes, records | The scion, and your files to match it |
+| What says how | The pattern's instructions, skills and tools | The provider's **Upgrading** steps |
+| Who makes it | A person or agent, with the pattern's tools | A person or agent, from `graft migrate`'s brief |
+| What accepts it | The pattern's checks, and your review | The checks at the new pin, and your review of the pull request |
+| What graft does | Keeps the pattern pinned and unedited, so every clone and agent session works by the same rules | Moves the pin, runs the checks, and opens the pull request |
+
+graft runs neither kind. It keeps the definition of a valid change pinned, identical everywhere and
+versioned, and it makes changing that definition a transaction of its own
+([Decisions](docs/decisions.md#where-graft-v1s-features-went)).
 
 ## How it compares
 
 - **Copying files** records no version, and nothing notices when a copy changes.
 - **git submodules** need a fetch in every clone and worktree, and pin a whole repository, not a chosen
   export.
-- **Templates** (Copier, cookiecutter) give you files to own. A scion stays the provider's, and is
-  replaced at each release. Use a template for the code that you own, and a scion for the rules it follows.
+- **Templates** (Copier, cookiecutter) give you files to own, once. A pattern also defines how those
+  files change afterwards, and stays the provider's, replaced at each release. Use a template for the code
+  that you own, and a scion for the rules that it follows.
 - **Dependency bots** (Renovate, Dependabot) move pins. graft also brings the provider's files into your
   tree and its CHANGELOG into the pull request.
 
@@ -89,9 +118,10 @@ and `.forgejo/`. Then point your `AGENTS.md`, justfile or CI at what you grafted
 - graft's workflows are for Forgejo Actions. On GitHub, run `nix run .#graft ci check` and `ci upgrade`
   from your own workflows, and open the pull request yourself ([CI](docs/guides/ci.md)).
 
-## Publish something to graft
+## Publish a pattern
 
-Any repository with semver tags can be grafted. To be a good provider:
+Any repository with semver tags can be grafted. A pattern is well defined when consumers can tell what
+they get, when it breaks, and how to keep up:
 
 - Mark what consumers should not get (tests, your own scions) `export-ignore` in `.gitattributes`.
 - Release a breaking change as a new major version.
