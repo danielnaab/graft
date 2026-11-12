@@ -1,5 +1,5 @@
 ---
-status: draft
+status: working
 ---
 # `graft check` fails: find what changed in a scion, and fix it
 
@@ -86,7 +86,7 @@ save any change someone meant, put the scions back to their pins, and stop the c
    Its headers read `b/` before `a/`, which `git apply` does not mind. In the provider's checkout,
    `git apply -p3 /tmp/scion-change.patch` applies it: add one to `-p` for each extra segment in your
    scions directory's path. Commit and release it there, then take the new version with [Upgrade](upgrade.md).
-   To try it here first, see [a provider's unreleased change](graft-a-repository.md#try-a-providers-unreleased-change).
+   To try it here first, see [a provider's unreleased change](upgrade.md#try-a-providers-unreleased-change).
 
 7. Stop the cause from doing it again. Tell each tool that the scions directory is not yours:
 

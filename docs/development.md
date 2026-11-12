@@ -22,6 +22,7 @@ How to change graft, test it, and release it.
 | `lib/retarget.jq` | Moves a tag in a flake URL. |
 | `template/` | What `nix flake init -t` writes. Its workflows are the copies that consumers must match. |
 | `tests/run.sh`, `tests/stub-api.py` | The end-to-end test, and a stub of Forgejo's API. |
+| `tests/fixtures.sh` | The repositories that a guide is read against. |
 | `docs/`, `README.md`, `AGENTS.md` | Documentation, checked against knowledge-base-kit's conventions. |
 | `scions/` | graft's own scions. Never edit. |
 | `.forgejo/workflows/` | graft's own CI: the template's workflows, kept current by `nix run .#graft`. |
@@ -53,6 +54,12 @@ graft's own rules:
 
 - Use the terms that [Concepts](concepts.md) defines.
 - Reference pages end with a `## Sources` section that links the code they describe.
+- A guide is one user goal: a title that names the goal or symptom, numbered steps with the exact command
+  and its expected output, a runnable "Check it worked" block, the two to four real failures, and Sources.
+  "Not yet: …" marks a known gap.
+- Read a new or changed guide literally, against a fixture: `tests/fixtures.sh NAME OUT` builds one
+  (`check-fails`, `first-pattern`). A reader that sees only the page and its links follows each step and says
+  what it expects first. Then a reviewer checks its claims against the code.
 
 These links cite the kit by URL, because graft does not export `scions/`. When you upgrade the kit with
 `nix run .#graft upgrade`, change their tag too.

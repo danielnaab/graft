@@ -6,6 +6,11 @@
 - **[`graft check` fails](docs/guides/check-fails.md):** a guide to finding what changed in a scion
   (an edit, a formatter, a tool's `__pycache__/`), saving a change someone meant, restoring the pins, and
   keeping tools out of the scions directory. It replaces the list of causes in Graft a repository.
+- **Graft a repository is now [Graft your first pattern](docs/guides/graft-a-repository.md)**, a tutorial
+  for a new or an existing repository (an existing flake's outputs, its own `flake = false` inputs, a
+  `.gitignore` that drops `flake.lock`). Its section "Try a provider's unreleased change" moved to
+  [Upgrade](docs/guides/upgrade.md#try-a-providers-unreleased-change).
+- **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
 
 ### Fixed
 - **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran

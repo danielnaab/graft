@@ -113,7 +113,7 @@ This writes a `flake.nix` and graft's CI workflows. Edit the inputs:
 
 Run `nix run .#graft` to lock the inputs and write `scions/`. Commit `flake.nix`, `flake.lock`, `scions/`
 and `.forgejo/`. Then point your `AGENTS.md`, checks and CI at what you grafted. Next:
-[Graft a repository](docs/guides/graft-a-repository.md).
+[Graft your first pattern](docs/guides/graft-a-repository.md).
 
 - `nix run .#graft` copies the files that git tracks in your repository into the Nix store, which every
   user of the machine can read. To keep private files out of it, see
@@ -137,7 +137,7 @@ See [Publish](docs/guides/publish.md).
 | To | Read |
 |---|---|
 | Learn the terms and how they map to Nix | [Concepts](docs/concepts.md) |
-| Graft a repository, sync and check | [Graft a repository](docs/guides/graft-a-repository.md) |
+| Graft your first pattern, in a new or existing repository | [Graft your first pattern](docs/guides/graft-a-repository.md) |
 | Find and fix what fails `graft check` | [`graft check` fails](docs/guides/check-fails.md) |
 | Take newer versions, and cross a major version | [Upgrade](docs/guides/upgrade.md) |
 | Keep private content out of the Nix store | [A flake in a subdirectory](docs/guides/flake-in-a-subdirectory.md) |

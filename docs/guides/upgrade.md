@@ -77,6 +77,21 @@ Run `migrate` from the repository root. It compares with the merge base of the d
 The CI bot force-pushes its branch `graft/upgrade` every week. Make your fix on a new branch from it, or
 merge the fix before the next run.
 
+## Try a provider's unreleased change
+
+To graft a local checkout of a provider for one run, override its input:
+
+```
+nix run .#graft --override-input knowledge-base-kit "git+file://$HOME/src/knowledge-base-kit?exportIgnore=1"
+```
+
+- This includes uncommitted edits, and applies the provider's export rules. A `path:` URL does not
+  apply them.
+- `flake.lock` does not change. The scions README records the commit as `…-dirty`, so `nix flake check`
+  fails if you commit this by mistake.
+- To go back to the pinned version, run `nix run .#graft`.
+- When the change is correct, tag the provider and run `nix run .#graft upgrade`.
+
 ## Run from outside the repository
 
 `outdated`, `changelog`, `upgrade` and `migrate` also run from graft's own flake, with `-C`. Use this:

@@ -52,7 +52,7 @@
 
         checks = forAll (pkgs: {
           shellcheck = pkgs.runCommand "graft-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
-            shellcheck -x ${./tests/run.sh} ${./lib}/*.sh
+            shellcheck -x ${./tests/run.sh} ${./tests/fixtures.sh} ${./lib}/*.sh
             touch $out
           '';
           # graft's docs against knowledge-base-kit's conventions: links and anchors, lifecycle status,

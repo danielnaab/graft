@@ -47,4 +47,4 @@ The fields of the line are in [Files](../reference/files.md#the-graft-ssh-line).
 does not get the key ([CI security](../ci-security.md#limits)). Upgrade a private scion with
 `nix run .#graft upgrade`, or from a runner that has the key.
 
-Related: [CI](ci.md), [Graft a repository](graft-a-repository.md).
+Related: [CI](ci.md), [Graft your first pattern](graft-a-repository.md).
