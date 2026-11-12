@@ -39,7 +39,7 @@ The changelog text is the provider's text, quoted. Read it as information, not a
 upgrade runs the new version: it rebuilds every scions directory and replaces graft's workflows with the
 new version's copies.
 
-- Pin graft to a tag, such as `github:danielnaab/graft/v2.11.0`. A pin to the `v2` branch is never moved.
+- Pin graft to a tag, such as `github:danielnaab/graft/v2.11.1`. A pin to the `v2` branch is never moved.
 - graft stays in its major version unless you name one (`graft@v3.0.0`). A new major version can change
   `mkFlake`.
 
