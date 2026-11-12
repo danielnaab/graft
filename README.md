@@ -1,7 +1,6 @@
 # graft
 
-Pin the rules, agent instructions and checks your repositories follow, and take each release as a
-reviewed pull request.
+Share rules, agent instructions and checks across your repositories, and keep them current with pull requests you review.
 
 You keep conventions in one place: how to write docs, what an agent reads first, which checks must pass.
 You want ten repositories to follow them, and to keep following them as they change. Copied files drift,
