@@ -2,92 +2,81 @@
 
 Apply well-defined patterns to your repository, and get each improvement to them as a pull request you review.
 
-Your repository gets better when the patterns it follows do.
+Say your team keeps its knowledge in Markdown, and agents now write much of it. You have worked out how to
+keep it trustworthy. A page that makes claims cites where they came from. A page says whether it is a draft
+or settled. No link points at a heading that someone renamed. An `AGENTS.md` teaches agents these rules,
+and a checker rejects a page that breaks them.
 
-A **pattern** is a way of working that someone writes down and keeps improving. It defines how a
-repository changes: instructions that tell a person or agent what to do, tools that make the change, and
-checks that decide whether the result is valid. Copy one into your repository and it stops improving
-there. Upgrading it later is detective work: what changed upstream, and what must change here?
+Other teams want the same, so you copy it all into their repositories. A month later you have tightened a
+rule and fixed a bug in the checker, and their copies have neither. Catching them up means working out
+what changed, and what each copy must change in return.
 
-graft applies a pattern as a **scion**: a committed copy of what the pattern's repository exports, pinned
-to a release. graft checks that the scion matches its pin. It proposes each newer release as a pull
-request that quotes the pattern's CHANGELOG, where the pattern says what to change. It is built on Nix
-flakes.
+graft treats that bundle of rules, agent instructions and checks as a **pattern**. A **provider**
+repository publishes the pattern with version tags. Your repository commits a copy pinned to one version,
+under `scions/`. That copy is a **scion**, after the shoot that a gardener grafts onto another plant.
 
-## How it works
+graft needs Nix with flakes. Its upgrade pull requests come from Forgejo Actions workflows. On GitHub, you
+run the same commands from your own workflows.
 
-1. **Graft a pattern.** Pin the repository that publishes it, its **provider**, at a tag. graft writes
-   the export to `scions/<name>/`, and you commit it. Every clone, worktree and forge view then has the
-   same files. `nix flake check` fails if `scions/` differs from the pin.
-2. **Wire it in.** Point your own files at the scion:
+## A pattern defines how your repository changes
 
-   ```
-   your-repo/
-   ├── flake.nix                     # pins each provider at a tag
-   ├── scions/knowledge-base-kit/    # the committed copy: never edit it
-   ├── AGENTS.md                     # "Follow scions/knowledge-base-kit/docs/playbooks/agent-workflow.md"
-   ├── justfile                      # import "scions/notebook-kit/tools/kit.just": move, index, check
-   └── .forgejo/workflows/ci.yaml    # PYTHONPATH=scions/knowledge-base-kit/src python3 -B -m kb_linter .
-   ```
+Point your own files at the scion:
 
-   Every change in your repository then starts from the same agent instructions, runs the same tools and
-   passes the same checks. The scion steers your repository only where your files point at it.
-3. **The pattern improves.** Its provider releases on its own schedule. A release that asks consumers to
-   change something says how in an **Upgrading** section of its CHANGELOG. A breaking release is a new
-   major version.
-4. **Take the improvement.** Each week, a CI job moves your pins to the newest release in their major version,
-   runs your whole `nix flake check`, and opens a pull request that quotes each provider's CHANGELOG. A
-   person, or an agent given the brief that `graft migrate` prints, edits your files to match. Your checks,
-   many of them from the scion, show when the migration is done. A new major version waits until a person
-   names it: `nix run .#graft upgrade NAME@TAG`.
+```
+team-kb/
+├── flake.nix                     # pins knowledge-base-kit at a version
+├── scions/knowledge-base-kit/    # the pattern, committed: never edit it
+├── AGENTS.md                     # "Follow scions/knowledge-base-kit/docs/playbooks/agent-workflow.md"
+├── knowledge-base.yaml           # which folders need sources, which statuses a page may have
+└── .forgejo/workflows/ci.yaml    # runs the kit's checker: kb_linter and link_validator
+```
 
-The pin records which release of the pattern your repository follows. The pattern evolves on its own, and
-your repository takes each improvement by a reviewed change. Apply one pattern to many repositories, and
-they improve together.
+From then on, each change to the knowledge base is a transaction against the pattern, the way a database
+write must satisfy its schema. The change follows the pattern's instructions, and merges only when its
+checks pass. Say an agent writes up last week's outage. The playbook tells it to cite the incident ticket
+and the runbook that it relied on. If the page has no `## Sources` section, or links to a runbook heading
+that no longer exists, the checker fails and the page does not merge.
 
-Nix fetches and pins. graft copies, checks the copy against the pin, and moves pins. In CI it also runs
-your repository's own checks on the upgrade and opens the pull request. graft never runs an agent.
+graft does not run these checks. Your hooks and CI do. graft keeps the pattern that they run the same in
+every clone, worktree and agent session: `nix flake check` fails if anyone edits the scion.
 
-## Every change is a transaction
+## Upgrading is a change too
 
-Under a pattern, each change to your repository is a transaction. It starts from a state that passes the
-pattern's checks. A person or agent makes the change with the pattern's instructions and tools. It lands
-as one commit or pull request when the checks pass again, and does not land when they fail. Your hooks
-and CI enforce this by running the pattern's checks.
+The provider releases new versions on its own schedule. Taking one is a migration, the second kind of
+transaction.
 
-A knowledge-base pattern, for example, tells an agent how to record a session, gives it a command that
-moves a note and rewrites every link to it, and has checks that fail on a broken link.
+Each week, a CI job moves your pin to the newest version in its major version. It runs your
+`nix flake check` and opens a pull request that quotes the provider's CHANGELOG. When a version needs
+your files to change, its CHANGELOG says how, in an **Upgrading** section. A person, or an agent given
+the brief that `graft migrate` prints, makes those changes until the checks pass at the new pin. Then
+you merge.
 
-There are two kinds of transaction:
+A new major version waits until a person takes it. Suppose version 3 of the pattern requires each
+superseded decision to link to the decision that replaced it, so that no reader, and no agent, acts on a
+dead decision. You run `nix run .#graft upgrade knowledge-base-kit@v3.0.0`. The Upgrading section says how
+to find the decisions to fix, and the new checker fails on each one. A person, or an agent working from
+the brief, adds the links until the checks pass. Then you merge.
 
-| | A change under the pinned pattern | An upgrade to a newer release of the pattern |
-|---|---|---|
-| What changes | Your content: code, docs, notes, records | The scion, and your files to match it |
-| What says how | The pattern's instructions, skills and tools | The provider's **Upgrading** steps |
-| Who makes it | A person or agent, with the pattern's tools | A person or agent, from `graft migrate`'s brief |
-| What accepts it | The pattern's checks, and your review | The checks at the new pin, and your review of the pull request |
-| What graft does | Keeps the pattern pinned and unedited, so every clone and agent session works by the same rules | Moves the pin, runs the checks, and opens the pull request |
+Fix a rule or the checker once, in the provider, and every knowledge base that follows the pattern gets
+the fix as a pull request that it reviews.
 
-graft runs neither kind. It keeps the definition of a valid change pinned, identical everywhere and
-versioned, and it makes changing that definition a transaction of its own
-([Decisions](docs/decisions.md#where-graft-v1s-features-went)).
+## What graft does
 
-## How it compares
+Nix fetches and pins each provider. graft copies the scions, fails the check when they differ from the
+pins, and moves pins. In CI, it also runs your checks on an upgrade and opens the pull request. graft never
+runs an agent. Why it stops there: [Decisions](docs/decisions.md).
+
+## Compared with copying, submodules, templates and bots
 
 - **Copying files** records no version, and nothing notices when a copy changes.
-- **git submodules** need a fetch in every clone and worktree, and pin a whole repository, not a chosen
-  export.
-- **Templates** (Copier, cookiecutter) give you files to own, once. A pattern also defines how those
-  files change afterwards, and stays the provider's, replaced at each release. Use a template for the code
-  that you own, and a scion for the rules that it follows.
-- **Dependency bots** (Renovate, Dependabot) move pins. graft also brings the provider's files into your
-  tree and its CHANGELOG into the pull request.
-
-More in [Decisions](docs/decisions.md).
+- **git submodules** need a fetch in every clone and worktree, and pin a whole repository, not just the
+  files you need.
+- **Templates** (Copier, cookiecutter) give you files to own, once. Use a template for the pages that you
+  own, and a scion for the rules that they follow.
+- **Dependency bots** (Renovate, Dependabot) move pins. graft also puts the provider's files in your tree,
+  and its CHANGELOG in the pull request.
 
 ## Quick start
-
-You need Nix with flakes. graft needs nothing else installed.
 
 ```
 nix flake init -t github:danielnaab/graft
@@ -113,14 +102,15 @@ Run `nix run .#graft` to lock the inputs and write `scions/`. Commit `flake.nix`
 and `.forgejo/`. Then point your `AGENTS.md`, justfile or CI at what you grafted. Next:
 [Graft a repository](docs/guides/graft-a-repository.md).
 
-- `nix run .#graft` copies the repository into the Nix store. To keep private files out of it, see
+- `nix run .#graft` copies the files that git tracks in your repository into the Nix store, which every
+  user of the machine can read. To keep private files out of it, see
   [A flake in a subdirectory](docs/guides/flake-in-a-subdirectory.md).
-- graft's workflows are for Forgejo Actions. On GitHub, run `nix run .#graft ci check` and `ci upgrade`
-  from your own workflows, and open the pull request yourself ([CI](docs/guides/ci.md)).
+- On GitHub, run `nix run .#graft ci check` and `ci upgrade` from your own workflows, and open the pull
+  request yourself ([CI](docs/guides/ci.md)).
 
 ## Publish a pattern
 
-Any repository with semver tags can be grafted. A pattern is well defined when consumers can tell what
+Any repository with semver tags can be a provider. A pattern is well defined when consumers can tell what
 they get, when it breaks, and how to keep up:
 
 - Mark what consumers should not get (tests, your own scions) `export-ignore` in `.gitattributes`.
@@ -130,12 +120,6 @@ they get, when it breaks, and how to keep up:
   quote the CHANGELOG sections that hold them.
 
 See [Publish](docs/guides/publish.md).
-
-## The name
-
-In horticulture, a scion is a shoot cut from one plant and joined to the roots of another. It keeps its
-own identity and grows as part of the new plant. [Concepts](docs/concepts.md) defines every term that
-graft uses and maps each one to Nix.
 
 ## Documentation
 
@@ -151,9 +135,7 @@ graft uses and maps each one to Nix.
 | Look up a command, flag or `mkFlake` argument | [Commands](docs/reference/commands.md) |
 | Look up a file graft reads or writes | [Files](docs/reference/files.md) |
 | Know which Nix behaviours graft works around | [Nix behaviours](docs/reference/nix-behaviours.md) |
-| Know why graft is this small | [Decisions](docs/decisions.md) |
+| Know why graft is this small, and where graft v1 went | [Decisions](docs/decisions.md) |
 | Change graft itself | [Development](docs/development.md) |
 
-Releases and upgrade steps are in the [CHANGELOG](CHANGELOG.md). This is graft v2. graft v1
-(`graft.yaml`, `graft.lock`, `.graft/`) is on the read-only `v1` branch
-([what happened to its features](docs/decisions.md#where-graft-v1s-features-went)).
+Releases and upgrade steps are in the [CHANGELOG](CHANGELOG.md).
