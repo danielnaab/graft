@@ -54,7 +54,7 @@ Run it as `nix run .#graft COMMAND`. A flag needs `--` before it, because Nix ot
 
 ```
 nix run github:danielnaab/graft -- outdated -C path/to/repo [--json]
-nix run github:danielnaab/graft/v2.11.0 -- migrate -C path/to/repo --no-check
+nix run github:danielnaab/graft/v2.11.1 -- migrate -C path/to/repo --no-check
 ```
 
 - `-C` takes the repository root, also for a flake in a subdirectory.

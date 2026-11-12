@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.11.1 - 2026-11-12
+
+Docs only: nothing graft runs changes.
+
+### Changed
+- **The README says what graft is for.** It opens with the problem (a copied set of rules stops improving)
+  and defines pattern, provider and scion. It then follows one knowledge-base example: while pinned, the
+  pattern's checks govern each change, and taking a new version is a reviewed pull request, weekly for
+  minor versions, by a person for a major one. It says what graft does and does not do, and compares it
+  with copying, submodules, templates and dependency bots.
+
 ## v2.11.0 - 2026-11-12
 
 Docs, graft grafts its own scions, and two fixes to what graft reads.
