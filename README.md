@@ -1,38 +1,65 @@
 # graft
 
-graft copies what other repositories publish into your repository, at a version that you pin. It checks
-that copy, and upgrades it when they release.
+Pin the rules, agent instructions and checks your repositories follow, and take each release as a
+reviewed pull request.
 
-You commit the copy. Every clone, worktree, agent and forge web view then reads the same files, with
-nothing to fetch or set up. The repository that publishes decides what it exports. Your repository
-decides which version it takes, and takes upgrades as reviewed pull requests.
+You keep conventions in one place: how to write docs, what an agent reads first, which checks must pass.
+You want ten repositories to follow them, and to keep following them as they change. Copied files drift,
+and nothing says which version a repository has. Submodules are missing from fresh clones, new worktrees
+and agent sandboxes until someone fetches them. A template is copied once and then left behind.
 
-graft is a Nix flake library and one command, `graft`. Nix fetches and pins. graft copies, checks and
-upgrades.
-
-> This is graft v2. It does not read `graft.yaml`, `graft.lock` or `.graft/`. Those belong to graft v1,
-> on the read-only `v1` branch ([decisions](docs/decisions.md#where-graft-v1s-features-went)).
-
-## The metaphor
-
-In horticulture, a **scion** is a cut shoot of one plant, joined to the roots of another. The scion
-keeps its own identity and grows as part of the new plant.
-
-In graft, a **provider** repository publishes an **export**: its files at a version tag, minus the paths
-that it excludes. Your repository, the **consumer**, joins a copy of that export to its own tree, as a
-scion. The scion is real files in your repository, not a link. Your repository keeps its own history and
-its own roots. To graft is to make this join, and the `graft` command makes it and keeps it.
+graft commits a copy of what another repository exports, pinned to a release. That copy is a **scion**.
+graft checks that the scion matches its pin, and proposes newer releases as pull requests. It is built on
+Nix flakes.
 
 ## How it works
 
-1. You declare each provider as a flake input with `flake = false`, pinned to a tag.
-2. Nix fetches the export and records its commit and hash in `flake.lock`.
-3. `nix run .#graft` writes each export to `scions/<name>/`. You commit `scions/`.
-4. `nix flake check` fails if `scions/` differs from what `flake.lock` pins.
-5. `nix run .#graft upgrade` moves pins to newer tags in the same major version. A weekly CI job can
-   do this and open a pull request.
+1. **Graft a provider.** Pin a repository, such as a conventions kit, at a tag. graft writes its export
+   to `scions/<name>/`, and you commit it. Every clone, worktree and forge view then has the same files.
+   `nix flake check` fails if `scions/` differs from the pin.
+2. **Wire it in.** Point your own files at the scion:
+
+   ```
+   your-repo/
+   ├── flake.nix                     # pins each provider at a tag
+   ├── scions/knowledge-base-kit/    # the committed copy: never edit it
+   ├── AGENTS.md                     # "Follow scions/knowledge-base-kit/docs/playbooks/agent-workflow.md"
+   ├── justfile                      # import "scions/notebook-kit/tools/kit.just" (a kit's recipes)
+   └── .forgejo/workflows/ci.yaml    # PYTHONPATH=scions/knowledge-base-kit/src python3 -B -m kb_linter .
+   ```
+
+   Every change in your repository then starts from the same agent instructions, runs the same tools and
+   passes the same checks. The scion steers your repository only where your files point at it.
+3. **The provider releases.** It changes on its own schedule. A release that asks consumers to change
+   something says how in an **Upgrading** section of its CHANGELOG. A breaking release is a new major
+   version.
+4. **Take the release.** Each week, a CI job moves your pins to the newest release in their major version,
+   runs your whole `nix flake check`, and opens a pull request that quotes each provider's CHANGELOG. A
+   person, or an agent given the brief that `graft migrate` prints, edits your files to match. Your checks,
+   many of them from the scion, show when the migration is done. A new major version waits until a person
+   names it: `nix run .#graft upgrade NAME@TAG`.
+
+The pin records which release your repository follows. The provider evolves on its own, and your
+repository moves to its next release only by a reviewed change.
+
+Nix fetches and pins. graft copies, checks the copy against the pin, and moves pins. In CI it also runs
+your repository's own checks on the upgrade and opens the pull request. graft never runs an agent.
+
+## How it compares
+
+- **Copying files** records no version, and nothing notices when a copy changes.
+- **git submodules** need a fetch in every clone and worktree, and pin a whole repository, not a chosen
+  export.
+- **Templates** (Copier, cookiecutter) give you files to own. A scion stays the provider's, and is
+  replaced at each release. Use a template for the code that you own, and a scion for the rules it follows.
+- **Dependency bots** (Renovate, Dependabot) move pins. graft also brings the provider's files into your
+  tree and its CHANGELOG into the pull request.
+
+More in [Decisions](docs/decisions.md).
 
 ## Quick start
+
+You need Nix with flakes. graft needs nothing else installed.
 
 ```
 nix flake init -t github:danielnaab/graft
@@ -46,6 +73,7 @@ This writes a `flake.nix` and graft's CI workflows. Edit the inputs:
 
   inputs = {
     graft.url = "github:danielnaab/graft/v2.11.0";
+    # A provider: knowledge-base conventions, agent playbooks and a checker.
     knowledge-base-kit = { url = "github:danielnaab/knowledge-base-kit/v2.1.0"; flake = false; };
   };
 
@@ -53,15 +81,38 @@ This writes a `flake.nix` and graft's CI workflows. Edit the inputs:
 }
 ```
 
-Then run `nix run .#graft`, and commit `flake.nix`, `flake.lock`, `scions/` and `.forgejo/`. Next:
+Run `nix run .#graft` to lock the inputs and write `scions/`. Commit `flake.nix`, `flake.lock`, `scions/`
+and `.forgejo/`. Then point your `AGENTS.md`, justfile or CI at what you grafted. Next:
 [Graft a repository](docs/guides/graft-a-repository.md).
+
+- `nix run .#graft` copies the repository into the Nix store. To keep private files out of it, see
+  [A flake in a subdirectory](docs/guides/flake-in-a-subdirectory.md).
+- graft's workflows are for Forgejo Actions. On GitHub, run `nix run .#graft ci check` and `ci upgrade`
+  from your own workflows, and open the pull request yourself ([CI](docs/guides/ci.md)).
+
+## Publish something to graft
+
+Any repository with semver tags can be grafted. To be a good provider:
+
+- Mark what consumers should not get (tests, your own scions) `export-ignore` in `.gitattributes`.
+- Release a breaking change as a new major version.
+- Write **Upgrading** steps in the CHANGELOG that a person or agent can follow without knowing your
+  repository's internals. `graft changelog` and `graft migrate` show them first, and upgrade pull requests
+  quote the CHANGELOG sections that hold them.
+
+See [Publish](docs/guides/publish.md).
+
+## The name
+
+In horticulture, a scion is a shoot cut from one plant and joined to the roots of another. It keeps its
+own identity and grows as part of the new plant. [Concepts](docs/concepts.md) defines every term that
+graft uses and maps each one to Nix.
 
 ## Documentation
 
-Start with [Concepts](docs/concepts.md). It defines every term and shows how graft maps to Nix.
-
 | To | Read |
 |---|---|
+| Learn the terms and how they map to Nix | [Concepts](docs/concepts.md) |
 | Graft a repository, sync and check | [Graft a repository](docs/guides/graft-a-repository.md) |
 | Take newer versions, and cross a major version | [Upgrade](docs/guides/upgrade.md) |
 | Keep private content out of the Nix store | [A flake in a subdirectory](docs/guides/flake-in-a-subdirectory.md) |
@@ -74,4 +125,6 @@ Start with [Concepts](docs/concepts.md). It defines every term and shows how gra
 | Know why graft is this small | [Decisions](docs/decisions.md) |
 | Change graft itself | [Development](docs/development.md) |
 
-Releases and upgrade steps are in the [CHANGELOG](CHANGELOG.md).
+Releases and upgrade steps are in the [CHANGELOG](CHANGELOG.md). This is graft v2. graft v1
+(`graft.yaml`, `graft.lock`, `.graft/`) is on the read-only `v1` branch
+([what happened to its features](docs/decisions.md#where-graft-v1s-features-went)).
