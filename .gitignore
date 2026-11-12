@@ -1,0 +1,5 @@
+# A local run of knowledge-base-kit's checker (PYTHONPATH=scions/knowledge-base-kit/src) writes
+# bytecode into the scion; ignore it so the drift check reads only the export.
+__pycache__/
+result
+result-*

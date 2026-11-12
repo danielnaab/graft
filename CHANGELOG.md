@@ -1,5 +1,39 @@
 # Changelog
 
+## v2.11.0 - 2026-11-12
+
+Docs, graft grafts its own scions, and two fixes to what graft reads.
+
+### Added
+- **graft-check.yaml keeps your `branches:` line.** A repository whose default branch isn't `main` writes
+  its name under `push:` (`branches: [v2]`), and sync, the check and `graft upgrade` keep it, as they
+  keep `paths-ignore`. Before, the only way was to delete the marker line and give up graft's copy.
+
+### Fixed
+- **A provider's leaked scions README is no longer read as the consumer's.** A provider that forgets to
+  export-ignore its scions directory puts `scions/<name>/scions/README.md`, with graft's marker, in the
+  consumer. `outdated`, `upgrade`, `changelog` and `migrate` took it for one of the consumer's scions
+  directories. They now skip a scions directory inside another.
+
+### Changed
+- **The README is now a set of short pages.** `README.md` says what graft is, explains the scion metaphor
+  and gives a quick start. `docs/` has [concepts](docs/concepts.md), six guides, three reference pages
+  (commands, files, Nix behaviours), [decisions](docs/decisions.md) and [development](docs/development.md).
+  Each section of the v2.10.0 README is on one of these pages, and [CI security](docs/ci-security.md)
+  explains the upgrade workflow's two jobs. The v1 table's `commands:` row now says what
+  consumers do: load a provider's code from the same input.
+- **graft grafts knowledge-base-kit** (v2.1.0) with this checkout's own `mkFlake` (not a pinned graft), into
+  `scions/`, and its docs follow the kit's conventions. `nix flake check` runs the kit's link and lifecycle
+  checks on them (`checks.<system>.docs`). graft's flake has a new input, `knowledge-base-kit`; a
+  consumer's `flake.lock` gains a node for it on upgrade, which nothing in the consumer evaluates.
+- **graft runs its own workflows:** `.forgejo/workflows/` has graft-check (pushes to `v2`, through the new
+  `branches:` line) and graft-upgrade, managed by this checkout's graft like any consumer's.
+- **`.gitattributes`:** graft's export leaves out `scions`, `.gitignore`, `AGENTS.md` and
+  `knowledge-base.yaml`. A new `.gitignore` drops `__pycache__/`, which a local run of the kit's checker
+  writes into the scion.
+- A pointer in an error message (`lib/export-ignored.sh`) and in `template/flake.nix` now names the page
+  instead of a README section.
+
 ## v2.10.0 - 2026-11-11
 
 Docs only: nothing graft runs changes.
