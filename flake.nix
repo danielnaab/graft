@@ -60,7 +60,9 @@
           docs = pkgs.runCommand "graft-docs" { nativeBuildInputs = [ pkgs.python3 ]; } ''
             cd ${self}
             export PYTHONPATH=${inputs.knowledge-base-kit}/src
-            python3 -m link_validator . && python3 -m kb_linter .
+            # one command per line: under set -e, a failure left of `&&` would not stop the build
+            python3 -m link_validator .
+            python3 -m kb_linter .
             touch $out
           '';
         });

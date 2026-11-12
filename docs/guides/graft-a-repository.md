@@ -48,11 +48,8 @@ second line only keeps `flake.lock` to one entry.
 | Check the working tree's scions and graft's workflows | `nix run .#graft check` |
 | Check what git tracks, with the repository's other checks | `nix flake check` |
 
-The check fails on drift. Common causes:
-
-- a file in `scions/` was edited;
-- a tag in `flake.nix` was changed without `nix run .#graft`;
-- your `.gitignore` drops a grafted file. The check lists such a file "only on the left".
+The check fails on drift. To find what changed and fix it, see
+[`graft check` fails](check-fails.md).
 
 ## Options
 

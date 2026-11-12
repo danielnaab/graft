@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **[`graft check` fails](docs/guides/check-fails.md):** a guide to finding what changed in a scion
+  (an edit, a formatter, a tool's `__pycache__/`), saving a change someone meant, restoring the pins, and
+  keeping tools out of the scions directory. It replaces the list of causes in Graft a repository.
+
+### Fixed
+- **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran
+  `link_validator && kb_linter`, so a link failure never failed the build. Only graft's own
+  `nix flake check` changes; nothing consumers run does.
+
 ## v2.11.1 - 2026-11-12
 
 Docs only: nothing graft runs changes.
