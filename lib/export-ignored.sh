@@ -41,6 +41,6 @@ for spec in "$@"; do
   [ ${#hits[@]} -gt 0 ] || continue
   rc=1
   echo "graft: $name: its fetched export still holds what its .gitattributes marks export-ignore: ${hits[*]:0:5}$([ ${#hits[@]} -le 5 ] || echo " ...")" >&2
-  echo "graft: (Nix ignored nothing: flake.lock pins an annotated tag's object, not its commit. $run re-pins the commit; see graft's README, \"Annotated tags\")" >&2
+  echo "graft: (Nix ignored nothing: flake.lock pins an annotated tag's object, not its commit. $run re-pins the commit; see graft's docs/reference/nix-behaviours.md)" >&2
 done
 exit "$rc"

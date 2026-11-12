@@ -1,0 +1,7 @@
+# What graft exports. Consumers take graft as a flake input (github:danielnaab/graft/vX.Y.Z), whose
+# tree is the tagged release minus the paths below. Everything below is this repository's own upkeep.
+# No trailing slashes: the same rules hold for git+ inputs (docs/reference/nix-behaviours.md).
+/scions              export-ignore
+/.gitignore          export-ignore
+/AGENTS.md           export-ignore
+/knowledge-base.yaml export-ignore

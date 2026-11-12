@@ -19,15 +19,24 @@ GRAFT_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "graft: $*" >&2; exit 1; }
 
-# The scions directories in the repo: those whose README.md carries graft's marker. git grep exits
-# 1 for no match; anything else (not a repo, a repo git won't trust) is an error, not "no scions".
+# The scions directories in the repo: those whose README.md carries graft's marker, and that aren't
+# inside another one. A provider that forgets to export-ignore its own scions leaks its scions README
+# into ours (scions/<name>/scions/README.md); that one is the provider's content, not a directory of
+# this repo's. git grep exits 1 for no match; anything else (not a repo, a repo git won't trust) is an
+# error, not "no scions".
 scion_dirs() {
-  local args=() m out rc=0
+  local args=() m out rc=0 d kept=()
   for m in "${MARKERS[@]}"; do args+=(-e "$m"); done
   out=$(git grep -l -F "${args[@]}" -- README.md '*/README.md') || rc=$?
   [ "$rc" -le 1 ] || die "can't search $(pwd) with git (exit $rc; see above)"
   [ -n "$out" ] || return 0
-  sed -E 's#/?README\.md$##' <<<"$out" | grep -v '^$' || true
+  # sorted, a directory comes before anything inside it
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    for m in "${kept[@]}"; do [[ $d != "$m"/* ]] || continue 2; done
+    kept+=("$d")
+  done < <(sed -E 's#/?README\.md$##' <<<"$out" | LC_ALL=C sort)
+  [ ${#kept[@]} -eq 0 ] || printf '%s\n' "${kept[@]}"
 }
 
 # The scions a directory's README table names, one per line.

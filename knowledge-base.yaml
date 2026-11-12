@@ -1,0 +1,42 @@
+apiVersion: kb/v1
+name: graft
+description: "graft: copy pinned exports of other repositories into a repository"
+
+entrypoints:
+  human: README.md
+  agent: AGENTS.md
+
+imports:
+  - kind: local
+    path: scions/knowledge-base-kit
+    relationship: foundational
+    sync_policy: extend
+
+paths:
+  docs: docs
+
+sources:
+  canonical:
+    - path: lib/**
+      note: "graft's behaviour is defined by its code and tests/run.sh"
+    - path: template/**
+      note: "The workflows consumers must match"
+  interpretation:
+    - path: README.md
+      note: "Orientation"
+    - path: docs/**
+      note: "Explains the code; reference pages cite it in a Sources section"
+
+rules:
+  lifecycle:
+    statuses: [draft, working, stable, deprecated]
+  checks:
+    links:
+      include: [README.md, AGENTS.md, CHANGELOG.md, docs/**]
+    lifecycle:
+      include: [docs/**]
+    provenance:
+      include: [docs/reference/**]
+  writes:
+    allow: ["docs/**", "lib/**", "tests/**", "template/**"]
+    deny: ["scions/**"]

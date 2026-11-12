@@ -90,6 +90,16 @@ git_ -C "$p" tag not-a-version
 expect "outdated: names the newer tag" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "provider +scions +v2.0.0 +v2.1.0 +outdated"'
 expect "outdated --json" sh -c 'nix run .#graft -- outdated --json 2>/dev/null | jq -e ".[] | select(.name==\"provider\") | .status==\"outdated\" and .latest==\"v2.1.0\"" >/dev/null'
 expect "outdated from outside, without the repo's flake" sh -c "nix run '$graft' -- outdated -C '$c' 2>/dev/null | grep -q outdated"
+# a provider that leaks its own scions directory: its scions README is the provider's content, not a
+# scions directory of this repo's (lib/common.sh scion_dirs)
+mkdir -p scions/provider/scions
+printf '%s\n' '<!-- managed by graft: https://github.com/danielnaab/graft -->' '| Scion | Commit |' '|---|---|' \
+  '| [leaked](leaked/) | 0000000 |' > scions/provider/scions/README.md
+git_ add -A
+out=$(nix run "$graft" -- outdated -C "$c" 2>&1) || true
+refuse "nested: outdated ignores a scions README inside a scion" grep -q leaked <<<"$out"
+expect "nested: and still lists the repo's own" grep -q provider <<<"$out"
+rm -rf scions/provider/scions && git_ add -A
 quiet nix run .#graft upgrade || fail "graft-upgrade"
 git_ add -A
 expect "upgrade moved the ref in flake.nix" grep -q 'ref=v2.1.0' flake.nix
@@ -556,6 +566,21 @@ sed -i 's|^  workflow_dispatch:$|&\n    paths-ignore: ["notebook/**"]|' "$wr/.fo
 refused "paths-ignore: graft-upgrade.yaml's fails refresh" bash "$graft/lib/workflows.sh" refresh "$wr" "$wx"
 expect "and says it's kept only under push: and pull_request:" grep -q "kept only under push: and pull_request:" <<<"$out"
 expect "and leaves the file alone" grep -q 'paths-ignore' "$wr/.forgejo/workflows/graft-upgrade.yaml"
+# branches: under push:, the repo's own (a default branch not named main), kept by refresh and check
+wb=$work/wf-branches wrf=$work/wf-branches/.forgejo/workflows/graft-check.yaml
+mkdir -p "$wb/.forgejo/workflows" && cp "$wx/graft-check.yaml" "$wrf"
+sed -i 's|^    branches: \[main\]$|    branches: ["v2", release/1.x]|' "$wrf"
+quiet bash "$graft/lib/workflows.sh" refresh "$wb" "$wx" || fail "workflows.sh refresh, a branches line"
+expect "branches: refresh keeps the repo's, in graft's form" grep -qx '    branches: \[v2, release/1.x\]' "$wrf"
+expect "branches: and the rest is graft's copy" \
+  cmp -s <(grep -v '^    branches: ' "$wrf") <(grep -v '^    branches: ' "$wx/graft-check.yaml")
+expect "branches: the check passes" quiet bash "$graft/lib/workflows.sh" check "$wb" "$wx"
+sed -i 's|^    branches: .*|    branches: [v2]  # not main|' "$wrf"
+refused "branches: a line graft can't read fails the check" bash "$graft/lib/workflows.sh" check "$wb" "$wx"
+expect "and says how to write it" grep -q "write it as one line under push:" <<<"$out"
+sed -i 's|^    branches: .*|    branches: [v2]|; s|^  pull_request:$|&\n    branches: [main]|' "$wrf"
+refused "branches: two that differ fail the check" bash "$graft/lib/workflows.sh" check "$wb" "$wx"
+expect "and says why" grep -q "two branches lines that differ" <<<"$out"
 # a comment on the line: said plainly
 sed -i 's|^\(    paths-ignore: .*\)$|\1  # the bot|' "$wr/.forgejo/workflows/graft-check.yaml"
 refused "paths-ignore: a comment on the line fails" bash "$graft/lib/workflows.sh" check "$wr" "$wx"

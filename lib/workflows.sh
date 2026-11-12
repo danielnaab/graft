@@ -23,6 +23,10 @@
 # flake.lock at the top (FLAKEDIR `.`, the default), or anything in FLAKEDIR otherwise. Each glob
 # is read as a shell pattern, where `*` and `?` also match `/`, so it errs toward refusing.
 #
+# Another line is yours: `branches:` under `push:`, the branches whose pushes run graft-check. graft's
+# copy says `[main]`; a repo whose default branch has another name writes its own, which is read from
+# the repo's copy and kept, in graft's form (`    branches: [v2]`, names of letters, digits, . _ / -).
+#
 # One more line is yours, in graft-check.yaml only: `# graft ssh: ...`, for a repo whose scions
 # include a private git+ssh one. Its job's container has no key, so with this line graft-check gets
 # a step, before the check, that writes an ssh key from an Actions secret, a known_hosts entry and
@@ -109,6 +113,46 @@ paths_ignore() {
     fi
   done < "$file"
   printf '%s' "$want"
+}
+
+# push_branches FILE WF: FILE's `branches:` line under `push:` in graft's form (`    branches: [a, b]`),
+# or nothing when it has none. Fails, saying why, on a line graft can't read, or two that differ.
+push_branches() {
+  local file=$1 wf=$2 line want="" got item parts brs
+  local form='one line under push:, a list of branch names and no comment after it, like branches: [main]'
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ $line =~ ^[[:space:]]*branches: ]] || continue
+    [[ $line =~ ^\ \ \ \ branches:\ *\[(.*)\][[:space:]]*$ ]] \
+      || { echo "graft: $wf: can't read its branches; write it as $form" >&2; return 1; }
+    IFS=, read -ra parts <<<"${BASH_REMATCH[1]}"
+    brs=()
+    for item in "${parts[@]}"; do
+      item=${item#"${item%%[![:space:]]*}"} item=${item%"${item##*[![:space:]]}"}
+      if [[ $item =~ ^\"([^\"]*)\"$ || $item =~ ^\'([^\']*)\'$ ]]; then item=${BASH_REMATCH[1]}; fi
+      [[ $item =~ ^[A-Za-z0-9._/-]+$ ]] \
+        || { echo "graft: $wf: branch \"$item\": use only letters, digits, . _ / and -; write it as $form" >&2; return 1; }
+      brs+=("$item")
+    done
+    [ ${#brs[@]} -gt 0 ] || { echo "graft: $wf: its branches list is empty; write it as $form" >&2; return 1; }
+    got="    branches: ["
+    for item in "${brs[@]}"; do got+="$item, "; done
+    got="${got%, }]"
+    if [ -z "$want" ]; then want=$got
+    elif [ "$want" != "$got" ]; then
+      echo "graft: $wf: it has two branches lines that differ; keep one, under push:" >&2; return 1
+    fi
+  done < "$file"
+  printf '%s' "$want"
+}
+
+# with_branches FILE LINE: FILE with its `branches:` line replaced by LINE. Fails when FILE has none.
+with_branches() {
+  local file=$1 br=$2 l hit=""
+  while IFS= read -r l || [ -n "$l" ]; do
+    if [ -z "$hit" ] && [[ $l =~ ^\ \ \ \ branches:\  ]]; then printf '%s\n' "$br"; hit=1; continue; fi
+    printf '%s\n' "$l"
+  done < "$file"
+  [ -n "$hit" ]
 }
 
 # ssh_parse LINE: the fields of a `# graft ssh:` line into SSH_SECRET SSH_HOST SSH_ALIAS SSH_ADDR
@@ -232,13 +276,17 @@ render() {
 }
 
 want=$(mktemp)
-trap 'rm -f "$want" "$want.ssh"' EXIT
+trap 'rm -f "$want" "$want.ssh" "$want.br"' EXIT
 for src in "$examples"/*; do
   [ -f "$src" ] || continue
   wf=.forgejo/workflows/${src##*/}
   if [ ! -f "$repo/$wf" ] || [ -L "$repo/$wf" ] || ! grep -q "^$marker" "$repo/$wf"; then continue; fi
   if ! pi=$(paths_ignore "$repo/$wf" "$wf"); then
     echo "graft: (that line is the only edit graft keeps in $wf; to keep others, delete its \"$marker\" line)" >&2
+    rc=1; continue
+  fi
+  if ! br=$(push_branches "$repo/$wf" "$wf"); then
+    echo "graft: (that line, paths-ignore and the ssh line are the only edits graft keeps in $wf; to keep others, delete its \"$marker\" line)" >&2
     rc=1; continue
   fi
   if ! sl=$(ssh_line "$repo/$wf" "$wf"); then
@@ -249,6 +297,13 @@ for src in "$examples"/*; do
   if [ -n "$pi" ] && ! grep -qxF -- "$pi" "$want"; then
     echo "graft: $wf: its paths-ignore is kept only under push: and pull_request:, and this graft version's copy has neither; delete the line" >&2
     rc=1; continue
+  fi
+  if [ -n "$br" ]; then
+    if ! with_branches "$want" "$br" > "$want.br"; then
+      echo "graft: $wf: its branches line is kept only under push:, and this graft version's copy has none; delete the line" >&2
+      rc=1; continue
+    fi
+    mv "$want.br" "$want"
   fi
   if [ -n "$sl" ]; then
     if ! render_ssh "$want" "$sl" > "$want.ssh"; then

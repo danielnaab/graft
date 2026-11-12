@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "knowledge-base-kit": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794498455,
+        "narHash": "sha256-qMUlgi+5vWSDQjWacNGS3K2brS1v7LsYzAirJGq/fvA=",
+        "owner": "danielnaab",
+        "repo": "knowledge-base-kit",
+        "rev": "348eff0aa27fd519507ba168d440f2854ee54189",
+        "type": "github"
+      },
+      "original": {
+        "owner": "danielnaab",
+        "ref": "v2.1.0",
+        "repo": "knowledge-base-kit",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1767313136,
@@ -18,6 +35,7 @@
     },
     "root": {
       "inputs": {
+        "knowledge-base-kit": "knowledge-base-kit",
         "nixpkgs": "nixpkgs"
       }
     }
