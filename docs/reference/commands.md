@@ -15,13 +15,14 @@ outputs.
 | `inputs` | (required) | The flake's inputs. |
 | `scions` | every `flake = false` input | The input names to graft. |
 | `dir` | `"scions"` | The scions directory: a relative path inside the repository, not `.git`, with no `.` or `..` segments. graft replaces it on every sync, and refuses to replace a directory that it did not write. |
-| `flakeDir` | `"."` | Where `flake.nix` is, from the repository root. See [A flake in a subdirectory](../guides/flake-in-a-subdirectory.md). |
+| `flakeDir` | `"."` | Where `flake.nix` is, from the repository root. See [Keep private files out of the Nix store](../guides/flake-in-a-subdirectory.md). |
 | `outputs` | `{ }` | The repository's own outputs, merged with graft's at every level. |
 
 graft adds two outputs. A repository's own outputs cannot replace them:
 
 - `apps.<system>.graft`: the `graft` command, with `sync` and `check` built for this repository.
-- `checks.<system>.graft`: the drift check. Only when `flakeDir` is `.`.
+- `checks.<system>.graft`: the drift check. Only when `flakeDir` is `.`. In a subdirectory flake, graft
+  drops a check of the repository's own with this name.
 
 Scion names must match `[A-Za-z0-9][A-Za-z0-9._-]*`.
 
@@ -38,7 +39,7 @@ Run it as `nix run .#graft COMMAND`. A flag needs `--` before it, because Nix ot
 | `changelog [-C REPO] [--json] [NAME[@TAG]...]` | Each provider's CHANGELOG sections between the pin and the target, **Upgrading** first, or its commits. Changes nothing. Fails after it prints if a provider's repository cannot be read. |
 | `upgrade [-C REPO] [NAME[@TAG]...]` | Moves pins, locks them again and rebuilds the scions directory. With no names: every outdated pin, in its major version. `NAME@TAG` is the only way to cross a major version. Needs `flake.nix` in UTF-8. Moves graft's own pin only to 2.3.0 or later, and in CI only from `graft ci`. |
 | `migrate [-C REPO] [--base REF] [--no-check] [--json]` | Prints a migration brief for an upgraded branch. Exits 0 when it prints a brief, also when checks fail. Exits non-zero only when it cannot make a brief. |
-| `ci check\|upgrade\|pr` | The steps of graft's workflows. See [CI](../guides/ci.md). |
+| `ci check\|upgrade\|pr` | The steps of graft's workflows. See [Run graft in CI and review its upgrade pull requests](../guides/ci.md). |
 | `help` | Lists the commands. |
 
 - The target of `changelog` and `upgrade` is the newest tag in the pinned major version, unless a `@TAG`

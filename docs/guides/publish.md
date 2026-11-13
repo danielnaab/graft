@@ -157,14 +157,11 @@ t=v1.2.0 && git ls-remote --exit-code origin "refs/tags/$t" >/dev/null && git sh
   .#graft again`.** The tag is annotated or signed, and the consumer takes you through a `git+` input.
   This is expected: the consumer's second run grafts the right export
   ([Nix behaviours](../reference/nix-behaviours.md#annotated-tags-and-exportignore)).
-- **A consumer's first run fails with `fatal: couldn't find remote ref refs/heads/v1.1.0` and
-  `revspec 'v1.1.0' not found`.** The consumer's input is `git+https`, `git+ssh` or `git+file` to a bare
-  repository, and Nix 2.24 looks for the tag as a branch. Tell the consumer to fetch the tag once by its full
-  name, then run graft again:
-  `nix flake prefetch "git+URL?ref=refs/tags/v1.1.0&exportIgnore=1"`
+- **A consumer's first run fails with `revspec 'v1.1.0' not found`.** The consumer's input is `git+https`,
+  `git+ssh` or `git+file` to a bare repository, and Nix 2.24 looks for the tag as a branch until its git
+  cache has seen the tag. The consumer fetches the tag once by its full name, as in
+  [Graft a private repository](private-providers.md#steps) step 1, then runs graft again
   ([Nix behaviours](../reference/nix-behaviours.md)).
-
-  Not yet: graft does not do this for the consumer.
 - **A consumer's scion holds a path that `git archive` leaves out, such as `tests/`.** A rule has a trailing
   slash (`tests/ export-ignore`), and the consumer's input fetches from a bare clone. Remove the slash
   (step 6), and release a patch version.
@@ -177,21 +174,15 @@ Moved to [Files: What to export](../reference/files.md#what-to-export).
 
 ## Make an incompatible change
 
-Anything that a consumer can rely on is your interface: an exported path, a heading that a consumer links
-to, a file's shape.
-
-- **An incompatible change needs a new major version.** graft never crosses a major version by itself.
-  The weekly upgrade continues to take your fixes, and a person decides when to take the break.
-- **Write Upgrading steps.** In the major version's CHANGELOG section, add an `### Upgrading` subsection.
-  Write steps that a person or agent can follow with knowledge of the consumer only: what moved, what to
-  search for, what to replace it with, and how to know it is done (`nix flake check` passes, for
-  example). graft quotes these sections in upgrade pull requests and migration briefs.
-- **Leave a redirect for a moved file.** For one major version, a stub at the old path can name the new
-  path, so links into the scion still lead somewhere. Remove the stub at the next major version.
+Release it as a new major version, with Upgrading steps that you have tried on a consumer:
+[Ship and take an incompatible change](incompatible-change.md#part-1-the-provider-releases-the-change).
 
 ## Name the repository
 
 Moved to [Files: Naming](../reference/files.md#naming).
+
+Related: [Ship and take an incompatible change](incompatible-change.md), [Ship a tool or seed files with a pattern](ship-tools.md),
+[Files](../reference/files.md#in-a-provider).
 
 ## Sources
 

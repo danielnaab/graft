@@ -14,7 +14,7 @@ require it before a merge.
   `python3 -m pagecheck DIR`, with the provider's directory on `PYTHONPATH`. Read your provider's README
   for its own command.
 - CI must be able to fetch the provider. For a private provider, see
-  [Private providers](private-providers.md#check-in-ci).
+  [Graft a private repository](private-providers.md).
 - `flake.nix` is at the repository's top. A flake in a subdirectory sees only that directory, so a check in it
   cannot read your pages. Instead, skip steps 1 to 5, and in step 6's workflow run the checker from the
   scion in place of `nix flake check`:
@@ -138,8 +138,9 @@ require it before a merge.
            run: nix flake check
    ```
 
-   It uses the runner label of graft's workflows ([CI](ci.md)). Like `graft-check.yaml`, it cancels a
-   run when a newer push to the same branch starts one. Change `main` to your default branch.
+   It uses the runner label of graft's workflows
+   ([Run graft in CI and review its upgrade pull requests](ci.md)). Like `graft-check.yaml`, it cancels a run
+   when a newer push to the same branch starts one. Change `main` to your default branch.
 
    graft's `graft-check.yaml` stays as it is: it checks only that the scions match their pins. Your checks
    are a status of their own, from this workflow, which you own. graft never changes a workflow that does

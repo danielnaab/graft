@@ -17,6 +17,24 @@
 #                   run policy-kit's checker (which reads policy-kit.conf) and read the glossary's export.
 #                   Committed and passing, then the team's change made in the scion: a staged edit to the
 #                   status policy, and an untracked new page
+#   private         private files kept out of the Nix store, and a private provider: provider/ and
+#                   notes-provider/ (tags v1.0.0 and v1.1.0, a CHANGELOG; notes-provider is the private one,
+#                   git+file standing in for git+ssh), moving/ (a flake at the top grafts provider into
+#                   .scions beside a committed notebook/, with an uncommitted edit and an untracked draft in
+#                   it, and graft's workflows), new/ (a notebook/, no flake yet), consumer/ (a flake at the
+#                   top that grafts provider, and graft's workflows), server-host-key.pub (a made-up host key)
+#   ci              two consumers with graft's workflows, each pushed to a bare origin (NAME.git), that graft two
+#                   local providers: style-guide (v1.0.0, then v1.1.0, with a CHANGELOG) and page-rules (v1.0.0,
+#                   then v1.0.1 and v2.0.0, whose CHANGELOG has an Upgrading section). team-kb/ is in graft's
+#                   template form, and its upgrade passes; handbook/ has a check of its own that style-guide
+#                   v1.1.0 breaks. pr.sh REPO [open] runs `graft ci pr` in REPO against tests/stub-api.py
+#                   (copied in), and prints the pull request that graft asked it to open, or with `open`, to edit
+#   breaking-change a provider (page-rules: v1.0.0, v1.1.0, and on its checked-out branch `lifecycle` an
+#                   untagged v2.0.0 that renames the required front-matter field status: to lifecycle:, and
+#                   docs/status.md to docs/lifecycle.md, with Upgrading steps); two consumers at v1.1.0 with
+#                   graft's workflows and a `pages` check that v2.0.0 breaks: team-kb/ (a clone of team-kb.git,
+#                   a page template outside docs/ that the check misses) takes the change; handbook/ is for the
+#                   provider's dry run
 #   publish         a provider to release from, and a consumer of it. note-kit/: rules, a tool (bin/note-lint,
 #                   which package.nix builds), a seed file (seed/note-kit.conf, also its flake's template),
 #                   tests/, a stand-in for its own scions/, a CI workflow and AGENTS.md. v1.0.0 (a lightweight
@@ -28,16 +46,17 @@
 #                   annotated tag's object to the commit), runs note-lint in its check, and has its own copy
 #                   of the seed file; committed and passing
 #
-# Needs nix, git 2.28 or later and GNU sed. Network: check-fails fetches python3 and ruff from the nixpkgs
+# Needs nix, git 2.28 or later and GNU sed; ci's pr.sh also needs jq. Network: check-fails fetches python3 and ruff from the nixpkgs
 # registry (unpinned, so ruff's output can vary); first-pattern's flakes pin a nixpkgs that the reader fetches;
-# gate-merges pins the nixpkgs that this checkout's graft pins, so its python3 is likely cached; publish builds
-# with graft's nixpkgs too (shellcheck, for writeShellApplication).
+# gate-merges pins the nixpkgs that this checkout's graft pins, so its python3 is likely cached; so do ci's
+# handbook/ check and pr.sh. breaking-change reads that nixpkgs from graft's flake.lock (needs jq). publish
+# builds with graft's nixpkgs too (shellcheck, for writeShellApplication). Providers are local git+file repos.
 set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
-slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|publish OUT}
-out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|publish OUT}
-case $slice in check-fails|first-pattern|gate-merges|override|publish) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, override, publish)" >&2; exit 2 ;; esac
+slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|publish OUT}
+out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|publish OUT}
+case $slice in check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|publish) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, override, private, ci, breaking-change, publish)" >&2; exit 2 ;; esac
 [ ! -e "$out" ] || { echo "fixtures.sh: $out exists; name a new directory" >&2; exit 1; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -262,6 +281,174 @@ EOF
   (cd "$c" && nix run .#graft check >&2)
 }
 
+# pagecheck_v FIELD STATUSES DIR: page-rules' checker, requiring FIELD in front matter, one of STATUSES
+pagecheck_v() {
+  mkdir -p "$3/pagecheck"
+  cat > "$3/pagecheck/__init__.py" <<EOF
+"""page-rules' checker: every Markdown page starts with front matter that gives its $1."""
+import pathlib
+import re
+
+FIELD = "$1"
+VALUES = ($2)
+FRONT = re.compile(r"\A---\n(.*?)\n---\n", re.S)
+
+
+def problems(root):
+    for page in sorted(pathlib.Path(root).rglob("*.md")):
+        m = FRONT.match(page.read_text(encoding="utf-8"))
+        front = m.group(1) if m else ""
+        value = re.search(rf"^{FIELD}:\s*(\S+)\s*$", front, re.M)
+        if FIELD != "status" and re.search(r"^status:", front, re.M):
+            yield f"{page}: 'status:' is now '{FIELD}:' (page-rules v2.0.0; see its CHANGELOG)"
+        elif not value:
+            yield f"{page}: no {FIELD} in front matter (rule: page-rules/docs/{FIELD}.md)"
+        elif value.group(1) not in VALUES:
+            yield f"{page}: {FIELD} {value.group(1)!r} is not one of {', '.join(VALUES)}"
+EOF
+  cat > "$3/pagecheck/__main__.py" <<'EOF'
+import pathlib
+import sys
+
+from pagecheck import problems
+
+root = sys.argv[1] if len(sys.argv) > 1 else "."
+if not pathlib.Path(root).is_dir():
+    sys.exit(f"pagecheck: {root} is not a directory")
+found = list(problems(root))
+for line in found:
+    print(line)
+sys.exit(1 if found else 0)
+EOF
+}
+
+# A provider (page-rules) whose v2.0.0 renames a required front-matter field, `status:` to `lifecycle:`,
+# and its rule page with it; two consumers at v1.1.0 that use the field.
+# shellcheck disable=SC2016 # backticks are Markdown, not commands
+breaking_change() {
+  local p=$out/page-rules t=$out/team-kb h=$out/handbook
+  mkdir -p "$p/docs" "$p/tests"
+  cat > "$p/README.md" <<'EOF'
+# page-rules
+
+One rule for a knowledge base's pages, and a checker for it. The rule is in `docs/`.
+
+**The checker.** `python3 -m pagecheck DIR` checks every `.md` file under DIR. It prints one line for each
+page that breaks the rule, and exits 1 if there is one. Put this directory on `PYTHONPATH` to run it.
+EOF
+  printf '# The status rule\n\nEvery page starts with front matter that gives its status:\n\n    ---\n    status: working\n    ---\n\nThe status is one of `draft`, `working`, `stable` or `deprecated`.\n' > "$p/docs/status.md"
+  pagecheck_v status '"draft", "working", "stable", "deprecated"' "$p"
+  echo 'PYTHONPATH=. python3 -m pagecheck tests' > "$p/tests/run.sh"
+  echo "/tests export-ignore" > "$p/.gitattributes"
+  printf '# Changelog\n\n## v1.0.0 - 2026-11-01\n\n- The status rule, and pagecheck.\n' > "$p/CHANGELOG.md"
+  repo "$p"
+  g -C "$p" add -A
+  g -C "$p" commit -qm "The status rule"
+  g -C "$p" tag v1.0.0
+  # v1.1.0: compatible, a new value
+  sed -i 's/`stable` or `deprecated`/`stable`, `living` or `deprecated`/' "$p/docs/status.md"
+  pagecheck_v status '"draft", "working", "stable", "living", "deprecated"' "$p"
+  printf '# Changelog\n\n## v1.1.0 - 2026-11-05\n\n### Added\n- `living`: a status for a page that is always current.\n\n## v1.0.0 - 2026-11-01\n\n- The status rule, and pagecheck.\n' > "$p/CHANGELOG.md"
+  g -C "$p" commit -qam "Allow the living status"
+  g -C "$p" tag v1.1.0
+
+  # two consumers at v1.1.0: team-kb/ (a clone of team-kb.git) takes the break; handbook/ is a provider's dry run
+  bc_consumer "$t" "Team knowledge base" onboarding stable "Read AGENTS.md first."
+  printf -- '---\nstatus: working\n---\n# Outage, 3 November\n\nThe queue filled; we drained it by hand.\n' > "$t/docs/outage-2026-11-03.md"
+  mkdir -p "$t/templates"
+  printf -- '---\nstatus: draft\n---\n# Title\n' > "$t/templates/page.md"
+  g -C "$t" add -A
+  g -C "$t" commit -qm "Write up the 3 November outage; a page template"
+  g -c init.defaultBranch=main clone -q --bare "$t" "$out/team-kb.git"
+  g -C "$t" remote add origin "$out/team-kb.git"
+  g -C "$t" fetch -q origin
+  g -C "$t" remote set-head origin main >/dev/null
+  g -C "$t" branch -q -u origin/main
+  bc_consumer "$h" "Handbook" holidays living "Ask the office."
+
+  # the provider's next major version, on a branch, not yet tagged: status: is now lifecycle:
+  g -C "$p" switch -q -c lifecycle
+  g -C "$p" mv docs/status.md docs/lifecycle.md
+  printf '# The lifecycle rule\n\nEvery page starts with front matter that gives its lifecycle:\n\n    ---\n    lifecycle: working\n    ---\n\nThe lifecycle is one of `draft`, `working`, `stable`, `living` or `deprecated`.\n' > "$p/docs/lifecycle.md"
+  pagecheck_v lifecycle '"draft", "working", "stable", "living", "deprecated"' "$p"
+  cat > "$p/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## v2.0.0 - 2026-11-12
+
+The front-matter field `status:` is now `lifecycle:`, so it no longer clashes with tools that use `status:`
+for something else.
+
+### Changed
+- pagecheck requires `lifecycle:`, and fails a page that still has `status:`.
+- `docs/status.md` is now `docs/lifecycle.md`.
+
+### Upgrading
+1. Find your pages that still use the old field. Leave out the scions directory:
+   `grep -rl --include='*.md' --exclude-dir=scions '^status:' .`
+2. Rename the field in each of those files, and keep its value:
+   `grep -rl --include='*.md' --exclude-dir=scions '^status:' . | xargs sed -i 's/^status:/lifecycle:/'`
+3. Find links to the old rule page: `grep -rn --exclude-dir=scions 'page-rules/docs/status.md' .`
+   Change each to `page-rules/docs/lifecycle.md`.
+4. Done when `nix flake check` passes.
+
+## v1.1.0 - 2026-11-05
+
+### Added
+- `living`: a status for a page that is always current.
+
+## v1.0.0 - 2026-11-01
+
+- The status rule, and pagecheck.
+EOF
+  g -C "$p" add -A
+  g -C "$p" commit -qm "Rename status: to lifecycle:"
+  echo "$p"
+  echo "$t"
+  echo "$h"
+}
+
+# bc_consumer DIR DESCRIPTION PAGE STATUS TEXT: a consumer at page-rules v1.1.0 with graft's workflows, a
+# `pages` check that runs pagecheck on docs/, an AGENTS.md that links the rule page, and one page
+bc_consumer() {
+  local c=$1 p=$out/page-rules nixpkgs
+  nixpkgs=$(jq -r .nodes.nixpkgs.locked.rev "$graft/flake.lock")
+  mkdir -p "$c/docs" "$c/.forgejo/workflows"
+  cat > "$c/flake.nix" <<EOF
+{
+  description = "$2";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/$nixpkgs";
+    graft.url = "path:$graft";
+    graft.inputs.nixpkgs.follows = "nixpkgs";
+    page-rules = { url = "git+file://$p?ref=v1.1.0&exportIgnore=1"; flake = false; };
+  };
+
+  outputs = { self, nixpkgs, graft, ... }@inputs: graft.lib.mkFlake {
+    inherit inputs;
+    outputs.checks = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ] (system:
+      let pkgs = nixpkgs.legacyPackages.\${system}; in {
+        pages = pkgs.runCommand "pages" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          cd \${self}
+          PYTHONPATH=\${inputs.page-rules} python3 -m pagecheck docs
+          touch \$out
+        '';
+      });
+  };
+}
+EOF
+  command cp -f "$graft"/template/.forgejo/workflows/*.yaml "$c/.forgejo/workflows/"
+  printf 'Follow the rule in scions/page-rules/docs/status.md. Never edit scions/: graft replaces it.\n' > "$c/AGENTS.md"
+  printf -- '---\nstatus: %s\n---\n# %s\n\n%s\n' "$4" "${3^}" "$5" > "$c/docs/$3.md"
+  repo "$c"
+  g -C "$c" add -A
+  (cd "$c" && nix run .#graft >&2)
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft page-rules v1.1.0"
+  (cd "$c" && nix run .#graft check >&2)
+}
+
 override() {
   local p=$out/policy-kit q=$out/glossary c=$out/consumer
   mkdir -p "$p/docs" "$p/checker" "$p/tests" "$q"
@@ -346,6 +533,202 @@ EOF
   echo "$p"
   echo "$q"
   echo "$c"
+}
+
+# tagged_provider NAME: a provider at OUT/NAME, tags v1.0.0 and v1.1.0, a CHANGELOG, tests it keeps to itself
+tagged_provider() {
+  local p=$out/$1
+  mkdir -p "$p/docs" "$p/tests"
+  echo "tests export-ignore" > "$p/.gitattributes"
+  echo "echo test" > "$p/tests/t.sh"
+  printf '# %s policy\n\nEvery page has a status.\n' "$1" > "$p/docs/policy.md"
+  printf '# Changelog\n\n## v1.0.0\n\nFirst release.\n' > "$p/CHANGELOG.md"
+  g -C "$p" init -q -b main
+  g -C "$p" add -A
+  g -C "$p" commit -qm v1.0.0
+  g -C "$p" tag v1.0.0
+  printf '\nEvery page names its owner.\n' >> "$p/docs/policy.md"
+  printf '# Changelog\n\n## v1.1.0\n\nPages name their owner.\n\n## v1.0.0\n\nFirst release.\n' > "$p/CHANGELOG.md"
+  g -C "$p" commit -qam v1.1.0
+  g -C "$p" tag v1.1.0
+}
+
+# top_flake DIR: a flake at DIR's top that grafts provider v1.0.0 into DIR/.scions, with a check of its
+# own, and graft's workflows
+top_flake() {
+  mkdir -p "$1"
+  cat > "$1/flake.nix" <<EOF
+{
+  description = "Team workspace";
+  inputs = {
+    graft.url = "path:$graft";
+    provider = { url = "git+file://$out/provider?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  };
+  outputs = inputs: inputs.graft.lib.mkFlake {
+    inherit inputs;
+    dir = ".scions";
+    outputs.checks = builtins.mapAttrs (system: _: {
+      lint = inputs.graft.inputs.nixpkgs.legacyPackages.\${system}.runCommand "lint" { } "touch \$out";
+    }) inputs.graft.packages;
+  };
+}
+EOF
+  mkdir -p "$1/.forgejo/workflows"
+  cp "$graft"/template/.forgejo/workflows/*.yaml "$1/.forgejo/workflows/"
+}
+
+private() {
+  local m=$out/moving n=$out/new c=$out/consumer
+  tagged_provider provider
+  tagged_provider notes-provider
+  # moving/: private notes beside a flake at the top, which copies them to the store on every run
+  mkdir -p "$m/notebook"
+  printf '# Meeting transcript\n\n%s-%s: only this repository may hold this line.\n' private-sentinel moving > "$m/notebook/transcript.md"
+  echo "# Team workspace" > "$m/README.md"
+  top_flake "$m"
+  repo "$m"
+  g -C "$m" add -A
+  (cd "$m" && nix run .#graft >/dev/null 2>&1)
+  g -C "$m" add -A
+  g -C "$m" commit -qm "Graft provider v1.0.0"
+  echo "An uncommitted note." >> "$m/notebook/transcript.md"
+  echo "# Draft, never committed" > "$m/notebook/draft.md"
+  # new/: private notes, no flake yet
+  mkdir -p "$n/notebook"
+  printf '# Meeting transcript\n\n%s-%s: only this repository may hold this line.\n' private-sentinel new > "$n/notebook/transcript.md"
+  echo "# Team notes" > "$n/README.md"
+  repo "$n"
+  g -C "$n" add -A
+  g -C "$n" commit -qm "Start"
+  # consumer/: grafts a public provider; a reader adds notes-provider as the private one
+  top_flake "$c"
+  repo "$c"
+  g -C "$c" add -A
+  (cd "$c" && nix run .#graft >/dev/null 2>&1)
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft provider v1.0.0"
+  # a made-up host key, as ssh-keyscan prints one: test data, not a real key
+  echo "[git.example]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGraftTestHostKeyNotARealOne+/0123456789abcdefgh" > "$out/server-host-key.pub"
+  echo "$m"
+  echo "$n"
+  echo "$c"
+}
+
+# release DIR TAG DATE NOTE [UPGRADING]: tag a provider's next version, with a CHANGELOG section on top
+release() {
+  local d=$1 tag=$2 date=$3 note=$4 up=${5:-} old=""
+  [ ! -f "$d/CHANGELOG.md" ] || old=$(sed '1,2d' "$d/CHANGELOG.md")
+  {
+    printf '# Changelog\n\n## %s - %s\n\n- %s\n' "$tag" "$date" "$note"
+    if [ -n "$up" ]; then printf '\n### Upgrading\n\n- %s\n' "$up"; fi
+    if [ -n "$old" ]; then printf '\n%s\n' "$old"; fi
+  } > "$d/CHANGELOG.md"
+  g -C "$d" add -A
+  g -C "$d" commit -qm "$tag"
+  g -C "$d" tag "$tag"
+}
+
+# ci_consumer DIR OUTPUTS: a consumer that grafts style-guide and page-rules v1.0.0, with graft's workflows
+# and OUTPUTS as its flake's outputs line(s), committed and pushed to a bare DIR.git, its origin
+ci_consumer() {
+  local c=$1
+  mkdir -p "$c/docs" "$c/.forgejo/workflows"
+  cat > "$c/flake.nix" <<EOF
+{
+  description = "Team knowledge base";
+
+  inputs = {
+    graft.url = "path:$graft";
+    style-guide = { url = "git+file://$out/style-guide?ref=v1.0.0&exportIgnore=1"; flake = false; };
+    page-rules = { url = "git+file://$out/page-rules?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  };
+
+$2
+}
+EOF
+  command cp -f "$graft"/template/.forgejo/workflows/*.yaml "$c/.forgejo/workflows/"
+  printf -- '---\nstatus: working\n---\n# Onboarding\n\nOur style guide says: "Write short sentences."\n' > "$c/docs/onboarding.md"
+  repo "$c"
+  g -C "$c" add -A
+  (cd "$c" && nix run .#graft >&2)
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft style-guide and page-rules v1.0.0"
+  g init -q --bare "$c.git"
+  g -C "$c" remote add origin "$c.git"
+  g -C "$c" push -q -u origin main 2>/dev/null
+}
+
+ci_fixture() {
+  local s=$out/style-guide p=$out/page-rules d
+  mkdir -p "$s/docs" "$s/tests" "$p/docs" "$p/tests"
+  printf '# Style\n\nWrite short sentences.\n' > "$s/docs/style.md"
+  printf '# Page rules\n\nEvery page has a status.\n' > "$p/docs/rules.md"
+  for d in "$s" "$p"; do
+    echo "echo test" > "$d/tests/t.sh"
+    echo "tests/ export-ignore" > "$d/.gitattributes"
+    g -C "$d" init -q -b main
+  done
+  release "$s" v1.0.0 2026-10-01 "First rules."
+  release "$p" v1.0.0 2026-10-01 "The status rule."
+
+  ci_consumer "$out/team-kb" '  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };'
+  # handbook/: a check of its own, that onboarding.md quotes style-guide's rule word for word
+  ci_consumer "$out/handbook" "$(cat <<'EOF'
+  outputs = inputs:
+    let flake = inputs.graft.lib.mkFlake { inherit inputs; };
+    in flake // {
+      checks = builtins.mapAttrs (system: checks: checks // {
+        style-quote = inputs.graft.inputs.nixpkgs.legacyPackages.${system}.runCommand "style-quote" { } ''
+          q=$(sed -n 's/^Our style guide says: "\(.*\)"$/\1/p' ${inputs.self}/docs/onboarding.md)
+          [ -n "$q" ] && grep -qF -- "$q" ${inputs.self}/scions/style-guide/docs/style.md \
+            || { echo "style-quote: docs/onboarding.md quotes a rule that scions/style-guide/docs/style.md does not have" >&2; exit 1; }
+          touch $out
+        '';
+      }) flake.checks;
+    };
+EOF
+)"
+  (cd "$out/handbook" && nix flake check >&2)
+
+  # what is new upstream since the consumers grafted
+  printf '# Style\n\nKeep sentences short. Use one term for one concept.\n' > "$s/docs/style.md"
+  release "$s" v1.1.0 2026-11-09 "Reworded: keep sentences short. New rule: use one term for one concept."
+  printf '# Page rules\n\nEvery page has a status: draft, working or stable.\n' > "$p/docs/rules.md"
+  release "$p" v1.0.1 2026-11-02 "Fixed: the rule lists the allowed statuses."
+  printf '# Page rules\n\nEvery page has a status and an owner.\n' > "$p/docs/rules.md"
+  # shellcheck disable=SC2016 # Markdown backticks
+  release "$p" v2.0.0 2026-11-10 "Every page names an owner." 'Add `owner:` to the front matter of each page.'
+
+  command cp -f "$graft/tests/stub-api.py" "$out/stub-api.py"
+  echo '[{"number": 7, "head": {"ref": "graft/upgrade", "repo_id": 1}, "base": {"repo_id": 1}}]' > "$out/open-pr.json"
+  cat > "$out/pr.sh" <<'EOF'
+#!/usr/bin/env bash
+# pr.sh REPO [open]: run `graft ci pr` in REPO, at the commit it has checked out, against a stand-in for
+# Forgejo's API; then print the pull request that graft asked it to open (with `open`, PR #7 is open already,
+# and graft edits it)
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+repo=$(cd "${1:?usage: pr.sh REPO [open]}" && pwd)
+listing=/nonexistent
+if [ "${2:-}" = open ]; then listing=$here/open-pr.json; fi
+tmp=$(mktemp -d)
+nix run github:NixOS/nixpkgs/ac62194c3917d5f474c1a844b6fd6da2db95077d#python3 -- \
+  "$here/stub-api.py" "$tmp/port" "$tmp/auth" "$tmp/req" "$listing" & stub=$!
+trap 'kill "$stub" 2>/dev/null || true; rm -f "$tmp"/*; rmdir "$tmp"' EXIT
+for _ in $(seq 600); do if [ -s "$tmp/port" ]; then break; fi; sleep 0.1; done
+[ -s "$tmp/port" ] || { echo "pr.sh: the stub API did not start" >&2; exit 1; }
+rc=0
+(cd "$repo" && env API="http://127.0.0.1:$(cat "$tmp/port")" WEB="https://forgejo.example/team/$(basename "$repo")" \
+  BASE=main BRANCH=graft/upgrade PR_TOKEN=fixture-token nix run .#graft ci pr) || rc=$?
+echo "pr.sh: graft ci pr exited $rc"
+if [ -s "$tmp/req" ]; then
+  jq -r 'select(.method != "GET") | "pr.sh: \(.method) \(.path)", "title: \(.body.title)", "", .body.body' "$tmp/req"
+fi
+exit "$rc"
+EOF
+  chmod +x "$out/pr.sh"
+  echo "$out/team-kb"
+  echo "$out/handbook"
 }
 
 publish() {
@@ -491,5 +874,8 @@ case $slice in
   first-pattern) first_pattern ;;
   gate-merges) gate_merges ;;
   override) override ;;
+  private) private ;;
+  ci) ci_fixture ;;
+  breaking-change) breaking_change ;;
   publish) publish ;;
 esac

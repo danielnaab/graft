@@ -13,7 +13,7 @@ save any change someone meant, put the scions back to their pins, and stop the c
 - The commands assume the scions directory is `scions/` and `flake.nix` is at the repository's top. If
   `mkFlake` sets `dir`, read your directory for `scions/`. If your flake is in a subdirectory, run
   `nix run path:DIR#graft` for `nix run .#graft`. Then `nix flake check` does not check the scions:
-  `nix run path:DIR#graft check` is the check ([A flake in a subdirectory](flake-in-a-subdirectory.md)).
+  `nix run path:DIR#graft check` is the check ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
 - Commit or stash work that is not about the scions, so that `git status` shows only the drift.
 
 ## Steps
@@ -47,7 +47,7 @@ save any change someone meant, put the scions back to their pins, and stop the c
 
    A line `graft: .forgejo/workflows/FILE differs from the copy this graft version ships` is one of graft's
    workflows. Step 5 restores it. To keep your edits instead, delete its marker line first
-   ([Keep your own edits to a workflow](ci.md#keep-your-own-edits-to-a-workflow)).
+   ([Keep your own edits to a workflow](../reference/files.md#keep-your-own-edits-to-a-workflow)).
 
    Not yet: the diff names a temporary directory and store paths, not `scions/NAME/FILE`.
    Not yet: the check does not explain a file only on the right, and for a file only on the left it

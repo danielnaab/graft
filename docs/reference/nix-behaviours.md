@@ -8,14 +8,14 @@ again when you change Nix versions.
 
 | Behaviour | Seen in | What graft or its docs do |
 |---|---|---|
-| A flake at a repository's root copies every tracked file to the world-readable store. No lazy trees. | 2.24 | [A flake in a subdirectory](../guides/flake-in-a-subdirectory.md) |
+| A flake at a repository's root copies every tracked file to the world-readable store. No lazy trees. | 2.24 | [Keep private files out of the Nix store](../guides/flake-in-a-subdirectory.md) |
 | Nix does not write the lock of a relative `path:` flake (`cannot fetch input … because it uses a relative path`). | 2.24 | Lock with the absolute path: `nix flake lock "path:$PWD/DIR"`. `upgrade` uses `--flake path:<absolute path>`. |
+| The first fetch of a `git+ssh` or `git+https` input (or `git+file` to a bare repository) at `?ref=TAG` asks for `refs/heads/TAG`, and fails (`revspec 'TAG' not found`). A fetch at `?ref=refs/tags/TAG`, or one with `rev=`, works, and then `?ref=TAG` does too. | 2.24 | [Graft a private repository](../guides/private-providers.md) primes the cache with `nix flake prefetch`. `upgrade` locks a tag's commit itself. |
 | `nix flake update NAME --flake REF` needs 2.19 or later. | 2.19 | `upgrade` for a flake in a subdirectory needs 2.19. |
 | `?flake=false` in a URL is ignored, and `inputs` is read without evaluation. | 2.24 | Write `flake = false` on each input, and `inputs` as a literal. |
 | Two inputs for one repository at one commit (`github:` and `git+https`, for example) share one fetch-cache entry. The first fetch decides the tree for both. | 2.24, 2.33 | Take one repository through one input. |
 | [Trailing-slash rules](#trailing-slash-rules) | 2.24 to 2.35 | Providers write directory rules without the slash too. |
 | [Annotated tags and exportIgnore](#annotated-tags-and-exportignore) | 2.24 | graft keeps such locks at the tag's commit. |
-| A first lock of `git+…?ref=v1.0.0` from a bare clone, with a cache that has not seen the tag, asks for `refs/heads/v1.0.0` and fails: `revspec 'v1.0.0' not found`. | 2.24 | Fetch the tag once by its full name: `nix flake prefetch "git+URL?ref=refs/tags/v1.0.0&exportIgnore=1"`. `graft upgrade` locks with the commit, which avoids it. |
 
 ## Trailing-slash rules
 
