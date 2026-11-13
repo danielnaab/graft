@@ -83,7 +83,9 @@ version. For `0.y.z`, a new `0.y` counts as one.
    nix run .#graft migrate > /tmp/page-rules-dry-run.md
    ```
 
-   It runs the consumer's checks, so their logs scroll past. The brief's "What broke here" names the
+   It runs the consumer's checks, so their logs scroll past. The brief's header names the worktree's folder
+   (`handbook-try`) as the repository, and its log can start with Nix's `Git tree '…' is dirty`: both are
+   expected. The brief's "What broke here" names the
    failing check, `Failing: pages.`, with `docs/holidays.md: 'status:' is now 'lifecycle:' …` in its log.
 
    Not yet: in this brief, the header says `page-rules v1.1.0 (from v1.1.0)`, and "What upstream says" lists
@@ -98,7 +100,8 @@ version. For `0.y.z`, a new `0.y` counts as one.
    ```
 
    It exits 0 when the steps are complete. If it fails, or you did something the steps do not say, fix the
-   steps in the provider and commit. Then do step 7, and start again from step 2 with a fresh worktree.
+   steps in the provider, and commit them on the same branch. Then do step 7, and start again from step 2
+   with a fresh worktree: step 3 then pins the new commit.
 
 7. Remove the worktree and its branch:
 
