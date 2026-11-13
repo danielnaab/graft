@@ -47,7 +47,7 @@ set -euo pipefail
 
 mode=$1 repo=$2 examples=$3 run=${4:-nix run .#graft} flakedir=${5:-.}
 shift $(($# < 5 ? $# : 5))
-marker='# managed by graft: '
+marker='# managed by graft: '   # also lib/common.sh's WORKFLOW_MARKER, which says why there are copies
 rc=0
 case $mode in check|refresh) ;; *) echo "usage: workflows.sh check|refresh REPO EXAMPLES [RUN [FLAKEDIR [DIR...]]]" >&2; exit 2 ;; esac
 

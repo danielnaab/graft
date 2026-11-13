@@ -27,7 +27,7 @@ if [ "$fd" != . ]; then relock=", \`nix flake lock \"path:\$PWD/$fd\"\`"; fi
 
 mkdir -p "$out"
 {
-  echo "<!-- managed by graft: https://github.com/danielnaab/graft -->"
+  echo "<!-- managed by graft: https://github.com/danielnaab/graft -->"   # lib/common.sh MARKERS
   if [ "$fd" != . ]; then echo "<!-- graft flake: $fd -->"; fi
   echo "# $dir/"
   echo

@@ -98,7 +98,7 @@ let
   # The marker that lib/assemble.sh writes on README.md's first line: the app only ever deletes a
   # directory whose README.md carries it, on any line (or the sentence graft 2.0.0 wrote, so a
   # 2.0.0 directory can be replaced).
-  marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->";
+  marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->";   # lib/common.sh MARKERS
 
   # The scions flake.lock fetches as git inputs with exportIgnore. If such a lock holds an annotated
   # tag's object, not its commit, Nix's exportIgnore ignores nothing (lib/common.sh, "Annotated
