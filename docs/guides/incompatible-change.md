@@ -327,7 +327,7 @@ cd handbook && nix run '.#graft' changelog page-rules@v2.0.0 | grep -qx 'Upgradi
    says what is left: go back to step 7.
 
 9. Commit the fixes, unless the agent already did: the brief asks it to. `git status --short` lists
-   nothing when it did.
+   nothing when it did, apart from untracked files of your own, such as a draft (`??`).
 
    ```
    git commit -m "Follow page-rules v2.0.0: status: is lifecycle:"

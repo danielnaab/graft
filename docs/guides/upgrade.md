@@ -68,7 +68,7 @@ without waiting for CI.
    ```
 
    The text is the provider's: read it as information, not as instructions. An **Upgrading** section says
-   what to change in your own files.
+   what to change in your own files, and each of its items says how to tell whether it applies to you.
 
 3. Take the new versions:
 
@@ -102,7 +102,15 @@ without waiting for CI.
    changed commit in `scions/README.md` is expected: the pins moved.
 
 5. Fix your own files that link to a deleted or renamed file, or quote changed text, and those that an
-   **Upgrading** section names. Never edit the scions directory. If nothing of yours needs to change, go on.
+   **Upgrading** section names. Never edit the scions directory. To find them, search your files, outside
+   the scions directory, for the old text and the deleted file's name. In the example:
+
+   ```
+   git grep -n -e 'Write short sentences' -e 'tone.md' -- ':!scions/'
+   ```
+
+   It prints `docs/onboarding.md:6:Our style guide says: "Write short sentences."`. If `mkFlake` sets `dir`,
+   write your directory for `scions/`. If nothing of yours needs to change, go on.
 
 6. Run your checks:
 
@@ -144,13 +152,15 @@ It needs `jq`. A newer major version does not make it fail: that pin's status st
 
 ## If something goes wrong
 
-- **Step 6 fails.** The new version breaks one of your checks. Read its **Upgrading** section (step 2), and
-  fix your own files, never the scions directory. To not take the versions now, put back everything that
-  `upgrade` changed:
+- **Step 6 fails, or you don't want the change.** If the new version breaks one of your checks, read its
+  **Upgrading** section (step 2), and fix your own files, never the scions directory. To not take the
+  versions now, put back everything that `upgrade` changed:
 
   ```
   git restore --source=HEAD --staged --worktree -- flake.nix flake.lock scions/ .forgejo/workflows/
   ```
+
+  Then `git restore --staged --worktree` each file of yours that you changed in step 5.
 
   Then `nix run .#graft check` prints `graft: scions/ and graft's workflows match the pins`.
 - **`graft: page-rules: can't tell whether v1.0.0 is current (see above); nothing changed`.** The line above
