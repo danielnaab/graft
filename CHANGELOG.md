@@ -10,6 +10,11 @@
   for a new or an existing repository (an existing flake's outputs, its own `flake = false` inputs, a
   `.gitignore` that drops `flake.lock`). Its section "Try a provider's unreleased change" moved to
   [Upgrade](docs/guides/upgrade.md#try-a-providers-unreleased-change).
+- **[Change a grafted file](docs/guides/change-a-grafted-file.md):** a guide to changing what a scion
+  gives you without editing it: keep your own version of a file, change a setting that a provider's tool
+  reads, fix it in the provider and take the release, or stop grafting a provider (`mkFlake`'s `scions`).
+  [CI](docs/guides/ci.md#keep-your-own-edits-to-a-workflow) says how to keep your own edits to one of
+  graft's workflows.
 - **[Make a pattern's checks gate your merges](docs/guides/gate-merges.md):** a guide to running a
   provider's checker from its fetched export in `nix flake check`, a workflow that runs it on each pull
   request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` stays graft's drift

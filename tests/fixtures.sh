@@ -11,6 +11,12 @@
 #                   graft's workflows and a nixpkgs input; in each, one committed page breaks the rule.
 #                   team-kb/ is in graft's template form, and has an untracked page that breaks it too;
 #                   existing/ already has checks of its own
+#   override        a consumer that grafts two local providers (policy-kit at v1.0.0 with a typo, v1.1.0 tagged,
+#                   with a CHANGELOG and an untracked draft; glossary at v1.0.0) with this checkout's graft
+#                   and its two workflows (graft-check.yaml with a kept paths-ignore line). Its own checks
+#                   run policy-kit's checker (which reads policy-kit.conf) and read the glossary's export.
+#                   Committed and passing, then the team's change made in the scion: a staged edit to the
+#                   status policy, and an untracked new page
 #
 # Needs nix, git 2.28 or later and GNU sed. Network: check-fails fetches python3 and ruff from the nixpkgs
 # registry (unpinned, so ruff's output can vary); first-pattern's flakes pin a nixpkgs that the reader fetches;
@@ -18,9 +24,9 @@
 set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
-slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges OUT}
-out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges OUT}
-case $slice in check-fails|first-pattern|gate-merges) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges)" >&2; exit 2 ;; esac
+slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override OUT}
+out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override OUT}
+case $slice in check-fails|first-pattern|gate-merges|override) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, override)" >&2; exit 2 ;; esac
 [ ! -e "$out" ] || { echo "fixtures.sh: $out exists; name a new directory" >&2; exit 1; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -31,6 +37,7 @@ repo() {
   git -C "$1" config user.name fixture
   git -C "$1" config user.email fixture@example.invalid
   git -C "$1" config commit.gpgsign false
+  git -C "$1" config tag.gpgsign false
 }
 
 check_fails() {
@@ -244,8 +251,95 @@ EOF
   (cd "$c" && nix run .#graft check >&2)
 }
 
+override() {
+  local p=$out/policy-kit q=$out/glossary c=$out/consumer
+  mkdir -p "$p/docs" "$p/checker" "$p/tests" "$q"
+  printf '# Status policy\n\nEvery page has a status: draft, working, stable or deprecated.\nA deprecated page links to the page that replaces it.\n' > "$p/docs/status.md"
+  # a typo that every consumer gets, for "Fix it in the provider"
+  printf '# Provenance policy\n\nEvery page that drives a decision cites it sources.\n' > "$p/docs/provenance.md"
+  # the checker reads one setting from the consumer: the statuses a page may have
+  cat > "$p/checker/check.sh" <<'EOF'
+#!/usr/bin/env bash
+# check.sh DIR: fail for each Markdown page under DIR whose status line is missing, or names a status
+# that policy-kit.conf (`statuses = a b c`, in the current directory) does not list
+statuses="draft working stable deprecated"
+if [ -f policy-kit.conf ]; then statuses=$(sed -n 's/^statuses *= *//p' policy-kit.conf); fi
+rc=0
+while IFS= read -r f; do
+  s=$(sed -n 's/^status: *//p' "$f" | head -n 1)
+  if [ -z "$s" ]; then echo "no status: $f"; rc=1
+  elif [[ " $statuses " != *" $s "* ]]; then echo "status $s not in: $statuses: $f"; rc=1; fi
+done < <(find "$1" -name '*.md' | sort)
+exit "$rc"
+EOF
+  echo "echo test" > "$p/tests/t.sh"
+  echo "tests/ export-ignore" > "$p/.gitattributes"
+  printf '# Changelog\n\n## v1.0.0\n\n- First release: the status and provenance policies, and the checker.\n' > "$p/CHANGELOG.md"
+  repo "$p"
+  g -C "$p" add -A
+  g -C "$p" commit -qm v1.0.0
+  g -C "$p" tag v1.0.0
+  printf 'A page that is not decided yet may say so in its first line.\n' >> "$p/docs/provenance.md"
+  printf '# Changelog\n\n## v1.1.0\n\n- The provenance policy allows an undecided page to say so.\n\n## v1.0.0\n\n- First release: the status and provenance policies, and the checker.\n' > "$p/CHANGELOG.md"
+  g -C "$p" commit -qam v1.1.0
+  g -C "$p" tag v1.1.0
+  # the maintainer's own draft, never added to git
+  printf '# Review policy (draft)\n' > "$p/docs/review.md"
+
+  printf '# Glossary\n\n- **Pantry:** the team knowledge base.\n' > "$q/terms.md"
+  repo "$q"
+  g -C "$q" add -A
+  g -C "$q" commit -qm v1.0.0
+  g -C "$q" tag v1.0.0
+
+  mkdir -p "$c/docs" "$c/.forgejo/workflows"
+  # its own checks read the fetched exports: policy-kit's checker, and the glossary's terms
+  cat > "$c/flake.nix" <<EOF
+{
+  description = "Pantry: a team knowledge base";
+  inputs = {
+    graft.url = "path:$graft";
+    policy-kit = { url = "git+file://$p?ref=v1.0.0&exportIgnore=1"; flake = false; };
+    glossary = { url = "git+file://$q?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  };
+  outputs = inputs: inputs.graft.lib.mkFlake {
+    inherit inputs;
+    outputs.checks.x86_64-linux = let pkgs = inputs.graft.inputs.nixpkgs.legacyPackages.x86_64-linux; in {
+      statuses = pkgs.runCommand "statuses" { } ''
+        cd \${inputs.self} && bash \${inputs.policy-kit}/checker/check.sh docs && touch \$out
+      '';
+      terms = pkgs.runCommand "terms" { } ''
+        grep -q Pantry \${inputs.glossary}/terms.md && touch \$out
+      '';
+    };
+  };
+}
+EOF
+  printf -- '---\nstatus: working\n---\n# Team notes\n' > "$c/docs/notes.md"
+  printf 'statuses = draft working stable deprecated\n' > "$c/policy-kit.conf"
+  printf 'Follow the policies in scions/policy-kit/docs/. Never edit scions/: graft replaces it.\n' > "$c/AGENTS.md"
+  cp "$graft/template/.forgejo/workflows/"*.yaml "$c/.forgejo/workflows/"
+  # the one edit to a graft workflow that graft keeps: the bot's notes don't run the check
+  sed -i 's|^  pull_request:$|&\n    paths-ignore: ["notes/**"]|' "$c/.forgejo/workflows/graft-check.yaml"
+  repo "$c"
+  g -C "$c" add -A
+  (cd "$c" && nix run .#graft >/dev/null)
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft policy-kit v1.0.0 and glossary v1.0.0"
+  (cd "$c" && nix run .#graft check >/dev/null && nix flake check 2>/dev/null)
+
+  # the team's change, made in the scion: a staged edit to the status policy, and a new page, untracked
+  sed -i 's/draft, working, stable or deprecated./proposed, draft, working, stable or deprecated./' "$c/scions/policy-kit/docs/status.md"
+  g -C "$c" add -- scions/policy-kit/docs/status.md
+  printf '# Proposals\n\nA proposed page names who decides it.\n' > "$c/scions/policy-kit/docs/proposals.md"
+  echo "$p"
+  echo "$q"
+  echo "$c"
+}
+
 case $slice in
   check-fails) check_fails ;;
   first-pattern) first_pattern ;;
   gate-merges) gate_merges ;;
+  override) override ;;
 esac
