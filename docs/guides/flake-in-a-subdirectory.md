@@ -1,5 +1,5 @@
 ---
-status: draft
+status: working
 ---
 # Keep private files out of the Nix store
 
@@ -12,21 +12,20 @@ files, into the Nix store.
   a flake at the repository's top, the source is every file that git tracks, with uncommitted edits. Every
   `nix run .#graft`, `nix flake check` and `nix flake update` copies them again. Nix 2.24 has no lazy trees.
 - What changes: the flake's source is only its subdirectory. graft's drift check is then
-  `nix run path:DIR#graft check`, not a check in `nix flake check`. A check of your own cannot read files
+  `nix run 'path:DIR#graft' check`, not a check in `nix flake check`. A check of your own cannot read files
   outside the subdirectory. Rename any check of your own that is named `graft`: in a subdirectory flake,
   graft drops it without a word.
-- Copies that Nix made before stay in the store until Nix deletes them. To find them, search for a line
-  that only your private files hold: `grep -rlF 'THE LINE' /nix/store/*-source` (it can take minutes).
-  `nix store delete PATH` deletes one that nothing uses, and `nix store gc` deletes every unused path.
-- `graft upgrade` in a subdirectory flake needs Nix 2.19 or later.
-- In zsh with `extendedglob` set, `#` in `path:nix/workspace#graft` is a glob (`no matches found`): quote
-  the reference, `nix run 'path:nix/workspace#graft'`.
+- graft 2.7.0 or later has `flakeDir`. graft's workflows find the flake from 2.7.2. `graft upgrade` in a
+  subdirectory flake needs Nix 2.19 or later.
+- Copies that Nix made before stay in the store. See [Remove old copies](#remove-old-copies).
 - The steps use `nix/workspace` for the subdirectory and `.scions` for the scions directory. Use your own
   names: `flakeDir` can contain only letters, digits, `.`, `_`, `-` and `/`.
+- The commands quote `'path:nix/workspace#graft'`, because in zsh with `extendedglob` set, `#` is a glob.
 
 ## Steps
 
-Run every command from the repository's top.
+Run every command from the repository's top. Never run `nix run .#graft`, `nix flake check` or direnv's
+`use flake` inside `nix/workspace/`: there, `.` is the git checkout, and Nix copies the whole repository.
 
 1. Make the subdirectory. Keep no other files in it: Nix copies all of them.
 
@@ -47,18 +46,21 @@ Run every command from the repository's top.
    - If the repository has no flake yet, write graft's template there:
 
      ```
-     (cd nix/workspace && nix flake init -t github:danielnaab/graft)
+     (cd nix/workspace && nix flake init -t github:danielnaab/graft/v2.11.1)
      ```
 
-     It writes `flake.nix` and `.forgejo/workflows/` in `nix/workspace/`, and prints `Edit description and
-     the inputs in flake.nix …`. Edit the inputs as in [Graft your first pattern](graft-a-repository.md),
-     step 2.
+     It writes `flake.nix` and `.forgejo/workflows/` in `nix/workspace/`, and does not add them to git.
+     Its message says `then nix run .#graft and commit`: for a subdirectory, follow this page instead. Edit
+     the inputs as in [Graft your first pattern](graft-a-repository.md), step 2.
 
-3. If `nix/workspace/.forgejo/` exists, move it to the top, where Forgejo reads it:
+3. If `nix/workspace/.forgejo/` exists, move its workflows to the top, where Forgejo reads them:
 
    ```
-   mv nix/workspace/.forgejo .
+   mkdir -p .forgejo/workflows && mv -n nix/workspace/.forgejo/workflows/*.yaml .forgejo/workflows/ && rmdir nix/workspace/.forgejo/workflows nix/workspace/.forgejo
    ```
+
+   `mv -n` keeps a workflow that the top already has. Then `rmdir` fails with `Directory not empty`: compare
+   the file that is left with yours, and delete one of them.
 
 4. In `nix/workspace/flake.nix`, give `mkFlake` the subdirectory as `flakeDir`. `dir` stays relative to the
    repository's top:
@@ -71,8 +73,9 @@ Run every command from the repository's top.
    };
    ```
 
-   Keep the other arguments that your `mkFlake` already has. If an input has a relative path
-   (`path:./tools`), make it relative to the subdirectory.
+   Keep the other arguments that your `mkFlake` already has. Without `dir`, as in the template, the scions
+   directory is `scions/`. If an input has a relative path (`path:./tools`), make it relative to the
+   subdirectory.
 
 5. Lock the flake, by its absolute path. Nix does not write the lock of a relative `path:` flake:
 
@@ -81,21 +84,23 @@ Run every command from the repository's top.
    ```
 
    With a moved `flake.lock`, it prints nothing. For a new flake, it prints
-   `warning: creating lock file '…/nix/workspace/flake.lock'` and an `• Added input` line for each input.
+   `warning: creating lock file '…/nix/workspace/flake.lock'` and an `• Added input` line for each input,
+   graft's own inputs (`graft/nixpkgs`, for example) included.
 
 6. Graft:
 
    ```
-   nix run path:nix/workspace#graft
+   nix run 'path:nix/workspace#graft'
    ```
 
-   It prints one line for each scion, `graft: .scions/NAME <- COMMIT`. It writes the subdirectory into the
-   second line of `.scions/README.md`, `<!-- graft flake: nix/workspace -->`, and stages `.scions/`.
+   It prints one line for each scion, `graft: .scions/NAME <- COMMIT`, and stages `.scions/`. It writes the
+   subdirectory into the second line of `.scions/README.md`, `<!-- graft flake: nix/workspace -->`, and
+   the README's commands now say `nix run path:nix/workspace#graft`.
 
 7. Check it:
 
    ```
-   nix run path:nix/workspace#graft check
+   nix run 'path:nix/workspace#graft' check
    ```
 
    Expected, with exit 0:
@@ -108,16 +113,16 @@ Run every command from the repository's top.
 
    ```
    git add nix/workspace .scions .forgejo
-   git commit -m "Move the flake to nix/workspace"
+   git commit -m "Put the flake in nix/workspace"
    ```
 
-   `git mv` in step 2 already staged the removal of `flake.nix` from the top. Your private files keep their
-   own state: this commit does not take them.
+   After a move, `git mv` in step 2 already staged the removal of `flake.nix` from the top. Your private
+   files keep their own state: this commit does not take them.
 
 9. Run your own checks:
 
    ```
-   nix flake check path:nix/workspace
+   nix flake check 'path:nix/workspace'
    ```
 
    It runs every check of yours, and exits 0. It does not run graft's check: step 7 does.
@@ -129,7 +134,7 @@ at the top, the flake is committed, and the store copy of the flake is exactly `
 nothing from the rest of the repository:
 
 ```sh
-nix run path:nix/workspace#graft check && test ! -e flake.nix && git ls-files --error-unmatch nix/workspace/flake.nix nix/workspace/flake.lock >/dev/null && git diff --quiet HEAD -- nix/workspace .scions && src=$(nix eval --raw --impure --expr "(builtins.getFlake \"path:$PWD/nix/workspace\").outPath") && diff -r "$src" nix/workspace && echo ok
+nix run 'path:nix/workspace#graft' check && test ! -e flake.nix && git ls-files --error-unmatch nix/workspace/flake.nix nix/workspace/flake.lock >/dev/null && git diff --quiet HEAD -- nix/workspace .scions && src=$(nix eval --raw --impure --expr "(builtins.getFlake \"path:$PWD/nix/workspace\").outPath") && diff -r "$src" nix/workspace && echo ok
 ```
 
 ## If something goes wrong
@@ -142,7 +147,7 @@ nix run path:nix/workspace#graft check && test ! -e flake.nix && git ls-files --
   Not yet: the message does not name `flakeDir`.
 - **`error: path '//…/REPO/notebook/nix/workspace' does not exist`.** A `path:` reference is relative to
   the current directory. Run from the top, or write the path from where you are:
-  `nix run path:../nix/workspace#graft`.
+  `nix run 'path:../nix/workspace#graft'`.
 - **`error: path '/…/REPO' is not part of a flake (neither it nor its parent directories contain a 'flake.nix' file)`.**
   You ran `nix run .#graft` or `nix flake check` at the top. Write `path:nix/workspace` for `.`, as in
   [How it works](#how-it-works).
@@ -153,15 +158,14 @@ The commands, from the repository's top:
 
 | To | Run |
 |---|---|
-| Sync | `nix run path:nix/workspace#graft` |
-| Check | `nix run path:nix/workspace#graft check` |
-| Upgrade | `nix run path:nix/workspace#graft upgrade` |
+| Sync | `nix run 'path:nix/workspace#graft'` |
+| Check | `nix run 'path:nix/workspace#graft' check` |
+| Upgrade | `nix run 'path:nix/workspace#graft' upgrade` |
 | Lock again after an edit to `flake.nix` | `nix flake lock "path:$PWD/nix/workspace"` |
 | Run a command from graft's own flake | `nix run github:danielnaab/graft -- outdated -C .` (`-C` takes the repository's top) |
 
-- **Always write `path:`.** `./nix/workspace` and `git+file:` references are git flakes, which copy the whole
-  repository. `nix/workspace` alone is read as a flake registry name. Keep anything that evaluates a flake
-  at the top away too: `nix develop`, or direnv's `use flake`.
+- **Always write `path:`.** `.` inside the subdirectory, `./nix/workspace` and `git+file:` references are
+  git flakes, which copy the whole repository. `nix/workspace` alone is read as a flake registry name.
 - **graft finds the top with git** (`git rev-parse --show-toplevel`), so the app runs from anywhere in the
   checkout.
 - **The scions README records the flake** on its second line. graft's other commands and its CI workflows
@@ -174,9 +178,26 @@ The commands, from the repository's top:
 - **In CI**, `graft ci check` runs `graft check`. The upgrade workflow and `graft migrate` run it, and then
   the flake's own checks.
 
+### Remove old copies
+
+1. Find them. Search for a line that only your private files hold, in the store paths that a flake
+   (`-source`) or a `src = ./.` (named after the repository's folder) makes. It can take minutes:
+
+   ```
+   grep -rlF 'THE LINE' /nix/store/*-source /nix/store/*-"$(basename "$PWD")" 2>/dev/null
+   ```
+
+   It misses a copy of a file that did not hold that line yet, a copy named after another folder, and a
+   compressed file. Search for a line from each private file that matters.
+2. For each store path that it names, `nix-store --query --roots PATH` prints what keeps it. Nothing
+   printed means that nothing does.
+3. Delete each with `nix store delete PATH`. Nix refuses a path that something still uses
+   (`Cannot delete path … since it is still alive`). `nix store gc` deletes every unused path on the
+   machine instead, every user's cache too.
+
 ## Related
 
-- [Graft a private repository](private-providers.md): a provider that only you can read.
+- [Graft a private repository](private-providers.md): a provider that only an ssh key can read.
 - [Nix behaviours](../reference/nix-behaviours.md), [Commands](../reference/commands.md#mkflake).
 
 ## Sources
@@ -184,8 +205,10 @@ The commands, from the repository's top:
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): `flakeDir` and its check, the app's search for the top,
   no `checks.<system>.graft` in a subdirectory, and `own`, which drops a repository's own check named `graft`.
 - [lib/common.sh](../../lib/common.sh): `locate` and `recorded_flake_dir`. [lib/assemble.sh](../../lib/assemble.sh):
-  the README's second line.
-- [template/.forgejo/workflows/](../../template/.forgejo/workflows/graft-check.yaml): how CI finds the flake.
+  the README's second line and its commands.
+- [flake.nix](../../flake.nix): the template's message. [template/.forgejo/workflows/](../../template/.forgejo/workflows/graft-check.yaml):
+  how CI finds the flake.
+- [CHANGELOG](../../CHANGELOG.md): `flakeDir` in v2.7.0, its workflows fixed in v2.7.2.
 - [tests/run.sh](../../tests/run.sh): the `subdir:` checks, and "the top's content never entered the store".
 - [tests/fixtures.sh](../../tests/fixtures.sh) `private`: `moving/` and `new/`, the repositories this page is
   read against.

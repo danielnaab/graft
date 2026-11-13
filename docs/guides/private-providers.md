@@ -1,5 +1,5 @@
 ---
-status: draft
+status: working
 ---
 # Graft a private repository
 
@@ -14,13 +14,17 @@ Graft a provider that only an ssh key can read, on your machine and in graft-che
   ```
 
   Nix fetches the provider with your own ssh setup: your key, your agent and `~/.ssh/config`.
+- The provider's export becomes readable by more people than the provider is. Nix copies it into the Nix
+  store, which every user of your machine can read, and graft commits it into your scions directory, which
+  everyone who can read your repository can read. Keep your own private files out of the store with
+  [Keep private files out of the Nix store](flake-in-a-subdirectory.md).
 - The provider's `.gitattributes` writes its directory rules without a trailing slash (`tests export-ignore`,
   not `tests/ export-ignore`). Over git, Nix ignores the slash form ([Publish](publish.md#decide-what-you-export)).
 - Your repository already grafts with graft ([Graft your first pattern](graft-a-repository.md)), and keeps
   graft's `graft-check.yaml` in `.forgejo/workflows/`. If your flake is in a subdirectory, write
-  `nix run path:DIR#graft` for `nix run .#graft`, and skip `nix flake check`
-  ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
+  `nix run 'path:DIR#graft'` for `nix run .#graft`.
 - The example's host is `git.example.com`, its ssh port `2222`, and the provider `team/notes`. Use yours.
+  Read your scions directory for `scions/`.
 
 ## Steps
 
@@ -47,29 +51,33 @@ Graft a provider that only an ssh key can read, on your machine and in graft-che
    nix run .#graft
    ```
 
-   Nix prints `warning: updating lock file` and `• Added input 'notes'`. graft prints a line for each
-   scion, among them `graft: scions/notes <- COMMIT`, with the commit from step 1.
+   Nix may first print `fatal: couldn't find remote ref refs/heads/v1.0.0` and a warning that it
+   `could not update mtime`: ignore them when the lock is written. Then it prints
+   `warning: updating lock file` and `• Added input 'notes'`. graft prints a line for each scion, among
+   them `graft: scions/notes <- COMMIT`, with the commit from step 1.
 
-4. Make a key pair for CI:
+4. Make a key pair for CI, in a new directory outside the repository, so that no commit can take it:
 
    ```
-   ssh-keygen -t ed25519 -N '' -C "graft-check@YOUR-REPO" -f graft_ssh_key
+   keys=$(mktemp -d) && ssh-keygen -t ed25519 -N '' -C "graft-check@YOUR-REPO" -f "$keys/graft_ssh_key"
    ```
 
-5. On the provider's repository, add the content of `graft_ssh_key.pub` as a read-only deploy key
+5. On the provider's repository, add the content of `"$keys/graft_ssh_key.pub"` as a read-only deploy key
    (Forgejo: Settings, Deploy keys).
 
-6. On your repository, add the content of `graft_ssh_key` as the Actions secret `GRAFT_SSH_KEY`
-   (Forgejo: Settings, Actions, Secrets). Then delete `graft_ssh_key` and `graft_ssh_key.pub`.
+6. On your repository, add the content of `"$keys/graft_ssh_key"` as the Actions secret `GRAFT_SSH_KEY`
+   (Forgejo: Settings, Actions, Secrets). Then delete both key files: `rm -r "$keys"`.
 
-7. Get the host's public key:
+7. Get the host's public keys:
 
    ```
    ssh-keyscan -p 2222 git.example.com 2>/dev/null
    ```
 
-   It prints one line per key, such as `[git.example.com]:2222 ssh-rsa AAAA…`. Compare the key with one
-   that you trust: for Forgejo's built-in ssh server, `data/ssh/gitea.rsa.pub` on the server.
+   It prints one line per key, such as `[git.example.com]:2222 ssh-rsa AAAA…`. Take the line whose type
+   matches a key file on the server, and compare the key with that file: for Forgejo's built-in ssh server,
+   `data/ssh/gitea.rsa.pub` (`ssh-rsa`); for the system's OpenSSH, a file such as
+   `/etc/ssh/ssh_host_ed25519_key.pub`.
 
 8. Add one line to `.forgejo/workflows/graft-check.yaml`, anywhere. `host=` is the first field of step 7's
    line, and `hostkey=` the other two:
@@ -92,20 +100,29 @@ Graft a provider that only an ssh key can read, on your machine and in graft-che
    `~/.ssh/graft_scions`, the host key to `~/.ssh/known_hosts`, and a `Host` entry with
    `StrictHostKeyChecking yes` to `~/.ssh/config`. graft moved the line above `name:`.
 
-10. Commit:
+10. Commit the flake, the scions directory and the workflow, and nothing else:
 
     ```
-    git add -A
+    git add flake.nix flake.lock scions .forgejo/workflows/graft-check.yaml
     git commit -m "Graft notes v1.0.0, a private provider"
     ```
 
+    For a flake in a subdirectory, name that subdirectory for `flake.nix flake.lock`.
+
 ## Check it worked
 
-From the repository's top, paste this. It prints `ok` only if the scions match their pins, graft-check has
-the ssh step, nothing is left to commit, and `nix flake check` passes:
+From the repository's top, paste this, with your scions directory for `scions`. It prints `ok` only if the
+scions match their pins, graft-check has the ssh step, the flake, the scions and the workflows are
+committed, and `nix flake check` passes:
 
 ```sh
-nix run .#graft check && grep -q 'name: SSH key for private scions' .forgejo/workflows/graft-check.yaml && test -z "$(git status --porcelain)" && nix flake check && echo ok
+nix run .#graft check && grep -q 'name: SSH key for private scions' .forgejo/workflows/graft-check.yaml && git diff --quiet HEAD -- flake.nix flake.lock scions .forgejo && nix flake check && echo ok
+```
+
+For a flake in `nix/workspace`:
+
+```sh
+nix run 'path:nix/workspace#graft' check && grep -q 'name: SSH key for private scions' .forgejo/workflows/graft-check.yaml && git diff --quiet HEAD -- nix/workspace scions .forgejo && nix flake check 'path:nix/workspace' && echo ok
 ```
 
 Then push a branch, and see graft-check pass on Forgejo.
@@ -129,13 +146,16 @@ Then push a branch, and see graft-check pass on Forgejo.
 ## How it works
 
 - graft-check runs in a new container with no ssh key. The ssh line is the only thing that gives it one.
-- In CI, Nix fetches the provider by the commit in `flake.lock`, so step 1 is not needed there.
+  In CI, Nix fetches the provider by the commit in `flake.lock`, so step 1 is not needed there.
 - The upgrade workflow gets no key, because it runs code that nobody has reviewed yet
-  ([CI security](../ci-security.md#limits)). Upgrade a private scion on your machine:
-  `nix run .#graft upgrade notes`. It locks the new tag's commit itself, so step 1 is not needed again.
+  ([CI security](../ci-security.md#limits)).
 
   Not yet: graft-upgrade fails for a repository with a private scion, also for its other scions and for
   graft's own pin. Its jobs build graft's app, which fetches every scion.
+
+  Until then, delete `.forgejo/workflows/graft-upgrade.yaml` (graft never adds it back), and upgrade on
+  your machine: `nix run .#graft outdated`, then `nix run .#graft upgrade`. `upgrade` locks each new
+  tag's commit itself, so step 1 is not needed again.
 
 ## Related
 

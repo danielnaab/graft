@@ -30,14 +30,14 @@ team-kb/
 ├── scions/knowledge-base-kit/    # the pattern at one version, committed: never edit it
 ├── AGENTS.md                     # points agents at the kit's policies and playbooks
 ├── knowledge-base.yaml           # which folders need sources, which statuses a page may have
-└── .forgejo/workflows/           # runs `nix flake check` on every pull request
+└── .forgejo/workflows/           # graft's check, and yours: `nix flake check` on every pull request
 ```
 
 ## While pinned, the pattern governs each change
 
 graft does not run the pattern's checks on your changes. Your CI does, and your forge can require them to
-pass before a merge. With that in place, each change is a transaction against the pattern, as a database
-write is against its schema. It lands whole when the checks pass, and not at all when they fail.
+pass before a merge ([Make a pattern's checks gate your merges](docs/guides/gate-merges.md)). With that in
+place, each change is a transaction against the pattern, as a database write is against its schema. It lands whole when the checks pass, and not at all when they fail.
 
 Say an agent writes up last week's outage. The provenance policy tells it to cite the incident ticket and
 the runbook it relied on. If the page cites neither, or links to a runbook heading that someone renamed,
@@ -138,7 +138,9 @@ See [Publish](docs/guides/publish.md).
 |---|---|
 | Learn the terms and how they map to Nix | [Concepts](docs/concepts.md) |
 | Graft your first pattern, in a new or existing repository | [Graft your first pattern](docs/guides/graft-a-repository.md) |
+| Run a pattern's checks in CI, and require them before a merge | [Make a pattern's checks gate your merges](docs/guides/gate-merges.md) |
 | Find and fix what fails `graft check` | [`graft check` fails](docs/guides/check-fails.md) |
+| Change a grafted file that does not fit, or has a mistake | [Change a grafted file](docs/guides/change-a-grafted-file.md) |
 | Take newer versions, and cross a major version | [Upgrade](docs/guides/upgrade.md) |
 | Keep private files out of the Nix store, with a flake in a subdirectory | [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md) |
 | Publish a repository for others to graft | [Publish](docs/guides/publish.md) |

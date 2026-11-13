@@ -113,6 +113,8 @@ committed.
    Follow the policies in scions/knowledge-base-kit/docs/policies/. Never edit scions/: graft replaces it.
    ```
 
+   If a grafted file does not fit your repository, see [Change a grafted file](change-a-grafted-file.md).
+
 7. On GitHub, delete `.forgejo/`. Those workflows are for Forgejo Actions, and graft never adds a workflow
    that you did not keep ([CI](ci.md)). On Forgejo, keep it.
 
@@ -132,9 +134,8 @@ committed.
    nix flake check
    ```
 
-   It exits 0. It runs graft's check, `checks.<system>.graft`, beside your own checks.
-
-   Not yet: a guide to making a pattern's checks gate your merges.
+   It exits 0. It runs graft's check, `checks.<system>.graft`, beside your own checks. To run the pattern's
+   checks here too, and require them before a merge, see [Make a pattern's checks gate your merges](gate-merges.md).
 
 ## Check it worked
 
