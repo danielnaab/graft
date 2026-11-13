@@ -14,7 +14,8 @@ files, into the Nix store.
 - What changes: the flake's source is only its subdirectory. graft's drift check is then
   `nix run 'path:DIR#graft' check`, not a check in `nix flake check`. A check of your own cannot read files
   outside the subdirectory. Rename any check of your own that is named `graft`: in a subdirectory flake,
-  graft drops it without a word.
+  graft drops it from `checks`, and graft's app then fails to evaluate
+  ([If something goes wrong](#if-something-goes-wrong)).
 - graft 2.7.0 or later has `flakeDir`. graft's workflows find the flake from 2.7.2. Your graft version is
   the tag in your `graft` input's URL (`github:danielnaab/graft/v2.11.1`), also the `PINNED` column of the
   `graft` row that `nix run .#graft outdated` prints. `graft upgrade` in a
@@ -22,7 +23,8 @@ files, into the Nix store.
 - Copies that Nix made before stay in the store. See [Remove old copies](#remove-old-copies).
 - The steps use `nix/workspace` for the subdirectory and `.scions` for the scions directory. Use your own
   names: `flakeDir` can contain only letters, digits, `.`, `_`, `-` and `/`.
-- The commands quote `'path:nix/workspace#graft'`, because in zsh with `extendedglob` set, `#` is a glob.
+- The commands quote `'path:nix/workspace#graft'`, as [The graft command](../reference/commands.md#the-graft-command)
+  says.
 
 ## Steps
 
@@ -143,16 +145,18 @@ nix run 'path:nix/workspace#graft' check && test ! -e flake.nix && git ls-files 
 
 - **`error: cannot fetch input 'path:nix/workspace' because it uses a relative path`.** The flake has no
   lock yet, or its inputs changed. Do step 5, with the absolute path.
-- **`graft: no flake.nix in /…/REPO: run from the repo's top; for a flake in a subdirectory, set mkFlake's flakeDir to it`.**
-  `mkFlake` has no `flakeDir`, so graft looks for the flake at the top. Do step 4.
-- **`graft: no DIR/flake.nix in /…/REPO: check mkFlake's flakeDir, "DIR" (the scions README records it)`.**
-  `flakeDir` names another directory than the flake's. Correct it, as in step 4.
-- **`error: path '//…/REPO/notebook/nix/workspace' does not exist`.** A `path:` reference is relative to
-  the current directory. Run from the top, or write the path from where you are:
-  `nix run 'path:../nix/workspace#graft'`.
-- **`error: path '/…/REPO' is not part of a flake (neither it nor its parent directories contain a 'flake.nix' file)`.**
-  You ran `nix run .#graft` or `nix flake check` at the top. Write `path:nix/workspace` for `.`, as in
-  [How it works](#how-it-works).
+- **`graft: no flake.nix in /…/REPO: run from the repo's top; for a flake in a subdirectory, set mkFlake's flakeDir to it`,
+  or `graft: no DIR/flake.nix in /…/REPO: check mkFlake's flakeDir, "DIR" (the scions README records it)`.**
+  The first: `mkFlake` has no `flakeDir`, so graft looks for the flake at the top. The second: `flakeDir`
+  names another directory than the flake's. Set or correct it, as in step 4.
+- **`error: path '//…/REPO/notebook/nix/workspace' does not exist`, or
+  `error: path '/…/REPO' is not part of a flake (neither it nor its parent directories contain a 'flake.nix' file)`.**
+  The first: a `path:` reference is relative to the current directory. Run from the top, or write the path
+  from where you are: `nix run 'path:../nix/workspace#graft'`. The second: you ran `nix run .#graft` or
+  `nix flake check` at the top. Write `'path:nix/workspace'` for `.`, as in [How it works](#how-it-works).
+- **Every graft command fails with `error: graft: mkFlake's outputs has checks.x86_64-linux.graft: that name is graft's; rename the repo's own`.**
+  A check of your own, in `mkFlake`'s `outputs`, is named `graft`. `nix flake check 'path:nix/workspace'`
+  still passes, without that check: graft drops it. Rename it in `nix/workspace/flake.nix`.
 
 ## How it works
 

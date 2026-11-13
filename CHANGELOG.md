@@ -2,40 +2,42 @@
 
 ## Unreleased
 
+### Upgrading
+- **A `.gitignore` that drops `flake.lock` now fails `graft check` and `nix flake check`, and
+  `graft ci check` fails when `flake.lock` is not in `HEAD`.** Remove the rule (`git check-ignore -v flake.lock` names it), and commit
+  `flake.lock`.
+- **A repository's own `checks.<system>.graft` or `apps.<system>.graft`, in `mkFlake`'s `outputs`, is now an
+  evaluation error** of graft's app and check. Rename the repository's own.
+- **`outdated NAME`, `upgrade --json` and an unknown option now exit 2.** Remove them from scripts that
+  call graft.
+- **graft's workflow files change, so the first weekly upgrade onto this release opens no pull request.**
+  It moves graft's pin and refreshes the workflows, and the **pr** job refuses with
+  `this upgrade changes CI workflows: .forgejo/workflows/graft-check.yaml .forgejo/workflows/graft-upgrade.yaml. … so none is opened: …`.
+  Read the workflow diff at the link in its log, then open the pull request from `graft/upgrade` yourself.
+- **The new workflows fail CI where the old ones guessed.** With scions READMEs that name different flake
+  directories, or one that graft won't use, the old workflows took the first line they found; the new ones
+  fail with `::error::the scions READMEs name different flake directories: …` or
+  `::error::the scions README names a flake directory graft won't use: …`. `git grep -n 'graft flake:'` lists
+  the lines: each must name the flake's directory, so delete a scions directory that your flake no longer
+  writes, and commit.
+- **The drift report is new text.** A script that read `diff -r`'s output from `graft check` or
+  `nix flake check` (`Only in …`) reads the `graft: scions/NAME/FILE: …` lines instead.
+
 ### Added
 - **[`graft check` fails](docs/guides/check-fails.md):** a guide to finding what changed in a scion
   (an edit, a formatter, a tool's `__pycache__/`), saving a change someone meant, restoring the pins, and
   keeping tools out of the scions directory. It replaces the list of causes in Graft a repository.
-- **Graft a repository is now [Graft your first pattern](docs/guides/graft-a-repository.md)**, a tutorial
-  for a new or an existing repository (an existing flake's outputs, its own `flake = false` inputs, a
-  `.gitignore` that drops `flake.lock`). Its section "Try a provider's unreleased change" moved to
-  [Upgrade](docs/guides/upgrade.md#try-a-providers-unreleased-change).
 - **[Change a grafted file](docs/guides/change-a-grafted-file.md):** a guide to changing what a scion
   gives you without editing it: keep your own version of a file, change a setting that a provider's tool
   reads, fix it in the provider and take the release, or stop grafting a provider (`mkFlake`'s `scions`).
-  [Files](docs/reference/files.md#keep-your-own-edits-to-a-workflow) says how to keep your own edits to
-  one of graft's workflows.
 - **[Make a pattern's checks gate your merges](docs/guides/gate-merges.md):** a guide to running a
   provider's checker from its fetched export in `nix flake check`, a workflow that runs it on each pull
   request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` stays graft's drift
   check: your checks are a status of their own. It says why graft's weekly upgrade pull request gets no
   status from your workflow until a person reopens it.
-- **Publish is now [Publish a pattern](docs/guides/publish.md)**, the steps of one release: export rules,
-  the CHANGELOG section, the export listed with `git archive` and checked for trailing-slash rules, the
-  tag (prefer lightweight; signed or annotated works, with one re-pin for `git+` consumers), the push, and
-  the consumer's upgrade. What to export and how to name a provider moved to
-  [Files](docs/reference/files.md#in-a-provider).
 - **[Ship a tool or seed files with a pattern](docs/guides/ship-tools.md):** a tool that consumers build
   from the fetched export with the provider's `package.nix`, seed files as a flake template, and a recipe
   for a step after each upgrade.
-- **[Nix behaviours](docs/reference/nix-behaviours.md)**: trailing-slash rules fail only for fetches from
-  a bare clone, not through `git+file` to a checkout.
-- **CI is now [Run graft in CI and review its upgrade pull requests](docs/guides/ci.md)**, a guide to the
-  weekly upgrade pull request: what its title and description say, the newer major versions it holds, what
-  to read in the scions diff, and what to do when its checks fail or the pull request is not opened. It
-  shows how to run the steps by hand (on GitHub, say) and how to check many repositories with `outdated -C`.
-  Its sections on `paths-ignore` and on keeping your own edits to a workflow moved to
-  [Files](docs/reference/files.md#grafts-workflows).
 - **[Ship and take an incompatible change](docs/guides/incompatible-change.md):** a guide in two parts. The
   provider writes Upgrading steps, tries them on a throwaway worktree of a real consumer (`nix flake lock
   --override-input`, then `graft migrate`), and tags the new major version. The consumer takes it on a branch
@@ -43,31 +45,51 @@
   `migrate` compares with, what to do when a provider renames its repository, and that graft finds only
   `### Upgrading` headings. It replaces "Cross a major version" in Upgrade and "Make an incompatible change"
   in Publish, which now link to it.
+- **[Nix behaviours](docs/reference/nix-behaviours.md)**: trailing-slash rules fail only for fetches from
+  a bare clone, not through `git+file` to a checkout; and Nix 2.24 reuses a consumer's `github:` fetch of a
+  commit for `.` at that commit, so a repository whose export rules exclude its own `flake.nix` fails there.
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
-- **A flake in a subdirectory is now [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md)**:
-  numbered steps from a flake at the top or from no flake, a check that proves the store copy is only the
-  subdirectory, and what to do about copies already in the store. It says that a repository's own check
-  named `graft` is dropped in a subdirectory flake.
-- **Private providers is now [Graft a private repository](docs/guides/private-providers.md)**, with the step
-  that Nix 2.24 needs to make the first lock of a `git+ssh` input at a tag (`nix flake prefetch` at
-  `refs/tags/TAG`): without it, the old page's pin failed with `revspec 'v1.0.0' not found`. Its section
-  "Check in CI" is now its steps 4 to 10. It makes the CI key outside the repository, and says what to do
-  while graft-upgrade cannot run with a private scion.
 - **`nix flake init -t` says what to run for a flake in a subdirectory**: `nix run 'path:DIR#graft'` from
   the repository's top, since `nix run .#graft` there copies the whole repository into the Nix store.
 
 ### Changed
+- **Guides renamed, each now one goal with numbered steps, a check, and its real failures.** The old URLs
+  stay.
+  - Graft a repository is now [Graft your first pattern](docs/guides/graft-a-repository.md), a tutorial
+    for a new or an existing repository (an existing flake's outputs, its own `flake = false` inputs, a
+    `.gitignore` that drops `flake.lock`). Its section "Try a provider's unreleased change" moved to
+    [Take a newer version by hand](docs/guides/upgrade.md#try-a-providers-unreleased-change).
+  - Upgrade is now [Take a newer version by hand](docs/guides/upgrade.md): `outdated`, `changelog`,
+    `upgrade`, the scions diff, the check, and which files to commit.
+  - Publish is now [Publish a pattern](docs/guides/publish.md), the steps of one release: export rules,
+    the CHANGELOG section, the export listed with `git archive` and checked for trailing-slash rules, the
+    tag (prefer lightweight; signed or annotated works, with one re-pin for `git+` consumers), the push, and
+    the consumer's upgrade.
+  - CI is now [Run graft in CI and review its upgrade pull requests](docs/guides/ci.md), a guide to the
+    weekly upgrade pull request: what its title and description say, the newer major versions it holds, what
+    to read in the scions diff, and what to do when its checks fail or the pull request is not opened. It
+    shows how to run the steps by hand (on GitHub, say) and how to check many repositories with `outdated -C`.
+  - A flake in a subdirectory is now [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md):
+    numbered steps from a flake at the top or from no flake, a check that proves the store copy is only the
+    subdirectory, and what to do about copies already in the store. It says that a repository's own check
+    named `graft` is dropped from `checks` in a subdirectory flake, and that graft's app then fails to
+    evaluate.
+  - Private providers is now [Graft a private repository](docs/guides/private-providers.md), with the step
+    that Nix 2.24 needs to make the first lock of a `git+ssh` input at a tag (`nix flake prefetch` at
+    `refs/tags/TAG`): without it, the old page's pin failed with `revspec 'v1.0.0' not found`. Its section
+    "Check in CI" is now its steps 4 to 10. It makes the CI key outside the repository, and says what to do
+    while graft-upgrade cannot run with a private scion.
+- **Moved to [Files](docs/reference/files.md)**: what to export and how to name a provider (from Publish),
+  graft's workflows' `paths-ignore` line, and how to keep your own edits to a workflow (from CI).
 - **One drift report for `graft check` and `nix flake check`** (lib/drift.sh). It names each file as the
   repository does (`scions/NAME/FILE`), not by a temporary directory or a store path: `edited`, with a
-  unified diff; `only in your copy, not in the pin`; or `only in the pin, not in your copy`. Then it says
-  what each kind usually is: a tool's output or someone's addition; or a deleted file, a file git ignores
-  (with the `git check-ignore -v` command that names the rule) or, for `nix flake check`, one not added to
-  git. It replaces `diff -r`'s output and the "a file listed only on the left" hints.
+  unified diff; `only in your copy, not in the pin`; or `only in the pin, not in your copy`. A symbolic link
+  that points elsewhere, or that became a file, is `edited`, with both targets. File modes are not compared.
+  Then it says what each kind usually is: a tool's output or someone's addition; or a deleted file, a file
+  git ignores (with the `git check-ignore -v` command that names the rule) or, for `nix flake check`, one not
+  added to git. It replaces `diff -r`'s output and the "a file listed only on the left" hints.
 
 ### Fixed
-- **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran
-  `link_validator && kb_linter`, so a link failure never failed the build. Only graft's own
-  `nix flake check` changes; nothing consumers run does.
 - **The checks fail when `flake.lock` is not committed.** A `.gitignore` that dropped `flake.lock` let
   every check pass while Nix resolved the tags again on every run. `graft check` now fails when git
   ignores it: `graft: git ignores flake.lock, so the pins are not committed: git check-ignore -v flake.lock names the rule; …`
@@ -88,13 +110,18 @@
   `<!-- graft flake: … -->` line in any `README.md`, so a provider's leaked scions README (one that names
   its own flake) could send a top-level repository's CI to a flake that does not exist. The step now reads
   only READMEs with graft's marker, skips one inside another scions directory, and fails on two that
-  differ or on a path graft won't use, as `lib/common.sh` does. The new workflows arrive with the next
-  `nix run .#graft` or `graft upgrade`.
+  differ or on a path graft won't use, as `lib/common.sh` does. The new workflows arrive when the graft pin
+  moves to this version: a sync restores the pinned version's copy.
 - **A missing or mistyped `flakeDir` is named.** graft said only `graft: no flake.lock in TOP`; it now says
   `… set mkFlake's flakeDir to it` or `… check mkFlake's flakeDir, "DIR" …`.
 - **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or
   three of them, depending on the line; it now always says
   `graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in FILE; …)`.
+
+### graft's own checks
+- **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran
+  `link_validator && kb_linter`, so a link failure never failed the build. Only graft's own
+  `nix flake check` changes; nothing consumers run does.
 
 ## v2.11.1 - 2026-11-12
 

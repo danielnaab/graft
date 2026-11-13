@@ -32,12 +32,13 @@ graft writes it. Its format is what graft's commands read, so do not edit it.
 - **Line 1, the marker:** graft writes it on line 1, and looks for it on any line. graft finds a
   repository's scions directories by this line, in any `README.md` that git tracks, except one inside
   another scions directory (a provider's leaked scions README). graft deletes only a directory whose
-  `README.md` has it.
+  `README.md` has it. graft also accepts `Managed by [graft]`, the marker that graft 2.0.0 wrote.
 - **Line 2, only for a flake in a subdirectory:** the `flakeDir`. graft's commands and workflows find the
   flake from it, by the same rules: only a `README.md` with the marker counts, not one inside another
   scions directory, and every scions directory in a repository must name the same flake.
 - **The table:** one row per scion: a link to its folder, and its commit. graft's commands find the
-  scions from these rows. A local override shows the commit with `-dirty`.
+  scions from these rows. For a local override, a row records the checkout's commit (`…-dirty` with
+  uncommitted edits).
 
 ## In a provider
 

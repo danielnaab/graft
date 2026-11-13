@@ -116,7 +116,8 @@ of the provider in which you can commit, or a way to send the change to its main
 3. Commit it in the provider, add a section for the new version to its `CHANGELOG.md`, and tag it, for
    example `git tag v1.2.0`. If the provider is a remote repository, push the tag: graft reads the tags
    that the input's URL has.
-4. In your repository, take the release, then check and commit as in [Upgrade](upgrade.md):
+4. In your repository, take the release, then review, check and commit it as in
+   [Take a newer version by hand](upgrade.md#steps), steps 4 to 8:
 
    ```
    nix run .#graft upgrade policy-kit
@@ -128,6 +129,15 @@ of the provider in which you can commit, or a way to send the change to its main
    graft: policy-kit v1.0.0 -> v1.2.0
    graft: rebuilt scions/
    ```
+
+### Check the release is taken
+
+From the repository's top, paste this. It prints `ok` only if `policy-kit` is pinned to its newest tag, the
+scions match their pins, nothing is left to commit, and your checks pass. It needs `jq`:
+
+```sh
+nix run '.#graft' -- outdated --json | jq -e '.[] | select(.name == "policy-kit") | .status == "current"' >/dev/null && nix run '.#graft' check && test -z "$(git status --porcelain)" && nix flake check && echo ok
+```
 
 ## Stop grafting a provider
 
@@ -148,6 +158,15 @@ as in [Steps](#steps) 1 and 3 to 5: from then on they are yours, and get none of
    line for each scion that remains, and deletes and stages `scions/glossary/`.
 3. Run `git add -A && nix flake check`, then commit.
 
+### Check the provider is gone
+
+From the repository's top, paste this. It prints `ok` only if `glossary` has no scion and no row in the
+scions README, the other scions match their pins, nothing is left to commit, and your checks pass:
+
+```sh
+test ! -e scions/glossary && ! grep -qF '[glossary]' scions/README.md && nix run '.#graft' check && test -z "$(git status --porcelain)" && nix flake check && echo ok
+```
+
 To own files and still merge in a provider's later changes, use a template tool, such as Copier, instead of
 a scion ([README](../../README.md#compared-with-copying-submodules-templates-and-bots)).
 
@@ -157,7 +176,7 @@ From the repository's top, paste this. It prints `ok` only if the scions and gra
 pins, nothing is left to commit, and your checks pass:
 
 ```sh
-nix run .#graft check && test -z "$(git status --porcelain)" && nix flake check && echo ok
+nix run '.#graft' check && test -z "$(git status --porcelain)" && nix flake check && echo ok
 ```
 
 ## If something goes wrong
@@ -181,4 +200,4 @@ nix run .#graft check && test -z "$(git status --porcelain)" && nix flake check 
 - [lib/tools.sh](../../lib/tools.sh): `upgrade`.
 - [tests/run.sh](../../tests/run.sh): the `scions = [ "a" "b" ]` consumers.
 - [tests/fixtures.sh](../../tests/fixtures.sh) `override`: the repositories this page was read against.
-- [Upgrade](upgrade.md#try-a-providers-unreleased-change), [Commands](../reference/commands.md#mkflake).
+- [Try a provider's unreleased change](upgrade.md#try-a-providers-unreleased-change), [Commands](../reference/commands.md#mkflake).
