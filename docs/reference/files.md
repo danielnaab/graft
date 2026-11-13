@@ -60,8 +60,32 @@ graft renders its own copy with the lines that are yours: `branches:`, `paths-ig
 - `upgrade` replaces the file when graft's pin moves.
 - `sync` restores the pinned version's copy.
 - The checks fail if the file differs.
-- To keep your own edits, delete the marker line. graft then never reads or changes the file.
+- To keep your own edits, delete the marker line. graft then never reads or changes the file
+  ([Keep your own edits to a workflow](#keep-your-own-edits-to-a-workflow)).
 - graft never adds a workflow that you did not copy in.
+
+### Keep your own edits to a workflow
+
+graft's workflows in `.forgejo/workflows/` are graft's while they carry the marker line
+`# managed by graft: …`, their first line. graft keeps the `branches:`, `paths-ignore:` and
+`# graft ssh:` lines with the marker (above). For any other edit:
+
+1. Delete the marker line. Do this before you run `nix run .#graft`: while the marker is there, it puts
+   graft's copy back.
+2. Make your edits. The comment below the old marker still says that graft replaces the file: change it
+   too.
+3. Run `nix run .#graft check`. It prints `graft: scions/ and graft's workflows match the pins`, because
+   graft no longer reads the file.
+4. Commit the workflow.
+
+Without the marker, `nix run .#graft upgrade` no longer replaces the file, so you get none of graft's later
+changes to it. To take graft's copy again, put the marker line back as the first line and run
+`nix run .#graft`. It prints `graft: refreshed .forgejo/workflows/FILE`, keeps the `branches:`,
+`paths-ignore:` and `# graft ssh:` lines, and drops your other edits.
+
+If `nix run .#graft` printed `graft: refreshed .forgejo/workflows/FILE` over an edit that you had committed
+or staged, get it back with `git restore -- .forgejo/workflows/FILE`, then delete the marker line. graft
+does not stage the workflows, so git still has the edit. An edit that git did not have is lost.
 
 ### The branches line
 

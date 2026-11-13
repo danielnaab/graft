@@ -1,5 +1,5 @@
 ---
-status: draft
+status: working
 ---
 # Run graft in CI and review its upgrade pull requests
 
@@ -10,11 +10,13 @@ merge it or fix it.
 
 - graft's two workflows are in `.forgejo/workflows/`: `graft-check.yaml` and `graft-upgrade.yaml`.
   `nix flake init -t github:danielnaab/graft` writes them. If you did not use it, copy graft's
-  [template/.forgejo/workflows/](../../template/.forgejo/workflows/) there, and commit them.
+  [template/.forgejo/workflows/](../../template/.forgejo/workflows/) there, and commit them. graft keeps
+  them current ([Files](../reference/files.md#grafts-workflows)).
 - A Forgejo Actions runner has the label `nixos-latest`, mapped to `docker://nixos/nix`. Each job must get a
   new container ([CI security](../ci-security.md#limits)).
-- The default branch is protected, so that the job token cannot push to it. If its name is not `main`,
-  change `branches: [main]` under `push:` in `graft-check.yaml`; graft keeps your line
+- The default branch is protected, so that the job token cannot push to it. The job token is the token
+  that Forgejo gives each job (`github.token`). If the branch's name is not `main`, change
+  `branches: [main]` under `push:` in `graft-check.yaml`; graft keeps your line
   ([Files](../reference/files.md#the-branches-line)). The commands below say `main`: use your branch's name.
 - For a private repository, add the Actions secret `GRAFT_PR_TOKEN`: a token with the `write:repository`
   scope, of a user who can write to the repository. A bot account is the best owner, because it becomes the
@@ -22,9 +24,13 @@ merge it or fix it.
 - To make your own checks a required status, see
   [Make a pattern's checks gate your merges](gate-merges.md). `graft-check.yaml` checks only that the scions
   match their pins.
+- The commands assume `flake.nix` at the repository's top. For a flake in a subdirectory, run
+  `nix run 'path:DIR#graft'` for `nix run .#graft`; graft's workflows find the subdirectory themselves
+  ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
 - Not yet: the upgrade workflow cannot run for a repository with a private (`git+ssh`) scion, because
   building graft fetches every scion and the job has no key. Upgrade it by hand
-  ([Private providers](private-providers.md#check-in-ci)).
+  ([Graft a private repository](private-providers.md#how-it-works)).
+- Check it worked needs `jq`.
 
 ## Steps
 
@@ -40,13 +46,16 @@ merge it or fix it.
    ```
 
    If it prints `graft: nothing to upgrade`, nothing moved, the **pr** job is skipped, and there is no pull
-   request this week.
+   request this week. A new major version alone opens no pull request either: the run only warns about it.
+
+   If your checks fail on the upgrade, the **upgrade** job fails, but it still pushes the branch, and the
+   **pr** job still opens the pull request.
 
 2. Open the pull request from the branch `graft/upgrade`. Read its title:
 
    - `graft: upgrade`: the repository's whole `nix flake check` passed on the branch. Go to step 3.
    - `[checks failing] graft: upgrade`: it failed. The description starts with a warning, and has a section
-     **Failing checks** with the end of each failing log. See
+     **Failing checks** with the end of each failing log. Do steps 3 to 7, then see
      [If something goes wrong](#if-something-goes-wrong).
 
    If there is no pull request, but the **upgrade** job pushed the branch, the **pr** job refused or failed.
@@ -72,15 +81,16 @@ merge it or fix it.
    Not yet: the pull request does not put **Upgrading** sections first. To read them first, run
    `nix run .#graft changelog` on the default branch.
 
-6. Fetch the branch, and list what it changes:
+6. Fetch both branches, and list what the upgrade changes:
 
    ```
-   git fetch origin graft/upgrade
+   git fetch origin main graft/upgrade
    git diff --stat origin/main...origin/graft/upgrade
    ```
 
    Expect only `flake.nix`, `flake.lock` and files in the scions directory. The **pr** job opens no pull
-   request for a branch that changes anything else.
+   request for a branch that changes anything else. On a fix branch of your own, also expect the files that
+   you fixed.
 
 7. Read the diff of the scions directory. It is the change that you take:
 
@@ -95,22 +105,24 @@ merge it or fix it.
    | changed checker code | your CI runs it on your files |
    | new commits in `scions/README.md` | expected: the pins moved |
 
-8. Merge the pull request, when your forge's required checks pass. If your branch rule requires a check of
-   your own and the pull request says `Some required checks are missing.`, see
-   [Make a pattern's checks gate your merges](gate-merges.md#if-something-goes-wrong).
+8. Merge the pull request, when your forge's required checks pass. Forgejo starts no workflow for a push
+   made with the job token, so graft-check and your own workflows run on the pull request only when graft
+   opened it with `GRAFT_PR_TOKEN`. If the pull request says `Some required checks are missing.`, close it
+   and reopen it ([Make a pattern's checks gate your merges](gate-merges.md#if-something-goes-wrong)).
 
    Not yet: the upgrade job does not report its `nix flake check` as a status on the commit.
 
 ## Check it worked
 
 After the merge, from the repository's top, paste this. It prints `ok` only if your `main` has the merge,
-the scions match their pins, and no pin is behind the newest tag in its major version:
+the scions match their pins, every pin is current or untagged, and your checks pass:
 
 ```sh
-git switch -q main && git pull -q --ff-only && nix run .#graft check && ! nix run .#graft outdated | grep -qw outdated && echo ok
+git switch -q main && git pull -q --ff-only && nix run .#graft check && nix run .#graft -- outdated --json | jq -e 'length > 0 and all(.[]; .status == "current" or .status == "untagged")' >/dev/null && nix flake check && echo ok
 ```
 
-If a provider tagged a new version after the run, `outdated` lists it, and the next weekly run takes it.
+If a provider tagged a new version after the run, its status is `outdated`, and the next weekly run takes
+it. A status `unknown` means that graft cannot read the provider's repository.
 
 ## If something goes wrong
 
@@ -123,33 +135,47 @@ If a provider tagged a new version after the run, `outdated` lists it, and the n
   git switch --no-track -c fix-upgrade origin/graft/upgrade
   ```
 
-  Fix your own files, never the scions directory, and run `nix flake check` until it passes. Then commit,
-  and push:
+  If graft's own pin moved, read the scions diff (step 7) before you run anything: `nix flake check` on this
+  branch runs the new graft version ([CI security](../ci-security.md)). Fix your own files, never the scions
+  directory, and run `nix flake check` until it passes. Then commit, and push:
 
   ```
-  git commit -am "Fix the upgrade"
+  git add -A
+  git commit -m "Fix the upgrade"
   git push -u origin fix-upgrade
   ```
 
-  Open a pull request from `fix-upgrade`, and merge it: it holds the upgrade and your fix. Close graft's
-  pull request if it is still open. If the provider broke something that it should not have, tell its
-  maintainers instead. To hand the fix to an agent, use the `migrate` command at the end of the pull
-  request's description ([Upgrade](upgrade.md#cross-a-major-version)).
+  Open a pull request from `fix-upgrade`, review it with steps 6 and 7, and merge it: it holds the upgrade
+  and your fix. Then delete the branch `fix-upgrade`, and close graft's pull request if it is still open.
+  If the provider broke something that it should not have, tell its maintainers instead. To hand the fix to
+  an agent, use the `migrate` command at the end of the pull request's description
+  ([Upgrade](upgrade.md#cross-a-major-version)).
 
-- **The pr job fails: `graft/upgrade changes files graft upgrade never writes: docs/plan.md. Not opening a PR; …`.**
-  Usually the default branch moved after the **upgrade** job made the branch, so the branch lacks the new
-  commit. Run the workflow again. If the file is not on the default branch, someone pushed to
-  `graft/upgrade`: read the diff at the link in the message.
+- **The upgrade job fails: `graft: page-rules: can't tell whether v1.0.0 is current (see above); nothing changed`.**
+  A line above it starts `graft: can't list tags at URL:`: the runner cannot read that provider's
+  repository. It is down, moved, or private. Nothing is pushed. Fix
+  the access, or the URL in `flake.nix`, and run the workflow again.
 
-- **The pr job fails: `this upgrade changes CI workflows: .forgejo/workflows/graft-check.yaml. A PR would run them with the repo's secrets before anyone reads them, so none is opened: …`.**
-  graft moved its own pin, and the new version's workflows differ. A pull request would run them with the
-  repository's secrets before review ([CI security](../ci-security.md)). Read the diff at the link in the
-  message. If it is safe, open the pull request from `graft/upgrade` yourself. For its description, run
-  `nix run .#graft changelog` on the default branch.
+- **The pr job refuses.** It opens no pull request for a branch that changes files outside the flake and
+  the scions directory:
 
-- **The pr job fails: `opening the PR: HTTP 404.`, then `a 404 here is Forgejo refusing the job token: set the GRAFT_PR_TOKEN secret`.**
-  The repository is private, and Forgejo refuses the job token when it opens a pull request. Add the
-  `GRAFT_PR_TOKEN` secret ([Before you begin](#before-you-begin)), and run the workflow again.
+  - `graft/upgrade changes files graft upgrade never writes: docs/plan.md. Not opening a PR; …`: the branch
+    differs from the default branch in other files. Usually the default branch changed after the
+    **upgrade** job made the branch. Run the workflow again. If that does not help, someone pushed to
+    `graft/upgrade`: read the diff at the link in the message.
+  - `this upgrade changes CI workflows: .forgejo/workflows/graft-check.yaml. A PR would run them with the repo's secrets before anyone reads them, so none is opened: …`:
+    graft moved its own pin, and the new version's workflows differ. Read the diff at the link in the
+    message ([CI security](../ci-security.md)). If it is safe, open the pull request from `graft/upgrade`
+    yourself. For its description, run `nix run .#graft changelog` on the default branch.
+
+- **The pr job fails with an HTTP code.** The token was refused:
+
+  - `opening the PR: HTTP 404.`, then `a 404 here is Forgejo refusing the job token: set the GRAFT_PR_TOKEN secret`:
+    the repository is private, and Forgejo refuses the job token when it opens a pull request. Add
+    `GRAFT_PR_TOKEN` ([Before you begin](#before-you-begin)).
+  - `listing PRs: HTTP 401`: `GRAFT_PR_TOKEN` expired or was revoked. Replace the secret.
+
+  Then run the workflow again.
 
 ## How it works
 
@@ -158,12 +184,13 @@ If a provider tagged a new version after the run, `outdated` lists it, and the n
   then fails. It holds only the job token. The **pr** job runs `nix run .#graft ci pr` from the default
   branch, with `GRAFT_PR_TOKEN`. It opens the pull request, or rewrites the title and description of the
   open one. Why: [CI security](../ci-security.md).
-- **graft-check** runs `nix run .#graft ci check` on each pull request and each push to the default branch.
-  It builds only graft's check. When it fails, see [`graft check` fails](check-fails.md). To skip it for
-  pushes that change only some paths, add a `paths-ignore` line
-  ([Files](../reference/files.md#the-paths-ignore-line)).
-- **Run the steps yourself.** On GitHub, or to test, run the same commands from the repository's top.
-  `ci upgrade` needs `BRANCH`, commits on the branch that is checked out, and pushes to `origin`:
+- **graft-check** runs `nix run .#graft ci check` for pull requests and pushes to the default branch that
+  Forgejo starts workflows for. It builds only graft's check. When it fails, see
+  [`graft check` fails](check-fails.md). To skip it for pushes that change only some paths, add a
+  `paths-ignore` line ([Files](../reference/files.md#the-paths-ignore-line)).
+- **Run the steps yourself.** On GitHub, or to test, run the same commands from the top of a fresh clone.
+  `ci upgrade` stages every file with `git add -A`, so in a working copy it commits and pushes untracked
+  files too. It needs `BRANCH`, commits on the branch that is checked out, and pushes to `origin`:
 
   ```
   git switch -c graft/upgrade
@@ -172,30 +199,37 @@ If a provider tagged a new version after the run, `outdated` lists it, and the n
   ```
 
   `ci pr` uses Forgejo's API, and needs `API`, `WEB`, `BASE`, `BRANCH` and `PR_TOKEN`. On GitHub, open the
-  pull request yourself, from a job checked out at the default branch, for example with
-  `gh pr create --head graft/upgrade --title "graft: upgrade"`. graft does not manage files in
+  pull request yourself, from a job checked out at the default branch, with `contents: write` and
+  `pull-requests: write` permissions, and the repository setting that allows GitHub Actions to create pull
+  requests. For example: `gh pr create --head graft/upgrade --title "graft: upgrade" || gh pr edit graft/upgrade --title "graft: upgrade"`.
+  A pull request opened with `GITHUB_TOKEN` starts no workflows. Without `ci pr`, nothing refuses a branch
+  that changes other files: check its file list (step 6) yourself. graft does not manage files in
   `.github/workflows/`.
 - **Many repositories.** graft has no command for many repositories. Run `outdated` from graft's flake over
   each checkout:
 
   ```
-  for r in ~/src/team-kb ~/src/handbook; do echo "$r"; nix run github:danielnaab/graft -- outdated -C "$r"; done
+  for r in ~/src/team-kb ~/src/handbook; do echo "$r"; nix run github:danielnaab/graft/v2.11.1 -- outdated -C "$r"; done
   ```
 
 ## Related
 
 [Upgrade](upgrade.md), [Make a pattern's checks gate your merges](gate-merges.md),
-[Private providers](private-providers.md#check-in-ci), [CI security](../ci-security.md).
+[Graft a private repository](private-providers.md), [CI security](../ci-security.md).
+
+## Keep your own edits to a workflow
+
+Moved to [Files](../reference/files.md#keep-your-own-edits-to-a-workflow).
 
 ## Sources
 
-- [lib/ci.sh](../../lib/ci.sh): `check`; `upgrade`, which commits, pushes, and fails after a failing check;
-  `pr`, which refuses a branch that changes other files or workflows, titles a failing upgrade, writes the
-  description, and edits an open pull request.
+- [lib/ci.sh](../../lib/ci.sh): `check`; `upgrade`, which stages everything, commits, pushes, and fails
+  after a failing check; `pr`, which refuses a branch that changes other files or workflows, titles a
+  failing upgrade, writes the description, edits an open pull request, and reports HTTP failures.
 - [lib/common.sh](../../lib/common.sh): `full_check`, `upstream_input`, `upstream_range` and
   `changelog_between`, which read each provider's CHANGELOG between the two pins.
-- [lib/tools.sh](../../lib/tools.sh): the lines of `upgrade`, the new major version that it holds, and
-  `nothing to upgrade`.
+- [lib/tools.sh](../../lib/tools.sh): the lines of `upgrade`, the new major version that it holds,
+  `nothing to upgrade`, and `can't tell whether … is current`; `outdated --json`.
 - [template/.forgejo/workflows/](../../template/.forgejo/workflows/graft-upgrade.yaml): the schedule, the
   two jobs, and `GRAFT_PR_TOKEN`.
 - [tests/run.sh](../../tests/run.sh): "graft ci, the workflows' steps, against a local origin", "graft ci pr

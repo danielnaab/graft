@@ -8,8 +8,9 @@ again when you change Nix versions.
 
 | Behaviour | Seen in | What graft or its docs do |
 |---|---|---|
-| A flake at a repository's root copies every tracked file to the world-readable store. No lazy trees. | 2.24 | [A flake in a subdirectory](../guides/flake-in-a-subdirectory.md) |
+| A flake at a repository's root copies every tracked file to the world-readable store. No lazy trees. | 2.24 | [Keep private files out of the Nix store](../guides/flake-in-a-subdirectory.md) |
 | Nix does not write the lock of a relative `path:` flake (`cannot fetch input … because it uses a relative path`). | 2.24 | Lock with the absolute path: `nix flake lock "path:$PWD/DIR"`. `upgrade` uses `--flake path:<absolute path>`. |
+| The first fetch of a `git+ssh` or `git+https` input at `?ref=TAG` asks for `refs/heads/TAG`, and fails (`revspec 'TAG' not found`). A fetch at `?ref=refs/tags/TAG`, or one with `rev=`, works, and then `?ref=TAG` does too. | 2.24 | [Graft a private repository](../guides/private-providers.md) primes the cache with `nix flake prefetch`. `upgrade` locks a tag's commit itself. |
 | `nix flake update NAME --flake REF` needs 2.19 or later. | 2.19 | `upgrade` for a flake in a subdirectory needs 2.19. |
 | `?flake=false` in a URL is ignored, and `inputs` is read without evaluation. | 2.24 | Write `flake = false` on each input, and `inputs` as a literal. |
 | Two inputs for one repository at one commit (`github:` and `git+https`, for example) share one fetch-cache entry. The first fetch decides the tree for both. | 2.24, 2.33 | Take one repository through one input. |

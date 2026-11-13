@@ -15,13 +15,14 @@ outputs.
 | `inputs` | (required) | The flake's inputs. |
 | `scions` | every `flake = false` input | The input names to graft. |
 | `dir` | `"scions"` | The scions directory: a relative path inside the repository, not `.git`, with no `.` or `..` segments. graft replaces it on every sync, and refuses to replace a directory that it did not write. |
-| `flakeDir` | `"."` | Where `flake.nix` is, from the repository root. See [A flake in a subdirectory](../guides/flake-in-a-subdirectory.md). |
+| `flakeDir` | `"."` | Where `flake.nix` is, from the repository root. See [Keep private files out of the Nix store](../guides/flake-in-a-subdirectory.md). |
 | `outputs` | `{ }` | The repository's own outputs, merged with graft's at every level. |
 
 graft adds two outputs. A repository's own outputs cannot replace them:
 
 - `apps.<system>.graft`: the `graft` command, with `sync` and `check` built for this repository.
-- `checks.<system>.graft`: the drift check. Only when `flakeDir` is `.`.
+- `checks.<system>.graft`: the drift check. Only when `flakeDir` is `.`. In a subdirectory flake, graft
+  drops a check of the repository's own with this name.
 
 Scion names must match `[A-Za-z0-9][A-Za-z0-9._-]*`.
 

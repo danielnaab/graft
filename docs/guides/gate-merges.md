@@ -14,7 +14,7 @@ require it before a merge.
   `python3 -m pagecheck DIR`, with the provider's directory on `PYTHONPATH`. Read your provider's README
   for its own command.
 - CI must be able to fetch the provider. For a private provider, see
-  [Private providers](private-providers.md#check-in-ci).
+  [Graft a private repository](private-providers.md).
 - `flake.nix` is at the repository's top. A flake in a subdirectory sees only that directory, so a check in it
   cannot read your pages. Instead, skip steps 1 to 5, and in step 6's workflow run the checker from the
   scion in place of `nix flake check`:

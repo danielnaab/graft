@@ -85,8 +85,10 @@ To graft a local checkout of a provider for one run, override its input:
 nix run .#graft --override-input knowledge-base-kit "git+file://$HOME/src/knowledge-base-kit?exportIgnore=1"
 ```
 
-- This includes uncommitted edits, and applies the provider's export rules. A `path:` URL does not
-  apply them.
+- This includes uncommitted edits to files that git tracks in the provider's checkout, and applies the
+  provider's export rules. It leaves out new files until you `git add` them. A `path:` URL does not apply
+  the export rules.
+- It takes the checkout's current branch, so the scion can also hold changes made after your pin.
 - `flake.lock` does not change. The scions README records the commit as `…-dirty`, so `nix flake check`
   fails if you commit this by mistake.
 - To go back to the pinned version, run `nix run .#graft`.
@@ -104,4 +106,5 @@ nix run .#graft --override-input knowledge-base-kit "git+file://$HOME/src/knowle
 `nix run .#graft migrate` runs the branch's own code and the graft version that it pins. The details are
 in [Commands](../reference/commands.md#run-from-grafts-flake).
 
-Related: [Publish](publish.md#make-an-incompatible-change), [Run graft in CI and review its upgrade pull requests](ci.md).
+Related: [Publish](publish.md#make-an-incompatible-change), [Run graft in CI and review its upgrade pull requests](ci.md),
+[Change a grafted file](change-a-grafted-file.md).
