@@ -28,8 +28,8 @@ works this way, see [Decisions](decisions.md).
   default). Never edit a scion: graft replaces it.
 - **Scions README:** `scions/README.md`, written by graft. It lists each scion and its pinned commit.
   graft's commands read it to find the scions.
-- **The pin's copy:** the scions directory that the pins produce, built from the fetched exports. The check
-  compares your scions directory with it. The drift report calls it `(pin)`, as in `only in the pin`.
+- **The pin's copy:** the scions directory that the pins produce, built from the fetched exports in the Nix
+  store. You never edit or commit it. The check compares your scions directory with it. The drift report calls it `(pin)`, as in `only in the pin`.
 - **Drift:** the scions directory differs from the pin's copy. Drift always fails the check.
 - **One level:** a consumer grafts every provider that it uses directly, so it holds one copy of each
   dependency.

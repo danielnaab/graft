@@ -136,7 +136,7 @@ it, and take it in a consumer.
     shows `D` for each file that left the export, such as `scions/note-kit/AGENTS.md`,
     `scions/note-kit/.forgejo/workflows/test.yaml` and `scions/note-kit/tests/run.sh`. `upgrade` stages the
     scions directory, and leaves `flake.nix` and `flake.lock` changed but not staged. Review, check and
-    commit it as [Take a newer version by hand](upgrade.md#steps) says, steps 4 to 6. To make the first consumer, follow
+    commit it as [Take a newer version by hand](upgrade.md#steps) says, steps 4 to 8. To make the first consumer, follow
     [Graft your first pattern](graft-a-repository.md).
 
     graft takes the newest release in the major version that a consumer pins. In CI, the weekly upgrade

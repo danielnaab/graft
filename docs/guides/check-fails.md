@@ -145,7 +145,7 @@ From the repository's top, paste this. It prints `ok` only if the scions match t
 to commit, and the check that CI runs passes:
 
 ```sh
-nix run .#graft check && test -z "$(git status --porcelain)" && nix flake check && echo ok
+nix run '.#graft' check && test -z "$(git status --porcelain)" && nix flake check && echo ok
 ```
 
 ## If something goes wrong

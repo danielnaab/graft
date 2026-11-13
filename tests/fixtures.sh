@@ -35,10 +35,11 @@
 #                   graft's workflows and a `pages` check that v2.0.0 breaks: team-kb/ (a clone of team-kb.git,
 #                   a page template outside docs/ that the check misses) takes the change; handbook/ is for the
 #                   provider's dry run
-#   upgrade         team-kb/: a consumer with graft's workflows (graft pinned by path, so untagged) that grafts two local
-#                   providers at v1.0.0, committed and pushed to team-kb.git; then style-guide v1.1.0 (a new minor:
-#                   a reworded page and a new one) and page-rules v2.0.0 (a new major, with Upgrading steps); an
-#                   untracked docs/retro.md in team-kb/ that is not about the upgrade
+#   upgrade         team-kb/: a consumer that pins graft v2.11.1 from graft/ (a clone of this checkout, with a new
+#                   tag v2.12.0 that releases its Unreleased section) and has v2.11.1's workflows; it grafts two local providers at
+#                   v1.0.0, committed. Then style-guide v1.1.0 (a new minor: a reworded page, a new one, a deleted
+#                   one) and page-rules v2.0.0 (a new major, with Upgrading steps); an untracked docs/retro.md in
+#                   team-kb/ that is not about the upgrade
 #   publish         a provider to release from, and a consumer of it. note-kit/: rules, a tool (bin/note-lint,
 #                   which package.nix builds), a seed file (seed/note-kit.conf, also its flake's template),
 #                   tests/, a stand-in for its own scions/, a CI workflow and AGENTS.md. v1.0.0 (a lightweight
@@ -743,13 +744,48 @@ EOF
 
 # upgrade: team-kb/ takes a new minor version by hand; page-rules' new major waits
 upgrade_fixture() {
-  local s=$out/style-guide p=$out/page-rules c=$out/team-kb
+  local s=$out/style-guide p=$out/page-rules c=$out/team-kb gc=$out/graft wf
   two_providers
-  ci_consumer "$c" '  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };'
-  # new upstream: a minor version of style-guide (a reworded rule, a new page, a deleted one), a major of page-rules
+  # style-guide v1.0.0 also has a page that v1.1.0 deletes
+  printf '# Tone\n\nWrite plainly.\n' > "$s/docs/tone.md"
+  g -C "$s" add -A
+  g -C "$s" commit -q --amend --no-edit
+  g -C "$s" tag -f v1.0.0 >/dev/null
+  # graft itself, as a local provider: a clone of this checkout's history, with its tag v2.11.1 and a
+  # lightweight v2.12.0 that releases its Unreleased section, so upgrade moves graft's pin and refreshes its workflows
+  g clone -q "$graft" "$gc"
+  sed -i 's/^## Unreleased$/## v2.12.0 - 2026-11-12/' "$gc/CHANGELOG.md"
+  g -C "$gc" commit -qam v2.12.0
+  g -C "$gc" tag v2.12.0
+  mkdir -p "$c/docs" "$c/.forgejo/workflows"
+  cat > "$c/flake.nix" <<EOF
+{
+  description = "Team knowledge base";
+
+  inputs = {
+    graft.url = "git+file://$gc?ref=v2.11.1";
+    style-guide = { url = "git+file://$s?ref=v1.0.0&exportIgnore=1"; flake = false; };
+    page-rules = { url = "git+file://$p?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  };
+
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
+}
+EOF
+  for wf in graft-check.yaml graft-upgrade.yaml; do
+    g -C "$gc" show "v2.11.1:template/.forgejo/workflows/$wf" > "$c/.forgejo/workflows/$wf"
+  done
+  printf -- '---\nstatus: working\n---\n# Onboarding\n\nOur style guide says: "Write short sentences."\n' > "$c/docs/onboarding.md"
+  repo "$c"
+  g -C "$c" add -A
+  (cd "$c" && nix run .#graft >&2)
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft style-guide and page-rules v1.0.0"
+  (cd "$c" && nix run .#graft check >&2)
+  # new upstream: a minor version of style-guide (a reworded page, a new one, a deleted one), a major of page-rules
   printf '# Style\n\nKeep sentences short. Use one term for one concept.\n' > "$s/docs/style.md"
   printf '# Terms\n\nUse one term for one concept.\n' > "$s/docs/terms.md"
-  release "$s" v1.1.0 2026-11-09 "Reworded: keep sentences short. New page: docs/terms.md."
+  g -C "$s" rm -q docs/tone.md
+  release "$s" v1.1.0 2026-11-09 "Reworded: keep sentences short. New page: docs/terms.md. Removed: docs/tone.md."
   printf '# Page rules\n\nEvery page has a status and an owner.\n' > "$p/docs/rules.md"
   # shellcheck disable=SC2016 # Markdown backticks
   release "$p" v2.0.0 2026-11-10 "Every page names an owner." 'Add `owner:` to the front matter of each page.'

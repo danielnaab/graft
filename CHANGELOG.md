@@ -3,8 +3,8 @@
 ## Unreleased
 
 ### Upgrading
-- **A `.gitignore` that drops `flake.lock` now fails `graft check`, and `graft ci check` fails when
-  `flake.lock` is not in `HEAD`.** Remove the rule (`git check-ignore -v flake.lock` names it), and commit
+- **A `.gitignore` that drops `flake.lock` now fails `graft check` and `nix flake check`, and
+  `graft ci check` fails when `flake.lock` is not in `HEAD`.** Remove the rule (`git check-ignore -v flake.lock` names it), and commit
   `flake.lock`.
 - **A repository's own `checks.<system>.graft` or `apps.<system>.graft`, in `mkFlake`'s `outputs`, is now an
   evaluation error** of graft's app and check. Rename the repository's own.
@@ -14,6 +14,12 @@
   It moves graft's pin and refreshes the workflows, and the **pr** job refuses with
   `this upgrade changes CI workflows: .forgejo/workflows/graft-check.yaml .forgejo/workflows/graft-upgrade.yaml. … so none is opened: …`.
   Read the workflow diff at the link in its log, then open the pull request from `graft/upgrade` yourself.
+- **The new workflows fail CI where the old ones guessed.** With scions READMEs that name different flake
+  directories, or one that graft won't use, the old workflows took the first line they found; the new ones
+  fail with `::error::the scions READMEs name different flake directories: …` or
+  `::error::the scions README names a flake directory graft won't use: …`. `git grep -n 'graft flake:'` lists
+  the lines: each must name the flake's directory, so delete a scions directory that your flake no longer
+  writes, and commit.
 - **The drift report is new text.** A script that read `diff -r`'s output from `graft check` or
   `nix flake check` (`Only in …`) reads the `graft: scions/NAME/FILE: …` lines instead.
 

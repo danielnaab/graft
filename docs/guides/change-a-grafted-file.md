@@ -117,7 +117,7 @@ of the provider in which you can commit, or a way to send the change to its main
    example `git tag v1.2.0`. If the provider is a remote repository, push the tag: graft reads the tags
    that the input's URL has.
 4. In your repository, take the release, then review, check and commit it as in
-   [Take a newer version by hand](upgrade.md#steps), steps 4 to 6:
+   [Take a newer version by hand](upgrade.md#steps), steps 4 to 8:
 
    ```
    nix run .#graft upgrade policy-kit
@@ -136,7 +136,7 @@ From the repository's top, paste this. It prints `ok` only if `policy-kit` is pi
 scions match their pins, nothing is left to commit, and your checks pass. It needs `jq`:
 
 ```sh
-nix run .#graft -- outdated --json | jq -e '.[] | select(.name == "policy-kit") | .status == "current"' >/dev/null && nix run .#graft check && test -z "$(git status --porcelain)" && nix flake check && echo ok
+nix run '.#graft' -- outdated --json | jq -e '.[] | select(.name == "policy-kit") | .status == "current"' >/dev/null && nix run '.#graft' check && test -z "$(git status --porcelain)" && nix flake check && echo ok
 ```
 
 ## Stop grafting a provider
@@ -164,7 +164,7 @@ From the repository's top, paste this. It prints `ok` only if `glossary` has no 
 scions README, the other scions match their pins, nothing is left to commit, and your checks pass:
 
 ```sh
-test ! -e scions/glossary && ! grep -qF '[glossary]' scions/README.md && nix run .#graft check && test -z "$(git status --porcelain)" && nix flake check && echo ok
+test ! -e scions/glossary && ! grep -qF '[glossary]' scions/README.md && nix run '.#graft' check && test -z "$(git status --porcelain)" && nix flake check && echo ok
 ```
 
 To own files and still merge in a provider's later changes, use a template tool, such as Copier, instead of
@@ -176,7 +176,7 @@ From the repository's top, paste this. It prints `ok` only if the scions and gra
 pins, nothing is left to commit, and your checks pass:
 
 ```sh
-nix run .#graft check && test -z "$(git status --porcelain)" && nix flake check && echo ok
+nix run '.#graft' check && test -z "$(git status --porcelain)" && nix flake check && echo ok
 ```
 
 ## If something goes wrong

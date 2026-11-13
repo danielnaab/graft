@@ -133,7 +133,7 @@ scions match their pins, graft-check has the ssh step, graft-upgrade is gone, th
 committed, and `nix flake check` passes:
 
 ```sh
-nix run .#graft check && grep -q 'name: SSH key for private scions' .forgejo/workflows/graft-check.yaml && test ! -e .forgejo/workflows/graft-upgrade.yaml && git diff --quiet HEAD -- flake.nix flake.lock scions .forgejo && nix flake check && echo ok
+nix run '.#graft' check && grep -q 'name: SSH key for private scions' .forgejo/workflows/graft-check.yaml && test ! -e .forgejo/workflows/graft-upgrade.yaml && git diff --quiet HEAD -- flake.nix flake.lock scions .forgejo && nix flake check && echo ok
 ```
 
 For a flake in `nix/workspace`:

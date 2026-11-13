@@ -119,7 +119,7 @@ After the merge, from the repository's top, paste this. It prints `ok` only if y
 the scions match their pins, every pin is current or untagged, and your checks pass:
 
 ```sh
-git switch -q main && git pull -q --ff-only && nix run .#graft check && nix run .#graft -- outdated --json | jq -e 'length > 0 and all(.[]; .status == "current" or .status == "untagged")' >/dev/null && nix flake check && echo ok
+git switch -q main && git pull -q --ff-only && nix run '.#graft' check && nix run '.#graft' -- outdated --json | jq -e 'length > 0 and all(.[]; .status == "current" or .status == "untagged")' >/dev/null && nix flake check && echo ok
 ```
 
 If a provider tagged a new version after the run, its status is `outdated`, and the next weekly run takes

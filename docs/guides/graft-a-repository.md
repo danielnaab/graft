@@ -146,7 +146,7 @@ From the repository's top, paste this. It prints `ok` only if the scions match t
 committed, nothing is left to commit, and `nix flake check` passes:
 
 ```sh
-nix run .#graft check && git ls-files --error-unmatch flake.nix flake.lock scions/README.md >/dev/null && test -z "$(git status --porcelain)" && nix flake check && echo ok
+nix run '.#graft' check && git ls-files --error-unmatch flake.nix flake.lock scions/README.md >/dev/null && test -z "$(git status --porcelain)" && nix flake check && echo ok
 ```
 
 ## If something goes wrong

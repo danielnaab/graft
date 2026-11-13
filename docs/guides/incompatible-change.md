@@ -144,7 +144,7 @@ From a consumer that still pins the old major version (`handbook/`), paste this.
 finds the tag and your Upgrading steps in it:
 
 ```sh
-cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading, from its CHANGELOG.md:' && echo ok
+cd handbook && nix run '.#graft' changelog page-rules@v2.0.0 | grep -qx 'Upgrading, from its CHANGELOG.md:' && echo ok
 ```
 
 ## Part 2: a consumer takes the change
@@ -223,14 +223,15 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
    ```
 
    It moved the tag in `flake.nix`, locked it in `flake.lock`, and rebuilt and staged `scions/`. It does
-   not stage `flake.nix` and `flake.lock`: step 5's `-a` adds them, and any workflow that `upgrade` printed as
-   `graft: refreshed …`. Those are the files to commit after any upgrade
-   ([Take a newer version by hand](upgrade.md#steps), step 6).
+   not stage `flake.nix` and `flake.lock`.
 
-5. Commit what graft changed, on its own, so that a reviewer can tell it from your fixes:
+5. Commit what graft changed, on its own, so that a reviewer can tell it from your fixes. Name the paths, as
+   [Take a newer version by hand](upgrade.md#steps) step 7 says, with each workflow that `upgrade` printed
+   as `graft: refreshed …`, if any:
 
    ```
-   git commit -am "graft: page-rules v2.0.0"
+   git add -- flake.nix flake.lock scions/
+   git commit -m "graft: page-rules v2.0.0"
    ```
 
 6. Write the migration brief, outside the repository:
@@ -239,8 +240,8 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
    nix run .#graft migrate > /tmp/page-rules-brief.md
    ```
 
-   It runs your checks, so their logs scroll past on stderr. (Part 1 used another file, so the two briefs
-   never mix.) The brief, with the commit and store hashes shortened:
+   It runs your checks, so their logs scroll past on stderr. (A provider's dry run of the change writes
+   another file, so the two briefs never mix.) The brief, with the commit and store hashes shortened:
 
    ```
    Migrate this repo (team-kb) to page-rules v2.0.0 (from v1.1.0).
@@ -314,10 +315,11 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
    `docs/onboarding.md`, `docs/outage-2026-11-03.md` and `templates/page.md`. The failing check named only the
    first two: it reads `docs/` only. So follow the steps, not only the failures.
 
-8. Stage the fixes, and run the check:
+8. Stage each file that you or the agent fixed, by name (`git status --short` lists them), and run the
+   check. In the example:
 
    ```
-   git add -A
+   git add -- AGENTS.md docs/onboarding.md docs/outage-2026-11-03.md templates/page.md
    nix flake check
    ```
 
@@ -343,10 +345,11 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
 ### Check the migration
 
 From the consumer's top, on the branch, paste this, with your tag for `v2.0.0`. It prints `ok` only if the
-pin moved, the scions match their pins, nothing is left to commit or push, and `nix flake check` passes:
+pin moved, the scions match their pins, no tracked file is left to commit, nothing is left to push, and
+`nix flake check` passes. Untracked files of your own, such as a draft, do not count:
 
 ```sh
-grep -q 'ref=v2.0.0' flake.nix && nix run .#graft check && test -z "$(git status --porcelain)" && git diff --quiet '@{upstream}' && nix flake check && echo ok
+grep -q 'ref=v2.0.0' flake.nix && nix run '.#graft' check && test -z "$(git status --porcelain --untracked-files=no)" && git diff --quiet '@{upstream}' && nix flake check && echo ok
 ```
 
 For a `github:` input, look for `/v2.0.0` instead of `ref=v2.0.0`.

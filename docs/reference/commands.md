@@ -58,11 +58,16 @@ write `.#graft` unquoted.
   `graft:` line that names it and the command's usage line: `-C` without a repository
   (`graft: -C needs a repository`), a name given to `outdated`
   (`graft: outdated takes no names: it lists graft and every scion`), `--json` given to `upgrade`
-  (`graft: upgrade has no --json`), or an unknown option (`graft: unknown option OPTION`). A bare `--`
-  among the arguments is skipped.
+  (`graft: upgrade has no --json`), or an unknown option (`graft: unknown option OPTION`). `-C ''` counts as
+  no repository. A bare `--` among the arguments is skipped.
+- `changelog` and `upgrade`: a name that is not a scion or graft fails with exit 1 and
+  `graft: no scion (or graft input) named NAME`; a `@TAG` that is not a semver tag with
+  `graft: NAME: TAG is not a version tag`; a semver tag that the provider does not have with
+  `graft: NAME: no tag TAG upstream`.
 - `migrate`: an argument that it does not take, a bare `--` included, fails with exit 1 and
   `graft: usage: graft migrate [-C REPO] [--base REF] [--no-check] [--json]`. `-C` without a directory fails
-  with `graft: -C needs a directory`.
+  with `graft: -C needs a directory`, and `--base` without a ref with `graft: --base needs a ref`.
+  `--base=REF` works too.
 - `sync` and `check` take no arguments: `graft: sync takes no arguments`, exit 2.
 - `ci` reads only its step, and ignores the arguments after it. Another step fails with exit 1 and
   `graft: usage: graft ci check|upgrade|pr`.
