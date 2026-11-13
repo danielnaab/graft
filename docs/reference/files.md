@@ -43,9 +43,53 @@ graft writes it. Its format is what graft's commands read, so do not edit it.
 
 | File | Purpose |
 |---|---|
-| `.gitattributes` | Paths marked `export-ignore` stay out of the export. |
-| `CHANGELOG.md` | One `## vX.Y.Z` section per release. A major version's section has an `### Upgrading` subsection. graft quotes the sections between two tags. |
-| Tags | Semver tags (`v1.2.3` or `1.2.3`) are versions. Other tags are ignored. |
+| `.gitattributes` | Paths marked `export-ignore` stay out of the export. A `.gitattributes` in a subdirectory counts too. |
+| `CHANGELOG.md` | One `## vX.Y.Z` (or `## X.Y.Z`) section per release; anything can follow the version, such as the date. A major version's section has an `### Upgrading` subsection. graft reads the file from the provider's repository with git, not from the export, and quotes the sections between two tags. |
+| Tags | Semver tags (`v1.2.3` or `1.2.3`) are versions. Other tags, such as `v1.3.0-rc.1`, are ignored. graft's [advice](../guides/publish.md#steps): prefer a lightweight tag. |
+
+### What to export
+
+The export is the provider's tree at a tag, minus its export rules. Only committed files are in it. Exclude
+what is for work on the provider, not for its consumers:
+
+- **Tests and fixtures.**
+- **The provider's own scions directory.** Consumers take its content, never its dependencies. A consumer
+  that needs one of them grafts it directly ([One level](../decisions.md#one-level)). graft does not check
+  this.
+- **CI files**, such as `.forgejo/` or `.github/`.
+- **Instructions for the provider's own agents**, such as `AGENTS.md` or `CLAUDE.md`. A consumer's agent
+  would read them as its own. Instructions for consumers go in a file that is exported, and that consumers
+  point their agents at.
+- **Upkeep**, such as notes, and the configuration of tools that check only the provider.
+
+Keep `README.md`, the files that consumers use, and `CHANGELOG.md` (consumers can then read it in their
+scion). graft's own [`.gitattributes`](../../.gitattributes) is a real example.
+
+- Write each rule without a trailing slash, with a leading `/` for a top-level path: `/tests export-ignore`.
+  A rule such as `tests/` matches nothing when Nix fetches from a bare clone
+  ([Nix behaviours](nix-behaviours.md#trailing-slash-rules)).
+- Exported files link only to exported files. A link into an excluded path breaks in every consumer's
+  copy: link to it by URL instead.
+- An exported link to another provider's file by URL at a tag (because the provider's scions are not
+  exported) needs its tag changed when the provider upgrades that scion. graft does not change it. To find
+  such links, search for the old tag, for example `git grep -n 'knowledge-base-kit/blob/v2.1.0'`.
+- A tool, or a file that consumers copy once: see
+  [Ship a tool or seed files with a pattern](../guides/ship-tools.md).
+
+### Naming
+
+A provider's name ends with what the content is, not the role that the repository plays:
+
+| Suffix | Content | A consumer should |
+|---|---|---|
+| `-kit` | Something to adopt and keep upgrading: tools, skills, structure, often with the rules that they enforce | run or adopt it |
+| `-conventions` | Rules only | comply with it |
+| `-knowledge` | A knowledge base about a topic | read it |
+
+- A repository that defines a named method takes that name, such as `living-specifications`.
+- Do not use role words (`-provider`, `-scion`), words that other tools own (`-pack`, `-bundle`,
+  `-template`), or words that suggest a one-time copy (`-seed`, `-starter`).
+- Give the repository the topic `graft-provider` on its forge (Forgejo or GitHub).
 
 ## graft's workflows
 
@@ -160,3 +204,4 @@ name and the address), and a `Host` entry to `~/.ssh/config`. On an image with n
 - [lib/common.sh](../../lib/common.sh): `scion_dirs`, `scions_in`, the flake line
 - [lib/workflows.sh](../../lib/workflows.sh): workflow ownership, the paths-ignore and ssh lines
 - [lib/tools.sh](../../lib/tools.sh): semver tags
+- [lib/common.sh](../../lib/common.sh) `upstream_range`, `changelog_between`: `CHANGELOG.md` read from the provider, and its headings

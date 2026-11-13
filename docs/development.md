@@ -60,9 +60,9 @@ graft's own rules:
 - A page whose goal has two actors, such as a provider and a consumer, can have two parts, each with its own
   steps (at most ten) and its own check under a heading that names it ([example](guides/incompatible-change.md)).
 - Read a new or changed guide literally, against a fixture: `tests/fixtures.sh NAME OUT` builds one
-  (`check-fails`, `first-pattern`, `gate-merges`, `override`, `private`, `ci`, `breaking-change`). A reader that
-  sees only the page and its links follows each step and says what it expects first. Then a reviewer checks
-  its claims against the code.
+  (`check-fails`, `first-pattern`, `gate-merges`, `override`, `private`, `ci`, `breaking-change`, `publish`). A
+  reader that sees only the page and its links follows each step and says what it expects first. Then a
+  reviewer checks its claims against the code.
 
 These links cite the kit by URL, because graft does not export `scions/`. When you upgrade the kit with
 `nix run .#graft upgrade`, change their tag too.
@@ -74,5 +74,7 @@ These links cite the kit by URL, because graft does not export `scions/`. When y
 2. Change the graft tag in `template/flake.nix`, `README.md` and the docs to the new version.
 3. Run `nix flake check` and `tests/run.sh`.
 4. Commit.
-5. Tag the commit `vX.Y.Z`.
+5. Tag the commit: `git tag -a -m vX.Y.Z vX.Y.Z`. graft's tags are annotated, which
+   [Publish a pattern](guides/publish.md) allows: consumers take graft through a `github:` input, which
+   annotated tags do not affect ([Nix behaviours](reference/nix-behaviours.md#annotated-tags-and-exportignore)).
 6. Push the `v2` branch and the tag.

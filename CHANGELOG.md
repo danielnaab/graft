@@ -20,6 +20,16 @@
   request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` stays graft's drift
   check: your checks are a status of their own. It says why graft's weekly upgrade pull request gets no
   status from your workflow until a person reopens it.
+- **Publish is now [Publish a pattern](docs/guides/publish.md)**, the steps of one release: export rules,
+  the CHANGELOG section, the export listed with `git archive` and checked for trailing-slash rules, the
+  tag (prefer lightweight; signed or annotated works, with one re-pin for `git+` consumers), the push, and
+  the consumer's upgrade. What to export and how to name a provider moved to
+  [Files](docs/reference/files.md#in-a-provider).
+- **[Ship a tool or seed files with a pattern](docs/guides/ship-tools.md):** a tool that consumers build
+  from the fetched export with the provider's `package.nix`, seed files as a flake template, and a recipe
+  for a step after each upgrade.
+- **[Nix behaviours](docs/reference/nix-behaviours.md)**: trailing-slash rules fail only for fetches from
+  a bare clone, not through `git+file` to a checkout.
 - **CI is now [Run graft in CI and review its upgrade pull requests](docs/guides/ci.md)**, a guide to the
   weekly upgrade pull request: what its title and description say, the newer major versions it holds, what
   to read in the scions diff, and what to do when its checks fail or the pull request is not opened. It

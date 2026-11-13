@@ -35,18 +35,28 @@
 #                   graft's workflows and a `pages` check that v2.0.0 breaks: team-kb/ (a clone of team-kb.git,
 #                   a page template outside docs/ that the check misses) takes the change; handbook/ is for the
 #                   provider's dry run
+#   publish         a provider to release from, and a consumer of it. note-kit/: rules, a tool (bin/note-lint,
+#                   which package.nix builds), a seed file (seed/note-kit.conf, also its flake's template),
+#                   tests/, a stand-in for its own scions/, a CI workflow and AGENTS.md. v1.0.0 (a lightweight
+#                   tag) and v1.1.0 (an annotated tag) shipped with one rule, `tests/ export-ignore`, so its
+#                   scions/, CI and AGENTS.md reach consumers. Then the next release's work, not committed: a
+#                   fix to the tool, and an untracked draft. note-kit.git/: its origin, a bare repository.
+#                   team-notes/: grafts note-kit v1.1.0 from note-kit.git with this checkout's graft (so its
+#                   scion has tests/: Nix ignores `tests/` from a bare clone; its lock re-pinned from the
+#                   annotated tag's object to the commit), runs note-lint in its check, and has its own copy
+#                   of the seed file; committed and passing
 #
 # Needs nix, git 2.28 or later and GNU sed; ci's pr.sh also needs jq. Network: check-fails fetches python3 and ruff from the nixpkgs
 # registry (unpinned, so ruff's output can vary); first-pattern's flakes pin a nixpkgs that the reader fetches;
 # gate-merges pins the nixpkgs that this checkout's graft pins, so its python3 is likely cached; so do ci's
-# handbook/ check and pr.sh. breaking-change reads that nixpkgs from graft's flake.lock (needs jq). Providers are
-# local git+file repos.
+# handbook/ check and pr.sh. breaking-change reads that nixpkgs from graft's flake.lock (needs jq). publish
+# builds with graft's nixpkgs too (shellcheck, for writeShellApplication). Providers are local git+file repos.
 set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
-slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|ci|breaking-change OUT}
-out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|ci|breaking-change OUT}
-case $slice in check-fails|first-pattern|gate-merges|override|private|ci|breaking-change) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, override, private, ci, breaking-change)" >&2; exit 2 ;; esac
+slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|publish OUT}
+out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|publish OUT}
+case $slice in check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|publish) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, override, private, ci, breaking-change, publish)" >&2; exit 2 ;; esac
 [ ! -e "$out" ] || { echo "fixtures.sh: $out exists; name a new directory" >&2; exit 1; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -721,6 +731,144 @@ EOF
   echo "$out/handbook"
 }
 
+publish() {
+  local p=$out/note-kit c=$out/team-notes
+  mkdir -p "$p/docs" "$p/bin" "$p/tests/no-owner" "$p/scions/glossary" "$p/.forgejo/workflows"
+  cat > "$p/README.md" <<'EOF'
+# note-kit
+
+Rules for a team's notes, and a tool that checks them.
+
+- `docs/notes-policy.md`: the rule.
+- `note-lint`: checks the notes in the folders that `note-kit.conf` lists. Build it from `package.nix`:
+  `pkgs.callPackage "${inputs.note-kit}/package.nix" { }`.
+EOF
+  cat > "$p/docs/notes-policy.md" <<'EOF'
+# Notes policy
+
+Every note names its owner, on a line `owner: NAME`.
+EOF
+  # the tool, with a bug that the next release fixes: it misses notes in subfolders
+  cat > "$p/bin/note-lint" <<'EOF'
+#!/usr/bin/env bash
+# note-lint: fail for each Markdown note with no `owner:` line, in the folders that note-kit.conf
+# (in the current directory) lists, as `dirs = a b`; default docs
+dirs=docs
+if [ -f note-kit.conf ]; then dirs=$(sed -n 's/^dirs *= *//p' note-kit.conf); fi
+read -ra folders <<<"$dirs"
+rc=0
+for d in "${folders[@]}"; do
+  for f in "$d"/*.md; do
+    [ -e "$f" ] || continue
+    grep -q '^owner: ' "$f" || { echo "note-lint: no owner: $f"; rc=1; }
+  done
+done
+exit "$rc"
+EOF
+  chmod +x "$p/bin/note-lint"
+  cat > "$p/package.nix" <<'EOF'
+# note-lint, with what it needs: pkgs.callPackage "${inputs.note-kit}/package.nix" { }
+{ writeShellApplication, gnused, gnugrep, findutils }:
+writeShellApplication {
+  name = "note-lint";
+  runtimeInputs = [ gnused gnugrep findutils ];
+  text = builtins.readFile ./bin/note-lint;
+}
+EOF
+  printf '# A note\n' > "$p/tests/no-owner/a.md"
+  printf '#!/usr/bin/env bash\ncd tests/no-owner && ! bash ../../bin/note-lint\n' > "$p/tests/run.sh"
+  # a stand-in for the scions that note-kit grafts for its own use
+  printf '# Scions\n\nGrafted by graft. Never edit.\n' > "$p/scions/README.md"
+  printf '# Glossary\n\n- **Owner:** the person who keeps a note current.\n' > "$p/scions/glossary/terms.md"
+  printf 'on: [push]\njobs:\n  test:\n    runs-on: nix\n    steps:\n      - uses: actions/checkout@v4\n      - run: bash tests/run.sh\n' > "$p/.forgejo/workflows/test.yaml"
+  printf 'Run tests/run.sh before a release. Never edit scions/.\n' > "$p/AGENTS.md"
+  echo "tests/ export-ignore" > "$p/.gitattributes"
+  printf '# Changelog\n\n## v1.0.0 - 2026-10-20\n\n- The notes policy, and note-lint.\n' > "$p/CHANGELOG.md"
+  repo "$p"
+  g -C "$p" add -A
+  g -C "$p" commit -qm v1.0.0
+  g -C "$p" tag v1.0.0
+  # v1.1.0: a seed file, which consumers copy once, and a flake whose template is the same file
+  mkdir -p "$p/seed"
+  printf '# note-kit settings. This file is yours: copy it once, then edit it.\ndirs = docs\n' > "$p/seed/note-kit.conf"
+  cat > "$p/flake.nix" <<'EOF'
+{
+  description = "note-kit";
+  outputs = { self }: {
+    templates.default = { path = ./seed; description = "note-kit's settings, to copy once"; };
+  };
+}
+EOF
+  cat >> "$p/README.md" <<'EOF'
+- `seed/note-kit.conf`: settings for note-lint. Copy it once to the top of your repository; then it is
+  yours. Or: `nix flake init -t <note-kit's URL at a tag>`.
+EOF
+  cat > "$p/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## v1.1.0 - 2026-11-03
+
+- `seed/note-kit.conf`: settings for note-lint, to copy once.
+
+## v1.0.0 - 2026-10-20
+
+- The notes policy, and note-lint.
+EOF
+  g -C "$p" add -A
+  g -C "$p" commit -qm v1.1.0
+  g -C "$p" tag -a -m "note-kit v1.1.0" v1.1.0
+  # where releases are pushed: a bare repository, as a forge would hold it
+  g clone -q --bare "$p" "$out/note-kit.git"
+  g -C "$p" remote add origin "$out/note-kit.git"
+  g -C "$p" fetch -q origin
+  g -C "$p" branch -q -u origin/main
+  # the next release's work: a fix to the tool, not committed, and the maintainer's untracked draft
+  sed -i 's|^  for f in "$d"/\*.md; do$|  while IFS= read -r f; do|; s|^    \[ -e "$f" \] \|\| continue$||; s|^  done$|  done < <(find "$d" -name "*.md" \| sort)|' "$p/bin/note-lint"
+  sed -i '/^$/d' "$p/bin/note-lint"
+  mkdir -p "$p/notes"
+  printf '# Next: check the owner against a list of people\n' > "$p/notes/next.md"
+
+  mkdir -p "$c/docs/retros"
+  cat > "$c/flake.nix" <<EOF
+{
+  description = "Team notes";
+  inputs = {
+    graft.url = "path:$graft";
+    note-kit = { url = "git+file://$out/note-kit.git?ref=v1.1.0&exportIgnore=1"; flake = false; };
+  };
+  outputs = inputs: inputs.graft.lib.mkFlake {
+    inherit inputs;
+    # note-kit's tool, built from its fetched export, checks the notes
+    outputs.checks.x86_64-linux = let
+      pkgs = inputs.graft.inputs.nixpkgs.legacyPackages.x86_64-linux;
+      note-lint = pkgs.callPackage "\${inputs.note-kit}/package.nix" { };
+    in {
+      notes = pkgs.runCommand "notes" { } ''
+        cd \${inputs.self} && \${note-lint}/bin/note-lint && touch \$out
+      '';
+    };
+  };
+}
+EOF
+  printf '# On-call\n\nowner: sam\n\nPage the on-call engineer through the rota tool.\n' > "$c/docs/on-call.md"
+  printf '# Retro, 2 November\n\nowner: ana\n\nThe queue filled; we drained it by hand.\n' > "$c/docs/retros/2026-11-02.md"
+  command cp -f "$p/seed/note-kit.conf" "$c/note-kit.conf"
+  printf 'Follow scions/note-kit/docs/notes-policy.md. Never edit scions/: graft replaces it.\n' > "$c/AGENTS.md"
+  repo "$c"
+  g -C "$c" add -A
+  # it takes note-kit from the bare origin, as from a forge. Nix 2.24 can't lock `ref=v1.1.0` there
+  # from a cold cache (it asks for refs/heads/v1.1.0): fetch the tag by its full name first. Then the
+  # first run re-pins the annotated tag's object to its commit, and stops; the second grafts
+  nix flake prefetch "git+file://$out/note-kit.git?ref=refs/tags/v1.1.0&exportIgnore=1" >/dev/null 2>&1
+  (cd "$c" && { nix run .#graft >/dev/null 2>&1 || nix run .#graft >/dev/null; })
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft note-kit v1.1.0"
+  (cd "$c" && nix run .#graft check >/dev/null && nix flake check 2>/dev/null)
+  echo "$p"
+  echo "$out/note-kit.git"
+  echo "$c"
+}
+
 case $slice in
   check-fails) check_fails ;;
   first-pattern) first_pattern ;;
@@ -729,4 +877,5 @@ case $slice in
   private) private ;;
   ci) ci_fixture ;;
   breaking-change) breaking_change ;;
+  publish) publish ;;
 esac
