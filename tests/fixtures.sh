@@ -7,7 +7,7 @@
 #   first-pattern   three starting repositories, no graft yet: new/ (git init, no commits), existing/ (its
 #                   own flake with a check, and a .gitignore that drops flake.lock), locked/ (its own
 #                   flake, with flake.lock committed)
-#   override        a consumer that grafts two local providers (policy-kit at v1.0.0, newer v1.1.0 tagged,
+#   override        a consumer that grafts two local providers (policy-kit at v1.0.0 with a typo, v1.1.0 tagged,
 #                   with a CHANGELOG and an untracked draft; glossary at v1.0.0) with this checkout's graft
 #                   and its two workflows (graft-check.yaml with a kept paths-ignore line). Its own checks
 #                   run policy-kit's checker (which reads policy-kit.conf) and read the glossary's export.
@@ -134,7 +134,8 @@ override() {
   local p=$out/policy-kit q=$out/glossary c=$out/consumer
   mkdir -p "$p/docs" "$p/checker" "$p/tests" "$q"
   printf '# Status policy\n\nEvery page has a status: draft, working, stable or deprecated.\nA deprecated page links to the page that replaces it.\n' > "$p/docs/status.md"
-  printf '# Provenance policy\n\nEvery page that drives a decision cites its sources.\n' > "$p/docs/provenance.md"
+  # a typo that every consumer gets, for "Fix it in the provider"
+  printf '# Provenance policy\n\nEvery page that drives a decision cites it sources.\n' > "$p/docs/provenance.md"
   # the checker reads one setting from the consumer: the statuses a page may have
   cat > "$p/checker/check.sh" <<'EOF'
 #!/usr/bin/env bash

@@ -1,5 +1,5 @@
 ---
-status: draft
+status: working
 ---
 # Change a grafted file
 
@@ -13,7 +13,7 @@ Never edit a scion: `nix run .#graft` replaces it, and the check fails until it 
 
 | You want | Do this |
 |---|---|
-| A different value for something that a provider's tool reads from your repository | Change the setting in your file, not the tool. For example, knowledge-base-kit's checker reads the statuses that a page may have from `rules.lifecycle.statuses` in your `knowledge-base.yaml`. |
+| A different value for something that a provider's tool reads from your repository | Change the setting in your file, not the tool. The provider's README, or its tool's usage text, names the settings and the file that holds them. For example, knowledge-base-kit's checker reads the statuses that a page may have from `rules.lifecycle.statuses` in your `knowledge-base.yaml`. |
 | A different rule or page for your repository only | The [Steps](#steps) below. |
 | To fix a mistake that every consumer has | [Fix it in the provider](#fix-it-in-the-provider). |
 | None of a provider's files | [Stop grafting a provider](#stop-grafting-a-provider). |
@@ -52,8 +52,9 @@ repository.
    It prints `graft: scions/NAME <- COMMIT` for each scion, and replaces the whole scions directory.
 
 3. Edit your copy. Say in it which file it replaces, for example
-   `This page replaces scions/policy-kit/docs/status.md.` Give it what your own checks require of a page
-   in that folder, such as a `status:` line in its front matter.
+   `This page replaces scions/policy-kit/docs/status.md.` Give each file that you copied what your checks,
+   and the provider's tools that read your files, require of a page in that folder, such as a `status:`
+   line in its front matter.
 
 4. Find what points at the scion's file, outside the scions directory:
 
@@ -109,7 +110,9 @@ of the provider in which you can commit, or a way to send the change to its main
 
 2. In the provider's checkout, apply it with `git apply -p3 /tmp/scion-change.patch`, and `git add` each
    file of the change. Try it in your repository with
-   [a provider's unreleased change](upgrade.md#try-a-providers-unreleased-change).
+   [a provider's unreleased change](upgrade.md#try-a-providers-unreleased-change). The override takes the
+   checkout's current branch, so the scion also holds the provider's other unreleased changes. graft stages
+   the overridden scion: do not commit it. Step 4, or `nix run .#graft`, puts the pinned version back.
 3. Commit it in the provider, add a section for the new version to its `CHANGELOG.md`, and tag it, for
    example `git tag v1.2.0`. If the provider is a remote repository, push the tag: graft reads the tags
    that the input's URL has.
@@ -132,10 +135,11 @@ graft grafts a provider whole, or not at all. To keep some of its files, copy th
 as in [Steps](#steps) 1 and 3 to 5: from then on they are yours, and get none of the provider's changes.
 
 1. Delete the provider's input from `flake.nix`. If your flake's own code still reads it
-   (`${inputs.glossary}`), keep the input, and name the inputs that graft copies instead:
+   (`${inputs.glossary}`), keep the input, and name the inputs that graft copies instead. Add this line
+   beside `inherit inputs;` in your `mkFlake` call:
 
    ```nix
-   outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; scions = [ "policy-kit" ]; };
+   scions = [ "policy-kit" ];
    ```
 
    With `scions`, graft copies only the inputs that it names: add each new provider to the list.
