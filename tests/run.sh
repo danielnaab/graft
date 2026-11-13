@@ -1030,11 +1030,13 @@ expect "a subcommand needs no --" sh -c 'nix run .#graft outdated 2>/dev/null | 
 expect "help lists the commands" sh -c 'nix run .#graft help 2>/dev/null | grep -q "^  migrate"'
 # arguments a command doesn't take: an error and its usage line, never ignored
 refused "-C with no repository fails" nix run .#graft -- outdated -C
-expect "and says so, with the usage" sh -c 'grep -qx "graft: -C needs a repository" && grep -qxF "usage: graft outdated [-C REPO] [--json]"' <<<"$out"
+expect "and says so" grep -qx "graft: -C needs a repository" <<<"$out"
+expect "with the usage" grep -qxF "usage: graft outdated [-C REPO] [--json]" <<<"$out"
 refused "outdated takes no names" nix run .#graft -- outdated provider
 expect "and says so" grep -qx "graft: outdated takes no names: it lists graft and every scion" <<<"$out"
 refused "upgrade has no --json" nix run .#graft -- upgrade --json
-expect "and says so, with the usage" sh -c 'grep -qx "graft: upgrade has no --json" && grep -qxF "usage: graft upgrade [-C REPO] [NAME[@TAG]...]"' <<<"$out"
+expect "and says so" grep -qx "graft: upgrade has no --json" <<<"$out"
+expect "with the usage" grep -qxF "usage: graft upgrade [-C REPO] [NAME[@TAG]...]" <<<"$out"
 expect "and upgrades nothing" git_ diff --quiet
 refused "an unknown option fails" nix run .#graft -- changelog --frob
 expect "and says so" grep -qx "graft: unknown option --frob" <<<"$out"
