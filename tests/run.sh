@@ -1388,7 +1388,7 @@ consumer badflakedir 'flakeDir = "../up";'
 refuse "flakeDir outside the repo is rejected" quiet nix run .#graft
 # a flake in a subdirectory without flakeDir, or with a mistyped one: the message names flakeDir
 consumer noflakedir ''
-mkdir -p nix/x && git_ mv -q flake.nix nix/x/flake.nix
+mkdir -p nix/x && git_ mv flake.nix nix/x/flake.nix
 refused "a flake in a subdirectory without flakeDir fails" nix run "path:$PWD/nix/x#graft"
 expect "and names flakeDir" grep -qF ": run from the repo's top; for a flake in a subdirectory, set mkFlake's flakeDir to it" <<<"$out"
 sed -i 's|mkFlake { inherit inputs;  }|mkFlake { inherit inputs; flakeDir = "nix/wrong"; }|' nix/x/flake.nix
