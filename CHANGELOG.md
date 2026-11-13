@@ -46,6 +46,8 @@
   only READMEs with graft's marker, skips one inside another scions directory, and fails on two that
   differ or on a path graft won't use, as `lib/common.sh` does. The new workflows arrive with the next
   `nix run .#graft` or `graft upgrade`.
+- **A missing or mistyped `flakeDir` is named.** graft said only `graft: no flake.lock in TOP`; it now says
+  `… set mkFlake's flakeDir to it` or `… check mkFlake's flakeDir, "DIR" …`.
 - **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or
   three of them, depending on the line; it now always says
   `graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in FILE; …)`.

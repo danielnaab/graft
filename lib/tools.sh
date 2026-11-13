@@ -415,7 +415,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 locate "$repo"
-[ -f "$FLAKE_LOCK" ] || die "no $FLAKE_LOCK in $(pwd)"
+if [ ! -f "$FLAKE_LOCK" ]; then
+  # at the top with no flake.nix: run from elsewhere, or a flake in a subdirectory without flakeDir
+  if [ "$FLAKE" = . ] && [ ! -f flake.nix ]; then
+    die "no flake.nix in $(pwd): run from the repo's top; for a flake in a subdirectory, set mkFlake's flakeDir to it"
+  fi
+  die "no $FLAKE_LOCK in $(pwd)"
+fi
 case $sub in
   # internal, before `nix run .#graft` syncs (graft.sh): re-pin any lock at an annotated tag's
   # object; when it did, print how to run graft again, on the new lock

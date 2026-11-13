@@ -61,6 +61,9 @@ repository. `.` at the root has no flake to find.
 - **The scions README records the flake** on its second line, `<!-- graft flake: nix/workspace -->`.
   graft's commands and workflows find the flake from that line. Nothing else is configured.
 - **`-C` takes the repository root**, not the flake's directory.
+- **`flakeDir` must name the flake's directory.** Without it, graft stops with
+  `graft: no flake.nix in TOP: run from the repo's top; for a flake in a subdirectory, set mkFlake's flakeDir to it`.
+  With a wrong one, it stops with `graft: no DIR/flake.nix in TOP: check mkFlake's flakeDir, "DIR" …`.
 - **`upgrade` locks with `--flake path:<absolute path>`**, which needs Nix 2.19 or later.
 - `flakeDir` can contain only letters, digits, `.`, `_`, `-` and `/`.
 

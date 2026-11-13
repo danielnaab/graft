@@ -97,7 +97,7 @@ locate() {
   else
     FLAKE_REF="path:$(jq -rn --arg p "$(pwd -P)/$FLAKE" '$p | split("/") | map(@uri) | join("/")')" FLAKE_NIX=$FLAKE/flake.nix FLAKE_LOCK=$FLAKE/flake.lock
     GRAFT_RUN="nix run path:$FLAKE#graft"
-    [ -f "$FLAKE_NIX" ] || die "no $FLAKE_NIX in $(pwd)"
+    [ -f "$FLAKE_NIX" ] || die "no $FLAKE_NIX in $(pwd): check mkFlake's flakeDir, \"$FLAKE\" (the scions README records it)"
   fi
 }
 
