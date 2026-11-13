@@ -145,8 +145,15 @@
   `page-rules v1.1.0 (from v1.1.0)` and listed commits. It now names the locked ref and commit
   (`page-rules lifecycle at COMMIT (from v1.1.0)`) and quotes the branch's CHANGELOG sections above the old
   tag, Upgrading first: the provider's unreleased major. Its header names the repository from its origin,
-  else its main checkout's folder, not a worktree's (`handbook`, not `handbook-try`), and says
-  `flake.nix, flake.lock and scions/` when the upgrade changed `flake.nix` too.
+  else its main checkout's folder, not a worktree's (`handbook`, not `handbook-try`, and without `.git` for
+  a bare clone's worktree), and says `flake.nix, flake.lock and scions/` when a changed line of `flake.nix`
+  is an input's url.
+- **`migrate` names a git input that has no ref in its URL by its commits.** It said
+  `NAME refs/heads/main (from refs/heads/main)`, the ref Nix records for such an input; it now shows the
+  old and new commits, and `REF at COMMIT` for a ref that is not a version tag.
+- **Upstream notes past 50 commits say so.** They ended `... and 1 more`, a wrong count; they now end
+  `... and more; see the compare link` (or the provider's git log when there is no compare link), in
+  `changelog`, `migrate` and the upgrade pull request.
 - **The scions README and graft's messages quote their commands for zsh.** For a flake in a subdirectory
   they said `nix run path:DIR#graft`, which zsh with `extendedglob` reads as a glob; they now say
   `nix run 'path:DIR#graft'` (and `migrate`'s brief `nix flake check 'path:DIR'`). `graft upgrade` rewrites the README when it takes this version.
