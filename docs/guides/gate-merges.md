@@ -235,7 +235,7 @@ curl -fsS -H "Authorization: token $FORGEJO_TOKEN" "https://forgejo.example/api/
   read-only Nix store ([Concepts](../concepts.md#the-nix-binding)). The check is a Nix build that uses only
   the tools it names, at the versions that `flake.lock` pins, so CI uses the same Python as you. It is part
   of `nix flake check`, which graft's weekly upgrade also runs, so a new version of the pattern is tested on
-  your pages before you merge it ([Upgrade](upgrade.md)).
+  your pages before you merge it ([Take a newer version by hand](upgrade.md)).
 - **The other way.** You can run the checker from the scion in the working tree, as in
   [Before you begin](#before-you-begin), in a script or a pre-commit hook. It uses an unpinned Python, and
   it is not part of `nix flake check`, so graft's upgrade does not run it. Without

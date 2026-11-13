@@ -14,6 +14,7 @@ again when you change Nix versions.
 | `nix flake update NAME --flake REF` needs 2.19 or later. | 2.19 | `upgrade` for a flake in a subdirectory needs 2.19. |
 | `?flake=false` in a URL is ignored, and `inputs` is read without evaluation. | 2.24 | Write `flake = false` on each input, and `inputs` as a literal. |
 | Two inputs for one repository at one commit (`github:` and `git+https`, for example) share one fetch-cache entry. The first fetch decides the tree for both. | 2.24, 2.33 | Take one repository through one input. |
+| A case of the row above: a repository whose export rules exclude its own `flake.nix`, used as `.` with a clean tree at a commit that a consumer fetched through `github:`, fails with `error: path '/nix/store/…-source/flake.nix' does not exist` (`nix flake metadata .`, and any command on `.`). Nix reuses that fetch, keyed by the commit, and GitHub's archive applied the export rules. A `git+…?exportIgnore=1` fetch of the commit did not do this in a test. | 2.24 | Use `path:$PWD` for `.`, which also copies untracked and ignored files into the store; or make an uncommitted change first. |
 | [Trailing-slash rules](#trailing-slash-rules) | 2.24 to 2.35 | Providers write directory rules without the slash too. |
 | [Annotated tags and exportIgnore](#annotated-tags-and-exportignore) | 2.24 | graft keeps such locks at the tag's commit. |
 
@@ -57,3 +58,6 @@ version. Newer Nix locks a tag at its commit itself, and keeps the lock that gra
 - [CHANGELOG v2.9.0](../../CHANGELOG.md#v290---2026-11-10): annotated tags
 - [lib/export-ignored.sh](../../lib/export-ignored.sh), [lib/tools.sh](../../lib/tools.sh) (`peel`)
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): `flakeDir`
+- The `flake.nix` that a `github:` fetch left out: seen on a clean checkout of notebook-kit v1.1.1, whose
+  `.gitattributes` has `/flake.nix export-ignore`; the store path that `.` used had the `narHash` of a
+  consumer's `github:` lock of that commit.

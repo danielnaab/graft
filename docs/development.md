@@ -13,6 +13,7 @@ How to change graft, test it, and release it.
 | `lib/mk-flake.nix` | `mkFlake`: the app, the drift check and the expected scions directory. |
 | `lib/graft.sh` | The command: dispatches to the scripts below. |
 | `lib/assemble.sh` | Builds a scions directory. The check and `upgrade` both use it, so they cannot disagree. |
+| `lib/drift.sh` | The drift report that `graft check` and `checks.<system>.graft` both print. |
 | `lib/tools.sh` | `outdated`, `changelog`, `upgrade`, and the annotated-tag repair. |
 | `lib/common.sh` | Shared helpers: finds scions directories, reads `flake.lock` as data. |
 | `lib/export-ignored.sh` | Fails when a fetched export still holds a path that its export rules exclude. |
@@ -35,8 +36,9 @@ tests/run.sh             # the whole cycle against throwaway provider repositori
 KEEP=1 tests/run.sh      # the same, and keep the work directory to debug a failure
 ```
 
-`tests/run.sh` covers sync, check and drift; `outdated`, `changelog` and `upgrade`, in the repository and
-with `-C`; major versions and `0.y`; graft upgrading its own pin and workflows; the `paths-ignore` and ssh
+`tests/run.sh` covers sync, check and drift, with the drift report's lines; the `flake.lock` checks; a
+repository's own `checks` or `apps` named `graft`; the commands' argument errors; `outdated`, `changelog` and
+`upgrade`, in the repository and with `-C`; major versions and `0.y`; graft upgrading its own pin and workflows; the `paths-ignore` and ssh
 lines; `graft ci` against a local origin and a stub API; `migrate`; annotated tags; the `dir` cases; and a
 flake in a subdirectory, including a check that no private file reaches the Nix store. It takes several
 minutes and fetches nixpkgs on its first run. Do not run several copies in parallel.
@@ -60,7 +62,8 @@ graft's own rules:
 - A page whose goal has two actors, such as a provider and a consumer, can have two parts, each with its own
   steps (at most ten) and its own check under a heading that names it ([example](guides/incompatible-change.md)).
 - Read a new or changed guide literally, against a fixture: `tests/fixtures.sh NAME OUT` builds one
-  (`check-fails`, `first-pattern`, `gate-merges`, `override`, `private`, `ci`, `breaking-change`, `publish`). A
+  (`check-fails`, `first-pattern`, `gate-merges`, `override`, `private`, `ci`, `breaking-change`, `upgrade`,
+  `publish`). A
   reader that sees only the page and its links follows each step and says what it expects first. Then a
   reviewer checks its claims against the code.
 

@@ -15,7 +15,7 @@ outputs.
 | `inputs` | (required) | The flake's inputs. |
 | `scions` | every `flake = false` input | The input names to graft. |
 | `dir` | `"scions"` | The scions directory: a relative path inside the repository, not `.git`, with no `.` or `..` segments. graft replaces it on every sync, and refuses to replace a directory that it did not write. |
-| `flakeDir` | `"."` | Where `flake.nix` is, from the repository root. See [Keep private files out of the Nix store](../guides/flake-in-a-subdirectory.md). |
+| `flakeDir` | `"."` | Where `flake.nix` is, from the repository root: `.`, or a relative path of letters, digits, `.`, `_`, `-` and `/`, with no `.` or `..` segments, not in `.git`. It goes into `path:` references and the scions README, so it has no spaces. Another value fails to evaluate with `graft: flakeDir must be …, got "VALUE"`. A value that names no `flake.nix` fails with `graft: no DIR/flake.nix in TOP: check mkFlake's flakeDir, …`. See [Keep private files out of the Nix store](../guides/flake-in-a-subdirectory.md). |
 | `outputs` | `{ }` | The repository's own outputs, merged with graft's at every level. |
 
 graft adds two outputs:
@@ -35,6 +35,10 @@ Scion names must match `[A-Za-z0-9][A-Za-z0-9._-]*`.
 Run it as `nix run .#graft COMMAND`. A flag needs `--` before it, because Nix otherwise reads it:
 `nix run .#graft -- outdated --json`. For a flake in a subdirectory, use `nix run 'path:DIR#graft'`.
 
+In zsh with `extendedglob` set, `#` is a glob character, so a flake reference that holds one fails with
+`zsh: no matches found`. Quote it: `'.#graft'`, `'path:DIR#graft'`. The docs quote every `path:` form, and
+write `.#graft` unquoted.
+
 | Command | What it does |
 |---|---|
 | `sync` (the default) | Writes the scions directory from `flake.lock`, stages it with `git add`, and restores graft's workflows. If `flake.lock` pins an annotated tag's object, it changes the pin to the commit and stops: run it again. |
@@ -50,11 +54,24 @@ Run it as `nix run .#graft COMMAND`. A flag needs `--` before it, because Nix ot
   names one.
 - `NAME` without a tag stays in the pinned major version, and reports any newer major version that it did
   not take.
-- An argument that a command does not take fails with exit 2, a `graft:` line that names it and the
-  command's usage line: `-C` without a repository (`graft: -C needs a repository`), a name given to
-  `outdated` (`graft: outdated takes no names: it lists graft and every scion`), `--json` given to
-  `upgrade` (`graft: upgrade has no --json`), or an unknown option (`graft: unknown option OPTION`).
-  A bare `--` among the arguments is skipped.
+- `outdated`, `changelog` and `upgrade`: an argument that the command does not take fails with exit 2, a
+  `graft:` line that names it and the command's usage line: `-C` without a repository
+  (`graft: -C needs a repository`), a name given to `outdated`
+  (`graft: outdated takes no names: it lists graft and every scion`), `--json` given to `upgrade`
+  (`graft: upgrade has no --json`), or an unknown option (`graft: unknown option OPTION`). `-C ''` counts as
+  no repository. A bare `--` among the arguments is skipped.
+- `changelog` and `upgrade`: a name that is not a scion or graft fails with exit 1 and
+  `graft: no scion (or graft input) named NAME`; a `@TAG` that is not a semver tag with
+  `graft: NAME: TAG is not a version tag`; a semver tag that the provider does not have with
+  `graft: NAME: no tag TAG upstream`.
+- `migrate`: an argument that it does not take, a bare `--` included, fails with exit 1 and
+  `graft: usage: graft migrate [-C REPO] [--base REF] [--no-check] [--json]`. `-C` without a directory fails
+  with `graft: -C needs a directory`, and `--base` without a ref with `graft: --base needs a ref`.
+  `--base=REF` works too.
+- `sync` and `check` take no arguments: `graft: sync takes no arguments`, exit 2.
+- `ci` reads only its step, and ignores the arguments after it. Another step fails with exit 1 and
+  `graft: usage: graft ci check|upgrade|pr`.
+- An unknown command prints the usage on stderr, and exits 2.
 - `--json` gives the same data as the text output. In `outdated --json`, `major` is `null` when there is
   no newer major version.
 

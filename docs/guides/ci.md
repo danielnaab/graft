@@ -26,7 +26,8 @@ merge it or fix it.
   match their pins.
 - The commands assume `flake.nix` at the repository's top. For a flake in a subdirectory, run
   `nix run 'path:DIR#graft'` for `nix run .#graft`; graft's workflows find the subdirectory themselves
-  ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
+  ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)). In zsh, quote flake references
+  ([The graft command](../reference/commands.md#the-graft-command)).
 - `graft-upgrade.yaml` cannot run in a repository with a private (`git+ssh`) scion: every upgrade fetches
   all scions, and the upgrade job must not hold an ssh key ([CI security](../ci-security.md#limits)).
   Delete `graft-upgrade.yaml`, and upgrade with `nix run .#graft upgrade`
@@ -101,7 +102,7 @@ merge it or fix it.
    ```
 
    Merging this pull request does not take the major version.
-   Take it later, on a branch of your own ([Upgrade](upgrade.md#cross-a-major-version)).
+   Take it later, on a branch of your own ([Ship and take an incompatible change](incompatible-change.md#part-2-a-consumer-takes-the-change)).
 
 5. Read **What changed upstream**. For each moved pin, it quotes the provider's CHANGELOG sections between
    the two tags, **Upgrading** sections first, or the provider's commits if it has no CHANGELOG. The text
@@ -157,7 +158,7 @@ After the merge, from the repository's top, paste this. It prints `ok` only if y
 the scions match their pins, every pin is current or untagged, and your checks pass:
 
 ```sh
-git switch -q main && git pull -q --ff-only && nix run .#graft check && nix run .#graft -- outdated --json | jq -e 'length > 0 and all(.[]; .status == "current" or .status == "untagged")' >/dev/null && nix flake check && echo ok
+git switch -q main && git pull -q --ff-only && nix run '.#graft' check && nix run '.#graft' -- outdated --json | jq -e 'length > 0 and all(.[]; .status == "current" or .status == "untagged")' >/dev/null && nix flake check && echo ok
 ```
 
 If a provider tagged a new version after the run, its status is `outdated`, and the next weekly run takes
@@ -206,7 +207,7 @@ it. A status `unknown` means that graft cannot read the provider's repository.
   delete the branch that is checked out: `git switch main && git branch -D fix-upgrade`.
   If the provider broke something that it should not have, tell its maintainers instead. To hand the fix to
   an agent, use the `migrate` command at the end of the pull request's description
-  ([Upgrade](upgrade.md#cross-a-major-version)).
+  ([Ship and take an incompatible change](incompatible-change.md#part-2-a-consumer-takes-the-change)).
 
 - **The upgrade job fails: `graft: page-rules: can't tell whether v1.0.0 is current (see above); nothing changed`.**
   A line above it starts `graft: can't list tags at URL:`: the runner cannot read that provider's
@@ -276,12 +277,16 @@ it. A status `unknown` means that graft cannot read the provider's repository.
 
 ## Related
 
-[Upgrade](upgrade.md), [Make a pattern's checks gate your merges](gate-merges.md),
+[Take a newer version by hand](upgrade.md), [Make a pattern's checks gate your merges](gate-merges.md),
 [Graft a private repository](private-providers.md), [CI security](../ci-security.md).
 
 ## Keep your own edits to a workflow
 
 Moved to [Files](../reference/files.md#keep-your-own-edits-to-a-workflow).
+
+## Skip pushes that change only some paths
+
+Moved to [Files](../reference/files.md#the-paths-ignore-line).
 
 ## Sources
 

@@ -144,7 +144,7 @@ See [Publish a pattern](docs/guides/publish.md), and [Ship and take an incompati
 | Run a pattern's checks in CI, and require them before a merge | [Make a pattern's checks gate your merges](docs/guides/gate-merges.md) |
 | Find and fix what fails `graft check` | [`graft check` fails](docs/guides/check-fails.md) |
 | Change a grafted file that does not fit, or has a mistake | [Change a grafted file](docs/guides/change-a-grafted-file.md) |
-| Take newer versions | [Upgrade](docs/guides/upgrade.md) |
+| Take newer versions outside CI | [Take a newer version by hand](docs/guides/upgrade.md) |
 | Release an incompatible change, or take one (a new major version) | [Ship and take an incompatible change](docs/guides/incompatible-change.md) |
 | Keep private files out of the Nix store, with a flake in a subdirectory | [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md) |
 | Release a repository for others to graft | [Publish a pattern](docs/guides/publish.md) |
