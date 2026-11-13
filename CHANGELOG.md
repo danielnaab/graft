@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Docs
+- [Publish](docs/guides/publish.md#if-something-goes-wrong) and [Nix behaviours](docs/reference/nix-behaviours.md):
+  a consumer locked on the provider's own machine can hold the hash of the whole commit, not of the export,
+  and fail CI with `NAR hash mismatch`; how to check a lock against an empty fetch cache.
+
 ## v2.12.0 - 2026-11-13
 
 Every guide is now a task page read against a fixture: drift, first graft, gating merges, changing a grafted
