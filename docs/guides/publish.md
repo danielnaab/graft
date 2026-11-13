@@ -54,4 +54,4 @@ The name ends with what the content is, not the role that the repository plays:
   `-template`), or words that suggest a one-time copy (`-seed`, `-starter`).
 - Give the repository the topic `graft-provider` on its forge (Forgejo or GitHub).
 
-Related: [Upgrade](upgrade.md#cross-a-major-version), [Files](../reference/files.md#in-a-provider).
+Related: [Ship and take an incompatible change](incompatible-change.md), [Files](../reference/files.md#in-a-provider).

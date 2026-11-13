@@ -20,7 +20,8 @@
 #
 # Needs nix, git 2.28 or later and GNU sed. Network: check-fails fetches python3 and ruff from the nixpkgs
 # registry (unpinned, so ruff's output can vary); first-pattern's flakes pin a nixpkgs that the reader fetches;
-# gate-merges pins the nixpkgs that this checkout's graft pins, so its python3 is likely cached.
+# gate-merges pins the nixpkgs that this checkout's graft pins, so its python3 is likely cached; breaking-change
+# reads that nixpkgs from graft's flake.lock (needs jq), with the same effect. Providers are local git+file repos.
 set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
@@ -356,8 +357,8 @@ for something else.
 ### Upgrading
 1. Find your pages that still use the old field. Leave out the scions directory:
    `grep -rl --include='*.md' --exclude-dir=scions '^status:' .`
-2. In each file it lists, rename the field and keep its value:
-   `sed -i 's/^status:/lifecycle:/'` on those files.
+2. Rename the field in each of those files, and keep its value:
+   `grep -rl --include='*.md' --exclude-dir=scions '^status:' . | xargs sed -i 's/^status:/lifecycle:/'`
 3. Find links to the old rule page: `grep -rn --exclude-dir=scions 'page-rules/docs/status.md' .`
    Change each to `page-rules/docs/lifecycle.md`.
 4. Done when `nix flake check` passes.
@@ -381,14 +382,15 @@ EOF
 # bc_consumer DIR DESCRIPTION PAGE STATUS TEXT: a consumer at page-rules v1.1.0 with graft's workflows, a
 # `pages` check that runs pagecheck on docs/, an AGENTS.md that links the rule page, and one page
 bc_consumer() {
-  local c=$1 p=$out/page-rules
+  local c=$1 p=$out/page-rules nixpkgs
+  nixpkgs=$(jq -r .nodes.nixpkgs.locked.rev "$graft/flake.lock")
   mkdir -p "$c/docs" "$c/.forgejo/workflows"
   cat > "$c/flake.nix" <<EOF
 {
   description = "$2";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/ac62194c3917d5f474c1a844b6fd6da2db95077d";
+    nixpkgs.url = "github:NixOS/nixpkgs/$nixpkgs";
     graft.url = "path:$graft";
     graft.inputs.nixpkgs.follows = "nixpkgs";
     page-rules = { url = "git+file://$p?ref=v1.1.0&exportIgnore=1"; flake = false; };

@@ -1,5 +1,5 @@
 ---
-status: draft
+status: working
 ---
 # Ship and take an incompatible change
 
@@ -28,23 +28,24 @@ to, a field that your checker requires, a file's shape. A change to it is incomp
 version. For `0.y.z`, a new `0.y` counts as one.
 
 1. On a branch of the provider, commit the change and a new section at the top of `CHANGELOG.md`. Head the
-   section `## vX.Y.Z - YYYY-MM-DD`, and give it an `### Upgrading` subsection. In the example, the branch
-   `lifecycle` has both: `git -C page-rules show lifecycle:CHANGELOG.md`. Its steps:
+   section `## vX.Y.Z - YYYY-MM-DD`, and give it an `### Upgrading` subsection. In the example, this is done
+   for you: the branch `lifecycle` has both. Read them with `git -C page-rules show lifecycle:CHANGELOG.md`.
+   Its steps:
 
    ```
    ### Upgrading
    1. Find your pages that still use the old field. Leave out the scions directory:
       `grep -rl --include='*.md' --exclude-dir=scions '^status:' .`
-   2. In each file it lists, rename the field and keep its value:
-      `sed -i 's/^status:/lifecycle:/'` on those files.
+   2. Rename the field in each of those files, and keep its value:
+      `grep -rl --include='*.md' --exclude-dir=scions '^status:' . | xargs sed -i 's/^status:/lifecycle:/'`
    3. Find links to the old rule page: `grep -rn --exclude-dir=scions 'page-rules/docs/status.md' .`
       Change each to `page-rules/docs/lifecycle.md`.
    4. Done when `nix flake check` passes.
    ```
 
    Write steps that need knowledge of the consumer only: what moved, what to search for, what to put in its
-   place, and how to know it is done. Use the heading `### Upgrading` exactly: graft shows that subsection
-   first, and finds no other name ([If something goes wrong](#if-something-goes-wrong)). For a file you move,
+   place, and how to know it is done. Start the heading with `### Upgrading` (in any case): graft shows that
+   subsection first, and finds no other name ([If something goes wrong](#if-something-goes-wrong)). For a file you move,
    you can also leave a stub at the old path that names the new one, and remove it at the next major version.
 
 2. Make a throwaway worktree of a consumer, on a new branch:
@@ -54,20 +55,19 @@ version. For `0.y.z`, a new `0.y` counts as one.
    cd handbook-try
    ```
 
-   For a consumer that is not on your machine, clone it instead: `git clone URL handbook-try`.
+   For a consumer that is not on your machine, clone it instead: `git clone URL handbook-try`. If the
+   consumer's flake is in a subdirectory, run steps 3 to 6 there, with `path:` ([A flake in a subdirectory](flake-in-a-subdirectory.md)).
 
-3. Lock the consumer's input to your branch. Use your checkout's absolute path:
+3. Lock the consumer's input to your branch. Use your checkout's absolute path, and name the branch:
 
    ```
-   nix flake lock --override-input page-rules "git+file://$(cd ../page-rules && pwd)?exportIgnore=1"
+   nix flake lock --override-input page-rules "git+file://$(cd ../page-rules && pwd)?ref=lifecycle&exportIgnore=1"
    ```
 
    Nix prints `warning: updating lock file`, then `• Updated input 'page-rules':`, from `…&ref=v1.1.0&rev=…`
-   to `…&ref=refs/heads/lifecycle&rev=…`. `exportIgnore=1` applies your export rules, as a release would.
-
-   If your checkout has uncommitted changes, Nix prints
-   `warning: will not write lock file of flake '…' because it has an unlocked input`, writes nothing, and
-   still exits 0. Commit them, and run it again.
+   to `…&ref=lifecycle&rev=…`. With `ref=`, Nix takes the branch's last commit, whatever is checked out, and
+   leaves out uncommitted edits: commit them first. `exportIgnore=1` applies your export rules, as a release
+   would.
 
 4. Graft your branch:
 
@@ -80,7 +80,7 @@ version. For `0.y.z`, a new `0.y` counts as one.
 5. Write the migration brief, outside the repository:
 
    ```
-   nix run .#graft migrate > /tmp/page-rules-brief.md
+   nix run .#graft migrate > /tmp/page-rules-dry-run.md
    ```
 
    It runs the consumer's checks, so their logs scroll past. The brief's "What broke here" names the
@@ -98,7 +98,7 @@ version. For `0.y.z`, a new `0.y` counts as one.
    ```
 
    It exits 0 when the steps are complete. If it fails, or you did something the steps do not say, fix the
-   steps in the provider, commit, and go back to step 3.
+   steps in the provider and commit. Then do step 7, and start again from step 2 with a fresh worktree.
 
 7. Remove the worktree and its branch:
 
@@ -108,18 +108,31 @@ version. For `0.y.z`, a new `0.y` counts as one.
    git -C handbook branch -D try-page-rules-v2
    ```
 
-8. Merge the branch, and tag the merge with the new major version:
+   For a clone, delete its folder instead.
+
+8. Merge the branch:
 
    ```
    git -C page-rules switch main
    git -C page-rules merge --ff-only lifecycle
-   git -C page-rules tag -a v2.0.0 -m v2.0.0
    ```
 
-   Push the branch and the tag: `git -C page-rules push origin main v2.0.0`. The example's provider has no
-   remote. Consumers' weekly upgrades stay in v1, and each consumer takes v2.0.0 when a person decides to.
+9. Tag the merge with the new major version:
 
-### Check it worked
+   ```
+   git -C page-rules tag v2.0.0
+   ```
+
+10. Push the branch and the tag:
+
+    ```
+    git -C page-rules push origin main v2.0.0
+    ```
+
+    The example's provider has no remote: skip this step there. Consumers' weekly upgrades stay in v1, and each
+    consumer takes v2.0.0 when a person decides to.
+
+### Check the release
 
 From a consumer that still pins the old major version (`handbook/`), paste this. It prints `ok` only if graft
 finds the tag and your Upgrading steps in it:
@@ -174,8 +187,8 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
    > ##### Upgrading
    > 1. Find your pages that still use the old field. Leave out the scions directory:
    >    `grep -rl --include='*.md' --exclude-dir=scions '^status:' .`
-   > 2. In each file it lists, rename the field and keep its value:
-   >    `sed -i 's/^status:/lifecycle:/'` on those files.
+   > 2. Rename the field in each of those files, and keep its value:
+   >    `grep -rl --include='*.md' --exclude-dir=scions '^status:' . | xargs sed -i 's/^status:/lifecycle:/'`
    > 3. Find links to the old rule page: `grep -rn --exclude-dir=scions 'page-rules/docs/status.md' .`
    >    Change each to `page-rules/docs/lifecycle.md`.
    > 4. Done when `nix flake check` passes.
@@ -203,7 +216,8 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
    graft: rebuilt scions/
    ```
 
-   It moved the tag in `flake.nix`, locked it in `flake.lock`, and rebuilt and staged `scions/`.
+   It moved the tag in `flake.nix`, locked it in `flake.lock`, and rebuilt and staged `scions/`. It does
+   not stage `flake.nix` and `flake.lock`: step 5's `-a` adds them.
 
 5. Commit what graft changed, on its own, so that a reviewer can tell it from your fixes:
 
@@ -217,7 +231,8 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
    nix run .#graft migrate > /tmp/page-rules-brief.md
    ```
 
-   It runs your checks, so their logs scroll past on stderr. The brief, with the commit and store hashes shortened:
+   It runs your checks, so their logs scroll past on stderr. (Part 1 used another file, so the two briefs
+   never mix.) The brief, with the commit and store hashes shortened:
 
    ```
    Migrate this repo (team-kb) to page-rules v2.0.0 (from v1.1.0).
@@ -301,7 +316,8 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
    It exits 0. Nix warns `The check omitted these incompatible systems: …`. If a check still fails, its log
    says what is left: go back to step 7.
 
-9. Commit the fixes:
+9. Commit the fixes, unless the agent already did: the brief asks it to. `git status --short` lists
+   nothing when it did.
 
    ```
    git commit -m "Follow page-rules v2.0.0: status: is lifecycle:"
@@ -316,14 +332,16 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
     Your CI runs `nix flake check` on it ([Make a pattern's checks gate your merges](gate-merges.md)). Merge it
     when the checks pass.
 
-### Check it worked
+### Check the migration
 
-From the consumer's top, on the branch, paste this. It prints `ok` only if the scions match their pins,
-nothing is left to commit or push, and `nix flake check` passes:
+From the consumer's top, on the branch, paste this, with your tag for `v2.0.0`. It prints `ok` only if the
+pin moved, the scions match their pins, nothing is left to commit or push, and `nix flake check` passes:
 
 ```sh
-nix run .#graft check && test -z "$(git status --porcelain)" && git diff --quiet '@{upstream}' && nix flake check && echo ok
+grep -q 'ref=v2.0.0' flake.nix && nix run .#graft check && test -z "$(git status --porcelain)" && git diff --quiet '@{upstream}' && nix flake check && echo ok
 ```
+
+For a `github:` input, look for `/v2.0.0` instead of `ref=v2.0.0`.
 
 ## If something goes wrong
 
@@ -338,14 +356,16 @@ nix run .#graft check && test -z "$(git status --porcelain)" && git diff --quiet
   your next release.
 - **`migrate` says `graft migrate: nothing moved since … No migration to do.`** It compares with the merge
   base of the default branch, and the upgrade is already there: you committed it on the default branch, and
-  pushed. Name the commit before the upgrade: `nix run .#graft -- migrate --base HEAD~1`. If it says
+  pushed. Find the upgrade's commit with `git log --oneline -- flake.lock` (the newest line), and compare
+  with the commit before it: `nix run .#graft -- migrate --base COMMIT~1`. If it says
   `can't tell the default branch (no origin/HEAD, main or master); pass --base REF`, do the same.
 - **The provider renamed its repository.** `outdated` prints `graft: can't list tags at URL: …` and the status
-  `unknown`. GitHub redirects the old URL, but Forgejo does not redirect ssh URLs. Replace the old URL with
-  the new one in both `flake.nix` and `flake.lock`: the commit and hash stay the same, so there is nothing to
-  fetch again. For example, `sed -i 's#owner/old-name#owner/new-name#' flake.nix flake.lock`. Then
-  `nix run .#graft check` passes, and `outdated` reads the new URL. Keep the input's name, which is the
-  scion's folder name. Commit both files.
+  `unknown`. GitHub redirects the old URL, but Forgejo does not redirect ssh URLs. For a `git+` input,
+  replace the old URL with the new one in both `flake.nix` and `flake.lock`, so that the pinned commit
+  stays the same. Match the name up to the `?` or `"` that ends it:
+  `sed -i 's#/owner/old-name\([?"]\)#/owner/new-name\1#g' flake.nix flake.lock`. Then `git diff flake.lock`
+  shows only `url` lines changed, `nix run .#graft check` passes, and `nix run .#graft outdated` no longer
+  says `unknown`. Keep the input's name, which is the scion's folder name. Commit both files.
 
   Not yet: no graft command follows a renamed repository.
 

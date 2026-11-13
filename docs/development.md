@@ -57,6 +57,8 @@ graft's own rules:
 - A guide is one user goal: a title that names the goal or symptom, numbered steps with the exact command
   and its expected output, a runnable "Check it worked" block, the two to four real failures, and Sources.
   "Not yet: …" marks a known gap.
+- A page whose goal has two actors, such as a provider and a consumer, can have two parts, each with its own
+  steps (at most ten) and its own check under a heading that names it ([example](guides/incompatible-change.md)).
 - Read a new or changed guide literally, against a fixture: `tests/fixtures.sh NAME OUT` builds one
   (`check-fails`, `first-pattern`, `gate-merges`, `breaking-change`). A reader that sees only the page and its links follows each step and says
   what it expects first. Then a reviewer checks its claims against the code.
