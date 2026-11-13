@@ -236,21 +236,48 @@ cd "$c"
 # Annotated tags. Nix 2.24 locks `?ref=v1.0.0` at an annotated tag to the tag OBJECT's sha, and its
 # exportIgnore filter then looks for .gitattributes at a commit that isn't one, finds nothing, and
 # ignores nothing: the scion gets the whole tree. A git+file worktree hides it (libgit2 falls back
-# to the worktree's .gitattributes), so this provider is a bare repo served over (dumb) HTTP. A
-# fresh fetch of `ref=v1.0.0` over HTTP or ssh fails in Nix 2.24 (it asks for refs/heads/v1.0.0),
-# so the lock starts as the one Nix wrote for a consumer whose cache already had the tag.
+# to the worktree's .gitattributes), so this provider is a bare repo served over HTTP. A
+# fetch of `ref=v1.0.0` over HTTP or ssh asks for refs/heads/v1.0.0 and fails (Nix 2.24 on a cache
+# that hasn't seen the tag; Nix 2.34 always), and Nix 2.34 locks a tag at its commit, so the test
+# writes the lock that Nix 2.24 wrote, at the tag object, by hand.
 ap=$work/annotated
 mkdir -p "$ap/docs" "$ap/tests" "$work/srv"
 echo "annotated v1" > "$ap/docs/a.md" && echo "test" > "$ap/tests/t.sh" && echo "secret" > "$ap/secret.md"
 printf 'tests export-ignore\n/secret.md export-ignore\n' > "$ap/.gitattributes"
 git_ -C "$ap" init -q -b main && git_ -C "$ap" add -A && git_ -C "$ap" commit -qm v1 && git_ -C "$ap" tag -a -m v1.0.0 v1.0.0
 git_ clone -q --bare "$ap" "$work/srv/annotated.git" && git_ -C "$work/srv/annotated.git" update-server-info
-# serve_git [PORT]: start an HTTP server on $work/srv (on PORT, else any free port); its port in $aport
+# serve_git [PORT]: start a git smart-HTTP server (git http-backend) on $work/srv (on PORT, else any free
+# port); its port in $aport. Smart, not dumb, HTTP: Nix 2.34 fetches a locked rev shallow, which dumb HTTP can't.
 serve_git() {
   rm -f "$work/srv.port"
-  nix run "$np#python3" -- -c 'import functools, http.server, sys
-s = http.server.HTTPServer(("127.0.0.1", int(sys.argv[3])), functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1]))
-open(sys.argv[2], "w").write(str(s.server_port))
+  nix run "$np#python3" -- -c 'import http.server, os, subprocess, sys
+root, portfile, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
+class Git(http.server.BaseHTTPRequestHandler):
+    def git(self):
+        path, _, query = self.path.partition("?")
+        body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        env = dict(os.environ, GIT_PROJECT_ROOT=root, GIT_HTTP_EXPORT_ALL="1", PATH_INFO=path, QUERY_STRING=query,
+                   REQUEST_METHOD=self.command, CONTENT_TYPE=self.headers.get("Content-Type", ""),
+                   CONTENT_LENGTH=str(len(body)), REMOTE_ADDR="127.0.0.1",
+                   HTTP_CONTENT_ENCODING=self.headers.get("Content-Encoding", ""),
+                   HTTP_GIT_PROTOCOL=self.headers.get("Git-Protocol", ""))
+        out = subprocess.run(["git", "http-backend"], input=body, env=env, capture_output=True).stdout
+        sep = b"\r\n\r\n" if b"\r\n\r\n" in out else b"\n\n"
+        head, _, data = out.partition(sep)
+        status, headers = 200, []
+        for line in head.decode().splitlines():
+            k, _, v = line.partition(":")
+            if k.lower() == "status": status = int(v.split()[0])
+            elif k: headers.append((k, v.strip()))
+        self.send_response(status)
+        for k, v in headers: self.send_header(k, v)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+    do_GET = do_POST = git
+    def log_message(self, *args): pass
+s = http.server.HTTPServer(("127.0.0.1", port), Git)
+open(portfile, "w").write(str(s.server_port))
 s.serve_forever()' "$work/srv" "$work/srv.port" "${1:-0}" 2>/dev/null & srv=$!
   for _ in $(seq 300); do [ -s "$work/srv.port" ] && break; sleep 0.1; done
   aport=$(cat "$work/srv.port")
@@ -267,7 +294,8 @@ cat > "$ac/flake.nix" <<EOF
   outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
 }
 EOF
-# tag_lock REV: write the consumer's lock of annotated at REV, as Nix writes it (graft's input added by nix flake lock)
+# tag_lock REV: write the consumer's lock of annotated at REV, as Nix writes it (graft's input added by
+# nix flake lock). git add first: Nix reads a git flake's flake.lock only when git tracks it.
 tag_lock() {
   local pre
   # (fetching a tag object by its sha, git complains it isn't a commit, and Nix carries on)
@@ -275,14 +303,17 @@ tag_lock() {
   jq -n --argjson l "$(jq .locked <<<"$pre")" --arg url "$aurl" \
     '{nodes: {annotated: {flake: false, locked: $l, original: {exportIgnore: true, ref: "v1.0.0", type: "git", url: $url}},
               root: {inputs: {annotated: "annotated"}}}, root: "root", version: 7}' > flake.lock
-  quiet nix flake lock || fail "nix flake lock"
+  git_ add flake.lock && { quiet nix flake lock || fail "nix flake lock"; }
 }
 cd "$ac" && git_ init -q -b main && git_ add flake.nix
 tag_lock "$atag" && git_ add -A
 # shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
-expect "annotated: the lock pins the tag object, as Nix 2.24 writes it" quiet jq -e --arg r "$atag" '.nodes.annotated.locked.rev == $r' flake.lock
+expect "annotated: the lock pins the tag object, as Nix 2.24 wrote it" quiet jq -e --arg r "$atag" '.nodes.annotated.locked.rev == $r' flake.lock
 bugged=$(nix flake prefetch --json "git+$aurl?ref=v1.0.0&rev=$atag&exportIgnore=1" 2>/dev/null | jq -r .storePath)
-expect "annotated: (the bug: at the tag object, Nix's export ignores nothing)" test -e "$bugged/tests/t.sh"
+# the bug, in Nix 2.24 and 2.34: at the tag object, Nix's export ignores nothing. A Nix without it
+# skips the checks below that need an unfiltered export; graft's re-pin is tested on any Nix.
+if [ -e "$bugged/tests/t.sh" ]; then tagbug=1; pass "annotated: (the bug: at the tag object, Nix's export ignores nothing)"
+else tagbug=""; pass "annotated: (this Nix filters the export at the tag object: no unfiltered-export checks)"; fi
 # sync re-pins the tag's commit and stops (its scions were built from the old lock); run again, it
 # grafts the real export
 refused "annotated: sync re-pins, then stops" nix run .#graft
@@ -305,20 +336,24 @@ expect "annotated: graft check passes" quiet nix run .#graft check
 expect "annotated: nix flake lock leaves the re-pinned lock alone" sh -c 'cp flake.lock "$1/lock.before" && nix flake lock >/dev/null 2>&1 && cmp -s flake.lock "$1/lock.before"' _ "$work"
 # a lock at the tag object, with a scions directory grafted from it (what graft 2.8 wrote): every
 # check fails, saying why, though the directory matches what Nix fetched
-cp -R "$bugged/." scions/annotated/ && chmod -R u+w scions/annotated && sed -i "s/$acommit/$atag/" scions/README.md
-tag_lock "$atag" && git_ add -A
-refused "annotated: nix flake check fails on a lock at the tag object" nix flake check -L
-expect "and says what it found" grep -q "annotated: its fetched export still holds what its .gitattributes marks export-ignore" <<<"$out"
-expect "and why" grep -q "annotated tag's object" <<<"$out"
-refused "annotated: graft check fails too" nix run .#graft check
-expect "and says what it found" grep -q "marks export-ignore: .*secret.md" <<<"$out"
-refuse "annotated: graft ci check fails too" quiet ci_ check
-# the upstream unreachable: sync can't re-pin, and won't write the wrong export
-kill "$srv" 2>/dev/null; wait "$srv" 2>/dev/null || true; srv=""
-refused "annotated: sync, upstream unreachable, refuses to write the unfiltered export" nix run .#graft
-expect "and says it couldn't check" grep -q "can't check whether annotated's tag" <<<"$out"
-expect "and the scions directory is as it was" test -e scions/annotated/secret.md
-serve_git "$aport"
+if [ -n "$tagbug" ]; then
+  cp -R "$bugged/." scions/annotated/ && chmod -R u+w scions/annotated && sed -i "s/$acommit/$atag/" scions/README.md
+  tag_lock "$atag" && git_ add -A
+  refused "annotated: nix flake check fails on a lock at the tag object" nix flake check -L
+  expect "and says what it found" grep -q "annotated: its fetched export still holds what its .gitattributes marks export-ignore" <<<"$out"
+  expect "and why" grep -q "annotated tag's object" <<<"$out"
+  refused "annotated: graft check fails too" nix run .#graft check
+  expect "and says what it found" grep -q "marks export-ignore: .*secret.md" <<<"$out"
+  refuse "annotated: graft ci check fails too" quiet ci_ check
+  # the upstream unreachable: sync can't re-pin, and won't write the wrong export
+  kill "$srv" 2>/dev/null; wait "$srv" 2>/dev/null || true; srv=""
+  refused "annotated: sync, upstream unreachable, refuses to write the unfiltered export" nix run .#graft
+  expect "and says it couldn't check" grep -q "can't check whether annotated's tag" <<<"$out"
+  expect "and the scions directory is as it was" test -e scions/annotated/secret.md
+  serve_git "$aport"
+else
+  tag_lock "$atag" && git_ add -A
+fi
 refuse "annotated: sync re-pins" quiet nix run .#graft
 quiet nix run .#graft || fail "nix run .#graft, annotated, again"
 git_ add -A
@@ -327,7 +362,7 @@ expect "annotated: sync repairs it" quiet jq -e --arg r "$acommit" '.nodes.annot
 expect "annotated: (the export)" test ! -e scions/annotated/secret.md
 expect "annotated: then the check passes" quiet nix flake check
 # graft upgrade to a newer annotated tag pins its commit (by hand: `nix flake update` can't fetch
-# `ref=v1.1.0` fresh over HTTP or ssh in Nix 2.24)
+# `ref=v1.1.0` over HTTP or ssh: in Nix 2.24 on a cache that hasn't seen the tag, in Nix 2.34 at all)
 echo "annotated v1.1" > "$ap/docs/a.md" && git_ -C "$ap" commit -qam v1.1 && git_ -C "$ap" tag -a -m v1.1.0 v1.1.0
 git_ -C "$ap" push -q "$work/srv/annotated.git" main v1.1.0 && git_ -C "$work/srv/annotated.git" update-server-info
 quiet nix run .#graft upgrade || fail "graft upgrade, annotated"
