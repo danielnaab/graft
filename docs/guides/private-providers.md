@@ -173,7 +173,7 @@ Then push a branch, and see graft-check pass on Forgejo.
 
 ## Related
 
-- [Keep private files out of the Nix store](flake-in-a-subdirectory.md), [CI](ci.md),
+- [Keep private files out of the Nix store](flake-in-a-subdirectory.md), [Run graft in CI and review its upgrade pull requests](ci.md),
   [Files](../reference/files.md#the-graft-ssh-line).
 
 ## Sources

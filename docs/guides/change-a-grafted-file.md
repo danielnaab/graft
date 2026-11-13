@@ -17,7 +17,7 @@ Never edit a scion: `nix run .#graft` replaces it, and the check fails until it 
 | A different rule or page for your repository only | The [Steps](#steps) below. |
 | To fix a mistake that every consumer has | [Fix it in the provider](#fix-it-in-the-provider). |
 | None of a provider's files | [Stop grafting a provider](#stop-grafting-a-provider). |
-| Your own edits to one of graft's workflows | [Keep your own edits to a workflow](ci.md#keep-your-own-edits-to-a-workflow). |
+| Your own edits to one of graft's workflows | [Keep your own edits to a workflow](../reference/files.md#keep-your-own-edits-to-a-workflow). |
 
 A provider cannot leave out one file for one consumer: its export rules are the same for every consumer. If
 one of its files never fits, ask the provider to make it optional, or to read a setting from your
