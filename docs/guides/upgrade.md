@@ -50,7 +50,8 @@ with `upgrade NAME@TAG` on a branch, then `migrate`. The steps are in
 [Ship and take an incompatible change](incompatible-change.md#part-2-a-consumer-takes-the-change).
 
 `migrate` also helps when the weekly upgrade's pull request fails a check. The CI bot force-pushes its branch
-`graft/upgrade` every week: make your fix on a new branch from it, or merge the fix before the next run.
+`graft/upgrade` every week: make your fix on a new branch from it, or merge the fix before the next run
+([a failing upgrade pull request](ci.md#if-something-goes-wrong)).
 
 ## Try a provider's unreleased change
 
@@ -83,5 +84,5 @@ nix run .#graft --override-input knowledge-base-kit "git+file://$HOME/src/knowle
 `nix run .#graft migrate` runs the branch's own code and the graft version that it pins. The details are
 in [Commands](../reference/commands.md#run-from-grafts-flake).
 
-Related: [Ship and take an incompatible change](incompatible-change.md), [CI](ci.md),
+Related: [Ship and take an incompatible change](incompatible-change.md), [Run graft in CI and review its upgrade pull requests](ci.md),
 [Change a grafted file](change-a-grafted-file.md).

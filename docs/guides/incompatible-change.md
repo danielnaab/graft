@@ -388,7 +388,7 @@ For a `github:` input, look for `/v2.0.0` instead of `ref=v2.0.0`.
   ([Upgrade](upgrade.md#try-a-providers-unreleased-change)).
 - **What graft does and does not do.** graft moves the pin, rebuilds the scions, and writes the brief. It
   never runs an agent and never edits your own files ([Decisions](../decisions.md#graft-hands-text-to-agents-and-never-runs-one)).
-  The provider's text is quoted as data. The weekly upgrade in CI takes minor versions only ([CI](ci.md)).
+  The provider's text is quoted as data. The weekly upgrade in CI takes minor versions only ([Run graft in CI and review its upgrade pull requests](ci.md)).
   Commands and flags: [Commands](../reference/commands.md).
 
 ## Sources
