@@ -34,7 +34,8 @@ graft writes it. Its format is what graft's commands read, so do not edit it.
   another scions directory (a provider's leaked scions README). graft deletes only a directory whose
   `README.md` has it.
 - **Line 2, only for a flake in a subdirectory:** the `flakeDir`. graft's commands and workflows find the
-  flake from it. Every scions directory in a repository must name the same flake.
+  flake from it, by the same rules: only a `README.md` with the marker counts, not one inside another
+  scions directory, and every scions directory in a repository must name the same flake.
 - **The table:** one row per scion: a link to its folder, and its commit. graft's commands find the
   scions from these rows. A local override shows the commit with `-dirty`.
 

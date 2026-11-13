@@ -40,6 +40,12 @@
 - **`outdated`, `changelog` and `upgrade` refuse arguments they do not take**, with exit 2 and the
   command's usage line. `-C` with no repository failed with `unbound variable`; `outdated NAME` and
   `upgrade --json` were accepted and ignored; an unknown option was read as a scion's name.
+- **graft's workflows find the flake by the commands' rules.** Their step read the first
+  `<!-- graft flake: … -->` line in any `README.md`, so a provider's leaked scions README (one that names
+  its own flake) could send a top-level repository's CI to a flake that does not exist. The step now reads
+  only READMEs with graft's marker, skips one inside another scions directory, and fails on two that
+  differ or on a path graft won't use, as `lib/common.sh` does. The new workflows arrive with the next
+  `nix run .#graft` or `graft upgrade`.
 - **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or
   three of them, depending on the line; it now always says
   `graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in FILE; …)`.

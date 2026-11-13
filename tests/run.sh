@@ -572,6 +572,32 @@ expect "paths-ignore: and wrote the new version's workflow" grep -q "^# changed 
 expect "paths-ignore: keeping the repo's line" test "$(pi_on "$wf")" = "$pi_want"
 expect "paths-ignore: check passes under the new pin" quiet nix flake check
 # without one, graft's copy byte for byte: the cmp tests above
+# The workflows' own search for the flake (a shell step: it must find the flake before graft can
+# run), by lib/common.sh's rules. flake_block FILE: each copy of it in FILE, unindented.
+flake_block() { awk '/# graft.s flake: at the top/ { on = 1 } on { sub(/^ +/, ""); print } on && /^ *flake=\./ { on = 0 }' "$1"; }
+fb=$work/flake-block.sh
+# shellcheck disable=SC2016 # a line of the script, expanded when it runs
+{ flake_block "$graft/template/.forgejo/workflows/graft-check.yaml"; echo 'echo "$flake"'; } > "$fb"
+fr=$work/flake-find
+mkdir -p "$fr/scions/p/.scions" && git_ -C "$fr" init -q -b main
+fbin=$work/flake-bin   # git and nothing else, as in the nixos/nix image (no sed)
+mkdir -p "$fbin" && ln -s "$(command -v git)" "$fbin/git"
+fbrun() { (cd "$fr" && git_ add -A && env PATH="$fbin" "$(command -v bash)" -e "$fb" 2>&1); }
+mk_readme() { mkdir -p "$fr/$1" && printf '%s\n' '<!-- managed by graft: https://github.com/danielnaab/graft -->' ${2:+"<!-- graft flake: $2 -->"} '# x' > "$fr/$1/README.md"; }
+mk_readme scions
+mk_readme scions/p/.scions nix/tools   # a provider's leaked scions README, naming its own flake
+expect "flake step: a leaked scions README inside a scion is not the repo's" test "$(fbrun)" = .
+mk_readme scions nix/workspace
+expect "flake step: the scions README's flake" test "$(fbrun)" = "path:$fr/nix/workspace"
+mk_readme other nix/else
+refused "flake step: two that differ fail" fbrun
+expect "and say so" grep -q "^::error::the scions READMEs name different flake directories" <<<"$out"
+rm -r "$fr/other" && mk_readme scions ../up
+refused "flake step: one outside the repo fails" fbrun
+expect "and says so" grep -qF "::error::the scions README names a flake directory graft won't use: ../up" <<<"$out"
+rm -r "$fr/scions/p" && printf '%s\n' '# notes' '<!-- graft flake: nix/x -->' > "$fr/scions/README.md"
+expect "flake step: a README without the marker is not read" test "$(fbrun)" = .
+
 # lib/workflows.sh itself, on examples a later graft might ship: a comment at column 0 between
 # triggers doesn't end the `on:` block, and the line is written under both triggers
 wx=$work/wf-examples wr=$work/wf-repo
@@ -1228,9 +1254,8 @@ cibin=$work/ci-bin
 mkdir -p "$cibin" && ln -sf "$(command -v nix)" "$cibin/nix" && ln -sf "$(command -v git)" "$cibin/git"
 step() { env PATH="$cibin" "$(command -v bash)" -e "$work/check-step.sh"; }
 expect "subdir: graft-check.yaml's step finds the flake and passes" quiet step
-# shellcheck disable=SC2016 # the literal text of the step's line
 expect "subdir: graft-upgrade.yaml finds it the same way, in both jobs" \
-  test "$(grep -c -F "$(grep -F 'd=$(git grep' .forgejo/workflows/graft-check.yaml)" "$graft/template/.forgejo/workflows/graft-upgrade.yaml")" = 2
+  test "$(flake_block "$graft/template/.forgejo/workflows/graft-upgrade.yaml")" = "$(flake_block .forgejo/workflows/graft-check.yaml; flake_block .forgejo/workflows/graft-check.yaml)"
 echo "local edit" >> .scions/provider/docs/policy.md
 refuse "subdir: and fails on drift" quiet step
 git_ checkout -q -- .
