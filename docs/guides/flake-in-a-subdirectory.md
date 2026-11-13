@@ -15,7 +15,9 @@ files, into the Nix store.
   `nix run 'path:DIR#graft' check`, not a check in `nix flake check`. A check of your own cannot read files
   outside the subdirectory. Rename any check of your own that is named `graft`: in a subdirectory flake,
   graft drops it without a word.
-- graft 2.7.0 or later has `flakeDir`. graft's workflows find the flake from 2.7.2. `graft upgrade` in a
+- graft 2.7.0 or later has `flakeDir`. graft's workflows find the flake from 2.7.2. Your graft version is
+  the tag in your `graft` input's URL (`github:danielnaab/graft/v2.11.1`), also the `PINNED` column of the
+  `graft` row that `nix run .#graft outdated` prints. `graft upgrade` in a
   subdirectory flake needs Nix 2.19 or later.
 - Copies that Nix made before stay in the store. See [Remove old copies](#remove-old-copies).
 - The steps use `nix/workspace` for the subdirectory and `.scions` for the scions directory. Use your own
@@ -95,7 +97,7 @@ Run every command from the repository's top. Never run `nix run .#graft`, `nix f
 
    It prints one line for each scion, `graft: .scions/NAME <- COMMIT`, and stages `.scions/`. It writes the
    subdirectory into the second line of `.scions/README.md`, `<!-- graft flake: nix/workspace -->`, and
-   the README's commands now say `nix run path:nix/workspace#graft`.
+   the README's commands now say `nix run path:nix/workspace#graft`. In zsh, quote them when you type them.
 
 7. Check it:
 
@@ -184,13 +186,14 @@ The commands, from the repository's top:
    (`-source`) or a `src = ./.` (named after the repository's folder) makes. It can take minutes:
 
    ```
-   grep -rlF 'THE LINE' /nix/store/*-source /nix/store/*-"$(basename "$PWD")" 2>/dev/null
+   find /nix/store -mindepth 1 -maxdepth 1 -type d \( -name '*-source' -o -name "*-$(basename "$PWD")" \) -exec grep -rlF 'THE LINE' {} + 2>/dev/null
    ```
 
    It misses a copy of a file that did not hold that line yet, a copy named after another folder, and a
    compressed file. Search for a line from each private file that matters.
 2. For each store path that it names, `nix-store --query --roots PATH` prints what keeps it. Nothing
-   printed means that nothing does.
+   printed means that nothing does. A line `removing stale link from '/nix/var/nix/gcroots/auto/…'` is Nix
+   tidying up, not a root.
 3. Delete each with `nix store delete PATH`. Nix refuses a path that something still uses
    (`Cannot delete path … since it is still alive`). `nix store gc` deletes every unused path on the
    machine instead, every user's cache too.

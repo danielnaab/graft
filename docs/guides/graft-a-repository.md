@@ -26,7 +26,8 @@ committed.
    nix flake init -t github:danielnaab/graft
    ```
 
-   It writes `flake.nix` and graft's two CI workflows in `.forgejo/workflows/`, adds them to git, and prints
+   It writes `flake.nix` and graft's two CI workflows in `.forgejo/workflows/`, marks them for git
+   (`git add --intent-to-add`: `git status --short` shows ` A`), and prints
    `Edit description and the inputs in flake.nix …`.
 
    If the repository already has a `flake.nix`, it writes the workflows but not `flake.nix`
