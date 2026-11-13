@@ -296,5 +296,5 @@ Moved to [Files](../reference/files.md#keep-your-own-edits-to-a-workflow).
 - [template/.forgejo/workflows/](../../template/.forgejo/workflows/graft-upgrade.yaml): the schedule, the
   two jobs, and `GRAFT_PR_TOKEN`.
 - [tests/run.sh](../../tests/run.sh): "graft ci, the workflows' steps, against a local origin", "graft ci pr
-  against a stub API", and the `gate:` checks; [tests/stub-api.py](../../tests/stub-api.py).
+  against a stub API", "the API's failures", and the `gate:` checks; [tests/stub-api.py](../../tests/stub-api.py).
 - [tests/fixtures.sh](../../tests/fixtures.sh) `ci`: the repositories that this page was read against.

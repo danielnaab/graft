@@ -784,16 +784,18 @@ echo "sneaky" > sneaky.sh && git_ add -A && git_ commit -qm sneaky && git_ push 
 git_ checkout -q main
 refuse "ci pr: no PR for a branch that changes other files" quiet ci_ "${pr_env[@]}" pr
 
-# graft ci pr against a stub API. stub_pr NAME [LISTING]: run `graft-ci pr` in the current repo
-# against a fresh stub (GET answers LISTING), with output in $work/NAME.out, the request log in
+# graft ci pr against a stub API. stub_pr NAME [LISTING [STATUSES]]: run `graft-ci pr` in the current
+# repo against a fresh stub (GET answers LISTING; STATUSES, JSON, the HTTP status to answer each
+# method with), with output in $work/NAME.out, its exit code in $work/NAME.rc, the request log in
 # $work/NAME.auth and the requests in $work/NAME.req
 stub_pr() {
-  local port=$work/$1.port
+  local port=$work/$1.port rc=0
   rm -f "$port"
-  nix run "$np#python3" -- "$graft/tests/stub-api.py" "$port" "$work/$1.auth" "$work/$1.req" "${2:-/nonexistent}" & stub=$!
+  nix run "$np#python3" -- "$graft/tests/stub-api.py" "$port" "$work/$1.auth" "$work/$1.req" "${2:-/nonexistent}" ${3:+"$3"} & stub=$!
   for _ in $(seq 100); do [ -s "$port" ] && break; sleep 0.1; done
   ci_ API="http://127.0.0.1:$(cat "$port")" WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=s3cret \
-    pr > "$work/$1.out" 2>&1 || true
+    pr > "$work/$1.out" 2>&1 || rc=$?
+  echo "$rc" > "$work/$1.rc"
   kill "$stub" 2>/dev/null || true
 }
 # post_body NAME: the body of the PR the stub was asked to open
@@ -930,6 +932,29 @@ expect "an open PR: retitled and described, not opened again" sh -c "jq -e 'sele
 echo '[{"number": 9, "head": {"ref": "graft/upgrade", "repo_id": 2}, "base": {"repo_id": 1}}]' > "$work/listing.json"
 stub_pr gate3 "$work/listing.json"
 expect "a fork's PR from a branch of that name: left alone, ours opened" sh -c "! grep -q '^PATCH' '$work/gate3.auth' && grep -q '^POST' '$work/gate3.auth'"
+
+# the API's failures, each answered by the stub
+stub_pr http1 /nonexistent '{"GET": 500}'
+expect "listing PRs fails: the step fails" grep -qx 1 "$work/http1.rc"
+expect "and names the HTTP status" grep -qxF "::error::listing PRs: HTTP 500" "$work/http1.out"
+refuse "and opens nothing" grep -q '^POST' "$work/http1.auth"
+stub_pr http2 /nonexistent '{"GET": 401}'
+expect "a refused token (401): named" grep -qxF "::error::listing PRs: HTTP 401" "$work/http2.out"
+echo '[{"number": 7, "head": {"ref": "graft/upgrade", "repo_id": 1}, "base": {"repo_id": 1}}]' > "$work/listing.json"
+stub_pr http3 "$work/listing.json" '{"PATCH": 422}'
+expect "an open PR that can't be edited: a warning, not a failure" grep -qx 0 "$work/http3.rc"
+expect "which says so" grep -qxF "::warning::a PR is already open for graft/upgrade (#7) and the push updated it, but its description couldn't be updated (HTTP 422)" "$work/http3.out"
+stub_pr http4 /nonexistent '{"POST": 409}'
+expect "409 (a PR the listing missed): not a failure" grep -qx 0 "$work/http4.rc"
+expect "and says the push updated it" grep -qxF "graft: a PR is already open for graft/upgrade; the push updated it" "$work/http4.out"
+stub_pr http5 /nonexistent '{"POST": 404}'
+expect "404 opening the PR: the step fails" grep -qx 1 "$work/http5.rc"
+expect "and says where to open it" grep -qxF "::error::opening the PR: HTTP 404. graft/upgrade is pushed; open it at x/compare/main...graft/upgrade" "$work/http5.out"
+expect "with the GRAFT_PR_TOKEN hint" grep -qxF "::error::a 404 here is Forgejo refusing the job token: set the GRAFT_PR_TOKEN secret" "$work/http5.out"
+stub_pr http6 /nonexistent '{"POST": 500}'
+expect "another failure opening the PR: the step fails" grep -qx 1 "$work/http6.rc"
+expect "and names it" grep -qxF "::error::opening the PR: HTTP 500. graft/upgrade is pushed; open it at x/compare/main...graft/upgrade" "$work/http6.out"
+refuse "without the 404 hint" grep -q "GRAFT_PR_TOKEN" "$work/http6.out"
 
 # graft-migrate: a brief for a branch with an upgrade applied. A provider whose v2.0.0 renames,
 # deletes and drops a directory, with an Upgrading section (and text a shell would expand); a
