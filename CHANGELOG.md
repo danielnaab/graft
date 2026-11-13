@@ -10,6 +10,9 @@
   for a new or an existing repository (an existing flake's outputs, its own `flake = false` inputs, a
   `.gitignore` that drops `flake.lock`). Its section "Try a provider's unreleased change" moved to
   [Upgrade](docs/guides/upgrade.md#try-a-providers-unreleased-change).
+- **[Change a file that a scion provides](docs/guides/override.md):** a guide to the four ways to change
+  what a scion gives you without editing it: fix it in the provider and take the release, keep your own
+  version, stop grafting it (`mkFlake`'s `scions`), or keep your own edits to one of graft's workflows.
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
 
 ### Fixed

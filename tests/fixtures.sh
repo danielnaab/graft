@@ -7,15 +7,19 @@
 #   first-pattern   three starting repositories, no graft yet: new/ (git init, no commits), existing/ (its
 #                   own flake with a check, and a .gitignore that drops flake.lock), locked/ (its own
 #                   flake, with flake.lock committed)
+#   override        a consumer that grafts two local providers (policy-kit at v1.0.0, newer v1.1.0 tagged,
+#                   with a CHANGELOG; glossary at v1.0.0) with this checkout's graft and its two workflows
+#                   (graft-check.yaml with a kept paths-ignore line), committed and passing; its AGENTS.md
+#                   points at the grafted policy page, which the team wants to change
 #
 # Needs nix, git 2.28 or later and GNU sed. Network: check-fails fetches python3 and ruff from the nixpkgs
 # registry (unpinned, so ruff's output can vary); first-pattern's flakes pin a nixpkgs that the reader fetches.
 set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
-slice=${1:?usage: fixtures.sh check-fails|first-pattern OUT}
-out=${2:?usage: fixtures.sh check-fails|first-pattern OUT}
-case $slice in check-fails|first-pattern) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern)" >&2; exit 2 ;; esac
+slice=${1:?usage: fixtures.sh check-fails|first-pattern|override OUT}
+out=${2:?usage: fixtures.sh check-fails|first-pattern|override OUT}
+case $slice in check-fails|first-pattern|override) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, override)" >&2; exit 2 ;; esac
 [ ! -e "$out" ] || { echo "fixtures.sh: $out exists; name a new directory" >&2; exit 1; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -26,6 +30,7 @@ repo() {
   git -C "$1" config user.name fixture
   git -C "$1" config user.email fixture@example.invalid
   git -C "$1" config commit.gpgsign false
+  git -C "$1" config tag.gpgsign false
 }
 
 check_fails() {
@@ -123,7 +128,66 @@ first_pattern() {
   echo "$l"
 }
 
+override() {
+  local p=$out/policy-kit q=$out/glossary c=$out/consumer
+  mkdir -p "$p/docs" "$p/checker" "$p/tests" "$q"
+  printf '# Status policy\n\nEvery page has a status: draft, working, stable or deprecated.\nA deprecated page links to the page that replaces it.\n' > "$p/docs/status.md"
+  printf '# Provenance policy\n\nEvery page that drives a decision cites its sources.\n' > "$p/docs/provenance.md"
+  cat > "$p/checker/check.sh" <<'EOF'
+#!/usr/bin/env bash
+# check.sh DIR: fail for each Markdown page in DIR with no status line
+rc=0
+for f in "$1"/*.md; do grep -q '^status: ' "$f" || { echo "no status: $f"; rc=1; }; done
+exit "$rc"
+EOF
+  echo "echo test" > "$p/tests/t.sh"
+  echo "tests/ export-ignore" > "$p/.gitattributes"
+  printf '# Changelog\n\n## v1.0.0\n\n- First release: the status and provenance policies, and the checker.\n' > "$p/CHANGELOG.md"
+  repo "$p"
+  g -C "$p" add -A
+  g -C "$p" commit -qm v1.0.0
+  g -C "$p" tag v1.0.0
+  printf 'A page that is not decided yet may say so in its first line.\n' >> "$p/docs/provenance.md"
+  printf '# Changelog\n\n## v1.1.0\n\n- The provenance policy allows an undecided page to say so.\n\n## v1.0.0\n\n- First release: the status and provenance policies, and the checker.\n' > "$p/CHANGELOG.md"
+  g -C "$p" commit -qam v1.1.0
+  g -C "$p" tag v1.1.0
+
+  printf '# Glossary\n\n- **Pantry:** the team knowledge base.\n' > "$q/terms.md"
+  repo "$q"
+  g -C "$q" add -A
+  g -C "$q" commit -qm v1.0.0
+  g -C "$q" tag v1.0.0
+
+  mkdir -p "$c/docs" "$c/.forgejo/workflows"
+  cat > "$c/flake.nix" <<EOF
+{
+  description = "Pantry: a team knowledge base";
+  inputs = {
+    graft.url = "path:$graft";
+    policy-kit = { url = "git+file://$p?ref=v1.0.0&exportIgnore=1"; flake = false; };
+    glossary = { url = "git+file://$q?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  };
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
+}
+EOF
+  printf -- '---\nstatus: working\n---\n# Team notes\n' > "$c/docs/notes.md"
+  printf 'Follow the policies in scions/policy-kit/docs/. Never edit scions/: graft replaces it.\n' > "$c/AGENTS.md"
+  cp "$graft/template/.forgejo/workflows/"*.yaml "$c/.forgejo/workflows/"
+  # the one edit to a graft workflow that graft keeps: the bot's notes don't run the check
+  sed -i 's|^  pull_request:$|&\n    paths-ignore: ["notes/**"]|' "$c/.forgejo/workflows/graft-check.yaml"
+  repo "$c"
+  g -C "$c" add -A
+  (cd "$c" && nix run .#graft >/dev/null)
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft policy-kit v1.0.0 and glossary v1.0.0"
+  (cd "$c" && nix run .#graft check >/dev/null)
+  echo "$p"
+  echo "$q"
+  echo "$c"
+}
+
 case $slice in
   check-fails) check_fails ;;
   first-pattern) first_pattern ;;
+  override) override ;;
 esac

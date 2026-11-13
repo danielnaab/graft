@@ -58,8 +58,8 @@ graft's own rules:
   and its expected output, a runnable "Check it worked" block, the two to four real failures, and Sources.
   "Not yet: …" marks a known gap.
 - Read a new or changed guide literally, against a fixture: `tests/fixtures.sh NAME OUT` builds one
-  (`check-fails`, `first-pattern`). A reader that sees only the page and its links follows each step and says
-  what it expects first. Then a reviewer checks its claims against the code.
+  (`check-fails`, `first-pattern`, `override`). A reader that sees only the page and its links follows each
+  step and says what it expects first. Then a reviewer checks its claims against the code.
 
 These links cite the kit by URL, because graft does not export `scions/`. When you upgrade the kit with
 `nix run .#graft upgrade`, change their tag too.

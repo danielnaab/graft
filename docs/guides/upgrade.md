@@ -104,4 +104,5 @@ nix run .#graft --override-input knowledge-base-kit "git+file://$HOME/src/knowle
 `nix run .#graft migrate` runs the branch's own code and the graft version that it pins. The details are
 in [Commands](../reference/commands.md#run-from-grafts-flake).
 
-Related: [Publish](publish.md#make-an-incompatible-change), [CI](ci.md).
+Related: [Publish](publish.md#make-an-incompatible-change), [CI](ci.md),
+[Change a file that a scion provides](override.md).
