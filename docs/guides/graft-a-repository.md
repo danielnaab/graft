@@ -176,9 +176,9 @@ nix run .#graft check && git ls-files --error-unmatch flake.nix flake.lock scion
   graft.inputs.knowledge-base-kit.follows = "knowledge-base-kit"; # if it grafts knowledge-base-kit
   ```
 
-- `mkFlake` also takes `dir`, `scions` and `flakeDir`: see [Commands](../reference/commands.md#mkflake). To
-  keep private content out of the Nix store, see [A flake in a subdirectory](flake-in-a-subdirectory.md). For
-  a private provider, see [Private providers](private-providers.md). To take newer versions, see
+- `mkFlake` also takes `dir`, `scions` and `flakeDir`: see [Commands](../reference/commands.md#mkflake). See also
+  [Keep private files out of the Nix store](flake-in-a-subdirectory.md) and
+  [Graft a private repository](private-providers.md). To take newer versions, see
   [Upgrade](upgrade.md).
 
 ## Sources

@@ -117,7 +117,7 @@ and `.forgejo/`. Then point your `AGENTS.md`, checks and CI at what you grafted.
 
 - `nix run .#graft` copies the files that git tracks in your repository into the Nix store, which every
   user of the machine can read. To keep private files out of it, see
-  [A flake in a subdirectory](docs/guides/flake-in-a-subdirectory.md).
+  [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md).
 - On GitHub, run `nix run .#graft ci check` and `ci upgrade` from your own workflows, and open the pull
   request yourself ([CI](docs/guides/ci.md)).
 
@@ -140,9 +140,9 @@ See [Publish](docs/guides/publish.md).
 | Graft your first pattern, in a new or existing repository | [Graft your first pattern](docs/guides/graft-a-repository.md) |
 | Find and fix what fails `graft check` | [`graft check` fails](docs/guides/check-fails.md) |
 | Take newer versions, and cross a major version | [Upgrade](docs/guides/upgrade.md) |
-| Keep private content out of the Nix store | [A flake in a subdirectory](docs/guides/flake-in-a-subdirectory.md) |
+| Keep private files out of the Nix store, with a flake in a subdirectory | [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md) |
 | Publish a repository for others to graft | [Publish](docs/guides/publish.md) |
-| Graft a private repository | [Private providers](docs/guides/private-providers.md) |
+| Graft a provider that only an ssh key can read, and check it in CI | [Graft a private repository](docs/guides/private-providers.md) |
 | Check and upgrade in CI | [CI](docs/guides/ci.md), and why it is safe: [CI security](docs/ci-security.md) |
 | Look up a command, flag or `mkFlake` argument | [Commands](docs/reference/commands.md) |
 | Look up a file graft reads or writes | [Files](docs/reference/files.md) |
