@@ -119,7 +119,7 @@ and `.forgejo/`. Then point your `AGENTS.md`, checks and CI at what you grafted.
   user of the machine can read. To keep private files out of it, see
   [A flake in a subdirectory](docs/guides/flake-in-a-subdirectory.md).
 - On GitHub, run `nix run .#graft ci check` and `ci upgrade` from your own workflows, and open the pull
-  request yourself ([CI](docs/guides/ci.md)).
+  request yourself ([Run graft in CI and review its upgrade pull requests](docs/guides/ci.md)).
 
 ## Publish a pattern
 
@@ -144,7 +144,7 @@ See [Publish](docs/guides/publish.md).
 | Keep private content out of the Nix store | [A flake in a subdirectory](docs/guides/flake-in-a-subdirectory.md) |
 | Publish a repository for others to graft | [Publish](docs/guides/publish.md) |
 | Graft a private repository | [Private providers](docs/guides/private-providers.md) |
-| Check and upgrade in CI | [CI](docs/guides/ci.md), and why it is safe: [CI security](docs/ci-security.md) |
+| Check in CI, and review graft's weekly upgrade pull request | [Run graft in CI and review its upgrade pull requests](docs/guides/ci.md), and why it is safe: [CI security](docs/ci-security.md) |
 | Look up a command, flag or `mkFlake` argument | [Commands](docs/reference/commands.md) |
 | Look up a file graft reads or writes | [Files](docs/reference/files.md) |
 | Know which Nix behaviours graft works around | [Nix behaviours](docs/reference/nix-behaviours.md) |

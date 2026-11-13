@@ -75,7 +75,7 @@ Run `migrate` from the repository root. It compares with the merge base of the d
 (`origin/HEAD`, else `origin/main` or `main`). Use `--base REF` for another base. It changes nothing.
 
 The CI bot force-pushes its branch `graft/upgrade` every week. Make your fix on a new branch from it, or
-merge the fix before the next run.
+merge the fix before the next run ([a failing upgrade pull request](ci.md#if-something-goes-wrong)).
 
 ## Try a provider's unreleased change
 
@@ -104,4 +104,4 @@ nix run .#graft --override-input knowledge-base-kit "git+file://$HOME/src/knowle
 `nix run .#graft migrate` runs the branch's own code and the graft version that it pins. The details are
 in [Commands](../reference/commands.md#run-from-grafts-flake).
 
-Related: [Publish](publish.md#make-an-incompatible-change), [CI](ci.md).
+Related: [Publish](publish.md#make-an-incompatible-change), [Run graft in CI and review its upgrade pull requests](ci.md).

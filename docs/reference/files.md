@@ -79,11 +79,20 @@ graft's copy has `branches: [main]`. If your default branch has another name, wr
 
 ### The paths-ignore line
 
-One line under each of the `pull_request:` and `push:` triggers, the same under both:
+One line under each of the `pull_request:` and `push:` triggers of `graft-check.yaml`, the same under both.
+It skips graft-check for pushes that change only files that graft's check never reads, such as a notes
+directory that a bot pushes to often:
 
 ```yaml
+on:
+  pull_request:
+    paths-ignore: ["notebook/**", "drafts/**"]
+  push:
+    branches: [main]
     paths-ignore: ["notebook/**", "drafts/**"]
 ```
+
+Add it, run `nix run .#graft check`, and commit. graft keeps it through `sync` and `upgrade`.
 
 - A list of quoted globs on one line, indented four spaces, with no comment after it. Globs can contain
   letters, digits, `.`, `_`, `/`, `*`, `?` and `-`. Actions' syntax applies: `**` crosses directories. A run is skipped
@@ -94,6 +103,10 @@ One line under each of the `pull_request:` and `push:` triggers, the same under 
   `flake.nix`, `flake.lock` (for a flake in a subdirectory, that whole directory) and `.forgejo/`. It
   also refuses a glob that starts with `*` or `/`. graft reads globs as shell patterns, where `*` and
   `?` also match `/`, so it refuses in case of doubt. Name a directory.
+- A pull request that changes only ignored files gets no graft-check status. Do not make that status
+  required in branch protection.
+- graft-check needs no schedule, because an ignored push cannot change what it checks. Check the ignored
+  files with a hook or a workflow of your own.
 - graft 2.8.0 or later.
 
 ### The graft ssh line

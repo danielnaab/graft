@@ -11,16 +11,23 @@
 #                   graft's workflows and a nixpkgs input; in each, one committed page breaks the rule.
 #                   team-kb/ is in graft's template form, and has an untracked page that breaks it too;
 #                   existing/ already has checks of its own
+#   ci              two consumers with graft's workflows, each pushed to a bare origin (NAME.git), that graft two
+#                   local providers: style-guide (v1.0.0, then v1.1.0, with a CHANGELOG) and page-rules (v1.0.0,
+#                   then v1.0.1 and v2.0.0, whose CHANGELOG has an Upgrading section). team-kb/ is in graft's
+#                   template form, and its upgrade passes; handbook/ has a check of its own that style-guide
+#                   v1.1.0 breaks. pr.sh REPO [open] runs `graft ci pr` in REPO against tests/stub-api.py
+#                   (copied in), and prints the pull request that graft asked it to open, or with `open`, to edit
 #
 # Needs nix, git 2.28 or later and GNU sed. Network: check-fails fetches python3 and ruff from the nixpkgs
 # registry (unpinned, so ruff's output can vary); first-pattern's flakes pin a nixpkgs that the reader fetches;
-# gate-merges pins the nixpkgs that this checkout's graft pins, so its python3 is likely cached.
+# gate-merges pins the nixpkgs that this checkout's graft pins, so its python3 is likely cached; so do ci's
+# handbook/ check and pr.sh.
 set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
-slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges OUT}
-out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges OUT}
-case $slice in check-fails|first-pattern|gate-merges) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges)" >&2; exit 2 ;; esac
+slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|ci OUT}
+out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|ci OUT}
+case $slice in check-fails|first-pattern|gate-merges|ci) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, ci)" >&2; exit 2 ;; esac
 [ ! -e "$out" ] || { echo "fixtures.sh: $out exists; name a new directory" >&2; exit 1; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -244,8 +251,125 @@ EOF
   (cd "$c" && nix run .#graft check >&2)
 }
 
+# release DIR TAG DATE NOTE [UPGRADING]: tag a provider's next version, with a CHANGELOG section on top
+release() {
+  local d=$1 tag=$2 date=$3 note=$4 up=${5:-} old=""
+  [ ! -f "$d/CHANGELOG.md" ] || old=$(sed '1,2d' "$d/CHANGELOG.md")
+  {
+    printf '# Changelog\n\n## %s - %s\n\n- %s\n' "$tag" "$date" "$note"
+    if [ -n "$up" ]; then printf '\n### Upgrading\n\n- %s\n' "$up"; fi
+    if [ -n "$old" ]; then printf '\n%s\n' "$old"; fi
+  } > "$d/CHANGELOG.md"
+  g -C "$d" add -A
+  g -C "$d" commit -qm "$tag"
+  g -C "$d" tag "$tag"
+}
+
+# ci_consumer DIR OUTPUTS: a consumer that grafts style-guide and page-rules v1.0.0, with graft's workflows
+# and OUTPUTS as its flake's outputs line(s), committed and pushed to a bare DIR.git, its origin
+ci_consumer() {
+  local c=$1
+  mkdir -p "$c/docs" "$c/.forgejo/workflows"
+  cat > "$c/flake.nix" <<EOF
+{
+  description = "Team knowledge base";
+
+  inputs = {
+    graft.url = "path:$graft";
+    style-guide = { url = "git+file://$out/style-guide?ref=v1.0.0&exportIgnore=1"; flake = false; };
+    page-rules = { url = "git+file://$out/page-rules?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  };
+
+$2
+}
+EOF
+  command cp -f "$graft"/template/.forgejo/workflows/*.yaml "$c/.forgejo/workflows/"
+  printf -- '---\nstatus: working\n---\n# Onboarding\n\nOur style guide says: "Write short sentences."\n' > "$c/docs/onboarding.md"
+  repo "$c"
+  g -C "$c" add -A
+  (cd "$c" && nix run .#graft >&2)
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft style-guide and page-rules v1.0.0"
+  g init -q --bare "$c.git"
+  g -C "$c" remote add origin "$c.git"
+  g -C "$c" push -q -u origin main 2>/dev/null
+}
+
+ci_fixture() {
+  local s=$out/style-guide p=$out/page-rules d
+  mkdir -p "$s/docs" "$s/tests" "$p/docs" "$p/tests"
+  printf '# Style\n\nWrite short sentences.\n' > "$s/docs/style.md"
+  printf '# Page rules\n\nEvery page has a status.\n' > "$p/docs/rules.md"
+  for d in "$s" "$p"; do
+    echo "echo test" > "$d/tests/t.sh"
+    echo "tests/ export-ignore" > "$d/.gitattributes"
+    g -C "$d" init -q -b main
+  done
+  release "$s" v1.0.0 2026-10-01 "First rules."
+  release "$p" v1.0.0 2026-10-01 "The status rule."
+
+  ci_consumer "$out/team-kb" '  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };'
+  # handbook/: a check of its own, that onboarding.md quotes style-guide's rule word for word
+  ci_consumer "$out/handbook" "$(cat <<'EOF'
+  outputs = inputs:
+    let flake = inputs.graft.lib.mkFlake { inherit inputs; };
+    in flake // {
+      checks = builtins.mapAttrs (system: checks: checks // {
+        style-quote = inputs.graft.inputs.nixpkgs.legacyPackages.${system}.runCommand "style-quote" { } ''
+          q=$(sed -n 's/^Our style guide says: "\(.*\)"$/\1/p' ${inputs.self}/docs/onboarding.md)
+          [ -n "$q" ] && grep -qF -- "$q" ${inputs.self}/scions/style-guide/docs/style.md \
+            || { echo "style-quote: docs/onboarding.md quotes a rule that scions/style-guide/docs/style.md does not have" >&2; exit 1; }
+          touch $out
+        '';
+      }) flake.checks;
+    };
+EOF
+)"
+  (cd "$out/handbook" && nix flake check >&2)
+
+  # what is new upstream since the consumers grafted
+  printf '# Style\n\nKeep sentences short. Use one term for one concept.\n' > "$s/docs/style.md"
+  release "$s" v1.1.0 2026-11-09 "Reworded: keep sentences short. New rule: use one term for one concept."
+  printf '# Page rules\n\nEvery page has a status: draft, working or stable.\n' > "$p/docs/rules.md"
+  release "$p" v1.0.1 2026-11-02 "Fixed: the rule lists the allowed statuses."
+  printf '# Page rules\n\nEvery page has a status and an owner.\n' > "$p/docs/rules.md"
+  # shellcheck disable=SC2016 # Markdown backticks
+  release "$p" v2.0.0 2026-11-10 "Every page names an owner." 'Add `owner:` to the front matter of each page.'
+
+  command cp -f "$graft/tests/stub-api.py" "$out/stub-api.py"
+  echo '[{"number": 7, "head": {"ref": "graft/upgrade", "repo_id": 1}, "base": {"repo_id": 1}}]' > "$out/open-pr.json"
+  cat > "$out/pr.sh" <<'EOF'
+#!/usr/bin/env bash
+# pr.sh REPO [open]: run `graft ci pr` in REPO, at the commit it has checked out, against a stand-in for
+# Forgejo's API; then print the pull request that graft asked it to open (with `open`, PR #7 is open already,
+# and graft edits it)
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+repo=$(cd "${1:?usage: pr.sh REPO [open]}" && pwd)
+listing=/nonexistent
+if [ "${2:-}" = open ]; then listing=$here/open-pr.json; fi
+tmp=$(mktemp -d)
+nix run github:NixOS/nixpkgs/ac62194c3917d5f474c1a844b6fd6da2db95077d#python3 -- \
+  "$here/stub-api.py" "$tmp/port" "$tmp/auth" "$tmp/req" "$listing" & stub=$!
+trap 'kill "$stub" 2>/dev/null || true' EXIT
+for _ in $(seq 600); do if [ -s "$tmp/port" ]; then break; fi; sleep 0.1; done
+rc=0
+(cd "$repo" && env API="http://127.0.0.1:$(cat "$tmp/port")" WEB="https://forgejo.example/team/$(basename "$repo")" \
+  BASE=main BRANCH=graft/upgrade PR_TOKEN=fixture-token nix run .#graft ci pr) || rc=$?
+echo "pr.sh: graft ci pr exited $rc"
+if [ -s "$tmp/req" ]; then
+  jq -r 'select(.method != "GET") | "pr.sh: \(.method) \(.path)", "title: \(.body.title)", "", .body.body' "$tmp/req"
+fi
+exit "$rc"
+EOF
+  chmod +x "$out/pr.sh"
+  echo "$out/team-kb"
+  echo "$out/handbook"
+}
+
 case $slice in
   check-fails) check_fails ;;
   first-pattern) first_pattern ;;
   gate-merges) gate_merges ;;
+  ci) ci_fixture ;;
 esac

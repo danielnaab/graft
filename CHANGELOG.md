@@ -15,6 +15,11 @@
   request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` stays graft's drift
   check: your checks are a status of their own. It says why graft's weekly upgrade pull request gets no
   status from your workflow until a person reopens it.
+- **CI is now [Run graft in CI and review its upgrade pull requests](docs/guides/ci.md)**, a guide to the
+  weekly upgrade pull request: what its title and description say, the newer major versions it holds, what
+  to read in the scions diff, and what to do when its checks fail or the pull request is not opened. It
+  shows how to run the steps by hand (on GitHub, say) and how to check many repositories with `outdated -C`.
+  Its section on `paths-ignore` moved to [Files](docs/reference/files.md#the-paths-ignore-line).
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
 
 ### Fixed

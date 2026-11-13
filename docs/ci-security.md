@@ -25,7 +25,8 @@ branch, with the repository's secrets.
 The **pr** job opens a pull request only if the branch changes nothing but `flake.nix`, `flake.lock` and
 the scions directories. A branch that changes anything else (a new graft version's workflow files, for
 example) could run its own code with the repository's secrets, so the job fails with a link to the diff.
-Read the diff, then open the pull request yourself.
+Read the diff, then open the pull request yourself
+([If something goes wrong](guides/ci.md#if-something-goes-wrong)).
 
 The **pr** job writes the pull request body from data only:
 

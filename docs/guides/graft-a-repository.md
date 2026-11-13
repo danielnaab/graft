@@ -114,7 +114,7 @@ committed.
    ```
 
 7. On GitHub, delete `.forgejo/`. Those workflows are for Forgejo Actions, and graft never adds a workflow
-   that you did not keep ([CI](ci.md)). On Forgejo, keep it.
+   that you did not keep ([Run graft in CI and review its upgrade pull requests](ci.md)). On Forgejo, keep it.
 
 8. Commit:
 
