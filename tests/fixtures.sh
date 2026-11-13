@@ -7,12 +7,14 @@
 #   first-pattern   three starting repositories, no graft yet: new/ (git init, no commits), existing/ (its
 #                   own flake with a check, and a .gitignore that drops flake.lock), locked/ (its own
 #                   flake, with flake.lock committed)
-#   gate-merges     a consumer that grafts a local provider (page-rules: a rule and a Python checker), with
-#                   graft's workflows; one committed page breaks the rule, one untracked page does too
+#   gate-merges     two consumers that graft a local provider (page-rules: a rule and a Python checker), with
+#                   graft's workflows and a nixpkgs input; in each, one committed page breaks the rule.
+#                   team-kb/ is in graft's template form, and has an untracked page that breaks it too;
+#                   existing/ already has checks of its own
 #
 # Needs nix, git 2.28 or later and GNU sed. Network: check-fails fetches python3 and ruff from the nixpkgs
 # registry (unpinned, so ruff's output can vary); first-pattern's flakes pin a nixpkgs that the reader fetches;
-# gate-merges's reader fetches python3 from the nixpkgs that this checkout's graft pins.
+# gate-merges pins the nixpkgs that this checkout's graft pins, so its python3 is likely cached.
 set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
@@ -186,17 +188,45 @@ EOF
   g -C "$p" commit -qm v1.0.0
   g -C "$p" tag v1.0.0
 
+  # team-kb/: graft's template form, with a nixpkgs input of its own (graft's pin, so it is cached)
+  kb_consumer "$c" '  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };'
+  # untracked, and breaks the rule: a draft that no flake can see yet
+  printf -- '---\nstatus: idea\n---\n# Retry the queue\n' > "$c/docs/retry-idea.md"
+  # existing/: its outputs already have checks of their own, one set for each system
+  kb_consumer "$out/existing" "$(cat <<'EOF'
+  outputs = { self, nixpkgs, graft, ... }@inputs: graft.lib.mkFlake {
+    inherit inputs;
+    outputs.checks = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ] (system:
+      let pkgs = nixpkgs.legacyPackages.${system}; in {
+        onboarding = pkgs.runCommand "onboarding" { } ''
+          test -f ${self}/docs/onboarding.md
+          touch $out
+        '';
+      });
+  };
+EOF
+)"
+  echo "$c"
+  echo "$out/existing"
+}
+
+# kb_consumer DIR OUTPUTS: a consumer that grafts page-rules and graft's workflows, with OUTPUTS as its
+# flake's outputs line(s); one committed page breaks the rule. graft's own messages go to stderr.
+kb_consumer() {
+  local c=$1 p=$out/page-rules
   mkdir -p "$c/docs" "$c/.forgejo/workflows"
   cat > "$c/flake.nix" <<EOF
 {
   description = "Team knowledge base";
 
   inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/ac62194c3917d5f474c1a844b6fd6da2db95077d";
     graft.url = "path:$graft";
+    graft.inputs.nixpkgs.follows = "nixpkgs";
     page-rules = { url = "git+file://$p?ref=v1.0.0&exportIgnore=1"; flake = false; };
   };
 
-  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
+$2
 }
 EOF
   command cp -f "$graft"/template/.forgejo/workflows/*.yaml "$c/.forgejo/workflows/"
@@ -204,17 +234,14 @@ EOF
   printf -- '---\nstatus: stable\n---\n# Onboarding\n\nRead AGENTS.md first.\n' > "$c/docs/onboarding.md"
   repo "$c"
   g -C "$c" add -A
-  (cd "$c" && nix run .#graft >/dev/null 2>&1)
+  (cd "$c" && nix run .#graft >&2)
   g -C "$c" add -A
   g -C "$c" commit -qm "Graft page-rules v1.0.0"
   # committed, and breaks the rule: an agent's write-up with no front matter
   printf '# Outage, 3 November\n\nThe queue filled; we drained it by hand.\n' > "$c/docs/outage-2026-11-03.md"
   g -C "$c" add -A
   g -C "$c" commit -qm "Write up the 3 November outage"
-  # untracked, and breaks the rule: a draft that no flake can see yet
-  printf -- '---\nstatus: idea\n---\n# Retry the queue\n' > "$c/docs/retry-idea.md"
-  (cd "$c" && nix run .#graft check >/dev/null 2>&1)
-  echo "$c"
+  (cd "$c" && nix run .#graft check >&2)
 }
 
 case $slice in

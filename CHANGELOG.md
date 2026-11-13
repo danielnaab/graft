@@ -12,8 +12,9 @@
   [Upgrade](docs/guides/upgrade.md#try-a-providers-unreleased-change).
 - **[Make a pattern's checks gate your merges](docs/guides/gate-merges.md):** a guide to running a
   provider's checker from its fetched export in `nix flake check`, a workflow that runs it on each pull
-  request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` runs only graft's own
-  check, so the guide's workflow is yours.
+  request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` stays graft's drift
+  check: your checks are a status of their own. It says why graft's weekly upgrade pull request gets no
+  status from your workflow until a person reopens it.
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
 
 ### Fixed
