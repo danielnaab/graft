@@ -47,6 +47,8 @@
           welcomeText = ''
             Edit `description` and the inputs in flake.nix (each `flake = false` input is a scion),
             then `nix run .#graft` and commit. See https://github.com/danielnaab/graft.
+            In a subdirectory (to keep private files out of the Nix store), set `flakeDir` and run
+            `nix run 'path:DIR#graft'` from the repository's top: `nix run .#graft` would copy the whole repository.
           '';
         };
 

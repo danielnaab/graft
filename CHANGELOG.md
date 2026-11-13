@@ -21,6 +21,17 @@
   check: your checks are a status of their own. It says why graft's weekly upgrade pull request gets no
   status from your workflow until a person reopens it.
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
+- **A flake in a subdirectory is now [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md)**:
+  numbered steps from a flake at the top or from no flake, a check that proves the store copy is only the
+  subdirectory, and what to do about copies already in the store. It says that a repository's own check
+  named `graft` is dropped in a subdirectory flake.
+- **Private providers is now [Graft a private repository](docs/guides/private-providers.md)**, with the step
+  that Nix 2.24 needs to make the first lock of a `git+ssh` input at a tag (`nix flake prefetch` at
+  `refs/tags/TAG`): without it, the old page's pin failed with `revspec 'v1.0.0' not found`. Its section
+  "Check in CI" is now its steps 4 to 10. It makes the CI key outside the repository, and says what to do
+  while graft-upgrade cannot run with a private scion.
+- **`nix flake init -t` says what to run for a flake in a subdirectory**: `nix run 'path:DIR#graft'` from
+  the repository's top, since `nix run .#graft` there copies the whole repository into the Nix store.
 
 ### Fixed
 - **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran

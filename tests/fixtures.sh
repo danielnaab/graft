@@ -17,6 +17,12 @@
 #                   run policy-kit's checker (which reads policy-kit.conf) and read the glossary's export.
 #                   Committed and passing, then the team's change made in the scion: a staged edit to the
 #                   status policy, and an untracked new page
+#   private         private files kept out of the Nix store, and a private provider: provider/ and
+#                   notes-provider/ (tags v1.0.0 and v1.1.0, a CHANGELOG; notes-provider is the private one,
+#                   git+file standing in for git+ssh), moving/ (a flake at the top grafts provider into
+#                   .scions beside a committed notebook/, with an uncommitted edit and an untracked draft in
+#                   it, and graft's workflows), new/ (a notebook/, no flake yet), consumer/ (a flake at the
+#                   top that grafts provider, and graft's workflows), server-host-key.pub (a made-up host key)
 #
 # Needs nix, git 2.28 or later and GNU sed. Network: check-fails fetches python3 and ruff from the nixpkgs
 # registry (unpinned, so ruff's output can vary); first-pattern's flakes pin a nixpkgs that the reader fetches;
@@ -24,9 +30,9 @@
 set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
-slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override OUT}
-out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override OUT}
-case $slice in check-fails|first-pattern|gate-merges|override) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, override)" >&2; exit 2 ;; esac
+slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private OUT}
+out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private OUT}
+case $slice in check-fails|first-pattern|gate-merges|override|private) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, override, private)" >&2; exit 2 ;; esac
 [ ! -e "$out" ] || { echo "fixtures.sh: $out exists; name a new directory" >&2; exit 1; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -337,9 +343,89 @@ EOF
   echo "$c"
 }
 
+# tagged_provider NAME: a provider at OUT/NAME, tags v1.0.0 and v1.1.0, a CHANGELOG, tests it keeps to itself
+tagged_provider() {
+  local p=$out/$1
+  mkdir -p "$p/docs" "$p/tests"
+  echo "tests export-ignore" > "$p/.gitattributes"
+  echo "echo test" > "$p/tests/t.sh"
+  printf '# %s policy\n\nEvery page has a status.\n' "$1" > "$p/docs/policy.md"
+  printf '# Changelog\n\n## v1.0.0\n\nFirst release.\n' > "$p/CHANGELOG.md"
+  g -C "$p" init -q -b main
+  g -C "$p" add -A
+  g -C "$p" commit -qm v1.0.0
+  g -C "$p" tag v1.0.0
+  printf '\nEvery page names its owner.\n' >> "$p/docs/policy.md"
+  printf '# Changelog\n\n## v1.1.0\n\nPages name their owner.\n\n## v1.0.0\n\nFirst release.\n' > "$p/CHANGELOG.md"
+  g -C "$p" commit -qam v1.1.0
+  g -C "$p" tag v1.1.0
+}
+
+# top_flake DIR: a flake at DIR's top that grafts provider v1.0.0 into DIR/.scions, with a check of its
+# own, and graft's workflows
+top_flake() {
+  mkdir -p "$1"
+  cat > "$1/flake.nix" <<EOF
+{
+  description = "Team workspace";
+  inputs = {
+    graft.url = "path:$graft";
+    provider = { url = "git+file://$out/provider?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  };
+  outputs = inputs: inputs.graft.lib.mkFlake {
+    inherit inputs;
+    dir = ".scions";
+    outputs.checks = builtins.mapAttrs (system: _: {
+      lint = inputs.graft.inputs.nixpkgs.legacyPackages.\${system}.runCommand "lint" { } "touch \$out";
+    }) inputs.graft.packages;
+  };
+}
+EOF
+  mkdir -p "$1/.forgejo/workflows"
+  cp "$graft"/template/.forgejo/workflows/*.yaml "$1/.forgejo/workflows/"
+}
+
+private() {
+  local m=$out/moving n=$out/new c=$out/consumer
+  tagged_provider provider
+  tagged_provider notes-provider
+  # moving/: private notes beside a flake at the top, which copies them to the store on every run
+  mkdir -p "$m/notebook"
+  printf '# Meeting transcript\n\n%s-%s: only this repository may hold this line.\n' private-sentinel moving > "$m/notebook/transcript.md"
+  echo "# Team workspace" > "$m/README.md"
+  top_flake "$m"
+  repo "$m"
+  g -C "$m" add -A
+  (cd "$m" && nix run .#graft >/dev/null 2>&1)
+  g -C "$m" add -A
+  g -C "$m" commit -qm "Graft provider v1.0.0"
+  echo "An uncommitted note." >> "$m/notebook/transcript.md"
+  echo "# Draft, never committed" > "$m/notebook/draft.md"
+  # new/: private notes, no flake yet
+  mkdir -p "$n/notebook"
+  printf '# Meeting transcript\n\n%s-%s: only this repository may hold this line.\n' private-sentinel new > "$n/notebook/transcript.md"
+  echo "# Team notes" > "$n/README.md"
+  repo "$n"
+  g -C "$n" add -A
+  g -C "$n" commit -qm "Start"
+  # consumer/: grafts a public provider; a reader adds notes-provider as the private one
+  top_flake "$c"
+  repo "$c"
+  g -C "$c" add -A
+  (cd "$c" && nix run .#graft >/dev/null 2>&1)
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft provider v1.0.0"
+  # a made-up host key, as ssh-keyscan prints one: test data, not a real key
+  echo "[git.example]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGraftTestHostKeyNotARealOne+/0123456789abcdefgh" > "$out/server-host-key.pub"
+  echo "$m"
+  echo "$n"
+  echo "$c"
+}
+
 case $slice in
   check-fails) check_fails ;;
   first-pattern) first_pattern ;;
   gate-merges) gate_merges ;;
   override) override ;;
+  private) private ;;
 esac
