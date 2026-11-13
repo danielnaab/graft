@@ -744,7 +744,8 @@ git_ clone -q -b main "$work/origin.git" "$work/nolock" && git_ -C "$work/nolock
   && git_ -C "$work/nolock" commit -qm "drop the lock" && git_ clone -q -b main "$work/nolock" "$work/nolock-clone"
 cd "$work/nolock-clone"
 expect "lock: a fresh clone has no committed lock" test ! -e flake.lock
-refused "lock: ci check fails when flake.lock was never committed" ci_ check
+# (with git on PATH, as in CI: Nix locks the git+file inputs anew here)
+refused "lock: ci check fails when flake.lock was never committed" nix run .#graft -- ci check
 expect "and names the fix" grep -qF "graft: flake.lock is not committed, so nothing is pinned: run nix run .#graft, then commit flake.lock" <<<"$out"
 cd "$work/self-ci"
 GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade"
