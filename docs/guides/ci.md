@@ -257,8 +257,8 @@ it. A status `unknown` means that graft cannot read the provider's repository.
 
   On `main`, it prints
   `graft: ci upgrade commits on the branch checked out, main, and pushes it to graft/upgrade: switch to a new branch graft/upgrade first (git switch -c graft/upgrade)`.
-  With a changed or untracked file, it prints
-  `graft: ci upgrade commits every change in the working tree, and this one has changes of its own (git status lists them): commit, stash or remove them first`.
+  With a changed or untracked file, it lists them, then prints
+  `graft: ci upgrade commits every change in the working tree, and this one has the changes of its own above: commit, stash or remove them first`. A `flake.lock` that Nix re-locked is the one change it takes: the upgrade commit includes it.
 
   `ci pr` uses Forgejo's API, and needs `API`, `WEB`, `BASE`, `BRANCH` and `PR_TOKEN`. On GitHub, open the
   pull request yourself, from a job checked out at the default branch, with `contents: write` and

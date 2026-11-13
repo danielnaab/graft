@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Upgrading
+- **A workflow of your own that runs `graft ci upgrade` must check out `BRANCH` first**, for example
+  `git switch -c "$BRANCH"`: `ci upgrade` now refuses any other branch. graft's own `graft-upgrade.yaml`
+  already does.
+
 ### Added
 - **[`graft check` fails](docs/guides/check-fails.md):** a guide to finding what changed in a scion
   (an edit, a formatter, a tool's `__pycache__/`), saving a change someone meant, restoring the pins, and
@@ -97,10 +102,14 @@
 - **`graft ci upgrade` by hand no longer commits and pushes files of yours.** It runs `git add -A`, so in a
   working copy it pushed untracked files (an `.env.local`, say) to `origin`, and on `main` it committed the
   upgrade there. It now refuses a working tree with changes of its own
-  (`graft: ci upgrade commits every change in the working tree, and this one has changes of its own …`) and
+  (`graft: ci upgrade commits every change in the working tree, and this one has the changes of its own above …`), after listing them, and
   a branch other than `BRANCH` (`graft: ci upgrade commits on the branch checked out, main, …`). Without
   `BRANCH`, it says `graft: BRANCH is not set: …`, not bash's `BRANCH: BRANCH is not set`. `graft ci check`
-  ends with `graft: ci check passed: …`.
+  ends with `graft: ci check passed: …`. A `flake.lock` that Nix re-locked while evaluating graft (an input
+  added to `flake.nix` without re-locking) is still taken into the upgrade commit, with a line that says so.
+- **`graft ci check` fails on a lock that does not cover `flake.nix`**:
+  `graft: flake.lock in HEAD does not match flake.nix: Nix re-locked it to evaluate graft …`. It passed on
+  the lock Nix wrote in the runner, which nothing commits.
 - **The upgrade pull request's notes read like `graft changelog`'s.** `graft ci pr` had its own copy of the
   notes: it now prints each provider's **Upgrading** sections first, with control characters made plain, as
   `changelog` and `migrate` do (lib/upstream.jq). In all three, the second part is now labelled

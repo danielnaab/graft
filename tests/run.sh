@@ -757,12 +757,14 @@ expect "and names the branch" grep -qxF "graft: ci upgrade commits on the branch
 git_ checkout -q -b graft/upgrade
 echo "SECRET=x" > .env.local
 refused "ci upgrade: refuses an untracked file" ci_ BRANCH=graft/upgrade upgrade
-expect "and says why" grep -qxF "graft: ci upgrade commits every change in the working tree, and this one has changes of its own (git status lists them): commit, stash or remove them first" <<<"$out"
+expect "and says why" grep -qxF "graft: ci upgrade commits every change in the working tree, and this one has the changes of its own above: commit, stash or remove them first" <<<"$out"
+expect "after listing the file" grep -qx "?? .env.local" <<<"$out"
 refuse "and pushed nothing" quiet git_ -C "$work/origin.git" rev-parse --verify refs/heads/graft/upgrade
 rm -f .env.local
 echo "# mine" >> .forgejo/workflows/graft-upgrade.yaml
 refused "ci upgrade: refuses an uncommitted change" ci_ BRANCH=graft/upgrade upgrade
-expect "for the same reason" grep -qF "has changes of its own" <<<"$out"
+expect "for the same reason" grep -qF "has the changes of its own above" <<<"$out"
+expect "and lists them" grep -qx " M .forgejo/workflows/graft-upgrade.yaml" <<<"$out"
 git_ checkout -q -- .forgejo/workflows/graft-upgrade.yaml
 GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade"
 expect "ci upgrade: changed=true" grep -qx changed=true "$work/ci-out"
@@ -783,6 +785,22 @@ git_ checkout -q -b elsewhere "$(git_ -C "$work/origin.git" rev-parse graft/upgr
 echo "sneaky" > sneaky.sh && git_ add -A && git_ commit -qm sneaky && git_ push -q --force origin HEAD:graft/upgrade
 git_ checkout -q main
 refuse "ci pr: no PR for a branch that changes other files" quiet ci_ "${pr_env[@]}" pr
+
+# a lock that doesn't cover flake.nix (an input added without re-locking): Nix re-locks it, and
+# git-adds it, while evaluating graft, before graft-ci runs (with git on PATH, as in CI)
+git_ clone -q -b main "$work/origin.git" "$work/stale" && cd "$work/stale"
+sed -i 's|^  outputs = |  inputs.nixpkgs.follows = "graft/nixpkgs";\n&|' flake.nix
+git_ commit -qam "nixpkgs, not re-locked"
+git_ init -q --bare "$work/origin-stale.git" && git_ remote set-url origin "$work/origin-stale.git" && git_ push -q origin main
+refused "stale lock: ci check fails" nix run .#graft -- ci check
+expect "and says the lock doesn't match flake.nix" grep -qF "graft: flake.lock in HEAD does not match flake.nix: Nix re-locked it to evaluate graft (git diff -- flake.lock shows how). Run nix run .#graft, then commit flake.lock" <<<"$out"
+git_ checkout -q -- flake.lock
+git_ checkout -q -b graft/upgrade
+out=$(GITHUB_OUTPUT=$work/stale-out BRANCH=graft/upgrade nix run .#graft -- ci upgrade 2>&1) || { echo "$out" >&2; fail "stale lock: ci upgrade takes the re-locked lock"; }
+pass "stale lock: ci upgrade takes the re-locked lock"
+expect "and says so" grep -qxF "graft: flake.lock differs from HEAD (Nix re-locks a lock that doesn't cover flake.nix): the upgrade commit includes it" <<<"$out"
+expect "and commits it" quiet sh -c "git -C '$work/origin-stale.git' show graft/upgrade:flake.lock | jq -e '.nodes.root.inputs.nixpkgs'"
+cd "$work/self-ci"
 
 # graft ci pr against a stub API. stub_pr NAME [LISTING [STATUSES]]: run `graft-ci pr` in the current
 # repo against a fresh stub (GET answers LISTING; STATUSES, JSON, the HTTP status to answer each
