@@ -21,5 +21,5 @@ command. Read [README.md](README.md), then [Concepts](docs/concepts.md).
 
 ## Verify
 
-1. `nix flake check`: shellcheck, the docs check, and the drift check.
+1. `nix flake check`: bash -n and shellcheck, the docs check, and the drift check.
 2. `tests/run.sh` after a change to `lib/` or `template/`. It takes minutes; do not run two at once.

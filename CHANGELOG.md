@@ -68,6 +68,8 @@
 - **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran
   `link_validator && kb_linter`, so a link failure never failed the build. Only graft's own
   `nix flake check` changes; nothing consumers run does.
+- **graft's own shellcheck check also runs `bash -n`** over `lib/*.sh` and `tests/*.sh`, so a script bash
+  cannot parse fails it even where shellcheck's parser differs. Only graft's own `nix flake check` changes.
 - **The checks fail when `flake.lock` is not committed.** A `.gitignore` that dropped `flake.lock` let
   every check pass while Nix resolved the tags again on every run. `graft check` now fails when git
   ignores it: `graft: git ignores flake.lock, so the pins are not committed: git check-ignore -v flake.lock names the rule; …`
