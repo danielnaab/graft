@@ -223,7 +223,9 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
    ```
 
    It moved the tag in `flake.nix`, locked it in `flake.lock`, and rebuilt and staged `scions/`. It does
-   not stage `flake.nix` and `flake.lock`: step 5's `-a` adds them.
+   not stage `flake.nix` and `flake.lock`: step 5's `-a` adds them, and any workflow that `upgrade` printed as
+   `graft: refreshed …`. Those are the files to commit after any upgrade
+   ([Take a newer version by hand](upgrade.md#steps), step 6).
 
 5. Commit what graft changed, on its own, so that a reviewer can tell it from your fixes:
 
@@ -385,7 +387,7 @@ For a `github:` input, look for `/v2.0.0` instead of `ref=v2.0.0`.
 - **Why the provider locks an override.** `nix flake lock --override-input` writes your branch's commit into
   the throwaway worktree's `flake.lock`, so `nix run .#graft`, `migrate` and `nix flake check` all use it
   with no flags. For one quick look, `--override-input` on each command works too
-  ([Upgrade](upgrade.md#try-a-providers-unreleased-change)).
+  ([Try a provider's unreleased change](upgrade.md#try-a-providers-unreleased-change)).
 - **What graft does and does not do.** graft moves the pin, rebuilds the scions, and writes the brief. It
   never runs an agent and never edits your own files ([Decisions](../decisions.md#graft-hands-text-to-agents-and-never-runs-one)).
   The provider's text is quoted as data. The weekly upgrade in CI takes minor versions only ([Run graft in CI and review its upgrade pull requests](ci.md)).

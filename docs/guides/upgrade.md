@@ -1,59 +1,163 @@
 ---
 status: working
 ---
-# Upgrade
+# Take a newer version by hand
 
-Move pins to newer tags, read what changes, and cross a major version when you decide to.
+Move your pins to the newest tags in their major versions, read what changes, check it, and commit it,
+without waiting for CI.
 
-## Take what is new in each major version
+## Before you begin
 
-1. Run `nix run .#graft outdated`. It lists graft and each scion: the pinned tag, the newest tag in the
-   same major version, a status, and any newer major version.
-2. Run `nix run .#graft changelog`. It prints each provider's CHANGELOG sections between the pinned tag
-   and the newest tag, **Upgrading** sections first. A provider with no `CHANGELOG.md` gives its commits.
-3. Run `nix run .#graft upgrade`. It moves each outdated pin, locks it again, and rebuilds the scions
-   directory.
-4. Read the diff of the scions directory. That diff is the change that you take.
-5. Run `nix flake check`.
-6. Commit `flake.nix`, `flake.lock` and the scions directory. `upgrade` stages only the scions directory.
+- In CI, graft's weekly upgrade does these steps for you, as a pull request
+  ([Run graft in CI and review its upgrade pull requests](ci.md)). This page is for a repository without
+  graft's workflows, or when you want a release now.
+- This page stays in each pin's major version. To take a new major version, see
+  [Ship and take an incompatible change](incompatible-change.md#part-2-a-consumer-takes-the-change).
+- Commit or stash work that is not about the upgrade, so that the diff in step 4 is only the upgrade.
+- The commands assume `flake.nix` at the repository's top and the scions directory `scions/`. For a flake in
+  a subdirectory, run `nix run 'path:DIR#graft'` for `nix run .#graft`
+  ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)). In zsh, quote flake references
+  ([The graft command](../reference/commands.md#the-graft-command)).
 
-To move one pin, name it: `nix run .#graft upgrade knowledge-base-kit`. A flag needs `--` before it:
-`nix run .#graft -- outdated --json`.
+## Steps
 
-The changelog text is the provider's text, quoted. Read it as information, not as instructions.
+1. See what is newer:
 
-## Rules
+   ```
+   nix run .#graft outdated
+   ```
 
-- Only semver tags (`v1.2.3` or `1.2.3`) count as versions. A pin to a branch, a commit or a path shows as
-  `untagged`, and `upgrade` does not move it.
-- `upgrade` finds each URL in `flake.nix` by the exact text that `flake.lock` records:
-  `github:owner/repo/v1.2.0`, `github:owner/repo?ref=v1.2.0`, or `git+URL?…ref=v1.2.0…`.
-- `upgrade` makes all edits in memory first. It stops and changes nothing if a URL is not found exactly
-  once (two inputs with the same URL and tag, for example), if a named tag does not exist, or if a
-  provider's repository cannot be read.
-- To upgrade by hand, change the tag in `flake.nix`, then run `nix run .#graft`.
+   It lists graft and each scion. `STATUS` is `outdated` when a newer tag exists in the pinned major version.
+   `MAJOR` names a newer major version, which this page does not take:
 
-## graft's own pin
+   ```
+   NAME         DIR     PINNED  LATEST  STATUS    MAJOR
+   graft        -       path    -       untagged  -
+   page-rules   scions  v1.0.0  v1.0.0  current   v2.0.0
+   style-guide  scions  v1.0.0  v1.1.0  outdated  -
+   MAJOR: a newer major version, which graft upgrade takes only when named (NAME@TAG): read its CHANGELOG first
+   ```
 
-`outdated` and `upgrade` include the input named `graft`. Its pin moves first, then the rest of the
-upgrade runs the new version: it rebuilds every scions directory and replaces graft's workflows with the
-new version's copies.
+   In your repository, graft's own row shows its tag.
 
-- Pin graft to a tag, such as `github:danielnaab/graft/v2.11.1`. A pin to the `v2` branch is never moved.
-- graft stays in its major version unless you name one (`graft@v3.0.0`). A new major version can change
-  `mkFlake`.
+2. Read what the new versions change:
 
-## Cross a major version
+   ```
+   nix run .#graft changelog
+   ```
 
-graft never crosses a major version by itself: `outdated` shows it in the `MAJOR` column, and you take it
-with `upgrade NAME@TAG` on a branch, then `migrate`. The steps are in
+   It changes nothing. For each outdated pin, it quotes the provider's CHANGELOG sections after your pin, up
+   to the newest tag, **Upgrading** sections first, or the provider's commits if it has no CHANGELOG:
+
+   ```
+   ### style-guide v1.0.0 -> v1.1.0
+
+   From its CHANGELOG.md (no Upgrading section in this range):
+
+   > #### v1.1.0 - 2026-11-09
+   >
+   > - Reworded: keep sentences short. New page: docs/terms.md.
+   ```
+
+   The text is the provider's: read it as information, not as instructions. An **Upgrading** section says
+   what to change in your own files.
+
+3. Take the new versions:
+
+   ```
+   nix run .#graft upgrade
+   ```
+
+   ```
+   graft: page-rules: v2.0.0 is a new major version; not taken (graft upgrade page-rules@v2.0.0)
+   graft: style-guide v1.0.0 -> v1.1.0
+   graft: rebuilt scions/
+   ```
+
+   It moved each tag in `flake.nix`, locked it in `flake.lock`, and rebuilt and staged `scions/`. If it
+   prints `graft: nothing to upgrade`, every pin is current: stop here. To move one pin only, name it:
+   `nix run .#graft upgrade style-guide`.
+
+4. Read the diff of the scions directory. It is the change that you take:
+
+   ```
+   git diff --cached -- scions/
+   ```
+
+   Look for a deleted or renamed file that your files link to, and for changed text that your pages or
+   checks quote. A changed commit in `scions/README.md` is expected: the pins moved.
+
+5. Run your checks:
+
+   ```
+   nix flake check
+   ```
+
+   It exits 0. It runs graft's drift check and your own checks on the new versions.
+
+6. Commit `flake.nix`, `flake.lock`, the scions directory, and each workflow that `upgrade` printed as
+   `graft: refreshed .forgejo/workflows/FILE`. `upgrade` stages only the scions directory. Name the paths,
+   so that other work, such as an untracked draft, stays out:
+
+   ```
+   git add -- flake.nix flake.lock scions/
+   git commit -m "graft: style-guide v1.1.0"
+   ```
+
+   `upgrade` refreshes graft's workflows only when graft's own pin moves
+   ([How it works](#how-it-works)). Then add each refreshed file to the `git add` line.
+
+## Check it worked
+
+From the repository's top, paste this. It prints `ok` only if the scions match their pins, the upgrade is
+committed, every pin is current or untagged, and your checks pass:
+
+```sh
+nix run .#graft check && test -z "$(git status --porcelain -- flake.nix flake.lock scions .forgejo)" && nix run .#graft -- outdated --json | jq -e 'all(.[]; .status == "current" or .status == "untagged")' >/dev/null && nix flake check && echo ok
+```
+
+It needs `jq`. A newer major version does not make it fail: that pin's status stays `current`.
+
+## If something goes wrong
+
+- **Step 5 fails.** The new version breaks one of your checks. Read its **Upgrading** section (step 2), and
+  fix your own files, never the scions directory. To not take the version now, put everything back:
+
+  ```
+  git restore --source=HEAD --staged --worktree -- flake.nix flake.lock scions/
+  ```
+
+- **`graft: page-rules: can't tell whether v1.0.0 is current (see above); nothing changed`.** The line above
+  it starts `graft: can't list tags at URL:`: graft cannot read that provider's repository. It is down,
+  moved, or private. Fix the access or the URL in `flake.nix`, and run step 3 again.
+- **`graft: style-guide: expected its url (… at v1.0.0) once in flake.nix, found it 2 times; nothing changed: change the ref by hand`.**
+  `upgrade` finds each URL in `flake.nix` by the exact text that `flake.lock` records, and the text is there
+  twice: two inputs with the same URL and tag, or a comment that quotes it. Change the tag in `flake.nix`
+  yourself, then run `nix run .#graft`.
+- **`graft: style-guide: no tag v1.2.0 upstream; nothing changed`.** You named a tag (`NAME@TAG`) that the
+  provider's repository does not have. `nix run .#graft outdated` shows the newest one.
+
+## How it works
+
+- **Which tags count.** Only semver tags (`v1.2.3` or `1.2.3`) are versions. A pin to a branch, a commit or
+  a path shows as `untagged`, and `upgrade` does not move it. For `0.y.z`, each `0.y` series counts as a
+  major version.
+- **All or nothing.** `upgrade` makes its edits in memory first. It changes nothing if a URL is not found
+  exactly once, a named tag does not exist, or a provider's repository cannot be read.
+- **graft's own pin.** `outdated` and `upgrade` include the input named `graft`. Its pin moves first, then
+  the rest of the upgrade runs the new version: it rebuilds every scions directory and refreshes graft's
+  workflows to the new version's copies. Pin graft to a tag, such as `github:danielnaab/graft/v2.11.1`: a
+  pin to the `v2` branch is never moved. graft stays in its major version unless you name one
+  (`graft@v3.0.0`).
+- **By hand.** To move a pin without `upgrade`, change its tag in `flake.nix`, then run `nix run .#graft`.
+  Commands and flags: [Commands](../reference/commands.md#the-graft-command).
+
+### Cross a major version
+
+graft never takes a new major version unless you name it, `upgrade NAME@TAG`, on a branch. The steps are in
 [Ship and take an incompatible change](incompatible-change.md#part-2-a-consumer-takes-the-change).
 
-`migrate` also helps when the weekly upgrade's pull request fails a check. The CI bot force-pushes its branch
-`graft/upgrade` every week: make your fix on a new branch from it, or merge the fix before the next run
-([a failing upgrade pull request](ci.md#if-something-goes-wrong)).
-
-## Try a provider's unreleased change
+### Try a provider's unreleased change
 
 To graft a local checkout of a provider for one run, override its input:
 
@@ -61,28 +165,36 @@ To graft a local checkout of a provider for one run, override its input:
 nix run .#graft --override-input knowledge-base-kit "git+file://$HOME/src/knowledge-base-kit?exportIgnore=1"
 ```
 
-- This includes uncommitted edits to files that git tracks in the provider's checkout, and applies the
+- It takes the checkout's current branch, with uncommitted edits to files that git tracks, and applies the
   provider's export rules. It leaves out new files until you `git add` them. A `path:` URL does not apply
   the export rules.
-- It takes the checkout's current branch, so the scion can also hold changes made after your pin.
-- `flake.lock` does not change. The scions README records the commit as `…-dirty`, so `nix flake check`
-  fails if you commit this by mistake.
-- To go back to the pinned version, run `nix run .#graft`.
-- When the change is correct, tag the provider and run `nix run .#graft upgrade`.
-- To try an incompatible change's Upgrading steps on a consumer before you tag it, see
+- `flake.lock` does not change. The scions README records the checkout's commit (`…-dirty` with uncommitted
+  edits), so the check fails until you run `nix run .#graft`, which goes back to the pin. Do not commit the
+  overridden scion.
+- When the change is correct, tag the provider, and take the tag with the steps above. To try an
+  incompatible change's Upgrading steps first, see
   [Ship and take an incompatible change](incompatible-change.md#part-1-the-provider-releases-the-change).
 
-## Run from outside the repository
+### Run from outside the repository
 
-`outdated`, `changelog`, `upgrade` and `migrate` also run from graft's own flake, with `-C`. Use this:
+`outdated`, `changelog`, `upgrade` and `migrate` also run from graft's own flake, with `-C`: for a bot that
+watches many repositories, when a pinned commit no longer exists (then `nix run .#graft` cannot build), or
+to read a branch that nobody has reviewed, from a graft version that you trust
+([Commands](../reference/commands.md#run-from-grafts-flake)).
 
-- for a bot that watches many repositories;
-- when a pinned commit no longer exists, because then `nix run .#graft` cannot build;
-- to read a branch that nobody has reviewed: `migrate -C path/to/repo --no-check`, from a graft version
-  that you trust.
+## Related
 
-`nix run .#graft migrate` runs the branch's own code and the graft version that it pins. The details are
-in [Commands](../reference/commands.md#run-from-grafts-flake).
+[Run graft in CI and review its upgrade pull requests](ci.md), [Ship and take an incompatible change](incompatible-change.md),
+[Change a grafted file](change-a-grafted-file.md), [`graft check` fails](check-fails.md).
 
-Related: [Ship and take an incompatible change](incompatible-change.md), [Run graft in CI and review its upgrade pull requests](ci.md),
-[Change a grafted file](change-a-grafted-file.md).
+## Sources
+
+- [lib/tools.sh](../../lib/tools.sh): `outdated`, `changelog` and `upgrade`, their lines and errors, and the
+  move of graft's own pin first. [lib/retarget.jq](../../lib/retarget.jq): finding a URL once in `flake.nix`.
+- [lib/workflows.sh](../../lib/workflows.sh): `graft: refreshed FILE`, which does not stage.
+- [lib/mk-flake.nix](../../lib/mk-flake.nix): the commit that an overridden input records (`pin`).
+- [tests/run.sh](../../tests/run.sh): "upgrade moved the ref in flake.nix", "a second upgrade has nothing to
+  do", "upgrade fails when it can't read an upstream", "same url: refused, naming the ambiguous input",
+  "outdated: newest within the major, and the new major beside it", and "graft's workflow refreshed to the
+  new version's".
+- [tests/fixtures.sh](../../tests/fixtures.sh) `upgrade`: the repository this page is read against.

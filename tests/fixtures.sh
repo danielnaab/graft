@@ -35,6 +35,10 @@
 #                   graft's workflows and a `pages` check that v2.0.0 breaks: team-kb/ (a clone of team-kb.git,
 #                   a page template outside docs/ that the check misses) takes the change; handbook/ is for the
 #                   provider's dry run
+#   upgrade         team-kb/: a consumer with graft's workflows (graft pinned by path, so untagged) that grafts two local
+#                   providers at v1.0.0, committed and pushed to team-kb.git; then style-guide v1.1.0 (a new minor:
+#                   a reworded page and a new one) and page-rules v2.0.0 (a new major, with Upgrading steps); an
+#                   untracked docs/retro.md in team-kb/ that is not about the upgrade
 #   publish         a provider to release from, and a consumer of it. note-kit/: rules, a tool (bin/note-lint,
 #                   which package.nix builds), a seed file (seed/note-kit.conf, also its flake's template),
 #                   tests/, a stand-in for its own scions/, a CI workflow and AGENTS.md. v1.0.0 (a lightweight
@@ -54,9 +58,9 @@
 set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
-slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|publish OUT}
-out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|publish OUT}
-case $slice in check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|publish) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, override, private, ci, breaking-change, publish)" >&2; exit 2 ;; esac
+slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|upgrade|publish OUT}
+out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|upgrade|publish OUT}
+case $slice in check-fails|first-pattern|gate-merges|override|private|ci|breaking-change|upgrade|publish) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, override, private, ci, breaking-change, upgrade, publish)" >&2; exit 2 ;; esac
 [ ! -e "$out" ] || { echo "fixtures.sh: $out exists; name a new directory" >&2; exit 1; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -658,7 +662,8 @@ EOF
   g -C "$c" push -q -u origin main 2>/dev/null
 }
 
-ci_fixture() {
+# two_providers: style-guide and page-rules, local providers at v1.0.0, each with a CHANGELOG
+two_providers() {
   local s=$out/style-guide p=$out/page-rules d
   mkdir -p "$s/docs" "$s/tests" "$p/docs" "$p/tests"
   printf '# Style\n\nWrite short sentences.\n' > "$s/docs/style.md"
@@ -670,6 +675,11 @@ ci_fixture() {
   done
   release "$s" v1.0.0 2026-10-01 "First rules."
   release "$p" v1.0.0 2026-10-01 "The status rule."
+}
+
+ci_fixture() {
+  local s=$out/style-guide p=$out/page-rules
+  two_providers
 
   ci_consumer "$out/team-kb" '  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };'
   # handbook/: a check of its own, that onboarding.md quotes style-guide's rule word for word
@@ -729,6 +739,23 @@ EOF
   chmod +x "$out/pr.sh"
   echo "$out/team-kb"
   echo "$out/handbook"
+}
+
+# upgrade: team-kb/ takes a new minor version by hand; page-rules' new major waits
+upgrade_fixture() {
+  local s=$out/style-guide p=$out/page-rules c=$out/team-kb
+  two_providers
+  ci_consumer "$c" '  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };'
+  # new upstream: a minor version of style-guide (a reworded rule, a new page, a deleted one), a major of page-rules
+  printf '# Style\n\nKeep sentences short. Use one term for one concept.\n' > "$s/docs/style.md"
+  printf '# Terms\n\nUse one term for one concept.\n' > "$s/docs/terms.md"
+  release "$s" v1.1.0 2026-11-09 "Reworded: keep sentences short. New page: docs/terms.md."
+  printf '# Page rules\n\nEvery page has a status and an owner.\n' > "$p/docs/rules.md"
+  # shellcheck disable=SC2016 # Markdown backticks
+  release "$p" v2.0.0 2026-11-10 "Every page names an owner." 'Add `owner:` to the front matter of each page.'
+  # the team's own work in progress, not about the upgrade
+  printf -- '---\nstatus: draft\n---\n# Retro\n' > "$c/docs/retro.md"
+  echo "$c"
 }
 
 publish() {
@@ -877,5 +904,6 @@ case $slice in
   private) private ;;
   ci) ci_fixture ;;
   breaking-change) breaking_change ;;
+  upgrade) upgrade_fixture ;;
   publish) publish ;;
 esac

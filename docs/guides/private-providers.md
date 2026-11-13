@@ -23,7 +23,8 @@ Graft a provider that only an ssh key can read, on your machine and in graft-che
   ([What to export](../reference/files.md#what-to-export)).
 - Your repository already grafts with graft ([Graft your first pattern](graft-a-repository.md)), and keeps
   graft's `graft-check.yaml` in `.forgejo/workflows/`. If your flake is in a subdirectory, write
-  `nix run 'path:DIR#graft'` for `nix run .#graft`.
+  `nix run 'path:DIR#graft'` for `nix run .#graft`. In zsh, quote flake references
+  ([The graft command](../reference/commands.md#the-graft-command)).
 - You need admin rights on the provider's repository, to add a deploy key, and a trusted copy of the
   server's host key: a shell on the server, or its admin. Without one, compare the key that `ssh-keyscan`
   prints with the one in your own `~/.ssh/known_hosts`, from your first connection.
@@ -176,6 +177,10 @@ Then push a branch, and see graft-check pass on Forgejo.
 
 - [Keep private files out of the Nix store](flake-in-a-subdirectory.md), [Run graft in CI and review its upgrade pull requests](ci.md),
   [Files](../reference/files.md#the-graft-ssh-line).
+
+## Check in CI
+
+Moved to [Steps](#steps), steps 4 to 10.
 
 ## Sources
 

@@ -16,7 +16,8 @@ committed.
 - `git check-ignore -v flake.lock` must print nothing. If it prints a rule, remove that rule and commit
   `.gitignore`: `flake.lock` holds the pins, and git would leave it out without a word.
 - Commit or stash other work, so that `git status` shows only what graft adds.
-- In zsh with `extendedglob` set, `.#graft` is a glob (`no matches found`): quote it, `nix run '.#graft'`.
+- In zsh with `extendedglob` set, `.#graft` is a glob (`no matches found`): quote it, `nix run '.#graft'`
+  ([The graft command](../reference/commands.md#the-graft-command)).
 
 ## Steps
 
@@ -181,7 +182,11 @@ nix run .#graft check && git ls-files --error-unmatch flake.nix flake.lock scion
 - `mkFlake` also takes `dir`, `scions` and `flakeDir`: see [Commands](../reference/commands.md#mkflake). See also
   [Keep private files out of the Nix store](flake-in-a-subdirectory.md) and
   [Graft a private repository](private-providers.md). To take newer versions, see
-  [Upgrade](upgrade.md).
+  [Take a newer version by hand](upgrade.md).
+
+## Try a provider's unreleased change
+
+Moved to [Take a newer version by hand](upgrade.md#try-a-providers-unreleased-change).
 
 ## Sources
 

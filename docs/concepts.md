@@ -28,7 +28,9 @@ works this way, see [Decisions](decisions.md).
   default). Never edit a scion: graft replaces it.
 - **Scions README:** `scions/README.md`, written by graft. It lists each scion and its pinned commit.
   graft's commands read it to find the scions.
-- **Drift:** the scions directory differs from what the pins produce. Drift always fails the check.
+- **The pin's copy:** the scions directory that the pins produce, built from the fetched exports. The check
+  compares your scions directory with it. The drift report calls it `(pin)`, as in `only in the pin`.
+- **Drift:** the scions directory differs from the pin's copy. Drift always fails the check.
 - **One level:** a consumer grafts every provider that it uses directly, so it holds one copy of each
   dependency.
 
@@ -39,9 +41,8 @@ did not write.
 ## How things change
 
 - **Sync:** `nix run .#graft` writes the scions directory again from the pins.
-- **Upgrade:** a pin moves to a newer tag in the same major version. In CI, the consumer's checks run on
-  the result in a pull request, and a person merges it. graft never crosses a major version unless a
-  person names the new tag.
+- **Upgrade:** a pin moves to a newer tag; within its major version unless a person names the tag. In CI,
+  the consumer's checks run on the result in a pull request, and a person merges it.
 - **graft's own pin:** a consumer also pins graft, and upgrades it the same way. graft's pin moves first,
   so the rest of the upgrade runs the new version.
 - **Migration brief:** after an upgrade, `graft migrate` prints what moved, what the provider's changelog

@@ -12,8 +12,9 @@ save any change someone meant, put the scions back to their pins, and stop the c
   provider, or in a file of your own ([Change a grafted file](change-a-grafted-file.md)).
 - The commands assume the scions directory is `scions/` and `flake.nix` is at the repository's top. If
   `mkFlake` sets `dir`, read your directory for `scions/`. If your flake is in a subdirectory, run
-  `nix run path:DIR#graft` for `nix run .#graft`. Then `nix flake check` does not check the scions:
-  `nix run path:DIR#graft check` is the check ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
+  `nix run 'path:DIR#graft'` for `nix run .#graft`. Then `nix flake check` does not check the scions:
+  `nix run 'path:DIR#graft' check` is the check ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
+  In zsh, quote flake references ([The graft command](../reference/commands.md#the-graft-command)).
 - Commit or stash work that is not about the scions, so that `git status` shows only the drift.
 
 ## Steps
@@ -25,7 +26,7 @@ save any change someone meant, put the scions back to their pins, and stop the c
    ```
 
    Nix may first warn `Git tree '…' is dirty`: that only means uncommitted changes. On drift, graft
-   names each file that differs from its pin, then prints this line, and exits 1:
+   names each file that differs from the pin's copy, then prints this line, and exits 1:
 
    ```
    graft: scions/ differs from the pins in flake.lock; run: nix run .#graft
@@ -34,14 +35,14 @@ save any change someone meant, put the scions back to their pins, and stop the c
    If it prints `graft: scions/ and graft's workflows match the pins`, the scions are fine. If it prints
    neither line, read its `graft:` lines, and see [If something goes wrong](#if-something-goes-wrong).
 
-2. Read each `graft:` line about a file. The pin is the copy that `flake.lock` makes. Your copy is the
-   scions directory in your working tree.
+2. Read each `graft:` line about a file. In the report, "the pin" is [the pin's copy](../concepts.md#what-a-consumer-holds),
+   the scions directory that `flake.lock` makes. "Your copy" is the scions directory in your working tree.
 
    | The check says | It means | Usual cause |
    |---|---|---|
    | `graft: scions/NAME/FILE: edited`, then a diff from `--- scions/NAME/FILE (pin)` to `+++ scions/NAME/FILE (your copy)` | a grafted file was edited | you, an agent, a formatter or a linter's `--fix` |
    | `graft: scions/NAME/FILE: edited (in the pin, a symbolic link to TARGET; in your copy, a file)` | a symbolic link was replaced, or now points elsewhere | a tool that copies files instead of links, or an edit to the link |
-   | `graft: scions/NAME/FILE: only in your copy, not in the pin` | a file that the pin does not have | a tool wrote it (`__pycache__/`, a build), or someone added it |
+   | `graft: scions/NAME/FILE: only in your copy, not in the pin` | a file that the pin's copy does not have | a tool wrote it (`__pycache__/`, a build), or someone added it |
    | `graft: scions/NAME/FILE: only in the pin, not in your copy` | a grafted file that your copy lacks | it was deleted; or git ignores it; or, for `nix flake check` only, it is not added to git yet |
    | `graft: scions/README.md: edited`, with a changed line in its table of commits | the pin moved, and the scions did not | see [If something goes wrong](#if-something-goes-wrong) |
 
@@ -94,7 +95,7 @@ save any change someone meant, put the scions back to their pins, and stop the c
 
    Its headers read `b/` before `a/`, which `git apply` does not mind. In the provider's checkout,
    `git apply -p3 /tmp/scion-change.patch` applies it: add one to `-p` for each extra segment in your
-   scions directory's path. Commit and release it there, then take the new version with [Upgrade](upgrade.md).
+   scions directory's path. Commit and release it there, then take the new version with [Take a newer version by hand](upgrade.md).
    To try it here first, see [a provider's unreleased change](upgrade.md#try-a-providers-unreleased-change).
    The whole path is in [Fix it in the provider](change-a-grafted-file.md#fix-it-in-the-provider).
 
@@ -157,7 +158,7 @@ nix run .#graft check && test -z "$(git status --porcelain)" && nix flake check 
   It shows the last 25 lines of the report; run `nix flake check -L` for all of it.
 - **The check shows a commit changing in `scions/README.md`.** The pin moved and the scions did not: a tag
   edited in `flake.nix`, `nix flake update`, or a bot. Every other file in the report changed upstream, not
-  here. Run `nix run .#graft` to take the new pin, or go back to the old one, and see [Upgrade](upgrade.md).
+  here. Run `nix run .#graft` to take the new pin, or go back to the old one, and see [Take a newer version by hand](upgrade.md).
 - **Step 5 prints `graft: flake.lock re-pinned; nothing synced yet: run nix run .#graft again`.** The lock
   pointed at an annotated tag's object, and graft fixed it. Run step 5 again, and commit `flake.lock`
   with the scions.

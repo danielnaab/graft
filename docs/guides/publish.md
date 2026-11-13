@@ -135,8 +135,8 @@ it, and take it in a consumer.
     It prints `graft: note-kit v1.1.0 -> v1.2.0` and `graft: rebuilt scions/`. `git status --short scions/`
     shows `D` for each file that left the export, such as `scions/note-kit/AGENTS.md`,
     `scions/note-kit/.forgejo/workflows/test.yaml` and `scions/note-kit/tests/run.sh`. `upgrade` stages the
-    scions directory, and leaves `flake.nix` and `flake.lock` changed but not staged. Review and check it as
-    [Upgrade](upgrade.md) says, then commit all three. To make the first consumer, follow
+    scions directory, and leaves `flake.nix` and `flake.lock` changed but not staged. Review, check and
+    commit it as [Take a newer version by hand](upgrade.md#steps) says, steps 4 to 6. To make the first consumer, follow
     [Graft your first pattern](graft-a-repository.md).
 
     graft takes the newest release in the major version that a consumer pins. In CI, the weekly upgrade
@@ -174,6 +174,10 @@ t=v1.2.0 && { git ls-remote --exit-code origin "refs/tags/$t" >/dev/null || { ec
   (step 6), and release a patch version.
 
   Not yet: no graft check warns about a rule with a trailing slash.
+
+## Release
+
+Moved to [Steps](#steps).
 
 ## Decide what you export
 
