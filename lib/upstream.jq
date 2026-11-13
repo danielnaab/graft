@@ -34,6 +34,7 @@ def upstream_notes($where):
       end)
    elif .in_history then
      "No CHANGELOG.md section for this range; its commits:", "",
-     (.commits | most(50) | map("- " + .) | if length == 0 then ["- (none)"] else . end | join("\n") | cap(6000) | quote), ""
+     # upstream_range reads at most 51: past 50 there are more, how many isn't known
+     (.compare as $c | .commits | if length > 50 then .[0:50] | map("- " + .) + ["... and more; see \(if $c then "the compare link" else "the provider's git log" end)"] else map("- " + .) end | if length == 0 then ["- (none)"] else . end | join("\n") | cap(6000) | quote), ""
    else "No CHANGELOG.md section for this range, and \(.from_rev[0:12]) is not in its history.", "" end),
   (if .compare and (.status == "fetched" or .status == "unfetchable") then "Compare: \(.compare | safe)", "" else empty end);

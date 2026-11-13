@@ -838,6 +838,8 @@ expect "and that the whole check passed" grep -q "whole \`nix flake check\` pass
 expect "and a hint for handing the migration to an agent" grep -q "run \`nix run github:danielnaab/graft -- migrate -C .\`" <<<"$body"
 expect "no CHANGELOG.md: the provider's commits instead" grep -q "^> - [0-9a-f]* v2.1$" <<<"$body"
 refuse "and only those in the range" grep -q "^> - [0-9a-f]* v2$" <<<"$body"
+# shellcheck disable=SC2016 # a jq program
+expect "commits past 50: cut, saying there are more" sh -c "jq -n -r -L '$graft/lib' 'include \"upstream\"; {name: \"x\", from: \"a\", to: \"b\", status: \"fetched\", changelog: \"\", in_history: true, compare: null, commits: [range(51) | tostring]} | upstream_notes(\"main\")' | grep -qx '> ... and more; see the provider'\''s git log'"
 
 # a branch crossing to v3.0.0, whose CHANGELOG.md has sections for it: those between the tags
 quiet nix run .#graft upgrade provider@v3.0.0 && git_ add -A
