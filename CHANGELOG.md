@@ -34,6 +34,9 @@
   `checks.<system>.graft` was dropped). graft's app and check now fail to evaluate with
   `graft: mkFlake's outputs has checks.SYSTEM.graft: that name is graft's; rename the repo's own`.
   The repository's other outputs still evaluate.
+- **`outdated`, `changelog` and `upgrade` refuse arguments they do not take**, with exit 2 and the
+  command's usage line. `-C` with no repository failed with `unbound variable`; `outdated NAME` and
+  `upgrade --json` were accepted and ignored; an unknown option was read as a scion's name.
 
 ## v2.11.1 - 2026-11-12
 

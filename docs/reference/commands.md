@@ -49,6 +49,10 @@ Run it as `nix run .#graft COMMAND`. A flag needs `--` before it, because Nix ot
   names one.
 - `NAME` without a tag stays in the pinned major version, and reports any newer major version that it did
   not take.
+- An argument that a command does not take fails with exit 2, a `graft:` line that names it and the
+  command's usage line: `-C` without a repository (`graft: -C needs a repository`), a name given to
+  `outdated` (`graft: outdated takes no names: it lists graft and every scion`), `--json` given to
+  `upgrade` (`graft: upgrade has no --json`), or an unknown option (`graft: unknown option OPTION`).
 - `--json` gives the same data as the text output. In `outdated --json`, `major` is `null` when there is
   no newer major version.
 
