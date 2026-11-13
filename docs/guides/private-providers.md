@@ -16,7 +16,7 @@ notes = { url = "git+ssh://forgejo@platform-vm:2222/daniel/notes?ref=v1.0.0&expo
 - Without `exportIgnore=1`, Nix does not apply the provider's export rules, and the scion gets the whole
   tree.
 - The provider must write its directory rules without a trailing slash too. See
-  [Publish](publish.md#decide-what-you-export).
+  [Publish a pattern](publish.md#decide-what-you-export).
 - If the provider uses annotated tags, graft keeps the lock at the tag's commit. If `nix run .#graft`
   says that it re-pinned `flake.lock`, run it again. The reason is in
   [Nix behaviours](../reference/nix-behaviours.md#annotated-tags-and-exportignore).

@@ -14,7 +14,7 @@ works this way, see [Decisions](decisions.md).
 - **Export rules:** the paths that the provider's `.gitattributes` marks `export-ignore`.
 - **Export:** the provider's files at a version, minus the paths that its export rules exclude. By
   convention a provider excludes its own scions, so a consumer takes the provider's content and never
-  its dependencies. graft does not enforce this ([Publish](guides/publish.md#decide-what-you-export)).
+  its dependencies. graft does not enforce this ([Publish a pattern](guides/publish.md#decide-what-you-export)).
 - **Version:** a semver tag, such as `v1.2.3`. A new major version means that the provider changed
   something incompatibly. For `0.y.z`, each `0.y` series counts as a major version.
 - **Changelog:** the provider's `CHANGELOG.md`, with one section per version. A major version's section

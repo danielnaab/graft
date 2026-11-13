@@ -20,6 +20,12 @@
   request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` stays graft's drift
   check: your checks are a status of their own. It says why graft's weekly upgrade pull request gets no
   status from your workflow until a person reopens it.
+- **Publish is now [Publish a pattern](docs/guides/publish.md)**, a guide to one release: choose the
+  export rules, add the CHANGELOG section, list the export with `git archive` before tagging, tag with a
+  lightweight tag (and why not an annotated one), push, and take the release in a consumer. New: what a
+  provider leaves out of its export, how a kit ships a tool (a Nix expression that consumers build from
+  the fetched export) or seed files (copied once, or a flake template), a recipe that runs a step after
+  each upgrade, and links to another provider's files at a tag.
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
 
 ### Fixed
