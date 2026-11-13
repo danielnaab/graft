@@ -130,7 +130,7 @@ Any repository with semver tags can be a provider. Make it easy to follow:
 - In that version's CHANGELOG section, write **Upgrading** steps that a person or agent can follow without
   knowing your repository's internals. `graft changelog` and `graft migrate` show them first.
 
-See [Publish](docs/guides/publish.md).
+See [Publish](docs/guides/publish.md), and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 
 ## Documentation
 
@@ -140,7 +140,8 @@ See [Publish](docs/guides/publish.md).
 | Graft your first pattern, in a new or existing repository | [Graft your first pattern](docs/guides/graft-a-repository.md) |
 | Run a pattern's checks in CI, and require them before a merge | [Make a pattern's checks gate your merges](docs/guides/gate-merges.md) |
 | Find and fix what fails `graft check` | [`graft check` fails](docs/guides/check-fails.md) |
-| Take newer versions, and cross a major version | [Upgrade](docs/guides/upgrade.md) |
+| Take newer versions | [Upgrade](docs/guides/upgrade.md) |
+| Release an incompatible change, or take one (a new major version) | [Ship and take an incompatible change](docs/guides/incompatible-change.md) |
 | Keep private content out of the Nix store | [A flake in a subdirectory](docs/guides/flake-in-a-subdirectory.md) |
 | Publish a repository for others to graft | [Publish](docs/guides/publish.md) |
 | Graft a private repository | [Private providers](docs/guides/private-providers.md) |

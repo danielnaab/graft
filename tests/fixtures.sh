@@ -11,6 +11,12 @@
 #                   graft's workflows and a nixpkgs input; in each, one committed page breaks the rule.
 #                   team-kb/ is in graft's template form, and has an untracked page that breaks it too;
 #                   existing/ already has checks of its own
+#   breaking-change a provider (page-rules: v1.0.0, v1.1.0, and on its checked-out branch `lifecycle` an
+#                   untagged v2.0.0 that renames the required front-matter field status: to lifecycle:, and
+#                   docs/status.md to docs/lifecycle.md, with Upgrading steps); two consumers at v1.1.0 with
+#                   graft's workflows and a `pages` check that v2.0.0 breaks: team-kb/ (a clone of team-kb.git,
+#                   a page template outside docs/ that the check misses) takes the change; handbook/ is for the
+#                   provider's dry run
 #
 # Needs nix, git 2.28 or later and GNU sed. Network: check-fails fetches python3 and ruff from the nixpkgs
 # registry (unpinned, so ruff's output can vary); first-pattern's flakes pin a nixpkgs that the reader fetches;
@@ -18,9 +24,9 @@
 set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
-slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges OUT}
-out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges OUT}
-case $slice in check-fails|first-pattern|gate-merges) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges)" >&2; exit 2 ;; esac
+slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|breaking-change OUT}
+out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|breaking-change OUT}
+case $slice in check-fails|first-pattern|gate-merges|breaking-change) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, breaking-change)" >&2; exit 2 ;; esac
 [ ! -e "$out" ] || { echo "fixtures.sh: $out exists; name a new directory" >&2; exit 1; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -31,6 +37,7 @@ repo() {
   git -C "$1" config user.name fixture
   git -C "$1" config user.email fixture@example.invalid
   git -C "$1" config commit.gpgsign false
+  git -C "$1" config tag.gpgsign false
 }
 
 check_fails() {
@@ -244,8 +251,176 @@ EOF
   (cd "$c" && nix run .#graft check >&2)
 }
 
+# pagecheck_v FIELD STATUSES DIR: page-rules' checker, requiring FIELD in front matter, one of STATUSES
+pagecheck_v() {
+  mkdir -p "$3/pagecheck"
+  cat > "$3/pagecheck/__init__.py" <<EOF
+"""page-rules' checker: every Markdown page starts with front matter that gives its $1."""
+import pathlib
+import re
+
+FIELD = "$1"
+VALUES = ($2)
+FRONT = re.compile(r"\A---\n(.*?)\n---\n", re.S)
+
+
+def problems(root):
+    for page in sorted(pathlib.Path(root).rglob("*.md")):
+        m = FRONT.match(page.read_text(encoding="utf-8"))
+        front = m.group(1) if m else ""
+        value = re.search(rf"^{FIELD}:\s*(\S+)\s*$", front, re.M)
+        if FIELD != "status" and re.search(r"^status:", front, re.M):
+            yield f"{page}: 'status:' is now '{FIELD}:' (page-rules v2.0.0; see its CHANGELOG)"
+        elif not value:
+            yield f"{page}: no {FIELD} in front matter (rule: page-rules/docs/{FIELD}.md)"
+        elif value.group(1) not in VALUES:
+            yield f"{page}: {FIELD} {value.group(1)!r} is not one of {', '.join(VALUES)}"
+EOF
+  cat > "$3/pagecheck/__main__.py" <<'EOF'
+import pathlib
+import sys
+
+from pagecheck import problems
+
+root = sys.argv[1] if len(sys.argv) > 1 else "."
+if not pathlib.Path(root).is_dir():
+    sys.exit(f"pagecheck: {root} is not a directory")
+found = list(problems(root))
+for line in found:
+    print(line)
+sys.exit(1 if found else 0)
+EOF
+}
+
+# A provider (page-rules) whose v2.0.0 renames a required front-matter field, `status:` to `lifecycle:`,
+# and its rule page with it; two consumers at v1.1.0 that use the field.
+# shellcheck disable=SC2016 # backticks are Markdown, not commands
+breaking_change() {
+  local p=$out/page-rules t=$out/team-kb h=$out/handbook
+  mkdir -p "$p/docs" "$p/tests"
+  cat > "$p/README.md" <<'EOF'
+# page-rules
+
+One rule for a knowledge base's pages, and a checker for it. The rule is in `docs/`.
+
+**The checker.** `python3 -m pagecheck DIR` checks every `.md` file under DIR. It prints one line for each
+page that breaks the rule, and exits 1 if there is one. Put this directory on `PYTHONPATH` to run it.
+EOF
+  printf '# The status rule\n\nEvery page starts with front matter that gives its status:\n\n    ---\n    status: working\n    ---\n\nThe status is one of `draft`, `working`, `stable` or `deprecated`.\n' > "$p/docs/status.md"
+  pagecheck_v status '"draft", "working", "stable", "deprecated"' "$p"
+  echo 'PYTHONPATH=. python3 -m pagecheck tests' > "$p/tests/run.sh"
+  echo "/tests export-ignore" > "$p/.gitattributes"
+  printf '# Changelog\n\n## v1.0.0 - 2026-11-01\n\n- The status rule, and pagecheck.\n' > "$p/CHANGELOG.md"
+  repo "$p"
+  g -C "$p" add -A
+  g -C "$p" commit -qm "The status rule"
+  g -C "$p" tag v1.0.0
+  # v1.1.0: compatible, a new value
+  sed -i 's/`stable` or `deprecated`/`stable`, `living` or `deprecated`/' "$p/docs/status.md"
+  pagecheck_v status '"draft", "working", "stable", "living", "deprecated"' "$p"
+  printf '# Changelog\n\n## v1.1.0 - 2026-11-05\n\n### Added\n- `living`: a status for a page that is always current.\n\n## v1.0.0 - 2026-11-01\n\n- The status rule, and pagecheck.\n' > "$p/CHANGELOG.md"
+  g -C "$p" commit -qam "Allow the living status"
+  g -C "$p" tag v1.1.0
+
+  # two consumers at v1.1.0: team-kb/ (a clone of team-kb.git) takes the break; handbook/ is a provider's dry run
+  bc_consumer "$t" "Team knowledge base" onboarding stable "Read AGENTS.md first."
+  printf -- '---\nstatus: working\n---\n# Outage, 3 November\n\nThe queue filled; we drained it by hand.\n' > "$t/docs/outage-2026-11-03.md"
+  mkdir -p "$t/templates"
+  printf -- '---\nstatus: draft\n---\n# Title\n' > "$t/templates/page.md"
+  g -C "$t" add -A
+  g -C "$t" commit -qm "Write up the 3 November outage; a page template"
+  g -c init.defaultBranch=main clone -q --bare "$t" "$out/team-kb.git"
+  g -C "$t" remote add origin "$out/team-kb.git"
+  g -C "$t" fetch -q origin
+  g -C "$t" remote set-head origin main >/dev/null
+  g -C "$t" branch -q -u origin/main
+  bc_consumer "$h" "Handbook" holidays living "Ask the office."
+
+  # the provider's next major version, on a branch, not yet tagged: status: is now lifecycle:
+  g -C "$p" switch -q -c lifecycle
+  g -C "$p" mv docs/status.md docs/lifecycle.md
+  printf '# The lifecycle rule\n\nEvery page starts with front matter that gives its lifecycle:\n\n    ---\n    lifecycle: working\n    ---\n\nThe lifecycle is one of `draft`, `working`, `stable`, `living` or `deprecated`.\n' > "$p/docs/lifecycle.md"
+  pagecheck_v lifecycle '"draft", "working", "stable", "living", "deprecated"' "$p"
+  cat > "$p/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## v2.0.0 - 2026-11-12
+
+The front-matter field `status:` is now `lifecycle:`, so it no longer clashes with tools that use `status:`
+for something else.
+
+### Changed
+- pagecheck requires `lifecycle:`, and fails a page that still has `status:`.
+- `docs/status.md` is now `docs/lifecycle.md`.
+
+### Upgrading
+1. Find your pages that still use the old field. Leave out the scions directory:
+   `grep -rl --include='*.md' --exclude-dir=scions '^status:' .`
+2. In each file it lists, rename the field and keep its value:
+   `sed -i 's/^status:/lifecycle:/'` on those files.
+3. Find links to the old rule page: `grep -rn --exclude-dir=scions 'page-rules/docs/status.md' .`
+   Change each to `page-rules/docs/lifecycle.md`.
+4. Done when `nix flake check` passes.
+
+## v1.1.0 - 2026-11-05
+
+### Added
+- `living`: a status for a page that is always current.
+
+## v1.0.0 - 2026-11-01
+
+- The status rule, and pagecheck.
+EOF
+  g -C "$p" add -A
+  g -C "$p" commit -qm "Rename status: to lifecycle:"
+  echo "$p"
+  echo "$t"
+  echo "$h"
+}
+
+# bc_consumer DIR DESCRIPTION PAGE STATUS TEXT: a consumer at page-rules v1.1.0 with graft's workflows, a
+# `pages` check that runs pagecheck on docs/, an AGENTS.md that links the rule page, and one page
+bc_consumer() {
+  local c=$1 p=$out/page-rules
+  mkdir -p "$c/docs" "$c/.forgejo/workflows"
+  cat > "$c/flake.nix" <<EOF
+{
+  description = "$2";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/ac62194c3917d5f474c1a844b6fd6da2db95077d";
+    graft.url = "path:$graft";
+    graft.inputs.nixpkgs.follows = "nixpkgs";
+    page-rules = { url = "git+file://$p?ref=v1.1.0&exportIgnore=1"; flake = false; };
+  };
+
+  outputs = { self, nixpkgs, graft, ... }@inputs: graft.lib.mkFlake {
+    inherit inputs;
+    outputs.checks = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ] (system:
+      let pkgs = nixpkgs.legacyPackages.\${system}; in {
+        pages = pkgs.runCommand "pages" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          cd \${self}
+          PYTHONPATH=\${inputs.page-rules} python3 -m pagecheck docs
+          touch \$out
+        '';
+      });
+  };
+}
+EOF
+  command cp -f "$graft"/template/.forgejo/workflows/*.yaml "$c/.forgejo/workflows/"
+  printf 'Follow the rule in scions/page-rules/docs/status.md. Never edit scions/: graft replaces it.\n' > "$c/AGENTS.md"
+  printf -- '---\nstatus: %s\n---\n# %s\n\n%s\n' "$4" "${3^}" "$5" > "$c/docs/$3.md"
+  repo "$c"
+  g -C "$c" add -A
+  (cd "$c" && nix run .#graft >&2)
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft page-rules v1.1.0"
+  (cd "$c" && nix run .#graft check >&2)
+}
+
 case $slice in
   check-fails) check_fails ;;
   first-pattern) first_pattern ;;
   gate-merges) gate_merges ;;
+  breaking-change) breaking_change ;;
 esac

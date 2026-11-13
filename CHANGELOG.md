@@ -15,6 +15,13 @@
   request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` stays graft's drift
   check: your checks are a status of their own. It says why graft's weekly upgrade pull request gets no
   status from your workflow until a person reopens it.
+- **[Ship and take an incompatible change](docs/guides/incompatible-change.md):** a guide in two parts. The
+  provider writes Upgrading steps, tries them on a throwaway worktree of a real consumer (`nix flake lock
+  --override-input`, then `graft migrate`), and tags the new major version. The consumer takes it on a branch
+  with `upgrade NAME@TAG`, works from `graft migrate`'s brief, and opens a pull request. It says which base
+  `migrate` compares with, what to do when a provider renames its repository, and that graft finds only
+  `### Upgrading` headings. It replaces "Cross a major version" in Upgrade and "Make an incompatible change"
+  in Publish, which now link to it.
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
 
 ### Fixed

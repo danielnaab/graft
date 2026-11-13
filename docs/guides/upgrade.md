@@ -45,37 +45,12 @@ new version's copies.
 
 ## Cross a major version
 
-graft never crosses a major version by itself. `outdated` shows a newer major in the `MAJOR` column.
+graft never crosses a major version by itself: `outdated` shows it in the `MAJOR` column, and you take it
+with `upgrade NAME@TAG` on a branch, then `migrate`. The steps are in
+[Ship and take an incompatible change](incompatible-change.md#part-2-a-consumer-takes-the-change).
 
-1. Create a branch.
-2. Read what the new version breaks: `nix run .#graft changelog knowledge-base-kit@v3.0.0`.
-3. Take it: `nix run .#graft upgrade knowledge-base-kit@v3.0.0`.
-4. Get a migration brief: `nix run .#graft migrate`.
-5. Give the brief to an agent, or follow it yourself.
-6. When `nix flake check` passes, commit on the branch.
-
-To give the brief to an agent:
-
-```
-claude -p "$(nix run .#graft migrate)"
-workmux add graft-upgrade -p "$(nix run .#graft migrate)"   # in a new worktree
-```
-
-The brief contains:
-
-- each input's old and new tag;
-- the rules: fix this repository's own files, never the scions directory, graft's workflows or the pins;
-- each provider's CHANGELOG sections between the tags, **Upgrading** first;
-- files that moved in the scions directory, renames and deletions first;
-- lines in your own files that name a renamed or deleted path;
-- each of your checks that fails, with the end of its log (`--no-check` skips the checks);
-- the end condition: `nix flake check` passes, committed on the branch.
-
-Run `migrate` from the repository root. It compares with the merge base of the default branch
-(`origin/HEAD`, else `origin/main` or `main`). Use `--base REF` for another base. It changes nothing.
-
-The CI bot force-pushes its branch `graft/upgrade` every week. Make your fix on a new branch from it, or
-merge the fix before the next run.
+`migrate` also helps when the weekly upgrade's pull request fails a check. The CI bot force-pushes its branch
+`graft/upgrade` every week: make your fix on a new branch from it, or merge the fix before the next run.
 
 ## Try a provider's unreleased change
 
@@ -91,6 +66,8 @@ nix run .#graft --override-input knowledge-base-kit "git+file://$HOME/src/knowle
   fails if you commit this by mistake.
 - To go back to the pinned version, run `nix run .#graft`.
 - When the change is correct, tag the provider and run `nix run .#graft upgrade`.
+- To try an incompatible change's Upgrading steps on a consumer before you tag it, see
+  [Ship and take an incompatible change](incompatible-change.md#part-1-the-provider-releases-the-change).
 
 ## Run from outside the repository
 
@@ -104,4 +81,4 @@ nix run .#graft --override-input knowledge-base-kit "git+file://$HOME/src/knowle
 `nix run .#graft migrate` runs the branch's own code and the graft version that it pins. The details are
 in [Commands](../reference/commands.md#run-from-grafts-flake).
 
-Related: [Publish](publish.md#make-an-incompatible-change), [CI](ci.md).
+Related: [Ship and take an incompatible change](incompatible-change.md), [CI](ci.md).
