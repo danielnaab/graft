@@ -17,7 +17,7 @@ files, into the Nix store.
   graft drops it from `checks`, and graft's app then fails to evaluate
   ([If something goes wrong](#if-something-goes-wrong)).
 - graft 2.7.0 or later has `flakeDir`. graft's workflows find the flake from 2.7.2. Your graft version is
-  the tag in your `graft` input's URL (`github:danielnaab/graft/v2.11.1`), also the `PINNED` column of the
+  the tag in your `graft` input's URL (`github:danielnaab/graft/v2.12.0`), also the `PINNED` column of the
   `graft` row that `nix run .#graft outdated` prints. `graft upgrade` in a
   subdirectory flake needs Nix 2.19 or later.
 - Copies that Nix made before stay in the store. See [Remove old copies](#remove-old-copies).
@@ -50,7 +50,7 @@ Run every command from the repository's top. Never run `nix run .#graft`, `nix f
    - If the repository has no flake yet, write graft's template there:
 
      ```
-     (cd nix/workspace && nix flake init -t github:danielnaab/graft/v2.11.1)
+     (cd nix/workspace && nix flake init -t github:danielnaab/graft/v2.12.0)
      ```
 
      It writes `flake.nix` and `.forgejo/workflows/` in `nix/workspace/`, and does not add them to git.

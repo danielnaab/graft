@@ -272,7 +272,7 @@ it. A status `unknown` means that graft cannot read the provider's repository.
   each checkout:
 
   ```
-  for r in ~/src/team-kb ~/src/handbook; do echo "$r"; nix run github:danielnaab/graft/v2.11.1 -- outdated -C "$r"; done
+  for r in ~/src/team-kb ~/src/handbook; do echo "$r"; nix run github:danielnaab/graft/v2.12.0 -- outdated -C "$r"; done
   ```
 
 ## Related

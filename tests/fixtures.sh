@@ -35,8 +35,8 @@
 #                   graft's workflows and a `pages` check that v2.0.0 breaks: team-kb/ (a clone of team-kb.git,
 #                   a page template outside docs/ that the check misses) takes the change; handbook/ is for the
 #                   provider's dry run
-#   upgrade         team-kb/: a consumer that pins graft v2.11.1 from graft/ (a clone of this checkout, with a new
-#                   tag v2.12.0 that releases its Unreleased section) and has v2.11.1's workflows; it grafts two local providers at
+#   upgrade         team-kb/: a consumer that pins graft's release before the newest from graft/ (a clone of this
+#                   checkout; an Unreleased section is released there first) and has that release's workflows; it grafts two local providers at
 #                   v1.0.0, committed. Then style-guide v1.1.0 (a new minor: a reworded page, a new one, a deleted
 #                   one) and page-rules v2.0.0 (a new major, with Upgrading steps); an untracked docs/retro.md in
 #                   team-kb/ that is not about the upgrade
@@ -751,19 +751,26 @@ upgrade_fixture() {
   g -C "$s" add -A
   g -C "$s" commit -q --amend --no-edit
   g -C "$s" tag -f v1.0.0 >/dev/null
-  # graft itself, as a local provider: a clone of this checkout's history, with its tag v2.11.1 and a
-  # lightweight v2.12.0 that releases its Unreleased section, so upgrade moves graft's pin and refreshes its workflows
+  # graft itself, as a local provider: a clone of this checkout's history. The consumer pins the release before
+  # the newest one, so upgrade moves graft's pin and refreshes its workflows. With an Unreleased section, the
+  # clone first releases it as the next minor version (a lightweight tag), as a release would.
+  local old new
   g clone -q "$graft" "$gc"
-  sed -i 's/^## Unreleased$/## v2.12.0 - 2026-11-12/' "$gc/CHANGELOG.md"
-  g -C "$gc" commit -qam v2.12.0
-  g -C "$gc" tag v2.12.0
+  new=$(git -C "$gc" describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
+  if grep -qx '## Unreleased' "$gc/CHANGELOG.md"; then
+    new=$(awk -F. '{ printf "%s.%d.0", $1, $2 + 1 }' <<<"$new")
+    sed -i "s/^## Unreleased\$/## $new - 2026-11-13/" "$gc/CHANGELOG.md"
+    g -C "$gc" commit -qam "$new"
+    g -C "$gc" tag "$new"
+  fi
+  old=$(git -C "$gc" describe --tags --abbrev=0 --match 'v[0-9]*' "$new^")
   mkdir -p "$c/docs" "$c/.forgejo/workflows"
   cat > "$c/flake.nix" <<EOF
 {
   description = "Team knowledge base";
 
   inputs = {
-    graft.url = "git+file://$gc?ref=v2.11.1";
+    graft.url = "git+file://$gc?ref=$old";
     style-guide = { url = "git+file://$s?ref=v1.0.0&exportIgnore=1"; flake = false; };
     page-rules = { url = "git+file://$p?ref=v1.0.0&exportIgnore=1"; flake = false; };
   };
@@ -772,7 +779,7 @@ upgrade_fixture() {
 }
 EOF
   for wf in graft-check.yaml graft-upgrade.yaml; do
-    g -C "$gc" show "v2.11.1:template/.forgejo/workflows/$wf" > "$c/.forgejo/workflows/$wf"
+    g -C "$gc" show "$old:template/.forgejo/workflows/$wf" > "$c/.forgejo/workflows/$wf"
   done
   printf -- '---\nstatus: working\n---\n# Onboarding\n\nOur style guide says: "Write short sentences."\n' > "$c/docs/onboarding.md"
   repo "$c"

@@ -47,7 +47,7 @@ committed.
    - Add graft and the provider to your inputs, in the form your flake already uses:
 
      ```nix
-     inputs.graft.url = "github:danielnaab/graft/v2.11.1";
+     inputs.graft.url = "github:danielnaab/graft/v2.12.0";
      inputs.knowledge-base-kit = { url = "github:danielnaab/knowledge-base-kit/v2.1.0"; flake = false; };
      ```
 

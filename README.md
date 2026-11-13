@@ -102,7 +102,7 @@ This writes a `flake.nix` and graft's CI workflows. Edit the inputs:
   description = "What this repo is";
 
   inputs = {
-    graft.url = "github:danielnaab/graft/v2.11.1";
+    graft.url = "github:danielnaab/graft/v2.12.0";
     # A provider: knowledge-base policies, agent playbooks and a checker.
     knowledge-base-kit = { url = "github:danielnaab/knowledge-base-kit/v2.1.0"; flake = false; };
   };

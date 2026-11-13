@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## v2.12.0 - 2026-11-13
+
+Every guide is now a task page read against a fixture: drift, first graft, gating merges, changing a grafted
+file, private files and providers, CI, upgrades, incompatible changes and publishing. graft's checks now catch
+an uncommitted or stale `flake.lock`, a repository's own `checks.graft`, and bad arguments; the drift report
+names files as your repository does; and `ci upgrade` refuses a dirty tree. Read **Upgrading** first: the
+weekly upgrade onto this version opens no pull request, because graft's workflows change.
 
 ### Upgrading
 - **A `.gitignore` that drops `flake.lock` now fails `graft check` and `nix flake check`, and

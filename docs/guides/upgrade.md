@@ -182,7 +182,7 @@ It needs `jq`. A newer major version does not make it fail: that pin's status st
   exactly once, a named tag does not exist, or a provider's repository cannot be read.
 - **graft's own pin.** `outdated` and `upgrade` include the input named `graft`. Its pin moves first, then
   the rest of the upgrade runs the new version: it rebuilds every scions directory and refreshes graft's
-  workflows to the new version's copies. Pin graft to a tag, such as `github:danielnaab/graft/v2.11.1`: a
+  workflows to the new version's copies. Pin graft to a tag, such as `github:danielnaab/graft/v2.12.0`: a
   pin to the `v2` branch is never moved. graft stays in its major version unless you name one
   (`graft@v3.0.0`).
 - **Without `upgrade`.** To move a pin yourself, change its tag in `flake.nix`, then run `nix run .#graft`.
