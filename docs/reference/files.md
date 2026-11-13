@@ -63,8 +63,31 @@ graft renders its own copy with the lines that are yours: `branches:`, `paths-ig
 - `sync` restores the pinned version's copy.
 - The checks fail if the file differs.
 - To keep your own edits, delete the marker line. graft then never reads or changes the file
-  ([CI](../guides/ci.md#keep-your-own-edits-to-a-workflow)).
+  ([Keep your own edits to a workflow](#keep-your-own-edits-to-a-workflow)).
 - graft never adds a workflow that you did not copy in.
+
+### Keep your own edits to a workflow
+
+graft's workflows in `.forgejo/workflows/` are graft's while they carry the marker line
+`# managed by graft: …`, their first line. graft keeps the `branches:`, `paths-ignore:` and
+`# graft ssh:` lines with the marker (above). For any other edit:
+
+1. Delete the marker line. Do this before you run `nix run .#graft`: while the marker is there, it puts
+   graft's copy back.
+2. Make your edits. The comment below the old marker still says that graft replaces the file: change it
+   too.
+3. Run `nix run .#graft check`. It prints `graft: scions/ and graft's workflows match the pins`, because
+   graft no longer reads the file.
+4. Commit the workflow.
+
+Without the marker, `nix run .#graft upgrade` no longer replaces the file, so you get none of graft's later
+changes to it. To take graft's copy again, put the marker line back as the first line and run
+`nix run .#graft`. It prints `graft: refreshed .forgejo/workflows/FILE`, keeps the `branches:`,
+`paths-ignore:` and `# graft ssh:` lines, and drops your other edits.
+
+If `nix run .#graft` printed `graft: refreshed .forgejo/workflows/FILE` over an edit that you had committed
+or staged, get it back with `git restore -- .forgejo/workflows/FILE`, then delete the marker line. graft
+does not stage the workflows, so git still has the edit. An edit that git did not have is lost.
 
 ### The branches line
 
@@ -82,11 +105,20 @@ graft's copy has `branches: [main]`. If your default branch has another name, wr
 
 ### The paths-ignore line
 
-One line under each of the `pull_request:` and `push:` triggers, the same under both:
+One line under each of the `pull_request:` and `push:` triggers of `graft-check.yaml`, the same under both.
+It skips graft-check for pushes that change only files that graft's check never reads, such as a notes
+directory that a bot pushes to often:
 
 ```yaml
+on:
+  pull_request:
+    paths-ignore: ["notebook/**", "drafts/**"]
+  push:
+    branches: [main]
     paths-ignore: ["notebook/**", "drafts/**"]
 ```
+
+Add it, run `nix run .#graft check`, and commit. graft keeps it through `sync` and `upgrade`.
 
 - A list of quoted globs on one line, indented four spaces, with no comment after it. Globs can contain
   letters, digits, `.`, `_`, `/`, `*`, `?` and `-`. Actions' syntax applies: `**` crosses directories. A run is skipped
@@ -97,6 +129,10 @@ One line under each of the `pull_request:` and `push:` triggers, the same under 
   `flake.nix`, `flake.lock` (for a flake in a subdirectory, that whole directory) and `.forgejo/`. It
   also refuses a glob that starts with `*` or `/`. graft reads globs as shell patterns, where `*` and
   `?` also match `/`, so it refuses in case of doubt. Name a directory.
+- A pull request that changes only ignored files gets no graft-check status. Do not make that status
+  required in branch protection.
+- graft-check needs no schedule, because an ignored push cannot change what it checks. Check the ignored
+  files with a hook or a workflow of your own.
 - graft 2.8.0 or later.
 
 ### The graft ssh line

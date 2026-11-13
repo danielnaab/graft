@@ -36,17 +36,8 @@ Consumers take the release on their next `graft upgrade`, if it is in the major 
 
 ## Make an incompatible change
 
-Anything that a consumer can rely on is your interface: an exported path, a heading that a consumer links
-to, a file's shape.
-
-- **An incompatible change needs a new major version.** graft never crosses a major version by itself.
-  The weekly upgrade continues to take your fixes, and a person decides when to take the break.
-- **Write Upgrading steps.** In the major version's CHANGELOG section, add an `### Upgrading` subsection.
-  Write steps that a person or agent can follow with knowledge of the consumer only: what moved, what to
-  search for, what to replace it with, and how to know it is done (`nix flake check` passes, for
-  example). graft quotes these sections in upgrade pull requests and migration briefs.
-- **Leave a redirect for a moved file.** For one major version, a stub at the old path can name the new
-  path, so links into the scion still lead somewhere. Remove the stub at the next major version.
+Release it as a new major version, with Upgrading steps that you have tried on a consumer:
+[Ship and take an incompatible change](incompatible-change.md#part-1-the-provider-releases-the-change).
 
 ## Name the repository
 
@@ -63,4 +54,4 @@ The name ends with what the content is, not the role that the repository plays:
   `-template`), or words that suggest a one-time copy (`-seed`, `-starter`).
 - Give the repository the topic `graft-provider` on its forge (Forgejo or GitHub).
 
-Related: [Upgrade](upgrade.md#cross-a-major-version), [Files](../reference/files.md#in-a-provider).
+Related: [Ship and take an incompatible change](incompatible-change.md), [Files](../reference/files.md#in-a-provider).

@@ -13,13 +13,26 @@
 - **[Change a grafted file](docs/guides/change-a-grafted-file.md):** a guide to changing what a scion
   gives you without editing it: keep your own version of a file, change a setting that a provider's tool
   reads, fix it in the provider and take the release, or stop grafting a provider (`mkFlake`'s `scions`).
-  [CI](docs/guides/ci.md#keep-your-own-edits-to-a-workflow) says how to keep your own edits to one of
-  graft's workflows.
+  [Files](docs/reference/files.md#keep-your-own-edits-to-a-workflow) says how to keep your own edits to
+  one of graft's workflows.
 - **[Make a pattern's checks gate your merges](docs/guides/gate-merges.md):** a guide to running a
   provider's checker from its fetched export in `nix flake check`, a workflow that runs it on each pull
   request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` stays graft's drift
   check: your checks are a status of their own. It says why graft's weekly upgrade pull request gets no
   status from your workflow until a person reopens it.
+- **CI is now [Run graft in CI and review its upgrade pull requests](docs/guides/ci.md)**, a guide to the
+  weekly upgrade pull request: what its title and description say, the newer major versions it holds, what
+  to read in the scions diff, and what to do when its checks fail or the pull request is not opened. It
+  shows how to run the steps by hand (on GitHub, say) and how to check many repositories with `outdated -C`.
+  Its sections on `paths-ignore` and on keeping your own edits to a workflow moved to
+  [Files](docs/reference/files.md#grafts-workflows).
+- **[Ship and take an incompatible change](docs/guides/incompatible-change.md):** a guide in two parts. The
+  provider writes Upgrading steps, tries them on a throwaway worktree of a real consumer (`nix flake lock
+  --override-input`, then `graft migrate`), and tags the new major version. The consumer takes it on a branch
+  with `upgrade NAME@TAG`, works from `graft migrate`'s brief, and opens a pull request. It says which base
+  `migrate` compares with, what to do when a provider renames its repository, and that graft finds only
+  `### Upgrading` headings. It replaces "Cross a major version" in Upgrade and "Make an incompatible change"
+  in Publish, which now link to it.
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
 - **A flake in a subdirectory is now [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md)**:
   numbered steps from a flake at the top or from no flake, a check that proves the store copy is only the

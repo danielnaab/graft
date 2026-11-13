@@ -55,7 +55,7 @@ save any change someone meant, put the scions back to their pins, and stop the c
 
    A line `graft: .forgejo/workflows/FILE differs from the copy this graft version ships` is one of graft's
    workflows. Step 5 restores it. To keep your edits instead, delete its marker line first
-   ([Keep your own edits to a workflow](ci.md#keep-your-own-edits-to-a-workflow)).
+   ([Keep your own edits to a workflow](../reference/files.md#keep-your-own-edits-to-a-workflow)).
 
 3. Find which changes someone meant. The check shows committed and uncommitted edits alike, so ask git:
 
