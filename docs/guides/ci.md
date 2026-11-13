@@ -197,15 +197,20 @@ it. A status `unknown` means that graft cannot read the provider's repository.
   Forgejo starts workflows for. It builds only graft's check. When it fails, see
   [`graft check` fails](check-fails.md). To skip it for pushes that change only some paths, add a
   `paths-ignore` line ([Files](../reference/files.md#the-paths-ignore-line)).
-- **Run the steps yourself.** On GitHub, or to test, run the same commands from the top of a fresh clone.
-  `ci upgrade` stages every file with `git add -A`, so in a working copy it commits and pushes untracked
-  files too. It needs `BRANCH`, commits on the branch that is checked out, and pushes to `origin`:
+- **Run the steps yourself.** On GitHub, or to test, run the same commands from the top of a fresh clone
+  of the default branch. `ci upgrade` needs `BRANCH`. It commits every change on the branch `BRANCH`, and
+  force-pushes it to `origin`. It refuses a working tree with changes of its own, and any other branch:
 
   ```
   git switch -c graft/upgrade
   BRANCH=graft/upgrade nix run .#graft ci upgrade
   git switch main
   ```
+
+  On `main`, it prints
+  `graft: ci upgrade commits on the branch checked out, main, and pushes it to graft/upgrade: switch to a new branch graft/upgrade first (git switch -c graft/upgrade)`.
+  With a changed or untracked file, it prints
+  `graft: ci upgrade commits every change in the working tree, and this one has changes of its own (git status lists them): commit, stash or remove them first`.
 
   `ci pr` uses Forgejo's API, and needs `API`, `WEB`, `BASE`, `BRANCH` and `PR_TOKEN`. On GitHub, open the
   pull request yourself, from a job checked out at the default branch, with `contents: write` and
@@ -232,8 +237,8 @@ Moved to [Files](../reference/files.md#keep-your-own-edits-to-a-workflow).
 
 ## Sources
 
-- [lib/ci.sh](../../lib/ci.sh): `check`; `upgrade`, which stages everything, commits, pushes, and fails
-  after a failing check; `pr`, which refuses a branch that changes other files or workflows, titles a
+- [lib/ci.sh](../../lib/ci.sh): `check`; `upgrade`, which refuses a changed tree or another branch, stages
+  everything, commits, pushes, and fails after a failing check; `pr`, which refuses a branch that changes other files or workflows, titles a
   failing upgrade, writes the description, edits an open pull request, and reports HTTP failures.
 - [lib/common.sh](../../lib/common.sh): `full_check`, `upstream_input`, `upstream_range` and
   `changelog_between`, which read each provider's CHANGELOG between the two pins.

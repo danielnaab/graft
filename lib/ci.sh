@@ -12,7 +12,8 @@
 #            it, and force-push it to $BRANCH on origin. Writes changed=true|false to
 #            $GITHUB_OUTPUT. A failing check doesn't stop the push: the commit message names the
 #            failing checks with the tail of each log, so the PR shows the breakage, and the step
-#            then fails. The check runs the code of the graft version just moved to, and the repo's
+#            then fails. Refuses a working tree with changes of its own, and a branch other than
+#            $BRANCH checked out (a detached HEAD is fine). The check runs the code of the graft version just moved to, and the repo's
 #            own checks over upstream content, before anyone reviewed either, so this step must
 #            hold no secret beyond the job's own token.
 #   pr       open a PR from $BRANCH into $BASE, or retitle the open one (the push updated it).
@@ -47,14 +48,26 @@ check() {
   # would pass on whatever the tags resolve to today. The lock is the pins: it must be committed.
   git cat-file -e "HEAD:$FLAKE_LOCK" 2>/dev/null \
     || die "$FLAKE_LOCK is not committed, so nothing is pinned: run $GRAFT_RUN, then commit $FLAKE_LOCK (if git ignores it, git check-ignore -v $FLAKE_LOCK names the rule)"
-  if [ "$FLAKE" != . ]; then nix_ run "$FLAKE_REF#graft" check; return; fi
-  system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
-  nix_ build --no-link ".#checks.$system.graft"
+  if [ "$FLAKE" != . ]; then
+    nix_ run "$FLAKE_REF#graft" check
+  else
+    system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
+    nix_ build --no-link ".#checks.$system.graft"
+  fi
+  echo "graft: ci check passed: $FLAKE_LOCK is committed, and the scions and graft's workflows match it"
 }
 
 upgrade() {
-  local changes checks=passed
-  : "${BRANCH:?BRANCH is not set}"
+  local changes checks=passed cur
+  [ -n "${BRANCH:-}" ] || die "BRANCH is not set: name the branch to push the upgrade to (graft's workflow sets BRANCH=graft/upgrade)"
+  # It commits on the branch checked out and stages everything: never the default branch, and
+  # nothing of anyone's but graft's (untracked files would be pushed with it)
+  cur=$(git symbolic-ref -q --short HEAD) || cur=""
+  if [ -n "$cur" ] && [ "$cur" != "$BRANCH" ]; then
+    die "ci upgrade commits on the branch checked out, $cur, and pushes it to $BRANCH: switch to a new branch $BRANCH first (git switch -c $BRANCH)"
+  fi
+  [ -z "$(git status --porcelain --untracked-files=all)" ] \
+    || die "ci upgrade commits every change in the working tree, and this one has changes of its own (git status lists them): commit, stash or remove them first"
   log=$(mktemp) report=$(mktemp)   # outside the checkout: the repo's .gitignore can't refuse them, git add can't take them
   trap 'rm -f "$log" "$report"' EXIT
   GRAFT_CI=1 bash "$here/tools.sh" upgrade | tee "$log"

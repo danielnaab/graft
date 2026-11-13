@@ -92,6 +92,13 @@
   `nix run .#graft` or `graft upgrade`.
 - **A missing or mistyped `flakeDir` is named.** graft said only `graft: no flake.lock in TOP`; it now says
   `… set mkFlake's flakeDir to it` or `… check mkFlake's flakeDir, "DIR" …`.
+- **`graft ci upgrade` by hand no longer commits and pushes files of yours.** It runs `git add -A`, so in a
+  working copy it pushed untracked files (an `.env.local`, say) to `origin`, and on `main` it committed the
+  upgrade there. It now refuses a working tree with changes of its own
+  (`graft: ci upgrade commits every change in the working tree, and this one has changes of its own …`) and
+  a branch other than `BRANCH` (`graft: ci upgrade commits on the branch checked out, main, …`). Without
+  `BRANCH`, it says `graft: BRANCH is not set: …`, not bash's `BRANCH: BRANCH is not set`. `graft ci check`
+  ends with `graft: ci check passed: …`.
 - **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or
   three of them, depending on the line; it now always says
   `graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in FILE; …)`.

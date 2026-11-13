@@ -738,7 +738,9 @@ expect "remark: and the check passes" quiet bash "$graft/lib/workflows.sh" check
 selfc self-ci v9.0.0
 git_ commit -qm init
 git_ init -q --bare "$work/origin.git" && git_ remote add origin "$work/origin.git" && git_ push -q origin main
-expect "ci check passes" quiet ci_ check
+out=$(ci_ check 2>&1) || { echo "$out" >&2; fail "ci check passes"; }
+pass "ci check passes"
+expect "and says so" grep -qxF "graft: ci check passed: flake.lock is committed, and the scions and graft's workflows match it" <<<"$out"
 # a lock never committed: a fresh clone gets one from Nix, git-added, and every check passes on it
 git_ clone -q -b main "$work/origin.git" "$work/nolock" && git_ -C "$work/nolock" rm -q --cached flake.lock \
   && git_ -C "$work/nolock" commit -qm "drop the lock" && git_ clone -q -b main "$work/nolock" "$work/nolock-clone"
@@ -748,6 +750,20 @@ expect "lock: a fresh clone has no committed lock" test ! -e flake.lock
 refused "lock: ci check fails when flake.lock was never committed" nix run .#graft -- ci check
 expect "and names the fix" grep -qF "graft: flake.lock is not committed, so nothing is pinned: run nix run .#graft, then commit flake.lock" <<<"$out"
 cd "$work/self-ci"
+refused "ci upgrade: refuses without BRANCH" ci_ upgrade
+expect "and says so" grep -qxF "graft: BRANCH is not set: name the branch to push the upgrade to (graft's workflow sets BRANCH=graft/upgrade)" <<<"$out"
+refused "ci upgrade: refuses to commit on the default branch" ci_ BRANCH=graft/upgrade upgrade
+expect "and names the branch" grep -qxF "graft: ci upgrade commits on the branch checked out, main, and pushes it to graft/upgrade: switch to a new branch graft/upgrade first (git switch -c graft/upgrade)" <<<"$out"
+git_ checkout -q -b graft/upgrade
+echo "SECRET=x" > .env.local
+refused "ci upgrade: refuses an untracked file" ci_ BRANCH=graft/upgrade upgrade
+expect "and says why" grep -qxF "graft: ci upgrade commits every change in the working tree, and this one has changes of its own (git status lists them): commit, stash or remove them first" <<<"$out"
+refuse "and pushed nothing" quiet git_ -C "$work/origin.git" rev-parse --verify refs/heads/graft/upgrade
+rm -f .env.local
+echo "# mine" >> .forgejo/workflows/graft-upgrade.yaml
+refused "ci upgrade: refuses an uncommitted change" ci_ BRANCH=graft/upgrade upgrade
+expect "for the same reason" grep -qF "has changes of its own" <<<"$out"
+git_ checkout -q -- .forgejo/workflows/graft-upgrade.yaml
 GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade"
 expect "ci upgrade: changed=true" grep -qx changed=true "$work/ci-out"
 expect "ci upgrade pushed graft/upgrade" quiet git_ -C "$work/origin.git" rev-parse --verify refs/heads/graft/upgrade
@@ -760,7 +776,7 @@ expect "ci upgrade again: changed=false" grep -qx changed=false "$work/ci-out"
 pr_env=(API=http://127.0.0.1:9 WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=x)
 expect "ci pr: no PR when the branch is already in the base" sh -c "env ${pr_env[*]} nix run .#graft ci pr 2>/dev/null | grep -q 'already in main'"
 refuse "ci pr: refuses without a token" quiet ci_ "${pr_env[@]}" PR_TOKEN= pr
-git_ reset -q --hard HEAD~1   # back to the default branch before the upgrade
+git_ checkout -q main   # the default branch, before the upgrade
 refuse "ci pr: no PR for a branch that changes workflows" quiet ci_ "${pr_env[@]}" pr
 expect "and it says why" sh -c "env ${pr_env[*]} nix run .#graft ci pr 2>/dev/null | grep -q 'changes CI workflows'"
 git_ checkout -q -b elsewhere "$(git_ -C "$work/origin.git" rev-parse graft/upgrade)"
@@ -788,8 +804,9 @@ post_body() { jq -r 'select(.method=="POST") | .body.body' "$work/$1.req"; }
 selfc self-pr v9.1.0
 git_ commit -qm init
 git_ init -q --bare "$work/origin-pr.git" && git_ remote add origin "$work/origin-pr.git" && git_ push -q origin main
+git_ checkout -q -b graft/upgrade
 BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade (scion only)"
-git_ reset -q --hard origin/main
+git_ checkout -q main
 stub_pr pr1
 expect "ci pr: opens the PR for a scion-only branch" grep -q "http://stub/pulls/1" "$work/pr1.out"
 expect "with the token in the Authorization header" grep -qx "POST token s3cret" "$work/pr1.auth"
@@ -888,13 +905,14 @@ expect "gate: the repo's own check passes before the upgrade" quiet nix flake ch
 git_ commit -qm init
 git_ init -q --bare "$work/origin-gate.git" && git_ remote add origin "$work/origin-gate.git" && git_ push -q origin main
 : > "$work/gate-out"
+git_ checkout -q -b graft/upgrade
 refuse "gate: ci upgrade fails when the repo's own check fails" quiet ci_ GITHUB_OUTPUT="$work/gate-out" BRANCH=graft/upgrade upgrade
 expect "but says it changed" grep -qx changed=true "$work/gate-out"
 expect "and pushed the branch" quiet git_ -C "$work/origin-gate.git" rev-parse --verify refs/heads/graft/upgrade
 body=$(git_ -C "$work/origin-gate.git" log -1 --format=%b graft/upgrade)
 expect "its commit names the failing check, only" grep -qx "nix flake check failed: policy-link" <<<"$body"
 expect "with its log's tail" grep -q "policy-link: expected policy v2" <<<"$body"
-git_ reset -q --hard origin/main
+git_ checkout -q main
 stub_pr gate1
 expect "gate: the PR is opened" grep -q "http://stub/pulls/1" "$work/gate1.out"
 expect "titled as failing" quiet jq -e 'select(.method=="POST") | .body.title == "[checks failing] graft: upgrade"' "$work/gate1.req"
@@ -1341,13 +1359,14 @@ expect "subdir: check passes after upgrade -C" quiet nix run path:nix/workspace#
 # ci: upgrade on a local origin, its full check running graft check as `graft`
 git_ init -q --bare "$work/origin-subdir.git" && git_ remote add origin "$work/origin-subdir.git" && git_ push -q origin main
 : > "$work/subdir-out"
+git_ checkout -q -b graft/upgrade
 env GITHUB_OUTPUT="$work/subdir-out" BRANCH=graft/upgrade PATH="$bare" nix run path:nix/workspace#graft -- ci upgrade > "$work/subdir-ci.log" 2>&1 \
   || { cat "$work/subdir-ci.log" >&2; fail "subdir: graft ci upgrade"; }
 expect "subdir: ci upgrade pushed" grep -qx changed=true "$work/subdir-out"
 expect "subdir: its full check ran graft check" grep -q "^graft: graft check" "$work/subdir-ci.log"
 body=$(git_ -C "$work/origin-subdir.git" log -1 --format=%b graft/upgrade)
 expect "subdir: and passed" test -z "$(grep 'nix flake check failed' <<<"$body")"
-git_ reset -q --hard origin/main   # back to the default branch before the upgrade
+git_ checkout -q main && git_ branch -q -D graft/upgrade   # the default branch, before the upgrade
 expect "subdir: ci check" quiet env PATH="$bare" nix run path:nix/workspace#graft -- ci check
 git_ rm -q --cached nix/workspace/flake.lock && git_ commit -qm "drop the lock"
 refused "subdir: ci check fails when the flake's flake.lock isn't committed" env PATH="$bare" nix run path:nix/workspace#graft -- ci check
