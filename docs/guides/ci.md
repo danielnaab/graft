@@ -84,7 +84,7 @@ merge it or fix it.
 6. Fetch both branches, and list what the upgrade changes:
 
    ```
-   git fetch origin main graft/upgrade
+   git fetch origin
    git diff --stat origin/main...origin/graft/upgrade
    ```
 
@@ -131,7 +131,7 @@ it. A status `unknown` means that graft cannot read the provider's repository.
   not fix it on `graft/upgrade`: the next run force-pushes that branch. Make a branch from it:
 
   ```
-  git fetch origin graft/upgrade
+  git fetch origin
   git switch --no-track -c fix-upgrade origin/graft/upgrade
   ```
 
@@ -145,8 +145,17 @@ it. A status `unknown` means that graft cannot read the provider's repository.
   git push -u origin fix-upgrade
   ```
 
-  Open a pull request from `fix-upgrade`, review it with steps 6 and 7, and merge it: it holds the upgrade
-  and your fix. Then delete the branch `fix-upgrade`, and close graft's pull request if it is still open.
+  Open a pull request from `fix-upgrade`. Review it as in steps 6 and 7, with your branch's name:
+
+  ```
+  git fetch origin
+  git diff --stat origin/main...origin/fix-upgrade
+  git diff origin/main...origin/fix-upgrade -- scions/
+  ```
+
+  Merge it: it holds the upgrade and your fix. Close graft's pull request if it is still open. Delete the
+  branch `fix-upgrade` on the forge. To delete it locally too, switch to `main` first, because git does not
+  delete the branch that is checked out: `git switch main && git branch -D fix-upgrade`.
   If the provider broke something that it should not have, tell its maintainers instead. To hand the fix to
   an agent, use the `migrate` command at the end of the pull request's description
   ([Upgrade](upgrade.md#cross-a-major-version)).
