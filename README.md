@@ -139,7 +139,7 @@ See [Publish](docs/guides/publish.md).
 | Learn the terms and how they map to Nix | [Concepts](docs/concepts.md) |
 | Graft your first pattern, in a new or existing repository | [Graft your first pattern](docs/guides/graft-a-repository.md) |
 | Find and fix what fails `graft check` | [`graft check` fails](docs/guides/check-fails.md) |
-| Change a grafted file that does not fit, or has a mistake | [Change a file that a scion provides](docs/guides/override.md) |
+| Change a grafted file that does not fit, or has a mistake | [Change a grafted file](docs/guides/change-a-grafted-file.md) |
 | Take newer versions, and cross a major version | [Upgrade](docs/guides/upgrade.md) |
 | Keep private content out of the Nix store | [A flake in a subdirectory](docs/guides/flake-in-a-subdirectory.md) |
 | Publish a repository for others to graft | [Publish](docs/guides/publish.md) |

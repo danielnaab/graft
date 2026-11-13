@@ -8,9 +8,11 @@
 #                   own flake with a check, and a .gitignore that drops flake.lock), locked/ (its own
 #                   flake, with flake.lock committed)
 #   override        a consumer that grafts two local providers (policy-kit at v1.0.0, newer v1.1.0 tagged,
-#                   with a CHANGELOG; glossary at v1.0.0) with this checkout's graft and its two workflows
-#                   (graft-check.yaml with a kept paths-ignore line), committed and passing; its AGENTS.md
-#                   points at the grafted policy page, which the team wants to change
+#                   with a CHANGELOG and an untracked draft; glossary at v1.0.0) with this checkout's graft
+#                   and its two workflows (graft-check.yaml with a kept paths-ignore line). Its own checks
+#                   run policy-kit's checker (which reads policy-kit.conf) and read the glossary's export.
+#                   Committed and passing, then the team's change made in the scion: a staged edit to the
+#                   status policy, and an untracked new page
 #
 # Needs nix, git 2.28 or later and GNU sed. Network: check-fails fetches python3 and ruff from the nixpkgs
 # registry (unpinned, so ruff's output can vary); first-pattern's flakes pin a nixpkgs that the reader fetches.
@@ -133,11 +135,19 @@ override() {
   mkdir -p "$p/docs" "$p/checker" "$p/tests" "$q"
   printf '# Status policy\n\nEvery page has a status: draft, working, stable or deprecated.\nA deprecated page links to the page that replaces it.\n' > "$p/docs/status.md"
   printf '# Provenance policy\n\nEvery page that drives a decision cites its sources.\n' > "$p/docs/provenance.md"
+  # the checker reads one setting from the consumer: the statuses a page may have
   cat > "$p/checker/check.sh" <<'EOF'
 #!/usr/bin/env bash
-# check.sh DIR: fail for each Markdown page in DIR with no status line
+# check.sh DIR: fail for each Markdown page under DIR whose status line is missing, or names a status
+# that policy-kit.conf (`statuses = a b c`, in the current directory) does not list
+statuses="draft working stable deprecated"
+if [ -f policy-kit.conf ]; then statuses=$(sed -n 's/^statuses *= *//p' policy-kit.conf); fi
 rc=0
-for f in "$1"/*.md; do grep -q '^status: ' "$f" || { echo "no status: $f"; rc=1; }; done
+while IFS= read -r f; do
+  s=$(sed -n 's/^status: *//p' "$f" | head -n 1)
+  if [ -z "$s" ]; then echo "no status: $f"; rc=1
+  elif [[ " $statuses " != *" $s "* ]]; then echo "status $s not in: $statuses: $f"; rc=1; fi
+done < <(find "$1" -name '*.md' | sort)
 exit "$rc"
 EOF
   echo "echo test" > "$p/tests/t.sh"
@@ -151,6 +161,8 @@ EOF
   printf '# Changelog\n\n## v1.1.0\n\n- The provenance policy allows an undecided page to say so.\n\n## v1.0.0\n\n- First release: the status and provenance policies, and the checker.\n' > "$p/CHANGELOG.md"
   g -C "$p" commit -qam v1.1.0
   g -C "$p" tag v1.1.0
+  # the maintainer's own draft, never added to git
+  printf '# Review policy (draft)\n' > "$p/docs/review.md"
 
   printf '# Glossary\n\n- **Pantry:** the team knowledge base.\n' > "$q/terms.md"
   repo "$q"
@@ -159,6 +171,7 @@ EOF
   g -C "$q" tag v1.0.0
 
   mkdir -p "$c/docs" "$c/.forgejo/workflows"
+  # its own checks read the fetched exports: policy-kit's checker, and the glossary's terms
   cat > "$c/flake.nix" <<EOF
 {
   description = "Pantry: a team knowledge base";
@@ -167,10 +180,21 @@ EOF
     policy-kit = { url = "git+file://$p?ref=v1.0.0&exportIgnore=1"; flake = false; };
     glossary = { url = "git+file://$q?ref=v1.0.0&exportIgnore=1"; flake = false; };
   };
-  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
+  outputs = inputs: inputs.graft.lib.mkFlake {
+    inherit inputs;
+    outputs.checks.x86_64-linux = let pkgs = inputs.graft.inputs.nixpkgs.legacyPackages.x86_64-linux; in {
+      statuses = pkgs.runCommand "statuses" { } ''
+        cd \${inputs.self} && bash \${inputs.policy-kit}/checker/check.sh docs && touch \$out
+      '';
+      terms = pkgs.runCommand "terms" { } ''
+        grep -q Pantry \${inputs.glossary}/terms.md && touch \$out
+      '';
+    };
+  };
 }
 EOF
   printf -- '---\nstatus: working\n---\n# Team notes\n' > "$c/docs/notes.md"
+  printf 'statuses = draft working stable deprecated\n' > "$c/policy-kit.conf"
   printf 'Follow the policies in scions/policy-kit/docs/. Never edit scions/: graft replaces it.\n' > "$c/AGENTS.md"
   cp "$graft/template/.forgejo/workflows/"*.yaml "$c/.forgejo/workflows/"
   # the one edit to a graft workflow that graft keeps: the bot's notes don't run the check
@@ -180,7 +204,12 @@ EOF
   (cd "$c" && nix run .#graft >/dev/null)
   g -C "$c" add -A
   g -C "$c" commit -qm "Graft policy-kit v1.0.0 and glossary v1.0.0"
-  (cd "$c" && nix run .#graft check >/dev/null)
+  (cd "$c" && nix run .#graft check >/dev/null && nix flake check 2>/dev/null)
+
+  # the team's change, made in the scion: a staged edit to the status policy, and a new page, untracked
+  sed -i 's/draft, working, stable or deprecated./proposed, draft, working, stable or deprecated./' "$c/scions/policy-kit/docs/status.md"
+  g -C "$c" add -- scions/policy-kit/docs/status.md
+  printf '# Proposals\n\nA proposed page names who decides it.\n' > "$c/scions/policy-kit/docs/proposals.md"
   echo "$p"
   echo "$q"
   echo "$c"

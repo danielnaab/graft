@@ -113,7 +113,7 @@ committed.
    Follow the policies in scions/knowledge-base-kit/docs/policies/. Never edit scions/: graft replaces it.
    ```
 
-   If a grafted file does not fit your repository, see [Change a file that a scion provides](override.md).
+   If a grafted file does not fit your repository, see [Change a grafted file](change-a-grafted-file.md).
 
 7. On GitHub, delete `.forgejo/`. Those workflows are for Forgejo Actions, and graft never adds a workflow
    that you did not keep ([CI](ci.md)). On Forgejo, keep it.
