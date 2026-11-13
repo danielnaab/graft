@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end test: a provider repo with export-ignore rules, a consumer flake that grafts it, and the
 # cycle graft -> check -> drift -> check fails -> upgrade -> graft, then graft upgrading its own
-# pin and workflows, and the CI steps against a local origin. Needs nix and git; fetches
+# pin and workflows, and the CI steps against a local origin. Needs nix, git and jq; fetches
 # nixpkgs on the first run. Usage: tests/run.sh (from anywhere).
 set -euo pipefail
 
@@ -11,6 +11,8 @@ srv=""   # the HTTP server of the annotated-tag tests, stopped on the way out
 trap '[ -z "$srv" ] || kill "$srv" 2>/dev/null; [ -n "${KEEP:-}" ] || rm -rf "$work"' EXIT   # KEEP=1: leave it, to debug a failure
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 git_() { git -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
+# tools the test runs from nixpkgs, at the commit graft's flake.lock pins (already fetched for graft)
+np="github:NixOS/nixpkgs/$(jq -r '.nodes.nixpkgs.locked.rev' "$graft/flake.lock")"
 pass() { echo "ok   $*"; }
 fail() { echo "FAIL $*" >&2; exit 1; }
 # expect <description> <command...>: the command must succeed
@@ -246,7 +248,7 @@ git_ clone -q --bare "$ap" "$work/srv/annotated.git" && git_ -C "$work/srv/annot
 # serve_git [PORT]: start an HTTP server on $work/srv (on PORT, else any free port); its port in $aport
 serve_git() {
   rm -f "$work/srv.port"
-  nix run nixpkgs#python3 -- -c 'import functools, http.server, sys
+  nix run "$np#python3" -- -c 'import functools, http.server, sys
 s = http.server.HTTPServer(("127.0.0.1", int(sys.argv[3])), functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1]))
 open(sys.argv[2], "w").write(str(s.server_port))
 s.serve_forever()' "$work/srv" "$work/srv.port" "${1:-0}" 2>/dev/null & srv=$!
@@ -523,7 +525,7 @@ expect "paths-ignore: sync keeps it" test "$(pi_on "$wf")" = "$pi_want"
 expect "paths-ignore: and the rest is graft's copy" \
   cmp -s <(grep -v '^    paths-ignore: ' "$wf") "$v9/template/.forgejo/workflows/graft-check.yaml"
 expect "paths-ignore: YAML that means it, under both triggers" \
-  test "$(nix run nixpkgs#yq-go -- -o=json -I=0 '[.on.push["paths-ignore"], .on.pull_request["paths-ignore"], .on.push.branches]' "$wf")" \
+  test "$(nix run "$np#yq-go" -- -o=json -I=0 '[.on.push["paths-ignore"], .on.pull_request["paths-ignore"], .on.push.branches]' "$wf")" \
   = '[["notebook/**","drafts/**"],["notebook/**","drafts/**"],["main"]]'
 # under one trigger, in another spelling: the check says so, and sync writes graft's form under both
 grep -v '^    paths-ignore: ' "$wf" > "$work/wf" && cp "$work/wf" "$wf"
@@ -623,16 +625,16 @@ expect "ssh: then the check passes" quiet bash "$graft/lib/workflows.sh" check "
 # shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
 expect "ssh: and a second refresh changes nothing" sh -c 'cp "$1" "$1.before" && bash "$2" refresh "$3" "$4" >/dev/null && cmp -s "$1" "$1.before"' \
   _ "$swf" "$graft/lib/workflows.sh" "$wr" "$v9/template/.forgejo/workflows"
-steps=$(nix run nixpkgs#yq-go -- -o=json -I=0 '[.jobs.scions.steps[] | .name]' "$swf")
+steps=$(nix run "$np#yq-go" -- -o=json -I=0 '[.jobs.scions.steps[] | .name]' "$swf")
 expect "ssh: the step goes before the check" test "$steps" = '["Checkout","SSH key for private scions","Scions match flake.lock"]'
 # shellcheck disable=SC2016 # the literal expression
 expect "ssh: reading the default secret, GRAFT_SSH_KEY" \
-  test "$(nix run nixpkgs#yq-go -- '.jobs.scions.steps[1].env.GRAFT_SSH_KEY' "$swf")" = '${{ secrets.GRAFT_SSH_KEY }}'
-srun=$(nix run nixpkgs#yq-go -- '.jobs.scions.steps[1].run' "$swf")
+  test "$(nix run "$np#yq-go" -- '.jobs.scions.steps[1].env.GRAFT_SSH_KEY' "$swf")" = '${{ secrets.GRAFT_SSH_KEY }}'
+srun=$(nix run "$np#yq-go" -- '.jobs.scions.steps[1].run' "$swf")
 expect "ssh: known_hosts under the host's name and its address" grep -qxF "echo '[git.example]:2222,[192.0.2.7]:2222 $hk' >> ~/.ssh/known_hosts" <<<"$srun"
 expect "ssh: an ssh config for the host" grep -qF "'Host git.example' '  HostName 192.0.2.7' '  IdentityFile ~/.ssh/graft_scions'" <<<"$srun"
-expect "ssh: the rest is graft's copy" cmp -s <(grep -v '^# graft ssh: ' "$swf" | nix run nixpkgs#yq-go -- 'del(.jobs.scions.steps[1])') \
-  <(nix run nixpkgs#yq-go -- '.' "$v9/template/.forgejo/workflows/graft-check.yaml")
+expect "ssh: the rest is graft's copy" cmp -s <(grep -v '^# graft ssh: ' "$swf" | nix run "$np#yq-go" -- 'del(.jobs.scions.steps[1])') \
+  <(nix run "$np#yq-go" -- '.' "$v9/template/.forgejo/workflows/graft-check.yaml")
 # the step itself, run here (with ssh on PATH, so it takes none from Nix)
 sk=$work/ssh-home
 mkdir -p "$sk"
@@ -720,7 +722,7 @@ refuse "ci pr: no PR for a branch that changes other files" quiet ci_ "${pr_env[
 stub_pr() {
   local port=$work/$1.port
   rm -f "$port"
-  nix run nixpkgs#python3 -- "$graft/tests/stub-api.py" "$port" "$work/$1.auth" "$work/$1.req" "${2:-/nonexistent}" & stub=$!
+  nix run "$np#python3" -- "$graft/tests/stub-api.py" "$port" "$work/$1.auth" "$work/$1.req" "${2:-/nonexistent}" & stub=$!
   for _ in $(seq 100); do [ -s "$port" ] && break; sleep 0.1; done
   ci_ API="http://127.0.0.1:$(cat "$port")" WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=s3cret \
     pr > "$work/$1.out" 2>&1 || true

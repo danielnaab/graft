@@ -281,16 +281,17 @@ for src in "$examples"/*; do
   [ -f "$src" ] || continue
   wf=.forgejo/workflows/${src##*/}
   if [ ! -f "$repo/$wf" ] || [ -L "$repo/$wf" ] || ! grep -q "^$marker" "$repo/$wf"; then continue; fi
+  kept="graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in $wf; to keep others, delete its \"$marker\" line)"
   if ! pi=$(paths_ignore "$repo/$wf" "$wf"); then
-    echo "graft: (that line is the only edit graft keeps in $wf; to keep others, delete its \"$marker\" line)" >&2
+    echo "$kept" >&2
     rc=1; continue
   fi
   if ! br=$(push_branches "$repo/$wf" "$wf"); then
-    echo "graft: (that line, paths-ignore and the ssh line are the only edits graft keeps in $wf; to keep others, delete its \"$marker\" line)" >&2
+    echo "$kept" >&2
     rc=1; continue
   fi
   if ! sl=$(ssh_line "$repo/$wf" "$wf"); then
-    echo "graft: (that line, and paths-ignore, are the only edits graft keeps in $wf; to keep others, delete its \"$marker\" line)" >&2
+    echo "$kept" >&2
     rc=1; continue
   fi
   render "$src" "$pi" > "$want"

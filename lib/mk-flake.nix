@@ -41,9 +41,10 @@
 # graft's workflows: a file in .forgejo/workflows/ named like one in template/.forgejo/workflows/
 # and carrying graft's marker line is graft's (lib/workflows.sh). The app replaces it with this
 # version's copy and the check fails if it differs; a workflow without the marker is never read.
-# The one line of graft's copy that is the repo's, `paths-ignore:` under its push and pull_request
-# triggers, is read from the repo's copy and kept; `dir` and flakeDir are passed so a glob that
-# could match them is refused.
+# The lines of graft's copy that are the repo's (`paths-ignore:` under its push and pull_request
+# triggers, `branches:` under push, and graft-check.yaml's `# graft ssh:` line) are read from the
+# repo's copy and kept; `dir` and flakeDir are passed so a paths-ignore glob that could match them
+# is refused.
 #
 # Nothing else: no config file, no lock of its own, no network access of its own. flake.lock is the
 # lock. Everything that looks at the arguments is inside `apps` and `checks`, so a repo's own
@@ -94,9 +95,9 @@ let
 
   pin = n: inputs.${n}.rev or inputs.${n}.dirtyRev or "unpinned (no rev)";
 
-  # The marker README.md's first line carries (lib/assemble.sh writes it): the app only ever
-  # deletes a directory carrying it (or the sentence graft 2.0.0 wrote, so a 2.0.0 directory can be
-  # replaced).
+  # The marker that lib/assemble.sh writes on README.md's first line: the app only ever deletes a
+  # directory whose README.md carries it, on any line (or the sentence graft 2.0.0 wrote, so a
+  # 2.0.0 directory can be replaced).
   marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->";
 
   # The scions flake.lock fetches as git inputs with exportIgnore. If such a lock holds an annotated

@@ -29,9 +29,10 @@ graft writes it. Its format is what graft's commands read, so do not edit it.
 | [knowledge-base-kit](knowledge-base-kit/) | `f95fa544dbd92d7ebba36ef7d4eb6c8bfb8a28f8` |
 ```
 
-- **Line 1, the marker:** graft finds a repository's scions directories by this line, in any
-  `README.md` that git tracks, except one inside another scions directory (a provider's leaked scions
-  README). graft deletes only a directory that has it.
+- **Line 1, the marker:** graft writes it on line 1, and looks for it on any line. graft finds a
+  repository's scions directories by this line, in any `README.md` that git tracks, except one inside
+  another scions directory (a provider's leaked scions README). graft deletes only a directory whose
+  `README.md` has it.
 - **Line 2, only for a flake in a subdirectory:** the `flakeDir`. graft's commands and workflows find the
   flake from it. Every scions directory in a repository must name the same flake.
 - **The table:** one row per scion: a link to its folder, and its commit. graft's commands find the

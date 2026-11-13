@@ -37,6 +37,9 @@
 - **`outdated`, `changelog` and `upgrade` refuse arguments they do not take**, with exit 2 and the
   command's usage line. `-C` with no repository failed with `unbound variable`; `outdated NAME` and
   `upgrade --json` were accepted and ignored; an unknown option was read as a scion's name.
+- **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or
+  three of them, depending on the line; it now always says
+  `graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in FILE; …)`.
 
 ## v2.11.1 - 2026-11-12
 
