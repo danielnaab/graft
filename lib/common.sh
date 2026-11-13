@@ -190,11 +190,12 @@ peel_locks() {
 
 # log_tail LOG: the last 30 lines of a check's log that a reader of the PR can use: not Nix's
 # progress lines (a dirty tree, what will be built or fetched, the builder's log repeated, where the
-# full log is), and no store hashes or paths of the runner's checkout
+# full log is), store paths shortened to /nix/store/…-NAME, and no path of the runner's checkout
 log_tail() {
   grep -vE "^warning: Git tree '.*' is dirty\$|^(this derivation|these [0-9]+ derivations) will be built:\$|^(this path|these [0-9]+ paths) will be fetched|^ +/nix/store/[^ ]+\$|^(building|copying path) '/nix/store/|^ +last [0-9]+ log lines:\$|^ +> |^ +For full logs, run 'nix log " "$1" \
-    | sed -E 's#/nix/store/[0-9a-z]{32}-##g' \
-    | awk -v p="$(pwd -P)/" '{ while ((i = index($0, p)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(p)); print }' \
+    | sed -E 's#/nix/store/[0-9a-z]{32}-#/nix/store/…-#g' \
+    | awk -v p="$(pwd -P)/" -v q="$PWD/" '{ while ((i = index($0, p)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(p))
+                                         while ((i = index($0, q)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(q)); print }' \
     | tail -n 30 || true
 }
 

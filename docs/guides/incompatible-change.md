@@ -284,7 +284,7 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
        pages:
        pages> docs/onboarding.md: 'status:' is now 'lifecycle:' (page-rules v2.0.0; see its CHANGELOG)
        pages> docs/outage-2026-11-03.md: 'status:' is now 'lifecycle:' (page-rules v2.0.0; see its CHANGELOG)
-       error: builder for 'pages.drv' failed with exit code 1;
+       error: builder for '/nix/store/…-pages.drv' failed with exit code 1;
 
    ## Done when
 

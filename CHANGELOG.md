@@ -120,7 +120,7 @@
   `Fix your own files on a branch made from this one: the next run force-pushes graft/upgrade. If the provider broke something, tell its maintainers.`
 - **The logs of failing checks leave out Nix's noise.** In the pull request's **Failing checks** and in
   `migrate`'s brief, the dirty-tree warning, the lines about what will be built, the builder's log repeated,
-  `For full logs, run 'nix log …'`, store hashes and the checkout's path are gone.
+  `For full logs, run 'nix log …'` and the checkout's path are gone, and store paths read `/nix/store/…-NAME`.
 - **`migrate` reads a provider's branch locked with `--override-input`.** The brief said
   `page-rules v1.1.0 (from v1.1.0)` and listed commits. It now names the locked ref and commit
   (`page-rules lifecycle at COMMIT (from v1.1.0)`) and quotes the branch's CHANGELOG sections above the old

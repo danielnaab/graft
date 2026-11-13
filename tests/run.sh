@@ -936,7 +936,7 @@ expect "and pushed the branch" quiet git_ -C "$work/origin-gate.git" rev-parse -
 body=$(git_ -C "$work/origin-gate.git" log -1 --format=%b graft/upgrade)
 expect "its commit names the failing check, only" grep -qx "nix flake check failed: policy-link" <<<"$body"
 expect "with its log's tail" grep -q "policy-link: expected policy v2" <<<"$body"
-refuse "without Nix's progress lines, store paths or the checkout's path" grep -qE "will be built|is dirty|For full logs|/nix/store/|$gc/" <<<"$body"
+refuse "without Nix's progress lines, store paths or the checkout's path" grep -qE "will be built|is dirty|For full logs|/nix/store/[0-9a-z]{32}|$gc/" <<<"$body"
 git_ checkout -q main
 stub_pr gate1
 expect "gate: the PR is opened" grep -q "http://stub/pulls/1" "$work/gate1.out"

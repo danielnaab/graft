@@ -173,7 +173,7 @@ it. A status `unknown` means that graft cannot read the provider's repository.
 
   style-quote:
   style-quote> style-quote: docs/onboarding.md quotes a rule that scions/style-guide/docs/style.md does not have
-  error: builder for 'style-quote.drv' failed with exit code 1;
+  error: builder for '/nix/store/…-style-quote.drv' failed with exit code 1;
   ```
 
   Do not fix it on `graft/upgrade`: the next run force-pushes that branch. Make a branch from it:
