@@ -169,14 +169,18 @@ t=v1.2.0 && { git ls-remote --exit-code origin "refs/tags/$t" >/dev/null || { ec
   cache has seen the tag. The consumer fetches the tag once by its full name, as in
   [Graft a private repository](private-providers.md#steps) step 1, then runs graft again
   ([Nix behaviours](../reference/nix-behaviours.md)).
-- **A consumer's CI fails with `NAR hash mismatch in input 'github:…'`, though `graft check` passed on your
-  machine.** Your machine fetched the release commit before, through `.` or a `git+` input, and Nix's fetch
-  cache gave the consumer's `github:` input that tree, without your `export-ignore` rules, so its lock holds
-  the hash of the whole commit ([Nix behaviours](../reference/nix-behaviours.md)). Compare the lock's
-  `narHash` with a fetch through an empty cache:
-  `XDG_CACHE_HOME=$(mktemp -d) nix flake prefetch github:OWNER/REPO/v1.2.0` prints the hash that CI
-  computes. Write that hash into the consumer's `flake.lock`, and take later releases on a machine, or with
-  an `XDG_CACHE_HOME`, that has not fetched the commit another way.
+- **A consumer's CI fails with `NAR hash mismatch in input 'github:…'`, though `graft check` passed where you
+  locked it.** You locked or upgraded the consumer on your own machine, which had fetched the release commit
+  through `.` or a `git+` input without `exportIgnore`. Nix's fetch cache gave the consumer's `github:` input
+  that tree, without your `export-ignore` rules, so its lock holds the hash of the whole commit; in Nix's
+  message, the "got" hash is the lock's ([Nix behaviours](../reference/nix-behaviours.md)). Re-lock the
+  consumer through an empty fetch cache, then check that `narHash` in its `flake.lock` matches the hash printed
+  by `XDG_CACHE_HOME=$(mktemp -d) nix flake prefetch github:OWNER/REPO/v1.2.0`:
+
+  ```
+  XDG_CACHE_HOME=$(mktemp -d) nix flake lock --update-input YOUR-INPUT
+  ```
+
 - **A consumer's scion holds a path that `git archive` leaves out, such as `tests/`.** A rule has a trailing
   slash (`tests/ export-ignore`), and the consumer's input fetches from a bare clone. Remove the slash
   (step 6), and release a patch version.
