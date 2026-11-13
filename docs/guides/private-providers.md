@@ -7,7 +7,7 @@ Graft a provider that only an ssh key can read, on your machine and in graft-che
 
 ## Before you begin
 
-- You can read the provider over ssh. This prints the tag's commit:
+- You can read the provider over ssh. This prints a hash and `refs/tags/v1.0.0`:
 
   ```
   git ls-remote ssh://git@git.example.com:2222/team/notes refs/tags/v1.0.0
@@ -89,7 +89,8 @@ Graft a provider that only an ssh key can read, on your machine and in graft-che
    ssh-keyscan -p 2222 git.example.com 2>/dev/null
    ```
 
-   It prints one line per key, such as `[git.example.com]:2222 ssh-rsa AAAA…`. Take the line whose type
+   It prints one line per key, such as `[git.example.com]:2222 ssh-rsa AAAA…`, and comment lines starting
+   with `#`, which you skip. Take the line whose type
    matches a key file on the server, and compare the key with that file: for Forgejo's built-in ssh server,
    `data/ssh/gitea.rsa.pub` (`ssh-rsa`); for the system's OpenSSH, a file such as
    `/etc/ssh/ssh_host_ed25519_key.pub`.
@@ -152,10 +153,11 @@ Then push a branch, and see graft-check pass on Forgejo.
 
 ## If something goes wrong
 
-- **`fatal: couldn't find remote ref refs/heads/v1.0.0` (Nix 2.34) or `error: resolving Git reference
+- **`error: Failed to fetch git repository 'ssh://…'` (Nix 2.34) or `error: resolving Git reference
   'v1.0.0': revspec 'v1.0.0' not found` (Nix 2.24).** Read the lines above it. If ssh printed an error, such
   as `ssh: Could not resolve hostname …`, Nix could not reach the provider: make the `git ls-remote` in
-  [Before you begin](#before-you-begin) work. If ssh printed nothing, `flake.lock` has no lock of the tag:
+  [Before you begin](#before-you-begin) work. If it printed `fatal: couldn't find remote ref
+  refs/heads/v1.0.0` (Nix 2.34), or ssh printed nothing (Nix 2.24), `flake.lock` has no lock of the tag:
   do step 2.
 - **`graft: .forgejo/workflows/graft-check.yaml: its "# graft ssh:" line: can't read "…"`.** The line has a
   word that is not a field: often the key's comment (`root@server`), or the host pasted again before the

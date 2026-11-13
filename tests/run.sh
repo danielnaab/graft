@@ -310,10 +310,11 @@ tag_lock "$atag" && git_ add -A
 # shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
 expect "annotated: the lock pins the tag object, as Nix 2.24 wrote it" quiet jq -e --arg r "$atag" '.nodes.annotated.locked.rev == $r' flake.lock
 bugged=$(nix flake prefetch --json "git+$aurl?ref=v1.0.0&rev=$atag&exportIgnore=1" 2>/dev/null | jq -r .storePath)
+[ -e "$bugged/docs/a.md" ] || fail "annotated: prefetch at the tag object"
 # the bug, in Nix 2.24 and 2.34: at the tag object, Nix's export ignores nothing. A Nix without it
 # skips the checks below that need an unfiltered export; graft's re-pin is tested on any Nix.
 if [ -e "$bugged/tests/t.sh" ]; then tagbug=1; pass "annotated: (the bug: at the tag object, Nix's export ignores nothing)"
-else tagbug=""; pass "annotated: (this Nix filters the export at the tag object: no unfiltered-export checks)"; fi
+else tagbug=""; echo "skip annotated: this Nix filters the export at the tag object: 7 unfiltered-export checks not run"; fi
 # sync re-pins the tag's commit and stops (its scions were built from the old lock); run again, it
 # grafts the real export
 refused "annotated: sync re-pins, then stops" nix run .#graft
