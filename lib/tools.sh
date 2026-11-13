@@ -315,7 +315,7 @@ cmd_upgrade() {
     retarget "$name" "$pinned" "$target"
     if [ "$(jq -r .locked.type <<<"$(node "$name")")" = git ]; then
       # locked by hand at the tag's commit (common.sh's relock_git: an annotated tag's object
-      # defeats exportIgnore, and Nix 2.24 can't fetch `ref=TAG` fresh over HTTP or ssh)
+      # defeats exportIgnore, and Nix can't fetch `ref=TAG` over HTTP or ssh: 2.24 fresh, 2.34 at all)
       shas=$(tag_shas "$(remote "$(node "$name")")" "$target") || exit 1
       [ -n "$shas" ] || die "$name: no tag $target upstream"
       relock_git "$name" "${shas#* }" "$target" || exit 1

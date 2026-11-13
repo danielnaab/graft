@@ -116,7 +116,8 @@ is_semver() { [[ $1 =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 # exportIgnore filter then looks up .gitattributes at that "commit", finds none, and silently
 # ignores nothing: the scion gets the provider's whole tree. Fetched by the tag's commit, the export
 # is right. So graft keeps a git input's lock at the commit: what every reader of the lock (Nix's
-# check, `nix run .#graft`, CI under any Nix version) then fetches, and what newer Nix writes itself.
+# check, `nix run .#graft`, CI under any Nix version) then fetches, and what Nix 2.34 writes itself
+# (2.34 still fetches a lock at the tag object, one 2.24 wrote, unfiltered).
 
 # tag_shas URL TAG: "OBJECT COMMIT" for tag TAG at URL (OBJECT the ref's sha: the tag object for an
 # annotated tag, the commit for a lightweight one), or nothing when URL has no such tag. Fails,
@@ -135,7 +136,8 @@ tag_shas() {
 # relock_git NAME COMMIT [REF]: write flake.lock's entry for git input NAME as Nix locks it at
 # COMMIT (and, given REF, with REF as its ref, in `original` too, where flake.nix now names it).
 # Fetched by commit with `ref` beside it, which also works on a cache that never saw the tag (a
-# fresh fetch of `ref=TAG` over HTTP or ssh fails in Nix 2.24: it asks for refs/heads/TAG).
+# fetch of `ref=TAG` over HTTP or ssh asks for refs/heads/TAG and fails: in Nix 2.24 on a fresh
+# cache, in Nix 2.34 always).
 relock_git() {
   local name=$1 rev=$2 ref=${3:-} n key url q pre tmp
   n=$(lock_node "$FLAKE_LOCK" "$name")
@@ -190,9 +192,10 @@ peel_locks() {
 
 # log_tail LOG: the last 30 lines of a check's log that a reader of the PR can use: not Nix's
 # progress lines (a dirty tree, what will be built or fetched, the builder's log repeated, where the
-# full log is), store paths shortened to /nix/store/…-NAME, and no path of the runner's checkout
+# full log is, the output paths: as Nix 2.24 and 2.34 print them), store paths shortened to
+# /nix/store/…-NAME, and no path of the runner's checkout
 log_tail() {
-  grep -vE "^warning: Git tree '.*' is dirty\$|^(this derivation|these [0-9]+ derivations) will be built:\$|^(this path|these [0-9]+ paths) will be fetched|^ +/nix/store/[^ ]+\$|^(building|copying path) '/nix/store/|^ +last [0-9]+ log lines:\$|^ +> |^ +For full logs, run 'nix log " "$1" \
+  grep -vE "^warning: Git tree '.*' is dirty\$|^(this derivation|these [0-9]+ derivations) will be built:\$|^(this path|these [0-9]+ paths) will be fetched|^ +/nix/store/[^ ]+\$|^(building|copying path) '/nix/store/|^ +[Ll]ast [0-9]+ log lines:\$|^ +> |^ +For full logs, run|^ +nix log /nix/store/|^ +Output paths:\$" "$1" \
     | sed -E 's#/nix/store/[0-9a-z]{32}-#/nix/store/…-#g' \
     | awk -v p="$(pwd -P)/" -v q="$PWD/" '{ while ((i = index($0, p)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(p))
                                          while ((i = index($0, q)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(q)); print }' \

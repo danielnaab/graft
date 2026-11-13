@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+- **On Nix 2.34, `graft ci upgrade`'s commit and pull request no longer show Nix's `For full logs, run:`,
+  `nix log /nix/store/…` and `Output paths:` lines** of a failing check. Nix 2.34 words a failed build's
+  error differently from 2.24; graft now drops both forms.
+
 ### Docs
 - [Publish](docs/guides/publish.md#if-something-goes-wrong) and [Nix behaviours](docs/reference/nix-behaviours.md):
   a consumer locked on the provider's own machine can hold the hash of the whole commit, not of the export,
