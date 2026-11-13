@@ -130,7 +130,7 @@ Any repository with semver tags can be a provider. Make it easy to follow:
 - In that version's CHANGELOG section, write **Upgrading** steps that a person or agent can follow without
   knowing your repository's internals. `graft changelog` and `graft migrate` show them first.
 
-See [Publish](docs/guides/publish.md).
+See [Publish](docs/guides/publish.md), and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 
 ## Documentation
 
@@ -141,7 +141,8 @@ See [Publish](docs/guides/publish.md).
 | Run a pattern's checks in CI, and require them before a merge | [Make a pattern's checks gate your merges](docs/guides/gate-merges.md) |
 | Find and fix what fails `graft check` | [`graft check` fails](docs/guides/check-fails.md) |
 | Change a grafted file that does not fit, or has a mistake | [Change a grafted file](docs/guides/change-a-grafted-file.md) |
-| Take newer versions, and cross a major version | [Upgrade](docs/guides/upgrade.md) |
+| Take newer versions | [Upgrade](docs/guides/upgrade.md) |
+| Release an incompatible change, or take one (a new major version) | [Ship and take an incompatible change](docs/guides/incompatible-change.md) |
 | Keep private files out of the Nix store, with a flake in a subdirectory | [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md) |
 | Publish a repository for others to graft | [Publish](docs/guides/publish.md) |
 | Graft a provider that only an ssh key can read, and check it in CI | [Graft a private repository](docs/guides/private-providers.md) |
