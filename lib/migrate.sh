@@ -230,14 +230,19 @@ name=$(git remote get-url origin 2>/dev/null || true)
 name=${name%/}; name=${name%.git}; name=${name##*/}; name=${name##*:}
 if [ -z "$name" ]; then
   common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=""
-  if [ "${common##*/}" = .git ]; then name=$(basename "$(dirname "$common")"); else name=$(basename "$top"); fi
+  # REPO/.git, or a bare repo's REPO.git (a worktree of a bare clone)
+  if [ "${common##*/}" = .git ]; then name=$(basename "$(dirname "$common")")
+  elif [ -n "$common" ]; then name=${common##*/}; name=${name%.git}
+  else name=$(basename "$top"); fi
 fi
 branch=$(git branch --show-current)
 applied=committed
 if [ -n "$(git --no-optional-locks status --porcelain -- "$FLAKE_NIX" "$FLAKE_LOCK" "${pathspec[@]}")" ]; then applied=uncommitted; fi
-# whether flake.nix moved too (a ref graft upgrade changed): the brief names it with the lock
+# whether flake.nix moved too (a ref graft upgrade changed): the brief names it with the lock. Only
+# a changed line with an input's url counts (graft upgrade writes the tag there), so an edit of the
+# repo's own outputs doesn't; one to a url line by hand does, and is a pin too.
 nix_moved=false
-if ! git diff --quiet "$base" -- "$FLAKE_NIX" 2>/dev/null; then nix_moved=true; fi
+if grep -qE '^[-+][^-+].*url' <<<"$(git diff "$base" -- "$FLAKE_NIX" 2>/dev/null)"; then nix_moved=true; fi
 
 jq -n --arg repo "$name" --arg branch "$branch" --arg head "$(git rev-parse --short HEAD)" \
   --arg base_ref "$base_ref" --arg base "$base" --arg applied "$applied" --arg refs_error "$refs_error" \
