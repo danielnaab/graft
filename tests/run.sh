@@ -62,18 +62,39 @@ expect "README names the pinned commit" grep -q "$rev1" scions/README.md
 git_ add -A
 expect "check passes on a fresh graft" quiet nix flake check
 
+# the drift report (lib/drift.sh): one for both checks, naming files as the repo does
 echo "local edit" >> scions/provider/docs/policy.md && git_ add -A
 out=$(nix flake check -L 2>&1) && fail "check catches an edited scion"
 pass "check catches an edited scion"
-expect "and shows the diff" grep -q "local edit" <<<"$out"
-refuse "no only-on-the-left hint when no file is only on the left" grep -q "only on the left" <<<"$out"
+expect "and names the file as the repo does" grep -qx "graft-check> graft: scions/provider/docs/policy.md: edited" <<<"$out"
+expect "and shows the diff" grep -q "^graft-check> +local edit" <<<"$out"
+expect "with the repo's paths as labels" grep -qx "graft-check> +++ scions/provider/docs/policy.md (your copy)" <<<"$out"
+refuse "and no temporary or store path" grep -qE "graft-check> .*(/nix/store/|/tmp/)" <<<"$out"
+refuse "no only-in-the-pin hint when no file is only in the pin" grep -q "a file only in the pin" <<<"$out"
+refused "graft check catches it too" nix run .#graft check
+expect "with the same report" grep -qx "graft: scions/provider/docs/policy.md: edited" <<<"$out"
 quiet nix run .#graft && git_ add -A
 git_ rm -q --cached scions/provider/docs/policy.md
 out=$(nix flake check -L 2>&1) && fail "check catches a scion file git doesn't track"
 pass "check catches a scion file git doesn't track"
-expect "and says what a file only on the left means" grep -q "only on the left is one Nix can't see" <<<"$out"
+expect "and names it only in the pin" grep -qx "graft-check> graft: scions/provider/docs/policy.md: only in the pin, not in your copy" <<<"$out"
+expect "and says what that means" grep -qF "graft-check> graft: a file only in the pin was deleted, is not added to git (nix flake check sees only what git tracks), or git ignores it: git check-ignore -v scions/provider/docs/policy.md names the rule" <<<"$out"
 git_ add -A
 expect "graft restores the pinned export" quiet nix flake check
+mv scions/provider/docs/policy.md "$work/policy.md"
+refused "graft check catches a deleted scion file" nix run .#graft check
+expect "and names it only in the pin" grep -qx "graft: scions/provider/docs/policy.md: only in the pin, not in your copy" <<<"$out"
+expect "and says what that means" grep -qxF "graft: a file only in the pin was deleted, or git ignores it: git check-ignore -v scions/provider/docs/policy.md names the rule" <<<"$out"
+mv "$work/policy.md" scions/provider/docs/policy.md
+echo "stray" > scions/provider/docs/new.md
+refused "graft check catches an untracked file in a scion" nix run .#graft check
+expect "and names it only in your copy" grep -qx "graft: scions/provider/docs/new.md: only in your copy, not in the pin" <<<"$out"
+expect "and says what that means" grep -qxF "graft: a file only in your copy was written by a tool (__pycache__/, a build) or added by someone; nix run .#graft deletes it" <<<"$out"
+expect "nix flake check doesn't see an untracked file" quiet nix flake check
+echo "scions/provider/docs/new.md" > .gitignore
+expect "an ignored file passes graft check" quiet nix run .#graft check
+expect "and nix flake check" quiet nix flake check
+rm .gitignore scions/provider/docs/new.md
 
 # upgrade: provider tags v2; the consumer moves the ref and updates the lock
 echo "policy v2" > "$p/docs/policy.md" && git_ -C "$p" commit -qam v2 && git_ -C "$p" tag v2.0.0
@@ -1091,7 +1112,9 @@ echo "local edit" >> .scions/provider/docs/policy.md
 out=$(nix run path:nix/workspace#graft check 2>&1) && fail "subdir: graft check catches an edited scion"
 pass "subdir: graft check catches an edited scion"
 expect "subdir: and shows the diff" grep -q "local edit" <<<"$out"
-refuse "subdir: no only-on-the-left hint when no file is only on the left" grep -q "only on the left" <<<"$out"
+expect "subdir: naming the file from the repo's top" grep -qx "graft: .scions/provider/docs/policy.md: edited" <<<"$out"
+expect "subdir: and the flake's lock" grep -qx "graft: .scions/ differs from the pins in nix/workspace/flake.lock; run: nix run path:nix/workspace#graft" <<<"$out"
+refuse "subdir: no only-in-the-pin hint when no file is only in the pin" grep -q "a file only in the pin" <<<"$out"
 echo "stray" > .scions/provider/new.md
 quiet nix run path:nix/workspace#graft
 expect "subdir: sync restores it" quiet nix run path:nix/workspace#graft check
@@ -1102,7 +1125,7 @@ expect "subdir: sync restores the workflow" cmp -s .forgejo/workflows/graft-chec
 echo ".scions/provider/docs/" > .gitignore && git_ rm -rq --cached .scions/provider/docs
 out=$(nix run path:nix/workspace#graft check 2>&1) && fail "subdir: graft check catches a grafted file .gitignore drops"
 pass "subdir: graft check catches a grafted file .gitignore drops"
-expect "subdir: and says what a file only on the left means" grep -q "only on the left is one git can't see" <<<"$out"
+expect "subdir: and says what a file only in the pin means" grep -qF "git ignores it: git check-ignore -v .scions/provider/docs/policy.md names the rule" <<<"$out"
 rm .gitignore && git_ reset -q
 refuse "subdir: check from graft's own flake says where it runs" quiet nix run "path:$graft" -- check
 # the workflow's own step finds the flake from the scions README

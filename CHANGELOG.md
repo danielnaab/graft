@@ -12,6 +12,14 @@
   [Upgrade](docs/guides/upgrade.md#try-a-providers-unreleased-change).
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
 
+### Changed
+- **One drift report for `graft check` and `nix flake check`** (lib/drift.sh). It names each file as the
+  repository does (`scions/NAME/FILE`), not by a temporary directory or a store path: `edited`, with a
+  unified diff; `only in your copy, not in the pin`; or `only in the pin, not in your copy`. Then it says
+  what each kind usually is: a tool's output or someone's addition; or a deleted file, a file git ignores
+  (with the `git check-ignore -v` command that names the rule) or, for `nix flake check`, one not added to
+  git. It replaces `diff -r`'s output and the "a file listed only on the left" hints.
+
 ### Fixed
 - **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran
   `link_validator && kb_linter`, so a link failure never failed the build. Only graft's own

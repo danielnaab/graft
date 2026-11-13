@@ -120,7 +120,7 @@ let
   # ones git doesn't ignore), and graft's workflows with this version's.
   sync = pkgs: pkgs.writeShellApplication {
     name = "graft-sync";
-    runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.git pkgs.gnugrep ];
+    runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.findutils pkgs.git pkgs.gnugrep ];
     text = ''
       mode=''${1:-sync}
       ${if root then ''
@@ -177,16 +177,7 @@ let
           fi
           rc=0
           ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || rc=1"}
-          left=${expected pkgs}
-          if ! drift=$(diff -r "$left" "$tmp/actual/"${q}); then
-            printf '%s\n' "$drift" >&2
-            echo ${lib.escapeShellArg "graft: ${path}/ differs from the pins in ${if root then "" else "${fd}/"}flake.lock; run: ${run}"} >&2
-            # the hint only when diff did list a file only on the left
-            if grep -q -e "^Only in $left:" -e "^Only in $left/" <<<"$drift"; then
-              echo "graft: (a file listed only on the left is one git can't see: dropped by your .gitignore, say)" >&2
-            fi
-            rc=1
-          fi
+          bash ${./drift.sh} git ${expected pkgs} "$tmp/actual/"${q} ${q} ${lib.escapeShellArg "${if root then "" else "${fd}/"}flake.lock"} ${lib.escapeShellArg run} || rc=1
           bash ${./workflows.sh} check . ${examples} ${lib.escapeShellArg run} ${flakeArg} ${q} || rc=1
           if [ "$rc" = 0 ]; then echo ${lib.escapeShellArg "graft: ${path}/ and graft's workflows match the pins"}; fi
           exit "$rc"
@@ -203,15 +194,7 @@ let
       exit 1
     fi
     ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || exit 1"}
-    left=${expected pkgs}
-    if ! drift=$(diff -r "$left" "$actual"); then
-      printf '%s\n' "$drift" >&2
-      echo ${lib.escapeShellArg "graft: ${path}/ differs from the pins in flake.lock; run: nix run .#graft"} >&2
-      if grep -q -e "^Only in $left:" -e "^Only in $left/" <<<"$drift"; then
-        echo "graft: (a file listed only on the left is one Nix can't see: not in git yet, or dropped by your .gitignore)" >&2
-      fi
-      exit 1
-    fi
+    ${pkgs.bash}/bin/bash ${./drift.sh} nix ${expected pkgs} "$actual" ${q} flake.lock ${lib.escapeShellArg run} || exit 1
     ${pkgs.bash}/bin/bash ${./workflows.sh} check ${inputs.self} ${examples} ${lib.escapeShellArg run} . ${q}
     touch $out
   '';

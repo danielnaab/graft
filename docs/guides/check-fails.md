@@ -25,7 +25,7 @@ save any change someone meant, put the scions back to their pins, and stop the c
    ```
 
    Nix may first warn `Git tree '…' is dirty`: that only means uncommitted changes. On drift, graft
-   prints a `diff -r` of the pinned copy (left) against your scions (right), then this line, and exits 1:
+   names each file that differs from its pin, then prints this line, and exits 1:
 
    ```
    graft: scions/ differs from the pins in flake.lock; run: nix run .#graft
@@ -34,23 +34,26 @@ save any change someone meant, put the scions back to their pins, and stop the c
    If it prints `graft: scions/ and graft's workflows match the pins`, the scions are fine. If it prints
    neither line, read its `graft:` lines, and see [If something goes wrong](#if-something-goes-wrong).
 
-2. Read each part of the diff. The left side is always the pin, a path ending in `-graft-scions/`. The
-   right side is your copy: under `/tmp/…/actual/scions/` from `graft check`, or
-   `/nix/store/…-source/scions/` from `nix flake check`. Each `FILE` can be a whole directory.
+2. Read each `graft:` line about a file. The pin is the copy that `flake.lock` makes. Your copy is the
+   scions directory in your working tree.
 
-   | The diff says | It means | Usual cause |
+   | The check says | It means | Usual cause |
    |---|---|---|
-   | `diff -r LEFT/NAME/FILE RIGHT/NAME/FILE` and changed lines | a grafted file was edited | you, an agent, a formatter or a linter's `--fix` |
-   | `Only in RIGHT/NAME/DIR: FILE` | a file that the pin does not have | a tool wrote it (`__pycache__/`, a build), or someone added it |
-   | `Only in LEFT/NAME/DIR: FILE` | a grafted file that your copy lacks | it was deleted; or git ignores it (`git check-ignore -v scions/NAME/FILE` names the rule); or, for `nix flake check` only, it is not added to git yet |
-   | a changed line in `scions/README.md`'s table of commits | the pin moved, and the scions did not | see [If something goes wrong](#if-something-goes-wrong) |
+   | `graft: scions/NAME/FILE: edited`, then a diff from `--- scions/NAME/FILE (pin)` to `+++ scions/NAME/FILE (your copy)` | a grafted file was edited | you, an agent, a formatter or a linter's `--fix` |
+   | `graft: scions/NAME/FILE: only in your copy, not in the pin` | a file that the pin does not have | a tool wrote it (`__pycache__/`, a build), or someone added it |
+   | `graft: scions/NAME/FILE: only in the pin, not in your copy` | a grafted file that your copy lacks | it was deleted; or git ignores it; or, for `nix flake check` only, it is not added to git yet |
+   | `graft: scions/README.md: edited`, with a changed line in its table of commits | the pin moved, and the scions did not | see [If something goes wrong](#if-something-goes-wrong) |
+
+   After the line from step 1, the check says what each kind of file usually is, once for each kind that it
+   found. For a file only in the pin, it names the command that finds the ignore rule, if there is one:
+
+   ```
+   graft: a file only in your copy was written by a tool (__pycache__/, a build) or added by someone; nix run .#graft deletes it
+   graft: a file only in the pin was deleted, or git ignores it: git check-ignore -v scions/NAME/FILE names the rule
+   ```
 
    A line `graft: .forgejo/workflows/FILE differs from the copy this graft version ships` is one of graft's
    workflows. Step 5 restores it. To keep your edits instead, delete its marker line ([Files](../reference/files.md)).
-
-   Not yet: the diff names a temporary directory and store paths, not `scions/NAME/FILE`.
-   Not yet: the check does not explain a file only on the right, and for a file only on the left it
-   names only `.gitignore`, even when the file was deleted.
 
 3. Find which changes someone meant. The check shows committed and uncommitted edits alike, so ask git:
 
@@ -142,10 +145,11 @@ nix run .#graft check && test -z "$(git status --porcelain)" && nix flake check 
 - **`graft check` and `nix flake check` disagree.** `nix flake check` sees only what git tracks.
   `graft check` also sees files that git would add. So a new file in `scions/` that git does not ignore
   fails only `graft check`, and a grafted file removed from git (`git rm --cached`, or a new scion that was
-  never added) fails only `nix flake check`. `nix flake check` shows the last 25 lines of the diff; run
-  `nix flake check -L` for all of it.
-- **The diff shows a commit changing in `scions/README.md`.** The pin moved and the scions did not: a tag
-  edited in `flake.nix`, `nix flake update`, or a bot. Every other file in the diff changed upstream, not
+  never added) fails only `nix flake check`. For a file only in the pin, `nix flake check` says
+  `graft: a file only in the pin was deleted, is not added to git (nix flake check sees only what git tracks), or git ignores it: …`.
+  It shows the last 25 lines of the report; run `nix flake check -L` for all of it.
+- **The check shows a commit changing in `scions/README.md`.** The pin moved and the scions did not: a tag
+  edited in `flake.nix`, `nix flake update`, or a bot. Every other file in the report changed upstream, not
   here. Run `nix run .#graft` to take the new pin, or go back to the old one, and see [Upgrade](upgrade.md).
 - **Step 5 prints `graft: flake.lock re-pinned; nothing synced yet: run nix run .#graft again`.** The lock
   pointed at an annotated tag's object, and graft fixed it. Run step 5 again, and commit `flake.lock`
@@ -161,9 +165,11 @@ nix run .#graft check && test -z "$(git status --porcelain)" && nix flake check 
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): the `check` case of the app (`graft-sync`) and the
   `checks.<system>.graft` derivation; the `sync` case, which replaces and stages the scions directory, and
   refuses one without the marker.
+- [lib/drift.sh](../../lib/drift.sh): the drift report that both checks print.
 - [lib/graft.sh](../../lib/graft.sh): the re-pin before a sync.
 - [lib/workflows.sh](../../lib/workflows.sh): the check and refresh of graft's workflows.
 - [tests/run.sh](../../tests/run.sh): "check catches an edited scion", "check catches a scion file git
-  doesn't track", "check catches a pin moved without grafting", "check catches an edited graft workflow",
+  doesn't track", "graft check catches a deleted scion file", "graft check catches an untracked file in a
+  scion", "an ignored file passes graft check", "check catches a pin moved without grafting", "check catches an edited graft workflow",
   "graft won't replace a directory it didn't write", and the `subdir:` checks.
 - [Commands](../reference/commands.md), [Files](../reference/files.md).
