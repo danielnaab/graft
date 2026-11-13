@@ -29,6 +29,11 @@
   `graft: git ignores flake.lock, so the pins are not committed: git check-ignore -v flake.lock names the rule; …`
   (`FLAKEDIR/flake.lock` for a flake in a subdirectory), and `checks.<system>.graft` with
   `graft: flake.lock is not in git, so the pins are not committed: …`.
+- **A repository's own `checks.<system>.graft` or `apps.<system>.graft` is an error.** Passed in
+  `outputs`, it was merged under graft's and never ran, without a word (in a subdirectory flake, a
+  `checks.<system>.graft` was dropped). graft's app and check now fail to evaluate with
+  `graft: mkFlake's outputs has checks.SYSTEM.graft: that name is graft's; rename the repo's own`.
+  The repository's other outputs still evaluate.
 
 ## v2.11.1 - 2026-11-12
 

@@ -25,7 +25,8 @@
 #            run, so the app refuses to delete an existing directory that graft didn't write: a
 #            mistyped `dir = "src"` stops there.
 #   outputs  the repo's own flake outputs, merged with graft's at every level, so a repo's `checks`
-#            sit beside graft's. `apps.<system>.graft` and `checks.<system>.graft` stay graft's.
+#            sit beside graft's. `apps.<system>.graft` and `checks.<system>.graft` are graft's: a
+#            repo's own is an error, raised when graft's app or check is evaluated.
 #   flakeDir where this flake.nix sits, relative to the repo's top; default `.`, the top. A
 #            subdirectory (`nix/workspace`) is for a repo with content that must never be copied
 #            into the world-readable Nix store: run as a `path:` flake (nix run path:nix/workspace#graft)
@@ -228,21 +229,33 @@ let
       "graft: flakeDir must be `.` or a relative path of letters, digits, `.`, `_`, `-` and `/` (no . or .. segments, not .git), got \"${flakeDir}\"";
     x;
 
-  # without a check of graft's own, the name still isn't the repo's to take
+  # `apps.<system>.graft` and `checks.<system>.graft` are graft's names. A repo's own, in `outputs`,
+  # is an error that graft's app and check raise when evaluated: merged, graft's would replace it,
+  # and the repo's check would never run, silently. Raised there, not in the repo's own outputs, so
+  # those still evaluate (nix develop).
+  clashes = system: lib.filter (k: lib.hasAttrByPath [ k system "graft" ] outputs) [ "apps" "checks" ];
+  unclashed = pkgs: x:
+    let c = clashes pkgs.stdenv.hostPlatform.system; in
+    assert lib.assertMsg (c == [ ])
+      "graft: mkFlake's outputs has ${lib.concatStringsSep " and " (map (k: "${k}.${pkgs.stdenv.hostPlatform.system}.graft") c)}: that name is graft's; rename the repo's own";
+    x;
+
+  # without a check of graft's own, the name still isn't the repo's to take: the app fails on it
+  # (unclashed), and `checks.<system>` lists no `graft`
   own = if root || !(outputs ? checks) then outputs
     else outputs // { checks = lib.mapAttrs (_: c: removeAttrs c [ "graft" ]) outputs.checks; };
 in
-# graft's side last: a repo's own `checks.<system>.graft` must not replace the drift check
+# graft's side last
 lib.recursiveUpdate own
   {
     apps = forAll (pkgs: {
-      graft = valid {
+      graft = valid (unclashed pkgs {
         type = "app";
         program = lib.getExe (cli pkgs (lib.getExe (sync pkgs)) flakeArg);
         meta.description = "graft: sync, check, outdated, upgrade, migrate, ci";
-      };
+      });
     });
     # in a subdirectory, an empty set where a repo with no checks of its own would have none, so
     # `checks.<system>` always evaluates (graft ci and migrate list it)
-    checks = forAll (pkgs: lib.optionalAttrs root { graft = valid (check pkgs); });
+    checks = forAll (pkgs: lib.optionalAttrs root { graft = valid (unclashed pkgs (check pkgs)); });
   }

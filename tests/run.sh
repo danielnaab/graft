@@ -1075,10 +1075,19 @@ printf '{ outputs = _: throw "broken"; }\n' > "$work/broken-flake/flake.nix"
 sed -i.bak 's#^  outputs#  inputs.other.url = "path:'"$work"'/broken-flake";\n  outputs#' flake.nix && rm flake.nix.bak
 expect "an input that throws doesn't stop graft" quiet nix run .#graft
 
-# graft's outputs can't be replaced by a same-named one of the repo's
+# graft's output names aren't the repo's: a same-named one of its own is an error naming the clash,
+# never silently replaced (the repo's check would never run)
 consumer shadow 'outputs.apps = builtins.mapAttrs (_: _: { graft = { type = "app"; program = "/bin/false"; }; }) inputs.graft.packages;'
-quiet nix run .#graft || fail "a repo's apps.graft replaced graft's"
-pass "a repo's apps.graft doesn't replace graft's"
+refused "a repo's apps.graft is an error" nix run .#graft
+expect "naming the clash" grep -qF "graft: mkFlake's outputs has apps.$system.graft: that name is graft's; rename the repo's own" <<<"$out"
+# shellcheck disable=SC2016 # Nix's own interpolation
+own_check='outputs.checks = builtins.mapAttrs (s: _: { graft = inputs.graft.inputs.nixpkgs.legacyPackages.${s}.runCommand "mine" { } "touch $out"; }) inputs.graft.packages;'
+consumer shadowcheck "$own_check"
+refused "a repo's checks.graft is an error" nix flake check
+expect "naming the clash" grep -qF "graft: mkFlake's outputs has checks.$system.graft: that name is graft's; rename the repo's own" <<<"$out"
+consumer shadowsub "flakeDir = \"sub\"; $own_check"
+refused "in a subdirectory too, from graft's app" nix eval --raw ".#apps.$system.graft.program"
+expect "naming the clash" grep -qF "graft: mkFlake's outputs has checks.$system.graft: that name is graft's; rename the repo's own" <<<"$out"
 
 # flakeDir: the flake in a subdirectory, run as a path: flake, so Nix copies only that directory and
 # never the repo's top (where content that must stay out of the store lives); dir stays relative to

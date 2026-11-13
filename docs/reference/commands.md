@@ -18,10 +18,14 @@ outputs.
 | `flakeDir` | `"."` | Where `flake.nix` is, from the repository root. See [A flake in a subdirectory](../guides/flake-in-a-subdirectory.md). |
 | `outputs` | `{ }` | The repository's own outputs, merged with graft's at every level. |
 
-graft adds two outputs. A repository's own outputs cannot replace them:
+graft adds two outputs:
 
 - `apps.<system>.graft`: the `graft` command, with `sync` and `check` built for this repository.
 - `checks.<system>.graft`: the drift check. Only when `flakeDir` is `.`.
+
+Both names are graft's, also when `flakeDir` is not `.`. If `outputs` has either one, graft's app and check
+fail to evaluate with `graft: mkFlake's outputs has checks.SYSTEM.graft: that name is graft's; rename the repo's own`
+(or `apps.SYSTEM.graft`). The repository's other outputs still evaluate.
 
 Scion names must match `[A-Za-z0-9][A-Za-z0-9._-]*`.
 

@@ -64,7 +64,8 @@ committed.
 
    If the flake already has `flake = false` inputs that are not patterns (source code that it builds, say),
    add `scions = [ "knowledge-base-kit" ];` beside `inherit inputs;`: otherwise graft copies those too.
-   `apps.<system>.graft` and `checks.<system>.graft` are graft's names: rename any of your own.
+   `apps.<system>.graft` and `checks.<system>.graft` are graft's names: rename any of your own. If you do
+   not, step 3 fails with `graft: mkFlake's outputs has checks.SYSTEM.graft: that name is graft's; rename the repo's own`.
 
 3. Graft:
 
