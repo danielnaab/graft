@@ -27,8 +27,9 @@ merge it or fix it.
 - The commands assume `flake.nix` at the repository's top. For a flake in a subdirectory, run
   `nix run 'path:DIR#graft'` for `nix run .#graft`; graft's workflows find the subdirectory themselves
   ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
-- Not yet: the upgrade workflow cannot run for a repository with a private (`git+ssh`) scion, because
-  building graft fetches every scion and the job has no key. Upgrade it by hand
+- `graft-upgrade.yaml` cannot run in a repository with a private (`git+ssh`) scion: every upgrade fetches
+  all scions, and the upgrade job must not hold an ssh key ([CI security](../ci-security.md#limits)).
+  Delete `graft-upgrade.yaml`, and upgrade with `nix run .#graft upgrade`
   ([Graft a private repository](private-providers.md#how-it-works)).
 - Check it worked needs `jq`.
 

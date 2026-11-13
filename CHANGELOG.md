@@ -51,8 +51,8 @@
 - **Private providers is now [Graft a private repository](docs/guides/private-providers.md)**, with the step
   that Nix 2.24 needs to make the first lock of a `git+ssh` input at a tag (`nix flake prefetch` at
   `refs/tags/TAG`): without it, the old page's pin failed with `revspec 'v1.0.0' not found`. Its section
-  "Check in CI" is now its steps 4 to 10. It makes the CI key outside the repository, and says what to do
-  while graft-upgrade cannot run with a private scion.
+  "Check in CI" is now its steps 4 to 10. It makes the CI key outside the repository, and says why graft-upgrade
+  cannot run with a private scion, by design, and how to upgrade instead.
 - **`nix flake init -t` says what to run for a flake in a subdirectory**: `nix run 'path:DIR#graft'` from
   the repository's top, since `nix run .#graft` there copies the whole repository into the Nix store.
 
