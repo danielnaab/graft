@@ -126,11 +126,14 @@ and `.forgejo/`. Then point your `AGENTS.md`, checks and CI at what you grafted.
 Any repository with semver tags can be a provider. Make it easy to follow:
 
 - Mark what consumers should not get (tests, your own scions) `export-ignore` in `.gitattributes`.
+- Tag each release with a semver tag, and give it a `CHANGELOG.md` section. Prefer a lightweight tag. A
+  signed or annotated tag works too: on Nix 2.24, a consumer with a `git+` input sees one re-pin on its
+  first run ([Nix behaviours](docs/reference/nix-behaviours.md#annotated-tags-and-exportignore)).
 - Release a breaking change as a new major version.
 - In that version's CHANGELOG section, write **Upgrading** steps that a person or agent can follow without
   knowing your repository's internals. `graft changelog` and `graft migrate` show them first.
 
-See [Publish](docs/guides/publish.md), and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
+See [Publish a pattern](docs/guides/publish.md), and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 
 ## Documentation
 
@@ -144,7 +147,8 @@ See [Publish](docs/guides/publish.md), and [Ship and take an incompatible change
 | Take newer versions | [Upgrade](docs/guides/upgrade.md) |
 | Release an incompatible change, or take one (a new major version) | [Ship and take an incompatible change](docs/guides/incompatible-change.md) |
 | Keep private files out of the Nix store, with a flake in a subdirectory | [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md) |
-| Publish a repository for others to graft | [Publish](docs/guides/publish.md) |
+| Release a repository for others to graft | [Publish a pattern](docs/guides/publish.md) |
+| Ship a tool that consumers build, or files that they copy once | [Ship a tool or seed files with a pattern](docs/guides/ship-tools.md) |
 | Graft a provider that only an ssh key can read, and check it in CI | [Graft a private repository](docs/guides/private-providers.md) |
 | Check in CI, and review graft's weekly upgrade pull request | [Run graft in CI and review its upgrade pull requests](docs/guides/ci.md), and why it is safe: [CI security](docs/ci-security.md) |
 | Look up a command, flag or `mkFlake` argument | [Commands](docs/reference/commands.md) |

@@ -19,7 +19,8 @@ Graft a provider that only an ssh key can read, on your machine and in graft-che
   everyone who can read your repository can read. Keep your own private files out of the store with
   [Keep private files out of the Nix store](flake-in-a-subdirectory.md).
 - The provider's `.gitattributes` writes its directory rules without a trailing slash (`tests export-ignore`,
-  not `tests/ export-ignore`). Over git, Nix ignores the slash form ([Publish](publish.md#decide-what-you-export)).
+  not `tests/ export-ignore`). Over ssh, Nix fetches from a bare clone and ignores the slash form
+  ([What to export](../reference/files.md#what-to-export)).
 - Your repository already grafts with graft ([Graft your first pattern](graft-a-repository.md)), and keeps
   graft's `graft-check.yaml` in `.forgejo/workflows/`. If your flake is in a subdirectory, write
   `nix run 'path:DIR#graft'` for `nix run .#graft`.
