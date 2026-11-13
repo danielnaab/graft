@@ -154,7 +154,7 @@ nix run .#graft check && git ls-files --error-unmatch flake.nix flake.lock scion
   in its attribute set, so Nix tried to read it as a flake. Nix ignores `?flake=false` in a URL. Write it as
   in step 2. (If no input at all is a scion, graft says `graft: no scions: no input has flake = false`.)
 - **`graft: git ignores flake.lock, so the pins are not committed`**, from step 5, or
-  **`graft: flake.lock is not in git, so the pins are not committed`**, from step 9. Or
+  **`graft: git does not track flake.lock, so the pins are not committed`**, from step 9. Or
   `git ls-files flake.lock` prints nothing, or Nix prints `• Added input` on every run. `flake.lock` is not
   committed, usually because `.gitignore` drops it (`git check-ignore -v flake.lock` names the rule). Then
   nothing is pinned: each run resolves the tags again. Remove the rule, then do step 8 again.

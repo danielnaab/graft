@@ -341,6 +341,7 @@ expect "annotated: with export-ignore applied" test ! -e scions/annotated/secret
 expect "annotated: check passes after the upgrade" quiet nix flake check
 # shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
 expect "annotated: nix flake lock agrees with the upgraded lock" sh -c 'cp flake.lock "$1/lock.before" && nix flake lock >/dev/null 2>&1 && cmp -s flake.lock "$1/lock.before"' _ "$work"
+git_ add -A && git_ commit -qm annotated   # CI checks a commit
 expect "annotated: graft ci check passes" quiet ci_ check
 kill "$srv" 2>/dev/null; wait "$srv" 2>/dev/null || true; srv=""
 cd "$c"
@@ -696,6 +697,14 @@ selfc self-ci v9.0.0
 git_ commit -qm init
 git_ init -q --bare "$work/origin.git" && git_ remote add origin "$work/origin.git" && git_ push -q origin main
 expect "ci check passes" quiet ci_ check
+# a lock never committed: a fresh clone gets one from Nix, git-added, and every check passes on it
+git_ clone -q "$work/origin.git" "$work/nolock" && git_ -C "$work/nolock" rm -q --cached flake.lock \
+  && git_ -C "$work/nolock" commit -qm "drop the lock" && git_ clone -q "$work/nolock" "$work/nolock-clone"
+cd "$work/nolock-clone"
+expect "lock: a fresh clone has no committed lock" test ! -e flake.lock
+refused "lock: ci check fails when flake.lock was never committed" ci_ check
+expect "and names the fix" grep -qF "graft: flake.lock is not committed, so nothing is pinned: run nix run .#graft, then commit flake.lock" <<<"$out"
+cd "$work/self-ci"
 GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade"
 expect "ci upgrade: changed=true" grep -qx changed=true "$work/ci-out"
 expect "ci upgrade pushed graft/upgrade" quiet git_ -C "$work/origin.git" rev-parse --verify refs/heads/graft/upgrade
@@ -1227,6 +1236,10 @@ body=$(git_ -C "$work/origin-subdir.git" log -1 --format=%b graft/upgrade)
 expect "subdir: and passed" test -z "$(grep 'nix flake check failed' <<<"$body")"
 git_ reset -q --hard origin/main   # back to the default branch before the upgrade
 expect "subdir: ci check" quiet env PATH="$bare" nix run path:nix/workspace#graft -- ci check
+git_ rm -q --cached nix/workspace/flake.lock && git_ commit -qm "drop the lock"
+refused "subdir: ci check fails when the flake's flake.lock isn't committed" env PATH="$bare" nix run path:nix/workspace#graft -- ci check
+expect "and names it" grep -qF "graft: nix/workspace/flake.lock is not committed, so nothing is pinned" <<<"$out"
+git_ reset -q --hard origin/main
 pr_env=(API=http://127.0.0.1:9 WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=x)
 # a branch that moves only the flake's lock and refs and the scions: past the file gate, to the API
 out=$(env "${pr_env[@]}" PATH="$bare" nix run path:nix/workspace#graft -- ci pr 2>&1) && fail "ci pr reached a closed port"

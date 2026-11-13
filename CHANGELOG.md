@@ -24,11 +24,14 @@
 - **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran
   `link_validator && kb_linter`, so a link failure never failed the build. Only graft's own
   `nix flake check` changes; nothing consumers run does.
-- **Both checks fail when `flake.lock` is not in git.** A `.gitignore` that dropped `flake.lock` let both
-  checks pass while Nix resolved the tags again on every run. `graft check` now fails with
-  `graft: git ignores flake.lock, so the pins are not committed: git check-ignore -v flake.lock names the rule; …`
-  (`FLAKEDIR/flake.lock` for a flake in a subdirectory), and `checks.<system>.graft` with
-  `graft: flake.lock is not in git, so the pins are not committed: …`.
+- **The checks fail when `flake.lock` is not committed.** A `.gitignore` that dropped `flake.lock` let
+  every check pass while Nix resolved the tags again on every run. `graft check` now fails when git
+  ignores it: `graft: git ignores flake.lock, so the pins are not committed: git check-ignore -v flake.lock names the rule; …`
+  (`FLAKEDIR/flake.lock` for a flake in a subdirectory). `checks.<system>.graft` fails when git does not
+  track it: `graft: git does not track flake.lock, so the pins are not committed: …`. A lock that is only
+  uncommitted passes both, because Nix git-adds a lock that it writes; `graft ci check`, which CI runs on a
+  fresh checkout, fails unless the lock is in `HEAD`:
+  `graft: flake.lock is not committed, so nothing is pinned: run nix run .#graft, then commit flake.lock …`.
 - **A repository's own `checks.<system>.graft` or `apps.<system>.graft` is an error.** Passed in
   `outputs`, it was merged under graft's and never ran, without a word (in a subdirectory flake, a
   `checks.<system>.graft` was dropped). graft's app and check now fail to evaluate with

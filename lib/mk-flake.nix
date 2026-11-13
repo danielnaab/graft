@@ -12,8 +12,10 @@
 #   checks.<system>.graft  fail unless <dir> is `expected` (nix flake check); only when the flake is
 #                          at the repo's top, the only place its source holds <dir>
 #
-# Both checks also fail when flake.lock, which holds the pins, isn't in git: a .gitignore that drops
-# it would leave each run to resolve the tags again, with every check passing.
+# flake.lock holds the pins. `graft check` fails when git ignores it, and checks.<system>.graft when
+# git doesn't track it (the flake's source lacks it): a .gitignore that drops it would leave each
+# run to resolve the tags again, with every check passing. A lock that is only uncommitted passes
+# both, since Nix git-adds a lock it writes; `graft ci check` (lib/ci.sh) fails unless it is in HEAD.
 #
 # Arguments:
 #
@@ -176,13 +178,9 @@ let
           trap 'rm -rf "$tmp"' EXIT
           mkdir -p "$tmp/actual/"${q}
           if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            # the lock holds the pins: without it in git, every run resolves the tags again
-            if ! git ls-files --error-unmatch --cached --others --exclude-standard -- ${lib.escapeShellArg ":(literal)${lockPath}"} >/dev/null 2>&1; then
-              if git check-ignore -q -- ${lib.escapeShellArg lockPath}; then
-                echo ${lib.escapeShellArg "graft: git ignores ${lockPath}, so the pins are not committed: git check-ignore -v ${lockPath} names the rule; remove the rule, then commit ${lockPath}"} >&2
-              else
-                echo ${lib.escapeShellArg "graft: ${lockPath} is missing; run: ${run}"} >&2
-              fi
+            # the lock holds the pins: one git ignores (and doesn't track) is never committed
+            if git check-ignore -q -- ${lib.escapeShellArg lockPath}; then
+              echo ${lib.escapeShellArg "graft: git ignores ${lockPath}, so the pins are not committed: git check-ignore -v ${lockPath} names the rule; remove the rule, then commit ${lockPath}"} >&2
               rc=1
             fi
             git ls-files -z --cached --others --exclude-standard -- ${lib.escapeShellArg ":(literal)${path}"} \
@@ -210,7 +208,7 @@ let
       exit 1
     fi
     ${lib.optionalString (!builtins.pathExists lockFile) ''
-      echo ${lib.escapeShellArg "graft: flake.lock is not in git, so the pins are not committed: if git ignores it, git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock"} >&2
+      echo ${lib.escapeShellArg "graft: git does not track flake.lock, so the pins are not committed: if git ignores it, git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock"} >&2
       exit 1
     ''}
     ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || exit 1"}
