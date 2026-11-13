@@ -143,10 +143,10 @@ nix run 'path:nix/workspace#graft' check && test ! -e flake.nix && git ls-files 
 
 - **`error: cannot fetch input 'path:nix/workspace' because it uses a relative path`.** The flake has no
   lock yet, or its inputs changed. Do step 5, with the absolute path.
-- **`graft: no flake.lock in /…/REPO`.** `mkFlake` has no `flakeDir`, so graft looks for the flake at the
-  top. Do step 4.
-
-  Not yet: the message does not name `flakeDir`.
+- **`graft: no flake.nix in /…/REPO: run from the repo's top; for a flake in a subdirectory, set mkFlake's flakeDir to it`.**
+  `mkFlake` has no `flakeDir`, so graft looks for the flake at the top. Do step 4.
+- **`graft: no DIR/flake.nix in /…/REPO: check mkFlake's flakeDir, "DIR" (the scions README records it)`.**
+  `flakeDir` names another directory than the flake's. Correct it, as in step 4.
 - **`error: path '//…/REPO/notebook/nix/workspace' does not exist`.** A `path:` reference is relative to
   the current directory. Run from the top, or write the path from where you are:
   `nix run 'path:../nix/workspace#graft'`.
@@ -172,11 +172,8 @@ The commands, from the repository's top:
   checkout.
 - **The scions README records the flake** on its second line. graft's other commands and its CI workflows
   find the flake from that line, so they need no change. Every scions directory in the repository must
-  name the same flake ([Files](../reference/files.md#the-scions-readme)).
-
-  Not yet: graft's workflows read the first `<!-- graft flake: … -->` line in any `README.md`, also one in
-  a scion whose provider did not exclude its own scions. graft's commands skip that one. CI then fails with
-  `error: path '//…/DIR' does not exist`.
+  name the same flake ([Files](../reference/files.md#the-scions-readme)). The workflows read it by the
+  commands' rules, so a scion whose provider did not exclude its own scions README does not count.
 - **In CI**, `graft ci check` runs `graft check`. The upgrade workflow and `graft migrate` run it, and then
   the flake's own checks.
 
@@ -206,7 +203,7 @@ The commands, from the repository's top:
 ## Sources
 
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): `flakeDir` and its check, the app's search for the top,
-  no `checks.<system>.graft` in a subdirectory, and `own`, which drops a repository's own check named `graft`.
+  no `checks.<system>.graft` in a subdirectory, and `unclashed`, which makes a repository's own check named `graft` an error.
 - [lib/common.sh](../../lib/common.sh): `locate` and `recorded_flake_dir`. [lib/assemble.sh](../../lib/assemble.sh):
   the README's second line and its commands.
 - [flake.nix](../../flake.nix): the template's message. [template/.forgejo/workflows/](../../template/.forgejo/workflows/graft-check.yaml):

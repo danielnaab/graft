@@ -81,7 +81,7 @@ while IFS= read -r d; do
 done <<<"$sd"
 workflows=()
 for f in .forgejo/workflows/*; do
-  if [ -f "$f" ] && [ ! -L "$f" ] && grep -q '^# managed by graft: ' "$f"; then workflows+=("$f"); fi
+  if [ -f "$f" ] && [ ! -L "$f" ] && grep -q "^$WORKFLOW_MARKER" "$f"; then workflows+=("$f"); fi
 done
 [ -n "${kind[graft]:-}" ] || kind[graft]=graft   # a scion named graft is that scion
 

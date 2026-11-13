@@ -65,7 +65,8 @@ committed.
 
    If the flake already has `flake = false` inputs that are not patterns (source code that it builds, say),
    add `scions = [ "knowledge-base-kit" ];` beside `inherit inputs;`: otherwise graft copies those too.
-   `apps.<system>.graft` and `checks.<system>.graft` are graft's names: rename any of your own.
+   `apps.<system>.graft` and `checks.<system>.graft` are graft's names: rename any of your own. If you do
+   not, step 3 fails with `graft: mkFlake's outputs has checks.SYSTEM.graft: that name is graft's; rename the repo's own`.
 
 3. Graft:
 
@@ -154,12 +155,11 @@ nix run .#graft check && git ls-files --error-unmatch flake.nix flake.lock scion
 - **`error: path '/nix/store/…-source/flake.nix' does not exist`.** A provider's input lacks `flake = false`
   in its attribute set, so Nix tried to read it as a flake. Nix ignores `?flake=false` in a URL. Write it as
   in step 2. (If no input at all is a scion, graft says `graft: no scions: no input has flake = false`.)
-- **`git ls-files flake.lock` prints nothing, or Nix prints `• Added input` on every run.** `flake.lock` is
-  not committed, usually because `.gitignore` drops it (`git check-ignore -v flake.lock` names the rule).
-  Then nothing is pinned: each run resolves the tags again, and both checks still pass. Remove the rule,
-  then do step 8 again.
-
-  Not yet: no check fails when `flake.lock` is not committed.
+- **`graft: git ignores flake.lock, so the pins are not committed`**, from step 5, or
+  **`graft: git does not track flake.lock, so the pins are not committed`**, from step 9. Or
+  `git ls-files flake.lock` prints nothing, or Nix prints `• Added input` on every run. `flake.lock` is not
+  committed, usually because `.gitignore` drops it (`git check-ignore -v flake.lock` names the rule). Then
+  nothing is pinned: each run resolves the tags again. Remove the rule, then do step 8 again.
 - **`graft: scions/ exists and graft didn't write it`.** The repository already has a `scions/` of its
   own. graft never replaces it: put the scions elsewhere with `dir`, for example
   `graft.lib.mkFlake { inherit inputs; dir = ".scions"; }`, and run step 3 again. Read `.scions/` for
@@ -190,6 +190,6 @@ nix run .#graft check && git ls-files --error-unmatch flake.nix flake.lock scion
   scions), `expected`, the `sync` and `check` cases, and the merge of a repository's own `outputs`.
 - [lib/assemble.sh](../../lib/assemble.sh): the scions directory and its README.
 - [tests/run.sh](../../tests/run.sh): the first graft ("export grafted", "check passes on a fresh graft"),
-  "graft won't replace a directory it didn't write", and the template ("template: grafts and passes the check").
+  "graft won't replace a directory it didn't write", the `lock:` checks, and the template ("template: grafts and passes the check").
 - [tests/fixtures.sh](../../tests/fixtures.sh) `first-pattern`: the repositories this page was read against.
 - [Commands](../reference/commands.md), [Files](../reference/files.md).

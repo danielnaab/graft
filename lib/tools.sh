@@ -393,17 +393,35 @@ cmd_changelog() {
 }
 
 sub=${1:-}; shift || true
+usage() {
+  case $sub in
+    outdated) echo "usage: graft outdated [-C REPO] [--json]" ;;
+    upgrade) echo "usage: graft upgrade [-C REPO] [NAME[@TAG]...]" ;;
+    changelog) echo "usage: graft changelog [-C REPO] [--json] [NAME[@TAG]...]" ;;
+    *) echo "usage: graft outdated|upgrade|changelog [-C REPO] [--json] [NAME[@TAG]...]" ;;
+  esac
+}
+# an argument this command doesn't take: say which, and how to call it
+bad_arg() { echo "graft: $*" >&2; usage >&2; exit 2; }
 repo="" json=0 args=()
 while [ $# -gt 0 ]; do
   case $1 in
-    -C) repo=$2; shift 2 ;;
-    --json) json=1; shift ;;
+    -C) if [ $# -lt 2 ] || [ -z "$2" ]; then bad_arg "-C needs a repository"; fi; repo=$2; shift 2 ;;
+    --json) [ "$sub" != upgrade ] || bad_arg "upgrade has no --json"; json=1; shift ;;
+    --) shift ;;   # a second `--` after nix run's: nothing to read
     -h|--help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) args+=("$1"); shift ;;
+    -*) bad_arg "unknown option $1" ;;
+    *) [ "$sub" != outdated ] || bad_arg "outdated takes no names: it lists graft and every scion"; args+=("$1"); shift ;;
   esac
 done
 locate "$repo"
-[ -f "$FLAKE_LOCK" ] || die "no $FLAKE_LOCK in $(pwd)"
+if [ ! -f "$FLAKE_LOCK" ]; then
+  # at the top with no flake.nix: run from elsewhere, or a flake in a subdirectory without flakeDir
+  if [ "$FLAKE" = . ] && [ ! -f flake.nix ]; then
+    die "no flake.nix in $(pwd): run from the repo's top; for a flake in a subdirectory, set mkFlake's flakeDir to it"
+  fi
+  die "no $FLAKE_LOCK in $(pwd)"
+fi
 case $sub in
   # internal, before `nix run .#graft` syncs (graft.sh): re-pin any lock at an annotated tag's
   # object; when it did, print how to run graft again, on the new lock

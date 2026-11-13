@@ -5,8 +5,8 @@
 # workflows run the graft version it pins: when graft upgrade moves that pin, their behaviour
 # moves with it, and the YAML itself rarely changes.
 #
-#   check    the scions directory and graft's workflows match flake.lock (checks.<system>.graft, or
-#            `graft check` for a flake in a subdirectory, which has none).
+#   check    flake.lock is committed (in HEAD), and the scions directory and graft's workflows match
+#            it (checks.<system>.graft, or `graft check` for a flake in a subdirectory, which has none).
 #   upgrade  graft upgrade; if that changed anything, run the repo's whole `nix flake check` on the
 #            result (graft's check and the repo's own: link checks into scions, lint, tests), commit
 #            it, and force-push it to $BRANCH on origin. Writes changed=true|false to
@@ -43,6 +43,10 @@ locate ""
 
 check() {
   local system
+  # In a fresh checkout, Nix writes a lock that was never committed, and git-adds it: the checks
+  # would pass on whatever the tags resolve to today. The lock is the pins: it must be committed.
+  git cat-file -e "HEAD:$FLAKE_LOCK" 2>/dev/null \
+    || die "$FLAKE_LOCK is not committed, so nothing is pinned: run $GRAFT_RUN, then commit $FLAKE_LOCK (if git ignores it, git check-ignore -v $FLAKE_LOCK names the rule)"
   if [ "$FLAKE" != . ]; then nix_ run "$FLAKE_REF#graft" check; return; fi
   system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
   nix_ build --no-link ".#checks.$system.graft"
@@ -129,8 +133,7 @@ pr() {
   # as the default branch has them (a README.md carrying graft's marker).
   while IFS= read -r path; do
     path=${path#HEAD:}; path=${path%README.md}; dirs+=("${path%/}")
-  done < <(git grep -l -F -e '<!-- managed by graft: https://github.com/danielnaab/graft -->' \
-             -e 'Managed by [graft]' HEAD -- README.md '*/README.md' || true)
+  done < <(git grep -l -F "${MARKER_ARGS[@]}" HEAD -- README.md '*/README.md' || true)
   while IFS= read -r -d '' path; do
     ok=""
     if [ "$path" = "$FLAKE_NIX" ] || [ "$path" = "$FLAKE_LOCK" ]; then ok=1; fi

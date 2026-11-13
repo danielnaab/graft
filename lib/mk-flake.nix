@@ -12,6 +12,11 @@
 #   checks.<system>.graft  fail unless <dir> is `expected` (nix flake check); only when the flake is
 #                          at the repo's top, the only place its source holds <dir>
 #
+# flake.lock holds the pins. `graft check` fails when git ignores it, and checks.<system>.graft when
+# git doesn't track it (the flake's source lacks it): a .gitignore that drops it would leave each
+# run to resolve the tags again, with every check passing. A lock that is only uncommitted passes
+# both, since Nix git-adds a lock it writes; `graft ci check` (lib/ci.sh) fails unless it is in HEAD.
+#
 # Arguments:
 #
 #   inputs   the flake's inputs
@@ -22,7 +27,8 @@
 #            run, so the app refuses to delete an existing directory that graft didn't write: a
 #            mistyped `dir = "src"` stops there.
 #   outputs  the repo's own flake outputs, merged with graft's at every level, so a repo's `checks`
-#            sit beside graft's. `apps.<system>.graft` and `checks.<system>.graft` stay graft's.
+#            sit beside graft's. `apps.<system>.graft` and `checks.<system>.graft` are graft's: a
+#            repo's own is an error, raised when graft's app or check is evaluated.
 #   flakeDir where this flake.nix sits, relative to the repo's top; default `.`, the top. A
 #            subdirectory (`nix/workspace`) is for a repo with content that must never be copied
 #            into the world-readable Nix store: run as a `path:` flake (nix run path:nix/workspace#graft)
@@ -37,9 +43,10 @@
 # graft's workflows: a file in .forgejo/workflows/ named like one in template/.forgejo/workflows/
 # and carrying graft's marker line is graft's (lib/workflows.sh). The app replaces it with this
 # version's copy and the check fails if it differs; a workflow without the marker is never read.
-# The one line of graft's copy that is the repo's, `paths-ignore:` under its push and pull_request
-# triggers, is read from the repo's copy and kept; `dir` and flakeDir are passed so a glob that
-# could match them is refused.
+# The lines of graft's copy that are the repo's (`paths-ignore:` under its push and pull_request
+# triggers, `branches:` under push, and graft-check.yaml's `# graft ssh:` line) are read from the
+# repo's copy and kept; `dir` and flakeDir are passed so a paths-ignore glob that could match them
+# is refused.
 #
 # Nothing else: no config file, no lock of its own, no network access of its own. flake.lock is the
 # lock. Everything that looks at the arguments is inside `apps` and `checks`, so a repo's own
@@ -73,6 +80,8 @@ let
     && lib.all (s: s != "." && s != "..") (lib.splitString "/" fd)
     && lib.head (lib.splitString "/" fd) != ".git");
   flakeArg = if root then "." else fd;
+  # the flake's lock, from the repo's top
+  lockPath = if root then "flake.lock" else "${fd}/flake.lock";
   # how a person runs this flake's app, from the repo's top
   run = if root then "nix run .#graft" else "nix run path:${fd}#graft";
 
@@ -88,10 +97,10 @@ let
 
   pin = n: inputs.${n}.rev or inputs.${n}.dirtyRev or "unpinned (no rev)";
 
-  # The marker README.md's first line carries (lib/assemble.sh writes it): the app only ever
-  # deletes a directory carrying it (or the sentence graft 2.0.0 wrote, so a 2.0.0 directory can be
-  # replaced).
-  marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->";
+  # The marker that lib/assemble.sh writes on README.md's first line: the app only ever deletes a
+  # directory whose README.md carries it, on any line (or the sentence graft 2.0.0 wrote, so a
+  # 2.0.0 directory can be replaced).
+  marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->";   # lib/common.sh MARKERS
 
   # The scions flake.lock fetches as git inputs with exportIgnore. If such a lock holds an annotated
   # tag's object, not its commit, Nix's exportIgnore ignores nothing (lib/common.sh, "Annotated
@@ -120,7 +129,7 @@ let
   # ones git doesn't ignore), and graft's workflows with this version's.
   sync = pkgs: pkgs.writeShellApplication {
     name = "graft-sync";
-    runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.git pkgs.gnugrep ];
+    runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.findutils pkgs.git pkgs.gnugrep ];
     text = ''
       mode=''${1:-sync}
       ${if root then ''
@@ -164,10 +173,16 @@ let
             echo ${lib.escapeShellArg "graft: ${path}/ is missing; run: ${run}"} >&2
             exit 1
           fi
+          rc=0
           tmp=$(mktemp -d)
           trap 'rm -rf "$tmp"' EXIT
           mkdir -p "$tmp/actual/"${q}
           if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            # the lock holds the pins: one git ignores (and doesn't track) is never committed
+            if git check-ignore -q -- ${lib.escapeShellArg lockPath}; then
+              echo ${lib.escapeShellArg "graft: git ignores ${lockPath}, so the pins are not committed: git check-ignore -v ${lockPath} names the rule; remove the rule, then commit ${lockPath}"} >&2
+              rc=1
+            fi
             git ls-files -z --cached --others --exclude-standard -- ${lib.escapeShellArg ":(literal)${path}"} \
               | while IFS= read -r -d ''' f; do
                   if [ -e "$f" ] || [ -L "$f" ]; then cp -P --parents --no-preserve=mode -- "$f" "$tmp/actual/"; fi
@@ -175,18 +190,8 @@ let
           else
             cp -RP --no-preserve=mode ${q}/. "$tmp/actual/"${q}
           fi
-          rc=0
           ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || rc=1"}
-          left=${expected pkgs}
-          if ! drift=$(diff -r "$left" "$tmp/actual/"${q}); then
-            printf '%s\n' "$drift" >&2
-            echo ${lib.escapeShellArg "graft: ${path}/ differs from the pins in ${if root then "" else "${fd}/"}flake.lock; run: ${run}"} >&2
-            # the hint only when diff did list a file only on the left
-            if grep -q -e "^Only in $left:" -e "^Only in $left/" <<<"$drift"; then
-              echo "graft: (a file listed only on the left is one git can't see: dropped by your .gitignore, say)" >&2
-            fi
-            rc=1
-          fi
+          bash ${./drift.sh} git ${expected pkgs} "$tmp/actual/"${q} ${q} ${lib.escapeShellArg lockPath} ${lib.escapeShellArg run} || rc=1
           bash ${./workflows.sh} check . ${examples} ${lib.escapeShellArg run} ${flakeArg} ${q} || rc=1
           if [ "$rc" = 0 ]; then echo ${lib.escapeShellArg "graft: ${path}/ and graft's workflows match the pins"}; fi
           exit "$rc"
@@ -202,16 +207,12 @@ let
       echo ${lib.escapeShellArg "graft: ${path}/ is missing; run: nix run .#graft"} >&2
       exit 1
     fi
-    ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || exit 1"}
-    left=${expected pkgs}
-    if ! drift=$(diff -r "$left" "$actual"); then
-      printf '%s\n' "$drift" >&2
-      echo ${lib.escapeShellArg "graft: ${path}/ differs from the pins in flake.lock; run: nix run .#graft"} >&2
-      if grep -q -e "^Only in $left:" -e "^Only in $left/" <<<"$drift"; then
-        echo "graft: (a file listed only on the left is one Nix can't see: not in git yet, or dropped by your .gitignore)" >&2
-      fi
+    ${lib.optionalString (!builtins.pathExists lockFile) ''
+      echo ${lib.escapeShellArg "graft: git does not track flake.lock, so the pins are not committed: if git ignores it, git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock"} >&2
       exit 1
-    fi
+    ''}
+    ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || exit 1"}
+    ${pkgs.bash}/bin/bash ${./drift.sh} nix ${expected pkgs} "$actual" ${q} flake.lock ${lib.escapeShellArg run} || exit 1
     ${pkgs.bash}/bin/bash ${./workflows.sh} check ${inputs.self} ${examples} ${lib.escapeShellArg run} . ${q}
     touch $out
   '';
@@ -227,21 +228,33 @@ let
       "graft: flakeDir must be `.` or a relative path of letters, digits, `.`, `_`, `-` and `/` (no . or .. segments, not .git), got \"${flakeDir}\"";
     x;
 
-  # without a check of graft's own, the name still isn't the repo's to take
+  # `apps.<system>.graft` and `checks.<system>.graft` are graft's names. A repo's own, in `outputs`,
+  # is an error that graft's app and check raise when evaluated: merged, graft's would replace it,
+  # and the repo's check would never run, silently. Raised there, not in the repo's own outputs, so
+  # those still evaluate (nix develop).
+  clashes = system: lib.filter (k: lib.hasAttrByPath [ k system "graft" ] outputs) [ "apps" "checks" ];
+  unclashed = pkgs: x:
+    let c = clashes pkgs.stdenv.hostPlatform.system; in
+    assert lib.assertMsg (c == [ ])
+      "graft: mkFlake's outputs has ${lib.concatStringsSep " and " (map (k: "${k}.${pkgs.stdenv.hostPlatform.system}.graft") c)}: that name is graft's; rename the repo's own";
+    x;
+
+  # without a check of graft's own, the name still isn't the repo's to take: the app fails on it
+  # (unclashed), and `checks.<system>` lists no `graft`
   own = if root || !(outputs ? checks) then outputs
     else outputs // { checks = lib.mapAttrs (_: c: removeAttrs c [ "graft" ]) outputs.checks; };
 in
-# graft's side last: a repo's own `checks.<system>.graft` must not replace the drift check
+# graft's side last
 lib.recursiveUpdate own
   {
     apps = forAll (pkgs: {
-      graft = valid {
+      graft = valid (unclashed pkgs {
         type = "app";
         program = lib.getExe (cli pkgs (lib.getExe (sync pkgs)) flakeArg);
         meta.description = "graft: sync, check, outdated, upgrade, migrate, ci";
-      };
+      });
     });
     # in a subdirectory, an empty set where a repo with no checks of its own would have none, so
     # `checks.<system>` always evaluates (graft ci and migrate list it)
-    checks = forAll (pkgs: lib.optionalAttrs root { graft = valid (check pkgs); });
+    checks = forAll (pkgs: lib.optionalAttrs root { graft = valid (unclashed pkgs (check pkgs)); });
   }

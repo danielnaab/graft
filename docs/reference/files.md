@@ -10,8 +10,8 @@ The files graft reads and writes, and the lines in them that graft recognizes.
 | File | Read or written | Purpose |
 |---|---|---|
 | `flake.nix` | Read as data. `upgrade` changes the tags. | Inputs with `flake = false` are scions. The input named `graft` is graft's pin. |
-| `flake.lock` | Read as data. Written by Nix, by `upgrade` for `git+` inputs, and by `sync` when it re-pins an annotated tag. | The commit and hash of each pin. |
-| `<dir>/<name>/` | Written by `sync` and `upgrade`. | Each scion: the provider's export. Empty directories are left out, because git cannot hold them. |
+| `flake.lock` | Read as data. Written by Nix, by `upgrade` for `git+` inputs, and by `sync` when it re-pins an annotated tag. | The commit and hash of each pin. Must be committed: `graft check` fails when git ignores it, `checks.<system>.graft` when git does not track it, and `graft ci check` when it is not in `HEAD`. |
+| `<dir>/<name>/` | Written by `sync` and `upgrade`. | Each scion: the provider's export. Empty directories are left out, because git cannot hold them. The checks compare each file's contents and each symbolic link's target, not file modes. |
 | `<dir>/README.md` | Written by `sync` and `upgrade`. | The marker, and the table of scions and commits. |
 | `.forgejo/workflows/graft-*.yaml` | Restored by `sync`, replaced by `upgrade`, compared by the checks. | graft's workflows, if they carry the marker. |
 
@@ -29,11 +29,13 @@ graft writes it. Its format is what graft's commands read, so do not edit it.
 | [knowledge-base-kit](knowledge-base-kit/) | `f95fa544dbd92d7ebba36ef7d4eb6c8bfb8a28f8` |
 ```
 
-- **Line 1, the marker:** graft finds a repository's scions directories by this line, in any
-  `README.md` that git tracks, except one inside another scions directory (a provider's leaked scions
-  README). graft deletes only a directory that has it.
+- **Line 1, the marker:** graft writes it on line 1, and looks for it on any line. graft finds a
+  repository's scions directories by this line, in any `README.md` that git tracks, except one inside
+  another scions directory (a provider's leaked scions README). graft deletes only a directory whose
+  `README.md` has it.
 - **Line 2, only for a flake in a subdirectory:** the `flakeDir`. graft's commands and workflows find the
-  flake from it. Every scions directory in a repository must name the same flake.
+  flake from it, by the same rules: only a `README.md` with the marker counts, not one inside another
+  scions directory, and every scions directory in a repository must name the same flake.
 - **The table:** one row per scion: a link to its folder, and its commit. graft's commands find the
   scions from these rows. A local override shows the commit with `-dirty`.
 

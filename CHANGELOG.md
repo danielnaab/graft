@@ -56,10 +56,45 @@
 - **`nix flake init -t` says what to run for a flake in a subdirectory**: `nix run 'path:DIR#graft'` from
   the repository's top, since `nix run .#graft` there copies the whole repository into the Nix store.
 
+### Changed
+- **One drift report for `graft check` and `nix flake check`** (lib/drift.sh). It names each file as the
+  repository does (`scions/NAME/FILE`), not by a temporary directory or a store path: `edited`, with a
+  unified diff; `only in your copy, not in the pin`; or `only in the pin, not in your copy`. Then it says
+  what each kind usually is: a tool's output or someone's addition; or a deleted file, a file git ignores
+  (with the `git check-ignore -v` command that names the rule) or, for `nix flake check`, one not added to
+  git. It replaces `diff -r`'s output and the "a file listed only on the left" hints.
+
 ### Fixed
 - **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran
   `link_validator && kb_linter`, so a link failure never failed the build. Only graft's own
   `nix flake check` changes; nothing consumers run does.
+- **The checks fail when `flake.lock` is not committed.** A `.gitignore` that dropped `flake.lock` let
+  every check pass while Nix resolved the tags again on every run. `graft check` now fails when git
+  ignores it: `graft: git ignores flake.lock, so the pins are not committed: git check-ignore -v flake.lock names the rule; …`
+  (`FLAKEDIR/flake.lock` for a flake in a subdirectory). `checks.<system>.graft` fails when git does not
+  track it: `graft: git does not track flake.lock, so the pins are not committed: …`. A lock that is only
+  uncommitted passes both, because Nix git-adds a lock that it writes; `graft ci check`, which CI runs on a
+  fresh checkout, fails unless the lock is in `HEAD`:
+  `graft: flake.lock is not committed, so nothing is pinned: run nix run .#graft, then commit flake.lock …`.
+- **A repository's own `checks.<system>.graft` or `apps.<system>.graft` is an error.** Passed in
+  `outputs`, it was merged under graft's and never ran, without a word (in a subdirectory flake, a
+  `checks.<system>.graft` was dropped). graft's app and check now fail to evaluate with
+  `graft: mkFlake's outputs has checks.SYSTEM.graft: that name is graft's; rename the repo's own`.
+  The repository's other outputs still evaluate.
+- **`outdated`, `changelog` and `upgrade` refuse arguments they do not take**, with exit 2 and the
+  command's usage line. `-C` with no repository failed with `unbound variable`; `outdated NAME` and
+  `upgrade --json` were accepted and ignored; an unknown option was read as a scion's name.
+- **graft's workflows find the flake by the commands' rules.** Their step read the first
+  `<!-- graft flake: … -->` line in any `README.md`, so a provider's leaked scions README (one that names
+  its own flake) could send a top-level repository's CI to a flake that does not exist. The step now reads
+  only READMEs with graft's marker, skips one inside another scions directory, and fails on two that
+  differ or on a path graft won't use, as `lib/common.sh` does. The new workflows arrive with the next
+  `nix run .#graft` or `graft upgrade`.
+- **A missing or mistyped `flakeDir` is named.** graft said only `graft: no flake.lock in TOP`; it now says
+  `… set mkFlake's flakeDir to it` or `… check mkFlake's flakeDir, "DIR" …`.
+- **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or
+  three of them, depending on the line; it now always says
+  `graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in FILE; …)`.
 
 ## v2.11.1 - 2026-11-12
 

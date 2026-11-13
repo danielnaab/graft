@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end test: a provider repo with export-ignore rules, a consumer flake that grafts it, and the
 # cycle graft -> check -> drift -> check fails -> upgrade -> graft, then graft upgrading its own
-# pin and workflows, and the CI steps against a local origin. Needs nix and git; fetches
+# pin and workflows, and the CI steps against a local origin. Needs nix, git and jq; fetches
 # nixpkgs on the first run. Usage: tests/run.sh (from anywhere).
 set -euo pipefail
 
@@ -11,6 +11,8 @@ srv=""   # the HTTP server of the annotated-tag tests, stopped on the way out
 trap '[ -z "$srv" ] || kill "$srv" 2>/dev/null; [ -n "${KEEP:-}" ] || rm -rf "$work"' EXIT   # KEEP=1: leave it, to debug a failure
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 git_() { git -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
+# tools the test runs from nixpkgs, at the commit graft's flake.lock pins (already fetched for graft)
+np="github:NixOS/nixpkgs/$(jq -r '.nodes.nixpkgs.locked.rev' "$graft/flake.lock")"
 pass() { echo "ok   $*"; }
 fail() { echo "FAIL $*" >&2; exit 1; }
 # expect <description> <command...>: the command must succeed
@@ -62,18 +64,39 @@ expect "README names the pinned commit" grep -q "$rev1" scions/README.md
 git_ add -A
 expect "check passes on a fresh graft" quiet nix flake check
 
+# the drift report (lib/drift.sh): one for both checks, naming files as the repo does
 echo "local edit" >> scions/provider/docs/policy.md && git_ add -A
 out=$(nix flake check -L 2>&1) && fail "check catches an edited scion"
 pass "check catches an edited scion"
-expect "and shows the diff" grep -q "local edit" <<<"$out"
-refuse "no only-on-the-left hint when no file is only on the left" grep -q "only on the left" <<<"$out"
+expect "and names the file as the repo does" grep -qx "graft-check> graft: scions/provider/docs/policy.md: edited" <<<"$out"
+expect "and shows the diff" grep -q "^graft-check> +local edit" <<<"$out"
+expect "with the repo's paths as labels" grep -qx "graft-check> +++ scions/provider/docs/policy.md (your copy)" <<<"$out"
+refuse "and no temporary or store path" grep -qE "graft-check> .*(/nix/store/|/tmp/)" <<<"$out"
+refuse "no only-in-the-pin hint when no file is only in the pin" grep -q "a file only in the pin" <<<"$out"
+refused "graft check catches it too" nix run .#graft check
+expect "with the same report" grep -qx "graft: scions/provider/docs/policy.md: edited" <<<"$out"
 quiet nix run .#graft && git_ add -A
 git_ rm -q --cached scions/provider/docs/policy.md
 out=$(nix flake check -L 2>&1) && fail "check catches a scion file git doesn't track"
 pass "check catches a scion file git doesn't track"
-expect "and says what a file only on the left means" grep -q "only on the left is one Nix can't see" <<<"$out"
+expect "and names it only in the pin" grep -qx "graft-check> graft: scions/provider/docs/policy.md: only in the pin, not in your copy" <<<"$out"
+expect "and says what that means" grep -qF "graft-check> graft: a file only in the pin was deleted, is not added to git (nix flake check sees only what git tracks), or git ignores it: git check-ignore -v scions/provider/docs/policy.md names the rule" <<<"$out"
 git_ add -A
 expect "graft restores the pinned export" quiet nix flake check
+mv scions/provider/docs/policy.md "$work/policy.md"
+refused "graft check catches a deleted scion file" nix run .#graft check
+expect "and names it only in the pin" grep -qx "graft: scions/provider/docs/policy.md: only in the pin, not in your copy" <<<"$out"
+expect "and says what that means" grep -qxF "graft: a file only in the pin was deleted, or git ignores it: git check-ignore -v scions/provider/docs/policy.md names the rule" <<<"$out"
+mv "$work/policy.md" scions/provider/docs/policy.md
+echo "stray" > scions/provider/docs/new.md
+refused "graft check catches an untracked file in a scion" nix run .#graft check
+expect "and names it only in your copy" grep -qx "graft: scions/provider/docs/new.md: only in your copy, not in the pin" <<<"$out"
+expect "and says what that means" grep -qxF "graft: a file only in your copy was written by a tool (__pycache__/, a build) or added by someone; nix run .#graft deletes it" <<<"$out"
+expect "nix flake check doesn't see an untracked file" quiet nix flake check
+echo "scions/provider/docs/new.md" > .gitignore
+expect "an ignored file passes graft check" quiet nix run .#graft check
+expect "and nix flake check" quiet nix flake check
+rm .gitignore scions/provider/docs/new.md
 
 # upgrade: provider tags v2; the consumer moves the ref and updates the lock
 echo "policy v2" > "$p/docs/policy.md" && git_ -C "$p" commit -qam v2 && git_ -C "$p" tag v2.0.0
@@ -225,7 +248,7 @@ git_ clone -q --bare "$ap" "$work/srv/annotated.git" && git_ -C "$work/srv/annot
 # serve_git [PORT]: start an HTTP server on $work/srv (on PORT, else any free port); its port in $aport
 serve_git() {
   rm -f "$work/srv.port"
-  nix run nixpkgs#python3 -- -c 'import functools, http.server, sys
+  nix run "$np#python3" -- -c 'import functools, http.server, sys
 s = http.server.HTTPServer(("127.0.0.1", int(sys.argv[3])), functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1]))
 open(sys.argv[2], "w").write(str(s.server_port))
 s.serve_forever()' "$work/srv" "$work/srv.port" "${1:-0}" 2>/dev/null & srv=$!
@@ -318,6 +341,7 @@ expect "annotated: with export-ignore applied" test ! -e scions/annotated/secret
 expect "annotated: check passes after the upgrade" quiet nix flake check
 # shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
 expect "annotated: nix flake lock agrees with the upgraded lock" sh -c 'cp flake.lock "$1/lock.before" && nix flake lock >/dev/null 2>&1 && cmp -s flake.lock "$1/lock.before"' _ "$work"
+git_ add -A && git_ commit -qm annotated   # CI checks a commit
 expect "annotated: graft ci check passes" quiet ci_ check
 kill "$srv" 2>/dev/null; wait "$srv" 2>/dev/null || true; srv=""
 cd "$c"
@@ -502,7 +526,7 @@ expect "paths-ignore: sync keeps it" test "$(pi_on "$wf")" = "$pi_want"
 expect "paths-ignore: and the rest is graft's copy" \
   cmp -s <(grep -v '^    paths-ignore: ' "$wf") "$v9/template/.forgejo/workflows/graft-check.yaml"
 expect "paths-ignore: YAML that means it, under both triggers" \
-  test "$(nix run nixpkgs#yq-go -- -o=json -I=0 '[.on.push["paths-ignore"], .on.pull_request["paths-ignore"], .on.push.branches]' "$wf")" \
+  test "$(nix run "$np#yq-go" -- -o=json -I=0 '[.on.push["paths-ignore"], .on.pull_request["paths-ignore"], .on.push.branches]' "$wf")" \
   = '[["notebook/**","drafts/**"],["notebook/**","drafts/**"],["main"]]'
 # under one trigger, in another spelling: the check says so, and sync writes graft's form under both
 grep -v '^    paths-ignore: ' "$wf" > "$work/wf" && cp "$work/wf" "$wf"
@@ -548,6 +572,32 @@ expect "paths-ignore: and wrote the new version's workflow" grep -q "^# changed 
 expect "paths-ignore: keeping the repo's line" test "$(pi_on "$wf")" = "$pi_want"
 expect "paths-ignore: check passes under the new pin" quiet nix flake check
 # without one, graft's copy byte for byte: the cmp tests above
+# The workflows' own search for the flake (a shell step: it must find the flake before graft can
+# run), by lib/common.sh's rules. flake_block FILE: each copy of it in FILE, unindented.
+flake_block() { awk '/# graft.s flake: at the top/ { on = 1 } on { sub(/^ +/, ""); print } on && /^ *flake=\./ { on = 0 }' "$1"; }
+fb=$work/flake-block.sh
+# shellcheck disable=SC2016 # a line of the script, expanded when it runs
+{ flake_block "$graft/template/.forgejo/workflows/graft-check.yaml"; echo 'echo "$flake"'; } > "$fb"
+fr=$work/flake-find
+mkdir -p "$fr/scions/p/.scions" && git_ -C "$fr" init -q -b main
+fbin=$work/flake-bin   # git and nothing else, as in the nixos/nix image (no sed)
+mkdir -p "$fbin" && ln -s "$(command -v git)" "$fbin/git"
+fbrun() { (cd "$fr" && git_ add -A && env PATH="$fbin" "$(command -v bash)" -e "$fb" 2>&1); }
+mk_readme() { mkdir -p "$fr/$1" && printf '%s\n' '<!-- managed by graft: https://github.com/danielnaab/graft -->' ${2:+"<!-- graft flake: $2 -->"} '# x' > "$fr/$1/README.md"; }
+mk_readme scions
+mk_readme scions/p/.scions nix/tools   # a provider's leaked scions README, naming its own flake
+expect "flake step: a leaked scions README inside a scion is not the repo's" test "$(fbrun)" = .
+mk_readme scions nix/workspace
+expect "flake step: the scions README's flake" test "$(fbrun)" = "path:$fr/nix/workspace"
+mk_readme other nix/else
+refused "flake step: two that differ fail" fbrun
+expect "and say so" grep -q "^::error::the scions READMEs name different flake directories" <<<"$out"
+rm -r "$fr/other" && mk_readme scions ../up
+refused "flake step: one outside the repo fails" fbrun
+expect "and says so" grep -qF "::error::the scions README names a flake directory graft won't use: ../up" <<<"$out"
+rm -r "$fr/scions/p" && printf '%s\n' '# notes' '<!-- graft flake: nix/x -->' > "$fr/scions/README.md"
+expect "flake step: a README without the marker is not read" test "$(fbrun)" = .
+
 # lib/workflows.sh itself, on examples a later graft might ship: a comment at column 0 between
 # triggers doesn't end the `on:` block, and the line is written under both triggers
 wx=$work/wf-examples wr=$work/wf-repo
@@ -602,16 +652,16 @@ expect "ssh: then the check passes" quiet bash "$graft/lib/workflows.sh" check "
 # shellcheck disable=SC2016 # jq's, sh's or Actions' own expressions
 expect "ssh: and a second refresh changes nothing" sh -c 'cp "$1" "$1.before" && bash "$2" refresh "$3" "$4" >/dev/null && cmp -s "$1" "$1.before"' \
   _ "$swf" "$graft/lib/workflows.sh" "$wr" "$v9/template/.forgejo/workflows"
-steps=$(nix run nixpkgs#yq-go -- -o=json -I=0 '[.jobs.scions.steps[] | .name]' "$swf")
+steps=$(nix run "$np#yq-go" -- -o=json -I=0 '[.jobs.scions.steps[] | .name]' "$swf")
 expect "ssh: the step goes before the check" test "$steps" = '["Checkout","SSH key for private scions","Scions match flake.lock"]'
 # shellcheck disable=SC2016 # the literal expression
 expect "ssh: reading the default secret, GRAFT_SSH_KEY" \
-  test "$(nix run nixpkgs#yq-go -- '.jobs.scions.steps[1].env.GRAFT_SSH_KEY' "$swf")" = '${{ secrets.GRAFT_SSH_KEY }}'
-srun=$(nix run nixpkgs#yq-go -- '.jobs.scions.steps[1].run' "$swf")
+  test "$(nix run "$np#yq-go" -- '.jobs.scions.steps[1].env.GRAFT_SSH_KEY' "$swf")" = '${{ secrets.GRAFT_SSH_KEY }}'
+srun=$(nix run "$np#yq-go" -- '.jobs.scions.steps[1].run' "$swf")
 expect "ssh: known_hosts under the host's name and its address" grep -qxF "echo '[git.example]:2222,[192.0.2.7]:2222 $hk' >> ~/.ssh/known_hosts" <<<"$srun"
 expect "ssh: an ssh config for the host" grep -qF "'Host git.example' '  HostName 192.0.2.7' '  IdentityFile ~/.ssh/graft_scions'" <<<"$srun"
-expect "ssh: the rest is graft's copy" cmp -s <(grep -v '^# graft ssh: ' "$swf" | nix run nixpkgs#yq-go -- 'del(.jobs.scions.steps[1])') \
-  <(nix run nixpkgs#yq-go -- '.' "$v9/template/.forgejo/workflows/graft-check.yaml")
+expect "ssh: the rest is graft's copy" cmp -s <(grep -v '^# graft ssh: ' "$swf" | nix run "$np#yq-go" -- 'del(.jobs.scions.steps[1])') \
+  <(nix run "$np#yq-go" -- '.' "$v9/template/.forgejo/workflows/graft-check.yaml")
 # the step itself, run here (with ssh on PATH, so it takes none from Nix)
 sk=$work/ssh-home
 mkdir -p "$sk"
@@ -668,11 +718,36 @@ expect "upgrade moves the scion" grep -q "ref=v2.1.0" flake.nix
 expect "but leaves graft's branch pin alone" grep -q "graft-repo?ref=main" flake.nix
 expect "check passes" quiet nix flake check
 
+# a workflow made the repo's own (marker deleted), then given back to graft (marker re-added): refresh
+# keeps its paths-ignore, branches and ssh lines
+wm=$work/wf-remark wmf=$work/wf-remark/.forgejo/workflows/graft-check.yaml
+mkdir -p "$wm/.forgejo/workflows"
+{ echo "$sshl"; tail -n +2 "$v9/template/.forgejo/workflows/graft-check.yaml"; } > "$wmf"
+sed -i 's|^  pull_request:$|&\n    paths-ignore: ["notes/**"]|; s|^    branches: \[main\]$|    branches: [v2]\n    paths-ignore: ["notes/**"]|' "$wmf"
+# shellcheck disable=SC2016 # sh's own expressions
+expect "remark: without the marker, refresh leaves the file alone" \
+  sh -c 'cp "$1" "$1.before" && bash "$2" refresh "$3" "$4" >/dev/null && cmp -s "$1" "$1.before"' _ "$wmf" "$graft/lib/workflows.sh" "$wm" "$v9/template/.forgejo/workflows"
+{ head -n 1 "$v9/template/.forgejo/workflows/graft-check.yaml"; cat "$wmf.before"; } > "$wmf"
+quiet bash "$graft/lib/workflows.sh" refresh "$wm" "$v9/template/.forgejo/workflows" || fail "workflows.sh refresh, marker re-added"
+expect "remark: keeps paths-ignore under both triggers" test "$(grep -c '^    paths-ignore: \["notes/\*\*"\]$' "$wmf")" = 2
+expect "remark: keeps branches" grep -qx '    branches: \[v2\]' "$wmf"
+expect "remark: keeps the ssh line" grep -qxF "$sshl" "$wmf"
+expect "remark: and the check passes" quiet bash "$graft/lib/workflows.sh" check "$wm" "$v9/template/.forgejo/workflows"
+
 # graft ci, the workflows' steps, against a local origin
 selfc self-ci v9.0.0
 git_ commit -qm init
 git_ init -q --bare "$work/origin.git" && git_ remote add origin "$work/origin.git" && git_ push -q origin main
 expect "ci check passes" quiet ci_ check
+# a lock never committed: a fresh clone gets one from Nix, git-added, and every check passes on it
+git_ clone -q -b main "$work/origin.git" "$work/nolock" && git_ -C "$work/nolock" rm -q --cached flake.lock \
+  && git_ -C "$work/nolock" commit -qm "drop the lock" && git_ clone -q -b main "$work/nolock" "$work/nolock-clone"
+cd "$work/nolock-clone"
+expect "lock: a fresh clone has no committed lock" test ! -e flake.lock
+# (with git on PATH, as in CI: Nix locks the git+file inputs anew here)
+refused "lock: ci check fails when flake.lock was never committed" nix run .#graft -- ci check
+expect "and names the fix" grep -qF "graft: flake.lock is not committed, so nothing is pinned: run nix run .#graft, then commit flake.lock" <<<"$out"
+cd "$work/self-ci"
 GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade"
 expect "ci upgrade: changed=true" grep -qx changed=true "$work/ci-out"
 expect "ci upgrade pushed graft/upgrade" quiet git_ -C "$work/origin.git" rev-parse --verify refs/heads/graft/upgrade
@@ -699,7 +774,7 @@ refuse "ci pr: no PR for a branch that changes other files" quiet ci_ "${pr_env[
 stub_pr() {
   local port=$work/$1.port
   rm -f "$port"
-  nix run nixpkgs#python3 -- "$graft/tests/stub-api.py" "$port" "$work/$1.auth" "$work/$1.req" "${2:-/nonexistent}" & stub=$!
+  nix run "$np#python3" -- "$graft/tests/stub-api.py" "$port" "$work/$1.auth" "$work/$1.req" "${2:-/nonexistent}" & stub=$!
   for _ in $(seq 100); do [ -s "$port" ] && break; sleep 0.1; done
   ci_ API="http://127.0.0.1:$(cat "$port")" WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=s3cret \
     pr > "$work/$1.out" 2>&1 || true
@@ -979,6 +1054,40 @@ expect "custom dir: check passes" quiet nix flake check
 echo "edit" >> "docs/Dan's Scions/provider/README.md" && git_ add -A
 refuse "custom dir: check catches drift" quiet nix flake check
 
+# the drift report with spaces in the scions directory and in a scion's paths, and a symbolic link
+sp=$work/spaced-provider
+mkdir -p "$sp/sub dir"
+echo "spaced v1" > "$sp/sub dir/a b.md"
+ln -s "sub dir/a b.md" "$sp/link.md"
+git_ -C "$sp" init -q -b main && git_ -C "$sp" add -A && git_ -C "$sp" commit -qm v1 && git_ -C "$sp" tag v1.0.0
+mkdir -p "$work/spaced"
+cat > "$work/spaced/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  inputs.sp = { url = "git+file://$sp?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; dir = "docs/Grafted Docs"; };
+}
+EOF
+git_ -C "$work/spaced" init -q -b main && git_ -C "$work/spaced" add -A
+cd "$work/spaced"
+quiet nix run .#graft && git_ add -A
+expect "spaced: the link is grafted as a link" test -L "docs/Grafted Docs/sp/link.md"
+expect "spaced: check passes" quiet nix flake check
+echo "edit" >> "docs/Grafted Docs/sp/sub dir/a b.md"
+rm "docs/Grafted Docs/sp/link.md" && echo "a copy" > "docs/Grafted Docs/sp/link.md" && git_ add -A
+refused "spaced: graft check catches both" nix run .#graft check
+expect "spaced: names the edited file" grep -qxF "graft: docs/Grafted Docs/sp/sub dir/a b.md: edited" <<<"$out"
+expect "spaced: labels its diff" grep -qxF "+++ docs/Grafted Docs/sp/sub dir/a b.md (your copy)" <<<"$out"
+expect "spaced: names the replaced link and its target" \
+  grep -qxF "graft: docs/Grafted Docs/sp/link.md: edited (in the pin, a symbolic link to sub dir/a b.md; in your copy, a file)" <<<"$out"
+expect "spaced: then the fix" grep -qxF "graft: docs/Grafted Docs/ differs from the pins in flake.lock; run: nix run .#graft" <<<"$out"
+refused "spaced: nix flake check catches both" nix flake check -L
+expect "spaced: the same edited line" grep -qxF "graft-check> graft: docs/Grafted Docs/sp/sub dir/a b.md: edited" <<<"$out"
+expect "spaced: the same link line" \
+  grep -qxF "graft-check> graft: docs/Grafted Docs/sp/link.md: edited (in the pin, a symbolic link to sub dir/a b.md; in your copy, a file)" <<<"$out"
+quiet nix run .#graft && git_ add -A
+expect "spaced: sync restores the link" test -L "docs/Grafted Docs/sp/link.md"
+
 consumer hidden 'dir = ".scions";'
 quiet nix run .#graft && git_ add -A
 expect "hidden dir: .scions grafted and checked" quiet nix flake check
@@ -1005,6 +1114,26 @@ git_ checkout -q -- .
 refuse "sync takes no arguments" quiet nix run .#graft sync extra
 expect "a subcommand needs no --" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "^provider +scions"'
 expect "help lists the commands" sh -c 'nix run .#graft help 2>/dev/null | grep -q "^  migrate"'
+# arguments a command doesn't take: an error and its usage line, never ignored
+# rc2 ARGS...: run graft with ARGS; true when it exits 2 (a usage error)
+rc2() { local rc=0; nix run .#graft -- "$@" >/dev/null 2>&1 || rc=$?; [ "$rc" = 2 ]; }
+refused "-C with no repository fails" nix run .#graft -- outdated -C
+expect "with exit 2" rc2 outdated -C
+expect "-C '' fails the same way" rc2 outdated -C ''
+expect "a bare -- is read past" sh -c 'nix run .#graft -- outdated -- 2>/dev/null | grep -qE "^provider +scions"'
+expect "and says so" grep -qx "graft: -C needs a repository" <<<"$out"
+expect "with the usage" grep -qxF "usage: graft outdated [-C REPO] [--json]" <<<"$out"
+refused "outdated takes no names" nix run .#graft -- outdated provider
+expect "and says so" grep -qx "graft: outdated takes no names: it lists graft and every scion" <<<"$out"
+expect "with exit 2" rc2 outdated provider
+refused "upgrade has no --json" nix run .#graft -- upgrade --json
+expect "and says so" grep -qx "graft: upgrade has no --json" <<<"$out"
+expect "with the usage" grep -qxF "usage: graft upgrade [-C REPO] [NAME[@TAG]...]" <<<"$out"
+expect "and upgrades nothing" git_ diff --quiet
+expect "with exit 2" rc2 upgrade --json
+refused "an unknown option fails" nix run .#graft -- changelog --frob
+expect "and says so" grep -qx "graft: unknown option --frob" <<<"$out"
+expect "with exit 2" rc2 changelog --frob
 echo "edit" >> scions/provider/README.md
 refuse "a mistyped command fails" quiet nix run .#graft upgarde
 expect "and rebuilds nothing" grep -q "^edit$" scions/provider/README.md
@@ -1028,7 +1157,48 @@ expect "and leaves the repo able to stash" quiet git_ stash
 git_ stash pop -q
 consumer nodeps ''
 sed -i.bak '/inputs.provider/d' flake.nix && rm flake.nix.bak
-expect "no scions at all is an error naming the cause" sh -c 'nix run .#graft 2>&1 | grep -q "graft: no scions"'
+refused "no scions at all is an error" nix run .#graft
+expect "naming the cause" grep -qF "error: graft: no scions: no input has flake = false, and scions names none" <<<"$out"
+
+# --override-input: a local checkout for one run, with its uncommitted edits and without its new files
+consumer override ''
+quiet nix run .#graft && git_ add -A && git_ commit -qm graft
+git_ clone -q "$p" "$work/p-checkout"
+echo "unreleased" >> "$work/p-checkout/docs/policy.md"
+echo "new" > "$work/p-checkout/docs/new.md"
+quiet nix run .#graft --override-input provider "git+file://$work/p-checkout?exportIgnore=1" || fail "nix run .#graft --override-input"
+expect "override: takes the checkout's uncommitted edit" grep -q unreleased scions/provider/docs/policy.md
+expect "override: leaves out its untracked file" test ! -e scions/provider/docs/new.md
+# shellcheck disable=SC2016 # markdown backticks
+expect "override: the README records the commit as -dirty" grep -qE '^\| \[provider\]\(provider/\) \| `[0-9a-f]{40}-dirty` \|$' scions/README.md
+expect "override: flake.lock is unchanged" git_ diff --quiet HEAD -- flake.lock
+refuse "override: committed by mistake, nix flake check fails" quiet nix flake check
+quiet nix run .#graft
+expect "override: nix run .#graft goes back to the pin" quiet nix run .#graft check
+expect "override: and nothing is left to commit" git_ diff --cached --quiet
+
+# deleting an input: graft deletes its scion folder and stages that
+consumer dropped ''
+sed -i.bak 's#^  outputs#  inputs.src = { url = "git+file://'"$q"'?ref=v2.0.0\&exportIgnore=1"; flake = false; };\n  outputs#' flake.nix && rm flake.nix.bak
+quiet nix run .#graft && git_ add -A && git_ commit -qm graft
+expect "drop: two scions grafted" test -d scions/src
+sed -i.bak '/inputs.src/d' flake.nix && rm flake.nix.bak
+quiet nix run .#graft
+expect "drop: the dropped scion's folder is gone" test ! -e scions/src
+expect "drop: and its deletion is staged" sh -c 'git diff --cached --name-status -- scions/src | grep -q "^D"'
+expect "drop: check passes" quiet nix run .#graft check
+
+# flake.lock holds the pins: both checks fail when git leaves it out
+consumer lockignored ''
+quiet nix run .#graft && git_ add -A
+expect "lock: check passes with flake.lock in git" quiet nix flake check
+printf 'flake.lock\n' > .gitignore && git_ rm -q --cached flake.lock && git_ add -A
+refused "lock: graft check fails when git ignores flake.lock" nix run .#graft check
+expect "and names the cause" grep -qxF "graft: git ignores flake.lock, so the pins are not committed: git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock" <<<"$out"
+refused "lock: nix flake check fails too" nix flake check
+expect "and names the cause" grep -qF "graft: git does not track flake.lock, so the pins are not committed: if git ignores it, git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock" <<<"$out"
+git_ rm -q --cached .gitignore && rm .gitignore && git_ add -A
+expect "lock: committed, both pass" quiet sh -c 'nix run .#graft check && nix flake check'
 
 # a repo's own outputs: merged at every level, and evaluated without graft's checks on the inputs
 consumer own 'dir = "../outside"; outputs.apps = builtins.mapAttrs (_: _: { own = { type = "app"; program = "/bin/true"; }; }) inputs.graft.packages; outputs.answer = 42;'
@@ -1042,10 +1212,19 @@ printf '{ outputs = _: throw "broken"; }\n' > "$work/broken-flake/flake.nix"
 sed -i.bak 's#^  outputs#  inputs.other.url = "path:'"$work"'/broken-flake";\n  outputs#' flake.nix && rm flake.nix.bak
 expect "an input that throws doesn't stop graft" quiet nix run .#graft
 
-# graft's outputs can't be replaced by a same-named one of the repo's
+# graft's output names aren't the repo's: a same-named one of its own is an error naming the clash,
+# never silently replaced (the repo's check would never run)
 consumer shadow 'outputs.apps = builtins.mapAttrs (_: _: { graft = { type = "app"; program = "/bin/false"; }; }) inputs.graft.packages;'
-quiet nix run .#graft || fail "a repo's apps.graft replaced graft's"
-pass "a repo's apps.graft doesn't replace graft's"
+refused "a repo's apps.graft is an error" nix run .#graft
+expect "naming the clash" grep -qF "graft: mkFlake's outputs has apps.$system.graft: that name is graft's; rename the repo's own" <<<"$out"
+# shellcheck disable=SC2016 # Nix's own interpolation
+own_check='outputs.checks = builtins.mapAttrs (s: _: { graft = inputs.graft.inputs.nixpkgs.legacyPackages.${s}.runCommand "mine" { } "touch $out"; }) inputs.graft.packages;'
+consumer shadowcheck "$own_check"
+refused "a repo's checks.graft is an error" nix flake check
+expect "naming the clash" grep -qF "graft: mkFlake's outputs has checks.$system.graft: that name is graft's; rename the repo's own" <<<"$out"
+consumer shadowsub "flakeDir = \"sub\"; $own_check"
+refused "in a subdirectory too, from graft's app" nix eval --raw ".#apps.$system.graft.program"
+expect "naming the clash" grep -qF "graft: mkFlake's outputs has checks.$system.graft: that name is graft's; rename the repo's own" <<<"$out"
 
 # flakeDir: the flake in a subdirectory, run as a path: flake, so Nix copies only that directory and
 # never the repo's top (where content that must stay out of the store lives); dir stays relative to
@@ -1091,7 +1270,9 @@ echo "local edit" >> .scions/provider/docs/policy.md
 out=$(nix run path:nix/workspace#graft check 2>&1) && fail "subdir: graft check catches an edited scion"
 pass "subdir: graft check catches an edited scion"
 expect "subdir: and shows the diff" grep -q "local edit" <<<"$out"
-refuse "subdir: no only-on-the-left hint when no file is only on the left" grep -q "only on the left" <<<"$out"
+expect "subdir: naming the file from the repo's top" grep -qx "graft: .scions/provider/docs/policy.md: edited" <<<"$out"
+expect "subdir: and the flake's lock" grep -qx "graft: .scions/ differs from the pins in nix/workspace/flake.lock; run: nix run path:nix/workspace#graft" <<<"$out"
+refuse "subdir: no only-in-the-pin hint when no file is only in the pin" grep -q "a file only in the pin" <<<"$out"
 echo "stray" > .scions/provider/new.md
 quiet nix run path:nix/workspace#graft
 expect "subdir: sync restores it" quiet nix run path:nix/workspace#graft check
@@ -1102,8 +1283,14 @@ expect "subdir: sync restores the workflow" cmp -s .forgejo/workflows/graft-chec
 echo ".scions/provider/docs/" > .gitignore && git_ rm -rq --cached .scions/provider/docs
 out=$(nix run path:nix/workspace#graft check 2>&1) && fail "subdir: graft check catches a grafted file .gitignore drops"
 pass "subdir: graft check catches a grafted file .gitignore drops"
-expect "subdir: and says what a file only on the left means" grep -q "only on the left is one git can't see" <<<"$out"
+expect "subdir: and says what a file only in the pin means" grep -qF "git ignores it: git check-ignore -v .scions/provider/docs/policy.md names the rule" <<<"$out"
 rm .gitignore && git_ reset -q
+echo "flake.lock" > nix/workspace/.gitignore && git_ rm -q --cached nix/workspace/flake.lock
+refused "subdir: graft check fails when git ignores the flake's flake.lock" nix run path:nix/workspace#graft check
+expect "subdir: and names it from the repo's top" grep -qxF "graft: git ignores nix/workspace/flake.lock, so the pins are not committed: git check-ignore -v nix/workspace/flake.lock names the rule; remove the rule, then commit nix/workspace/flake.lock" <<<"$out"
+rm nix/workspace/.gitignore
+expect "subdir: an untracked flake.lock that git would add passes" quiet nix run path:nix/workspace#graft check
+git_ reset -q
 refuse "subdir: check from graft's own flake says where it runs" quiet nix run "path:$graft" -- check
 # the workflow's own step finds the flake from the scions README
 sed -n '/name: Scions match/,$p' .forgejo/workflows/graft-check.yaml | sed -n '/run: |/,$p' | tail -n +2 | sed 's/^          //' > "$work/check-step.sh"
@@ -1113,9 +1300,8 @@ cibin=$work/ci-bin
 mkdir -p "$cibin" && ln -sf "$(command -v nix)" "$cibin/nix" && ln -sf "$(command -v git)" "$cibin/git"
 step() { env PATH="$cibin" "$(command -v bash)" -e "$work/check-step.sh"; }
 expect "subdir: graft-check.yaml's step finds the flake and passes" quiet step
-# shellcheck disable=SC2016 # the literal text of the step's line
 expect "subdir: graft-upgrade.yaml finds it the same way, in both jobs" \
-  test "$(grep -c -F "$(grep -F 'd=$(git grep' .forgejo/workflows/graft-check.yaml)" "$graft/template/.forgejo/workflows/graft-upgrade.yaml")" = 2
+  test "$(flake_block "$graft/template/.forgejo/workflows/graft-upgrade.yaml")" = "$(flake_block .forgejo/workflows/graft-check.yaml; flake_block .forgejo/workflows/graft-check.yaml)"
 echo "local edit" >> .scions/provider/docs/policy.md
 refuse "subdir: and fails on drift" quiet step
 git_ checkout -q -- .
@@ -1163,6 +1349,10 @@ body=$(git_ -C "$work/origin-subdir.git" log -1 --format=%b graft/upgrade)
 expect "subdir: and passed" test -z "$(grep 'nix flake check failed' <<<"$body")"
 git_ reset -q --hard origin/main   # back to the default branch before the upgrade
 expect "subdir: ci check" quiet env PATH="$bare" nix run path:nix/workspace#graft -- ci check
+git_ rm -q --cached nix/workspace/flake.lock && git_ commit -qm "drop the lock"
+refused "subdir: ci check fails when the flake's flake.lock isn't committed" env PATH="$bare" nix run path:nix/workspace#graft -- ci check
+expect "and names it" grep -qF "graft: nix/workspace/flake.lock is not committed, so nothing is pinned" <<<"$out"
+git_ reset -q --hard origin/main
 pr_env=(API=http://127.0.0.1:9 WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=x)
 # a branch that moves only the flake's lock and refs and the scions: past the file gate, to the API
 out=$(env "${pr_env[@]}" PATH="$bare" nix run path:nix/workspace#graft -- ci pr 2>&1) && fail "ci pr reached a closed port"
@@ -1196,6 +1386,15 @@ expect "subdir: (the search finds a store path that has it)" test -n "$(leaked "
 # flakeDir is checked
 consumer badflakedir 'flakeDir = "../up";'
 refuse "flakeDir outside the repo is rejected" quiet nix run .#graft
+# a flake in a subdirectory without flakeDir, or with a mistyped one: the message names flakeDir
+consumer noflakedir ''
+mkdir -p nix/x && git_ mv flake.nix nix/x/flake.nix
+refused "a flake in a subdirectory without flakeDir fails" nix run "path:$PWD/nix/x#graft"
+expect "and names flakeDir" grep -qF ": run from the repo's top; for a flake in a subdirectory, set mkFlake's flakeDir to it" <<<"$out"
+sed -i 's|mkFlake { inherit inputs;  }|mkFlake { inherit inputs; flakeDir = "nix/wrong"; }|' nix/x/flake.nix
+expect "(the flake now sets flakeDir)" grep -q 'flakeDir = "nix/wrong"' nix/x/flake.nix
+refused "a mistyped flakeDir fails" nix run "path:$PWD/nix/x#graft"
+expect "and names it" grep -qF ": check mkFlake's flakeDir, \"nix/wrong\"" <<<"$out"
 
 # the template: a working repo, at the version this tree releases
 t=$work/template
