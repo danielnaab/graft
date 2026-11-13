@@ -408,6 +408,7 @@ while [ $# -gt 0 ]; do
   case $1 in
     -C) if [ $# -lt 2 ] || [ -z "$2" ]; then bad_arg "-C needs a repository"; fi; repo=$2; shift 2 ;;
     --json) [ "$sub" != upgrade ] || bad_arg "upgrade has no --json"; json=1; shift ;;
+    --) shift ;;   # a second `--` after nix run's: nothing to read
     -h|--help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) bad_arg "unknown option $1" ;;
     *) [ "$sub" != outdated ] || bad_arg "outdated takes no names: it lists graft and every scion"; args+=("$1"); shift ;;

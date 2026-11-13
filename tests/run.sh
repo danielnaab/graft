@@ -1072,17 +1072,25 @@ refuse "sync takes no arguments" quiet nix run .#graft sync extra
 expect "a subcommand needs no --" sh -c 'nix run .#graft outdated 2>/dev/null | grep -qE "^provider +scions"'
 expect "help lists the commands" sh -c 'nix run .#graft help 2>/dev/null | grep -q "^  migrate"'
 # arguments a command doesn't take: an error and its usage line, never ignored
+# rc2 ARGS...: run graft with ARGS; true when it exits 2 (a usage error)
+rc2() { local rc=0; nix run .#graft -- "$@" >/dev/null 2>&1 || rc=$?; [ "$rc" = 2 ]; }
 refused "-C with no repository fails" nix run .#graft -- outdated -C
+expect "with exit 2" rc2 outdated -C
+expect "-C '' fails the same way" rc2 outdated -C ''
+expect "a bare -- is read past" sh -c 'nix run .#graft -- outdated -- 2>/dev/null | grep -qE "^provider +scions"'
 expect "and says so" grep -qx "graft: -C needs a repository" <<<"$out"
 expect "with the usage" grep -qxF "usage: graft outdated [-C REPO] [--json]" <<<"$out"
 refused "outdated takes no names" nix run .#graft -- outdated provider
 expect "and says so" grep -qx "graft: outdated takes no names: it lists graft and every scion" <<<"$out"
+expect "with exit 2" rc2 outdated provider
 refused "upgrade has no --json" nix run .#graft -- upgrade --json
 expect "and says so" grep -qx "graft: upgrade has no --json" <<<"$out"
 expect "with the usage" grep -qxF "usage: graft upgrade [-C REPO] [NAME[@TAG]...]" <<<"$out"
 expect "and upgrades nothing" git_ diff --quiet
+expect "with exit 2" rc2 upgrade --json
 refused "an unknown option fails" nix run .#graft -- changelog --frob
 expect "and says so" grep -qx "graft: unknown option --frob" <<<"$out"
+expect "with exit 2" rc2 changelog --frob
 echo "edit" >> scions/provider/README.md
 refuse "a mistyped command fails" quiet nix run .#graft upgarde
 expect "and rebuilds nothing" grep -q "^edit$" scions/provider/README.md

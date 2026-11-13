@@ -53,6 +53,7 @@ Run it as `nix run .#graft COMMAND`. A flag needs `--` before it, because Nix ot
   command's usage line: `-C` without a repository (`graft: -C needs a repository`), a name given to
   `outdated` (`graft: outdated takes no names: it lists graft and every scion`), `--json` given to
   `upgrade` (`graft: upgrade has no --json`), or an unknown option (`graft: unknown option OPTION`).
+  A bare `--` among the arguments is skipped.
 - `--json` gives the same data as the text output. In `outdated --json`, `major` is `null` when there is
   no newer major version.
 
