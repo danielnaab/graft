@@ -28,7 +28,7 @@ def upstream_notes($where):
    elif .changelog != "" then
      (if .upgrading != "" then
         "Upgrading, from its CHANGELOG.md:", "", (.upgrading | cap(8000) | quote), "",
-        (if .rest != "" then "The rest of its CHANGELOG.md for this range:", "", (.rest | cap(4000) | quote), "" else empty end)
+        (if .rest != "" then "The rest of its CHANGELOG.md for this range, without the Upgrading sections above:", "", (.rest | cap(4000) | quote), "" else empty end)
       else
         "From its CHANGELOG.md (no Upgrading section in this range):", "", (.changelog | cap(6000) | quote), ""
       end)
@@ -36,4 +36,4 @@ def upstream_notes($where):
      "No CHANGELOG.md section for this range; its commits:", "",
      (.commits | most(50) | map("- " + .) | if length == 0 then ["- (none)"] else . end | join("\n") | cap(6000) | quote), ""
    else "No CHANGELOG.md section for this range, and \(.from_rev[0:12]) is not in its history.", "" end),
-  (if .compare and .status == "fetched" then "Compare: \(.compare | safe)", "" else empty end);
+  (if .compare and (.status == "fetched" or .status == "unfetchable") then "Compare: \(.compare | safe)", "" else empty end);

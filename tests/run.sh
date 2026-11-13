@@ -827,6 +827,8 @@ stub_pr pr2
 body=$(post_body pr2)
 expect "changelog: the sections between the tags, headings moved down" grep -q "^> #### v3.0.0 - 2026-11-04" <<<"$body"
 expect "changelog: subheadings too" grep -q "^> ##### Upgrading" <<<"$body"
+expect "changelog: Upgrading sections first, as graft changelog prints them" grep -qx "Upgrading, from its CHANGELOG.md:" <<<"$body"
+expect "changelog: then the rest" grep -qx "The rest of its CHANGELOG.md for this range, without the Upgrading sections above:" <<<"$body"
 expect "changelog: a heading without the v" grep -q "^> #### 2.1.0" <<<"$body"
 refuse "changelog: not the old tag's own section" grep -q "^> #### v2.0.0" <<<"$body"
 refuse "changelog: not Unreleased" grep -q "not yet released" <<<"$body"
@@ -912,12 +914,14 @@ expect "and pushed the branch" quiet git_ -C "$work/origin-gate.git" rev-parse -
 body=$(git_ -C "$work/origin-gate.git" log -1 --format=%b graft/upgrade)
 expect "its commit names the failing check, only" grep -qx "nix flake check failed: policy-link" <<<"$body"
 expect "with its log's tail" grep -q "policy-link: expected policy v2" <<<"$body"
+refuse "without Nix's progress lines, store paths or the checkout's path" grep -qE "will be built|is dirty|For full logs|/nix/store/|$gc/" <<<"$body"
 git_ checkout -q main
 stub_pr gate1
 expect "gate: the PR is opened" grep -q "http://stub/pulls/1" "$work/gate1.out"
 expect "titled as failing" quiet jq -e 'select(.method=="POST") | .body.title == "[checks failing] graft: upgrade"' "$work/gate1.req"
 body=$(post_body gate1)
 expect "its body says the check fails" grep -q "fails on this branch" <<<"$body"
+expect "and to fix your own files first" grep -qF "Fix your own files on a branch made from this one: the next run force-pushes \`graft/upgrade\`. If the provider broke something, tell its maintainers." <<<"$body"
 expect "and which, in a section of its own" grep -qz $'## Failing checks\n\n    nix flake check failed: policy-link' <<<"$body"
 expect "and still says what changed upstream" grep -q "^### provider v2.0.0 -> v2.1.0" <<<"$body"
 echo '[{"number": 7, "head": {"ref": "graft/upgrade", "repo_id": 1}, "base": {"repo_id": 1}}]' > "$work/listing.json"

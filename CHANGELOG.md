@@ -99,6 +99,17 @@
   a branch other than `BRANCH` (`graft: ci upgrade commits on the branch checked out, main, …`). Without
   `BRANCH`, it says `graft: BRANCH is not set: …`, not bash's `BRANCH: BRANCH is not set`. `graft ci check`
   ends with `graft: ci check passed: …`.
+- **The upgrade pull request's notes read like `graft changelog`'s.** `graft ci pr` had its own copy of the
+  notes: it now prints each provider's **Upgrading** sections first, with control characters made plain, as
+  `changelog` and `migrate` do (lib/upstream.jq). In all three, the second part is now labelled
+  `The rest of its CHANGELOG.md for this range, without the Upgrading sections above:`, so a version's
+  heading shown twice reads as one version split in two, and a provider that cannot be fetched gets its
+  compare link.
+- **The failing pull request's warning says to fix your own files first**:
+  `Fix your own files on a branch made from this one: …. If the provider broke something, tell its maintainers.`
+- **The logs of failing checks leave out Nix's noise.** In the pull request's **Failing checks** and in
+  `migrate`'s brief, the dirty-tree warning, the lines about what will be built, the builder's log repeated,
+  `For full logs, run 'nix log …'`, store hashes and the checkout's path are gone.
 - **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or
   three of them, depending on the line; it now always says
   `graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in FILE; …)`.

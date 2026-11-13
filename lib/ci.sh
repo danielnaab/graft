@@ -88,35 +88,17 @@ upgrade() {
   fi
 }
 
-# upstream_notes BASE_LOCK HEAD_LOCK: markdown, what changed upstream for each input whose locked
-# commit differs (common.sh's upstream_input, which fetches and reads it as data). Each provider's
-# text is a block quote: a code fence it leaves open ends with the quote, so it can't swallow (or
-# fake) what follows in the body.
-upstream_notes() {
+# pr_notes BASE_LOCK HEAD_LOCK: markdown, what changed upstream for each input whose locked commit
+# differs (common.sh's upstream_input, which fetches and reads it as data), as graft changelog and
+# graft migrate print it (upstream.jq's upstream_notes: Upgrading sections first, provider text
+# cleaned and block-quoted, so a code fence it leaves open ends with the quote).
+pr_notes() {
   local base=$1 head=$2 name j n=0
   while IFS= read -r name; do
     j=$(upstream_input "$base" "$head" "$name") || return 1
     [ -n "$j" ] || continue
     n=$((n + 1))
-    jq -r --arg base "${BASE:-the default branch}" '
-      def cap(n): if length <= n then . else (.[0:n+1] | sub("\n[^\n]*$"; ""))
-        + "\n\n(cut at \(n) characters; the full text is upstream)" end;
-      def quote: split("\n") | map("> " + .) | join("\n");
-      "### \(.name) \(.from) -> \(.to)\n",
-      (if .status == "elsewhere" then
-         "The branch points \(.name) at a different source than \($base) does; not fetched. Read the diff of flake.lock.\n"
-       elif .status == "not-commit" then "Not a git commit; nothing to compare.\n"
-       elif .status == "not-git" then "Not a git input; nothing to compare.\n"
-       elif .status == "unfetchable" then
-         "Couldn'"'"'t fetch \(.to_rev[0:12]) from \(.url).\(if .compare then " Compare: \(.compare)" else "" end)\n"
-       elif .changelog != "" then "From its CHANGELOG.md:\n\n\(.changelog | cap(6000) | quote)\n"
-       elif .in_history then
-         "No CHANGELOG.md section for this range; its commits:\n\n\(.commits[0:50] | map("- " + .)
-           | if length == 0 then ["- (none)"] else . end | join("\n") | cap(6000) | quote)\n",
-         (if (.commits | length) > 50 then "(more than 50; see the compare link)\n" else empty end)
-       else "No CHANGELOG.md section for this range, and \(.from_rev[0:12]) is not in its history.\n" end),
-      (if .compare and .status == "fetched" then "Compare: \(.compare)\n" else empty end)
-    ' <<<"$j"
+    jq -r -L "$GRAFT_LIB" --arg base "${BASE:-the default branch}" 'include "upstream"; upstream_notes($base)' <<<"$j"
   done < <(jq -r '.nodes.root.inputs | to_entries[] | select(.value|type=="string") | .key' "$base")
   [ "$n" -gt 0 ] || printf 'No input moved commits.\n'
 }
@@ -183,7 +165,7 @@ pr() {
   git show "$head:$FLAKE_LOCK" > "$head_lock" 2>/dev/null || echo '{"nodes":{"root":{"inputs":{}}}}' > "$head_lock"
   # errexit is off in here (a provider that can't be fetched is reported, not fatal); a list cut
   # short is kept, with a note
-  ( unset PR_TOKEN; upstream_notes "$base_lock" "$head_lock" ) > "$notes" \
+  ( unset PR_TOKEN; pr_notes "$base_lock" "$head_lock" ) > "$notes" \
     || echo "(stopped early; the rest is in the diff of flake.lock)" >> "$notes"
 
   title="graft: upgrade"
@@ -191,7 +173,7 @@ pr() {
   {
     if [ -n "$failing" ]; then
       title="[checks failing] graft: upgrade"
-      printf '> [!WARNING]\n> **`nix flake check` fails on this branch.** The upgrade is pushed so the breakage can be read. Fix it in the provider, or on a branch of your own made from this one: the next run force-pushes `graft/upgrade`.\n\n'
+      printf '> [!WARNING]\n> **`nix flake check` fails on this branch.** The upgrade is pushed so the breakage can be read. Fix your own files on a branch made from this one: the next run force-pushes `%s`. If the provider broke something, tell its maintainers.\n\n' "$BRANCH"
     fi
     printf 'Moved by `nix run .#graft upgrade` (graft'"'"'s own pin, and scions behind the newest tag of their pinned major):\n\n%s\n' "${moved:-"- (see the commit)"$'\n'}"
     if [ -n "$held" ]; then printf 'Not taken: a new major version is the provider saying something breaks. Read its CHANGELOG (an **Upgrading** section, if it has one), then name it:\n\n%s\n' "$held"; fi

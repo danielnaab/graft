@@ -188,6 +188,16 @@ peel_locks() {
   done
 }
 
+# log_tail LOG: the last 30 lines of a check's log that a reader of the PR can use: not Nix's
+# progress lines (a dirty tree, what will be built or fetched, the builder's log repeated, where the
+# full log is), and no store hashes or paths of the runner's checkout
+log_tail() {
+  grep -vE "^warning: Git tree '.*' is dirty\$|^(this derivation|these [0-9]+ derivations) will be built:\$|^(this path|these [0-9]+ paths) will be fetched|^ +/nix/store/[^ ]+\$|^(building|copying path) '/nix/store/|^ +last [0-9]+ log lines:\$|^ +> |^ +For full logs, run 'nix log " "$1" \
+    | sed -E 's#/nix/store/[0-9a-z]{32}-##g' \
+    | awk -v p="$(pwd -P)/" '{ while ((i = index($0, p)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(p)); print }' \
+    | tail -n 30 || true
+}
+
 # full_check REPORT: the repo's whole check on the working tree (of the flake locate found): each of
 # checks.<system> built on its own (so a failure has a name), then `nix flake check` for the rest
 # (evaluation, other systems' outputs). A flake in a subdirectory has no checks.<system>.graft, so
@@ -200,7 +210,7 @@ full_check() {
   if [ "$FLAKE" != . ]; then
     echo "graft: graft check"
     if ! nix_ run "$FLAKE_REF#graft" check 2>&1 | tee "$log"; then
-      failed+=("graft"); tails+="graft:"$'\n'"$(tail -n 30 "$log")"$'\n\n'
+      failed+=("graft"); tails+="graft:"$'\n'"$(log_tail "$log")"$'\n\n'
       echo "::error::check graft failed on the upgraded tree"
     fi
   fi
@@ -210,17 +220,17 @@ full_check() {
       echo "graft: checks.$system.$n"
       [[ $n =~ ^[A-Za-z0-9_][A-Za-z0-9_\'-]*$ ]] || { echo "graft: (an odd name: left to nix flake check)"; continue; }
       if ! nix_ build --no-link -L "$FLAKE_REF#checks.$system.$n" 2>&1 | tee "$log"; then
-        failed+=("$n"); tails+="$n:"$'\n'"$(tail -n 30 "$log")"$'\n\n'
+        failed+=("$n"); tails+="$n:"$'\n'"$(log_tail "$log")"$'\n\n'
         echo "::error::check $n failed on the upgraded tree"
       fi
     done <<<"$names"
   else
     cat "$log" >&2
-    failed+=("checks"); tails+="checks (evaluating checks.$system):"$'\n'"$(tail -n 30 "$log")"$'\n\n'
+    failed+=("checks"); tails+="checks (evaluating checks.$system):"$'\n'"$(log_tail "$log")"$'\n\n'
   fi
   if ! nix_ flake check -L "$FLAKE_REF" 2>&1 | tee "$log"; then
     if [ ${#failed[@]} -eq 0 ]; then
-      failed+=("flake-check"); tails+="nix flake check:"$'\n'"$(tail -n 30 "$log")"$'\n\n'
+      failed+=("flake-check"); tails+="nix flake check:"$'\n'"$(log_tail "$log")"$'\n\n'
     fi
     echo "::error::nix flake check failed on the upgraded tree"
   fi
