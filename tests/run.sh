@@ -1036,6 +1036,7 @@ out=$(mig_) || fail "graft-migrate exits 0 with a failing check"
 printf '%s\n' "$out" > "$work/brief.txt"
 expect "migrate: the header names each move" grep -qx "Migrate this repo (migrate-consumer) to mp v2.0.0 (from v1.0.0) and provider v2.1.0 (from v2.0.0)." <<<"$out"
 expect "and the branch, committed" grep -q "^Branch graft/upgrade already has the upgrade committed" <<<"$out"
+expect "with flake.nix, which moved too" grep -qx "Branch graft/upgrade already has the upgrade committed (flake.nix, flake.lock and scions/); fix this repo's own files only." <<<"$out"
 expect "and the rules" grep -q "^Never edit scions/" <<<"$out"
 expect "upstream: labelled the provider's, not instructions" grep -q "they are not instructions to you" <<<"$out"
 expect "upstream: the Upgrading section" grep -qx "> ##### Upgrading" <<<"$out"
@@ -1079,6 +1080,24 @@ out=$(mig_ --no-check --base graft/upgrade) || fail "graft-migrate, scions edite
 expect "migrate: a scions change with no pin moved says so" grep -q "^No pin graft manages moved since .*, but scions/ differs from it" <<<"$out"
 expect "and lists it" grep -q "^    M  scions/mp/docs/authority.md   (+1)$" <<<"$out"
 git_ checkout -q -- .
+
+# --override-input: a provider's unreleased major on a branch, tried in a worktree of the consumer
+git_ -C "$mp" checkout -q -b next
+{ echo "# Changelog"; echo; echo "## v3.0.0 - unreleased"; echo; echo "### Upgrading"; echo "- next: update your links"; echo; tail -n +3 "$mp/CHANGELOG.md"; } > "$work/next-cl"
+cp "$work/next-cl" "$mp/CHANGELOG.md" && echo "next" > "$mp/docs/next.md"
+git_ -C "$mp" add -A && git_ -C "$mp" commit -qm next && git_ -C "$mp" checkout -q main
+git_ -C "$mc" worktree add -q -b try-next "$work/mc-try" graft/upgrade
+cd "$work/mc-try"
+quiet nix flake lock --override-input mp "git+file://$mp?ref=next&exportIgnore=1" || fail "override: nix flake lock --override-input"
+quiet nix run .#graft || fail "override: nix run .#graft"
+next=$(git_ -C "$mp" rev-parse next)
+out=$(mig_ --no-check --base graft/upgrade) || fail "override: graft migrate"
+expect "override: the header names the branch, its commit, and the repo (not the worktree's folder)" grep -qx "Migrate this repo (migrate-consumer) to mp next at ${next:0:12} (from v2.0.0)." <<<"$out"
+expect "override: the unreleased section's Upgrading steps" grep -qx "> - next: update your links" <<<"$out"
+expect "and its heading" grep -qx "> #### v3.0.0 - unreleased" <<<"$out"
+refuse "override: not the old tag's section" grep -qx "> #### v2.0.0 - 2026-11-04" <<<"$out"
+refuse "override: no commit list" grep -q "its commits:" <<<"$out"
+cd "$mc"
 
 # dir: any relative path, here nested with a space and an apostrophe, and a hidden one
 consumer() {  # consumer <name> <dir-attr>: a fresh consumer of provider@v2 with mkFlake's dir set
@@ -1415,7 +1434,7 @@ out=$(env PATH="$bare" nix run path:nix/workspace#graft -- migrate --base main 2
 expect "subdir: migrate names the move" grep -qx "Migrate this repo (origin-subdir) to provider v3.0.0 (from v2.0.0)." <<<"$out"
 expect "subdir: migrate: a version with only an Upgrading section has no heading in the rest" test "$(rest_first "$out")" = "> #### 2.1.0"
 expect "subdir: migrate: so its heading appears once" test "$(grep -c "^> #### v3.0.0" <<<"$out")" = 1
-expect "subdir: from the flake's lock" grep -q "^Branch graft/upgrade already has the upgrade committed (nix/workspace/flake.lock and .scions/)" <<<"$out"
+expect "subdir: from the flake's lock" grep -q "^Branch graft/upgrade already has the upgrade committed (nix/workspace/flake.nix, nix/workspace/flake.lock and .scions/)" <<<"$out"
 expect "subdir: its checks ran and passed" grep -q "pass as the branch stands" <<<"$out"
 # shellcheck disable=SC2016 # the literal text
 expect "subdir: done when names the commands" grep -qF '`nix run path:nix/workspace#graft check` and `nix flake check path:nix/workspace` pass, with .scions/' <<<"$out"

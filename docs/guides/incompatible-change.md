@@ -83,13 +83,12 @@ version. For `0.y.z`, a new `0.y` counts as one.
    nix run .#graft migrate > /tmp/page-rules-dry-run.md
    ```
 
-   It runs the consumer's checks, so their logs scroll past. The brief's header names the worktree's folder
-   (`handbook-try`) as the repository, and its log can start with Nix's `Git tree '…' is dirty`: both are
-   expected. The brief's "What broke here" names the
-   failing check, `Failing: pages.`, with `docs/holidays.md: 'status:' is now 'lifecycle:' …` in its log.
-
-   Not yet: in this brief, the header says `page-rules v1.1.0 (from v1.1.0)`, and "What upstream says" lists
-   your commits, not your Upgrading steps. Read the steps from `scions/page-rules/CHANGELOG.md`.
+   It runs the consumer's checks, so their logs scroll past, and can start with Nix's
+   `Git tree '…' is dirty`. The brief starts
+   `Migrate this repo (handbook) to page-rules lifecycle at COMMIT (from v1.1.0).`, with your branch's
+   commit. "What upstream says" quotes your Upgrading steps: graft takes each section of your branch's
+   `CHANGELOG.md` above the consumer's tag, v1.1.0. "What broke here" names the failing check,
+   `Failing: pages.`, with `docs/holidays.md: 'status:' is now 'lifecycle:' …` in its log.
 
 6. Follow your Upgrading steps, exactly as written, in the worktree. Or give the brief and the steps to an
    agent ([Part 2, step 7](#part-2-a-consumer-takes-the-change)). Then stage and check:
@@ -242,7 +241,7 @@ cd handbook && nix run .#graft changelog page-rules@v2.0.0 | grep -qx 'Upgrading
 
    ```
    Migrate this repo (team-kb) to page-rules v2.0.0 (from v1.1.0).
-   Branch page-rules-v2 already has the upgrade committed (flake.lock and scions/); fix this repo's own files only.
+   Branch page-rules-v2 already has the upgrade committed (flake.nix, flake.lock and scions/); fix this repo's own files only.
    Never edit scions/ or graft's workflows (.forgejo/workflows/graft-check.yaml and .forgejo/workflows/graft-upgrade.yaml), and don't move the pins in flake.nix or flake.lock: graft writes those from the pins, and `nix flake check` fails if they drift.
 
    ## What upstream says

@@ -17,6 +17,7 @@ def delta: [if .added then "+\(.added)" else empty end, if .deleted and .deleted
 | (if $b.flake then "\($b.flake | safe)/" else "" end) as $fp
 | (if $b.flake then "`nix run path:\($b.flake | safe)#graft check` and `nix flake check path:\($b.flake | safe)`"
    else "`nix flake check`" end) as $check
+| (if $b.flake_nix_moved then "\($fp)flake.nix, \($fp)flake.lock" else "\($fp)flake.lock" end) as $pins
 | (if $b.flake then "pass" else "passes" end) as $pass
 | (if $b.flake then "fail" else "fails" end) as $fail
 | if $b.nothing_moved then
@@ -29,9 +30,9 @@ def delta: [if .added then "+\(.added)" else empty end, if .deleted and .deleted
   "Migrate this repo (\($b.repo | safe)) to \($b.moved | map(if .status == "added" then "\(.name | safe) \(.to | safe) (new)" elif .status == "removed" then "no \(.name | safe) (removed)" else "\(.name | safe) \(.to | safe) (from \(.from | safe))" end) | list)."
    end),
   (if $b.applied == "committed" then
-     "Branch \($branch | safe) already has the upgrade committed (\($fp)flake.lock and \($dirtext)); fix this repo's own files only."
+     "Branch \($branch | safe) already has the upgrade committed (\($pins) and \($dirtext)); fix this repo's own files only."
    else
-     "The upgrade is applied on \($branch | safe) but not committed (\($fp)flake.lock and \($dirtext)); fix this repo's own files only. \(if $b.flake then "graft sees only files git would commit" else "Nix sees only files git tracks" end): `git add` new ones before \($check)."
+     "The upgrade is applied on \($branch | safe) but not committed (\($pins) and \($dirtext)); fix this repo's own files only. \(if $b.flake then "graft sees only files git would commit" else "Nix sees only files git tracks" end): `git add` new ones before \($check)."
    end),
   "Never edit \($dirtext)\(if ($b.graft_workflows | length) > 0 then " or graft's workflows (\($b.graft_workflows | map(safe) | list))" else "" end), and don't move the pins in \($fp)flake.nix or \($fp)flake.lock: graft writes those from the pins, and \($check) \($fail) if they drift.",
   (if ($b.also_moved | length) > 0 then

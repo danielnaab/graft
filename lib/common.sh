@@ -254,15 +254,19 @@ upstream_input() {
   if [ "$(jq -n --argjson a "$o" --argjson b "$nw" '($a.original|del(.ref,.rev)) == ($b.original|del(.ref,.rev))')" != true ]; then
     status=elsewhere
   fi
-  upstream_range "$name" "$o" "$ov" "$nv" "$(jq -r '.original.ref // empty' <<<"$o")" \
-    "$(jq -r '.original.ref // empty' <<<"$nw")" "$status"
+  # the ref each lock names: the locked one, which differs from the original under
+  # `nix flake lock --override-input` (a provider's branch, say)
+  upstream_range "$name" "$o" "$ov" "$nv" "$(jq -r '.locked.ref // .original.ref // empty' <<<"$o")" \
+    "$(jq -r '.locked.ref // .original.ref // empty' <<<"$nw")" "$status"
 }
 
 # upstream_range NAME NODE FROM_REV TO_REV FROM_REF TO_REF [STATUS]: what changed upstream for an
 # input (NODE, its flake.lock node, says where it comes from) between two commits, as one JSON
 # object. TO_REV may be empty when TO_REF is a version tag: the tag is fetched and its commit used
 # (graft changelog, which has no lock for the target). A rev must be a full commit hash and a ref a
-# version tag before git sees it; a ref that isn't one is dropped. STATUS, if given, is reported
+# version tag before git sees it; a ref that isn't one is never fetched: a plain branch name is only
+# shown (`lifecycle at COMMIT`), and when FROM_REF is a version tag, the CHANGELOG.md sections above
+# it at TO_REV are taken (a provider's unreleased major on a branch). STATUS, if given, is reported
 # with nothing fetched. The provider is fetched with `git fetch` into a bare repo (no checkout: no
 # hooks, no filters run), without http.extraHeader. Fetched text is data: it reaches the JSON
 # through files and jq, never a command line or eval. Fields:
@@ -275,8 +279,12 @@ upstream_input() {
 #   commits   up to 51 lines of `git log --oneline` for the range, when there's no changelog text
 #   in_history                    whether from_rev was found upstream
 upstream_range() {
-  local name=$1 o=$2 ov=$3 nv=$4 ot=$5 nt=$6 status=${7:-} url cmp tmp hist=false
-  is_semver "$ot" || ot=""; is_semver "$nt" || nt=""
+  local name=$1 o=$2 ov=$3 nv=$4 ot=$5 nt=$6 status=${7:-} url cmp tmp hist=false branch="" upto
+  is_semver "$ot" || ot=""
+  if ! is_semver "$nt"; then
+    [[ ! $nt =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ ]] || branch=$nt
+    nt=""
+  fi
   url=$(jq -r 'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo).git"
                elif .original.type=="git" then .original.url else empty end' <<<"$o")
   tmp=$(mktemp -d) || return 1
@@ -306,10 +314,12 @@ upstream_range() {
       if git -C "$tmp/git" cat-file -e "$ov^{commit}" 2>/dev/null; then hist=true; fi
       # cut, not dropped, past 1 MB (head closing the pipe kills git show: not a failure)
       { git -C "$tmp/git" show "$nv:CHANGELOG.md" 2>/dev/null || true; } | head -c 1000000 > "$tmp/cl.md"
-      if [ -n "$ot" ] && [ -n "$nt" ] && [ -s "$tmp/cl.md" ]; then
-        changelog_between "$ot" "$nt" all < "$tmp/cl.md" > "$tmp/changelog" || : > "$tmp/changelog"
-        changelog_between "$ot" "$nt" upgrading < "$tmp/cl.md" > "$tmp/upgrading" || : > "$tmp/upgrading"
-        changelog_between "$ot" "$nt" rest < "$tmp/cl.md" > "$tmp/rest" || : > "$tmp/rest"
+      # up to the new tag; at a commit that isn't one, every version above the old tag
+      upto=${nt:-999999999.0.0}
+      if [ -n "$ot" ] && [ -s "$tmp/cl.md" ]; then
+        changelog_between "$ot" "$upto" all < "$tmp/cl.md" > "$tmp/changelog" || : > "$tmp/changelog"
+        changelog_between "$ot" "$upto" upgrading < "$tmp/cl.md" > "$tmp/upgrading" || : > "$tmp/upgrading"
+        changelog_between "$ot" "$upto" rest < "$tmp/cl.md" > "$tmp/rest" || : > "$tmp/rest"
       fi
       if ! grep -q '[^[:space:]]' "$tmp/changelog" && [ "$hist" = true ]; then
         git -C "$tmp/git" log --oneline --no-decorate -n 51 "$ov..$nv" > "$tmp/commits" 2>/dev/null || : > "$tmp/commits"
@@ -321,6 +331,7 @@ upstream_range() {
   [[ $nv =~ ^[0-9a-f]{40}$ ]] || nv="?"
   cmp=$(jq -r --arg a "${ot:-$ov}" --arg b "${nt:-$nv}" \
     'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo)/compare/\($a)...\($b)" else empty end' <<<"$o")
+  if [ -z "$nt" ] && [ -n "$branch" ]; then nt="$branch at ${nv:0:12}"; fi
   jq -n -L "$GRAFT_LIB" --arg name "$name" --arg from "${ot:-${ov:0:12}}" --arg to "${nt:-${nv:0:12}}" \
     --arg from_rev "$ov" --arg to_rev "$nv" --arg status "$status" --arg url "$url" --arg compare "$cmp" \
     --rawfile changelog "$tmp/changelog" --rawfile upgrading "$tmp/upgrading" --rawfile rest "$tmp/rest" \

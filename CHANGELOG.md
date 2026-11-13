@@ -106,10 +106,16 @@
   heading shown twice reads as one version split in two, and a provider that cannot be fetched gets its
   compare link.
 - **The failing pull request's warning says to fix your own files first**:
-  `Fix your own files on a branch made from this one: …. If the provider broke something, tell its maintainers.`
+  `Fix your own files on a branch made from this one: the next run force-pushes graft/upgrade. If the provider broke something, tell its maintainers.`
 - **The logs of failing checks leave out Nix's noise.** In the pull request's **Failing checks** and in
   `migrate`'s brief, the dirty-tree warning, the lines about what will be built, the builder's log repeated,
   `For full logs, run 'nix log …'`, store hashes and the checkout's path are gone.
+- **`migrate` reads a provider's branch locked with `--override-input`.** The brief said
+  `page-rules v1.1.0 (from v1.1.0)` and listed commits. It now names the locked ref and commit
+  (`page-rules lifecycle at COMMIT (from v1.1.0)`) and quotes the branch's CHANGELOG sections above the old
+  tag, Upgrading first: the provider's unreleased major. Its header names the repository from its origin,
+  else its main checkout's folder, not a worktree's (`handbook`, not `handbook-try`), and says
+  `flake.nix, flake.lock and scions/` when the upgrade changed `flake.nix` too.
 - **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or
   three of them, depending on the line; it now always says
   `graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in FILE; …)`.
