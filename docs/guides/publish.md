@@ -1,5 +1,5 @@
 ---
-status: draft
+status: working
 ---
 # Publish a pattern
 
@@ -24,7 +24,8 @@ it, and take it in a consumer.
 ## Steps
 
 1. In `.gitattributes`, mark `export-ignore` each path that consumers must not get
-   ([What to export](../reference/files.md#what-to-export)). Write each rule without a trailing slash. For
+   ([What to export](../reference/files.md#what-to-export)). Write each rule without a trailing slash. A
+   leading `/` anchors the rule at the repository's top, so `/tests` does not match `docs/tests`. For
    note-kit, replace its one rule, `tests/ export-ignore`, with these:
 
    ```
@@ -46,7 +47,8 @@ it, and take it in a consumer.
 
    graft reads sections headed `## vX.Y.Z` or `## X.Y.Z`. Anything can follow the version, such as the date.
 
-3. Stage the files of the release:
+3. Stage the files of the release: your export rules, the CHANGELOG, and any other change for this release
+   (for note-kit, the fix to `bin/note-lint`):
 
    ```
    git add .gitattributes CHANGELOG.md bin/note-lint
@@ -84,7 +86,8 @@ it, and take it in a consumer.
    ```
 
    This is the export that GitHub serves to `github:` inputs. If the list holds a path that consumers must
-   not get, add a rule, stage `.gitattributes`, run `git commit --amend --no-edit`, and list again.
+   not get, add a rule, stage `.gitattributes`, run `git commit --amend --no-edit`, and list again. The list
+   cannot show a rule with a trailing slash, because `git archive` applies it: step 6 catches that.
 
 6. Check that no rule in the export has a trailing slash. This prints nothing:
 
@@ -94,7 +97,8 @@ it, and take it in a consumer.
 
    `git archive` applies a rule such as `tests/`, but Nix ignores it when it fetches from a bare clone, as it
    does for `git+https` and `git+ssh` inputs ([Nix behaviours](../reference/nix-behaviours.md#trailing-slash-rules)).
-   If it prints a rule, remove the slash, and amend as in step 5.
+   If it prints a rule, remove the slash, and amend as in step 5. Steps 5 and 6 are the checks before you
+   tag. "Check it worked" confirms the release after the push.
 
 7. Tag the commit:
 
@@ -129,21 +133,24 @@ it, and take it in a consumer.
     ```
 
     It prints `graft: note-kit v1.1.0 -> v1.2.0` and `graft: rebuilt scions/`. `git status --short scions/`
-    shows `D` for each file that left the export, such as `scions/note-kit/AGENTS.md` and
-    `scions/note-kit/tests/run.sh`. Review, check and commit it as [Upgrade](upgrade.md) says. To make the
-    first consumer, follow [Graft your first pattern](graft-a-repository.md).
+    shows `D` for each file that left the export, such as `scions/note-kit/AGENTS.md`,
+    `scions/note-kit/.forgejo/workflows/test.yaml` and `scions/note-kit/tests/run.sh`. `upgrade` stages the
+    scions directory, and leaves `flake.nix` and `flake.lock` changed but not staged. Review and check it as
+    [Upgrade](upgrade.md) says, then commit all three. To make the first consumer, follow
+    [Graft your first pattern](graft-a-repository.md).
 
     graft takes the newest release in the major version that a consumer pins. In CI, the weekly upgrade
     takes it as a pull request.
 
 ## Check it worked
 
-In your repository, set `t` to the new tag, and the pattern after `grep -qE '^(tests` to the paths that
-you exclude. Then paste this. It prints `ok` only if the tag is pushed, `CHANGELOG.md` at the tag has its
-section, the export at the tag holds no excluded path, and no rule in it has a trailing slash:
+After step 9, in your repository, set `t` to the new tag, and the pattern after `grep -qE '^(tests` to the
+paths that you exclude. Then paste this. It prints `ok` only if the tag is pushed, `CHANGELOG.md` at the
+tag has its section, the export at the tag holds no excluded path, and no rule in it has a trailing slash.
+If the tag is not on `origin`, it prints `not pushed: v1.2.0`; any other failure prints nothing:
 
 ```sh
-t=v1.2.0 && git ls-remote --exit-code origin "refs/tags/$t" >/dev/null && git show "$t:CHANGELOG.md" | grep -qE "^## \[?v?${t#v}( |\]|$)" && ! git archive "$t" | tar -t | grep -qE '^(tests|scions|\.forgejo)/|^AGENTS\.md$' && ! git archive "$t" | tar -t | grep -E '(^|/)\.gitattributes$' | while IFS= read -r f; do git show "$t:$f"; done | grep -qE '^[[:space:]]*[^#[:space:]][^[:space:]]*/[[:space:]](.*[[:space:]])?export-ignore([[:space:]]|$)' && echo ok
+t=v1.2.0 && { git ls-remote --exit-code origin "refs/tags/$t" >/dev/null || { echo "not pushed: $t"; false; }; } && git show "$t:CHANGELOG.md" | grep -qE "^## \[?v?${t#v}( |\]|$)" && ! git archive "$t" | tar -t | grep -qE '^(tests|scions|\.forgejo)/|^AGENTS\.md$' && ! git archive "$t" | tar -t | grep -E '(^|/)\.gitattributes$' | while IFS= read -r f; do git show "$t:$f"; done | grep -qE '^[[:space:]]*[^#[:space:]][^[:space:]]*/[[:space:]](.*[[:space:]])?export-ignore([[:space:]]|$)' && echo ok
 ```
 
 ## If something goes wrong

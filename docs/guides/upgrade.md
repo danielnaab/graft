@@ -15,7 +15,7 @@ Move pins to newer tags, read what changes, and cross a major version when you d
    directory.
 4. Read the diff of the scions directory. That diff is the change that you take.
 5. Run `nix flake check`.
-6. Commit.
+6. Commit `flake.nix`, `flake.lock` and the scions directory. `upgrade` stages only the scions directory.
 
 To move one pin, name it: `nix run .#graft upgrade knowledge-base-kit`. A flag needs `--` before it:
 `nix run .#graft -- outdated --json`.

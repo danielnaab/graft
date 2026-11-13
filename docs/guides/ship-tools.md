@@ -1,5 +1,5 @@
 ---
-status: draft
+status: working
 ---
 # Ship a tool or seed files with a pattern
 
@@ -7,15 +7,16 @@ Give consumers a tool that they build from your export, and files that they copy
 
 ## When to use this
 
-- **A tool**, such as a checker that consumers run in their own checks: steps 1 to 3. Its source is part of
+- **A tool**, such as a checker that consumers run in their own checks: steps 1 to 3, then 6 and 8. Its source is part of
   your export, and consumers build it from the same input, so they need no second input for your
   repository.
 - **Seed files**, which a consumer copies once and then owns, such as a starter configuration. A seed file
   is not a scion: graft replaces a scion, and would remove the consumer's edits.
-  - One or two files: export them, and tell consumers to copy them out of the scion once, for example
-    `cp scions/note-kit/seed/note-kit.conf .`. The scion keeps your current version, to compare with at
-    each upgrade.
-  - A starter that `nix flake init` writes: steps 4 to 6.
+  - One or two files: export them, and tell consumers to copy them out of the scion once, without
+    overwriting a copy they have: `cp -n scions/note-kit/seed/note-kit.conf .`. The scion keeps your current
+    version. After an upgrade, a consumer compares it with their own copy:
+    `diff note-kit.conf scions/note-kit/seed/note-kit.conf`.
+  - A starter that `nix flake init` writes: steps 4 to 8.
   - Files that consumers edit, and that should still take your later changes: use a template tool such as
     Copier, which merges your changes into their edits. See the README's
     [comparison](../../README.md#compared-with-copying-submodules-templates-and-bots).
@@ -77,7 +78,16 @@ Give consumers a tool that they build from your export, and files that they copy
 
    Keep `flake.nix` and the directory in your export: a `github:` URL fetches your export.
 
-6. Commit, then try the template. In an empty git repository, run this with your checkout's absolute path:
+6. Commit what steps 1 to 5 added, with your README:
+
+   ```
+   git add package.nix flake.nix seed/ README.md
+   git commit -m "Ship note-lint's package.nix, and seed/ as a flake template"
+   ```
+
+   In note-kit they are committed already, so `git status --short` shows only the next release's work.
+
+7. Try the template. In an empty git repository, run this with your checkout's absolute path:
 
    ```
    nix flake init -t git+file:///ABSOLUTE/PATH/TO/note-kit
@@ -88,16 +98,16 @@ Give consumers a tool that they build from your export, and files that they copy
    `nix flake init -t github:OWNER/note-kit/v1.2.0`, or for a `git+` URL, the tag's full name:
    `nix flake init -t "git+https://forge.example/team/note-kit?ref=refs/tags/v1.2.0"`.
 
-7. Release, as in [Publish a pattern](publish.md).
+8. Release, as in [Publish a pattern](publish.md).
 
 ## Check it worked
 
-From your repository's top, with your tool's name for `note-lint`, paste this. It prints `ok` only if the
-tool builds, and the export at `HEAD` holds `package.nix`, `flake.nix` and the seed directory, and the flake
-has its template:
+From your repository's top, with your tool's name for `note-lint`, paste this. It copies the export at
+`HEAD` (what you committed, not your working tree) to a temporary directory. It prints `ok` only if the tool
+builds from that copy, and the copy holds `flake.nix` and a non-empty `seed/`, and its flake has the template:
 
 ```sh
-out=$(nix build --no-link --print-out-paths --impure --expr '(builtins.getFlake "nixpkgs").legacyPackages.${builtins.currentSystem}.callPackage ./package.nix { }') && test -x "$out/bin/note-lint" && git archive HEAD | tar -t | grep -qx package.nix && git archive HEAD | tar -t | grep -qx flake.nix && git archive HEAD | tar -t | grep -q '^seed/.' && nix eval --raw .#templates.default.path >/dev/null && echo ok
+d=$(mktemp -d) && git archive HEAD | tar -x -C "$d" && out=$(nix build --no-link --print-out-paths --impure --argstr dir "$d" --expr '{ dir }: (builtins.getFlake "nixpkgs").legacyPackages.${builtins.currentSystem}.callPackage (/. + dir + "/package.nix") { }') && test -x "$out/bin/note-lint" && test -f "$d/flake.nix" && test -n "$(ls -A "$d/seed")" && nix eval --raw "path:$d#templates.default.path" >/dev/null && echo ok
 ```
 
 ## If something goes wrong
@@ -113,7 +123,8 @@ out=$(nix build --no-link --print-out-paths --impure --expr '(builtins.getFlake 
   `nix flake init` changes nothing. To take your newer version, the consumer merges it by hand with the store
   path that the message names.
 - **`nix flake init -t "git+…?ref=v1.2.0"` fails with `revspec 'v1.2.0' not found`.** On Nix 2.24, a `git+`
-  URL to a remote or bare repository needs the tag's full name: `ref=refs/tags/v1.2.0`.
+  URL to a remote or bare repository needs the tag's full name, `ref=refs/tags/v1.2.0`, until Nix's git cache
+  has seen the tag ([Nix behaviours](../reference/nix-behaviours.md)).
 
 ## How it works
 
@@ -134,8 +145,9 @@ out=$(nix build --no-link --print-out-paths --impure --expr '(builtins.getFlake 
 
   graft has no post-upgrade hook ([Scope](../decisions.md#scope-nix-a-copy-a-diff-and-a-tag-comparison)),
   and the weekly upgrade in CI does not run the recipe. So also give consumers a check that fails when the
-  regenerated files differ from what the new version renders. The upgrade pull request then fails that
-  check, and a person runs the recipe on its branch.
+  regenerated files differ from what the new version renders: it renders into the build directory and
+  compares, for example `render --out rendered && diff -r rendered ${self}/generated && touch $out` in a
+  `runCommand`. The upgrade pull request then fails that check, and a person runs the recipe on its branch.
 
 ## Sources
 
