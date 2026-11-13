@@ -98,4 +98,4 @@ If `nix run .#graft` printed `graft: refreshed .forgejo/workflows/FILE` over an 
 or staged, get it back with `git restore -- .forgejo/workflows/FILE`, then delete the marker line. graft
 does not stage the workflows, so git still has the edit. An edit that git did not have is lost.
 
-Related: [Private providers](private-providers.md#check-in-ci), [Upgrade](upgrade.md).
+Related: [Make a pattern's checks gate your merges](gate-merges.md) (graft-check runs only graft's check), [Private providers](private-providers.md#check-in-ci), [Upgrade](upgrade.md).
