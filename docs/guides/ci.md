@@ -75,4 +75,4 @@ Notes:
 - graft-check needs no schedule, because an ignored push cannot change what it checks. Check the ignored
   files with a hook or a workflow of your own, for example on a daily `schedule:`.
 
-Related: [Private providers](private-providers.md#check-in-ci), [Upgrade](upgrade.md).
+Related: [Make a pattern's checks gate your merges](gate-merges.md) (graft-check runs only graft's check), [Private providers](private-providers.md#check-in-ci), [Upgrade](upgrade.md).
