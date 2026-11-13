@@ -33,7 +33,7 @@ Scion names must match `[A-Za-z0-9][A-Za-z0-9._-]*`.
 ## The graft command
 
 Run it as `nix run .#graft COMMAND`. A flag needs `--` before it, because Nix otherwise reads it:
-`nix run .#graft -- outdated --json`. For a flake in a subdirectory, use `nix run path:DIR#graft`.
+`nix run .#graft -- outdated --json`. For a flake in a subdirectory, use `nix run 'path:DIR#graft'`.
 
 | Command | What it does |
 |---|---|

@@ -1375,7 +1375,7 @@ out=$(nix run path:nix/workspace#graft check 2>&1) && fail "subdir: graft check 
 pass "subdir: graft check catches an edited scion"
 expect "subdir: and shows the diff" grep -q "local edit" <<<"$out"
 expect "subdir: naming the file from the repo's top" grep -qx "graft: .scions/provider/docs/policy.md: edited" <<<"$out"
-expect "subdir: and the flake's lock" grep -qx "graft: .scions/ differs from the pins in nix/workspace/flake.lock; run: nix run path:nix/workspace#graft" <<<"$out"
+expect "subdir: and the flake's lock" grep -qx "graft: .scions/ differs from the pins in nix/workspace/flake.lock; run: nix run 'path:nix/workspace#graft'" <<<"$out"
 refuse "subdir: no only-in-the-pin hint when no file is only in the pin" grep -q "a file only in the pin" <<<"$out"
 echo "stray" > .scions/provider/new.md
 quiet nix run path:nix/workspace#graft
@@ -1475,7 +1475,7 @@ expect "subdir: migrate: so its heading appears once" test "$(grep -c "^> #### v
 expect "subdir: from the flake's lock" grep -q "^Branch graft/upgrade already has the upgrade committed (nix/workspace/flake.nix, nix/workspace/flake.lock and .scions/)" <<<"$out"
 expect "subdir: its checks ran and passed" grep -q "pass as the branch stands" <<<"$out"
 # shellcheck disable=SC2016 # the literal text
-expect "subdir: done when names the commands" grep -qF '`nix run path:nix/workspace#graft check` and `nix flake check path:nix/workspace` pass, with .scions/' <<<"$out"
+expect "subdir: done when names the commands" grep -qF "\`nix run 'path:nix/workspace#graft' check\` and \`nix flake check 'path:nix/workspace'\` pass, with .scions/" <<<"$out"
 cd "$work"
 expect "subdir: migrate -C from graft's flake" \
   sh -c "env PATH='$bare' nix run '$graft' -- migrate -C '$sc' --base main --no-check 2>/dev/null | grep -q '^    M  .scions/provider/docs/policy.md'"

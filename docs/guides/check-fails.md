@@ -12,8 +12,8 @@ save any change someone meant, put the scions back to their pins, and stop the c
   provider, or in a file of your own ([Change a grafted file](change-a-grafted-file.md)).
 - The commands assume the scions directory is `scions/` and `flake.nix` is at the repository's top. If
   `mkFlake` sets `dir`, read your directory for `scions/`. If your flake is in a subdirectory, run
-  `nix run path:DIR#graft` for `nix run .#graft`. Then `nix flake check` does not check the scions:
-  `nix run path:DIR#graft check` is the check ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
+  `nix run 'path:DIR#graft'` for `nix run .#graft`. Then `nix flake check` does not check the scions:
+  `nix run 'path:DIR#graft' check` is the check ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
 - Commit or stash work that is not about the scions, so that `git status` shows only the drift.
 
 ## Steps

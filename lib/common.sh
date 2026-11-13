@@ -77,7 +77,7 @@ recorded_flake_dir() {
 #               Absolute, since Nix won't write the lock of a relative `path:` flake, and
 #               percent-encoded, so a space in the path parses.
 #   FLAKE_NIX FLAKE_LOCK   its flake.nix and flake.lock, relative to the top
-#   GRAFT_RUN   how a person runs its app from the top: `nix run .#graft`, `nix run path:DIR#graft`
+#   GRAFT_RUN   how a person runs its app from the top: `nix run .#graft`, `nix run 'path:DIR#graft'` (quoted for zsh)
 # shellcheck disable=SC2034 # set for the scripts that source this
 locate() {
   local fd="" top
@@ -96,7 +96,7 @@ locate() {
     FLAKE_REF=. FLAKE_NIX=flake.nix FLAKE_LOCK=flake.lock GRAFT_RUN="nix run .#graft"
   else
     FLAKE_REF="path:$(jq -rn --arg p "$(pwd -P)/$FLAKE" '$p | split("/") | map(@uri) | join("/")')" FLAKE_NIX=$FLAKE/flake.nix FLAKE_LOCK=$FLAKE/flake.lock
-    GRAFT_RUN="nix run path:$FLAKE#graft"
+    GRAFT_RUN="nix run 'path:$FLAKE#graft'"
     [ -f "$FLAKE_NIX" ] || die "no $FLAKE_NIX in $(pwd): check mkFlake's flakeDir, \"$FLAKE\" (the scions README records it)"
   fi
 }

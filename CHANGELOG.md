@@ -127,9 +127,9 @@
   tag, Upgrading first: the provider's unreleased major. Its header names the repository from its origin,
   else its main checkout's folder, not a worktree's (`handbook`, not `handbook-try`), and says
   `flake.nix, flake.lock and scions/` when the upgrade changed `flake.nix` too.
-- **The scions README quotes its commands for zsh.** For a flake in a subdirectory it said
-  `nix run path:DIR#graft`, which zsh with `extendedglob` reads as a glob; it now says
-  `nix run 'path:DIR#graft'`. `graft upgrade` rewrites the README when it takes this version.
+- **The scions README and graft's messages quote their commands for zsh.** For a flake in a subdirectory
+  they said `nix run path:DIR#graft`, which zsh with `extendedglob` reads as a glob; they now say
+  `nix run 'path:DIR#graft'` (and `migrate`'s brief `nix flake check 'path:DIR'`). `graft upgrade` rewrites the README when it takes this version.
 - **A `### Migration` subsection counts as Upgrading steps**, as knowledge-base-kit v2.0.0 heads them:
   `changelog`, `migrate` and the upgrade pull request show it first.
 - **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or

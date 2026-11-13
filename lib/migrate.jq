@@ -15,7 +15,7 @@ def delta: [if .added then "+\(.added)" else empty end, if .deleted and .deleted
 | ($b.branch // "HEAD (\($b.head))") as $branch
 # the flake: at the top, or in a subdirectory (mkFlake's flakeDir), run as a path: flake
 | (if $b.flake then "\($b.flake | safe)/" else "" end) as $fp
-| (if $b.flake then "`nix run path:\($b.flake | safe)#graft check` and `nix flake check path:\($b.flake | safe)`"
+| (if $b.flake then "`nix run 'path:\($b.flake | safe)#graft' check` and `nix flake check 'path:\($b.flake | safe)'`"
    else "`nix flake check`" end) as $check
 | (if $b.flake_nix_moved then "\($fp)flake.nix, \($fp)flake.lock" else "\($fp)flake.lock" end) as $pins
 | (if $b.flake then "pass" else "passes" end) as $pass

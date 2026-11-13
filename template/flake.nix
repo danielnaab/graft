@@ -9,7 +9,7 @@
   };
 
   # A repo with content that must stay out of the Nix store keeps this file in a subdirectory,
-  # passes flakeDir = "nix/workspace"; and runs nix run path:nix/workspace#graft
+  # passes flakeDir = "nix/workspace"; and runs nix run 'path:nix/workspace#graft'
   # (graft's docs/guides/flake-in-a-subdirectory.md).
   outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
 }

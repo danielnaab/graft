@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ci.sh check|upgrade|pr: what graft's Forgejo workflows (template/.forgejo/workflows/) run, from the repo's
-# root, as `nix run .#graft ci <step>` (or `nix run path:DIR#graft ci <step>` when the flake is in
+# root, as `nix run .#graft ci <step>` (or `nix run 'path:DIR#graft' ci <step>` when the flake is in
 # DIR, mkFlake's flakeDir; the workflows find it in the scions README). It lives here, not in the workflow files, so a repo's
 # workflows run the graft version it pins: when graft upgrade moves that pin, their behaviour
 # moves with it, and the YAML itself rarely changes.
