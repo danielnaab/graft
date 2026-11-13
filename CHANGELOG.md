@@ -11,6 +11,11 @@
 - [Publish](docs/guides/publish.md#if-something-goes-wrong) and [Nix behaviours](docs/reference/nix-behaviours.md):
   a consumer locked on the provider's own machine can hold the hash of the whole commit, not of the export,
   and fail CI with `NAR hash mismatch`; how to check a lock against an empty fetch cache.
+- Nix 2.34: [Nix behaviours](docs/reference/nix-behaviours.md) says which behaviours hold in 2.34. Nix 2.34
+  cannot lock `?ref=TAG` over ssh or HTTP even after a fetch of the tag, so
+  [Graft a private repository](docs/guides/private-providers.md#steps) now locks the first tag's commit with
+  `nix flake lock --override-input` (it works on 2.24 too). Publish and Ship a tool name 2.34's error,
+  `couldn't find remote ref refs/heads/TAG`.
 
 ## v2.12.0 - 2026-11-13
 

@@ -10,7 +10,7 @@ files, into the Nix store.
 
 - Why: Nix copies a flake's source into the Nix store, and every user of the machine can read the store. For
   a flake at the repository's top, the source is every file that git tracks, with uncommitted edits. Every
-  `nix run .#graft`, `nix flake check` and `nix flake update` copies them again. Nix 2.24 has no lazy trees.
+  `nix run .#graft`, `nix flake check` and `nix flake update` copies them again. Nix 2.24 and 2.34 have no lazy trees.
 - What changes: the flake's source is only its subdirectory. graft's drift check is then
   `nix run 'path:DIR#graft' check`, not a check in `nix flake check`. A check of your own cannot read files
   outside the subdirectory. Rename any check of your own that is named `graft`: in a subdirectory flake,

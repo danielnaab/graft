@@ -33,16 +33,7 @@ Graft a provider that only an ssh key can read, on your machine and in graft-che
 
 ## Steps
 
-1. Fetch the tag once, by its full name. Nix 2.24 cannot make the first lock of `ref=v1.0.0` over ssh, but
-   it can when its git cache has the tag:
-
-   ```
-   nix flake prefetch 'git+ssh://git@git.example.com:2222/team/notes?ref=refs/tags/v1.0.0&exportIgnore=1'
-   ```
-
-   It prints `Downloaded 'git+ssh://…&rev=COMMIT' to '/nix/store/…-source' …`.
-
-2. Add the provider to `flake.nix`'s inputs, with `exportIgnore=1`:
+1. Add the provider to `flake.nix`'s inputs, with `exportIgnore=1`:
 
    ```nix
    notes = { url = "git+ssh://git@git.example.com:2222/team/notes?ref=v1.0.0&exportIgnore=1"; flake = false; };
@@ -50,16 +41,31 @@ Graft a provider that only an ssh key can read, on your machine and in graft-che
 
    Without `exportIgnore=1`, Nix ignores the provider's export rules, and the scion gets its whole tree.
 
+2. Lock the tag's commit. Nix cannot make the first lock of `ref=v1.0.0` over ssh: it looks for a branch
+   `v1.0.0` ([Nix behaviours](../reference/nix-behaviours.md)). Read the commit:
+
+   ```
+   git ls-remote ssh://git@git.example.com:2222/team/notes 'refs/tags/v1.0.0' 'refs/tags/v1.0.0^{}'
+   ```
+
+   It prints a hash and `refs/tags/v1.0.0`. For an annotated or signed tag, it prints a second line,
+   `refs/tags/v1.0.0^{}`: the commit is that line's hash. Then lock it, with the hash for `COMMIT`:
+
+   ```
+   nix flake lock --override-input notes 'git+ssh://git@git.example.com:2222/team/notes?ref=v1.0.0&rev=COMMIT&exportIgnore=1'
+   ```
+
+   It prints `warning: updating lock file` and `• Added input 'notes'`. The lock keeps `flake.nix`'s
+   `ref=v1.0.0`. For a flake in a subdirectory, write `nix flake lock "path:$PWD/DIR" --override-input …`.
+
 3. Graft:
 
    ```
    nix run .#graft
    ```
 
-   Nix may first print `fatal: couldn't find remote ref refs/heads/v1.0.0` and a warning that it
-   `could not update mtime`: ignore them when the lock is written. Then it prints
-   `warning: updating lock file` and `• Added input 'notes'`. graft prints a line for each scion, among
-   them `graft: scions/notes <- COMMIT`, with the commit from step 1. It stages the scion's files itself.
+   graft prints a line for each scion, among them `graft: scions/notes <- COMMIT`, with the commit from
+   step 2. It stages the scion's files itself.
 
 4. Make a key pair for CI, in a new directory outside the repository, so that no commit can take it:
 
@@ -146,10 +152,11 @@ Then push a branch, and see graft-check pass on Forgejo.
 
 ## If something goes wrong
 
-- **`error: resolving Git reference 'v1.0.0': revspec 'v1.0.0' not found`.** Read the lines above it. If
-  ssh printed an error, such as `ssh: Could not resolve hostname …`, Nix could not reach the provider: make
-  the `git ls-remote` in [Before you begin](#before-you-begin) work. If ssh printed nothing, Nix's git cache
-  has not seen the tag: do step 1.
+- **`fatal: couldn't find remote ref refs/heads/v1.0.0` (Nix 2.34) or `error: resolving Git reference
+  'v1.0.0': revspec 'v1.0.0' not found` (Nix 2.24).** Read the lines above it. If ssh printed an error, such
+  as `ssh: Could not resolve hostname …`, Nix could not reach the provider: make the `git ls-remote` in
+  [Before you begin](#before-you-begin) work. If ssh printed nothing, `flake.lock` has no lock of the tag:
+  do step 2.
 - **`graft: .forgejo/workflows/graft-check.yaml: its "# graft ssh:" line: can't read "…"`.** The line has a
   word that is not a field: often the key's comment (`root@server`), or the host pasted again before the
   key. Write `hostkey=TYPE KEY` only. `host= must be the host as known_hosts names it` means a port without
@@ -163,14 +170,14 @@ Then push a branch, and see graft-check pass on Forgejo.
 ## How it works
 
 - graft-check runs in a new container with no ssh key. The ssh line is the only thing that gives it one.
-  In CI, Nix fetches the provider by the commit in `flake.lock`, so step 1 is not needed there.
+  In CI, Nix fetches the provider by the commit in `flake.lock`, so step 2 is not needed there.
 - The upgrade workflow gets no key, because it runs code that nobody has reviewed yet
   ([CI security](../ci-security.md#limits)).
 
   So `graft-upgrade.yaml` cannot run in a repository with a private scion: every upgrade fetches all
   scions, and the upgrade job must not hold an ssh key. This is a design limit, not a gap. Step 8 deletes
   `graft-upgrade.yaml`, and you upgrade on your machine, graft's own pin too: `nix run .#graft outdated`,
-  then `nix run .#graft upgrade`. `upgrade` locks each new tag's commit itself, so step 1 is not needed
+  then `nix run .#graft upgrade`. `upgrade` locks each new tag's commit itself, so step 2 is not needed
   again.
 
 ## Related

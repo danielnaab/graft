@@ -122,9 +122,10 @@ d=$(mktemp -d) && git archive HEAD | tar -x -C "$d" && out=$(nix build --no-link
   `error: Encountered 1 conflicts - see above`.** The repository already has the file, which is its own.
   `nix flake init` changes nothing. To take your newer version, the consumer merges it by hand with the store
   path that the message names.
-- **`nix flake init -t "git+…?ref=v1.2.0"` fails with `revspec 'v1.2.0' not found`.** On Nix 2.24, a `git+`
-  URL to a remote or bare repository needs the tag's full name, `ref=refs/tags/v1.2.0`, until Nix's git cache
-  has seen the tag ([Nix behaviours](../reference/nix-behaviours.md)).
+- **`nix flake init -t "git+…?ref=v1.2.0"` fails with `couldn't find remote ref refs/heads/v1.2.0` (Nix 2.34)
+  or `revspec 'v1.2.0' not found` (Nix 2.24).** A `git+` URL to a remote or bare repository needs the tag's
+  full name, `ref=refs/tags/v1.2.0`: Nix looks for `v1.2.0` as a branch (Nix 2.24 until its git cache has
+  seen the tag, Nix 2.34 every time) ([Nix behaviours](../reference/nix-behaviours.md)).
 
 ## How it works
 

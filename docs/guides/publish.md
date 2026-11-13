@@ -164,10 +164,11 @@ t=v1.2.0 && { git ls-remote --exit-code origin "refs/tags/$t" >/dev/null || { ec
   .#graft again`.** The tag is annotated or signed, and the consumer takes you through a `git+` input.
   This is expected: the consumer's second run grafts the right export
   ([Nix behaviours](../reference/nix-behaviours.md#annotated-tags-and-exportignore)).
-- **A consumer's first run fails with `revspec 'v1.1.0' not found`.** The consumer's input is `git+https`,
-  `git+ssh` or `git+file` to a bare repository, and Nix 2.24 looks for the tag as a branch until its git
-  cache has seen the tag. The consumer fetches the tag once by its full name, as in
-  [Graft a private repository](private-providers.md#steps) step 1, then runs graft again
+- **A consumer's first run fails with `couldn't find remote ref refs/heads/v1.1.0` (Nix 2.34) or
+  `revspec 'v1.1.0' not found` (Nix 2.24).** The consumer's input is `git+https`, `git+ssh` or `git+file` to
+  a bare repository, and Nix looks for the tag as a branch: Nix 2.24 until its git cache has seen the tag,
+  Nix 2.34 every time. The consumer locks the tag's commit, as in
+  [Graft a private repository](private-providers.md#steps) step 2, then runs graft again
   ([Nix behaviours](../reference/nix-behaviours.md)).
 - **A consumer's CI fails with `NAR hash mismatch in input 'github:…'`, though `graft check` passed where you
   locked it.** You locked or upgraded the consumer on your own machine, which had fetched the release commit
