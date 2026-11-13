@@ -1,5 +1,5 @@
 ---
-status: draft
+status: working
 ---
 # Make a pattern's checks gate your merges
 
