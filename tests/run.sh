@@ -1011,6 +1011,40 @@ expect "custom dir: check passes" quiet nix flake check
 echo "edit" >> "docs/Dan's Scions/provider/README.md" && git_ add -A
 refuse "custom dir: check catches drift" quiet nix flake check
 
+# the drift report with spaces in the scions directory and in a scion's paths, and a symbolic link
+sp=$work/spaced-provider
+mkdir -p "$sp/sub dir"
+echo "spaced v1" > "$sp/sub dir/a b.md"
+ln -s "sub dir/a b.md" "$sp/link.md"
+git_ -C "$sp" init -q -b main && git_ -C "$sp" add -A && git_ -C "$sp" commit -qm v1 && git_ -C "$sp" tag v1.0.0
+mkdir -p "$work/spaced"
+cat > "$work/spaced/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  inputs.sp = { url = "git+file://$sp?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; dir = "docs/Grafted Docs"; };
+}
+EOF
+git_ -C "$work/spaced" init -q -b main && git_ -C "$work/spaced" add -A
+cd "$work/spaced"
+quiet nix run .#graft && git_ add -A
+expect "spaced: the link is grafted as a link" test -L "docs/Grafted Docs/sp/link.md"
+expect "spaced: check passes" quiet nix flake check
+echo "edit" >> "docs/Grafted Docs/sp/sub dir/a b.md"
+rm "docs/Grafted Docs/sp/link.md" && echo "a copy" > "docs/Grafted Docs/sp/link.md" && git_ add -A
+refused "spaced: graft check catches both" nix run .#graft check
+expect "spaced: names the edited file" grep -qxF "graft: docs/Grafted Docs/sp/sub dir/a b.md: edited" <<<"$out"
+expect "spaced: labels its diff" grep -qxF "+++ docs/Grafted Docs/sp/sub dir/a b.md (your copy)" <<<"$out"
+expect "spaced: names the replaced link and its target" \
+  grep -qxF "graft: docs/Grafted Docs/sp/link.md: edited (in the pin, a symbolic link to sub dir/a b.md; in your copy, a file)" <<<"$out"
+expect "spaced: then the fix" grep -qxF "graft: docs/Grafted Docs/ differs from the pins in flake.lock; run: nix run .#graft" <<<"$out"
+refused "spaced: nix flake check catches both" nix flake check -L
+expect "spaced: the same edited line" grep -qxF "graft-check> graft: docs/Grafted Docs/sp/sub dir/a b.md: edited" <<<"$out"
+expect "spaced: the same link line" \
+  grep -qxF "graft-check> graft: docs/Grafted Docs/sp/link.md: edited (in the pin, a symbolic link to sub dir/a b.md; in your copy, a file)" <<<"$out"
+quiet nix run .#graft && git_ add -A
+expect "spaced: sync restores the link" test -L "docs/Grafted Docs/sp/link.md"
+
 consumer hidden 'dir = ".scions";'
 quiet nix run .#graft && git_ add -A
 expect "hidden dir: .scions grafted and checked" quiet nix flake check

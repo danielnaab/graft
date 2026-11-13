@@ -40,6 +40,7 @@ save any change someone meant, put the scions back to their pins, and stop the c
    | The check says | It means | Usual cause |
    |---|---|---|
    | `graft: scions/NAME/FILE: edited`, then a diff from `--- scions/NAME/FILE (pin)` to `+++ scions/NAME/FILE (your copy)` | a grafted file was edited | you, an agent, a formatter or a linter's `--fix` |
+   | `graft: scions/NAME/FILE: edited (in the pin, a symbolic link to TARGET; in your copy, a file)` | a symbolic link was replaced, or now points elsewhere | a tool that copies files instead of links, or an edit to the link |
    | `graft: scions/NAME/FILE: only in your copy, not in the pin` | a file that the pin does not have | a tool wrote it (`__pycache__/`, a build), or someone added it |
    | `graft: scions/NAME/FILE: only in the pin, not in your copy` | a grafted file that your copy lacks | it was deleted; or git ignores it; or, for `nix flake check` only, it is not added to git yet |
    | `graft: scions/README.md: edited`, with a changed line in its table of commits | the pin moved, and the scions did not | see [If something goes wrong](#if-something-goes-wrong) |

@@ -11,7 +11,7 @@ The files graft reads and writes, and the lines in them that graft recognizes.
 |---|---|---|
 | `flake.nix` | Read as data. `upgrade` changes the tags. | Inputs with `flake = false` are scions. The input named `graft` is graft's pin. |
 | `flake.lock` | Read as data. Written by Nix, by `upgrade` for `git+` inputs, and by `sync` when it re-pins an annotated tag. | The commit and hash of each pin. Must be committed: `graft check` fails when git ignores it, `checks.<system>.graft` when git does not track it, and `graft ci check` when it is not in `HEAD`. |
-| `<dir>/<name>/` | Written by `sync` and `upgrade`. | Each scion: the provider's export. Empty directories are left out, because git cannot hold them. |
+| `<dir>/<name>/` | Written by `sync` and `upgrade`. | Each scion: the provider's export. Empty directories are left out, because git cannot hold them. The checks compare each file's contents and each symbolic link's target, not file modes. |
 | `<dir>/README.md` | Written by `sync` and `upgrade`. | The marker, and the table of scions and commits. |
 | `.forgejo/workflows/graft-*.yaml` | Restored by `sync`, replaced by `upgrade`, compared by the checks. | graft's workflows, if they carry the marker. |
 

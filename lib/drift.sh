@@ -9,7 +9,7 @@
 # symbolic links). Otherwise prints to stderr, naming each file as DIR/NAME/FILE: each edited file
 # with a unified diff, each file only in the copy, each file only in the pin; then one line naming
 # the fix, and what each kind of file usually is. Exits 1. Directories count only by what they
-# hold, as in git.
+# hold, as in git. File modes are not compared: Nix's fetch and the copy keep none that matter.
 # Bash, coreutils, findutils and diffutils: mkFlake's check and app put those on PATH.
 set -euo pipefail
 
@@ -19,8 +19,14 @@ trap 'rm -rf "$tmp"' EXIT
 
 # files and symbolic links under a directory, relative to it, sorted, NUL-separated
 files() { (cd "$1" && find . -mindepth 1 \( -type f -o -type l \) -printf '%P\0') | LC_ALL=C sort -z; }
+# most runs find nothing: one diff first, and the file-by-file report only when it differs (it may
+# differ by an empty directory alone, which the report ignores)
+if diff -rq --no-dereference "$pin" "$copy" >/dev/null 2>&1; then exit 0; fi
 files "$pin" > "$tmp/pin"
 files "$copy" > "$tmp/copy"
+
+# a path's kind, for a symbolic link that differs
+what() { if [ -L "$1" ]; then echo "a symbolic link to $(readlink "$1")"; else echo "a file"; fi; }
 
 drift=0 onlypin="" onlycopy=0
 while IFS= read -r -d '' f; do
@@ -28,7 +34,7 @@ while IFS= read -r -d '' f; do
   if [ -L "$l" ] || [ -L "$r" ]; then
     if [ -L "$l" ] && [ -L "$r" ] && [ "$(readlink "$l")" = "$(readlink "$r")" ]; then continue; fi
     drift=1
-    echo "graft: $dir/$f: edited (a symbolic link, in the pin or in your copy)" >&2
+    echo "graft: $dir/$f: edited (in the pin, $(what "$l"); in your copy, $(what "$r"))" >&2
   elif ! cmp -s "$l" "$r"; then
     drift=1
     echo "graft: $dir/$f: edited" >&2
