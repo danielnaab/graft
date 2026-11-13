@@ -10,6 +10,11 @@
   for a new or an existing repository (an existing flake's outputs, its own `flake = false` inputs, a
   `.gitignore` that drops `flake.lock`). Its section "Try a provider's unreleased change" moved to
   [Upgrade](docs/guides/upgrade.md#try-a-providers-unreleased-change).
+- **[Change a grafted file](docs/guides/change-a-grafted-file.md):** a guide to changing what a scion
+  gives you without editing it: keep your own version of a file, change a setting that a provider's tool
+  reads, fix it in the provider and take the release, or stop grafting a provider (`mkFlake`'s `scions`).
+  [CI](docs/guides/ci.md#keep-your-own-edits-to-a-workflow) says how to keep your own edits to one of
+  graft's workflows.
 - **[Make a pattern's checks gate your merges](docs/guides/gate-merges.md):** a guide to running a
   provider's checker from its fetched export in `nix flake check`, a workflow that runs it on each pull
   request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` stays graft's drift
@@ -23,6 +28,17 @@
   `### Upgrading` headings. It replaces "Cross a major version" in Upgrade and "Make an incompatible change"
   in Publish, which now link to it.
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
+- **A flake in a subdirectory is now [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md)**:
+  numbered steps from a flake at the top or from no flake, a check that proves the store copy is only the
+  subdirectory, and what to do about copies already in the store. It says that a repository's own check
+  named `graft` is dropped in a subdirectory flake.
+- **Private providers is now [Graft a private repository](docs/guides/private-providers.md)**, with the step
+  that Nix 2.24 needs to make the first lock of a `git+ssh` input at a tag (`nix flake prefetch` at
+  `refs/tags/TAG`): without it, the old page's pin failed with `revspec 'v1.0.0' not found`. Its section
+  "Check in CI" is now its steps 4 to 10. It makes the CI key outside the repository, and says what to do
+  while graft-upgrade cannot run with a private scion.
+- **`nix flake init -t` says what to run for a flake in a subdirectory**: `nix run 'path:DIR#graft'` from
+  the repository's top, since `nix run .#graft` there copies the whole repository into the Nix store.
 
 ### Fixed
 - **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran

@@ -26,7 +26,8 @@ committed.
    nix flake init -t github:danielnaab/graft
    ```
 
-   It writes `flake.nix` and graft's two CI workflows in `.forgejo/workflows/`, adds them to git, and prints
+   It writes `flake.nix` and graft's two CI workflows in `.forgejo/workflows/`, marks them for git
+   (`git add --intent-to-add`: `git status --short` shows ` A`), and prints
    `Edit description and the inputs in flake.nix …`.
 
    If the repository already has a `flake.nix`, it writes the workflows but not `flake.nix`
@@ -113,6 +114,8 @@ committed.
    Follow the policies in scions/knowledge-base-kit/docs/policies/. Never edit scions/: graft replaces it.
    ```
 
+   If a grafted file does not fit your repository, see [Change a grafted file](change-a-grafted-file.md).
+
 7. On GitHub, delete `.forgejo/`. Those workflows are for Forgejo Actions, and graft never adds a workflow
    that you did not keep ([CI](ci.md)). On Forgejo, keep it.
 
@@ -175,9 +178,9 @@ nix run .#graft check && git ls-files --error-unmatch flake.nix flake.lock scion
   graft.inputs.knowledge-base-kit.follows = "knowledge-base-kit"; # if it grafts knowledge-base-kit
   ```
 
-- `mkFlake` also takes `dir`, `scions` and `flakeDir`: see [Commands](../reference/commands.md#mkflake). To
-  keep private content out of the Nix store, see [A flake in a subdirectory](flake-in-a-subdirectory.md). For
-  a private provider, see [Private providers](private-providers.md). To take newer versions, see
+- `mkFlake` also takes `dir`, `scions` and `flakeDir`: see [Commands](../reference/commands.md#mkflake). See also
+  [Keep private files out of the Nix store](flake-in-a-subdirectory.md) and
+  [Graft a private repository](private-providers.md). To take newer versions, see
   [Upgrade](upgrade.md).
 
 ## Sources

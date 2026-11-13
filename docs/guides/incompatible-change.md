@@ -56,7 +56,7 @@ version. For `0.y.z`, a new `0.y` counts as one.
    ```
 
    For a consumer that is not on your machine, clone it instead: `git clone URL handbook-try`. If the
-   consumer's flake is in a subdirectory, run steps 3 to 6 there, with `path:` ([A flake in a subdirectory](flake-in-a-subdirectory.md)).
+   consumer's flake is in a subdirectory, run steps 3 to 6 there, with `path:` ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
 
 3. Lock the consumer's input to your branch. Use your checkout's absolute path, and name the branch:
 
@@ -122,6 +122,9 @@ version. For `0.y.z`, a new `0.y` counts as one.
    ```
    git -C page-rules tag v2.0.0
    ```
+
+   Prefer a lightweight tag, as here. A signed or annotated tag works too: on Nix 2.24, a consumer with a
+   `git+` input sees one re-pin on its first run ([Nix behaviours](../reference/nix-behaviours.md#annotated-tags-and-exportignore)).
 
 10. Push the branch and the tag:
 

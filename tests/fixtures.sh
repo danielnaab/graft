@@ -11,6 +11,18 @@
 #                   graft's workflows and a nixpkgs input; in each, one committed page breaks the rule.
 #                   team-kb/ is in graft's template form, and has an untracked page that breaks it too;
 #                   existing/ already has checks of its own
+#   override        a consumer that grafts two local providers (policy-kit at v1.0.0 with a typo, v1.1.0 tagged,
+#                   with a CHANGELOG and an untracked draft; glossary at v1.0.0) with this checkout's graft
+#                   and its two workflows (graft-check.yaml with a kept paths-ignore line). Its own checks
+#                   run policy-kit's checker (which reads policy-kit.conf) and read the glossary's export.
+#                   Committed and passing, then the team's change made in the scion: a staged edit to the
+#                   status policy, and an untracked new page
+#   private         private files kept out of the Nix store, and a private provider: provider/ and
+#                   notes-provider/ (tags v1.0.0 and v1.1.0, a CHANGELOG; notes-provider is the private one,
+#                   git+file standing in for git+ssh), moving/ (a flake at the top grafts provider into
+#                   .scions beside a committed notebook/, with an uncommitted edit and an untracked draft in
+#                   it, and graft's workflows), new/ (a notebook/, no flake yet), consumer/ (a flake at the
+#                   top that grafts provider, and graft's workflows), server-host-key.pub (a made-up host key)
 #   breaking-change a provider (page-rules: v1.0.0, v1.1.0, and on its checked-out branch `lifecycle` an
 #                   untagged v2.0.0 that renames the required front-matter field status: to lifecycle:, and
 #                   docs/status.md to docs/lifecycle.md, with Upgrading steps); two consumers at v1.1.0 with
@@ -25,9 +37,9 @@
 set -euo pipefail
 
 graft=$(cd "$(dirname "$0")/.." && pwd)
-slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|breaking-change OUT}
-out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|breaking-change OUT}
-case $slice in check-fails|first-pattern|gate-merges|breaking-change) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, breaking-change)" >&2; exit 2 ;; esac
+slice=${1:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|breaking-change OUT}
+out=${2:?usage: fixtures.sh check-fails|first-pattern|gate-merges|override|private|breaking-change OUT}
+case $slice in check-fails|first-pattern|gate-merges|override|private|breaking-change) ;; *) echo "fixtures.sh: no fixture $slice (check-fails, first-pattern, gate-merges, override, private, breaking-change)" >&2; exit 2 ;; esac
 [ ! -e "$out" ] || { echo "fixtures.sh: $out exists; name a new directory" >&2; exit 1; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -420,9 +432,176 @@ EOF
   (cd "$c" && nix run .#graft check >&2)
 }
 
+override() {
+  local p=$out/policy-kit q=$out/glossary c=$out/consumer
+  mkdir -p "$p/docs" "$p/checker" "$p/tests" "$q"
+  printf '# Status policy\n\nEvery page has a status: draft, working, stable or deprecated.\nA deprecated page links to the page that replaces it.\n' > "$p/docs/status.md"
+  # a typo that every consumer gets, for "Fix it in the provider"
+  printf '# Provenance policy\n\nEvery page that drives a decision cites it sources.\n' > "$p/docs/provenance.md"
+  # the checker reads one setting from the consumer: the statuses a page may have
+  cat > "$p/checker/check.sh" <<'EOF'
+#!/usr/bin/env bash
+# check.sh DIR: fail for each Markdown page under DIR whose status line is missing, or names a status
+# that policy-kit.conf (`statuses = a b c`, in the current directory) does not list
+statuses="draft working stable deprecated"
+if [ -f policy-kit.conf ]; then statuses=$(sed -n 's/^statuses *= *//p' policy-kit.conf); fi
+rc=0
+while IFS= read -r f; do
+  s=$(sed -n 's/^status: *//p' "$f" | head -n 1)
+  if [ -z "$s" ]; then echo "no status: $f"; rc=1
+  elif [[ " $statuses " != *" $s "* ]]; then echo "status $s not in: $statuses: $f"; rc=1; fi
+done < <(find "$1" -name '*.md' | sort)
+exit "$rc"
+EOF
+  echo "echo test" > "$p/tests/t.sh"
+  echo "tests/ export-ignore" > "$p/.gitattributes"
+  printf '# Changelog\n\n## v1.0.0\n\n- First release: the status and provenance policies, and the checker.\n' > "$p/CHANGELOG.md"
+  repo "$p"
+  g -C "$p" add -A
+  g -C "$p" commit -qm v1.0.0
+  g -C "$p" tag v1.0.0
+  printf 'A page that is not decided yet may say so in its first line.\n' >> "$p/docs/provenance.md"
+  printf '# Changelog\n\n## v1.1.0\n\n- The provenance policy allows an undecided page to say so.\n\n## v1.0.0\n\n- First release: the status and provenance policies, and the checker.\n' > "$p/CHANGELOG.md"
+  g -C "$p" commit -qam v1.1.0
+  g -C "$p" tag v1.1.0
+  # the maintainer's own draft, never added to git
+  printf '# Review policy (draft)\n' > "$p/docs/review.md"
+
+  printf '# Glossary\n\n- **Pantry:** the team knowledge base.\n' > "$q/terms.md"
+  repo "$q"
+  g -C "$q" add -A
+  g -C "$q" commit -qm v1.0.0
+  g -C "$q" tag v1.0.0
+
+  mkdir -p "$c/docs" "$c/.forgejo/workflows"
+  # its own checks read the fetched exports: policy-kit's checker, and the glossary's terms
+  cat > "$c/flake.nix" <<EOF
+{
+  description = "Pantry: a team knowledge base";
+  inputs = {
+    graft.url = "path:$graft";
+    policy-kit = { url = "git+file://$p?ref=v1.0.0&exportIgnore=1"; flake = false; };
+    glossary = { url = "git+file://$q?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  };
+  outputs = inputs: inputs.graft.lib.mkFlake {
+    inherit inputs;
+    outputs.checks.x86_64-linux = let pkgs = inputs.graft.inputs.nixpkgs.legacyPackages.x86_64-linux; in {
+      statuses = pkgs.runCommand "statuses" { } ''
+        cd \${inputs.self} && bash \${inputs.policy-kit}/checker/check.sh docs && touch \$out
+      '';
+      terms = pkgs.runCommand "terms" { } ''
+        grep -q Pantry \${inputs.glossary}/terms.md && touch \$out
+      '';
+    };
+  };
+}
+EOF
+  printf -- '---\nstatus: working\n---\n# Team notes\n' > "$c/docs/notes.md"
+  printf 'statuses = draft working stable deprecated\n' > "$c/policy-kit.conf"
+  printf 'Follow the policies in scions/policy-kit/docs/. Never edit scions/: graft replaces it.\n' > "$c/AGENTS.md"
+  cp "$graft/template/.forgejo/workflows/"*.yaml "$c/.forgejo/workflows/"
+  # the one edit to a graft workflow that graft keeps: the bot's notes don't run the check
+  sed -i 's|^  pull_request:$|&\n    paths-ignore: ["notes/**"]|' "$c/.forgejo/workflows/graft-check.yaml"
+  repo "$c"
+  g -C "$c" add -A
+  (cd "$c" && nix run .#graft >/dev/null)
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft policy-kit v1.0.0 and glossary v1.0.0"
+  (cd "$c" && nix run .#graft check >/dev/null && nix flake check 2>/dev/null)
+
+  # the team's change, made in the scion: a staged edit to the status policy, and a new page, untracked
+  sed -i 's/draft, working, stable or deprecated./proposed, draft, working, stable or deprecated./' "$c/scions/policy-kit/docs/status.md"
+  g -C "$c" add -- scions/policy-kit/docs/status.md
+  printf '# Proposals\n\nA proposed page names who decides it.\n' > "$c/scions/policy-kit/docs/proposals.md"
+  echo "$p"
+  echo "$q"
+  echo "$c"
+}
+
+# tagged_provider NAME: a provider at OUT/NAME, tags v1.0.0 and v1.1.0, a CHANGELOG, tests it keeps to itself
+tagged_provider() {
+  local p=$out/$1
+  mkdir -p "$p/docs" "$p/tests"
+  echo "tests export-ignore" > "$p/.gitattributes"
+  echo "echo test" > "$p/tests/t.sh"
+  printf '# %s policy\n\nEvery page has a status.\n' "$1" > "$p/docs/policy.md"
+  printf '# Changelog\n\n## v1.0.0\n\nFirst release.\n' > "$p/CHANGELOG.md"
+  g -C "$p" init -q -b main
+  g -C "$p" add -A
+  g -C "$p" commit -qm v1.0.0
+  g -C "$p" tag v1.0.0
+  printf '\nEvery page names its owner.\n' >> "$p/docs/policy.md"
+  printf '# Changelog\n\n## v1.1.0\n\nPages name their owner.\n\n## v1.0.0\n\nFirst release.\n' > "$p/CHANGELOG.md"
+  g -C "$p" commit -qam v1.1.0
+  g -C "$p" tag v1.1.0
+}
+
+# top_flake DIR: a flake at DIR's top that grafts provider v1.0.0 into DIR/.scions, with a check of its
+# own, and graft's workflows
+top_flake() {
+  mkdir -p "$1"
+  cat > "$1/flake.nix" <<EOF
+{
+  description = "Team workspace";
+  inputs = {
+    graft.url = "path:$graft";
+    provider = { url = "git+file://$out/provider?ref=v1.0.0&exportIgnore=1"; flake = false; };
+  };
+  outputs = inputs: inputs.graft.lib.mkFlake {
+    inherit inputs;
+    dir = ".scions";
+    outputs.checks = builtins.mapAttrs (system: _: {
+      lint = inputs.graft.inputs.nixpkgs.legacyPackages.\${system}.runCommand "lint" { } "touch \$out";
+    }) inputs.graft.packages;
+  };
+}
+EOF
+  mkdir -p "$1/.forgejo/workflows"
+  cp "$graft"/template/.forgejo/workflows/*.yaml "$1/.forgejo/workflows/"
+}
+
+private() {
+  local m=$out/moving n=$out/new c=$out/consumer
+  tagged_provider provider
+  tagged_provider notes-provider
+  # moving/: private notes beside a flake at the top, which copies them to the store on every run
+  mkdir -p "$m/notebook"
+  printf '# Meeting transcript\n\n%s-%s: only this repository may hold this line.\n' private-sentinel moving > "$m/notebook/transcript.md"
+  echo "# Team workspace" > "$m/README.md"
+  top_flake "$m"
+  repo "$m"
+  g -C "$m" add -A
+  (cd "$m" && nix run .#graft >/dev/null 2>&1)
+  g -C "$m" add -A
+  g -C "$m" commit -qm "Graft provider v1.0.0"
+  echo "An uncommitted note." >> "$m/notebook/transcript.md"
+  echo "# Draft, never committed" > "$m/notebook/draft.md"
+  # new/: private notes, no flake yet
+  mkdir -p "$n/notebook"
+  printf '# Meeting transcript\n\n%s-%s: only this repository may hold this line.\n' private-sentinel new > "$n/notebook/transcript.md"
+  echo "# Team notes" > "$n/README.md"
+  repo "$n"
+  g -C "$n" add -A
+  g -C "$n" commit -qm "Start"
+  # consumer/: grafts a public provider; a reader adds notes-provider as the private one
+  top_flake "$c"
+  repo "$c"
+  g -C "$c" add -A
+  (cd "$c" && nix run .#graft >/dev/null 2>&1)
+  g -C "$c" add -A
+  g -C "$c" commit -qm "Graft provider v1.0.0"
+  # a made-up host key, as ssh-keyscan prints one: test data, not a real key
+  echo "[git.example]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGraftTestHostKeyNotARealOne+/0123456789abcdefgh" > "$out/server-host-key.pub"
+  echo "$m"
+  echo "$n"
+  echo "$c"
+}
+
 case $slice in
   check-fails) check_fails ;;
   first-pattern) first_pattern ;;
   gate-merges) gate_merges ;;
+  override) override ;;
+  private) private ;;
   breaking-change) breaking_change ;;
 esac
