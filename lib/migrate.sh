@@ -85,8 +85,13 @@ for f in .forgejo/workflows/*; do
 done
 [ -n "${kind[graft]:-}" ] || kind[graft]=graft   # a scion named graft is that scion
 
-# an input's pin as text: the ref it is locked at (under --override-input, the override's), else its commit
-label() { jq -r '.locked.ref // .original.ref // (.locked.rev // "-")[0:12]' <<<"$1"; }
+# an input's pin as text: its version tag; another ref (a branch, under --override-input say) with
+# its commit; else its commit
+label() {
+  local ref rev
+  ref=$(lock_ref "$1"); rev=$(jq -r '(.locked.rev // "-")[0:12]' <<<"$1")
+  if is_semver "$ref"; then echo "$ref"; elif [ -n "$ref" ]; then echo "$ref at $rev"; else echo "$rev"; fi
+}
 
 # moved inputs: graft's and the scions' with what upstream says, any other just named
 : > "$tmp/moved"; : > "$tmp/other"

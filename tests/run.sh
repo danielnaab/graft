@@ -1245,6 +1245,25 @@ sed -i.bak '/inputs.provider/d' flake.nix && rm flake.nix.bak
 refused "no scions at all is an error" nix run .#graft
 expect "naming the cause" grep -qF "error: graft: no scions: no input has flake = false, and scions names none" <<<"$out"
 
+# a git input with no ref (Nix locks it at refs/heads/main): migrate names it by its commits
+rp=$work/refless-provider rl=$work/refless
+mkdir -p "$rp/docs" "$rl" && echo "one" > "$rp/docs/a.md"
+git_ -C "$rp" init -q -b main && git_ -C "$rp" add -A && git_ -C "$rp" commit -qm one
+cat > "$rl/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  inputs.provider = { url = "git+file://$rp?exportIgnore=1"; flake = false; };
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
+}
+EOF
+git_ -C "$rl" init -q -b main && git_ -C "$rl" add -A
+cd "$rl" && quiet nix run .#graft && git_ add -A && git_ commit -qm init
+echo "two" > "$rp/docs/a.md" && git_ -C "$rp" commit -qam two
+git_ checkout -q -b bump && quiet nix flake update provider && quiet nix run .#graft && git_ add -A && git_ commit -qm bump
+out=$(env PATH="$bare" nix run .#graft -- migrate --no-check --base main 2>/dev/null) || fail "refless: graft migrate"
+expect "refless: migrate names the move by its commits" grep -qx "Migrate this repo (refless) to provider $(git_ -C "$rp" rev-parse --short=12 HEAD) (from $(git_ -C "$rp" rev-parse --short=12 HEAD~1))." <<<"$out"
+refuse "refless: not by Nix's default ref" grep -q "refs/heads" <<<"$out"
+
 # --override-input: a local checkout for one run, with its uncommitted edits and without its new files
 consumer override ''
 quiet nix run .#graft && git_ add -A && git_ commit -qm graft

@@ -254,11 +254,14 @@ upstream_input() {
   if [ "$(jq -n --argjson a "$o" --argjson b "$nw" '($a.original|del(.ref,.rev)) == ($b.original|del(.ref,.rev))')" != true ]; then
     status=elsewhere
   fi
-  # the ref each lock names: the locked one, which differs from the original under
-  # `nix flake lock --override-input` (a provider's branch, say)
-  upstream_range "$name" "$o" "$ov" "$nv" "$(jq -r '.locked.ref // .original.ref // empty' <<<"$o")" \
-    "$(jq -r '.locked.ref // .original.ref // empty' <<<"$nw")" "$status"
+  upstream_range "$name" "$o" "$ov" "$nv" "$(lock_ref "$o")" "$(lock_ref "$nw")" "$status"
 }
+
+# lock_ref NODE: the ref a lock node pins: flake.nix's (original.ref), or under
+# `nix flake lock --override-input` the override's (locked.ref, when it differs: a provider's branch,
+# say). Nothing for an input flake.nix names without a ref, whose locked.ref is only Nix's default
+# branch (refs/heads/main).
+lock_ref() { jq -r '.original.ref as $o | if $o and .locked.ref and .locked.ref != $o then .locked.ref else $o // empty end' <<<"$1"; }
 
 # upstream_range NAME NODE FROM_REV TO_REV FROM_REF TO_REF [STATUS]: what changed upstream for an
 # input (NODE, its flake.lock node, says where it comes from) between two commits, as one JSON
