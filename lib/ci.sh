@@ -118,7 +118,7 @@ migrate_ref() {
 }
 
 pr() {
-  local v head changes out code number line path dirs=() d ok workflows="" other="" compare m marks=()
+  local v head changes out code number line path dirs=() d ok workflows="" other="" compare
   local moved="" held="" failing="" title
   for v in API WEB BASE BRANCH PR_TOKEN; do [ -n "${!v:-}" ] || die "$v is not set"; done
   git fetch -q --no-tags origin "refs/heads/$BRANCH" || die "can't fetch $BRANCH"
@@ -131,10 +131,9 @@ pr() {
 
   # What the branch may change without review: the lock, its refs, and graft's scions directories
   # as the default branch has them (a README.md carrying graft's marker).
-  for m in "${MARKERS[@]}"; do marks+=(-e "$m"); done
   while IFS= read -r path; do
     path=${path#HEAD:}; path=${path%README.md}; dirs+=("${path%/}")
-  done < <(git grep -l -F "${marks[@]}" HEAD -- README.md '*/README.md' || true)
+  done < <(git grep -l -F "${MARKER_ARGS[@]}" HEAD -- README.md '*/README.md' || true)
   while IFS= read -r -d '' path; do
     ok=""
     if [ "$path" = "$FLAKE_NIX" ] || [ "$path" = "$FLAKE_LOCK" ]; then ok=1; fi

@@ -18,6 +18,8 @@
 MARKERS=("<!-- managed by graft: https://github.com/danielnaab/graft -->" "Managed by [graft]")
 # shellcheck disable=SC2034 # used by the scripts that source this file
 WORKFLOW_MARKER='# managed by graft: '
+# MARKERS as grep's -e arguments: grep -F "${MARKER_ARGS[@]}"
+MARKER_ARGS=(-e "${MARKERS[0]}" -e "${MARKERS[1]}")
 nix_() { nix --extra-experimental-features 'nix-command flakes' "$@"; }
 # git whose output parses the same whatever the user's config: no colour, no grep column
 git() { command git -c color.ui=never -c grep.column=false "$@"; }
@@ -32,9 +34,8 @@ die() { echo "graft: $*" >&2; exit 1; }
 # this repo's. git grep exits 1 for no match; anything else (not a repo, a repo git won't trust) is an
 # error, not "no scions".
 scion_dirs() {
-  local args=() m out rc=0 d kept=()
-  for m in "${MARKERS[@]}"; do args+=(-e "$m"); done
-  out=$(git grep -l -F "${args[@]}" -- README.md '*/README.md') || rc=$?
+  local m out rc=0 d kept=()
+  out=$(git grep -l -F "${MARKER_ARGS[@]}" -- README.md '*/README.md') || rc=$?
   [ "$rc" -le 1 ] || die "can't search $(pwd) with git (exit $rc; see above)"
   [ -n "$out" ] || return 0
   # sorted, a directory comes before anything inside it
