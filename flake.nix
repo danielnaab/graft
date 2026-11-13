@@ -53,7 +53,10 @@
         };
 
         checks = forAll (pkgs: {
+          # bash -n first: bash's own parser, so a script bash can't run fails even where shellcheck's
+          # parser would differ
           shellcheck = pkgs.runCommand "graft-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
+            for f in ${./tests}/*.sh ${./lib}/*.sh; do bash -n "$f" || exit 1; done
             shellcheck -x ${./tests/run.sh} ${./tests/fixtures.sh} ${./lib}/*.sh
             touch $out
           '';

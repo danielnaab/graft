@@ -77,7 +77,7 @@ recorded_flake_dir() {
 #               Absolute, since Nix won't write the lock of a relative `path:` flake, and
 #               percent-encoded, so a space in the path parses.
 #   FLAKE_NIX FLAKE_LOCK   its flake.nix and flake.lock, relative to the top
-#   GRAFT_RUN   how a person runs its app from the top: `nix run .#graft`, `nix run path:DIR#graft`
+#   GRAFT_RUN   how a person runs its app from the top: `nix run .#graft`, `nix run 'path:DIR#graft'` (quoted for zsh)
 # shellcheck disable=SC2034 # set for the scripts that source this
 locate() {
   local fd="" top
@@ -96,7 +96,7 @@ locate() {
     FLAKE_REF=. FLAKE_NIX=flake.nix FLAKE_LOCK=flake.lock GRAFT_RUN="nix run .#graft"
   else
     FLAKE_REF="path:$(jq -rn --arg p "$(pwd -P)/$FLAKE" '$p | split("/") | map(@uri) | join("/")')" FLAKE_NIX=$FLAKE/flake.nix FLAKE_LOCK=$FLAKE/flake.lock
-    GRAFT_RUN="nix run path:$FLAKE#graft"
+    GRAFT_RUN="nix run 'path:$FLAKE#graft'"
     [ -f "$FLAKE_NIX" ] || die "no $FLAKE_NIX in $(pwd): check mkFlake's flakeDir, \"$FLAKE\" (the scions README records it)"
   fi
 }
@@ -188,6 +188,17 @@ peel_locks() {
   done
 }
 
+# log_tail LOG: the last 30 lines of a check's log that a reader of the PR can use: not Nix's
+# progress lines (a dirty tree, what will be built or fetched, the builder's log repeated, where the
+# full log is), store paths shortened to /nix/store/…-NAME, and no path of the runner's checkout
+log_tail() {
+  grep -vE "^warning: Git tree '.*' is dirty\$|^(this derivation|these [0-9]+ derivations) will be built:\$|^(this path|these [0-9]+ paths) will be fetched|^ +/nix/store/[^ ]+\$|^(building|copying path) '/nix/store/|^ +last [0-9]+ log lines:\$|^ +> |^ +For full logs, run 'nix log " "$1" \
+    | sed -E 's#/nix/store/[0-9a-z]{32}-#/nix/store/…-#g' \
+    | awk -v p="$(pwd -P)/" -v q="$PWD/" '{ while ((i = index($0, p)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(p))
+                                         while ((i = index($0, q)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(q)); print }' \
+    | tail -n 30 || true
+}
+
 # full_check REPORT: the repo's whole check on the working tree (of the flake locate found): each of
 # checks.<system> built on its own (so a failure has a name), then `nix flake check` for the rest
 # (evaluation, other systems' outputs). A flake in a subdirectory has no checks.<system>.graft, so
@@ -200,7 +211,7 @@ full_check() {
   if [ "$FLAKE" != . ]; then
     echo "graft: graft check"
     if ! nix_ run "$FLAKE_REF#graft" check 2>&1 | tee "$log"; then
-      failed+=("graft"); tails+="graft:"$'\n'"$(tail -n 30 "$log")"$'\n\n'
+      failed+=("graft"); tails+="graft:"$'\n'"$(log_tail "$log")"$'\n\n'
       echo "::error::check graft failed on the upgraded tree"
     fi
   fi
@@ -210,17 +221,17 @@ full_check() {
       echo "graft: checks.$system.$n"
       [[ $n =~ ^[A-Za-z0-9_][A-Za-z0-9_\'-]*$ ]] || { echo "graft: (an odd name: left to nix flake check)"; continue; }
       if ! nix_ build --no-link -L "$FLAKE_REF#checks.$system.$n" 2>&1 | tee "$log"; then
-        failed+=("$n"); tails+="$n:"$'\n'"$(tail -n 30 "$log")"$'\n\n'
+        failed+=("$n"); tails+="$n:"$'\n'"$(log_tail "$log")"$'\n\n'
         echo "::error::check $n failed on the upgraded tree"
       fi
     done <<<"$names"
   else
     cat "$log" >&2
-    failed+=("checks"); tails+="checks (evaluating checks.$system):"$'\n'"$(tail -n 30 "$log")"$'\n\n'
+    failed+=("checks"); tails+="checks (evaluating checks.$system):"$'\n'"$(log_tail "$log")"$'\n\n'
   fi
   if ! nix_ flake check -L "$FLAKE_REF" 2>&1 | tee "$log"; then
     if [ ${#failed[@]} -eq 0 ]; then
-      failed+=("flake-check"); tails+="nix flake check:"$'\n'"$(tail -n 30 "$log")"$'\n\n'
+      failed+=("flake-check"); tails+="nix flake check:"$'\n'"$(log_tail "$log")"$'\n\n'
     fi
     echo "::error::nix flake check failed on the upgraded tree"
   fi
@@ -244,15 +255,22 @@ upstream_input() {
   if [ "$(jq -n --argjson a "$o" --argjson b "$nw" '($a.original|del(.ref,.rev)) == ($b.original|del(.ref,.rev))')" != true ]; then
     status=elsewhere
   fi
-  upstream_range "$name" "$o" "$ov" "$nv" "$(jq -r '.original.ref // empty' <<<"$o")" \
-    "$(jq -r '.original.ref // empty' <<<"$nw")" "$status"
+  upstream_range "$name" "$o" "$ov" "$nv" "$(lock_ref "$o")" "$(lock_ref "$nw")" "$status"
 }
+
+# lock_ref NODE: the ref a lock node pins: flake.nix's (original.ref), or under
+# `nix flake lock --override-input` the override's (locked.ref, when it differs: a provider's branch,
+# say). Nothing for an input flake.nix names without a ref, whose locked.ref is only Nix's default
+# branch (refs/heads/main).
+lock_ref() { jq -r '.original.ref as $o | if $o and .locked.ref and .locked.ref != $o then .locked.ref else $o // empty end' <<<"$1"; }
 
 # upstream_range NAME NODE FROM_REV TO_REV FROM_REF TO_REF [STATUS]: what changed upstream for an
 # input (NODE, its flake.lock node, says where it comes from) between two commits, as one JSON
 # object. TO_REV may be empty when TO_REF is a version tag: the tag is fetched and its commit used
 # (graft changelog, which has no lock for the target). A rev must be a full commit hash and a ref a
-# version tag before git sees it; a ref that isn't one is dropped. STATUS, if given, is reported
+# version tag before git sees it; a ref that isn't one is never fetched: a plain branch name is only
+# shown (`lifecycle at COMMIT`), and when FROM_REF is a version tag, the CHANGELOG.md sections above
+# it at TO_REV are taken (a provider's unreleased major on a branch). STATUS, if given, is reported
 # with nothing fetched. The provider is fetched with `git fetch` into a bare repo (no checkout: no
 # hooks, no filters run), without http.extraHeader. Fetched text is data: it reaches the JSON
 # through files and jq, never a command line or eval. Fields:
@@ -265,8 +283,12 @@ upstream_input() {
 #   commits   up to 51 lines of `git log --oneline` for the range, when there's no changelog text
 #   in_history                    whether from_rev was found upstream
 upstream_range() {
-  local name=$1 o=$2 ov=$3 nv=$4 ot=$5 nt=$6 status=${7:-} url cmp tmp hist=false
-  is_semver "$ot" || ot=""; is_semver "$nt" || nt=""
+  local name=$1 o=$2 ov=$3 nv=$4 ot=$5 nt=$6 status=${7:-} url cmp tmp hist=false branch="" upto
+  is_semver "$ot" || ot=""
+  if ! is_semver "$nt"; then
+    [[ ! $nt =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ ]] || branch=$nt
+    nt=""
+  fi
   url=$(jq -r 'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo).git"
                elif .original.type=="git" then .original.url else empty end' <<<"$o")
   tmp=$(mktemp -d) || return 1
@@ -296,10 +318,12 @@ upstream_range() {
       if git -C "$tmp/git" cat-file -e "$ov^{commit}" 2>/dev/null; then hist=true; fi
       # cut, not dropped, past 1 MB (head closing the pipe kills git show: not a failure)
       { git -C "$tmp/git" show "$nv:CHANGELOG.md" 2>/dev/null || true; } | head -c 1000000 > "$tmp/cl.md"
-      if [ -n "$ot" ] && [ -n "$nt" ] && [ -s "$tmp/cl.md" ]; then
-        changelog_between "$ot" "$nt" all < "$tmp/cl.md" > "$tmp/changelog" || : > "$tmp/changelog"
-        changelog_between "$ot" "$nt" upgrading < "$tmp/cl.md" > "$tmp/upgrading" || : > "$tmp/upgrading"
-        changelog_between "$ot" "$nt" rest < "$tmp/cl.md" > "$tmp/rest" || : > "$tmp/rest"
+      # up to the new tag; at a commit that isn't one, every version above the old tag
+      upto=${nt:-999999999.0.0}
+      if [ -n "$ot" ] && [ -s "$tmp/cl.md" ]; then
+        changelog_between "$ot" "$upto" all < "$tmp/cl.md" > "$tmp/changelog" || : > "$tmp/changelog"
+        changelog_between "$ot" "$upto" upgrading < "$tmp/cl.md" > "$tmp/upgrading" || : > "$tmp/upgrading"
+        changelog_between "$ot" "$upto" rest < "$tmp/cl.md" > "$tmp/rest" || : > "$tmp/rest"
       fi
       if ! grep -q '[^[:space:]]' "$tmp/changelog" && [ "$hist" = true ]; then
         git -C "$tmp/git" log --oneline --no-decorate -n 51 "$ov..$nv" > "$tmp/commits" 2>/dev/null || : > "$tmp/commits"
@@ -311,6 +335,7 @@ upstream_range() {
   [[ $nv =~ ^[0-9a-f]{40}$ ]] || nv="?"
   cmp=$(jq -r --arg a "${ot:-$ov}" --arg b "${nt:-$nv}" \
     'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo)/compare/\($a)...\($b)" else empty end' <<<"$o")
+  if [ -z "$nt" ] && [ -n "$branch" ]; then nt="$branch at ${nv:0:12}"; fi
   jq -n -L "$GRAFT_LIB" --arg name "$name" --arg from "${ot:-${ov:0:12}}" --arg to "${nt:-${nv:0:12}}" \
     --arg from_rev "$ov" --arg to_rev "$nv" --arg status "$status" --arg url "$url" --arg compare "$cmp" \
     --rawfile changelog "$tmp/changelog" --rawfile upgrading "$tmp/upgrading" --rawfile rest "$tmp/rest" \
@@ -327,7 +352,7 @@ upstream_range() {
 # changelog_between OLD NEW [all|upgrading|rest]: from a CHANGELOG.md on stdin, the sections headed
 # `## vX.Y.Z` or `## X.Y.Z` (or `## [X.Y.Z]`, anything after) for OLD < version <= NEW, headings
 # moved two levels down to sit under the caller's own. `upgrading` keeps only each section's
-# Upgrading subsections (a `### Upgrading…` heading, to the next `###` or `##`), under their
+# Upgrading subsections (a `### Upgrading…` or `### Migration…` heading, to the next `###` or `##`), under their
 # version's heading; `rest` everything else. In either part, a version with nothing left in it
 # prints nothing, not even its heading.
 changelog_between() {
@@ -386,7 +411,7 @@ changelog_between() {
         }
         if (l ~ /^# /) { keep = 0; pending = "" }
         if (!keep) continue
-        if (l ~ /^### /) upg = (tolower(l) ~ /^### +upgrading/)
+        if (l ~ /^### /) upg = (tolower(l) ~ /^### +(upgrading|migration)/)
         emit(l)
       }
     }

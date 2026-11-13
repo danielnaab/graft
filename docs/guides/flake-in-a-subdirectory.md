@@ -99,7 +99,7 @@ Run every command from the repository's top. Never run `nix run .#graft`, `nix f
 
    It prints one line for each scion, `graft: .scions/NAME <- COMMIT`, and stages `.scions/`. It writes the
    subdirectory into the second line of `.scions/README.md`, `<!-- graft flake: nix/workspace -->`, and
-   the README's commands now say `nix run path:nix/workspace#graft`. In zsh, quote them when you type them.
+   the README's commands now say `nix run 'path:nix/workspace#graft'`.
 
 7. Check it:
 

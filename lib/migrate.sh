@@ -85,7 +85,13 @@ for f in .forgejo/workflows/*; do
 done
 [ -n "${kind[graft]:-}" ] || kind[graft]=graft   # a scion named graft is that scion
 
-label() { jq -r '.original.ref // (.locked.rev // "-")[0:12]' <<<"$1"; }
+# an input's pin as text: its version tag; another ref (a branch, under --override-input say) with
+# its commit; else its commit
+label() {
+  local ref rev
+  ref=$(lock_ref "$1"); rev=$(jq -r '(.locked.rev // "-")[0:12]' <<<"$1")
+  if is_semver "$ref"; then echo "$ref"; elif [ -n "$ref" ]; then echo "$ref at $rev"; else echo "$rev"; fi
+}
 
 # moved inputs: graft's and the scions' with what upstream says, any other just named
 : > "$tmp/moved"; : > "$tmp/other"
@@ -219,19 +225,31 @@ elif [ "$check" = 0 ]; then
   echo '{"ran": false, "passed": null, "failed": [], "log": ""}' > "$tmp/checks"
 fi
 
+# the repo's name: its origin's, else its main checkout's folder (not a worktree's)
 name=$(git remote get-url origin 2>/dev/null || true)
 name=${name%/}; name=${name%.git}; name=${name##*/}; name=${name##*:}
-[ -n "$name" ] || name=$(basename "$top")
+if [ -z "$name" ]; then
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=""
+  # REPO/.git, or a bare repo's REPO.git (a worktree of a bare clone)
+  if [ "${common##*/}" = .git ]; then name=$(basename "$(dirname "$common")")
+  elif [ -n "$common" ]; then name=${common##*/}; name=${name%.git}
+  else name=$(basename "$top"); fi
+fi
 branch=$(git branch --show-current)
 applied=committed
-if [ -n "$(git --no-optional-locks status --porcelain -- "$FLAKE_LOCK" "${pathspec[@]}")" ]; then applied=uncommitted; fi
+if [ -n "$(git --no-optional-locks status --porcelain -- "$FLAKE_NIX" "$FLAKE_LOCK" "${pathspec[@]}")" ]; then applied=uncommitted; fi
+# whether flake.nix moved too (a ref graft upgrade changed): the brief names it with the lock. Only
+# a changed line with an input's url counts (graft upgrade writes the tag there), so an edit of the
+# repo's own outputs doesn't; one to a url line by hand does, and is a pin too.
+nix_moved=false
+if grep -qE '^[-+][^-+].*url' <<<"$(git diff "$base" -- "$FLAKE_NIX" 2>/dev/null)"; then nix_moved=true; fi
 
 jq -n --arg repo "$name" --arg branch "$branch" --arg head "$(git rev-parse --short HEAD)" \
   --arg base_ref "$base_ref" --arg base "$base" --arg applied "$applied" --arg refs_error "$refs_error" \
-  --arg flake "$FLAKE" \
+  --arg flake "$FLAKE" --argjson nix_moved "$nix_moved" \
   --argjson nothing "$([ "$nothing" = 1 ] && echo true || echo false)" \
   --args '{repo: $repo, branch: (if $branch == "" then null else $branch end), head: $head,
-     flake: (if $flake == "." then null else $flake end),
+     flake: (if $flake == "." then null else $flake end), flake_nix_moved: $nix_moved,
      base: {ref: $base_ref, commit: $base}, applied: $applied, nothing_moved: $nothing,
      references_error: (if $refs_error == "" then null else $refs_error end),
      scion_dirs: $ARGS.positional}' "${dirs[@]}" > "$tmp/top"

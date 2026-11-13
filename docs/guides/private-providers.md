@@ -167,11 +167,11 @@ Then push a branch, and see graft-check pass on Forgejo.
 - The upgrade workflow gets no key, because it runs code that nobody has reviewed yet
   ([CI security](../ci-security.md#limits)).
 
-  Not yet: graft-upgrade fails for a repository with a private scion, also for its other scions and for
-  graft's own pin. Its jobs build graft's app, which fetches every scion.
-
-  Until then, step 8 deletes graft-upgrade, and you upgrade on your machine, graft's own pin too: `nix run .#graft outdated`, then `nix run .#graft upgrade`. `upgrade` locks each new
-  tag's commit itself, so step 1 is not needed again.
+  So `graft-upgrade.yaml` cannot run in a repository with a private scion: every upgrade fetches all
+  scions, and the upgrade job must not hold an ssh key. This is a design limit, not a gap. Step 8 deletes
+  `graft-upgrade.yaml`, and you upgrade on your machine, graft's own pin too: `nix run .#graft outdated`,
+  then `nix run .#graft upgrade`. `upgrade` locks each new tag's commit itself, so step 1 is not needed
+  again.
 
 ## Related
 

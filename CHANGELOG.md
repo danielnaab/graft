@@ -22,6 +22,11 @@
   writes, and commit.
 - **The drift report is new text.** A script that read `diff -r`'s output from `graft check` or
   `nix flake check` (`Only in …`) reads the `graft: scions/NAME/FILE: …` lines instead.
+- **A workflow of your own that runs `graft ci upgrade` must check out `BRANCH` first**, for example
+  `git switch -c "$BRANCH"`: `ci upgrade` now refuses any other branch. graft's own `graft-upgrade.yaml`
+  already does.
+- **`graft ci check` fails when `flake.lock` does not cover `flake.nix`** (an input added without
+  re-locking). Run `nix run .#graft`, and commit `flake.lock`.
 
 ### Added
 - **[`graft check` fails](docs/guides/check-fails.md):** a guide to finding what changed in a scion
@@ -42,8 +47,8 @@
   provider writes Upgrading steps, tries them on a throwaway worktree of a real consumer (`nix flake lock
   --override-input`, then `graft migrate`), and tags the new major version. The consumer takes it on a branch
   with `upgrade NAME@TAG`, works from `graft migrate`'s brief, and opens a pull request. It says which base
-  `migrate` compares with, what to do when a provider renames its repository, and that graft finds only
-  `### Upgrading` headings. It replaces "Cross a major version" in Upgrade and "Make an incompatible change"
+  `migrate` compares with, what to do when a provider renames its repository, and which Upgrading
+  headings graft finds. It replaces "Cross a major version" in Upgrade and "Make an incompatible change"
   in Publish, which now link to it.
 - **[Nix behaviours](docs/reference/nix-behaviours.md)**: trailing-slash rules fail only for fetches from
   a bare clone, not through `git+file` to a checkout; and Nix 2.24 reuses a consumer's `github:` fetch of a
@@ -77,8 +82,8 @@
   - Private providers is now [Graft a private repository](docs/guides/private-providers.md), with the step
     that Nix 2.24 needs to make the first lock of a `git+ssh` input at a tag (`nix flake prefetch` at
     `refs/tags/TAG`): without it, the old page's pin failed with `revspec 'v1.0.0' not found`. Its section
-    "Check in CI" is now its steps 4 to 10. It makes the CI key outside the repository, and says what to do
-    while graft-upgrade cannot run with a private scion.
+    "Check in CI" is now its steps 4 to 10. It makes the CI key outside the repository, and says why
+    graft-upgrade cannot run with a private scion, by design, and how to upgrade instead.
 - **Moved to [Files](docs/reference/files.md)**: what to export and how to name a provider (from Publish),
   graft's workflows' `paths-ignore` line, and how to keep your own edits to a workflow (from CI).
 - **One drift report for `graft check` and `nix flake check`** (lib/drift.sh). It names each file as the
@@ -114,6 +119,39 @@
   moves to this version: a sync restores the pinned version's copy.
 - **A missing or mistyped `flakeDir` is named.** graft said only `graft: no flake.lock in TOP`; it now says
   `… set mkFlake's flakeDir to it` or `… check mkFlake's flakeDir, "DIR" …`.
+- **`graft ci upgrade` by hand no longer commits and pushes files of yours.** It runs `git add -A`, so in a
+  working copy it pushed untracked files (an `.env.local`, say) to `origin`, and on `main` it committed the
+  upgrade there. It now refuses a working tree with changes of its own
+  (`graft: ci upgrade commits every change in the working tree, and this one has the changes of its own above …`), after listing them, and
+  a branch other than `BRANCH` (`graft: ci upgrade commits on the branch checked out, main, …`). Without
+  `BRANCH`, it says `graft: BRANCH is not set: …`, not bash's `BRANCH: BRANCH is not set`. `graft ci check`
+  ends with `graft: ci check passed: …`. A `flake.lock` that Nix re-locked while evaluating graft (an input
+  added to `flake.nix` without re-locking) is still taken into the upgrade commit, with a line that says so.
+- **`graft ci check` fails on a lock that does not cover `flake.nix`**:
+  `graft: flake.lock in HEAD does not match flake.nix: Nix re-locked it to evaluate graft …`. It passed on
+  the lock Nix wrote in the runner, which nothing commits.
+- **The upgrade pull request's notes read like `graft changelog`'s.** `graft ci pr` had its own copy of the
+  notes: it now prints each provider's **Upgrading** sections first, with control characters made plain, as
+  `changelog` and `migrate` do (lib/upstream.jq). In all three, the second part is now labelled
+  `The rest of its CHANGELOG.md for this range, without the Upgrading sections above:`, so a version's
+  heading shown twice reads as one version split in two, and a provider that cannot be fetched gets its
+  compare link.
+- **The failing pull request's warning says to fix your own files first**:
+  `Fix your own files on a branch made from this one: the next run force-pushes graft/upgrade. If the provider broke something, tell its maintainers.`
+- **The logs of failing checks leave out Nix's noise.** In the pull request's **Failing checks** and in
+  `migrate`'s brief, the dirty-tree warning, the lines about what will be built, the builder's log repeated,
+  `For full logs, run 'nix log …'` and the checkout's path are gone, and store paths read `/nix/store/…-NAME`.
+- **`migrate` reads a provider's branch locked with `--override-input`.** The brief said
+  `page-rules v1.1.0 (from v1.1.0)` and listed commits. It now names the locked ref and commit
+  (`page-rules lifecycle at COMMIT (from v1.1.0)`) and quotes the branch's CHANGELOG sections above the old
+  tag, Upgrading first: the provider's unreleased major. Its header names the repository from its origin,
+  else its main checkout's folder, not a worktree's (`handbook`, not `handbook-try`), and says
+  `flake.nix, flake.lock and scions/` when the upgrade changed `flake.nix` too.
+- **The scions README and graft's messages quote their commands for zsh.** For a flake in a subdirectory
+  they said `nix run path:DIR#graft`, which zsh with `extendedglob` reads as a glob; they now say
+  `nix run 'path:DIR#graft'` (and `migrate`'s brief `nix flake check 'path:DIR'`). `graft upgrade` rewrites the README when it takes this version.
+- **A `### Migration` subsection counts as Upgrading steps**, as knowledge-base-kit v2.0.0 heads them:
+  `changelog`, `migrate` and the upgrade pull request show it first.
 - **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or
   three of them, depending on the line; it now always says
   `graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in FILE; …)`.
@@ -122,6 +160,8 @@
 - **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran
   `link_validator && kb_linter`, so a link failure never failed the build. Only graft's own
   `nix flake check` changes; nothing consumers run does.
+- **graft's own shellcheck check also runs `bash -n`** over `lib/*.sh` and `tests/*.sh`, so a script bash
+  cannot parse fails it even where shellcheck's parser differs. Only graft's own `nix flake check` changes.
 
 ## v2.11.1 - 2026-11-12
 

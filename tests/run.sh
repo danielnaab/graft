@@ -738,7 +738,9 @@ expect "remark: and the check passes" quiet bash "$graft/lib/workflows.sh" check
 selfc self-ci v9.0.0
 git_ commit -qm init
 git_ init -q --bare "$work/origin.git" && git_ remote add origin "$work/origin.git" && git_ push -q origin main
-expect "ci check passes" quiet ci_ check
+out=$(ci_ check 2>&1) || { echo "$out" >&2; fail "ci check passes"; }
+pass "ci check passes"
+expect "and says so" grep -qxF "graft: ci check passed: flake.lock is committed, and the scions and graft's workflows match it" <<<"$out"
 # a lock never committed: a fresh clone gets one from Nix, git-added, and every check passes on it
 git_ clone -q -b main "$work/origin.git" "$work/nolock" && git_ -C "$work/nolock" rm -q --cached flake.lock \
   && git_ -C "$work/nolock" commit -qm "drop the lock" && git_ clone -q -b main "$work/nolock" "$work/nolock-clone"
@@ -748,6 +750,22 @@ expect "lock: a fresh clone has no committed lock" test ! -e flake.lock
 refused "lock: ci check fails when flake.lock was never committed" nix run .#graft -- ci check
 expect "and names the fix" grep -qF "graft: flake.lock is not committed, so nothing is pinned: run nix run .#graft, then commit flake.lock" <<<"$out"
 cd "$work/self-ci"
+refused "ci upgrade: refuses without BRANCH" ci_ upgrade
+expect "and says so" grep -qxF "graft: BRANCH is not set: name the branch to push the upgrade to (graft's workflow sets BRANCH=graft/upgrade)" <<<"$out"
+refused "ci upgrade: refuses to commit on the default branch" ci_ BRANCH=graft/upgrade upgrade
+expect "and names the branch" grep -qxF "graft: ci upgrade commits on the branch checked out, main, and pushes it to graft/upgrade: switch to a new branch graft/upgrade first (git switch -c graft/upgrade)" <<<"$out"
+git_ checkout -q -b graft/upgrade
+echo "SECRET=x" > .env.local
+refused "ci upgrade: refuses an untracked file" ci_ BRANCH=graft/upgrade upgrade
+expect "and says why" grep -qxF "graft: ci upgrade commits every change in the working tree, and this one has the changes of its own above: commit, stash or remove them first" <<<"$out"
+expect "after listing the file" grep -qx "?? .env.local" <<<"$out"
+refuse "and pushed nothing" quiet git_ -C "$work/origin.git" rev-parse --verify refs/heads/graft/upgrade
+rm -f .env.local
+echo "# mine" >> .forgejo/workflows/graft-upgrade.yaml
+refused "ci upgrade: refuses an uncommitted change" ci_ BRANCH=graft/upgrade upgrade
+expect "for the same reason" grep -qF "has the changes of its own above" <<<"$out"
+expect "and lists them" grep -qx " M .forgejo/workflows/graft-upgrade.yaml" <<<"$out"
+git_ checkout -q -- .forgejo/workflows/graft-upgrade.yaml
 GITHUB_OUTPUT=$work/ci-out BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade"
 expect "ci upgrade: changed=true" grep -qx changed=true "$work/ci-out"
 expect "ci upgrade pushed graft/upgrade" quiet git_ -C "$work/origin.git" rev-parse --verify refs/heads/graft/upgrade
@@ -760,7 +778,7 @@ expect "ci upgrade again: changed=false" grep -qx changed=false "$work/ci-out"
 pr_env=(API=http://127.0.0.1:9 WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=x)
 expect "ci pr: no PR when the branch is already in the base" sh -c "env ${pr_env[*]} nix run .#graft ci pr 2>/dev/null | grep -q 'already in main'"
 refuse "ci pr: refuses without a token" quiet ci_ "${pr_env[@]}" PR_TOKEN= pr
-git_ reset -q --hard HEAD~1   # back to the default branch before the upgrade
+git_ checkout -q main   # the default branch, before the upgrade
 refuse "ci pr: no PR for a branch that changes workflows" quiet ci_ "${pr_env[@]}" pr
 expect "and it says why" sh -c "env ${pr_env[*]} nix run .#graft ci pr 2>/dev/null | grep -q 'changes CI workflows'"
 git_ checkout -q -b elsewhere "$(git_ -C "$work/origin.git" rev-parse graft/upgrade)"
@@ -768,16 +786,34 @@ echo "sneaky" > sneaky.sh && git_ add -A && git_ commit -qm sneaky && git_ push 
 git_ checkout -q main
 refuse "ci pr: no PR for a branch that changes other files" quiet ci_ "${pr_env[@]}" pr
 
-# graft ci pr against a stub API. stub_pr NAME [LISTING]: run `graft-ci pr` in the current repo
-# against a fresh stub (GET answers LISTING), with output in $work/NAME.out, the request log in
+# a lock that doesn't cover flake.nix (an input added without re-locking): Nix re-locks it, and
+# git-adds it, while evaluating graft, before graft-ci runs (with git on PATH, as in CI)
+git_ clone -q -b main "$work/origin.git" "$work/stale" && cd "$work/stale"
+sed -i 's|^  outputs = |  inputs.nixpkgs.follows = "graft/nixpkgs";\n&|' flake.nix
+git_ commit -qam "nixpkgs, not re-locked"
+git_ init -q --bare "$work/origin-stale.git" && git_ remote set-url origin "$work/origin-stale.git" && git_ push -q origin main
+refused "stale lock: ci check fails" nix run .#graft -- ci check
+expect "and says the lock doesn't match flake.nix" grep -qF "graft: flake.lock in HEAD does not match flake.nix: Nix re-locked it to evaluate graft (git diff -- flake.lock shows how). Run nix run .#graft, then commit flake.lock" <<<"$out"
+git_ checkout -q -- flake.lock
+git_ checkout -q -b graft/upgrade
+out=$(GITHUB_OUTPUT=$work/stale-out BRANCH=graft/upgrade nix run .#graft -- ci upgrade 2>&1) || { echo "$out" >&2; fail "stale lock: ci upgrade takes the re-locked lock"; }
+pass "stale lock: ci upgrade takes the re-locked lock"
+expect "and says so" grep -qxF "graft: flake.lock differs from HEAD (Nix re-locks a lock that doesn't cover flake.nix): the upgrade commit includes it" <<<"$out"
+expect "and commits it" quiet sh -c "git -C '$work/origin-stale.git' show graft/upgrade:flake.lock | jq -e '.nodes.root.inputs.nixpkgs'"
+cd "$work/self-ci"
+
+# graft ci pr against a stub API. stub_pr NAME [LISTING [STATUSES]]: run `graft-ci pr` in the current
+# repo against a fresh stub (GET answers LISTING; STATUSES, JSON, the HTTP status to answer each
+# method with), with output in $work/NAME.out, its exit code in $work/NAME.rc, the request log in
 # $work/NAME.auth and the requests in $work/NAME.req
 stub_pr() {
-  local port=$work/$1.port
+  local port=$work/$1.port rc=0
   rm -f "$port"
-  nix run "$np#python3" -- "$graft/tests/stub-api.py" "$port" "$work/$1.auth" "$work/$1.req" "${2:-/nonexistent}" & stub=$!
+  nix run "$np#python3" -- "$graft/tests/stub-api.py" "$port" "$work/$1.auth" "$work/$1.req" "${2:-/nonexistent}" ${3:+"$3"} & stub=$!
   for _ in $(seq 100); do [ -s "$port" ] && break; sleep 0.1; done
   ci_ API="http://127.0.0.1:$(cat "$port")" WEB=x BASE=main BRANCH=graft/upgrade PR_TOKEN=s3cret \
-    pr > "$work/$1.out" 2>&1 || true
+    pr > "$work/$1.out" 2>&1 || rc=$?
+  echo "$rc" > "$work/$1.rc"
   kill "$stub" 2>/dev/null || true
 }
 # post_body NAME: the body of the PR the stub was asked to open
@@ -788,8 +824,9 @@ post_body() { jq -r 'select(.method=="POST") | .body.body' "$work/$1.req"; }
 selfc self-pr v9.1.0
 git_ commit -qm init
 git_ init -q --bare "$work/origin-pr.git" && git_ remote add origin "$work/origin-pr.git" && git_ push -q origin main
+git_ checkout -q -b graft/upgrade
 BRANCH=graft/upgrade quiet ci_ upgrade || fail "graft-ci upgrade (scion only)"
-git_ reset -q --hard origin/main
+git_ checkout -q main
 stub_pr pr1
 expect "ci pr: opens the PR for a scion-only branch" grep -q "http://stub/pulls/1" "$work/pr1.out"
 expect "with the token in the Authorization header" grep -qx "POST token s3cret" "$work/pr1.auth"
@@ -801,6 +838,8 @@ expect "and that the whole check passed" grep -q "whole \`nix flake check\` pass
 expect "and a hint for handing the migration to an agent" grep -q "run \`nix run github:danielnaab/graft -- migrate -C .\`" <<<"$body"
 expect "no CHANGELOG.md: the provider's commits instead" grep -q "^> - [0-9a-f]* v2.1$" <<<"$body"
 refuse "and only those in the range" grep -q "^> - [0-9a-f]* v2$" <<<"$body"
+# shellcheck disable=SC2016 # a jq program
+expect "commits past 50: cut, saying there are more" sh -c "jq -n -r -L '$graft/lib' 'include \"upstream\"; {name: \"x\", from: \"a\", to: \"b\", status: \"fetched\", changelog: \"\", in_history: true, compare: null, commits: [range(51) | tostring]} | upstream_notes(\"main\")' | grep -qx '> ... and more; see the provider'\''s git log'"
 
 # a branch crossing to v3.0.0, whose CHANGELOG.md has sections for it: those between the tags
 quiet nix run .#graft upgrade provider@v3.0.0 && git_ add -A
@@ -810,6 +849,8 @@ stub_pr pr2
 body=$(post_body pr2)
 expect "changelog: the sections between the tags, headings moved down" grep -q "^> #### v3.0.0 - 2026-11-04" <<<"$body"
 expect "changelog: subheadings too" grep -q "^> ##### Upgrading" <<<"$body"
+expect "changelog: Upgrading sections first, as graft changelog prints them" grep -qx "Upgrading, from its CHANGELOG.md:" <<<"$body"
+expect "changelog: then the rest" grep -qx "The rest of its CHANGELOG.md for this range, without the Upgrading sections above:" <<<"$body"
 expect "changelog: a heading without the v" grep -q "^> #### 2.1.0" <<<"$body"
 refuse "changelog: not the old tag's own section" grep -q "^> #### v2.0.0" <<<"$body"
 refuse "changelog: not Unreleased" grep -q "not yet released" <<<"$body"
@@ -888,18 +929,21 @@ expect "gate: the repo's own check passes before the upgrade" quiet nix flake ch
 git_ commit -qm init
 git_ init -q --bare "$work/origin-gate.git" && git_ remote add origin "$work/origin-gate.git" && git_ push -q origin main
 : > "$work/gate-out"
+git_ checkout -q -b graft/upgrade
 refuse "gate: ci upgrade fails when the repo's own check fails" quiet ci_ GITHUB_OUTPUT="$work/gate-out" BRANCH=graft/upgrade upgrade
 expect "but says it changed" grep -qx changed=true "$work/gate-out"
 expect "and pushed the branch" quiet git_ -C "$work/origin-gate.git" rev-parse --verify refs/heads/graft/upgrade
 body=$(git_ -C "$work/origin-gate.git" log -1 --format=%b graft/upgrade)
 expect "its commit names the failing check, only" grep -qx "nix flake check failed: policy-link" <<<"$body"
 expect "with its log's tail" grep -q "policy-link: expected policy v2" <<<"$body"
-git_ reset -q --hard origin/main
+refuse "without Nix's progress lines, store paths or the checkout's path" grep -qE "will be built|is dirty|For full logs|/nix/store/[0-9a-z]{32}|$gc/" <<<"$body"
+git_ checkout -q main
 stub_pr gate1
 expect "gate: the PR is opened" grep -q "http://stub/pulls/1" "$work/gate1.out"
 expect "titled as failing" quiet jq -e 'select(.method=="POST") | .body.title == "[checks failing] graft: upgrade"' "$work/gate1.req"
 body=$(post_body gate1)
 expect "its body says the check fails" grep -q "fails on this branch" <<<"$body"
+expect "and to fix your own files first" grep -qF "Fix your own files on a branch made from this one: the next run force-pushes \`graft/upgrade\`. If the provider broke something, tell its maintainers." <<<"$body"
 expect "and which, in a section of its own" grep -qz $'## Failing checks\n\n    nix flake check failed: policy-link' <<<"$body"
 expect "and still says what changed upstream" grep -q "^### provider v2.0.0 -> v2.1.0" <<<"$body"
 echo '[{"number": 7, "head": {"ref": "graft/upgrade", "repo_id": 1}, "base": {"repo_id": 1}}]' > "$work/listing.json"
@@ -908,6 +952,29 @@ expect "an open PR: retitled and described, not opened again" sh -c "jq -e 'sele
 echo '[{"number": 9, "head": {"ref": "graft/upgrade", "repo_id": 2}, "base": {"repo_id": 1}}]' > "$work/listing.json"
 stub_pr gate3 "$work/listing.json"
 expect "a fork's PR from a branch of that name: left alone, ours opened" sh -c "! grep -q '^PATCH' '$work/gate3.auth' && grep -q '^POST' '$work/gate3.auth'"
+
+# the API's failures, each answered by the stub
+stub_pr http1 /nonexistent '{"GET": 500}'
+expect "listing PRs fails: the step fails" grep -qx 1 "$work/http1.rc"
+expect "and names the HTTP status" grep -qxF "::error::listing PRs: HTTP 500" "$work/http1.out"
+refuse "and opens nothing" grep -q '^POST' "$work/http1.auth"
+stub_pr http2 /nonexistent '{"GET": 401}'
+expect "a refused token (401): named" grep -qxF "::error::listing PRs: HTTP 401" "$work/http2.out"
+echo '[{"number": 7, "head": {"ref": "graft/upgrade", "repo_id": 1}, "base": {"repo_id": 1}}]' > "$work/listing.json"
+stub_pr http3 "$work/listing.json" '{"PATCH": 422}'
+expect "an open PR that can't be edited: a warning, not a failure" grep -qx 0 "$work/http3.rc"
+expect "which says so" grep -qxF "::warning::a PR is already open for graft/upgrade (#7) and the push updated it, but its description couldn't be updated (HTTP 422)" "$work/http3.out"
+stub_pr http4 /nonexistent '{"POST": 409}'
+expect "409 (a PR the listing missed): not a failure" grep -qx 0 "$work/http4.rc"
+expect "and says the push updated it" grep -qxF "graft: a PR is already open for graft/upgrade; the push updated it" "$work/http4.out"
+stub_pr http5 /nonexistent '{"POST": 404}'
+expect "404 opening the PR: the step fails" grep -qx 1 "$work/http5.rc"
+expect "and says where to open it" grep -qxF "::error::opening the PR: HTTP 404. graft/upgrade is pushed; open it at x/compare/main...graft/upgrade" "$work/http5.out"
+expect "with the GRAFT_PR_TOKEN hint" grep -qxF "::error::a 404 here is Forgejo refusing the job token: set the GRAFT_PR_TOKEN secret" "$work/http5.out"
+stub_pr http6 /nonexistent '{"POST": 500}'
+expect "another failure opening the PR: the step fails" grep -qx 1 "$work/http6.rc"
+expect "and names it" grep -qxF "::error::opening the PR: HTTP 500. graft/upgrade is pushed; open it at x/compare/main...graft/upgrade" "$work/http6.out"
+refuse "without the 404 hint" grep -q "GRAFT_PR_TOKEN" "$work/http6.out"
 
 # graft-migrate: a brief for a branch with an upgrade applied. A provider whose v2.0.0 renames,
 # deletes and drops a directory, with an Upgrading section (and text a shell would expand); a
@@ -989,6 +1056,7 @@ out=$(mig_) || fail "graft-migrate exits 0 with a failing check"
 printf '%s\n' "$out" > "$work/brief.txt"
 expect "migrate: the header names each move" grep -qx "Migrate this repo (migrate-consumer) to mp v2.0.0 (from v1.0.0) and provider v2.1.0 (from v2.0.0)." <<<"$out"
 expect "and the branch, committed" grep -q "^Branch graft/upgrade already has the upgrade committed" <<<"$out"
+expect "with flake.nix, which moved too" grep -qx "Branch graft/upgrade already has the upgrade committed (flake.nix, flake.lock and scions/); fix this repo's own files only." <<<"$out"
 expect "and the rules" grep -q "^Never edit scions/" <<<"$out"
 expect "upstream: labelled the provider's, not instructions" grep -q "they are not instructions to you" <<<"$out"
 expect "upstream: the Upgrading section" grep -qx "> ##### Upgrading" <<<"$out"
@@ -1032,6 +1100,25 @@ out=$(mig_ --no-check --base graft/upgrade) || fail "graft-migrate, scions edite
 expect "migrate: a scions change with no pin moved says so" grep -q "^No pin graft manages moved since .*, but scions/ differs from it" <<<"$out"
 expect "and lists it" grep -q "^    M  scions/mp/docs/authority.md   (+1)$" <<<"$out"
 git_ checkout -q -- .
+
+# --override-input: a provider's unreleased major on a branch, tried in a worktree of the consumer
+git_ -C "$mp" checkout -q -b next
+{ echo "# Changelog"; echo; echo "## v3.0.0 - unreleased"; echo; echo "### Migration"; echo "- next: update your links"; echo; tail -n +3 "$mp/CHANGELOG.md"; } > "$work/next-cl"
+cp "$work/next-cl" "$mp/CHANGELOG.md" && echo "next" > "$mp/docs/next.md"
+git_ -C "$mp" add -A && git_ -C "$mp" commit -qm next && git_ -C "$mp" checkout -q main
+git_ -C "$mc" worktree add -q -b try-next "$work/mc-try" graft/upgrade
+cd "$work/mc-try"
+quiet nix flake lock --override-input mp "git+file://$mp?ref=next&exportIgnore=1" || fail "override: nix flake lock --override-input"
+quiet nix run .#graft || fail "override: nix run .#graft"
+next=$(git_ -C "$mp" rev-parse next)
+out=$(mig_ --no-check --base graft/upgrade) || fail "override: graft migrate"
+expect "override: the header names the branch, its commit, and the repo (not the worktree's folder)" grep -qx "Migrate this repo (migrate-consumer) to mp next at ${next:0:12} (from v2.0.0)." <<<"$out"
+expect "override: the unreleased section's Upgrading steps" grep -qx "> - next: update your links" <<<"$out"
+expect "a Migration heading counts as Upgrading" test "$(grep -n -A3 -x "Upgrading, from its CHANGELOG.md:" <<<"$out" | grep -c "> #### v3.0.0 - unreleased")" = 1
+expect "and its heading" grep -qx "> #### v3.0.0 - unreleased" <<<"$out"
+refuse "override: not the old tag's section" grep -qx "> #### v2.0.0 - 2026-11-04" <<<"$out"
+refuse "override: no commit list" grep -q "its commits:" <<<"$out"
+cd "$mc"
 
 # dir: any relative path, here nested with a space and an apostrophe, and a hidden one
 consumer() {  # consumer <name> <dir-attr>: a fresh consumer of provider@v2 with mkFlake's dir set
@@ -1160,6 +1247,25 @@ sed -i.bak '/inputs.provider/d' flake.nix && rm flake.nix.bak
 refused "no scions at all is an error" nix run .#graft
 expect "naming the cause" grep -qF "error: graft: no scions: no input has flake = false, and scions names none" <<<"$out"
 
+# a git input with no ref (Nix locks it at refs/heads/main): migrate names it by its commits
+rp=$work/refless-provider rl=$work/refless
+mkdir -p "$rp/docs" "$rl" && echo "one" > "$rp/docs/a.md"
+git_ -C "$rp" init -q -b main && git_ -C "$rp" add -A && git_ -C "$rp" commit -qm one
+cat > "$rl/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  inputs.provider = { url = "git+file://$rp?exportIgnore=1"; flake = false; };
+  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
+}
+EOF
+git_ -C "$rl" init -q -b main && git_ -C "$rl" add -A
+cd "$rl" && quiet nix run .#graft && git_ add -A && git_ commit -qm init
+echo "two" > "$rp/docs/a.md" && git_ -C "$rp" commit -qam two
+git_ checkout -q -b bump && quiet nix flake update provider && quiet nix run .#graft && git_ add -A && git_ commit -qm bump
+out=$(env PATH="$bare" nix run .#graft -- migrate --no-check --base main 2>/dev/null) || fail "refless: graft migrate"
+expect "refless: migrate names the move by its commits" grep -qx "Migrate this repo (refless) to provider $(git_ -C "$rp" rev-parse --short=12 HEAD) (from $(git_ -C "$rp" rev-parse --short=12 HEAD~1))." <<<"$out"
+refuse "refless: not by Nix's default ref" grep -q "refs/heads" <<<"$out"
+
 # --override-input: a local checkout for one run, with its uncommitted edits and without its new files
 consumer override ''
 quiet nix run .#graft && git_ add -A && git_ commit -qm graft
@@ -1260,7 +1366,7 @@ expect "subdir: grafted at the top's dir" test -f .scions/provider/docs/policy.m
 expect "subdir: not beside the flake" test ! -e nix/workspace/.scions
 expect "subdir: the README records the flake" grep -qx '<!-- graft flake: nix/workspace -->' .scions/README.md
 # shellcheck disable=SC2016 # the literal text
-expect "subdir: and names its commands" grep -qF '`nix run path:nix/workspace#graft check` fails' .scions/README.md
+expect "subdir: and names its commands, quoted for zsh" grep -qF "\`nix run 'path:nix/workspace#graft' check\` fails" .scions/README.md
 expect "subdir: no checks.<system>.graft, the repo's own kept" \
   test "$(nix eval --json "path:$sc/nix/workspace#checks.$system" --apply builtins.attrNames 2>/dev/null)" = '["fine"]'
 expect "subdir: graft check passes" quiet nix run path:nix/workspace#graft check
@@ -1271,7 +1377,7 @@ out=$(nix run path:nix/workspace#graft check 2>&1) && fail "subdir: graft check 
 pass "subdir: graft check catches an edited scion"
 expect "subdir: and shows the diff" grep -q "local edit" <<<"$out"
 expect "subdir: naming the file from the repo's top" grep -qx "graft: .scions/provider/docs/policy.md: edited" <<<"$out"
-expect "subdir: and the flake's lock" grep -qx "graft: .scions/ differs from the pins in nix/workspace/flake.lock; run: nix run path:nix/workspace#graft" <<<"$out"
+expect "subdir: and the flake's lock" grep -qx "graft: .scions/ differs from the pins in nix/workspace/flake.lock; run: nix run 'path:nix/workspace#graft'" <<<"$out"
 refuse "subdir: no only-in-the-pin hint when no file is only in the pin" grep -q "a file only in the pin" <<<"$out"
 echo "stray" > .scions/provider/new.md
 quiet nix run path:nix/workspace#graft
@@ -1341,13 +1447,14 @@ expect "subdir: check passes after upgrade -C" quiet nix run path:nix/workspace#
 # ci: upgrade on a local origin, its full check running graft check as `graft`
 git_ init -q --bare "$work/origin-subdir.git" && git_ remote add origin "$work/origin-subdir.git" && git_ push -q origin main
 : > "$work/subdir-out"
+git_ checkout -q -b graft/upgrade
 env GITHUB_OUTPUT="$work/subdir-out" BRANCH=graft/upgrade PATH="$bare" nix run path:nix/workspace#graft -- ci upgrade > "$work/subdir-ci.log" 2>&1 \
   || { cat "$work/subdir-ci.log" >&2; fail "subdir: graft ci upgrade"; }
 expect "subdir: ci upgrade pushed" grep -qx changed=true "$work/subdir-out"
 expect "subdir: its full check ran graft check" grep -q "^graft: graft check" "$work/subdir-ci.log"
 body=$(git_ -C "$work/origin-subdir.git" log -1 --format=%b graft/upgrade)
 expect "subdir: and passed" test -z "$(grep 'nix flake check failed' <<<"$body")"
-git_ reset -q --hard origin/main   # back to the default branch before the upgrade
+git_ checkout -q main && git_ branch -q -D graft/upgrade   # the default branch, before the upgrade
 expect "subdir: ci check" quiet env PATH="$bare" nix run path:nix/workspace#graft -- ci check
 git_ rm -q --cached nix/workspace/flake.lock && git_ commit -qm "drop the lock"
 refused "subdir: ci check fails when the flake's flake.lock isn't committed" env PATH="$bare" nix run path:nix/workspace#graft -- ci check
@@ -1367,10 +1474,10 @@ out=$(env PATH="$bare" nix run path:nix/workspace#graft -- migrate --base main 2
 expect "subdir: migrate names the move" grep -qx "Migrate this repo (origin-subdir) to provider v3.0.0 (from v2.0.0)." <<<"$out"
 expect "subdir: migrate: a version with only an Upgrading section has no heading in the rest" test "$(rest_first "$out")" = "> #### 2.1.0"
 expect "subdir: migrate: so its heading appears once" test "$(grep -c "^> #### v3.0.0" <<<"$out")" = 1
-expect "subdir: from the flake's lock" grep -q "^Branch graft/upgrade already has the upgrade committed (nix/workspace/flake.lock and .scions/)" <<<"$out"
+expect "subdir: from the flake's lock" grep -q "^Branch graft/upgrade already has the upgrade committed (nix/workspace/flake.nix, nix/workspace/flake.lock and .scions/)" <<<"$out"
 expect "subdir: its checks ran and passed" grep -q "pass as the branch stands" <<<"$out"
 # shellcheck disable=SC2016 # the literal text
-expect "subdir: done when names the commands" grep -qF '`nix run path:nix/workspace#graft check` and `nix flake check path:nix/workspace` pass, with .scions/' <<<"$out"
+expect "subdir: done when names the commands" grep -qF "\`nix run 'path:nix/workspace#graft' check\` and \`nix flake check 'path:nix/workspace'\` pass, with .scions/" <<<"$out"
 cd "$work"
 expect "subdir: migrate -C from graft's flake" \
   sh -c "env PATH='$bare' nix run '$graft' -- migrate -C '$sc' --base main --no-check 2>/dev/null | grep -q '^    M  .scions/provider/docs/policy.md'"

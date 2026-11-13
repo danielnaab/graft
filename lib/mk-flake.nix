@@ -31,7 +31,7 @@
 #            repo's own is an error, raised when graft's app or check is evaluated.
 #   flakeDir where this flake.nix sits, relative to the repo's top; default `.`, the top. A
 #            subdirectory (`nix/workspace`) is for a repo with content that must never be copied
-#            into the world-readable Nix store: run as a `path:` flake (nix run path:nix/workspace#graft)
+#            into the world-readable Nix store: run as a `path:` flake (nix run 'path:nix/workspace#graft')
 #            Nix copies only that directory, never the repo's top, so the app finds the top with git
 #            and `dir` stays relative to it. Such a flake has no `checks.<system>.graft` (its source
 #            can't see <dir>): `graft check` is the check. The scions README records flakeDir, which
@@ -83,7 +83,7 @@ let
   # the flake's lock, from the repo's top
   lockPath = if root then "flake.lock" else "${fd}/flake.lock";
   # how a person runs this flake's app, from the repo's top
-  run = if root then "nix run .#graft" else "nix run path:${fd}#graft";
+  run = if root then "nix run .#graft" else "nix run 'path:${fd}#graft'";   # quoted: # is a glob in zsh with extendedglob
 
   # flake.nix's `inputs` is a literal, so it's read here as data: asking the fetched inputs instead
   # would fetch every one, and call every flake input's outputs.

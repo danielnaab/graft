@@ -31,7 +31,7 @@ How to change graft, test it, and release it.
 ## Test
 
 ```
-nix flake check          # shellcheck, the docs check, and the drift check of graft's own scions
+nix flake check          # bash -n and shellcheck, the docs check, and the drift check of graft's own scions
 tests/run.sh             # the whole cycle against throwaway provider repositories
 KEEP=1 tests/run.sh      # the same, and keep the work directory to debug a failure
 ```

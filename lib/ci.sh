@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ci.sh check|upgrade|pr: what graft's Forgejo workflows (template/.forgejo/workflows/) run, from the repo's
-# root, as `nix run .#graft ci <step>` (or `nix run path:DIR#graft ci <step>` when the flake is in
+# root, as `nix run .#graft ci <step>` (or `nix run 'path:DIR#graft' ci <step>` when the flake is in
 # DIR, mkFlake's flakeDir; the workflows find it in the scions README). It lives here, not in the workflow files, so a repo's
 # workflows run the graft version it pins: when graft upgrade moves that pin, their behaviour
 # moves with it, and the YAML itself rarely changes.
@@ -12,7 +12,8 @@
 #            it, and force-push it to $BRANCH on origin. Writes changed=true|false to
 #            $GITHUB_OUTPUT. A failing check doesn't stop the push: the commit message names the
 #            failing checks with the tail of each log, so the PR shows the breakage, and the step
-#            then fails. The check runs the code of the graft version just moved to, and the repo's
+#            then fails. Refuses a working tree with changes of its own (but a re-locked flake.lock), and a branch other than
+#            $BRANCH checked out (a detached HEAD is fine). The check runs the code of the graft version just moved to, and the repo's
 #            own checks over upstream content, before anyone reviewed either, so this step must
 #            hold no secret beyond the job's own token.
 #   pr       open a PR from $BRANCH into $BASE, or retitle the open one (the push updated it).
@@ -47,14 +48,39 @@ check() {
   # would pass on whatever the tags resolve to today. The lock is the pins: it must be committed.
   git cat-file -e "HEAD:$FLAKE_LOCK" 2>/dev/null \
     || die "$FLAKE_LOCK is not committed, so nothing is pinned: run $GRAFT_RUN, then commit $FLAKE_LOCK (if git ignores it, git check-ignore -v $FLAKE_LOCK names the rule)"
-  if [ "$FLAKE" != . ]; then nix_ run "$FLAKE_REF#graft" check; return; fi
-  system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
-  nix_ build --no-link ".#checks.$system.graft"
+  # A lock that doesn't cover flake.nix (an input added, its url changed, without re-locking): Nix
+  # re-locked it while evaluating graft, before this ran, so the committed one pins nothing for it
+  if ! git diff --quiet HEAD -- "$FLAKE_LOCK"; then
+    git --no-pager diff --stat HEAD -- "$FLAKE_LOCK" >&2 || true
+    die "$FLAKE_LOCK in HEAD does not match $FLAKE_NIX: Nix re-locked it to evaluate graft (git diff -- $FLAKE_LOCK shows how). Run $GRAFT_RUN, then commit $FLAKE_LOCK"
+  fi
+  if [ "$FLAKE" != . ]; then
+    nix_ run "$FLAKE_REF#graft" check
+  else
+    system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
+    nix_ build --no-link ".#checks.$system.graft"
+  fi
+  echo "graft: ci check passed: $FLAKE_LOCK is committed, and the scions and graft's workflows match it"
 }
 
 upgrade() {
-  local changes checks=passed
-  : "${BRANCH:?BRANCH is not set}"
+  local changes checks=passed cur dirty
+  [ -n "${BRANCH:-}" ] || die "BRANCH is not set: name the branch to push the upgrade to (graft's workflow sets BRANCH=graft/upgrade)"
+  # It commits on the branch checked out and stages everything: never the default branch, and
+  # nothing of anyone's but graft's (untracked files would be pushed with it)
+  cur=$(git symbolic-ref -q --short HEAD) || cur=""
+  if [ -n "$cur" ] && [ "$cur" != "$BRANCH" ]; then
+    die "ci upgrade commits on the branch checked out, $cur, and pushes it to $BRANCH: switch to a new branch $BRANCH first (git switch -c $BRANCH)"
+  fi
+  # Only the lock may differ: Nix re-locks (and git-adds) a lock that doesn't cover flake.nix while
+  # evaluating graft, before this runs; the upgrade rewrites the lock anyway, and commits that too
+  dirty=$(git status --porcelain --untracked-files=all | cut -c4-)
+  if [ "$dirty" = "$FLAKE_LOCK" ]; then
+    echo "graft: $FLAKE_LOCK differs from HEAD (Nix re-locks a lock that doesn't cover $FLAKE_NIX): the upgrade commit includes it"
+  elif [ -n "$dirty" ]; then
+    git status --short --untracked-files=all >&2
+    die "ci upgrade commits every change in the working tree, and this one has the changes of its own above: commit, stash or remove them first"
+  fi
   log=$(mktemp) report=$(mktemp)   # outside the checkout: the repo's .gitignore can't refuse them, git add can't take them
   trap 'rm -f "$log" "$report"' EXIT
   GRAFT_CI=1 bash "$here/tools.sh" upgrade | tee "$log"
@@ -75,35 +101,17 @@ upgrade() {
   fi
 }
 
-# upstream_notes BASE_LOCK HEAD_LOCK: markdown, what changed upstream for each input whose locked
-# commit differs (common.sh's upstream_input, which fetches and reads it as data). Each provider's
-# text is a block quote: a code fence it leaves open ends with the quote, so it can't swallow (or
-# fake) what follows in the body.
-upstream_notes() {
+# pr_notes BASE_LOCK HEAD_LOCK: markdown, what changed upstream for each input whose locked commit
+# differs (common.sh's upstream_input, which fetches and reads it as data), as graft changelog and
+# graft migrate print it (upstream.jq's upstream_notes: Upgrading sections first, provider text
+# cleaned and block-quoted, so a code fence it leaves open ends with the quote).
+pr_notes() {
   local base=$1 head=$2 name j n=0
   while IFS= read -r name; do
     j=$(upstream_input "$base" "$head" "$name") || return 1
     [ -n "$j" ] || continue
     n=$((n + 1))
-    jq -r --arg base "${BASE:-the default branch}" '
-      def cap(n): if length <= n then . else (.[0:n+1] | sub("\n[^\n]*$"; ""))
-        + "\n\n(cut at \(n) characters; the full text is upstream)" end;
-      def quote: split("\n") | map("> " + .) | join("\n");
-      "### \(.name) \(.from) -> \(.to)\n",
-      (if .status == "elsewhere" then
-         "The branch points \(.name) at a different source than \($base) does; not fetched. Read the diff of flake.lock.\n"
-       elif .status == "not-commit" then "Not a git commit; nothing to compare.\n"
-       elif .status == "not-git" then "Not a git input; nothing to compare.\n"
-       elif .status == "unfetchable" then
-         "Couldn'"'"'t fetch \(.to_rev[0:12]) from \(.url).\(if .compare then " Compare: \(.compare)" else "" end)\n"
-       elif .changelog != "" then "From its CHANGELOG.md:\n\n\(.changelog | cap(6000) | quote)\n"
-       elif .in_history then
-         "No CHANGELOG.md section for this range; its commits:\n\n\(.commits[0:50] | map("- " + .)
-           | if length == 0 then ["- (none)"] else . end | join("\n") | cap(6000) | quote)\n",
-         (if (.commits | length) > 50 then "(more than 50; see the compare link)\n" else empty end)
-       else "No CHANGELOG.md section for this range, and \(.from_rev[0:12]) is not in its history.\n" end),
-      (if .compare and .status == "fetched" then "Compare: \(.compare)\n" else empty end)
-    ' <<<"$j"
+    jq -r -L "$GRAFT_LIB" --arg base "${BASE:-the default branch}" 'include "upstream"; upstream_notes($base)' <<<"$j"
   done < <(jq -r '.nodes.root.inputs | to_entries[] | select(.value|type=="string") | .key' "$base")
   [ "$n" -gt 0 ] || printf 'No input moved commits.\n'
 }
@@ -170,7 +178,7 @@ pr() {
   git show "$head:$FLAKE_LOCK" > "$head_lock" 2>/dev/null || echo '{"nodes":{"root":{"inputs":{}}}}' > "$head_lock"
   # errexit is off in here (a provider that can't be fetched is reported, not fatal); a list cut
   # short is kept, with a note
-  ( unset PR_TOKEN; upstream_notes "$base_lock" "$head_lock" ) > "$notes" \
+  ( unset PR_TOKEN; pr_notes "$base_lock" "$head_lock" ) > "$notes" \
     || echo "(stopped early; the rest is in the diff of flake.lock)" >> "$notes"
 
   title="graft: upgrade"
@@ -178,7 +186,7 @@ pr() {
   {
     if [ -n "$failing" ]; then
       title="[checks failing] graft: upgrade"
-      printf '> [!WARNING]\n> **`nix flake check` fails on this branch.** The upgrade is pushed so the breakage can be read. Fix it in the provider, or on a branch of your own made from this one: the next run force-pushes `graft/upgrade`.\n\n'
+      printf '> [!WARNING]\n> **`nix flake check` fails on this branch.** The upgrade is pushed so the breakage can be read. Fix your own files on a branch made from this one: the next run force-pushes `%s`. If the provider broke something, tell its maintainers.\n\n' "$BRANCH"
     fi
     printf 'Moved by `nix run .#graft upgrade` (graft'"'"'s own pin, and scions behind the newest tag of their pinned major):\n\n%s\n' "${moved:-"- (see the commit)"$'\n'}"
     if [ -n "$held" ]; then printf 'Not taken: a new major version is the provider saying something breaks. Read its CHANGELOG (an **Upgrading** section, if it has one), then name it:\n\n%s\n' "$held"; fi

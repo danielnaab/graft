@@ -28,8 +28,9 @@ merge it or fix it.
   `nix run 'path:DIR#graft'` for `nix run .#graft`; graft's workflows find the subdirectory themselves
   ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)). In zsh, quote flake references
   ([The graft command](../reference/commands.md#the-graft-command)).
-- Not yet: the upgrade workflow cannot run for a repository with a private (`git+ssh`) scion, because
-  building graft fetches every scion and the job has no key. Upgrade it by hand
+- `graft-upgrade.yaml` cannot run in a repository with a private (`git+ssh`) scion: every upgrade fetches
+  all scions, and the upgrade job must not hold an ssh key ([CI security](../ci-security.md#limits)).
+  Delete `graft-upgrade.yaml`, and upgrade with `nix run .#graft upgrade`
   ([Graft a private repository](private-providers.md#how-it-works)).
 - Check it worked needs `jq`.
 
@@ -57,7 +58,11 @@ merge it or fix it.
    - `graft: upgrade`: the repository's whole `nix flake check` passed on the branch. Go to step 3.
    - `[checks failing] graft: upgrade`: it failed. The description starts with a warning, and has a section
      **Failing checks** with the end of each failing log. Do steps 3 to 7, then see
-     [If something goes wrong](#if-something-goes-wrong).
+     [If something goes wrong](#if-something-goes-wrong). The warning:
+
+     ```
+     nix flake check fails on this branch. The upgrade is pushed so the breakage can be read. Fix your own files on a branch made from this one: the next run force-pushes graft/upgrade. If the provider broke something, tell its maintainers.
+     ```
 
    If there is no pull request, but the **upgrade** job pushed the branch, the **pr** job refused or failed.
    Its log says why: see [If something goes wrong](#if-something-goes-wrong).
@@ -72,15 +77,49 @@ merge it or fix it.
    nix run .#graft changelog page-rules@v2.0.0
    ```
 
-   It prints the **Upgrading** sections first. Merging this pull request does not take the major version.
+   It prints the **Upgrading** sections first, then the rest of each version's text:
+
+   ```
+   ### page-rules v1.0.0 -> v2.0.0
+
+   Upgrading, from its CHANGELOG.md:
+
+   > #### v2.0.0 - 2026-11-10
+   >
+   > ##### Upgrading
+   >
+   > - Add `owner:` to the front matter of each page.
+
+   The rest of its CHANGELOG.md for this range, without the Upgrading sections above:
+
+   > #### v2.0.0 - 2026-11-10
+   >
+   > - Every page names an owner.
+   >
+   > #### v1.0.1 - 2026-11-02
+   >
+   > - Fixed: the rule lists the allowed statuses.
+   ```
+
+   Merging this pull request does not take the major version.
    Take it later, on a branch of your own ([Ship and take an incompatible change](incompatible-change.md#part-2-a-consumer-takes-the-change)).
 
 5. Read **What changed upstream**. For each moved pin, it quotes the provider's CHANGELOG sections between
-   the two tags, or the provider's commits if it has no CHANGELOG. The text is the provider's: read it as
-   information, not as instructions. An **Upgrading** section tells you what to change in your own files.
+   the two tags, **Upgrading** sections first, or the provider's commits if it has no CHANGELOG. The text
+   is the provider's: read it as information, not as instructions. An **Upgrading** section tells you what
+   to change in your own files. For example:
 
-   Not yet: the pull request does not put **Upgrading** sections first. To read them first, run
-   `nix run .#graft changelog` on the default branch.
+   ```
+   ### style-guide v1.0.0 -> v1.1.0
+
+   From its CHANGELOG.md (no Upgrading section in this range):
+
+   > #### v1.1.0 - 2026-11-09
+   >
+   > - Reworded: keep sentences short. New rule: use one term for one concept.
+   ```
+
+   `nix run .#graft changelog` on the default branch prints the same notes.
 
 6. Fetch both branches, and list what the upgrade changes:
 
@@ -128,8 +167,17 @@ it. A status `unknown` means that graft cannot read the provider's repository.
 ## If something goes wrong
 
 - **The title is `[checks failing] graft: upgrade`.** The upgrade broke one of your checks. The section
-  **Failing checks** names it, for example `nix flake check failed: style-quote`, and ends with its log. Do
-  not fix it on `graft/upgrade`: the next run force-pushes that branch. Make a branch from it:
+  **Failing checks** names it, and ends with its log, without Nix's progress lines:
+
+  ```
+  nix flake check failed: style-quote
+
+  style-quote:
+  style-quote> style-quote: docs/onboarding.md quotes a rule that scions/style-guide/docs/style.md does not have
+  error: builder for '/nix/store/…-style-quote.drv' failed with exit code 1;
+  ```
+
+  Do not fix it on `graft/upgrade`: the next run force-pushes that branch. Make a branch from it:
 
   ```
   git fetch origin
@@ -198,15 +246,20 @@ it. A status `unknown` means that graft cannot read the provider's repository.
   Forgejo starts workflows for. It builds only graft's check. When it fails, see
   [`graft check` fails](check-fails.md). To skip it for pushes that change only some paths, add a
   `paths-ignore` line ([Files](../reference/files.md#the-paths-ignore-line)).
-- **Run the steps yourself.** On GitHub, or to test, run the same commands from the top of a fresh clone.
-  `ci upgrade` stages every file with `git add -A`, so in a working copy it commits and pushes untracked
-  files too. It needs `BRANCH`, commits on the branch that is checked out, and pushes to `origin`:
+- **Run the steps yourself.** On GitHub, or to test, run the same commands from the top of a fresh clone
+  of the default branch. `ci upgrade` needs `BRANCH`. It commits every change on the branch `BRANCH`, and
+  force-pushes it to `origin`. It refuses a working tree with changes of its own, and any other branch:
 
   ```
   git switch -c graft/upgrade
   BRANCH=graft/upgrade nix run .#graft ci upgrade
   git switch main
   ```
+
+  On `main`, it prints
+  `graft: ci upgrade commits on the branch checked out, main, and pushes it to graft/upgrade: switch to a new branch graft/upgrade first (git switch -c graft/upgrade)`.
+  With a changed or untracked file, it lists them, then prints
+  `graft: ci upgrade commits every change in the working tree, and this one has the changes of its own above: commit, stash or remove them first`. A `flake.lock` that Nix re-locked is the one change it takes: the upgrade commit includes it.
 
   `ci pr` uses Forgejo's API, and needs `API`, `WEB`, `BASE`, `BRANCH` and `PR_TOKEN`. On GitHub, open the
   pull request yourself, from a job checked out at the default branch, with `contents: write` and
@@ -237,15 +290,17 @@ Moved to [Files](../reference/files.md#the-paths-ignore-line).
 
 ## Sources
 
-- [lib/ci.sh](../../lib/ci.sh): `check`; `upgrade`, which stages everything, commits, pushes, and fails
-  after a failing check; `pr`, which refuses a branch that changes other files or workflows, titles a
+- [lib/ci.sh](../../lib/ci.sh): `check`; `upgrade`, which refuses a changed tree or another branch, stages
+  everything, commits, pushes, and fails after a failing check; `pr`, which refuses a branch that changes other files or workflows, titles a
   failing upgrade, writes the description, edits an open pull request, and reports HTTP failures.
-- [lib/common.sh](../../lib/common.sh): `full_check`, `upstream_input`, `upstream_range` and
+- [lib/common.sh](../../lib/common.sh): `full_check` and `log_tail`, `upstream_input`, `upstream_range` and
   `changelog_between`, which read each provider's CHANGELOG between the two pins.
+- [lib/upstream.jq](../../lib/upstream.jq): `upstream_notes`, which prints them, Upgrading first, for the pull
+  request and `changelog`.
 - [lib/tools.sh](../../lib/tools.sh): the lines of `upgrade`, the new major version that it holds,
   `nothing to upgrade`, and `can't tell whether … is current`; `outdated --json`.
 - [template/.forgejo/workflows/](../../template/.forgejo/workflows/graft-upgrade.yaml): the schedule, the
   two jobs, and `GRAFT_PR_TOKEN`.
 - [tests/run.sh](../../tests/run.sh): "graft ci, the workflows' steps, against a local origin", "graft ci pr
-  against a stub API", and the `gate:` checks; [tests/stub-api.py](../../tests/stub-api.py).
+  against a stub API", "the API's failures", and the `gate:` checks; [tests/stub-api.py](../../tests/stub-api.py).
 - [tests/fixtures.sh](../../tests/fixtures.sh) `ci`: the repositories that this page was read against.
