@@ -80,8 +80,9 @@ require it before a merge.
           > docs/retry-idea.md: status 'idea' is not one of draft, working, stable, deprecated
    ```
 
-4. Fix each page that the check names. Here, add front matter to the top of `docs/outage-2026-11-03.md`,
-   and in `docs/retry-idea.md` change `status: idea` to `status: draft`:
+4. Fix each page that the check names. In the example, add front matter to the top of
+   `docs/outage-2026-11-03.md`, and, if your repository has `docs/retry-idea.md`, change its `status: idea`
+   to `status: draft`:
 
    ```
    ---
@@ -108,6 +109,10 @@ require it before a merge.
      push:
        branches: [main]
 
+   concurrency:
+     group: flake-check-${{ github.ref }}
+     cancel-in-progress: true
+
    jobs:
      flake-check:
        runs-on: nixos-latest
@@ -133,7 +138,8 @@ require it before a merge.
            run: nix flake check
    ```
 
-   It uses the runner label of graft's workflows ([CI](ci.md)). Change `main` to your default branch.
+   It uses the runner label of graft's workflows ([CI](ci.md)). Like `graft-check.yaml`, it cancels a
+   run when a newer push to the same branch starts one. Change `main` to your default branch.
 
    graft's `graft-check.yaml` stays as it is: it checks only that the scions match their pins. Your checks
    are a status of their own, from this workflow, which you own. graft never changes a workflow that does
@@ -191,8 +197,10 @@ printf '# Gate test\n' > docs/gate-test.md && git add docs/gate-test.md && nix f
 
 If it stops without `ok`, run `git rm -f docs/gate-test.md` to remove the test page.
 
-That proves the check. To prove that Forgejo requires it, set `FORGEJO_TOKEN` to a token that can read the
-repository, put your server, owner and repository in the URL, and paste this. It prints `ok` only if the
+That proves the check. To prove that Forgejo requires it, you need `curl` and `jq`, and a token with the
+`read:repository` scope of a user who administers the repository: Forgejo shows branch protection only to
+repository administrators. Set `FORGEJO_TOKEN` to it, put your server, owner and repository in the URL, and
+paste this. It prints `ok` only if the
 rule for `main` requires the status:
 
 ```sh
@@ -255,5 +263,7 @@ curl -fsS -H "Authorization: token $FORGEJO_TOKEN" "https://forgejo.example/api/
   ([services/actions/notifier_helper.go](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/services/actions/notifier_helper.go)),
   the default `pull_request` types
   ([modules/actions/workflows.go](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/modules/actions/workflows.go)),
+  who may read branch protection
+  ([routers/api/v1/api.go](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/routers/api/v1/api.go)),
   and the settings' labels and messages
   ([locale_en-US.ini](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/options/locale/locale_en-US.ini)).
