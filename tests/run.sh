@@ -1196,7 +1196,7 @@ printf 'flake.lock\n' > .gitignore && git_ rm -q --cached flake.lock && git_ add
 refused "lock: graft check fails when git ignores flake.lock" nix run .#graft check
 expect "and names the cause" grep -qxF "graft: git ignores flake.lock, so the pins are not committed: git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock" <<<"$out"
 refused "lock: nix flake check fails too" nix flake check
-expect "and names the cause" grep -qF "graft: flake.lock is not in git, so the pins are not committed: if git ignores it, git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock" <<<"$out"
+expect "and names the cause" grep -qF "graft: git does not track flake.lock, so the pins are not committed: if git ignores it, git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock" <<<"$out"
 git_ rm -q --cached .gitignore && rm .gitignore && git_ add -A
 expect "lock: committed, both pass" quiet sh -c 'nix run .#graft check && nix flake check'
 
