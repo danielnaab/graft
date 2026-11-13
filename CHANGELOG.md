@@ -40,8 +40,8 @@
   provider writes Upgrading steps, tries them on a throwaway worktree of a real consumer (`nix flake lock
   --override-input`, then `graft migrate`), and tags the new major version. The consumer takes it on a branch
   with `upgrade NAME@TAG`, works from `graft migrate`'s brief, and opens a pull request. It says which base
-  `migrate` compares with, what to do when a provider renames its repository, and that graft finds only
-  `### Upgrading` headings. It replaces "Cross a major version" in Upgrade and "Make an incompatible change"
+  `migrate` compares with, what to do when a provider renames its repository, and which Upgrading
+  headings graft finds. It replaces "Cross a major version" in Upgrade and "Make an incompatible change"
   in Publish, which now link to it.
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
 - **A flake in a subdirectory is now [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md)**:
@@ -121,6 +121,8 @@
 - **The scions README quotes its commands for zsh.** For a flake in a subdirectory it said
   `nix run path:DIR#graft`, which zsh with `extendedglob` reads as a glob; it now says
   `nix run 'path:DIR#graft'`. `graft upgrade` rewrites the README when it takes this version.
+- **A `### Migration` subsection counts as Upgrading steps**, as knowledge-base-kit v2.0.0 heads them:
+  `changelog`, `migrate` and the upgrade pull request show it first.
 - **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or
   three of them, depending on the line; it now always says
   `graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in FILE; …)`.

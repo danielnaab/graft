@@ -348,7 +348,7 @@ upstream_range() {
 # changelog_between OLD NEW [all|upgrading|rest]: from a CHANGELOG.md on stdin, the sections headed
 # `## vX.Y.Z` or `## X.Y.Z` (or `## [X.Y.Z]`, anything after) for OLD < version <= NEW, headings
 # moved two levels down to sit under the caller's own. `upgrading` keeps only each section's
-# Upgrading subsections (a `### Upgrading…` heading, to the next `###` or `##`), under their
+# Upgrading subsections (a `### Upgrading…` or `### Migration…` heading, to the next `###` or `##`), under their
 # version's heading; `rest` everything else. In either part, a version with nothing left in it
 # prints nothing, not even its heading.
 changelog_between() {
@@ -407,7 +407,7 @@ changelog_between() {
         }
         if (l ~ /^# /) { keep = 0; pending = "" }
         if (!keep) continue
-        if (l ~ /^### /) upg = (tolower(l) ~ /^### +upgrading/)
+        if (l ~ /^### /) upg = (tolower(l) ~ /^### +(upgrading|migration)/)
         emit(l)
       }
     }

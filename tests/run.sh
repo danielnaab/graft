@@ -1083,7 +1083,7 @@ git_ checkout -q -- .
 
 # --override-input: a provider's unreleased major on a branch, tried in a worktree of the consumer
 git_ -C "$mp" checkout -q -b next
-{ echo "# Changelog"; echo; echo "## v3.0.0 - unreleased"; echo; echo "### Upgrading"; echo "- next: update your links"; echo; tail -n +3 "$mp/CHANGELOG.md"; } > "$work/next-cl"
+{ echo "# Changelog"; echo; echo "## v3.0.0 - unreleased"; echo; echo "### Migration"; echo "- next: update your links"; echo; tail -n +3 "$mp/CHANGELOG.md"; } > "$work/next-cl"
 cp "$work/next-cl" "$mp/CHANGELOG.md" && echo "next" > "$mp/docs/next.md"
 git_ -C "$mp" add -A && git_ -C "$mp" commit -qm next && git_ -C "$mp" checkout -q main
 git_ -C "$mc" worktree add -q -b try-next "$work/mc-try" graft/upgrade
@@ -1094,6 +1094,7 @@ next=$(git_ -C "$mp" rev-parse next)
 out=$(mig_ --no-check --base graft/upgrade) || fail "override: graft migrate"
 expect "override: the header names the branch, its commit, and the repo (not the worktree's folder)" grep -qx "Migrate this repo (migrate-consumer) to mp next at ${next:0:12} (from v2.0.0)." <<<"$out"
 expect "override: the unreleased section's Upgrading steps" grep -qx "> - next: update your links" <<<"$out"
+expect "a Migration heading counts as Upgrading" test "$(grep -n -A3 -x "Upgrading, from its CHANGELOG.md:" <<<"$out" | grep -c "> #### v3.0.0 - unreleased")" = 1
 expect "and its heading" grep -qx "> #### v3.0.0 - unreleased" <<<"$out"
 refuse "override: not the old tag's section" grep -qx "> #### v2.0.0 - 2026-11-04" <<<"$out"
 refuse "override: no commit list" grep -q "its commits:" <<<"$out"

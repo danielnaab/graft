@@ -45,7 +45,7 @@ version. For `0.y.z`, a new `0.y` counts as one.
 
    Write steps that need knowledge of the consumer only: what moved, what to search for, what to put in its
    place, and how to know it is done. Start the heading with `### Upgrading` (in any case): graft shows that
-   subsection first, and finds no other name ([If something goes wrong](#if-something-goes-wrong)). For a file you move,
+   subsection first. It also takes `### Migration`, and no other name ([If something goes wrong](#if-something-goes-wrong)). For a file you move,
    you can also leave a stub at the old path that names the new one, and remove it at the next major version.
 
 2. Make a throwaway worktree of a consumer, on a new branch:
@@ -348,10 +348,9 @@ For a `github:` input, look for `/v2.0.0` instead of `ref=v2.0.0`.
   `graft: page-rules: no tag v2.1.0 upstream; nothing changed`: the provider has not pushed that tag, or the
   spelling differs. Write the tag as the provider does, `v2.0.0` and not `2.0.0`.
 - **The changelog says `From its CHANGELOG.md (no Upgrading section in this range):`.** The provider headed its
-  steps some other way. graft finds a subsection only when its heading starts with `### Upgrading`, under a
-  `## vX.Y.Z` heading. The whole section is quoted below that line, so find the steps in it. For example,
-  knowledge-base-kit v2.0.0 heads its steps `### Migration`. If you are the provider, rename the heading in
-  your next release.
+  steps some other way. graft finds a subsection only when its heading starts with `### Upgrading` or
+  `### Migration`, under a `## vX.Y.Z` heading. The whole section is quoted below that line, so find the
+  steps in it. If you are the provider, rename the heading in your next release.
 - **`migrate` says `graft migrate: nothing moved since … No migration to do.`** It compares with the merge
   base of the default branch, and the upgrade is already there: you committed it on the default branch, and
   pushed. Find the upgrade's commit with `git log --oneline -- flake.lock` (the newest line), and compare

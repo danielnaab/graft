@@ -44,7 +44,7 @@ graft writes it. Its format is what graft's commands read, so do not edit it.
 | File | Purpose |
 |---|---|
 | `.gitattributes` | Paths marked `export-ignore` stay out of the export. A `.gitattributes` in a subdirectory counts too. |
-| `CHANGELOG.md` | One `## vX.Y.Z` (or `## X.Y.Z`) section per release; anything can follow the version, such as the date. A major version's section has an `### Upgrading` subsection. graft reads the file from the provider's repository with git, not from the export, and quotes the sections between two tags. |
+| `CHANGELOG.md` | One `## vX.Y.Z` (or `## X.Y.Z`) section per release; anything can follow the version, such as the date. A major version's section has an `### Upgrading` subsection (graft also takes `### Migration`). graft reads the file from the provider's repository with git, not from the export, and quotes the sections between two tags. |
 | Tags | Semver tags (`v1.2.3` or `1.2.3`) are versions. Other tags, such as `v1.3.0-rc.1`, are ignored. graft's [advice](../guides/publish.md#steps): prefer a lightweight tag. |
 
 ### What to export
