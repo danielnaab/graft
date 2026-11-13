@@ -740,8 +740,8 @@ git_ commit -qm init
 git_ init -q --bare "$work/origin.git" && git_ remote add origin "$work/origin.git" && git_ push -q origin main
 expect "ci check passes" quiet ci_ check
 # a lock never committed: a fresh clone gets one from Nix, git-added, and every check passes on it
-git_ clone -q "$work/origin.git" "$work/nolock" && git_ -C "$work/nolock" rm -q --cached flake.lock \
-  && git_ -C "$work/nolock" commit -qm "drop the lock" && git_ clone -q "$work/nolock" "$work/nolock-clone"
+git_ clone -q -b main "$work/origin.git" "$work/nolock" && git_ -C "$work/nolock" rm -q --cached flake.lock \
+  && git_ -C "$work/nolock" commit -qm "drop the lock" && git_ clone -q -b main "$work/nolock" "$work/nolock-clone"
 cd "$work/nolock-clone"
 expect "lock: a fresh clone has no committed lock" test ! -e flake.lock
 refused "lock: ci check fails when flake.lock was never committed" ci_ check
