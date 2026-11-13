@@ -24,6 +24,11 @@
 - **graft's own docs check fails on a broken link.** `checks.<system>.docs` ran
   `link_validator && kb_linter`, so a link failure never failed the build. Only graft's own
   `nix flake check` changes; nothing consumers run does.
+- **Both checks fail when `flake.lock` is not in git.** A `.gitignore` that dropped `flake.lock` let both
+  checks pass while Nix resolved the tags again on every run. `graft check` now fails with
+  `graft: git ignores flake.lock, so the pins are not committed: git check-ignore -v flake.lock names the rule; …`
+  (`FLAKEDIR/flake.lock` for a flake in a subdirectory), and `checks.<system>.graft` with
+  `graft: flake.lock is not in git, so the pins are not committed: …`.
 
 ## v2.11.1 - 2026-11-12
 

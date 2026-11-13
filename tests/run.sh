@@ -1051,6 +1051,18 @@ consumer nodeps ''
 sed -i.bak '/inputs.provider/d' flake.nix && rm flake.nix.bak
 expect "no scions at all is an error naming the cause" sh -c 'nix run .#graft 2>&1 | grep -q "graft: no scions"'
 
+# flake.lock holds the pins: both checks fail when git leaves it out
+consumer lockignored ''
+quiet nix run .#graft && git_ add -A
+expect "lock: check passes with flake.lock in git" quiet nix flake check
+printf 'flake.lock\n' > .gitignore && git_ rm -q --cached flake.lock && git_ add -A
+refused "lock: graft check fails when git ignores flake.lock" nix run .#graft check
+expect "and names the cause" grep -qxF "graft: git ignores flake.lock, so the pins are not committed: git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock" <<<"$out"
+refused "lock: nix flake check fails too" nix flake check
+expect "and names the cause" grep -qF "graft: flake.lock is not in git, so the pins are not committed: if git ignores it, git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock" <<<"$out"
+git_ rm -q --cached .gitignore && rm .gitignore && git_ add -A
+expect "lock: committed, both pass" quiet sh -c 'nix run .#graft check && nix flake check'
+
 # a repo's own outputs: merged at every level, and evaluated without graft's checks on the inputs
 consumer own 'dir = "../outside"; outputs.apps = builtins.mapAttrs (_: _: { own = { type = "app"; program = "/bin/true"; }; }) inputs.graft.packages; outputs.answer = 42;'
 expect "own outputs evaluate without graft's argument checks" test "$(nix eval .#answer 2>/dev/null)" = 42
@@ -1127,6 +1139,12 @@ out=$(nix run path:nix/workspace#graft check 2>&1) && fail "subdir: graft check 
 pass "subdir: graft check catches a grafted file .gitignore drops"
 expect "subdir: and says what a file only in the pin means" grep -qF "git ignores it: git check-ignore -v .scions/provider/docs/policy.md names the rule" <<<"$out"
 rm .gitignore && git_ reset -q
+echo "flake.lock" > nix/workspace/.gitignore && git_ rm -q --cached nix/workspace/flake.lock
+refused "subdir: graft check fails when git ignores the flake's flake.lock" nix run path:nix/workspace#graft check
+expect "subdir: and names it from the repo's top" grep -qxF "graft: git ignores nix/workspace/flake.lock, so the pins are not committed: git check-ignore -v nix/workspace/flake.lock names the rule; remove the rule, then commit nix/workspace/flake.lock" <<<"$out"
+rm nix/workspace/.gitignore
+expect "subdir: an untracked flake.lock that git would add passes" quiet nix run path:nix/workspace#graft check
+git_ reset -q
 refuse "subdir: check from graft's own flake says where it runs" quiet nix run "path:$graft" -- check
 # the workflow's own step finds the flake from the scions README
 sed -n '/name: Scions match/,$p' .forgejo/workflows/graft-check.yaml | sed -n '/run: |/,$p' | tail -n +2 | sed 's/^          //' > "$work/check-step.sh"

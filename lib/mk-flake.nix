@@ -12,6 +12,9 @@
 #   checks.<system>.graft  fail unless <dir> is `expected` (nix flake check); only when the flake is
 #                          at the repo's top, the only place its source holds <dir>
 #
+# Both checks also fail when flake.lock, which holds the pins, isn't in git: a .gitignore that drops
+# it would leave each run to resolve the tags again, with every check passing.
+#
 # Arguments:
 #
 #   inputs   the flake's inputs
@@ -73,6 +76,8 @@ let
     && lib.all (s: s != "." && s != "..") (lib.splitString "/" fd)
     && lib.head (lib.splitString "/" fd) != ".git");
   flakeArg = if root then "." else fd;
+  # the flake's lock, from the repo's top
+  lockPath = if root then "flake.lock" else "${fd}/flake.lock";
   # how a person runs this flake's app, from the repo's top
   run = if root then "nix run .#graft" else "nix run path:${fd}#graft";
 
@@ -164,10 +169,20 @@ let
             echo ${lib.escapeShellArg "graft: ${path}/ is missing; run: ${run}"} >&2
             exit 1
           fi
+          rc=0
           tmp=$(mktemp -d)
           trap 'rm -rf "$tmp"' EXIT
           mkdir -p "$tmp/actual/"${q}
           if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            # the lock holds the pins: without it in git, every run resolves the tags again
+            if ! git ls-files --error-unmatch --cached --others --exclude-standard -- ${lib.escapeShellArg ":(literal)${lockPath}"} >/dev/null 2>&1; then
+              if git check-ignore -q -- ${lib.escapeShellArg lockPath}; then
+                echo ${lib.escapeShellArg "graft: git ignores ${lockPath}, so the pins are not committed: git check-ignore -v ${lockPath} names the rule; remove the rule, then commit ${lockPath}"} >&2
+              else
+                echo ${lib.escapeShellArg "graft: ${lockPath} is missing; run: ${run}"} >&2
+              fi
+              rc=1
+            fi
             git ls-files -z --cached --others --exclude-standard -- ${lib.escapeShellArg ":(literal)${path}"} \
               | while IFS= read -r -d ''' f; do
                   if [ -e "$f" ] || [ -L "$f" ]; then cp -P --parents --no-preserve=mode -- "$f" "$tmp/actual/"; fi
@@ -175,9 +190,8 @@ let
           else
             cp -RP --no-preserve=mode ${q}/. "$tmp/actual/"${q}
           fi
-          rc=0
           ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || rc=1"}
-          bash ${./drift.sh} git ${expected pkgs} "$tmp/actual/"${q} ${q} ${lib.escapeShellArg "${if root then "" else "${fd}/"}flake.lock"} ${lib.escapeShellArg run} || rc=1
+          bash ${./drift.sh} git ${expected pkgs} "$tmp/actual/"${q} ${q} ${lib.escapeShellArg lockPath} ${lib.escapeShellArg run} || rc=1
           bash ${./workflows.sh} check . ${examples} ${lib.escapeShellArg run} ${flakeArg} ${q} || rc=1
           if [ "$rc" = 0 ]; then echo ${lib.escapeShellArg "graft: ${path}/ and graft's workflows match the pins"}; fi
           exit "$rc"
@@ -193,6 +207,10 @@ let
       echo ${lib.escapeShellArg "graft: ${path}/ is missing; run: nix run .#graft"} >&2
       exit 1
     fi
+    ${lib.optionalString (!builtins.pathExists lockFile) ''
+      echo ${lib.escapeShellArg "graft: flake.lock is not in git, so the pins are not committed: if git ignores it, git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock"} >&2
+      exit 1
+    ''}
     ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || exit 1"}
     ${pkgs.bash}/bin/bash ${./drift.sh} nix ${expected pkgs} "$actual" ${q} flake.lock ${lib.escapeShellArg run} || exit 1
     ${pkgs.bash}/bin/bash ${./workflows.sh} check ${inputs.self} ${examples} ${lib.escapeShellArg run} . ${q}
