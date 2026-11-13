@@ -10,6 +10,10 @@
   for a new or an existing repository (an existing flake's outputs, its own `flake = false` inputs, a
   `.gitignore` that drops `flake.lock`). Its section "Try a provider's unreleased change" moved to
   [Upgrade](docs/guides/upgrade.md#try-a-providers-unreleased-change).
+- **[Make a pattern's checks gate your merges](docs/guides/gate-merges.md):** a guide to running a
+  provider's checker from its fetched export in `nix flake check`, a workflow that runs it on each pull
+  request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` runs only graft's own
+  check, so the guide's workflow is yours.
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
 
 ### Fixed
