@@ -62,7 +62,8 @@ graft renders its own copy with the lines that are yours: `branches:`, `paths-ig
 - `upgrade` replaces the file when graft's pin moves.
 - `sync` restores the pinned version's copy.
 - The checks fail if the file differs.
-- To keep your own edits, delete the marker line. graft then never reads or changes the file.
+- To keep your own edits, delete the marker line. graft then never reads or changes the file
+  ([CI](../guides/ci.md#keep-your-own-edits-to-a-workflow)).
 - graft never adds a workflow that you did not copy in.
 
 ### The branches line

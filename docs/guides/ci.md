@@ -75,4 +75,27 @@ Notes:
 - graft-check needs no schedule, because an ignored push cannot change what it checks. Check the ignored
   files with a hook or a workflow of your own, for example on a daily `schedule:`.
 
-Related: [Private providers](private-providers.md#check-in-ci), [Upgrade](upgrade.md).
+## Keep your own edits to a workflow
+
+graft's workflows in `.forgejo/workflows/` are graft's while they carry the marker line
+`# managed by graft: …`, their first line. graft keeps the `branches:`, `paths-ignore:` and
+`# graft ssh:` lines with the marker ([Files](../reference/files.md#grafts-workflows)). For any other edit:
+
+1. Delete the marker line. Do this before you run `nix run .#graft`: while the marker is there, it puts
+   graft's copy back.
+2. Make your edits. The comment below the old marker still says that graft replaces the file: change it
+   too.
+3. Run `nix run .#graft check`. It prints `graft: scions/ and graft's workflows match the pins`, because
+   graft no longer reads the file.
+4. Commit the workflow.
+
+Without the marker, `nix run .#graft upgrade` no longer replaces the file, so you get none of graft's later
+changes to it. To take graft's copy again, put the marker line back as the first line and run
+`nix run .#graft`. It prints `graft: refreshed .forgejo/workflows/FILE`, keeps the `branches:`,
+`paths-ignore:` and `# graft ssh:` lines, and drops your other edits.
+
+If `nix run .#graft` printed `graft: refreshed .forgejo/workflows/FILE` over an edit that you had committed
+or staged, get it back with `git restore -- .forgejo/workflows/FILE`, then delete the marker line. graft
+does not stage the workflows, so git still has the edit. An edit that git did not have is lost.
+
+Related: [Make a pattern's checks gate your merges](gate-merges.md) (graft-check runs only graft's check), [Graft a private repository](private-providers.md), [Upgrade](upgrade.md).

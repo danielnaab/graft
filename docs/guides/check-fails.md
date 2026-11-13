@@ -9,11 +9,11 @@ save any change someone meant, put the scions back to their pins, and stop the c
 ## Before you begin
 
 - graft never keeps an edit to a scion: step 5 replaces it. A change that you want to keep belongs in the
-  provider.
+  provider, or in a file of your own ([Change a grafted file](change-a-grafted-file.md)).
 - The commands assume the scions directory is `scions/` and `flake.nix` is at the repository's top. If
   `mkFlake` sets `dir`, read your directory for `scions/`. If your flake is in a subdirectory, run
   `nix run path:DIR#graft` for `nix run .#graft`. Then `nix flake check` does not check the scions:
-  `nix run path:DIR#graft check` is the check ([A flake in a subdirectory](flake-in-a-subdirectory.md)).
+  `nix run path:DIR#graft check` is the check ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
 - Commit or stash work that is not about the scions, so that `git status` shows only the drift.
 
 ## Steps
@@ -54,7 +54,8 @@ save any change someone meant, put the scions back to their pins, and stop the c
    ```
 
    A line `graft: .forgejo/workflows/FILE differs from the copy this graft version ships` is one of graft's
-   workflows. Step 5 restores it. To keep your edits instead, delete its marker line ([Files](../reference/files.md)).
+   workflows. Step 5 restores it. To keep your edits instead, delete its marker line first
+   ([Keep your own edits to a workflow](ci.md#keep-your-own-edits-to-a-workflow)).
 
 3. Find which changes someone meant. The check shows committed and uncommitted edits alike, so ask git:
 
@@ -64,10 +65,14 @@ save any change someone meant, put the scions back to their pins, and stop the c
    ```
 
    Uncommitted changes are often a tool's output. A commit with a message of its own is usually a person's.
+   A meant change that fits only your repository is better as a file of your own: copy the file out of
+   the scions directory now, before step 5 replaces it ([Change a grafted file](change-a-grafted-file.md)).
 
-4. Commit each meant change that is not committed yet, naming its files, so that a tool's output stays out:
+4. Commit each meant change that is not committed yet, new files included, naming its files, so that a
+   tool's output stays out:
 
    ```
+   git add -- scions/NAME/FILE
    git commit -m "Meant scion edit" -- scions/NAME/FILE
    ```
 
@@ -91,6 +96,7 @@ save any change someone meant, put the scions back to their pins, and stop the c
    `git apply -p3 /tmp/scion-change.patch` applies it: add one to `-p` for each extra segment in your
    scions directory's path. Commit and release it there, then take the new version with [Upgrade](upgrade.md).
    To try it here first, see [a provider's unreleased change](upgrade.md#try-a-providers-unreleased-change).
+   The whole path is in [Fix it in the provider](change-a-grafted-file.md#fix-it-in-the-provider).
 
 7. Stop the cause from doing it again. Tell each tool that the scions directory is not yours:
 
