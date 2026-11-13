@@ -71,5 +71,7 @@ These links cite the kit by URL, because graft does not export `scions/`. When y
 2. Change the graft tag in `template/flake.nix`, `README.md` and the docs to the new version.
 3. Run `nix flake check` and `tests/run.sh`.
 4. Commit.
-5. Tag the commit `vX.Y.Z`.
+5. Tag the commit: `git tag -a -m vX.Y.Z vX.Y.Z`. graft's tags are annotated, which
+   [Publish a pattern](guides/publish.md) allows: consumers take graft through a `github:` input, which
+   annotated tags do not affect ([Nix behaviours](reference/nix-behaviours.md#annotated-tags-and-exportignore)).
 6. Push the `v2` branch and the tag.

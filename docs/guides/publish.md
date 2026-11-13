@@ -9,31 +9,29 @@ it, and take it in a consumer.
 ## Before you begin
 
 - The terms provider, export rules, export and scion are in [Concepts](../concepts.md). Any git repository
-  with semver tags can be a provider.
+  with semver tags can be a provider. What to export, and how to name the repository, are in
+  [Files](../reference/files.md#in-a-provider).
 - The example releases `note-kit` v1.2.0. Its v1.1.0 shipped its tests, its own scions, its CI workflow and
   its `AGENTS.md` to every consumer. v1.2.0 fixes its tool, `note-lint`, and its export. `team-notes`
-  grafts it.
+  grafts it from note-kit's remote.
 - Choose the version: a patch version for a fix, a minor version for an addition, and a major version for a
   change that can break a consumer ([Make an incompatible change](#make-an-incompatible-change)).
 - Only committed files are exported. An untracked draft stays yours.
-- Nix with flakes, for step 9 only.
+- If your pattern ships a tool, or files that consumers copy once, also read
+  [Ship a tool or seed files with a pattern](ship-tools.md).
+- Nix with flakes, for step 10 only.
 
 ## Steps
 
-1. In `.gitattributes`, mark `export-ignore` each path that consumers must not get. What to exclude is in
-   [Decide what you export](#decide-what-you-export). For note-kit, replace its one rule with these:
+1. In `.gitattributes`, mark `export-ignore` each path that consumers must not get
+   ([What to export](../reference/files.md#what-to-export)). Write each rule without a trailing slash. For
+   note-kit, replace its one rule, `tests/ export-ignore`, with these:
 
    ```
    /tests     export-ignore
    /scions    export-ignore
    /.forgejo  export-ignore
    /AGENTS.md export-ignore
-   ```
-
-   Write each rule without a trailing slash. Then this prints nothing:
-
-   ```
-   grep -nE '/[[:space:]]+export-ignore' .gitattributes
    ```
 
 2. At the top of `CHANGELOG.md`, under its title, add a section for the release. Say what changed, for a
@@ -54,7 +52,8 @@ it, and take it in a consumer.
    git add .gitattributes CHANGELOG.md bin/note-lint
    ```
 
-   `git status --short` then shows only what stays out of the release, such as `?? notes/`.
+   `git status --short` then shows them staged (`M  .gitattributes`, `M  CHANGELOG.md`, `M  bin/note-lint`),
+   and what stays out of the release as untracked (`?? notes/`).
 
 4. Commit:
 
@@ -84,27 +83,37 @@ it, and take it in a consumer.
    seed/note-kit.conf
    ```
 
-   This is the export that GitHub serves to `github:` inputs. Nix applies the same rules for
-   `git+…&exportIgnore=1` inputs when no rule has a trailing slash (step 1). If the list holds a path that
-   consumers must not get, add a rule, and do steps 3 to 5 again.
+   This is the export that GitHub serves to `github:` inputs. If the list holds a path that consumers must
+   not get, add a rule, stage `.gitattributes`, run `git commit --amend --no-edit`, and list again.
 
-6. Tag the commit with a lightweight tag:
+6. Check that no rule in the export has a trailing slash. This prints nothing:
+
+   ```
+   git archive HEAD | tar -t | grep -E '(^|/)\.gitattributes$' | while IFS= read -r f; do git show "HEAD:$f"; done | grep -E '^[[:space:]]*[^#[:space:]][^[:space:]]*/[[:space:]](.*[[:space:]])?export-ignore([[:space:]]|$)'
+   ```
+
+   `git archive` applies a rule such as `tests/`, but Nix ignores it when it fetches from a bare clone, as it
+   does for `git+https` and `git+ssh` inputs ([Nix behaviours](../reference/nix-behaviours.md#trailing-slash-rules)).
+   If it prints a rule, remove the slash, and amend as in step 5.
+
+7. Tag the commit:
 
    ```
    git tag v1.2.0
    ```
 
-   It prints nothing. Do not use `git tag -a` or `git tag -s`: see
-   [If something goes wrong](#if-something-goes-wrong). Never move a released tag. Consumers' locks pin
-   its commit and hash, so release a new version instead.
+   It prints nothing. Prefer a lightweight tag, as here. A signed or annotated tag works too: on Nix 2.24,
+   a consumer with a `git+` input sees one re-pin on its first run
+   ([Nix behaviours](../reference/nix-behaviours.md#annotated-tags-and-exportignore)). Never move a released
+   tag. Consumers' locks pin its commit and hash, so release a new version instead.
 
-7. Push the branch:
+8. Push the branch:
 
    ```
    git push origin main
    ```
 
-8. Push the tag:
+9. Push the tag:
 
    ```
    git push origin v1.2.0
@@ -113,157 +122,58 @@ it, and take it in a consumer.
    Git prints `* [new tag]         v1.2.0 -> v1.2.0`. graft reads the tags of the repository that a
    consumer's input names, so consumers see the release only after this push.
 
-9. Take the release in a repository that grafts yours. For team-notes:
+10. Take the release in a repository that grafts yours. For team-notes:
 
-   ```
-   nix run .#graft upgrade
-   ```
+    ```
+    nix run .#graft upgrade
+    ```
 
-   It prints `graft: note-kit v1.1.0 -> v1.2.0` and `graft: rebuilt scions/`. `git status --short scions/`
-   shows `D` for each file that left the export, such as `scions/note-kit/AGENTS.md`. Then
-   `nix flake check` passes. To make the first consumer, follow
-   [Graft your first pattern](graft-a-repository.md).
+    It prints `graft: note-kit v1.1.0 -> v1.2.0` and `graft: rebuilt scions/`. `git status --short scions/`
+    shows `D` for each file that left the export, such as `scions/note-kit/AGENTS.md` and
+    `scions/note-kit/tests/run.sh`. Review, check and commit it as [Upgrade](upgrade.md) says. To make the
+    first consumer, follow [Graft your first pattern](graft-a-repository.md).
 
-   graft takes the newest release in the major version that a consumer pins. In CI, the weekly upgrade
-   takes it as a pull request ([Upgrade](upgrade.md)).
+    graft takes the newest release in the major version that a consumer pins. In CI, the weekly upgrade
+    takes it as a pull request.
 
 ## Check it worked
 
-In your repository, set `t` to the new tag, and the pattern after `grep -qE` to the paths that you exclude.
-Then paste this. It prints `ok` only if the tag is lightweight and pushed, `CHANGELOG.md` at the tag has
-its section, the export at the tag holds no excluded path, and no rule has a trailing slash:
+In your repository, set `t` to the new tag, and the pattern after `grep -qE '^(tests` to the paths that
+you exclude. Then paste this. It prints `ok` only if the tag is pushed, `CHANGELOG.md` at the tag has its
+section, the export at the tag holds no excluded path, and no rule in it has a trailing slash:
 
 ```sh
-t=v1.2.0 && test "$(git cat-file -t "$t")" = commit && git ls-remote --exit-code origin "refs/tags/$t" >/dev/null && git show "$t:CHANGELOG.md" | grep -q "^## $t" && ! git archive "$t" | tar -t | grep -qE '^(tests|scions|\.forgejo)/|^AGENTS\.md$' && ! grep -qE '/[[:space:]]+export-ignore' .gitattributes && echo ok
+t=v1.2.0 && git ls-remote --exit-code origin "refs/tags/$t" >/dev/null && git show "$t:CHANGELOG.md" | grep -qE "^## \[?v?${t#v}( |\]|$)" && ! git archive "$t" | tar -t | grep -qE '^(tests|scions|\.forgejo)/|^AGENTS\.md$' && ! git archive "$t" | tar -t | grep -E '(^|/)\.gitattributes$' | while IFS= read -r f; do git show "$t:$f"; done | grep -qE '^[[:space:]]*[^#[:space:]][^[:space:]]*/[[:space:]](.*[[:space:]])?export-ignore([[:space:]]|$)' && echo ok
 ```
 
 ## If something goes wrong
 
-- **`git tag v1.2.0` fails with `fatal: no tag message?`.** Your git config sets `tag.gpgSign`, which makes
-  every tag an annotated, signed tag. Make a lightweight one: `git -c tag.gpgSign=false tag v1.2.0`.
-- **A consumer's first `nix run .#graft` stops with `graft: flake.lock held annotated tag v1.1.0's object
-  …; re-pinned its commit …` and `graft: flake.lock re-pinned; nothing synced yet: run nix run .#graft
-  again`.** The tag is annotated, and the consumer takes you through a `git+` input. Nix 2.24 locks such a
-  tag at the tag object, and then ignores your export rules. graft repairs the lock, and the consumer's
-  second run grafts the right export
-  ([Nix behaviours](../reference/nix-behaviours.md#annotated-tags-and-exportignore)). `github:` inputs are
-  not affected. Leave the tag as it is, and tag your next release with a lightweight tag.
+- **`git tag v1.2.0` opens an editor, or fails with `fatal: no tag message?` where there is no editor.**
+  Your git config sets `tag.gpgSign`, which makes every tag a signed tag. A signed tag works (step 7): give
+  it a message, `git tag -m v1.2.0 v1.2.0`. Or make a lightweight one:
+  `git -c tag.gpgSign=false tag v1.2.0`.
+- **A consumer's first `nix run .#graft` stops with `graft: note-kit: flake.lock held annotated tag v1.1.0's
+  object …; re-pinned its commit …` and `graft: flake.lock re-pinned; nothing synced yet: run nix run
+  .#graft again`.** The tag is annotated or signed, and the consumer takes you through a `git+` input.
+  This is expected: the consumer's second run grafts the right export
+  ([Nix behaviours](../reference/nix-behaviours.md#annotated-tags-and-exportignore)).
+- **A consumer's first run fails with `fatal: couldn't find remote ref refs/heads/v1.1.0` and
+  `revspec 'v1.1.0' not found`.** The consumer's input is `git+https`, `git+ssh` or `git+file` to a bare
+  repository, and Nix 2.24 looks for the tag as a branch. Tell the consumer to fetch the tag once by its full
+  name, then run graft again:
+  `nix flake prefetch "git+URL?ref=refs/tags/v1.1.0&exportIgnore=1"`
+  ([Nix behaviours](../reference/nix-behaviours.md)).
+
+  Not yet: graft does not do this for the consumer.
 - **A consumer's scion holds a path that `git archive` leaves out, such as `tests/`.** A rule has a trailing
-  slash (`tests/ export-ignore`), and the consumer takes you through a `git+` input, which ignores such a
-  rule ([Nix behaviours](../reference/nix-behaviours.md#trailing-slash-rules)). Remove the slash, and release
-  a patch version.
+  slash (`tests/ export-ignore`), and the consumer's input fetches from a bare clone. Remove the slash
+  (step 6), and release a patch version.
 
   Not yet: no graft check warns about a rule with a trailing slash.
-- **A consumer's check fails with `…/bin/note-lint: cannot execute: required file not found`.** The check
-  runs your script directly, and its `#!/usr/bin/env bash` line names a path that Nix's build sandbox does
-  not have. Ship a Nix expression that builds the tool ([Ship a tool](#ship-a-tool)), or tell consumers to
-  run it through an interpreter (`bash ${inputs.note-kit}/bin/note-lint`).
 
 ## Decide what you export
 
-Your export is your tree at a tag, minus the paths that your export rules exclude. Exclude what is for work
-on your repository, not for its consumers:
-
-- **Your tests and fixtures.**
-- **Your own scions directory.** Consumers take your content, never your dependencies. A consumer that
-  needs one of your dependencies grafts it directly ([One level](../decisions.md#one-level)). graft does
-  not check this.
-- **Your CI files**, such as `.forgejo/` or `.github/`.
-- **Your agents' instructions**, such as `AGENTS.md` or `CLAUDE.md`. A consumer's agent would read them as
-  its own. Put instructions for consumers in a file that you export, and that they point their agents at.
-- **Your own upkeep**, such as notes, and the configuration of tools that check only your repository.
-
-Keep `README.md`, the files that consumers use, and `CHANGELOG.md`. graft reads `CHANGELOG.md` from your
-repository with git, not from the export, so `graft changelog` works either way. Exported, it is also in
-each consumer's scion.
-
-- Write directory rules without a trailing slash, and with a leading `/` for a top-level path. `tests/`
-  works for `github:` inputs, and matches nothing for `git+…&exportIgnore=1` inputs. See
-  [Nix behaviours](../reference/nix-behaviours.md#trailing-slash-rules).
-- Exported files must link only to exported files. A link into an excluded path breaks in every
-  consumer's copy. Link to it by URL instead.
-- graft's own [`.gitattributes`](../../.gitattributes) is a real example: it excludes its scions and its
-  upkeep files.
-
-## Ship a tool or seed files
-
-### Ship a tool
-
-A tool's source is part of your export. Consumers build and run it from the same input, so they need no
-second input for your repository.
-
-- Ship a Nix expression that builds the tool with what it needs, such as note-kit's `package.nix`:
-
-  ```nix
-  { writeShellApplication, gnused, gnugrep, findutils }:
-  writeShellApplication {
-    name = "note-lint";
-    runtimeInputs = [ gnused gnugrep findutils ];
-    text = builtins.readFile ./bin/note-lint;
-  }
-  ```
-
-- Say in your README how to call it. A consumer builds it from the fetched export, `${inputs.note-kit}`,
-  in a check of its own:
-
-  ```nix
-  note-lint = pkgs.callPackage "${inputs.note-kit}/package.nix" { };
-  ```
-
-  [Make a pattern's checks gate your merges](gate-merges.md) shows a whole check, and says why it reads
-  `${inputs.<name>}` and not `scions/<name>`.
-- Consumers graft you with `flake = false`, so your own flake's `packages` and `apps` do not reach them
-  through that input.
-- If your tool reads a setting from the consumer's repository, name the file and the setting in your
-  README ([Change a grafted file](change-a-grafted-file.md)).
-
-### Ship seed files
-
-A seed file is a file that a consumer copies once and then owns, such as a starter configuration. It is not
-a scion: graft replaces a scion, and would remove the consumer's edits.
-
-- **One or two files:** export them, and tell consumers to copy them out of the scion once, for example
-  `cp scions/note-kit/seed/note-kit.conf .`. The scion keeps your current version, to compare with at each
-  upgrade.
-- **A starter that `nix flake init` writes:** give your `flake.nix` a template, as note-kit does, and keep
-  `flake.nix` and the template's directory in your export:
-
-  ```nix
-  {
-    outputs = { self }: {
-      templates.default = { path = ./seed; description = "note-kit's settings, to copy once"; };
-    };
-  }
-  ```
-
-  A consumer runs `nix flake init -t <your repository's URL at a tag>`, for example
-  `nix flake init -t github:OWNER/note-kit/v1.2.0`. It writes the files and stages them.
-- **Files that consumers edit, and that should still take your later changes:** use a template tool such as
-  Copier, which merges your changes into their edits. See the README's
-  [comparison](../../README.md#compared-with-copying-submodules-templates-and-bots).
-
-### A step after each upgrade
-
-If consumers must run a step after each upgrade, such as regenerating files from your templates, give them
-a recipe that runs both. For example, for their `justfile`:
-
-```just
-# Take new releases, then regenerate what note-kit renders
-upgrade:
-    nix run .#graft upgrade
-    nix run .#render
-```
-
-graft has no post-upgrade hook ([Scope](../decisions.md#scope-nix-a-copy-a-diff-and-a-tag-comparison)),
-and the weekly upgrade in CI does not run the recipe. Also give consumers a check that fails when the
-regenerated files differ from what the new version renders. The upgrade pull request then fails that check,
-and a person runs the recipe on its branch.
-
-### Links to another provider's files
-
-If your exported files link to another provider's files by URL at a tag (because you do not export your
-scions), change that tag when you upgrade that provider. graft does not. To find the links, search for the
-old tag, for example `git grep -n 'knowledge-base-kit/blob/v2.1.0'`.
+Moved to [Files: What to export](../reference/files.md#what-to-export).
 
 ## Make an incompatible change
 
@@ -281,30 +191,16 @@ to, a file's shape.
 
 ## Name the repository
 
-The name ends with what the content is, not the role that the repository plays:
-
-| Suffix | Content | A consumer should |
-|---|---|---|
-| `-kit` | Something to adopt and keep upgrading: tools, skills, structure, often with the rules that they enforce | run or adopt it |
-| `-conventions` | Rules only | comply with it |
-| `-knowledge` | A knowledge base about a topic | read it |
-
-- A repository that defines a named method takes that name, such as `living-specifications`.
-- Do not use role words (`-provider`, `-scion`), words that other tools own (`-pack`, `-bundle`,
-  `-template`), or words that suggest a one-time copy (`-seed`, `-starter`).
-- Give the repository the topic `graft-provider` on its forge (Forgejo or GitHub).
-
-Related: [Upgrade](upgrade.md#cross-a-major-version), [Files](../reference/files.md#in-a-provider).
+Moved to [Files: Naming](../reference/files.md#naming).
 
 ## Sources
 
 - [lib/common.sh](../../lib/common.sh): `is_semver` (which tags are versions), "Annotated tags",
-  `tag_shas` and `peel_locks` (the repair of a lock at a tag object), `upstream_range` and
+  `tag_shas` and `peel_locks` (the re-pin of a lock at a tag object), `upstream_range` and
   `changelog_between` (`CHANGELOG.md` read from the provider with git, and its section headings).
 - [lib/export-ignored.sh](../../lib/export-ignored.sh): the check that a fetched export holds nothing that
   its export rules exclude.
 - [lib/assemble.sh](../../lib/assemble.sh): the scions directory, one folder for each export.
-- [.gitattributes](../../.gitattributes): graft's own export rules.
 - [tests/run.sh](../../tests/run.sh): the annotated-tag tests, and the providers that the whole cycle runs
   against.
 - [tests/fixtures.sh](../../tests/fixtures.sh) `publish`: the repositories this page was read against.

@@ -22,9 +22,11 @@
 #                   tests/, a stand-in for its own scions/, a CI workflow and AGENTS.md. v1.0.0 (a lightweight
 #                   tag) and v1.1.0 (an annotated tag) shipped with one rule, `tests/ export-ignore`, so its
 #                   scions/, CI and AGENTS.md reach consumers. Then the next release's work, not committed: a
-#                   fix to the tool, and an untracked draft. team-notes/: grafts note-kit at v1.1.0 with this
-#                   checkout's graft (its lock re-pinned from the annotated tag's object to the commit), runs
-#                   note-lint in its check, and has its own copy of the seed file; committed and passing
+#                   fix to the tool, and an untracked draft. note-kit.git/: its origin, a bare repository.
+#                   team-notes/: grafts note-kit v1.1.0 from note-kit.git with this checkout's graft (so its
+#                   scion has tests/: Nix ignores `tests/` from a bare clone; its lock re-pinned from the
+#                   annotated tag's object to the commit), runs note-lint in its check, and has its own copy
+#                   of the seed file; committed and passing
 #
 # Needs nix, git 2.28 or later and GNU sed. Network: check-fails fetches python3 and ruff from the nixpkgs
 # registry (unpinned, so ruff's output can vary); first-pattern's flakes pin a nixpkgs that the reader fetches;
@@ -449,7 +451,7 @@ EOF
   description = "Team notes";
   inputs = {
     graft.url = "path:$graft";
-    note-kit = { url = "git+file://$p?ref=v1.1.0&exportIgnore=1"; flake = false; };
+    note-kit = { url = "git+file://$out/note-kit.git?ref=v1.1.0&exportIgnore=1"; flake = false; };
   };
   outputs = inputs: inputs.graft.lib.mkFlake {
     inherit inputs;
@@ -471,7 +473,10 @@ EOF
   printf 'Follow scions/note-kit/docs/notes-policy.md. Never edit scions/: graft replaces it.\n' > "$c/AGENTS.md"
   repo "$c"
   g -C "$c" add -A
-  # the first run re-pins the annotated tag's object to its commit, and stops; the second grafts
+  # it takes note-kit from the bare origin, as from a forge. Nix 2.24 can't lock `ref=v1.1.0` there
+  # from a cold cache (it asks for refs/heads/v1.1.0): fetch the tag by its full name first. Then the
+  # first run re-pins the annotated tag's object to its commit, and stops; the second grafts
+  nix flake prefetch "git+file://$out/note-kit.git?ref=refs/tags/v1.1.0&exportIgnore=1" >/dev/null 2>&1
   (cd "$c" && { nix run .#graft >/dev/null 2>&1 || nix run .#graft >/dev/null; })
   g -C "$c" add -A
   g -C "$c" commit -qm "Graft note-kit v1.1.0"

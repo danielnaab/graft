@@ -126,7 +126,9 @@ and `.forgejo/`. Then point your `AGENTS.md`, checks and CI at what you grafted.
 Any repository with semver tags can be a provider. Make it easy to follow:
 
 - Mark what consumers should not get (tests, your own scions) `export-ignore` in `.gitattributes`.
-- Release with a lightweight semver tag, and a `CHANGELOG.md` section for each version.
+- Tag each release with a semver tag, and give it a `CHANGELOG.md` section. Prefer a lightweight tag. A
+  signed or annotated tag works too: on Nix 2.24, a consumer with a `git+` input sees one re-pin on its
+  first run ([Nix behaviours](docs/reference/nix-behaviours.md#annotated-tags-and-exportignore)).
 - Release a breaking change as a new major version.
 - In that version's CHANGELOG section, write **Upgrading** steps that a person or agent can follow without
   knowing your repository's internals. `graft changelog` and `graft migrate` show them first.
@@ -144,7 +146,8 @@ See [Publish a pattern](docs/guides/publish.md).
 | Change a grafted file that does not fit, or has a mistake | [Change a grafted file](docs/guides/change-a-grafted-file.md) |
 | Take newer versions, and cross a major version | [Upgrade](docs/guides/upgrade.md) |
 | Keep private content out of the Nix store | [A flake in a subdirectory](docs/guides/flake-in-a-subdirectory.md) |
-| Release a repository for others to graft, including one that ships a tool or seed files | [Publish a pattern](docs/guides/publish.md) |
+| Release a repository for others to graft | [Publish a pattern](docs/guides/publish.md) |
+| Ship a tool that consumers build, or files that they copy once | [Ship a tool or seed files with a pattern](docs/guides/ship-tools.md) |
 | Graft a private repository | [Private providers](docs/guides/private-providers.md) |
 | Check and upgrade in CI | [CI](docs/guides/ci.md), and why it is safe: [CI security](docs/ci-security.md) |
 | Look up a command, flag or `mkFlake` argument | [Commands](docs/reference/commands.md) |

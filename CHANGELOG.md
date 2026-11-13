@@ -20,12 +20,17 @@
   request, and the Forgejo branch rule that requires it. graft's `graft-check.yaml` stays graft's drift
   check: your checks are a status of their own. It says why graft's weekly upgrade pull request gets no
   status from your workflow until a person reopens it.
-- **Publish is now [Publish a pattern](docs/guides/publish.md)**, a guide to one release: choose the
-  export rules, add the CHANGELOG section, list the export with `git archive` before tagging, tag with a
-  lightweight tag (and why not an annotated one), push, and take the release in a consumer. New: what a
-  provider leaves out of its export, how a kit ships a tool (a Nix expression that consumers build from
-  the fetched export) or seed files (copied once, or a flake template), a recipe that runs a step after
-  each upgrade, and links to another provider's files at a tag.
+- **Publish is now [Publish a pattern](docs/guides/publish.md)**, the steps of one release: export rules,
+  the CHANGELOG section, the export listed with `git archive` and checked for trailing-slash rules, the
+  tag (prefer lightweight; signed or annotated works, with one re-pin for `git+` consumers), the push, and
+  the consumer's upgrade. What to export and how to name a provider moved to
+  [Files](docs/reference/files.md#in-a-provider).
+- **[Ship a tool or seed files with a pattern](docs/guides/ship-tools.md):** a tool that consumers build
+  from the fetched export with the provider's `package.nix`, seed files as a flake template, and a recipe
+  for a step after each upgrade.
+- **[Nix behaviours](docs/reference/nix-behaviours.md)**: trailing-slash rules fail only for fetches from
+  a bare clone; a first lock of `ref=TAG` from a bare clone fails on Nix 2.24, and how to fetch the tag
+  first.
 - **`tests/fixtures.sh`** builds the repositories that a guide is read against ([Development](docs/development.md)).
 
 ### Fixed

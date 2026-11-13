@@ -15,12 +15,17 @@ again when you change Nix versions.
 | Two inputs for one repository at one commit (`github:` and `git+https`, for example) share one fetch-cache entry. The first fetch decides the tree for both. | 2.24, 2.33 | Take one repository through one input. |
 | [Trailing-slash rules](#trailing-slash-rules) | 2.24 to 2.35 | Providers write directory rules without the slash too. |
 | [Annotated tags and exportIgnore](#annotated-tags-and-exportignore) | 2.24 | graft keeps such locks at the tag's commit. |
+| A first lock of `git+…?ref=v1.0.0` from a bare clone, with a cache that has not seen the tag, asks for `refs/heads/v1.0.0` and fails: `revspec 'v1.0.0' not found`. | 2.24 | Fetch the tag once by its full name: `nix flake prefetch "git+URL?ref=refs/tags/v1.0.0&exportIgnore=1"`. `graft upgrade` locks with the commit, which avoids it. |
 
 ## Trailing-slash rules
 
-For a `git+…?exportIgnore=1` input, Nix applies `.gitattributes` from a bare clone, where it cannot tell
-a directory from a file. A rule such as `tests/ export-ignore` then matches nothing. `tests export-ignore`
-works, and `/tests export-ignore` matches the top-level directory only.
+For a `git+…?exportIgnore=1` input fetched from a bare clone (`git+https`, `git+ssh`, or `git+file` to a
+bare repository), Nix applies `.gitattributes` where it cannot tell a directory from a file. A rule such as
+`tests/ export-ignore` then matches nothing. `tests export-ignore` works, and `/tests export-ignore`
+matches the top-level directory only.
+
+`git+file` to a checkout with a working tree applies both forms, so a provider that tries its export that
+way does not see the problem.
 
 `github:` inputs come from GitHub's `git archive`, which applies both forms.
 
