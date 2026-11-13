@@ -116,6 +116,9 @@
   tag, Upgrading first: the provider's unreleased major. Its header names the repository from its origin,
   else its main checkout's folder, not a worktree's (`handbook`, not `handbook-try`), and says
   `flake.nix, flake.lock and scions/` when the upgrade changed `flake.nix` too.
+- **The scions README quotes its commands for zsh.** For a flake in a subdirectory it said
+  `nix run path:DIR#graft`, which zsh with `extendedglob` reads as a glob; it now says
+  `nix run 'path:DIR#graft'`. `graft upgrade` rewrites the README when it takes this version.
 - **A workflow line graft cannot read names every line it keeps.** The hint after it listed one, two or
   three of them, depending on the line; it now always says
   `graft: (paths-ignore, branches and the ssh line are the only edits graft keeps in FILE; …)`.

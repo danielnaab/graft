@@ -19,7 +19,8 @@ if [ "$fd" = . ]; then
   # shellcheck disable=SC2016 # backticks here are markdown
   run='nix run .#graft' check='`nix flake check`' lock='flake.lock' nixf='flake.nix'
 else
-  run="nix run path:$fd#graft" check="\`nix run path:$fd#graft check\`" lock="$fd/flake.lock" nixf="$fd/flake.nix"
+  # quoted: in zsh with extendedglob, # is a glob character (DIR is a plain path: no quote in it)
+  run="nix run 'path:$fd#graft'" check="\`nix run 'path:$fd#graft' check\`" lock="$fd/flake.lock" nixf="$fd/flake.nix"
 fi
 # a hand-edited ref: Nix won't write the lock of a relative path: flake, so re-lock it by its full path
 relock=""

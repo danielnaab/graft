@@ -1326,7 +1326,7 @@ expect "subdir: grafted at the top's dir" test -f .scions/provider/docs/policy.m
 expect "subdir: not beside the flake" test ! -e nix/workspace/.scions
 expect "subdir: the README records the flake" grep -qx '<!-- graft flake: nix/workspace -->' .scions/README.md
 # shellcheck disable=SC2016 # the literal text
-expect "subdir: and names its commands" grep -qF '`nix run path:nix/workspace#graft check` fails' .scions/README.md
+expect "subdir: and names its commands, quoted for zsh" grep -qF "\`nix run 'path:nix/workspace#graft' check\` fails" .scions/README.md
 expect "subdir: no checks.<system>.graft, the repo's own kept" \
   test "$(nix eval --json "path:$sc/nix/workspace#checks.$system" --apply builtins.attrNames 2>/dev/null)" = '["fine"]'
 expect "subdir: graft check passes" quiet nix run path:nix/workspace#graft check
