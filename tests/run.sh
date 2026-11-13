@@ -718,6 +718,22 @@ expect "upgrade moves the scion" grep -q "ref=v2.1.0" flake.nix
 expect "but leaves graft's branch pin alone" grep -q "graft-repo?ref=main" flake.nix
 expect "check passes" quiet nix flake check
 
+# a workflow made the repo's own (marker deleted), then given back to graft (marker re-added): refresh
+# keeps its paths-ignore, branches and ssh lines
+wm=$work/wf-remark wmf=$work/wf-remark/.forgejo/workflows/graft-check.yaml
+mkdir -p "$wm/.forgejo/workflows"
+{ echo "$sshl"; tail -n +2 "$v9/template/.forgejo/workflows/graft-check.yaml"; } > "$wmf"
+sed -i 's|^  pull_request:$|&\n    paths-ignore: ["notes/**"]|; s|^    branches: \[main\]$|    branches: [v2]\n    paths-ignore: ["notes/**"]|' "$wmf"
+# shellcheck disable=SC2016 # sh's own expressions
+expect "remark: without the marker, refresh leaves the file alone" \
+  sh -c 'cp "$1" "$1.before" && bash "$2" refresh "$3" "$4" >/dev/null && cmp -s "$1" "$1.before"' _ "$wmf" "$graft/lib/workflows.sh" "$wm" "$v9/template/.forgejo/workflows"
+{ head -n 1 "$v9/template/.forgejo/workflows/graft-check.yaml"; cat "$wmf.before"; } > "$wmf"
+quiet bash "$graft/lib/workflows.sh" refresh "$wm" "$v9/template/.forgejo/workflows" || fail "workflows.sh refresh, marker re-added"
+expect "remark: keeps paths-ignore under both triggers" test "$(grep -c '^    paths-ignore: \["notes/\*\*"\]$' "$wmf")" = 2
+expect "remark: keeps branches" grep -qx '    branches: \[v2\]' "$wmf"
+expect "remark: keeps the ssh line" grep -qxF "$sshl" "$wmf"
+expect "remark: and the check passes" quiet bash "$graft/lib/workflows.sh" check "$wm" "$v9/template/.forgejo/workflows"
+
 # graft ci, the workflows' steps, against a local origin
 selfc self-ci v9.0.0
 git_ commit -qm init
@@ -1140,7 +1156,36 @@ expect "and leaves the repo able to stash" quiet git_ stash
 git_ stash pop -q
 consumer nodeps ''
 sed -i.bak '/inputs.provider/d' flake.nix && rm flake.nix.bak
-expect "no scions at all is an error naming the cause" sh -c 'nix run .#graft 2>&1 | grep -q "graft: no scions"'
+refused "no scions at all is an error" nix run .#graft
+expect "naming the cause" grep -qF "error: graft: no scions: no input has flake = false, and scions names none" <<<"$out"
+
+# --override-input: a local checkout for one run, with its uncommitted edits and without its new files
+consumer override ''
+quiet nix run .#graft && git_ add -A && git_ commit -qm graft
+git_ clone -q "$p" "$work/p-checkout"
+echo "unreleased" >> "$work/p-checkout/docs/policy.md"
+echo "new" > "$work/p-checkout/docs/new.md"
+quiet nix run .#graft --override-input provider "git+file://$work/p-checkout?exportIgnore=1" || fail "nix run .#graft --override-input"
+expect "override: takes the checkout's uncommitted edit" grep -q unreleased scions/provider/docs/policy.md
+expect "override: leaves out its untracked file" test ! -e scions/provider/docs/new.md
+# shellcheck disable=SC2016 # markdown backticks
+expect "override: the README records the commit as -dirty" grep -qE '^\| \[provider\]\(provider/\) \| `[0-9a-f]{40}-dirty` \|$' scions/README.md
+expect "override: flake.lock is unchanged" git_ diff --quiet HEAD -- flake.lock
+refuse "override: committed by mistake, nix flake check fails" quiet nix flake check
+quiet nix run .#graft
+expect "override: nix run .#graft goes back to the pin" quiet nix run .#graft check
+expect "override: and nothing is left to commit" git_ diff --cached --quiet
+
+# deleting an input: graft deletes its scion folder and stages that
+consumer dropped ''
+sed -i.bak 's#^  outputs#  inputs.src = { url = "git+file://'"$q"'?ref=v2.0.0\&exportIgnore=1"; flake = false; };\n  outputs#' flake.nix && rm flake.nix.bak
+quiet nix run .#graft && git_ add -A && git_ commit -qm graft
+expect "drop: two scions grafted" test -d scions/src
+sed -i.bak '/inputs.src/d' flake.nix && rm flake.nix.bak
+quiet nix run .#graft
+expect "drop: the dropped scion's folder is gone" test ! -e scions/src
+expect "drop: and its deletion is staged" sh -c 'git diff --cached --name-status -- scions/src | grep -q "^D"'
+expect "drop: check passes" quiet nix run .#graft check
 
 # flake.lock holds the pins: both checks fail when git leaves it out
 consumer lockignored ''
