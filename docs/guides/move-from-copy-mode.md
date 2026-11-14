@@ -94,8 +94,8 @@ is a one-time change, by hand or by an agent following these steps.
    ```
 
    In a subdirectory flake, add `--scions nix/agent-tools/.scions` to the first `add`. A provider that grafts
-   others prints `graft: note: scions/NAME has its own submodules (…); Nix fetches them when evaluating`: Nix
-   fetches those too, so they must be readable from here.
+   others prints `graft: note: scions/NAME has its own submodules (…)`: `add` fills them, and Nix fetches them
+   too, so they must be readable from here.
 
 5. Lock, write graft's files, commit, and check:
 
