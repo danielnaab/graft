@@ -131,9 +131,13 @@ Why:
 - **Declarations live in the files they describe.** A provider declares what its tools need in its
   `graft.nix`, beside the tools, and the consumer declares its own in `perSystem`. There is no new file.
   `--explain` names the file that set each value.
-- **The renderer can be replaced.** graft wires the policy (`packages.<system>.sandbox.policy`); the
-  bubblewrap launcher in `lib/sandbox/` is one renderer of it. A systemd unit or macOS Seatbelt can render the
-  same policy later.
+- **The renderer can be replaced.** graft wires the policy (`packages.<system>.sandbox.policy`); a renderer
+  in `lib/sandbox/` turns it into the launcher. Bubblewrap renders it on Linux, and Seatbelt on macOS, with
+  one runtime for both (the arguments, the pins, the checks before and after the run, the proxy) and a
+  backend each that turns the run into a command. A systemd unit can render the same policy later.
+- **On macOS, Seatbelt.** `sandbox-exec` with a profile that denies by default is the one sandbox that
+  macOS gives an unprivileged process. Apple deprecated it, but Chromium, OpenAI's codex and Anthropic's
+  sandbox-runtime use it, and Nix's own darwin builds do. A VM per run would cost seconds, not milliseconds.
 
 Costs accepted:
 
@@ -166,21 +170,28 @@ Costs accepted:
   the run. The startup line says so when your git config signs.
 - **Only proxy-aware HTTP(S) reaches the network.** `network.allow` works through a CONNECT proxy, so a
   program that ignores `HTTPS_PROXY` gets no network, and `git push` over ssh fails.
-- **Linux only.** The launcher uses bubblewrap and unprivileged user namespaces. On macOS the launcher
-  exists, and fails when it runs. Docker's default seccomp profile blocks user namespaces. The launcher never
-  falls back to an unsandboxed run.
+- **Linux needs unprivileged user namespaces.** Docker's default seccomp profile blocks them. The launcher
+  never falls back to an unsandboxed run.
+- **macOS has no mount or network namespace.** Seatbelt allows or denies paths, so the run reads the macOS
+  files that a process needs (system libraries, `/private/etc`), `HOME` is a new, empty temporary folder at
+  another path than your home's, and the proxy is a port on `127.0.0.1` that any local process
+  could also connect to (it forwards only to `network.allow`). A run cannot bind a port, so a test that
+  starts a local server fails. A program that verifies TLS with macOS's own trust service (Go programs, for
+  example) cannot reach it: it must read `SSL_CERT_FILE`. A process that drops the run's environment and
+  leaves its process group outlives the run, where on Linux the end of the process namespace stops it. The
+  Seatbelt support is untested on a Mac yet ([Sandbox](reference/sandbox.md#on-macos)).
 - **Commands come only from the closure.** A program installed on the host outside Nix is not visible. Add
   its package to `sandbox.packages`, or use `--with PKG` for one run.
 - **A start costs about 50 ms, and about 100 ms with the network** (the proxy starts too), measured on one
   machine with a small repository. The launcher walks the working tree before and after the run. Nix computes
   the policy when it builds the launcher, not at each run.
 
-Reopen when unprivileged user namespaces are no longer available on the machines that run graft, or when a
-provider's real needs cannot be expressed as requests that a consumer grants.
+Reopen when unprivileged user namespaces are no longer available on the machines that run graft, when Apple
+removes `sandbox-exec`, or when a provider's real needs cannot be expressed as requests that a consumer
+grants.
 
 Not yet:
 
-- macOS (Seatbelt).
 - A systemd renderer for deployed services.
 - A microVM for code that no one has reviewed.
 - `graft try` and CI upgrade jobs inside the sandbox.

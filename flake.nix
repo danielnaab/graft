@@ -65,7 +65,7 @@
         # parser would differ
         shellcheck = pkgs.runCommand "graft-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
           for f in ${./tests}/*.sh ${./lib}/*.sh ${./lib}/sandbox/*.sh; do bash -n "$f" || exit 1; done
-          shellcheck -x ${./tests/run.sh} ${./tests/fixtures.sh} ${./lib}/*.sh ${./lib}/sandbox/*.sh
+          shellcheck -x ${./tests/run.sh} ${./tests/fixtures.sh} ${./tests/macos-smoke.sh} ${./lib}/*.sh ${./lib}/sandbox/*.sh
           touch $out
         '';
         # graft's docs against knowledge-base-kit's conventions: links and anchors, lifecycle status,

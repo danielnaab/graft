@@ -89,7 +89,7 @@ works this way, see [Decisions](decisions.md).
 | Provider outputs | Each scion's `graft.nix`, called once per system. Its `tools` become `packages.<system>.tools`, one environment; its checks become `checks.<system>.<scion>-<name>`. |
 | Scions directory | `<dir>/`, where `dir` is a `mkFlake` argument, default `scions`, beside `flake.nix`. |
 | graft's pin | The flake input named `graft`. |
-| Sandbox | `packages.<system>.sandbox`: a launcher that runs bubblewrap with the merged policy (Linux only). Each provider's `graft.nix` and `perSystem` can return `sandbox`. |
+| Sandbox | `packages.<system>.sandbox`: a launcher that runs the command with the merged policy: bubblewrap on Linux, Seatbelt on macOS. Each provider's `graft.nix` and `perSystem` can return `sandbox`. |
 
 Nix and git see a scion differently, and one difference matters every day: a git flake's build reads a scion
 at its **committed** gitlink while the rest of your tree is clean, and from your working tree once any tracked

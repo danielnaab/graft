@@ -1,21 +1,24 @@
-"""graft's sandbox proxy, on the host: the only way out of a run's network namespace.
+"""graft's sandbox proxy, on the host: a run's only way out to the network.
 
-Usage: proxy.py SOCKET HOST:PORT...
+Usage: proxy.py LISTEN HOST:PORT...
 
-Listens on the unix socket SOCKET (the launcher binds it into the run, where socat serves it as
-127.0.0.1:3128). It forwards CONNECT requests (HTTPS) and absolute-form HTTP requests to the
-HOST:PORT pairs given (the policy's network.allow, each host with its ports), and refuses the rest.
-A host may use fnmatch patterns ("*.example.com"). Writes one line per request: ALLOW or DENY, then
-host:port.
+LISTEN is a unix socket path (bubblewrap: the launcher binds it into the run, where socat serves it
+as 127.0.0.1:3128), or tcp:ADDRESS:PORT (Seatbelt: 127.0.0.1, port 0 for a free one; the proxy
+writes "LISTENING PORT" first, and the run's profile allows connecting to that port alone). It
+forwards CONNECT requests (HTTPS) and absolute-form HTTP requests to the HOST:PORT pairs given (the
+policy's network.allow, each host with its ports), and refuses the rest. A host may use fnmatch
+patterns ("*.example.com"). Writes one line per request: ALLOW or DENY, then host:port. It exits
+when the launcher, its parent, is gone.
 """
 import asyncio
 import fnmatch
+import os
 import re
 import sys
 import urllib.parse
 
 
-SOCKET, RULES = sys.argv[1], [e.rpartition(":")[::2] for e in sys.argv[2:]]
+LISTEN, RULES = sys.argv[1], [e.rpartition(":")[::2] for e in sys.argv[2:]]
 # a host name, an IPv4 literal, or an IPv6 literal in brackets: nothing else is looked up, or logged
 HOST = re.compile(r"[A-Za-z0-9_.-]+|\[?[0-9A-Fa-f:.]+\]?")
 
@@ -87,10 +90,23 @@ async def handle(r, w):
     await asyncio.gather(pipe(r, uw), pipe(ur, w))
 
 
+async def orphaned(parent):
+    while os.getppid() == parent:
+        await asyncio.sleep(1)
+
+
 async def main():
-    server = await asyncio.start_unix_server(handle, SOCKET)
+    parent = os.getppid()
+    if LISTEN.startswith("tcp:"):
+        address, _, port = LISTEN[4:].rpartition(":")
+        server = await asyncio.start_server(handle, address, int(port))
+        print(f"LISTENING {server.sockets[0].getsockname()[1]}", flush=True)
+    else:
+        server = await asyncio.start_unix_server(handle, LISTEN)
     async with server:
-        await server.serve_forever()
+        # the launcher's cleanup stops the proxy; when the launcher is killed, it stops itself
+        await asyncio.wait([asyncio.ensure_future(server.serve_forever()), asyncio.ensure_future(orphaned(parent))],
+                           return_when=asyncio.FIRST_COMPLETED)
 
 
 asyncio.run(main())

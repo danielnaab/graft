@@ -1,19 +1,22 @@
 # shellcheck shell=bash
-# The sandbox launcher (lib/sandbox/bwrap.nix sources it after the policy it renders, policy.sh):
-# runs a command in bubblewrap with its closure read-only, the repository around the current
-# directory writable, HOME empty, and the network through an allowlisting proxy, or none.
+# The sandbox launcher's runtime, the same for every renderer (launcher.nix sources it after the
+# policy, policy.sh, and the renderer's backend, bwrap.sh or seatbelt.sh): the arguments,
+# --explain, --with, the repository and its pins, the checks before and after the run, the proxy,
+# the environment and the startup line. The backend turns the run into a command (backend_check,
+# backend_prepare, backend_dry, backend_run, backend_after, backend_cleanup, proxy_ready).
 #
 # The sandbox never writes what decides the sandbox or what the host runs. Host git trusts the
 # repository's git metadata (a planted core.fsmonitor runs on the next host `git status`), so each
 # git directory, its config and hooks, and the files that say where a repository is, are pinned:
-# bound onto themselves, a mount point, which can't be renamed or removed (EBUSY). A directory that
-# only holds a mount point can still be renamed (and a fresh one made in its place), so every
-# directory between the repository's top and a pinned path is pinned too. The protect list is
-# pinned the same way, read-only. A symbolic link can't be pinned (bubblewrap would bind what it
-# points to), so one anywhere on those paths stops the launcher before the run. What a run can
-# still create (a new nested repository in any writable directory) the launcher reports after it,
-# from the host.
-# shellcheck disable=SC2154 # policy.sh's variables
+# pinRO holds the paths that are read-only, pinDirs the directories that can't be renamed or
+# removed (with bubblewrap each is a mount point; with Seatbelt, its unlink is denied). A directory
+# that only holds a pinned path could otherwise be renamed (and a fresh one made in its place), so
+# every directory between the repository's top and a pinned path is in pinDirs too. The protect
+# list is pinned the same way, read-only. A renderer pins what a symbolic link points to, not the
+# link, so a link anywhere on those paths stops the launcher before the run; so does a pinned file
+# with another hard link. What a run can still create (a new nested repository in any writable
+# directory) the launcher reports after it, from the host.
+# shellcheck disable=SC2154 # policy.sh's and the backend's variables
 
 usage="usage: sandbox [--with PKG]... [--allow HOST[:PORT]]... [--explain [--json]] [--dry-run] [--] [CMD [ARGS...]]
 
@@ -24,7 +27,7 @@ sandbox or what the host runs), HOME empty, the network only to the hosts the po
   --with PKG           add the nixpkgs package PKG (or an installable, FLAKE#ATTR), for this run
   --allow HOST[:PORT]  let this run reach HOST (ports 443 and 80), or HOST:PORT
   --explain            print the policy, each value with the file that sets it; --json: as JSON
-  --dry-run            print the bubblewrap command, and run nothing
+  --dry-run            print the $renderer command, and run nothing
   GRAFT_SANDBOX_QUIET=1 silences the startup line."
 
 # visible: stdin to stdout with each control byte (C0, ESC, DEL, C1) shown as \xNN. Text a run
@@ -43,6 +46,8 @@ bad_arg() { echo "graft: sandbox: $*" >&2; echo "${usage%%$'\n'*}" >&2; exit 2; 
 join() { local s; s=$(printf '%s, ' "$@"); echo "${s%, }"; }
 home() { echo "${1/#\~\//$HOME/}"; }
 tilde() { echo "${1/#"$HOME"/\~}"; }
+# phys P: P with its directory as a physical path (Seatbelt matches resolved paths), when it exists
+phys() { if [ -d "${1%/*}/" ]; then echo "$(cd "${1%/*}/" && pwd -P)/${1##*/}"; else echo "$1"; fi; }
 
 with=() cliAllow=() explain='' json='' dry=''
 while [ $# -gt 0 ]; do
@@ -92,19 +97,24 @@ if [ -n "$explain" ]; then
   exit 0
 fi
 [ $# -gt 0 ] || set -- "$shell"
-[ -n "${HOME:-}" ] || die "HOME is not set: a run gets an empty HOME, at the same path"
+[ -n "${HOME:-}" ] || die "HOME is not set: $homeNote"
+backend_check
 
-# the repository: the outermost one around the current directory (a scion's belongs to it)
+# the repository: the outermost one around the current directory (a scion's belongs to it), its
+# paths physical
 here=$(pwd -P)
 top=$(git rev-parse --show-toplevel 2>/dev/null) || die "$here is not in a git repository: a run writes to the repository around the current directory"
 while sup=$(git -C "$top" rev-parse --show-superproject-working-tree) && [ -n "$sup" ]; do top=$sup; done
+top=$(cd "$top" && pwd -P)
 gitpaths=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir --git-path hooks) \
   || die "git rev-parse --path-format=absolute failed in $top (above): the launcher needs git 2.31 or later"
 { read -r common; read -r hooks; } <<<"$gitpaths"
+common=$(cd "$common" && pwd -P)
+hooks=$(phys "$hooks")
 
 # --with: a package's closure and bin/, for this run alone, from the flake's nixpkgs (else graft's,
 # else the registry's); NIXPKGS_ALLOW_UNFREE=1 is honoured (--impure)
-withPath='' withBinds=() impure=()
+withPath='' withPaths=() impure=()
 [ "${NIXPKGS_ALLOW_UNFREE:-}" != 1 ] || impure=(--impure)
 for p in "${with[@]}"; do
   command -v nix >/dev/null || die "--with $p needs nix on PATH"
@@ -117,7 +127,7 @@ for p in "${with[@]}"; do
   what=$(nix eval "${impure[@]}" --raw "$ref" --apply 'p: "${p.pname or (builtins.parseDrvName p.name).name} ${p.version or ""}"') || what=$p
   for o in $outs; do [ ! -d "$o/bin" ] || withPath+="$o/bin:"; done
   # shellcheck disable=SC2086 # one store path per word
-  while read -r c; do withBinds+=(--ro-bind "$c" "$c"); done < <(nix path-info -r $outs)
+  while read -r c; do withPaths+=("$c"); done < <(nix path-info -r $outs)
   say "with ${what% } ($from), for this run"
 done
 
@@ -130,10 +140,12 @@ if [[ $1 != */* ]]; then
 fi
 
 run=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/graft-sandbox.XXXXXX")
+run=$(cd "$run" && pwd -P)
 proxyPid=''
 # shellcheck disable=SC2317 # the trap runs it
 cleanup() {
   [ -z "$proxyPid" ] || kill "$proxyPid" 2>/dev/null || true
+  backend_cleanup
   rm -f -- "${run:?}"/* && rmdir -- "${run:?}"
 }
 trap cleanup EXIT
@@ -142,16 +154,15 @@ trap 'exit 143' TERM HUP
 
 # the proxy starts first: it is the slowest part, and the rest doesn't need it
 if [ ${#allow[@]} -gt 0 ] && [ -z "$dry" ]; then
-  # a relative socket path: AF_UNIX allows 108 bytes
-  (cd "$run" && exec "${proxy[@]}" proxy.sock "${allow[@]}") >"$run/proxy.log" 2>&1 &
+  (cd "$run" && exec "${proxy[@]}" "$proxyListen" "${allow[@]}") >"$run/proxy.log" 2>&1 &
   proxyPid=$!
 fi
 
 shopt -s nullglob dotglob
-# Pins. mounts: directories bound onto themselves (still writable, but mount points), outer ones
-# first; ro: paths bound read-only onto themselves, after them (so read-only wins)
+# Pins: pinDirs, directories that can't be renamed or removed (still writable), outer ones first;
+# pinRO, paths that are read-only
 declare -A seen=()
-mounts=() ro=()
+pinDirs=() pinRO=()
 rel() { case $1 in "$top"/*) echo "${1#"$top"/}" ;; *) echo "$1" ;; esac; }
 # nolink P ROOT: stop when P, or a directory between it and ROOT, is a symbolic link
 nolink() {
@@ -165,7 +176,7 @@ nolink() {
   done
 }
 # pin rw|ro PATH: PATH and every directory between it and the repository's top (or the git common
-# directory, outside a worktree's top) a mount point; with ro, PATH read-only
+# directory, outside a worktree's top) in pinDirs; with ro, PATH in pinRO
 pin() {
   local how=$1 p=$2 root d up=()
   case $p in "$top"/*) root=$top ;; *) root=$common ;; esac
@@ -173,8 +184,8 @@ pin() {
   d=$p
   while d=${d%/*} && [ ${#d} -gt ${#root} ]; do up=("$d" "${up[@]}"); done
   [ "$how" = ro ] || up+=("$p")
-  for d in "${up[@]}"; do [ -n "${seen[$d]:-}" ] || { seen[$d]=1; mounts+=(--bind "$d" "$d"); }; done
-  [ "$how" = rw ] || [ -n "${seen[ro:$p]:-}" ] || { seen[ro:$p]=1; ro+=(--ro-bind "$p" "$p"); }
+  for d in "${up[@]}"; do [ -n "${seen[$d]:-}" ] || { seen[$d]=1; pinDirs+=("$d"); }; done
+  [ "$how" = rw ] || [ -n "${seen[ro:$p]:-}" ] || { seen[ro:$p]=1; pinRO+=("$p"); }
 }
 # gitdirs G: G, a git directory, and those below it: worktrees' and submodules' (modules/NAME, where
 # NAME may hold slashes)
@@ -256,19 +267,22 @@ if [ "$repoReadOnly" = 0 ]; then
       ;;
   esac
   # a pinned file with another hard link can be written through that one, from anywhere the run writes
-  pinned=()
-  for ((i = 1; i < ${#ro[@]}; i += 3)); do pinned+=("${ro[i]}"); done
   while IFS= read -r -d '' f; do
     die "$(rel "$f") has another hard link, so a run could write it through that link (a run must not write what decides the sandbox or what the host runs): replace it with a copy of its own (cp -p F F.copy && mv F.copy F), then run again"
-  done < <(find "${pinned[@]}" -maxdepth 0 -type f -links +1 -print0)
+  done < <(find "${pinRO[@]}" -maxdepth 0 -type f -links +1 -print0)
   fingerprint | sort -u >"$run/before"
+fi
+
+if [ -n "$proxyPid" ]; then
+  for _ in {1..300}; do
+    { ! proxy_ready && kill -0 "$proxyPid" 2>/dev/null; } || break
+    sleep 0.01
+  done
+  proxy_ready || die "the network proxy did not start: $(cat "$run/proxy.log")"
 fi
 
 # the run's identity: the caller's, and git's from the host's config (the run sees no global config)
 user=${USER:-$(id -un)}
-printf '%s:x:%s:%s::%s:%s\n' "$user" "$UID" "$(id -g)" "$HOME" "$shell" >"$run/passwd"
-printf '%s:x:%s:\n' "$(id -gn)" "$(id -g)" >"$run/group"
-printf '127.0.0.1 localhost\n::1 localhost\n' >"$run/hosts"
 name='' email='' sign=''
 while IFS= read -r -d '' kv; do
   case ${kv%%$'\n'*} in
@@ -277,11 +291,13 @@ while IFS= read -r -d '' kv; do
     commit.gpgsign) sign=${kv#*$'\n'} ;;
   esac
 done < <(git -C "$top" config -z --get-regexp '^(user\.(name|email)|commit\.gpgsign)$' || true)
+# the backend's part of the run: it sets runHome, certFile, lang, proxyUrl and backendEnv
+backend_prepare
 
 # The run's environment, whole: what follows, and of the caller's only TERM, COLORTERM and env.pass.
-envv=(HOME="$HOME" USER="$user" LOGNAME="$user" SHELL="$shell" PATH="$withPath$path" LANG=C.UTF-8
-  TERMINFO_DIRS="$terminfo" SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-  NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt GRAFT_SANDBOX=1 PS1="$ps1"
+envv=(HOME="$runHome" USER="$user" LOGNAME="$user" SHELL="$shell" PATH="$withPath$path" LANG="$lang"
+  TERMINFO_DIRS="$terminfo" SSL_CERT_FILE="$certFile" NIX_SSL_CERT_FILE="$certFile" GRAFT_SANDBOX=1
+  PS1="$ps1" "${backendEnv[@]}"
   # no signing key inside: a repository that signs would refuse every commit
   GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false
   GIT_CONFIG_KEY_1=tag.gpgsign GIT_CONFIG_VALUE_1=false)
@@ -289,39 +305,15 @@ envv=(HOME="$HOME" USER="$user" LOGNAME="$user" SHELL="$shell" PATH="$withPath$p
 [ -z "$email" ] || envv+=(GIT_AUTHOR_EMAIL="$email" GIT_COMMITTER_EMAIL="$email")
 for v in TERM COLORTERM; do [ -z "${!v+x}" ] || envv+=("$v=${!v}"); done
 if [ ${#allow[@]} -gt 0 ]; then
-  for v in HTTPS_PROXY https_proxy HTTP_PROXY http_proxy ALL_PROXY all_proxy; do envv+=("$v=http://127.0.0.1:3128"); done
+  for v in HTTPS_PROXY https_proxy HTTP_PROXY http_proxy ALL_PROXY all_proxy; do envv+=("$v=$proxyUrl"); done
   envv+=('NO_PROXY=localhost,127.0.0.1,::1' 'no_proxy=localhost,127.0.0.1,::1')
 fi
 envv+=("${envSet[@]}")
 passed=()
 for v in "${pass[@]}"; do [ -z "${!v+x}" ] || { envv+=("$v=${!v}"); passed+=("$v"); }; done
 
-args=("${withBinds[@]}" --unshare-all --die-with-parent --proc /proc --dev /dev --tmpfs /tmp
-  --ro-bind "$run/passwd" /etc/passwd --ro-bind "$run/group" /etc/group --ro-bind "$run/hosts" /etc/hosts
-  --ro-bind "$cacert" /etc/ssl/certs/ca-certificates.crt
-  --ro-bind "$sh" /bin/sh --ro-bind "$envbin" /usr/bin/env
-  --tmpfs "$HOME")
-for p in "${readOnly[@]}"; do p=$(home "$p"); args+=(--ro-bind-try "$p" "$p"); done
-for p in "${writable[@]}"; do p=$(home "$p"); args+=(--bind-try "$p" "$p"); done
-if [ "$repoReadOnly" = 0 ]; then
-  args+=(--bind "$top" "$top" "${mounts[@]}" "${ro[@]}")
-else
-  args+=(--ro-bind "$top" "$top")
-  [ "$common" = "$top/.git" ] || args+=(--ro-bind "$common" "$common")
-fi
-[ ${#allow[@]} -eq 0 ] || args+=(--ro-bind "$run/proxy.sock" /run/graft-sandbox/proxy.sock)
-args+=(--chdir "$here" --seccomp 4 --json-status-fd 5 --clearenv)
-# bwrap's arguments: the closure (3), the relay's closure (7) when there is network, then the rest
-# and the environment (6), all read from descriptors, so that /proc/1/cmdline in the run names no
-# host path, and ps no passed value. The command's INT is the default again (--default-signal):
-# the launcher and bwrap ignore it, so that ^C reaches the command alone, and its status and the
-# checks after the run survive it.
-net=()
-if [ ${#allow[@]} -gt 0 ]; then net=(--args 7); set -- "$netwrap" "$@"; fi
-cmd=("$bwrap" --args 3 "${net[@]}" --args 6 -- "$envbin" --default-signal=INT "$@")
-
 line=$(tilde "$top")
-if [ "$repoReadOnly" = 1 ]; then line+=" read-only"; else line+=", $((${#ro[@]} / 3)) paths protected"; fi
+if [ "$repoReadOnly" = 1 ]; then line+=" read-only"; else line+=", ${#pinRO[@]} paths protected"; fi
 present=(); for p in "${writable[@]}"; do if [ -e "$(home "$p")" ]; then present+=("$p"); fi; done
 [ ${#present[@]} -eq 0 ] || line+="; also writable: $(join "${present[@]}")"
 if [ ${#allowShown[@]} -gt 0 ]; then line+="; network: $(join "${allowShown[@]}")"; else line+="; network: none"; fi
@@ -332,44 +324,18 @@ case $notGranted in 0) ;; 1) line+="; 1 request not granted: sandbox --explain" 
 say "$line"
 
 if [ -n "$dry" ]; then
-  printf '%q ' env -i "${cmd[@]}"
-  printf '\n# --args 3: --ro-bind for each of %s store paths (%s)\n' "$(($(tr -cd '\0' <"$binds" | wc -c) / 3))" "$binds"
-  [ ${#allow[@]} -eq 0 ] || printf '# --args 7: --ro-bind for the network relay'"'"'s closure (%s)\n' "$netBinds"
-  printf '# --args 6:'
-  printf ' %q' "${args[@]}"
-  echo
-  for v in "${envv[@]}"; do
-    n=${v%%=*}
-    if [[ " ${passed[*]} " == *" $n "* ]]; then
-      printf '#   --setenv %s "$%s" (env.pass)\n' "$n" "$n"
-    else
-      printf '#   --setenv %s %q\n' "$n" "${v#*=}"
-    fi
-  done
+  backend_dry "$@"
   exit 0
 fi
 
-if [ -n "$proxyPid" ]; then
-  for _ in {1..300}; do
-    { [ ! -S "$run/proxy.sock" ] && kill -0 "$proxyPid" 2>/dev/null; } || break
-    sleep 0.01
-  done
-  [ -S "$run/proxy.sock" ] || die "the network proxy did not start: $(cat "$run/proxy.log")"
-fi
-
+# The launcher and the backend ignore INT while the run goes; the command's is the default again
+# (coreutils' env --default-signal), so that ^C reaches the command alone, and its status and the
+# checks after the run survive it.
 status=0
-exec {argfd}< <(
-  printf '%s\0' "${args[@]}"
-  for v in "${envv[@]}"; do printf -- '--setenv\0%s\0%s\0' "${v%%=*}" "${v#*=}"; done
-)
 trap '' INT
-# env -i: bwrap is PID 1 in the run, which can read /proc/1/environ. {argfd}<&- closes the pipe's
-# other descriptor.
-env -i "${cmd[@]}" 3<"$binds" 4<"$bpf" 5>"$run/status" 6<&"$argfd" 7<"$netBinds" {argfd}<&- || status=$?
+backend_run "$@" || status=$?
+backend_after
 
-if [ "$status" -ne 0 ] && [[ $(<"$run/status") != *child-pid* ]] && ! "$bwrap" --unshare-user --ro-bind / / true 2>/dev/null; then
-  echo "graft: sandbox: bubblewrap can't create a user namespace here (above). In Docker, run the container with --security-opt seccomp=unconfined --security-opt systempaths=unconfined, or run on the host or a VM; elsewhere, allow unprivileged user namespaces (sysctl user.max_user_namespaces). graft never runs it unsandboxed." >&2
-fi
 if [ -s "$run/proxy.log" ]; then
   denied=$(awk '$1 == "DENY" { print $2 }' "$run/proxy.log" | sort | uniq -c | awk '{ printf "%s%s (%d)", s, $2, $1; s = ", " }')
   [ -z "$denied" ] || echo "graft: sandbox: the proxy refused: $denied; network.allow lists the hosts a run may reach" | visible >&2

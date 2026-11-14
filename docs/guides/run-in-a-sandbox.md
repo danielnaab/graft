@@ -9,7 +9,8 @@ hosts that you did not name, or change the files that decide what it may do.
 ## Before you begin
 
 - Linux, with unprivileged user namespaces (the default on NixOS, Debian, Ubuntu and Fedora). In Docker, see
-  [If something goes wrong](#if-something-goes-wrong).
+  [If something goes wrong](#if-something-goes-wrong). Or macOS, where the launcher uses Seatbelt
+  (untested on a Mac yet; see [On macOS](../reference/sandbox.md#on-macos) for what differs).
 - graft v2.14.0 or later: `nix run .#graft outdated` prints graft's pinned version. Until v2.14.0 is
   released, use a graft checkout that has the sandbox: add `--override-input graft path:/path/to/graft` to
   each `nix run` and `nix flake lock` below.
@@ -45,7 +46,7 @@ hosts that you did not name, or change the files that decide what it may do.
    ```
 
    `ls -A ~` prints only `team-kb`: your home folder is empty inside, except for the way to the repository.
-   `git status` works on the repository.
+   On macOS it prints nothing: `HOME` is a new, empty folder. `git status` works on the repository.
 
 3. Add the agent's package, and what it needs, to `perSystem` in `flake.nix`. Claude Code is unfree, so the
    example takes it from a nixpkgs that allows unfree packages. The flake needs an `inputs.nixpkgs`:
@@ -209,9 +210,10 @@ change to what consumers must grant: say so in the CHANGELOG.
 
 The launcher is a program that Nix builds from the merged policy, so the closure, `PATH` and the `protect`
 entries are fixed when it builds. At each run it finds the repository's git metadata and the paths that
-`protect` matches, starts bubblewrap with a new set of namespaces, binds the closure read-only, the
-repository writable, and each protected path read-only over it, and starts the network proxy if the run has
-network ([Sandbox](../reference/sandbox.md)).
+`protect` matches, and starts the network proxy if the run has network. On Linux it starts bubblewrap with a
+new set of namespaces, binds the closure read-only, the repository writable, and each protected path
+read-only over it. On macOS it writes a Seatbelt profile that allows the same paths and denies writing the
+protected ones, and starts the command with `sandbox-exec` ([Sandbox](../reference/sandbox.md)).
 
 ## Sources
 

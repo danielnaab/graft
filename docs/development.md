@@ -61,6 +61,13 @@ depends on, `add`, `sync`, `check` (one fixture per rule), `outdated`, `changelo
 against a local origin and a stub API, and the workflows. It takes several minutes and fetches nixpkgs on its
 first run. Do not run several copies in parallel.
 
+The sandbox's Seatbelt launcher runs on macOS alone: `tests/run.sh seatbelt` checks its profile here, and on
+a Mac `tests/macos-smoke.sh [GRAFT]` builds it for a throwaway consumer of `GRAFT` (a flake reference, such
+as `github:danielnaab/graft/BRANCH` or `path:/ABSOLUTE/PATH/TO/graft`; by default this checkout), runs it,
+and prints `PASS` or `FAIL` for each property, a summary, and on a failure the sandbox's denials from the
+unified log. It needs nix and git, reaches example.com and example.org, and removes its temporary folder
+(`KEEP=1` keeps it).
+
 ## Documentation
 
 The docs follow knowledge-base-kit's conventions, grafted in `scions/knowledge-base-kit/`: its

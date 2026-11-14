@@ -5,7 +5,8 @@ status: working
 
 The `sandbox` launcher, its options, and what a run sees. For the steps, see
 [Run an agent or a command in a sandbox](../guides/run-in-a-sandbox.md). For why, see
-[Decisions](../decisions.md#enforce-the-boundary-in-a-sandbox-not-in-rules). Linux only.
+[Decisions](../decisions.md#enforce-the-boundary-in-a-sandbox-not-in-rules). On Linux the launcher runs
+bubblewrap; on macOS, Seatbelt, with the differences in [On macOS](#on-macos).
 
 ## The launcher
 
@@ -24,7 +25,7 @@ usage: sandbox [--with PKG]... [--allow HOST[:PORT]]... [--explain [--json]] [--
 | `--allow HOST[:PORT]` | This run can also reach `HOST`, with the syntax of `network.allow`. Repeat it for more hosts. It works when the policy has no network. |
 | `--explain` | Prints the policy, with the file that set each value, and each request that the consumer has not granted. Runs nothing. See [--explain](#--explain). |
 | `--explain --json` | The same, as JSON. |
-| `--dry-run` | Prints the startup line and the bubblewrap command, and runs nothing. No proxy starts, and the launcher creates no folder in the repository. |
+| `--dry-run` | Prints the startup line and the sandbox's command (bubblewrap's, or on macOS `sandbox-exec`'s, with the profile's rules for this run), and runs nothing. No proxy starts, and the launcher creates no folder in the repository. |
 | `-h`, `--help` | Prints the usage. |
 
 Where to run it:
@@ -112,6 +113,8 @@ graft's base adds, before every other value:
 
 ## What a run sees
 
+On Linux. For macOS, see [On macOS](#on-macos).
+
 | Path | Inside the sandbox |
 |---|---|
 | The closure of `packages` (and of `--with`) | Read-only, at its `/nix/store` path. No other store path is visible. |
@@ -125,8 +128,8 @@ graft's base adds, before every other value:
 | `/bin/sh`, `/usr/bin/env` | bash and coreutils' `env`, so that scripts' first lines work. |
 | The Nix daemon's socket | Never. A Nix trusted user can use the daemon to act as root. |
 
-The sandbox has its own process, network, user, IPC and hostname namespaces, and stops when the launcher
-stops.
+On Linux, the sandbox has its own process, network, user, IPC and hostname namespaces, and stops when the
+launcher stops.
 
 ### Protected paths
 
@@ -190,7 +193,7 @@ folder when it is missing.
   only to a host and port that `network.allow` (or `--allow`) matches. It refuses the rest with
   `HTTP/1.1 403 Forbidden (graft sandbox: not in network.allow)`, and a host that it cannot reach with
   `502 Bad Gateway`. A request whose host is not a plain host name or IP address gets `400 Bad Request`.
-  Inside, the proxy is at `http://127.0.0.1:3128`.
+  Inside, the proxy is at `http://127.0.0.1:3128` (on macOS, at a free port that the launcher chooses).
 - `HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, `http_proxy`, `ALL_PROXY` and `all_proxy` point at the proxy;
   `NO_PROXY` and `no_proxy` are `localhost,127.0.0.1,::1`. The proxy stops when the run ends.
 - Only programs that use these variables reach the network. Name resolution is the proxy's: the sandbox has
@@ -210,12 +213,13 @@ The launcher starts the command with an empty environment, then sets:
 | Variable | Value |
 |---|---|
 | `PATH` | Each `bin/` of the closure's roots (and of `--with`). |
-| `HOME` | Your home's path (an empty folder). |
+| `HOME` | Your home's path (an empty folder). On macOS, a new empty folder at another path. |
 | `USER`, `LOGNAME` | Your user name. |
 | `SHELL` | The sandbox's bash. |
 | `TERM`, `COLORTERM` | The caller's, when set. |
-| `LANG` | `C.UTF-8`. |
-| `SSL_CERT_FILE`, `NIX_SSL_CERT_FILE` | `/etc/ssl/certs/ca-certificates.crt`. |
+| `LANG` | `C.UTF-8` (on macOS, `en_US.UTF-8`). |
+| `SSL_CERT_FILE`, `NIX_SSL_CERT_FILE` | `/etc/ssl/certs/ca-certificates.crt` (on macOS, the CA bundle's store path). |
+| `TMPDIR` | On macOS only: a new empty folder, the run's only temporary folder. |
 | `TERMINFO_DIRS` | The closure's terminfo. |
 | `GRAFT_SANDBOX` | `1`. |
 | `PS1` | `(sandbox) \w \$ `. |
@@ -225,9 +229,10 @@ The launcher starts the command with an empty environment, then sets:
 | `env.set` | Each value. |
 | `env.pass` | Each name that the caller has set, with the caller's value. |
 
-The launcher gives bubblewrap its arguments and these values through file descriptors, not its command
-line, so `ps` does not show a passed value. bubblewrap itself starts with an empty environment, so
-`/proc/1/environ` in the run is empty.
+On Linux, the launcher gives bubblewrap its arguments and these values through file descriptors, not its
+command line, so `ps` does not show a passed value. bubblewrap itself starts with an empty environment, so
+`/proc/1/environ` in the run is empty. On macOS, `env -i` sets them for `sandbox-exec`, which keeps them
+in its arguments until it starts the command; macOS shows a process's arguments only to its user.
 
 ### git identity
 
@@ -263,8 +268,9 @@ The parts, in this order. The repository and `network:` are always there; the ot
 
 The run keeps your terminal: job control works, and Ctrl-C reaches the command alone. The command's exit
 status is the launcher's, and the checks after the run still print. A seccomp filter refuses the `TIOCSTI`
-and `TIOCLINUX` requests, so the command cannot type into the shell that started it, whatever the kernel's
-`dev.tty.legacy_tiocsti` says. The launcher prints nothing about it.
+and `TIOCLINUX` requests (on macOS, a Seatbelt rule refuses `TIOCSTI`), so the command cannot type into the
+shell that started it, whatever the kernel's `dev.tty.legacy_tiocsti` says. The launcher prints nothing
+about it.
 
 ## --explain
 
@@ -334,6 +340,8 @@ the repository is and what host git runs, read-only; HOME empty; /tmp empty; no 
 caller's terminal, but no typing into it (TIOCSTI); the environment, only what the policy names.
 ```
 
+On macOS, the last paragraph starts `Always (Seatbelt):`, and says what [On macOS](#on-macos) says.
+
 With `--with` or `--allow`, a list `command line (this run only)` follows. With a `paths.*` entry that does
 not exist, a list `absent on this host (skipped)` follows. Add the scion's name to `grant` to apply its
 requests.
@@ -351,8 +359,8 @@ also `nix eval --json .#packages.<system>.sandbox.explain`.
 
 - The command's exit status, also after Ctrl-C.
 - `127` when the command is not on the sandbox's `PATH`.
-- `1` when the launcher cannot start the sandbox (no user namespaces, outside a git repository, a symbolic
-  link or a hard link on a protected path, macOS), with a message on stderr. It never runs the command without the sandbox.
+- `1` when the launcher cannot start the sandbox (no user namespaces, no `sandbox-exec` on macOS, outside a
+  git repository, a symbolic link or a hard link on a protected path), with a message on stderr. It never runs the command without the sandbox.
 - `2` for a usage error: the message, then the usage line.
 - `130` for Ctrl-C before the run starts (while `--with` builds, for example).
 
@@ -400,7 +408,8 @@ From the launcher, on stderr:
 | `graft: sandbox: git rev-parse --path-format=absolute failed in REPO (above): the launcher needs git 2.31 or later` | 1 |
 | `graft: sandbox: HOME is not set: a run gets an empty HOME, at the same path` | 1 |
 | `graft: sandbox: the network proxy did not start: LOG`; inside, `graft: sandbox: the network relay (socat) did not start` | 1 |
-| `graft: sandbox: not yet on macOS (Linux bubblewrap only)` | 1 |
+| `graft: sandbox: /usr/bin/sandbox-exec is missing (macOS's Seatbelt), so the sandbox can't start. graft never runs it unsandboxed.` | 1 |
+| `graft: sandbox: HOME is not set: the launcher needs it for paths.* entries that start with ~/` (macOS) | 1 |
 
 After the run: the [proxy's refusals](#network) and the [warning about new git metadata](#what-the-sandbox-does-not-protect).
 
@@ -417,12 +426,42 @@ terminal. A UTF-8 character that holds such a byte, such as `€`, is shown esca
 - In Docker, the sandbox needs user namespaces: see [Messages](#messages). The launcher fails, and never falls
   back to an unsandboxed run.
 - `--with` needs Nix on the host: use it while you develop, not in a service.
-- `--dry-run` prints the bubblewrap command that a run would use. It shows each `env.pass` value as
-  `"$NAME" (env.pass)`, never the value.
+- `--dry-run` prints the sandbox command that a run would use. It shows each `env.pass` value by its name,
+  as `"$NAME"`, never the value.
+
+## On macOS
+
+Untested on a Mac yet: `tests/macos-smoke.sh` checks it ([Development](../development.md#test)).
+
+On macOS the launcher runs the command with `/usr/bin/sandbox-exec` and a Seatbelt profile that denies by
+default. The policy, the options, the arguments, the startup line, the checks before and after the run, the
+messages and the exit statuses are the same. What differs:
+
+- **No remapping.** Seatbelt allows or denies paths; it cannot show a folder at another path, or hide one
+  behind an empty one. The closure's store paths are readable, and no other store path. The rest of macOS
+  that a process needs is readable too: the system libraries and frameworks (`/usr/lib`,
+  `/System/Library`), `/usr/share`, `/private/etc`, the time zones, `/bin/sh` and `/usr/bin/env`, the
+  standard devices. No user's files: not your home, not `/Users`, not `/Volumes`.
+- **`HOME` is a temporary folder**, new and empty for each run, at another path than your home. `/tmp` is
+  not writable; `TMPDIR` is the run's own temporary folder. Each `~/` entry of `paths.readOnly` and
+  `paths.writable` is also in that `HOME`, as a symbolic link to the real path, so that a program finds it
+  where it looks.
+- **Protected paths are path rules.** Seatbelt matches the resolved path of each access. Writing a
+  protected path is denied, and so are renaming and removing each folder between it and the repository's
+  top. A symbolic link or a second hard link on a protected path stops the launcher, as on Linux. After the
+  run, the launcher also warns when a protected file has gained another hard link.
+- **The network is a port.** There is no network namespace: the proxy listens on `127.0.0.1` at a free
+  port, and the profile allows a connection to that port alone. Any other connection, unix sockets to the
+  host's services included (DNS, ssh-agent, Docker), is denied. A unix socket below a writable path works.
+- **No other process.** The run cannot read another process's information (such as the launcher's
+  environment) or send it a signal. When the command ends, the launcher stops the processes it left
+  (found by the run's `TMPDIR` in their environment).
+- **Seatbelt is deprecated by Apple**, and still what Chromium, OpenAI's codex and Anthropic's
+  sandbox-runtime use. The launcher never runs a command without it.
 
 ## Not yet
 
-macOS (Seatbelt), a systemd renderer, profiles (`sandbox.profiles.<name>`), and the rest of the list in
+A systemd renderer, profiles (`sandbox.profiles.<name>`), and the rest of the list in
 [Decisions](../decisions.md#enforce-the-boundary-in-a-sandbox-not-in-rules).
 
 ## Sources
@@ -431,9 +470,14 @@ macOS (Seatbelt), a systemd renderer, profiles (`sandbox.profiles.<name>`), and 
   reserved names, `packages.<system>.sandbox` and `apps.<system>.sandbox`, the dev shell
 - [lib/sandbox/options.nix](../../lib/sandbox/options.nix): the options and their types
 - [lib/sandbox/policy.nix](../../lib/sandbox/policy.nix): merging, requests and grants, `--explain`
-- [lib/sandbox/default.nix](../../lib/sandbox/default.nix): graft's base, the macOS stub
-- [lib/sandbox/bwrap.nix](../../lib/sandbox/bwrap.nix) and [lib/sandbox/launcher.sh](../../lib/sandbox/launcher.sh):
-  the bubblewrap launcher, protected paths, the startup line and the warning after the run
+- [lib/sandbox/default.nix](../../lib/sandbox/default.nix): graft's base, the renderer for each system
+- [lib/sandbox/launcher.nix](../../lib/sandbox/launcher.nix) and [lib/sandbox/launcher.sh](../../lib/sandbox/launcher.sh):
+  the launcher for every renderer, protected paths, the startup line and the warning after the run
+- [lib/sandbox/bwrap.nix](../../lib/sandbox/bwrap.nix) and [lib/sandbox/bwrap.sh](../../lib/sandbox/bwrap.sh):
+  bubblewrap, on Linux
+- [lib/sandbox/seatbelt.nix](../../lib/sandbox/seatbelt.nix), [lib/sandbox/seatbelt.sh](../../lib/sandbox/seatbelt.sh)
+  and [lib/sandbox/seatbelt.sb](../../lib/sandbox/seatbelt.sb): Seatbelt, on macOS
 - [lib/sandbox/proxy.py](../../lib/sandbox/proxy.py): the network proxy
 - [lib/sandbox/tiocsti.py](../../lib/sandbox/tiocsti.py): the seccomp filter
-- [tests/run.sh](../../tests/run.sh): the `sandbox` section
+- [tests/run.sh](../../tests/run.sh): the `seatbelt` and `sandbox` sections;
+  [tests/macos-smoke.sh](../../tests/macos-smoke.sh): the check on a Mac

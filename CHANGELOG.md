@@ -9,7 +9,7 @@ Nothing to change: a repository that declares no `sandbox` gets graft's base pol
 ### Added
 - **The `sandbox` launcher:** `nix run .#sandbox -- CMD` (`nix run 'path:DIR#sandbox' -- CMD` for a flake in
   a subdirectory; `sandbox CMD` in the default dev shell). Linux, with bubblewrap and unprivileged user
-  namespaces. The command sees its closure read-only, the repository writable, an empty home folder, an
+  namespaces; macOS, with Seatbelt (`sandbox-exec`), untested on a Mac yet. The command sees its closure read-only, the repository writable, an empty home folder, an
   empty environment but for what the policy names, and no network.
   `sandbox [--with PKG]... [--allow HOST[:PORT]]... [--explain [--json]] [--dry-run] [--] [CMD [ARGS...]]`;
   with no command, `bash`. Exit status: the command's; `127` for a command not on the sandbox's `PATH`; `2`
@@ -32,6 +32,10 @@ Nothing to change: a repository that declares no `sandbox` gets graft's base pol
 - **`sandbox --explain`** prints the policy with the file that set each value, and the requests that are not
   granted. `--dry-run` prints the bubblewrap command. `--with PKG` and `--allow HOST` add a package or a host
   for one run.
+- **On macOS**, the same policy as a Seatbelt profile that denies by default: the closure's store paths and
+  the macOS files a process needs, read-only; the repository writable but for the protected paths; `HOME`
+  and `TMPDIR` new temporary folders; the network only through the proxy, on a `127.0.0.1` port
+  ([On macOS](docs/reference/sandbox.md#on-macos)). `tests/macos-smoke.sh` checks it on a Mac.
 - **The decision** behind it, with its costs: the sandbox protects the host, not the repository's history
   ([Decisions](docs/decisions.md#enforce-the-boundary-in-a-sandbox-not-in-rules)). graft's scope is now Nix,
   git submodules, a tag comparison, and the sandbox policy their operations run under.

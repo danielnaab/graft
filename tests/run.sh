@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # End-to-end test of graft: providers are local bare repositories with release tags, grafted into
 # consumers as git submodules with file:// URLs. Sections: mkflake (discovery, wiring, the errors),
-# nix (the Nix behaviours graft relies on: regression tests against Nix changes), sandbox, add,
-# sync, check, outdated, changelog, upgrade, graft (graft's own pin), workflows, ci, migrate. Needs
-# nix, git and jq; fetches nixpkgs on the first run. Usage: tests/run.sh [SECTION...] (from
-# anywhere; default: every section, in order). KEEP=1 leaves the work directory, to debug a failure.
+# nix (the Nix behaviours graft relies on: regression tests against Nix changes), seatbelt (the macOS
+# sandbox profile, from fixtures), sandbox, add, sync, check, outdated, changelog, upgrade, graft
+# (graft's own pin), workflows, ci, migrate. Needs nix, git and jq; fetches nixpkgs on the first run.
+# Usage: tests/run.sh [SECTION...] (from anywhere; default: every section, in order). KEEP=1 leaves the
+# work directory, to debug a failure.
 set -euo pipefail
 
 src=$(cd "$(dirname "$0")/.." && pwd)
@@ -1207,8 +1208,12 @@ EOF
   expect "sandbox" holds '"sandbox"'
   ran "sandbox: apps.sandbox runs the launcher" nix eval --raw ".#apps.$sys.sandbox.program"
   expect "bin/sandbox" holds "/bin/sandbox"
-  ran "sandbox: on macOS, the launcher" nix eval --raw ".#packages.aarch64-darwin.sandbox.text"
-  expect "fails, saying so" holds 'echo "graft: sandbox: not yet on macOS (Linux bubblewrap only)" >&2; exit 1'
+  # macOS: the Seatbelt launcher evaluates here (it builds on a Mac alone: tests/macos-smoke.sh)
+  for d in aarch64-darwin x86_64-darwin; do
+    ran "sandbox: on $d, the Seatbelt launcher evaluates" nix eval --raw ".#packages.$d.sandbox.drvPath"
+    ran "its profile holds the closure" nix eval --raw ".#packages.$d.sandbox.text"
+    expect "and it runs sandbox-exec" holds "seatbelt.sh"
+  done
 
   # the launcher
   local bw && bw=$(nix build --no-link --print-out-paths "$np#bubblewrap")/bin/bwrap
@@ -1362,6 +1367,79 @@ EOF
   expect "says read-only" holds "graft: sandbox: $(pwd -P) read-only; "
 }
 
+# The Seatbelt profile (lib/sandbox/seatbelt.sh, seatbelt.sb), generated here from fixtures: macOS
+# alone runs it (tests/macos-smoke.sh), but what it says is checked on any host. No nix needed.
+sec_seatbelt() {
+  local sb=$src/lib/sandbox/seatbelt.sh base=$src/lib/sandbox/seatbelt.sb d=$work/sbp
+  local store=/nix/store/0123456789abcdfghijklmnpqrsvwxyz-jq-1.7.1-bin
+  mkdir -p "$d/home/ro" "$d/home/.cache/sb" "$d/repo/.git" && echo secret > "$d/home/.secret"
+  touch "$d/repo/flake.nix" "$d/repo/.git/config"
+  expect "seatbelt: the base denies by default" grep -qxF "(deny default)" "$base"
+  refuse "and allows no user's folder" grep -qE '"/(Users|Volumes|private/tmp|private/var/folders)' "$base"
+  ran "seatbelt: a rule with no filter" bash -c "source '$sb'; sb_rule 'allow file-read*'"
+  expect "is no rule (it would match everything)" test -z "$out"
+  ran "seatbelt: the closure's store paths" bash -c "source '$sb'; sb_store" <<<"$store"
+  expect "readable and runnable" has "  (subpath \"$store\"))"
+  refused "seatbelt: a line that isn't a store path" bash -c "source '$sb'; sb_store" <<<"$store\"x"
+  expect "stops the build" holds "graft: sandbox: not a store path"
+  # the run's part, through backend_prepare, as the launcher calls it (launcher.sh's helpers stubbed)
+  # shellcheck disable=SC2016 # the inner bash expands them
+  local prep='
+    set -euo pipefail
+    source "$1"
+    home() { echo "${1/#\~\//$HOME/}"; }
+    rel() { echo "$1"; }
+    die() { echo "die: $*" >&2; exit 1; }
+    run=$2/run HOME=$2/home top=$2/repo common=$2/repo/.git profile=/dev/null cacert=/cacert dry=""
+    readOnly=("~/ro" "~/absent") writable=("~/.cache/sb") repoReadOnly=$3 allow=(x:443) proxyPort=51234 withPaths=("$4")
+    pinRO=("$top/.git/config" "$top/flake.nix") pinDirs=("$top/.git")
+    mkdir -p "$run"
+    backend_prepare </dev/null >/dev/null 2>&1
+    cp "$run/profile.sb" "$2/profile.out"; cat "$run/profile.sb"; printf "%s\n" "${sbParams[@]}"; ls -A "$run/home"; readlink "$run/home/ro"
+    echo "TMPDIR: ${backendEnv[*]}"; echo "proxy: $proxyUrl"'
+  rm -rf "$d/run"
+  ran "seatbelt: the run's profile (repository writable)" bash -c "$prep" _ "$sb" "$d" 0 "$store"
+  # param P: the parameters whose value is P
+  # shellcheck disable=SC2317 # run through expect and refuse
+  param() { awk -v p="$1" 'index($0, "-DP") == 1 { split($0, kv, "="); k = substr(kv[1], 3); v = substr($0, length(kv[1]) + 2); if (v == p) print k }' <<<"$out"; }
+  # rule OP KEYS: a filter on one of the parameters KEYS (lines) is in a rule OP
+  # shellcheck disable=SC2317
+  rule() {
+    awk -v op="$1" -v keys="$2" 'BEGIN { n = split(keys, k, "\n") } /^\(/ { cur = $0 }
+      { for (i = 1; i <= n; i++) if (k[i] != "" && index($0, "(param \"" k[i] "\")") && cur == op) found = 1 }
+      END { exit !found }' <<<"$out"
+  }
+  expect "the repository: read, written, run" rule "(allow file-read* file-write* process-exec" "$(param "$d/repo")"
+  expect "the run's HOME" rule "(allow file-read* file-write* process-exec" "$(param "$d/run/home")"
+  expect "and TMPDIR" rule "(allow file-read* file-write* process-exec" "$(param "$d/run/tmp")"
+  expect "TMPDIR is the run's" has "TMPDIR: TMPDIR=$d/run/tmp"
+  expect "paths.readOnly: read" rule "(allow file-read* process-exec" "$(param "$d/home/ro")"
+  expect "paths.writable: written" rule "(allow file-read* file-write* process-exec" "$(param "$d/home/.cache/sb")"
+  expect "a ~/ entry is in the run's HOME, a link to the real one" has "$d/home/ro"
+  local h && h=$(param "$d/home")
+  expect "the real home: stat alone (realpath(3) of a path in it)" rule "(allow file-read-metadata" "$h"
+  refuse "not read" rule "(allow file-read* process-exec" "$h"
+  refuse "not written" rule "(allow file-read* file-write* process-exec" "$h"
+  expect "nor its secret" test "$(grep -c secret <<<"$out")" = 0
+  expect "an absent entry: skipped" test -z "$(param "$d/home/absent")"
+  expect "--with's store path" has "  (subpath \"$store\"))"
+  expect "a protected file: written by nothing" rule "(deny file-write*" "$(param "$d/repo/flake.nix")"
+  expect "the git config" rule "(deny file-write*" "$(param "$d/repo/.git/config")"
+  expect ".git: not renamed, removed or replaced" rule "(deny file-write-unlink file-write-create" "$(param "$d/repo/.git")"
+  expect "nor the repository, nor HOME" rule "(deny file-write-unlink file-write-create" "$(param "$d/run/home")"
+  expect "the repository's parents: stat alone" rule "(allow file-read-metadata" "$(param "$d")"
+  expect "the network: the proxy's port alone" has '  (remote ip "localhost:51234"))'
+  expect "and its URL" has "proxy: http://127.0.0.1:51234"
+  expect "TIOCSTI: denied" holds "(deny file-ioctl"$'\n'"  (ioctl-command 2147579026))"
+  expect "the denies come last" test "$(grep -n '^(allow' <<<"$out" | tail -1 | cut -d: -f1)" -lt "$(grep -n '^(deny' <<<"$out" | head -1 | cut -d: -f1)"
+  refuse "no path of the run is written in the profile, only parameters" grep -qF "$d" "$d/profile.out"
+  rm -rf "$d/run"
+  ran "seatbelt: the run's profile (repository.readOnly)" bash -c "$prep" _ "$sb" "$d" 1 "$store"
+  expect "the repository: read alone" rule "(allow file-read* process-exec" "$(param "$d/repo")"
+  refuse "not written" rule "(allow file-read* file-write* process-exec" "$(param "$d/repo")"
+  rm -rf "$d/run"
+}
+
 sec_own() {
   # graft's docs check reads knowledge-base-kit from a flake input: the same commit as its scion
   local link rev
@@ -1372,7 +1450,7 @@ sec_own() {
     test -z "$(grep -E '^[^#]*submodules *= *true' "$src/flake.nix")"
 }
 
-sections=(own mkflake tarball nix try sandbox add sync check outdated changelog upgrade graft workflows ci migrate)
+sections=(own mkflake tarball nix try seatbelt sandbox add sync check outdated changelog upgrade graft workflows ci migrate)
 [ $# -eq 0 ] || sections=("$@")
 for s in "${sections[@]}"; do
   echo "== $s"

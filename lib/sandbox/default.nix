@@ -1,7 +1,8 @@
 # The sandbox: a run sees its closure, read-only, and the impure things it declares (the
 # repository, host paths, hosts, variables), nothing else. mkFlake calls this per system with each
 # provider's `sandbox` and the consumer's; graft's base comes first. The policy (policy.nix) is a
-# module evaluation; a renderer turns it into the launcher: bubblewrap (bwrap.nix), on Linux.
+# module evaluation; a renderer turns it into the launcher: bubblewrap (bwrap.nix) on Linux,
+# Seatbelt (seatbelt.nix) on macOS.
 # nixpkgs is the one --with builds from; nixpkgsFrom says whose it is.
 { pkgs, dir, nixpkgs, nixpkgsFrom, tools, scions, providers, consumer }:
 
@@ -20,10 +21,7 @@ let
     providers = lib.mapAttrs (n: module: { file = "${dir}/${n}/graft.nix"; inherit module; }) providers;
   };
   passthru = { policy = policy.config; inherit (policy) explain; };
+  args = { inherit pkgs lib policy nixpkgs nixpkgsFrom passthru; };
 in
-if pkgs.stdenv.hostPlatform.isLinux then import ./bwrap.nix { inherit pkgs lib policy nixpkgs nixpkgsFrom passthru; }
-else pkgs.writeShellApplication {
-  name = "sandbox";
-  text = ''echo "graft: sandbox: not yet on macOS (Linux bubblewrap only)" >&2; exit 1'';
-  inherit passthru;
-}
+# graft's systems are Linux's and macOS's
+if pkgs.stdenv.hostPlatform.isDarwin then import ./seatbelt.nix args else import ./bwrap.nix args
