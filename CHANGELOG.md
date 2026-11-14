@@ -30,7 +30,9 @@ These are also a guide: [Move from copy mode](docs/guides/move-from-copy-mode.md
    Commit, then run `nix flake check` and `nix run .#graft check`.
 6. Fix paths that named the old scions directory: links, `just` imports (use `import?`), hooks, source imports,
    lint excludes. Replace the "never edit scions" agent rule with the section in
-   [Graft your first pattern](docs/guides/graft-a-repository.md#steps), step 6.
+   [Graft your first pattern](docs/guides/graft-a-repository.md#steps), step 6, and make an agent tool's rule
+   that denies edits to the scions directory ask instead (Claude Code: move `Edit(scions/**)` from
+   `permissions.deny` to `permissions.ask`): a scion edit is now a provider fix that a person approves.
 7. Commit and push.
 
 What a weekly upgrade job still on v2.12 does: it moves graft's pin to v2.13.0, then runs v2.13.0's copy step,
@@ -43,6 +45,12 @@ the scions untouched; every command then says the scions README is copy mode. Fo
 ### Added
 - **`graft add [-C REPO] [--scions PATH] URL[@TAG] [NAME]`:** a new scion, as a submodule at the newest
   release (or `TAG`).
+- **`graft try [-C REPO] [NAME...]` and `graft try --stop`:** build your repository with a scion's
+  uncommitted edits and new files, for a provider fix before its release. `try` marks `.graft-try` and the
+  scions' new files with intent to add (never a commit), so a git flake reads the working tree, and prints
+  what each build will see and the command to run; `--stop` undoes exactly that. `graft check` (and
+  `ci check`) fails while it is on, and `upgrade` refuses. A `path:` flake in a subdirectory needs nothing:
+  `try` only reports. Replaces the scratch-file steps of the guides.
 - **`graft.nix`:** a provider's tools (`packages.<system>.tools`, one environment for every provider), apps,
   packages and checks (`checks.<system>.<scion>-<name>`), with `requires` for providers it needs. Arguments
   `pkgs`, `lib`, `system`, `scion`, `scions`, `consumer` ([Files](docs/reference/files.md#graftnix)).
