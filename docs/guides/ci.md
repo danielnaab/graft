@@ -23,15 +23,13 @@ merge it or fix it.
   pull request's author. A user-level secret covers all that user's repositories.
 - To make your own checks a required status, see
   [Make a pattern's checks gate your merges](gate-merges.md). `graft-check.yaml` checks only that the scions
-  match their pins.
+  are registered, clean and at release tags, and that the flake evaluates.
 - The commands assume `flake.nix` at the repository's top. For a flake in a subdirectory, run
   `nix run 'path:DIR#graft'` for `nix run .#graft`; graft's workflows find the subdirectory themselves
   ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)). In zsh, quote flake references
   ([The graft command](../reference/commands.md#the-graft-command)).
-- `graft-upgrade.yaml` cannot run in a repository with a private (`git+ssh`) scion: every upgrade fetches
-  all scions, and the upgrade job must not hold an ssh key ([CI security](../ci-security.md#limits)).
-  Delete `graft-upgrade.yaml`, and upgrade with `nix run .#graft upgrade`
-  ([Graft a private repository](private-providers.md#how-it-works)).
+- A private scion needs the `# graft ssh:` line in both workflows ([Graft a private repository](private-providers.md)).
+- The runner's Nix must be 2.27 or later. `nixos/nix:latest` is.
 - Check it worked needs `jq`.
 
 ## Steps
@@ -44,8 +42,10 @@ merge it or fix it.
    graft: page-rules: v2.0.0 is a new major version; not taken (graft upgrade page-rules@v2.0.0)
    graft: page-rules v1.0.0 -> v1.0.1
    graft: style-guide v1.0.0 -> v1.1.0
-   graft: rebuilt scions/
    ```
+
+   It then commits the move and runs your whole `nix flake check` on the committed tree, so Nix builds the
+   new versions.
 
    If it prints `graft: nothing to upgrade`, nothing moved, the **pr** job is skipped, and there is no pull
    request this week. A new major version alone opens no pull request either: the run only warns about it.
@@ -128,22 +128,25 @@ merge it or fix it.
    git diff --stat origin/main...origin/graft/upgrade
    ```
 
-   Expect only `flake.nix`, `flake.lock` and files in the scions directory. The **pr** job opens no pull
-   request for a branch that changes anything else. On a fix branch of your own, also expect the files that
-   you fixed.
+   Expect one line per moved scion, such as `scions/style-guide | 2 +-` (a gitlink), and, when graft's own pin
+   moved, `flake.nix`, `flake.lock`, `scions/README.md` and graft's workflows. The **pr** job opens no pull
+   request for a branch that changes anything else, `.gitmodules` included. On a fix branch of your own, also
+   expect the files that you fixed.
 
-7. Read the diff of the scions directory. It is the change that you take:
+7. Read what each moved scion takes. The gitlink diff names the two commits; the provider's history holds the
+   change:
 
    ```
-   git diff origin/main...origin/graft/upgrade -- scions/
+   git diff --submodule=log origin/main...origin/graft/upgrade -- scions/
+   git -C scions/style-guide fetch --tags -q && git -C scions/style-guide diff --stat v1.0.0 v1.1.0
    ```
 
    | Look for | Why |
    |---|---|
    | a deleted or renamed file | your files can link to it |
    | a changed rule or policy text | your pages, or a check that quotes it, can stop matching |
-   | changed checker code | your CI runs it on your files |
-   | new commits in `scions/README.md` | expected: the pins moved |
+   | changed checker code, or a changed `graft.nix` | your CI runs it on your files |
+   | a changed graft workflow, when graft moved | it runs in your CI with your secrets: read it before you merge |
 
 8. Merge the pull request, when your forge's required checks pass. Forgejo starts no workflow for a push
    made with the job token, so graft-check and your own workflows run on the pull request only when graft
@@ -155,10 +158,10 @@ merge it or fix it.
 ## Check it worked
 
 After the merge, from the repository's top, paste this. It prints `ok` only if your `main` has the merge,
-the scions match their pins, every pin is current or untagged, and your checks pass:
+every scion is clean and at a release, every pin is current or untagged, and your checks pass:
 
 ```sh
-git switch -q main && git pull -q --ff-only && nix run '.#graft' check && nix run '.#graft' -- outdated --json | jq -e 'length > 0 and all(.[]; .status == "current" or .status == "untagged")' >/dev/null && nix flake check && echo ok
+git switch -q main && git pull -q --ff-only && git submodule update --init -q && nix run '.#graft' check && nix run '.#graft' -- outdated --json | jq -e 'length > 0 and all(.[]; .status == "current" or .status == "untagged")' >/dev/null && nix flake check && echo ok
 ```
 
 If a provider tagged a new version after the run, its status is `outdated`, and the next weekly run takes
@@ -184,13 +187,15 @@ it. A status `unknown` means that graft cannot read the provider's repository.
   git switch --no-track -c fix-upgrade origin/graft/upgrade
   ```
 
-  If graft's own pin moved, read the scions diff (step 7) before you run anything: `nix flake check` on this
-  branch runs the new graft version ([CI security](../ci-security.md)). Fix your own files, never the scions
-  directory, and run `nix flake check` until it passes. Then commit, and push:
+  If graft's own pin moved, read the diff (step 7) before you run anything: `nix flake check` on this
+  branch runs the new graft version ([CI security](../ci-security.md)). Fill the scions
+  (`git submodule update --init`), fix your own files, never the scions, and commit. Then run
+  `nix flake check` on the committed tree until it passes, and push:
 
   ```
   git add -A
   git commit -m "Fix the upgrade"
+  nix flake check
   git push -u origin fix-upgrade
   ```
 
@@ -199,7 +204,7 @@ it. A status `unknown` means that graft cannot read the provider's repository.
   ```
   git fetch origin
   git diff --stat origin/main...origin/fix-upgrade
-  git diff origin/main...origin/fix-upgrade -- scions/
+  git diff --submodule=log origin/main...origin/fix-upgrade -- scions/
   ```
 
   Merge it: it holds the upgrade and your fix. Close graft's pull request if it is still open. Delete the
@@ -212,19 +217,18 @@ it. A status `unknown` means that graft cannot read the provider's repository.
 - **The upgrade job fails: `graft: page-rules: can't tell whether v1.0.0 is current (see above); nothing changed`.**
   A line above it starts `graft: can't list tags at URL:`: the runner cannot read that provider's
   repository. It is down, moved, or private. Nothing is pushed. Fix
-  the access, or the URL in `flake.nix`, and run the workflow again.
+  the access (for a private scion, the `# graft ssh:` line), or the URL in `.gitmodules`, and run the
+  workflow again.
 
-- **The pr job refuses.** It opens no pull request for a branch that changes files outside the flake and
-  the scions directory:
+- **The pr job refuses.** It opens no pull request for a branch that changes files that `graft upgrade` never
+  writes:
 
   - `graft/upgrade changes files graft upgrade never writes: docs/plan.md. Not opening a PR; …`: the branch
     differs from the default branch in other files. Usually the default branch changed after the
     **upgrade** job made the branch. Run the workflow again. If that does not help, someone pushed to
     `graft/upgrade`: read the diff at the link in the message.
-  - `this upgrade changes CI workflows: .forgejo/workflows/graft-check.yaml. A PR would run them with the repo's secrets before anyone reads them, so none is opened: …`:
-    graft moved its own pin, and the new version's workflows differ. Read the diff at the link in the
-    message ([CI security](../ci-security.md)). If it is safe, open the pull request from `graft/upgrade`
-    yourself. For its description, run `nix run .#graft changelog` on the default branch.
+  - A `.gitmodules` change (a provider's URL) is refused the same way: a provider swap needs a person. Make
+    it by hand ([Ship and take an incompatible change](incompatible-change.md#if-something-goes-wrong)).
 
 - **The pr job fails with an HTTP code.** The token was refused:
 
@@ -237,13 +241,15 @@ it. A status `unknown` means that graft cannot read the provider's repository.
 
 ## How it works
 
-- **Two jobs.** The **upgrade** job runs `nix run .#graft ci upgrade`: `graft upgrade`, then the whole
-  `nix flake check` on the result. It commits and force-pushes `graft/upgrade` even when a check fails, and
-  then fails. It holds only the job token. The **pr** job runs `nix run .#graft ci pr` from the default
+- **Two jobs.** The **upgrade** job runs `nix run .#graft ci upgrade`: `graft upgrade`, a commit, then the
+  whole `nix flake check` on the committed tree. It force-pushes `graft/upgrade` even when a check fails, and
+  then fails. It moves gitlinks without cloning the scions. It holds only the job token. The **pr** job runs `nix run .#graft ci pr` from the default
   branch, with `GRAFT_PR_TOKEN`. It opens the pull request, or rewrites the title and description of the
   open one. Why: [CI security](../ci-security.md).
 - **graft-check** runs `nix run .#graft ci check` for pull requests and pushes to the default branch that
-  Forgejo starts workflows for. It builds only graft's check. When it fails, see
+  Forgejo starts workflows for. It checks the committed state (registered scions, absolute URLs, gitlinks at
+  version tags, graft's workflows) without filling the scions, and evaluates `tools` so that mkFlake's errors
+  fail it. When it fails, see
   [`graft check` fails](check-fails.md). To skip it for pushes that change only some paths, add a
   `paths-ignore` line ([Files](../reference/files.md#the-paths-ignore-line)).
 - **Run the steps yourself.** On GitHub, or to test, run the same commands from the top of a fresh clone
@@ -272,7 +278,7 @@ it. A status `unknown` means that graft cannot read the provider's repository.
   each checkout:
 
   ```
-  for r in ~/src/team-kb ~/src/handbook; do echo "$r"; nix run github:danielnaab/graft/v2.12.0 -- outdated -C "$r"; done
+  for r in ~/src/team-kb ~/src/handbook; do echo "$r"; nix run github:danielnaab/graft/v2.13.0 -- outdated -C "$r"; done
   ```
 
 ## Related
