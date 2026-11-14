@@ -1,5 +1,48 @@
 # Changelog
 
+## v2.14.0 - unreleased
+
+A sandbox for agents and other commands. Every repository gets a launcher, `packages.<system>.sandbox`,
+that runs one command so that it sees its closure, the repository, and only what the repository declares.
+Nothing to change: a repository that declares no `sandbox` gets graft's base policy.
+
+### Added
+- **The `sandbox` launcher:** `nix run .#sandbox -- CMD` (`nix run 'path:DIR#sandbox' -- CMD` for a flake in
+  a subdirectory; `sandbox CMD` in the default dev shell). Linux, with bubblewrap and unprivileged user
+  namespaces. The command sees its closure read-only, the repository writable, an empty home folder, an
+  empty environment but for what the policy names, and no network.
+  `sandbox [--with PKG]... [--allow HOST[:PORT]]... [--explain [--json]] [--dry-run] [--] [CMD [ARGS...]]`;
+  with no command, `bash`. Exit status: the command's; `127` for a command not on the sandbox's `PATH`; `2`
+  for a usage error ([Sandbox](docs/reference/sandbox.md),
+  [Run an agent or a command in a sandbox](docs/guides/run-in-a-sandbox.md)).
+- **`sandbox` in `graft.nix` and `perSystem`:** `packages`, `env.set`, `protect`, `repository.readOnly`,
+  `paths.readOnly`, `paths.writable`, `network.allow`, `env.pass` and `grant`, merged by Nix. A provider may
+  add to what the run can see (`packages`, `env.set`, `protect`), never to what it can reach: its
+  `network.allow`, `paths.*` and `env.pass` are requests, which apply only when the consumer names the scion
+  in `sandbox.grant`.
+- **Protected paths:** `flake.nix`, `flake.lock`, `graft.nix`, `.gitmodules`, `.envrc`, `justfile` and
+  `.pre-commit-config.yaml` at any depth, `protect`'s paths, and the git metadata that host git reads to find
+  a repository or to run something (`.git` files, config, hooks) are read-only inside, so a command cannot
+  widen its next run or plant a hook. A symbolic link, or a file with another hard link, on a protected path stops the launcher. The launcher
+  shows control characters in what it prints as `\xNN`. After each run
+  the launcher warns about new git metadata, new gitlinks and new files with a protected name.
+- **`network.allow`:** `"host"` (ports 443 and 80) or `"host:port"`, with `*` and `?`, through a proxy on the
+  host that refuses the rest. Only programs that use `HTTPS_PROXY` reach the network. After the run, the
+  launcher lists the connections that the proxy refused.
+- **`sandbox --explain`** prints the policy with the file that set each value, and the requests that are not
+  granted. `--dry-run` prints the bubblewrap command. `--with PKG` and `--allow HOST` add a package or a host
+  for one run.
+- **The decision** behind it, with its costs: the sandbox protects the host, not the repository's history
+  ([Decisions](docs/decisions.md#enforce-the-boundary-in-a-sandbox-not-in-rules)). graft's scope is now Nix,
+  git submodules, a tag comparison, and the sandbox policy their operations run under.
+
+### Upgrading
+- Nothing required. `apps.<system>.sandbox` and `packages.<system>.sandbox` are now graft's names, like
+  `apps.graft` and `packages.tools`: a provider or a `perSystem` that defines either fails evaluation with
+  `graft: packages sandbox (from NAME): that name is graft's; …`, and mkFlake's `outputs` with
+  `graft: mkFlake's outputs has packages.<system>.sandbox: that name is graft's; rename the repo's own`.
+  Rename yours.
+
 ## v2.13.1 - 2026-11-14
 
 ### Fixed

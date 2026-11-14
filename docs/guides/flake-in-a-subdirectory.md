@@ -161,6 +161,7 @@ nix run 'path:nix/agent-tools#graft' check && test ! -e flake.nix && test -z "$(
 ## Related
 
 - [Graft a private repository](private-providers.md): a provider that only an ssh key can read.
+- [Run an agent or a command in a sandbox](run-in-a-sandbox.md): `nix run 'path:nix/agent-tools#sandbox' -- CMD`.
 - [Nix behaviours](../reference/nix-behaviours.md#path-flakes-in-a-subdirectory), [Commands](../reference/commands.md#mkflake).
 
 ## Sources

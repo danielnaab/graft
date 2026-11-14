@@ -206,6 +206,9 @@ in
 `nix-prefetch-url --unpack URL` prints the hash. Your own `flake.nix` and `flake.lock` are for work on your
 repository: consumers never evaluate them.
 
+A tool that needs the network, a host path or an environment variable in a consumer's sandbox declares it
+in `sandbox` ([Declare what your tools need](run-in-a-sandbox.md#declare-what-your-tools-need-provider)).
+
 ## Check it worked
 
 In a consumer that grafts your release, from its top, with your tool and check names, paste this. It prints
@@ -238,7 +241,7 @@ Use your machine's system for `x86_64-linux`.
 - **A step after each upgrade.** If consumers must run something after an upgrade (regenerate files, say),
   give them a `just` recipe that runs `nix run .#graft upgrade` and then your app, and a check that fails when
   the generated files differ from what the new version renders. graft has no post-upgrade hook
-  ([Scope](../decisions.md#scope-nix-git-submodules-and-a-tag-comparison)).
+  ([Scope](../decisions.md#scope-nix-git-submodules-a-tag-comparison-and-a-sandbox-policy)).
 
 ## Sources
 

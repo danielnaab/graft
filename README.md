@@ -87,6 +87,9 @@ git submodules give you a pinned clone. graft adds what makes them a dependency 
   post-checkout hook that the guide gives fills them in new clones and worktrees, and `graft sync` fills them
   ([Clones, worktrees, sandboxes and CI](docs/guides/clones-and-worktrees.md)).
 - **An agent rule** for working with scions, ready to paste into `AGENTS.md`.
+- **A sandbox for agents.** `nix run .#sandbox -- claude` runs a command that sees its closure and the
+  repository, and only the host paths and hosts that you declare or grant. It cannot change the files that
+  decide the sandbox (Linux; [Run an agent or a command in a sandbox](docs/guides/run-in-a-sandbox.md)).
 
 Compared with the other ways:
 
@@ -159,11 +162,13 @@ and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 | Both: release or take an incompatible change (a new major version) | [Ship and take an incompatible change](docs/guides/incompatible-change.md) |
 | Consumer: keep private files out of the Nix store | [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md) |
 | Consumer: graft a provider that only an ssh key can read | [Graft a private repository](docs/guides/private-providers.md) |
+| Anyone: run an agent or a command in a sandbox | [Run an agent or a command in a sandbox](docs/guides/run-in-a-sandbox.md) |
 | Provider: release a version | [Publish a pattern](docs/guides/publish.md) |
 | Provider: ship tools, apps and checks | [Write a provider's graft.nix](docs/guides/write-graft-nix.md) |
 | Consumer on v2.12 or earlier: move to submodules | [Move from copy mode](docs/guides/move-from-copy-mode.md) |
 | Look up a command, flag, `mkFlake` argument or error | [Commands](docs/reference/commands.md) |
 | Look up a file graft reads or writes, or the `graft.nix` contract | [Files](docs/reference/files.md) |
+| Look up a sandbox option, what a run sees, or a launcher message | [Sandbox](docs/reference/sandbox.md) |
 | Know how Nix sees a scion | [Nix behaviours](docs/reference/nix-behaviours.md) |
 | Know why graft is this small, and where graft v1 went | [Decisions](docs/decisions.md) |
 | Change graft itself | [Development](docs/development.md) |

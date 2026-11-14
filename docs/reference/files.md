@@ -19,6 +19,9 @@ The files graft reads and writes, and the lines in them that graft recognizes.
 | `.forgejo/workflows/graft-*.yaml` | Restored by `sync`, replaced by `upgrade`, compared by `check`. | graft's workflows, if they carry the marker. |
 | Settings files, such as `knowledge-base.yaml` | Read by providers' tools and checks, never by graft. | What a provider lets you configure. Each provider's README names its file. |
 
+Inside a [sandbox](sandbox.md#protected-paths), `flake.nix`, `flake.lock`, `.gitmodules`, each `graft.nix`,
+`.envrc`, `justfile` and `.pre-commit-config.yaml` (at any depth), and the git metadata, are read-only.
+
 ## The marker README
 
 `<dir>/README.md`. `add` writes it when it is missing; `sync`, and `upgrade` when graft's pin moves, write
@@ -100,6 +103,7 @@ A function, called once per system by the consumer's mkFlake:
   apps     = { check-kb = { type = "app"; program = "…"; }; };
   checks   = { tasks = pkgs.runCommand "tasks" { } "…"; };
   packages = { obsidian-plugins = …; };
+  sandbox  = { packages = [ pkgs.ripgrep ]; network.allow = [ "api.example.com" ]; };
 }
 ```
 
@@ -117,9 +121,10 @@ A function, called once per system by the consumer's mkFlake:
 | Attribute | Becomes | Collision |
 |---|---|---|
 | `tools` | Part of `packages.<system>.tools`, on the consumer's `PATH` | An error, unless both are the same store path. |
-| `apps` | `apps.<system>.<name>` | An error; `graft` is reserved. |
-| `packages` | `packages.<system>.<name>` | An error; `tools` is reserved. |
+| `apps` | `apps.<system>.<name>` | An error; `graft` and `sandbox` are reserved. |
+| `packages` | `packages.<system>.<name>` | An error; `tools` and `sandbox` are reserved. |
 | `checks` | `checks.<system>.<scion>-<name>` | None: prefixed. |
+| `sandbox` | Part of the [sandbox policy](sandbox.md#options). `packages`, `env.set` and `protect` apply. `network.allow`, `paths.readOnly`, `paths.writable` and `env.pass` are requests: they apply only when the consumer grants them. | None: merged. `repository.readOnly`, `grant`, and `mkForce` (or `mkOverride` below 100) are an error. |
 | `requires` | Nothing. Checked first: each named scion must exist, or evaluation fails with `graft add URL`. | |
 | Anything else | Visible to other providers as `scions.NAME.ATTR`, not a flake output. | |
 
@@ -256,7 +261,7 @@ image with no ssh client, it takes `openssh` from Nix.
 ## Sources
 
 - [lib/common.sh](../../lib/common.sh): finding the marker README; semver tags
-- [lib/mk-flake.nix](../../lib/mk-flake.nix): the `graft.nix` arguments, merging and collisions
+- [lib/mk-flake.nix](../../lib/mk-flake.nix): the `graft.nix` arguments, merging and collisions, `sandbox`
 - [lib/workflows.sh](../../lib/workflows.sh): workflow ownership, the branches, paths-ignore and ssh lines
 - [lib/tools.sh](../../lib/tools.sh): `add`, `upgrade` and `.gitmodules`
 - [lib/common.sh](../../lib/common.sh) `upstream_range`, `changelog_between`: `CHANGELOG.md` read from the

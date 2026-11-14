@@ -22,7 +22,7 @@ into its Nix flake: a flake library and one command. Read [README.md](README.md)
    `nix run .#graft check` fails.
 2. Behaviour and docs change together. A change to a command, argument, message or file format updates its
    reference page in the same commit.
-3. Keep graft in [scope](docs/decisions.md#scope-nix-git-submodules-and-a-tag-comparison).
+3. Keep graft in [scope](docs/decisions.md#scope-nix-git-submodules-a-tag-comparison-and-a-sandbox-policy).
 4. Do not change `CHANGELOG.md` sections of released versions.
 
 ## Verify

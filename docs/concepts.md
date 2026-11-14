@@ -53,9 +53,29 @@ works this way, see [Decisions](decisions.md).
   first, so the rest of the upgrade runs the new version.
 - **Migration brief:** after an upgrade, `graft migrate` prints what moved, what the provider's changelog
   says, which of your files name a moved path, and which checks fail. A person or an agent does the
-  migration. graft never runs an agent.
+  migration. graft never chooses to run an agent.
 - **Fix in place:** a scion is a real clone. You or an agent can fix a provider bug in it, push the fix to
   the provider, and take it as a release ([Fix a provider from a consumer](guides/fix-a-provider.md)).
+
+## What runs in a sandbox
+
+- **Closure:** the store paths that a package needs to run: the package, and every store path it refers to,
+  with theirs. Nix knows it exactly.
+- **Sandbox:** a run of one command that sees only its closure (read-only), the repository's working tree,
+  and what the repository declares: host paths, hosts and environment variables. The rest of the host is not
+  there: your home folder, your keys, the Nix daemon.
+- **Launcher:** `sandbox`, the program that starts a sandbox. mkFlake builds it for every repository as
+  `packages.<system>.sandbox`: `nix run .#sandbox -- COMMAND`. graft has no command of its own for it, and
+  never starts a sandbox by itself.
+- **Sandbox policy:** what a sandbox sees, declared as `sandbox = { … };` by graft's base, each provider's
+  `graft.nix` and the consumer's `perSystem`, and merged by Nix. `sandbox --explain` prints it, with the file
+  that set each value.
+- **Protected path:** a path in the repository that the sandbox sees read-only, such as `flake.nix`, each
+  `graft.nix` and the git metadata: what decides the sandbox, or what the host runs.
+- **Request and grant:** a provider can add to what a run sees (packages, fixed environment values,
+  protected paths), but not to what it reaches (the network, host paths, the caller's environment). Those
+  are requests. A request applies only when the consumer **grants** it, by the scion's name:
+  `sandbox.grant = [ "notebook-kit" ];`.
 
 ## The git and Nix binding
 
@@ -69,6 +89,7 @@ works this way, see [Decisions](decisions.md).
 | Provider outputs | Each scion's `graft.nix`, called once per system. Its `tools` become `packages.<system>.tools`, one environment; its checks become `checks.<system>.<scion>-<name>`. |
 | Scions directory | `<dir>/`, where `dir` is a `mkFlake` argument, default `scions`, beside `flake.nix`. |
 | graft's pin | The flake input named `graft`. |
+| Sandbox | `packages.<system>.sandbox`: a launcher that runs bubblewrap with the merged policy (Linux only). Each provider's `graft.nix` and `perSystem` can return `sandbox`. |
 
 Nix and git see a scion differently, and one difference matters every day: a git flake's build reads a scion
 at its **committed** gitlink while the rest of your tree is clean, and from your working tree once any tracked
@@ -77,5 +98,5 @@ own tests, inside the scion; build your repository with it under [`graft try`](r
 which makes every build read the working tree until `graft try --stop`; and let `graft check` keep
 unreleased scions (and try's marker) from merging.
 
-graft adds, checks, moves tags and wires outputs, and does nothing more. The limits and their reasons are in
-[Decisions](decisions.md#scope-nix-git-submodules-and-a-tag-comparison).
+graft adds, checks, moves tags, wires outputs and the sandbox policy, and does nothing more. The limits and
+their reasons are in [Decisions](decisions.md#scope-nix-git-submodules-a-tag-comparison-and-a-sandbox-policy).
