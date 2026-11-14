@@ -4,37 +4,26 @@
 #   outdated  for graft itself and each scion, its pinned tag, the newest tag upstream within that
 #             major version, and the newest of a later major if there is one.
 #   upgrade   move each named one (default: every outdated one) to TAG (default: the newest of
-#             its pinned major), re-lock it, and rebuild. Prints nothing to do when nothing is.
-#             Only NAME@TAG crosses a major version. NAME `graft` is the repo's graft input: it
-#             moves first, then every scions directory is rebuilt and graft's workflows refreshed
-#             with the new version's code.
+#             its pinned major). Prints nothing to do when nothing is. Only NAME@TAG crosses a
+#             major version. NAME `graft` is the repo's graft input: it moves first (flake.nix and
+#             flake.lock), then the new version writes its scions README and workflows.
 #   changelog what upgrade would take, before taking it: each named one's (default: each outdated
 #             one's) CHANGELOG.md sections between its pinned tag and TAG (default: the newest of
 #             its pinned major), Upgrading subsections first, or its commits. Changes nothing.
 #
-# All three read the repo as data: graft's README table in each scions directory says which flake
-# inputs are scions, and flake.lock says what each is pinned to. The flake may sit in a
-# subdirectory of the repo (mkFlake's flakeDir, which the scions README records): its flake.nix and
-# flake.lock are read and written there, and `nix flake update` runs on it as a `path:` flake, so
-# the repo's top is never copied to the store (common.sh's locate). Run from graft's own flake with -C
-# (a central bot), none evaluates the repo's flake outputs; `nix run .#graft outdated`, as CI
-# runs it, does, to reach this script. One exception, in upgrade:
-# `nix flake update <name>` re-locks the input, which reads the flake's `inputs` but never calls
-# `outputs`. The rebuilt directory comes from lib/assemble.sh, the same script mkFlake's check
-# builds from, so `nix flake check` passes after an upgrade exactly when the copy is right.
+# All three read the repo as data. A scion's pin is its gitlink (the commit the index records) and
+# its upstream the URL in .gitmodules; its version is the highest semver tag upstream at that commit
+# (none: `untagged`). graft's own pin is the flake input named `graft` in flake.lock.
 #
-# graft's own pin (the flake input named `graft`) is listed and moved like a scion. Moving it
-# rebuilds every scions directory with the new version's lib/assemble.sh, and replaces each of
-# graft's workflows (lib/workflows.sh: a .forgejo/workflows/ file carrying graft's marker line)
-# with the one the new version ships, so `nix flake check` under the new pin passes.
+# Moving a scion: refused when its checkout has uncommitted edits or sits at another commit than
+# the gitlink. An initialised scion fetches the tag and checks it out, and the gitlink is staged
+# (git add); an uninitialised one (a CI checkout) gets the gitlink written straight into the index
+# (git update-index), which Nix builds once committed. .gitmodules is never touched.
 #
-# Only tags shaped like semver (v1.2.3 or 1.2.3) count as versions. An input pinned to a branch, a
-# bare commit or a path is reported as `untagged` and never upgraded.
-#
-# A new major version is the provider saying it breaks something, so nothing crosses one by itself:
-# the default target is the newest tag of the pinned major, and a later major is only reported
-# (outdated's MAJOR column) until it's named (NAME@v3.0.0). As in semver's convention for 0.x (and
-# Cargo's), a 0.y series is its own major: 0.3.1 moves to 0.3.4 by itself, never to 0.4.0.
+# Only tags shaped like semver (v1.2.3 or 1.2.3) count as versions. A new major version is the
+# provider saying it breaks something, so nothing crosses one by itself: the default target is the
+# newest tag of the pinned major, and a later major is only reported until it's named. A 0.y series
+# is its own major (semver's 0.x, as Cargo reads it): 0.3.1 moves to 0.3.4 by itself, never to 0.4.0.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -50,42 +39,21 @@ remote() {  # the git URL of a locked input's upstream
          else empty end' <<<"$1"
 }
 
-semver_key() { sed -E 's/^v//' <<<"$1"; }
-
-# The semver tags at URL, spelled like REF (with or without the v), oldest first. Nothing, with
-# git's error on stderr, if the remote can't be listed. http.extraHeader is cleared: a header the
-# repo configured for its own server (a CI checkout's token) must never be sent to a provider's.
-semver_tags() {
-  local url=$1 ref=$2 prefix="" tags
-  [[ $ref == v* ]] && prefix=v
-  tags=$(git -c http.extraHeader= ls-remote --tags --refs "$url" 2>&1) \
-    || { echo "graft: can't list tags at $url: $(tail -1 <<<"$tags")" >&2; return 0; }
-  sed -E 's#.*refs/tags/##' <<<"$tags" | grep -E "^${prefix}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V || true
-}
-
-# A version's major series: X for X.y.z, and 0.Y for 0.Y.z (semver's 0.x: anything may break).
-major_of() {
-  local v
-  v=$(semver_key "$1")
-  if [[ $v == 0.* ]]; then cut -d. -f1-2 <<<"$v"; else cut -d. -f1 <<<"$v"; fi
-}
-
-newer() { [ "$(printf '%s\n%s\n' "$(semver_key "$1")" "$(semver_key "$2")" | sort -V | tail -1)" != "$(semver_key "$1")" ]; }
-
-# One row for input NAME, listed under DIR: name<TAB>dir<TAB>pinned<TAB>latest<TAB>status<TAB>major.
-# latest is the newest tag of the pinned major; status one of current|outdated|untagged|unknown,
-# against it; major the newest tag of a later major series, or -.
+# row NAME DIR URL PINNED: name<TAB>dir<TAB>pinned<TAB>latest<TAB>status<TAB>major. PINNED is a tag,
+# or "untagged:WHAT" (shown as WHAT), or "unknown". latest is the newest tag of the pinned major;
+# status one of current|outdated|untagged|unknown, against it; major the newest tag of a later
+# major series, or -.
 row() {
-  local name=$1 dir=$2 n ref url tags t series latest="" major="" status
-  n=$(node "$name")
-  [ -n "$n" ] || { printf '%s\t%s\t-\t-\tunknown\t-\n' "$name" "$dir"; return; }
-  ref=$(jq -r '.original.ref // empty' <<<"$n")
-  url=$(remote "$n")
-  if [ -z "$url" ] || ! is_semver "$ref"; then
-    printf '%s\t%s\t%s\t-\tuntagged\t-\n' "$name" "$dir" "${ref:-$(jq -r '.locked.rev[0:12] // .original.type // "-"' <<<"$n")}"
-    return
+  local name=$1 dir=$2 url=$3 ref=$4 tags t series latest="" major="" status
+  case $ref in
+    untagged:*) printf '%s\t%s\t%s\t-\tuntagged\t-\n' "$name" "$dir" "${ref#untagged:}"; return ;;
+    unknown:*) printf '%s\t%s\t%s\t-\tunknown\t-\n' "$name" "$dir" "${ref#unknown:}"; return ;;
+  esac
+  if ! tags=$(tags_of "$url" | awk '{ print $2 }'); then
+    printf '%s\t%s\t%s\t-\tunknown\t-\n' "$name" "$dir" "$ref"; return
   fi
-  tags=$(semver_tags "$url" "$ref")
+  # spelled like the pinned tag (with or without the v)
+  if [[ $ref == v* ]]; then tags=$(grep '^v' <<<"$tags" || true); else tags=$(grep -v '^v' <<<"$tags" || true); fi
   series=$(major_of "$ref")
   while IFS= read -r t; do
     [ -n "$t" ] || continue
@@ -94,25 +62,54 @@ row() {
   done <<<"$tags"
   status=current
   if [ -z "$tags" ]; then status=unknown; latest=-
-  elif [ -z "$latest" ]; then latest=$ref   # the pinned tag is gone upstream; nothing newer in its series
+  elif [ -z "$latest" ]; then latest=$ref
   elif newer "$ref" "$latest"; then status=outdated
-  else latest=$ref   # never offer an older tag (the pinned one gone upstream)
+  else latest=$ref
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$dir" "$ref" "$latest" "$status" "${major:--}"
 }
 
+# scion_pin PATH URL: the pinned tag of the scion at PATH (the gitlink's version upstream), or
+# untagged:SHA12, or unknown:SHA12 when upstream can't be listed
+scion_pin() {
+  local link v
+  link=$(gitlink "$1")
+  [ -n "$link" ] || { echo "unknown:-"; return; }
+  if ! v=$(version_at "$2" "$link"); then
+    # upstream unreadable: the scion's own tags say what it is, if it's filled
+    v=$(local_version_at "$1" "$link"); echo "unknown:${v:-${link:0:12}}"; return
+  fi
+  if [ -n "$v" ]; then echo "$v"; else echo "untagged:${link:0:12}"; fi
+}
+
+# URLS: name<TAB>url for every row (graft's, then the scions'), for upgrade and changelog
+declare -A URLS=() PATHS=()
+
 # Rows for graft's own input (DIR `-`), when the flake has one, then for every scion.
 report() {
-  local dir name names=""
-  while IFS= read -r dir; do
-    while IFS= read -r name; do names+="$name"$'\t'"$dir"$'\n'; done < <(scions_in "$dir")
-  done < <(scion_dirs)
-  # a scion named graft (grafting graft's docs) is that scion, not the library pin
-  if [ -n "$(node graft)" ] && ! grep -q $'^graft\t' <<<"$names"; then row graft -; fi
-  while IFS=$'\t' read -r name dir; do
+  local n ref url name path
+  n=$(node graft)
+  if [ -n "$n" ] && ! scions_registered .gitmodules | cut -f1 | grep -qxF graft; then
+    ref=$(jq -r '.original.ref // empty' <<<"$n"); url=$(remote "$n")
+    if [ -z "$url" ] || ! is_semver "$ref"; then
+      ref="untagged:${ref:-$(jq -r '.locked.rev[0:12] // .original.type // "-"' <<<"$n")}"
+    fi
+    row graft - "$url" "$ref"
+  fi
+  while IFS=$'\t' read -r name path url; do
     [ -n "$name" ] || continue
-    row "$name" "$dir"
-  done <<<"$names"
+    row "$name" "$SCIONS" "$url" "$(scion_pin "$path" "$url")"
+  done < <(scions_registered .gitmodules)
+}
+
+urls() {
+  local name path url n
+  n=$(node graft)
+  if [ -n "$n" ]; then URLS[graft]=$(remote "$n"); fi
+  while IFS=$'\t' read -r name path url; do
+    [ -n "$name" ] || continue
+    URLS[$name]=$url PATHS[$name]=$path
+  done < <(scions_registered .gitmodules)
 }
 
 cmd_outdated() {
@@ -122,7 +119,7 @@ cmd_outdated() {
     jq -R -s -c 'split("\n") | map(select(length>0) | split("\t")
       | {name:.[0], dir:.[1], pinned:.[2], latest:.[3], status:.[4], major:(if .[5]=="-" then null else .[5] end)})' <<<"$rows"
   elif [ -z "$rows" ]; then
-    echo "graft: no scions here (no README.md carrying graft's marker)"
+    echo "graft: no scions here (no README.md carrying graft's marker), and no graft input"
   else
     { echo -e "NAME\tDIR\tPINNED\tLATEST\tSTATUS\tMAJOR"; echo "$rows"; } | column -t -s $'\t'
     if grep -q $'\t[^\t]*[0-9]$' <<<"$rows"; then
@@ -154,82 +151,50 @@ retarget() {
   printf '%s\n' "$text" > "$FLAKE_NIX"
 }
 
-# The flake reference that fetches NAME's locked export (Nix applies export-ignore to these).
-locked_ref() {
-  jq -r 'if .locked.type=="github" then "github:\(.locked.owner)/\(.locked.repo)/\(.locked.rev)"
-         elif .locked.type=="git" then "git+\(.locked.url)?rev=\(.locked.rev)&exportIgnore=1"
-         else empty end' <<<"$(node "$1")"
-}
-
-# The source of the graft version the repo pins (its `graft` input in flake.lock), or of TAG on
-# that input's upstream when one is given; nothing if the flake has no `graft` input (graft's own
-# tests). Its lib/assemble.sh is what a run from outside rebuilds with, so it writes exactly what
-# the repo's own `nix flake check` expects.
+# The source of graft at TAG on the upstream of the repo's `graft` input.
 graft_src() {
-  local n ref tag=${1:-} path
+  local n ref tag=$1 path
   n=$(node graft)
-  [ -n "$n" ] || return 0
-  if [ -n "$tag" ]; then
-    ref=$(jq -r --arg t "$tag" 'if .original.type=="github" then "github:\(.original.owner)/\(.original.repo)/\($t)"
-                                elif .original.type=="git" then "git+\(.original.url)?ref=\($t)"
-                                else empty end' <<<"$n")
-  else
-    ref=$(jq -r 'if .locked.type=="github" then "github:\(.locked.owner)/\(.locked.repo)/\(.locked.rev)"
-                 elif .locked.type=="git" then "git+\(.locked.url)?rev=\(.locked.rev)"
-                 elif .locked.type=="path" then "path:\(.locked.path)?narHash=\(.locked.narHash)"
-                 else empty end' <<<"$n")
-  fi
+  ref=$(jq -r --arg t "$tag" 'if .original.type=="github" then "github:\(.original.owner)/\(.original.repo)/\($t)"
+                              elif .original.type=="git" then "git+\(.original.url)?ref=\($t)"
+                              else empty end' <<<"$n")
   [ -n "$ref" ] || die "can't fetch this repo's graft input ($(jq -r .locked.type <<<"$n"))"
   path=$(nix_ flake prefetch --json "$ref" | jq -r .storePath) || die "can't fetch graft at $ref"
-  [ -f "$path/lib/assemble.sh" ] || die "graft at $ref is older than 2.2 (no lib/assemble.sh); move its ref to v2.2.0 or later by hand, then nix flake update graft"
   echo "$path"
 }
 
-# The assemble.sh to rebuild with: the pinned graft's, or this copy's when the flake has none.
-assembler() {
-  local src
-  src=$(graft_src) || exit 1
-  if [ -n "$src" ]; then echo "$src/lib/assemble.sh"; else echo "$here/assemble.sh"; fi
-}
-
-# Rebuild DIR from flake.lock with the repo's assemble.sh, then swap it in (only over graft's own dir).
-# A git scion's lock at an annotated tag's object is re-pinned to its commit first (common.sh's
-# peel_locks), and an export that still holds what its .gitattributes marks export-ignore stops it.
-regraft() {
-  local dir=$1 asm=$2 name ref path specs=() names=() ignored=() tmp
-  mapfile -t names < <(scions_in "$dir")
-  [ ${#names[@]} -gt 0 ] || die "$dir/README.md names no scions"
-  # one it can't check is left as locked: the export check below still catches an unfiltered one
-  peel_locks "${names[@]}" || exit 1
-  for name in "${names[@]}"; do
-    ref=$(locked_ref "$name")
-    [ -n "$ref" ] || die "$name: no fetchable lock entry"
-    path=$(nix_ flake prefetch --json "$ref" | jq -r .storePath)
-    specs+=("$name=$path=$(jq -r .locked.rev <<<"$(node "$name")")")
-    if jq -e '.locked.type == "git" and .locked.exportIgnore == true' <<<"$(node "$name")" >/dev/null; then
-      ignored+=("$name=$path")
-    fi
-  done
-  if [ ${#ignored[@]} -gt 0 ]; then bash "$here/export-ignored.sh" "$GRAFT_RUN" "${ignored[@]}" || exit 1; fi
-  tmp=$(mktemp -d)
-  GRAFT_FLAKE_DIR=$FLAKE bash "$asm" "$tmp/out" "$dir" "${specs[@]}"
-  rm -rf "$dir"
-  mv "$tmp/out" "$dir"
-  rm -rf "$tmp"
-  # a flake sees only what git tracks: without this, a new file fails the check
-  git add -- "$dir" 2>/dev/null || true
+# move_scion NAME PATH URL TAG: check out TAG in the scion (initialised) or write the gitlink
+# (uninitialised), staged either way
+move_scion() {
+  local name=$1 path=$2 url=$3 tag=$4 commit
+  commit=$(tag_commit "$url" "$tag") || exit 1
+  [ -n "$commit" ] || die "$name: no tag $tag upstream"
+  if [ -e "$path/.git" ]; then
+    git -C "$path" cat-file -e "$commit^{commit}" 2>/dev/null \
+      || git -C "$path" -c http.extraHeader= fetch -q -- "$url" "refs/tags/$tag:refs/tags/$tag" 2>/dev/null \
+      || git -C "$path" -c http.extraHeader= fetch -q -- "$url" "$commit" \
+      || die "$name: can't fetch $tag from $url"
+    git -C "$path" -c advice.detachedHead=false checkout -q --detach "$commit"
+    # its own submodules at the commits the new version records (Nix reads them from the working
+    # tree while the repo's tree has a modified file)
+    git -C "$path" submodule update -q --init --recursive || echo "graft: $name: can't fill its own submodules (see above)" >&2
+    git add -- "$path"
+  else
+    git update-index --cacheinfo "160000,$commit,$path"
+  fi
 }
 
 cmd_upgrade() {
-  local rows want=() name dir pinned latest status major target named dirs=() spec plan=() held=() asm src moved_graft="" text shas
+  local rows want=() name dir pinned latest status major target named spec plan=() held=() src="" moved_graft="" text path head dirt
   rows=$(report)
+  urls
   for spec in "$@"; do want+=("$spec"); done
   if [ ${#want[@]} -gt 0 ]; then
     for spec in "${want[@]}"; do
       cut -f1 <<<"$rows" | grep -qxF -- "${spec%%@*}" || die "no scion (or graft input) named ${spec%%@*}"
     done
   fi
-  # Decide everything first, and check the repo's graft can rebuild, before changing any file.
+  # Decide everything first, and check every scion can move, before changing any file.
   while IFS=$'\t' read -r name dir pinned latest status major; do
     [ -n "$name" ] || continue
     target="" named=""
@@ -243,7 +208,7 @@ cmd_upgrade() {
         if [[ $spec == *@* ]]; then target=${spec#*@}; named=1; else target=$latest; named=""; fi
       done
       [ -n "$target" ] || continue
-      [ "$status" != untagged ] || die "$name is pinned to $pinned, not a tag; change it by hand"
+      [ "$status" != untagged ] || die "$name is at $pinned, not a release tag; move it by hand (git -C ${PATHS[$name]:-.} checkout TAG, then git add)"
     else
       [ "$status" = outdated ] || continue
       # graft's workflows before 2.3 run graft upgrade and open the PR in one job: moving graft
@@ -256,10 +221,19 @@ cmd_upgrade() {
     fi
     if [ "$target" = "$pinned" ] || [ "$target" = - ]; then continue; fi
     is_semver "$target" || die "$name: $target is not a version tag"
-    # a named tag must exist upstream, or the run would stop at its `nix flake update`, part-done
+    # a named tag must exist upstream, or the run would stop part-done
     if [ -n "${named:-}" ]; then
-      semver_tags "$(remote "$(node "$name")")" "$target" | grep -qxF -- "$target" \
+      tags_of "${URLS[$name]}" | awk '{ print $2 }' | grep -qxF -- "$target" \
         || die "$name: no tag $target upstream; nothing changed"
+    fi
+    if [ "$dir" != - ]; then
+      path=${PATHS[$name]}
+      if [ -e "$path/.git" ]; then
+        dirt=$(git -C "$path" status --porcelain --untracked-files=no | head -5 | cut -c4- | paste -sd ' ' -)
+        [ -z "$dirt" ] || die "$name: uncommitted edits in $path ($dirt); nothing changed: commit them in the provider, or git -C $path checkout -- ."
+        head=$(git -C "$path" rev-parse -q --verify HEAD) || head=""
+        [ "$head" = "$(gitlink "$path")" ] || die "$name: $path is checked out at ${head:0:12}, not the recorded $(gitlink "$path" | cut -c1-12); nothing changed: git add $path, or git submodule update -- $path"
+      fi
     fi
     plan+=("$name"$'\t'"$dir"$'\t'"$pinned"$'\t'"$target")
   done <<<"$rows"
@@ -272,61 +246,32 @@ cmd_upgrade() {
   done <<<"$rows"
   if [ ${#held[@]} -gt 0 ]; then printf '%s\n' "${held[@]}"; fi
   [ ${#plan[@]} -gt 0 ] || { echo "graft: nothing to upgrade"; return 0; }
-  # graft's own pin moves first, so everything after is built by the new version. Fetch that
-  # version now: a tag that can't be fetched, or a graft too old to keep the workflows working,
-  # stops here, before any file changes.
+  # graft's own pin moves first. Fetch that version now: a tag that can't be fetched, or a graft
+  # older than this model, stops here, before any file changes.
   for spec in "${plan[@]}"; do
     IFS=$'\t' read -r name dir pinned target <<<"$spec"
     [ "$dir" = - ] || continue
     src=$(graft_src "$target") || exit 1
-    [ -f "$src/lib/workflows.sh" ] || die "graft upgrade moves graft only to 2.3.0 or later (its workflows call graft ci); move it by hand"
+    [ -f "$src/lib/refresh.sh" ] || die "graft upgrade moves graft only to v2.13.0 or later (submodule scions); move it by hand"
     moved_graft="$spec"
   done
-  # Every flake.nix edit, made in memory in the order the run below makes them (graft first): one
-  # that can't be made (a url not found exactly once) stops the run here, before any file changes.
-  # jq reads text as UTF-8 and would write any other byte back as U+FFFD: refuse such a file.
-  jq -Rsj . "$FLAKE_NIX" | cmp -s - "$FLAKE_NIX" || die "$FLAKE_NIX isn't valid UTF-8; nothing changed: change the refs by hand"
-  text=$(<"$FLAKE_NIX")
   if [ -n "$moved_graft" ]; then
+    jq -Rsj . "$FLAKE_NIX" | cmp -s - "$FLAKE_NIX" || die "$FLAKE_NIX isn't valid UTF-8; nothing changed: change the refs by hand"
     IFS=$'\t' read -r name dir pinned target <<<"$moved_graft"
-    text=$(retarget_text "$name" "$pinned" "$target" <<<"$text") || exit 1
-  fi
-  for spec in "${plan[@]}"; do
-    IFS=$'\t' read -r name dir pinned target <<<"$spec"
-    [ "$dir" != - ] || continue
-    text=$(retarget_text "$name" "$pinned" "$target" <<<"$text") || exit 1
-  done
-  [ -n "$moved_graft" ] || { asm=$(assembler) || exit 1; }
-
-  if [ -n "$moved_graft" ]; then
-    IFS=$'\t' read -r name dir pinned target <<<"$moved_graft"
+    text=$(retarget_text graft "$pinned" "$target" < "$FLAKE_NIX") || exit 1
     echo "graft: graft $pinned -> $target"
-    retarget graft "$pinned" "$target"
+    printf '%s\n' "$text" > "$FLAKE_NIX"
     flake_update graft >/dev/null 2>&1 || flake_update graft
-    src=$(graft_src) || exit 1
-    asm=$src/lib/assemble.sh
-    # every scions directory: the new assemble.sh may write them differently
-    while IFS= read -r dir; do dirs+=("$dir"); done < <(scion_dirs)
   fi
   for spec in "${plan[@]}"; do
     IFS=$'\t' read -r name dir pinned target <<<"$spec"
     [ "$dir" != - ] || continue
+    move_scion "$name" "${PATHS[$name]}" "${URLS[$name]}" "$target"
     echo "graft: $name $pinned -> $target"
-    retarget "$name" "$pinned" "$target"
-    if [ "$(jq -r .locked.type <<<"$(node "$name")")" = git ]; then
-      # locked by hand at the tag's commit (common.sh's relock_git: an annotated tag's object
-      # defeats exportIgnore, and Nix can't fetch `ref=TAG` over HTTP or ssh: 2.24 fresh, 2.34 at all)
-      shas=$(tag_shas "$(remote "$(node "$name")")" "$target") || exit 1
-      [ -n "$shas" ] || die "$name: no tag $target upstream"
-      relock_git "$name" "${shas#* }" "$target" || exit 1
-    else
-      flake_update "$name" >/dev/null 2>&1 || flake_update "$name"
-    fi
-    [[ " ${dirs[*]} " == *" $dir "* ]] || dirs+=("$dir")
   done
-  for dir in "${dirs[@]}"; do regraft "$dir" "$asm"; echo "graft: rebuilt $dir/"; done
-  if [ -n "$moved_graft" ] && [ -f "$src/lib/workflows.sh" ]; then
-    bash "$src/lib/workflows.sh" refresh . "$src/template/.forgejo/workflows" "$GRAFT_RUN" "$FLAKE" "${dirs[@]}"
+  # the new graft writes its own README and workflows (its refresh.sh, its template)
+  if [ -n "$moved_graft" ]; then
+    GRAFT_TEMPLATE="" bash "$src/lib/refresh.sh" "$SCIONS" "$FLAKE" "$GRAFT_RUN" "$src/template"
   fi
 }
 
@@ -335,15 +280,15 @@ cmd_upgrade() {
 # commits; one line for an input with nothing to show. Fetched with plain git (common.sh's
 # upstream_range), read as data; nothing changes. Fails, after printing, if an upstream couldn't be read.
 cmd_changelog() {
-  local rows want=() name dir pinned latest status major target spec n j unknown=""
+  local rows want=() name dir pinned latest status major target spec n j rev unknown=""
   rows=$(report)
+  urls
   for spec in "$@"; do
     want+=("$spec")
     cut -f1 <<<"$rows" | grep -qxF -- "${spec%%@*}" || die "no scion (or graft input) named ${spec%%@*}"
     if [[ $spec == *@* ]]; then is_semver "${spec#*@}" || die "${spec%%@*}: ${spec#*@} is not a version tag"; fi
   done
-  entries=$(mktemp)
-  trap 'rm -f "$entries"' EXIT
+  entries=$(mktemp -p "$GRAFT_TMP")
   while IFS=$'\t' read -r name dir pinned latest status major; do
     [ -n "$name" ] || continue
     target=$latest
@@ -355,7 +300,7 @@ cmd_changelog() {
       done
       [ -n "$n" ] || continue
       if [ "$target" != "$latest" ] && [ "$status" != untagged ]; then
-        semver_tags "$(remote "$(node "$name")")" "$target" | grep -qxF -- "$target" \
+        { tags_of "${URLS[$name]}" || true; } | awk '{ print $2 }' | grep -qxF -- "$target" \
           || die "$name: no tag $target upstream"
       fi
     fi
@@ -363,8 +308,12 @@ cmd_changelog() {
     j=null
     if [ "$status" != untagged ] && [ "$status" != unknown ] && newer "$pinned" "$target"; then
       echo "graft: reading what changed upstream in $name" >&2
-      n=$(node "$name")
-      j=$(upstream_range "$name" "$n" "$(jq -r '.locked.rev // empty' <<<"$n")" "" "$pinned" "$target") || exit 1
+      if [ "$dir" = - ]; then
+        n=$(node "$name"); rev=$(jq -r '.locked.rev // empty' <<<"$n")
+      else
+        n=$(scion_node "${URLS[$name]}" "$pinned"); rev=$(gitlink "${PATHS[$name]}")
+      fi
+      j=$(upstream_range "$name" "$n" "$rev" "" "$pinned" "$target") || exit 1
     fi
     jq -n -c --arg name "$name" --arg dir "$dir" --arg pinned "$pinned" --arg target "$target" \
       --arg status "$status" --arg major "$major" --argjson up "$j" \
@@ -374,7 +323,7 @@ cmd_changelog() {
   if [ "$json" = 1 ]; then
     jq -s . "$entries"
   elif [ ! -s "$entries" ]; then
-    echo "graft: no scions here (no README.md carrying graft's marker)"
+    echo "graft: no scions here (no README.md carrying graft's marker), and no graft input"
   else
     jq -r -s -L "$here" 'include "upstream";
       (if any(.[]; .upstream) then
@@ -415,17 +364,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 locate "$repo"
-if [ ! -f "$FLAKE_LOCK" ]; then
-  # at the top with no flake.nix: run from elsewhere, or a flake in a subdirectory without flakeDir
-  if [ "$FLAKE" = . ] && [ ! -f flake.nix ]; then
-    die "no flake.nix in $(pwd): run from the repo's top; for a flake in a subdirectory, set mkFlake's flakeDir to it"
-  fi
-  die "no $FLAKE_LOCK in $(pwd)"
-fi
 case $sub in
-  # internal, before `nix run .#graft` syncs (graft.sh): re-pin any lock at an annotated tag's
-  # object; when it did, print how to run graft again, on the new lock
-  peel) peel_locks || exit 1; if [ -n "$PEELED" ]; then echo "$GRAFT_RUN"; fi ;;
   outdated) cmd_outdated ;;
   upgrade) cmd_upgrade "${args[@]}" ;;
   changelog) cmd_changelog "${args[@]}" ;;

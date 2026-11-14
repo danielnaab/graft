@@ -25,7 +25,7 @@ def delta: [if .added then "+\(.added)" else empty end, if .deleted and .deleted
   else
   # 1. the header
   (if ($b.moved | length) == 0 then
-     "No pin graft manages moved since \($b.base.commit[0:12]) (the merge-base with \($b.base.ref | safe)), but \($dirtext) differs from it: bring this repo (\($b.repo | safe)) in line with what changed below."
+     "No pin graft manages moved since \($b.base.commit[0:12]) (the merge-base with \($b.base.ref | safe)), but \($dirtext) changed: bring this repo (\($b.repo | safe)) in line with what changed below."
    else
   "Migrate this repo (\($b.repo | safe)) to \($b.moved | map(if .status == "added" then "\(.name | safe) \(.to | safe) (new)" elif .status == "removed" then "no \(.name | safe) (removed)" else "\(.name | safe) \(.to | safe) (from \(.from | safe))" end) | list)."
    end),
@@ -34,7 +34,7 @@ def delta: [if .added then "+\(.added)" else empty end, if .deleted and .deleted
    else
      "The upgrade is applied on \($branch | safe) but not committed (\($pins) and \($dirtext)); fix this repo's own files only. \(if $b.flake then "graft sees only files git would commit" else "Nix sees only files git tracks" end): `git add` new ones before \($check)."
    end),
-  "Never edit \($dirtext)\(if ($b.graft_workflows | length) > 0 then " or graft's workflows (\($b.graft_workflows | map(safe) | list))" else "" end), and don't move the pins in \($fp)flake.nix or \($fp)flake.lock: graft writes those from the pins, and \($check) \($fail) if they drift.",
+  "Don't edit the scions in \($dirtext)\(if ($b.graft_workflows | length) > 0 then " or graft's workflows (\($b.graft_workflows | map(safe) | list))" else "" end), and don't move the pins (the scions' commits, graft's in \($fp)flake.nix and \($fp)flake.lock): they are the upgrade. A scion that needs a fix is a provider change: make it in the provider, release it, then graft upgrade.",
   (if ($b.also_moved | length) > 0 then
      "Also moved, not by graft: \($b.also_moved | map("\(.name | safe) \(.from | safe) -> \(.to | safe)") | list)."
    else empty end),

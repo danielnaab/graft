@@ -1,103 +1,93 @@
 #!/usr/bin/env bash
-# common.sh: functions tools.sh, ci.sh and migrate.sh share. Sourced, never run; defines only.
+# common.sh: functions graft's commands share. Sourced, never run; defines only (and one temporary
+# directory, GRAFT_TMP, removed on exit: scripts that source this put their temporary files there
+# and set no EXIT trap of their own).
 #
-#   scion_dirs, scions_in   which directories are graft's, and which scions each holds
-#   locate, flake_update    the repo's top and where its graft flake sits (mkFlake's flakeDir)
-#   lock_node, is_semver    a flake.lock's root inputs, read as data
+#   locate                  the repo's top, its scions directory and the flake beside it
+#   scions_registered       the scions .gitmodules registers there: name, path, url
+#   gitlink, tags_of, version_at
+#                           a scion's pin, its upstream's release tags, and the tag a commit is
+#   lock_node, is_semver    a flake.lock's root inputs (graft's own pin), read as data
 #   full_check              the repo's whole `nix flake check`, each check by name
-#   upstream_input          what changed upstream for one moved input between two locks
-#   upstream_range          the same between two commits or tags (CHANGELOG sections or commits),
-#                           fetched with plain git and returned as JSON
+#   upstream_input          what changed upstream for graft's pin between two locks
+#   upstream_range          what changed upstream between two commits or tags (CHANGELOG sections
+#                           or commits), fetched with plain git and returned as JSON
 #   changelog_between, cap  the text helpers under them
 
-# graft's markers: a scions README's (assemble.sh writes the first; graft 2.0.0 wrote the second),
-# and the first line of each of graft's workflows. The scripts that source this file use these.
-# assemble.sh, workflows.sh and mkFlake hold their own copies: each is copied into the Nix store on
-# its own, and graft upgrade runs the assemble.sh and workflows.sh of another graft version, so none
-# can read this file. Change a marker in all of them at once.
-MARKERS=("<!-- managed by graft: https://github.com/danielnaab/graft -->" "Managed by [graft]")
+# graft's markers: the scions README's first line (lib/scions-readme.md; also mkFlake's), and the
+# first line of each of graft's workflows (lib/workflows.sh holds its own copy: graft upgrade runs
+# another version's).
+MARKER="<!-- managed by graft: https://github.com/danielnaab/graft -->"
 # shellcheck disable=SC2034 # used by the scripts that source this file
 WORKFLOW_MARKER='# managed by graft: '
-# MARKERS as grep's -e arguments: grep -F "${MARKER_ARGS[@]}"
-MARKER_ARGS=(-e "${MARKERS[0]}" -e "${MARKERS[1]}")
 nix_() { nix --extra-experimental-features 'nix-command flakes' "$@"; }
 # git whose output parses the same whatever the user's config: no colour, no grep column
 git() { command git -c color.ui=never -c grep.column=false "$@"; }
 # graft's lib/, for jq's -L: upstream.jq's helpers (clean: upstream text as plain lines)
 GRAFT_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+GRAFT_TMP=$(mktemp -d)
+trap 'rm -rf "$GRAFT_TMP"' EXIT
 
 die() { echo "graft: $*" >&2; exit 1; }
 
-# The scions directories in the repo: those whose README.md carries graft's marker, and that aren't
-# inside another one. A provider that forgets to export-ignore its own scions leaks its scions README
-# into ours (scions/<name>/scions/README.md); that one is the provider's content, not a directory of
-# this repo's. git grep exits 1 for no match; anything else (not a repo, a repo git won't trust) is an
-# error, not "no scions".
-scion_dirs() {
-  local m out rc=0 d kept=()
-  out=$(git grep -l -F "${MARKER_ARGS[@]}" -- README.md '*/README.md') || rc=$?
-  [ "$rc" -le 1 ] || die "can't search $(pwd) with git (exit $rc; see above)"
-  [ -n "$out" ] || return 0
-  # sorted, a directory comes before anything inside it
-  while IFS= read -r d; do
-    [ -n "$d" ] || continue
-    for m in "${kept[@]}"; do [[ $d != "$m"/* ]] || continue 2; done
-    kept+=("$d")
-  done < <(sed -E 's#/?README\.md$##' <<<"$out" | LC_ALL=C sort)
-  [ ${#kept[@]} -eq 0 ] || printf '%s\n' "${kept[@]}"
-}
+# The copy-mode README graft v2.12 and earlier wrote: a table of copied scions
+copy_mode_readme() { grep -qsF -e '| Scion | Commit |' -e '<!-- graft flake: ' "$1"; }
+COPY_MODE="is graft's copy-mode README (v2.12 or earlier): graft v2.13.0 pins scions with git submodules; follow the Upgrading steps of v2.13.0 in graft's CHANGELOG.md (https://github.com/danielnaab/graft/blob/v2/CHANGELOG.md)"
 
-# The scions a directory's README table names, one per line.
-scions_in() { sed -nE 's/^\| \[([A-Za-z0-9][A-Za-z0-9._-]*)\]\(\1\/\) \|.*/\1/p' "$1/README.md"; }
-
-# The flake directory the scions READMEs record (`<!-- graft flake: DIR -->`, assemble.sh's second
-# line), or nothing when none does (the flake is at the top). Read from the repo, so checked: a
-# plain relative path, the same in every README.
-recorded_flake_dir() {
-  local sd d fds
-  sd=$(scion_dirs) || exit 1
-  fds=$(while IFS= read -r d; do
-          [ -z "$d" ] || sed -n 's/^<!-- graft flake: \(.*\) -->$/\1/p' "$d/README.md"
-        done <<<"$sd" | sort -u)
-  [ -n "$fds" ] || return 0
-  [ "$(wc -l <<<"$fds")" -eq 1 ] || die "the scions READMEs name different flake directories: $(paste -sd ' ' <<<"$fds")"
-  [[ $fds =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ && ! $fds =~ (^|/)\.\.?(/|$) ]] \
-    || die "the scions README names a flake directory graft won't use: $fds"
-  echo "$fds"
-}
-
-# locate [REPO]: cd to the repo's top and set where its graft flake is. With REPO (-C) that's the
-# top, and the flake is where the scions README records it, else at the top; run from graft's own
-# flake without -C, the same for the current directory. Run from the repo's own flake, the flake
-# says (GRAFT_FLAKE_DIR): at the top, the current directory is the top as it always was; in a
-# subdirectory, the top is the git checkout's. Sets:
-#   FLAKE       the flake's directory under the top: `.`, or `nix/workspace` say
-#   FLAKE_REF   the reference that evaluates it: `.`, or `path:/abs/top/nix/workspace`, which copies
-#               only that directory to the store (a git+file flake at the top would copy the repo).
-#               Absolute, since Nix won't write the lock of a relative `path:` flake, and
-#               percent-encoded, so a space in the path parses.
-#   FLAKE_NIX FLAKE_LOCK   its flake.nix and flake.lock, relative to the top
-#   GRAFT_RUN   how a person runs its app from the top: `nix run .#graft`, `nix run 'path:DIR#graft'` (quoted for zsh)
+# locate [REPO]: cd to the repo's top (REPO's, with -C, else the current directory's) and set:
+#   SCIONS      the scions directory, from the top: the one folder whose README.md carries graft's
+#               marker (git grep, which never looks inside a submodule, so a provider's own scions
+#               README is never ours), or "" when there is none yet
+#   SCIONS_NEW  where a first scion goes when there is none: GRAFT_DIR (mkFlake's dir, set by a
+#               repo's own app) beside the flake the app was run from, else `scions` at the top
+#   FLAKE       the flake's directory: the scions directory's parent (`.` at the top)
+#   FLAKE_REF   the reference that evaluates it: `.`, or `path:/abs/top/DIR` for a flake in a
+#               subdirectory, which copies only that directory to the store (absolute, since Nix
+#               won't write the lock of a relative path: flake; percent-encoded)
+#   FLAKE_NIX FLAKE_LOCK   its flake.nix and flake.lock, from the top
+#   GRAFT_RUN   how a person runs its app from the top: `nix run .#graft`, `nix run 'path:DIR#graft'`
+#               (quoted for zsh)
+# Fails on a copy-mode scions README (graft v2.12), and on two scions directories.
 # shellcheck disable=SC2034 # set for the scripts that source this
 locate() {
-  local fd="" top
-  if [ -n "${1:-}" ]; then
-    cd "$1" || die "can't cd to $1"
-  elif [ -n "${GRAFT_FLAKE_DIR:-}" ] && [ "$GRAFT_FLAKE_DIR" != . ]; then
-    fd=$GRAFT_FLAKE_DIR
-    top=$(git rev-parse --show-toplevel 2>/dev/null) || die "run inside the repo's git checkout (graft's flake is its $fd/)"
-    cd "$top" || exit 1
-  elif [ "${GRAFT_FLAKE_DIR:-}" = . ]; then
-    fd=.
+  local out rc=0 d prefix n
+  if [ -n "${1:-}" ]; then cd "$1" || die "can't cd to $1"; fi
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git work tree: $(pwd)"
+  prefix=$(git rev-parse --show-prefix)
+  TOP=$(git rev-parse --show-toplevel)
+  cd "$TOP" || exit 1
+  out=$(git grep -l -F -e "$MARKER" -e '| Scion | Commit |' -- '*/README.md') || rc=$?
+  [ "$rc" -le 1 ] || die "can't search $(pwd) with git (exit $rc; see above)"
+  SCIONS=""
+  n=0
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    ! copy_mode_readme "$d" || die "$d $COPY_MODE"
+    grep -qsF -- "$MARKER" "$d" || continue
+    n=$((n + 1))
+    if [ -n "$SCIONS" ]; then die "two scions directories: $SCIONS, ${d%/README.md}; graft supports one per repository"; fi
+    SCIONS=${d%/README.md}
+  done <<<"$out"
+  if [ -n "$SCIONS" ]; then
+    if [[ $SCIONS == */* ]]; then FLAKE=${SCIONS%/*}; else FLAKE=.; fi
+    SCIONS_NEW=$SCIONS
+  else
+    FLAKE=.
+    prefix=${prefix%/}
+    if [ -n "${GRAFT_DIR:-}" ] && [ -n "$prefix" ] && [ -f "$prefix/flake.nix" ]; then FLAKE=$prefix; fi
+    if [ "$FLAKE" = . ]; then SCIONS_NEW=${GRAFT_DIR:-scions}; else SCIONS_NEW=$FLAKE/${GRAFT_DIR:-scions}; fi
   fi
-  [ -n "$fd" ] || fd=$(recorded_flake_dir) || exit 1
-  FLAKE=${fd:-.}
+  flake_vars
+}
+
+# flake_vars: FLAKE_REF FLAKE_NIX FLAKE_LOCK GRAFT_RUN from FLAKE
+# shellcheck disable=SC2034 # set for the scripts that source this
+flake_vars() {
   if [ "$FLAKE" = . ]; then
     FLAKE_REF=. FLAKE_NIX=flake.nix FLAKE_LOCK=flake.lock GRAFT_RUN="nix run .#graft"
   else
-    FLAKE_REF="path:$(jq -rn --arg p "$(pwd -P)/$FLAKE" '$p | split("/") | map(@uri) | join("/")')" FLAKE_NIX=$FLAKE/flake.nix FLAKE_LOCK=$FLAKE/flake.lock
-    GRAFT_RUN="nix run 'path:$FLAKE#graft'"
-    [ -f "$FLAKE_NIX" ] || die "no $FLAKE_NIX in $(pwd): check mkFlake's flakeDir, \"$FLAKE\" (the scions README records it)"
+    FLAKE_REF="path:$(jq -rn --arg p "$(pwd -P)/$FLAKE" '$p | split("/") | map(@uri) | join("/")')"
+    FLAKE_NIX=$FLAKE/flake.nix FLAKE_LOCK=$FLAKE/flake.lock GRAFT_RUN="nix run 'path:$FLAKE#graft'"
   fi
 }
 
@@ -107,88 +97,88 @@ flake_update() {
   if [ "$FLAKE" = . ]; then nix_ flake update "$@"; else nix_ flake update --flake "$FLAKE_REF" "$@"; fi
 }
 
-# One root input's node in the flake.lock at $1, as JSON, or nothing.
-lock_node() { jq -c --arg n "$2" '.nodes.root.inputs[$n] as $k | if ($k|type)=="string" then .nodes[$k] else empty end' "$1"; }
+# scions_registered [GITMODULES]: name<TAB>path<TAB>url for each submodule that .gitmodules (or the
+# file GITMODULES) registers directly in the scions directory, sorted by name. The submodule's name
+# in .gitmodules doesn't matter; its folder is the scion's name.
+scions_registered() {
+  local f=${1:-.gitmodules} key p sub
+  [ -n "$SCIONS" ] && [ -f "$f" ] || return 0
+  git config -f "$f" --get-regexp '^submodule\..*\.path$' 2>/dev/null | while read -r key p; do
+    [[ $p == "$SCIONS"/* && ${p#"$SCIONS"/} != */* ]] || continue
+    sub=${key#submodule.}; sub=${sub%.path}
+    printf '%s\t%s\t%s\n' "${p#"$SCIONS"/}" "$p" "$(git config -f "$f" --get "submodule.$sub.url" 2>/dev/null || true)"
+  done | LC_ALL=C sort
+}
+
+# gitlink PATH [TREE]: the commit the repo records for submodule PATH: in the index, or in TREE (a
+# commit); nothing when it isn't a submodule there
+gitlink() {
+  if [ -n "${2:-}" ]; then git ls-tree "$2" -- "$1" | awk '$1 == "160000" { print $3 }'
+  else git ls-files -s -- "$1" | awk '$1 == "160000" { print $2 }'; fi
+}
+
+# A relative URL (../x.git) resolves against the repo's own remote for git, never for Nix
+relative_url() { [[ $1 == ./* || $1 == ../* ]]; }
 
 is_semver() { [[ $1 =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
-
-# Annotated tags. Nix 2.24 locks `?ref=TAG` at an annotated tag to the tag OBJECT's sha, and its
-# exportIgnore filter then looks up .gitattributes at that "commit", finds none, and silently
-# ignores nothing: the scion gets the provider's whole tree. Fetched by the tag's commit, the export
-# is right. So graft keeps a git input's lock at the commit: what every reader of the lock (Nix's
-# check, `nix run .#graft`, CI under any Nix version) then fetches, and what Nix 2.34 writes itself
-# (2.34 still fetches a lock at the tag object, one 2.24 wrote, unfiltered).
-
-# tag_shas URL TAG: "OBJECT COMMIT" for tag TAG at URL (OBJECT the ref's sha: the tag object for an
-# annotated tag, the commit for a lightweight one), or nothing when URL has no such tag. Fails,
-# with git's error on stderr, when URL can't be listed. http.extraHeader is cleared (semver_tags).
-tag_shas() {
-  local url=$1 tag=${2#refs/tags/} out obj peeled
-  out=$(git -c http.extraHeader= ls-remote -- "$url" "refs/tags/$tag" "refs/tags/$tag^{}" 2>&1) \
-    || { echo "graft: can't list $url: $(tail -1 <<<"$out")" >&2; return 1; }
-  obj=$(awk -v r="refs/tags/$tag" '$2 == r { print $1 }' <<<"$out")
-  peeled=$(awk -v r="refs/tags/$tag^{}" '$2 == r { print $1 }' <<<"$out")
-  [[ $obj =~ ^[0-9a-f]{40}$ ]] || return 0
-  [[ $peeled =~ ^[0-9a-f]{40}$ ]] || peeled=$obj
-  echo "$obj $peeled"
+semver_key() { sed -E 's/^v//' <<<"$1"; }
+# A version's major series: X for X.y.z, and 0.Y for 0.Y.z (semver's 0.x: anything may break).
+major_of() {
+  local v
+  v=$(semver_key "$1")
+  if [[ $v == 0.* ]]; then cut -d. -f1-2 <<<"$v"; else cut -d. -f1 <<<"$v"; fi
 }
+newer() { [ "$(printf '%s\n%s\n' "$(semver_key "$1")" "$(semver_key "$2")" | sort -V | tail -1)" != "$(semver_key "$1")" ]; }
 
-# relock_git NAME COMMIT [REF]: write flake.lock's entry for git input NAME as Nix locks it at
-# COMMIT (and, given REF, with REF as its ref, in `original` too, where flake.nix now names it).
-# Fetched by commit with `ref` beside it, which also works on a cache that never saw the tag (a
-# fetch of `ref=TAG` over HTTP or ssh asks for refs/heads/TAG and fails: in Nix 2.24 on a fresh
-# cache, in Nix 2.34 always).
-relock_git() {
-  local name=$1 rev=$2 ref=${3:-} n key url q pre tmp
-  n=$(lock_node "$FLAKE_LOCK" "$name")
-  key=$(jq -r --arg n "$name" '.nodes.root.inputs[$n]' "$FLAKE_LOCK")
-  url=$(jq -r '.original.url' <<<"$n")
-  q=$(jq -r --arg rev "$rev" --arg ref "$ref" '.original | del(.type, .url, .rev)
-        + {rev: $rev} + (if $ref == "" then {} else {ref: $ref} end) | to_entries
-        | map("\(.key)=\(if .value == true then "1" elif .value == false then "0" else .value | tostring | @uri end)")
-        | join("&")' <<<"$n")
-  pre=$(nix_ flake prefetch --json "git+$url?$q" 2>/dev/null) || pre=$(nix_ flake prefetch --json "git+$url?$q") \
-    || { echo "graft: $name: can't fetch $rev from $url" >&2; return 1; }
-  jq -e --arg rev "$rev" '.locked.rev == $rev' <<<"$pre" >/dev/null \
-    || { echo "graft: $name: Nix locked something other than $rev" >&2; return 1; }
-  tmp=$(mktemp)
-  if ! jq --arg k "$key" --arg ref "$ref" --argjson l "$(jq -c .locked <<<"$pre")" \
-      '.nodes[$k].locked = $l | if $ref == "" then . else .nodes[$k].original.ref = $ref end' "$FLAKE_LOCK" > "$tmp" \
-      || ! cat "$tmp" > "$FLAKE_LOCK"; then
-    rm -f "$tmp"; echo "graft: $name: can't write $FLAKE_LOCK" >&2; return 1
+# tags_of URL: "COMMIT TAG" for each semver tag at URL (an annotated tag by the commit it peels to),
+# oldest first; listed once per URL per run. Fails, with git's error on stderr, when URL can't be
+# listed. http.extraHeader is cleared: a header the repo configured for its own server (a CI
+# checkout's token) must never be sent to a provider's.
+tags_of() {
+  local url=$1 key out
+  key=$GRAFT_TMP/tags.$(printf '%s' "$url" | cksum | cut -d' ' -f1)
+  if [ ! -f "$key" ]; then
+    out=$(git -c http.extraHeader= ls-remote --tags -- "$url" 2>&1) \
+      || { echo "graft: can't list tags at $url: $(tail -1 <<<"$out")" >&2; return 1; }
+    awk '$2 ~ /^refs\/tags\// { t = substr($2, 11); if (t ~ /\^\{\}$/) { peeled[substr(t, 1, length(t) - 3)] = $1 } else { obj[t] = $1 } }
+         END { for (t in obj) print (t in peeled ? peeled[t] : obj[t]), t }' <<<"$out" \
+      | while read -r c t; do is_semver "$t" && printf '%s %s\n' "$c" "$t"; done \
+      | sort -t' ' -k2,2V > "$key.part"
+    mv "$key.part" "$key"
   fi
-  rm -f "$tmp"
+  cat "$key"
 }
 
-# peel_locks [NAME...]: for each git input with exportIgnore (default: every one in flake.lock)
-# whose lock holds the object of the annotated tag it names, re-lock it at the tag's commit. An
-# upstream that can't be listed is said and left (the export check, lib/export-ignored.sh, still
-# stops an unfiltered export). Prints a line per change (stderr); sets PEELED=1 when there was one.
-# shellcheck disable=SC2034 # PEELED is for the scripts that source this
-peel_locks() {
-  local name n url ref rev shas names=("$@")
-  PEELED=""
-  if [ ${#names[@]} -eq 0 ]; then
-    mapfile -t names < <(jq -r '.nodes.root.inputs | to_entries[] | select(.value | type == "string") | .key' "$FLAKE_LOCK")
-  fi
-  for name in "${names[@]}"; do
-    n=$(lock_node "$FLAKE_LOCK" "$name")
-    [ -n "$n" ] || continue
-    jq -e '.locked.type == "git" and .locked.exportIgnore == true and (.original.ref // "") != ""
-           and (.original.rev // "") == ""' <<<"$n" >/dev/null || continue
-    url=$(jq -r .locked.url <<<"$n"); ref=$(jq -r .original.ref <<<"$n"); rev=$(jq -r .locked.rev <<<"$n")
-    if ! shas=$(tag_shas "$url" "$ref"); then
-      echo "graft: can't check whether $name's tag $ref is annotated (see above)" >&2
-      continue
-    fi
-    [ -n "$shas" ] || continue   # a branch, or a tag gone upstream
-    if [ "$rev" = "${shas% *}" ] && [ "$rev" != "${shas#* }" ]; then
-      relock_git "$name" "${shas#* }" || return 1
-      echo "graft: $name: flake.lock held annotated tag $ref's object ${rev:0:12}; re-pinned its commit ${shas#* }" >&2
-      PEELED=1
-    fi
-  done
+# version_at URL COMMIT: the highest semver tag at URL that is COMMIT, or nothing. Fails as tags_of.
+version_at() {
+  local list
+  list=$(tags_of "$1") || return 1
+  awk -v c="$2" '$1 == c { print $2 }' <<<"$list" | sort -V | tail -1
 }
+
+# local_version_at PATH COMMIT: the same from the tags in the scion's own clone at PATH
+local_version_at() {
+  git -C "$1" tag --points-at "$2" 2>/dev/null | while read -r t; do is_semver "$t" && echo "$t"; done | sort -V | tail -1
+}
+
+# tag_commit URL TAG: the commit TAG is at URL, or nothing. Fails as tags_of.
+tag_commit() {
+  local list
+  list=$(tags_of "$1") || return 1
+  awk -v t="$2" '$2 == t { print $1 }' <<<"$list"
+}
+
+# scion_node URL TAG: a flake.lock-like node for a scion, for upstream_range: github: when URL is
+# GitHub's (a compare link), else git
+scion_node() {
+  jq -n -c --arg url "$1" --arg ref "$2" '
+    ([$url | capture("^https://github\\.com/(?<o>[A-Za-z0-9._-]+)/(?<r>[A-Za-z0-9._-]+?)(\\.git)?/?$")] | .[0]) as $g
+    | if $g then {original: {type: "github", owner: $g.o, repo: $g.r, ref: $ref}}
+      else {original: {type: "git", url: $url, ref: $ref}} end'
+}
+
+# One root input's node in the flake.lock at $1, as JSON, or nothing.
+lock_node() { [ -f "$1" ] || return 0; jq -c --arg n "$2" '.nodes.root.inputs[$n] as $k | if ($k|type)=="string" then .nodes[$k] else empty end' "$1"; }
 
 # log_tail LOG: the last 30 lines of a check's log that a reader of the PR can use: not Nix's
 # progress lines (a dirty tree, what will be built or fetched, the builder's log repeated, where the
@@ -202,22 +192,15 @@ log_tail() {
     | tail -n 30 || true
 }
 
-# full_check REPORT: the repo's whole check on the working tree (of the flake locate found): each of
-# checks.<system> built on its own (so a failure has a name), then `nix flake check` for the rest
-# (evaluation, other systems' outputs). A flake in a subdirectory has no checks.<system>.graft, so
-# `graft check` runs first, as `graft`. Logs go to stdout as they run. Fails if anything did, after
+# full_check REPORT: the repo's whole check (of the flake locate found): each of checks.<system>
+# built on its own (so a failure has a name), then `nix flake check` for the rest (evaluation, other
+# systems' outputs, mkFlake's errors). A git flake reads the committed scions while the tree is
+# clean, so ci upgrade commits first. Logs go to stdout as they run. Fails if anything did, after
 # writing to REPORT one line "nix flake check failed: NAME..." and the last lines of each failing log.
 full_check() {
   local report=$1 system names n log failed=() tails=""
   system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
-  log=$(mktemp)
-  if [ "$FLAKE" != . ]; then
-    echo "graft: graft check"
-    if ! nix_ run "$FLAKE_REF#graft" check 2>&1 | tee "$log"; then
-      failed+=("graft"); tails+="graft:"$'\n'"$(log_tail "$log")"$'\n\n'
-      echo "::error::check graft failed on the upgraded tree"
-    fi
-  fi
+  log=$(mktemp -p "$GRAFT_TMP")
   if names=$(nix_ eval --json "$FLAKE_REF#checks.$system" --apply builtins.attrNames 2>"$log" | jq -r '.[]'); then
     while IFS= read -r n; do
       [ -n "$n" ] || continue

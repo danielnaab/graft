@@ -2,9 +2,9 @@
 # Scions
 
 Each folder here is a git submodule: another repository, grafted at a release tag. Empty folders?
-Run `git submodule update --init` (or `nix run .#graft sync`).
+Run `git submodule update --init` (or `@RUN@ sync`).
 
 - Read them freely. To fix one, see graft's "Fix a provider from a consumer" guide: edit, test, push to the
-  provider, release, then `graft upgrade NAME`.
-- `graft check` fails until every scion is clean and at a release tag.
-- Versions: `nix run .#graft outdated`.
+  provider, release, then `@RUN@ upgrade NAME`.
+- `@RUN@ check` fails until every scion is clean and at a release tag.
+- Versions: `@RUN@ outdated`.

@@ -41,9 +41,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 locate "$repo"
-[ -f "$FLAKE_LOCK" ] || die "no $FLAKE_LOCK in $(pwd)"
-top=$(git rev-parse --show-toplevel 2>/dev/null) || die "$(pwd) is not a git repository"
-[ "$(cd "$top" && pwd -P)" = "$(pwd -P)" ] || die "run from the repo root ($top)"
+top=$TOP
 git rev-parse -q --verify 'HEAD^{commit}' >/dev/null || die "no commits here yet"
 
 # the base: the merge-base with the default branch, or with --base
@@ -60,93 +58,114 @@ fi
 git rev-parse -q --verify --end-of-options "$base_ref^{commit}" >/dev/null 2>&1 || die "--base $base_ref: not a commit"
 base=$(git merge-base --end-of-options "$base_ref" HEAD) || die "$base_ref and HEAD have no common ancestor"
 
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+tmp=$GRAFT_TMP/migrate
+mkdir -p "$tmp"
 empty_lock='{"nodes":{"root":{"inputs":{}}}}'
-# (a base from before the flake moved into a subdirectory has it at the top)
-git show "$base:$FLAKE_LOCK" > "$tmp/base.lock" 2>/dev/null || git show "$base:flake.lock" > "$tmp/base.lock" 2>/dev/null \
-  || echo "$empty_lock" > "$tmp/base.lock"
+git show "$base:$FLAKE_LOCK" > "$tmp/base.lock" 2>/dev/null || echo "$empty_lock" > "$tmp/base.lock"
 jq -e . "$tmp/base.lock" >/dev/null 2>&1 || echo "$empty_lock" > "$tmp/base.lock"
-jq -e . "$FLAKE_LOCK" >/dev/null 2>&1 || die "$FLAKE_LOCK isn't JSON"
-cp "$FLAKE_LOCK" "$tmp/head.lock"
+if [ -f "$FLAKE_LOCK" ]; then
+  jq -e . "$FLAKE_LOCK" >/dev/null 2>&1 || die "$FLAKE_LOCK isn't JSON"
+  cp "$FLAKE_LOCK" "$tmp/head.lock"
+else
+  echo "$empty_lock" > "$tmp/head.lock"
+fi
 
-# graft's directories and workflows here, and which input is which
+# graft's directory and workflows here
 dirs=() pathspec=()
-declare -A kind=()
-sd=$(scion_dirs) || exit 1
-while IFS= read -r d; do
-  [ -n "$d" ] || continue
-  dirs+=("$d"); pathspec+=(":(literal)$d")
-  while IFS= read -r n; do kind[$n]=scion; done < <(scions_in "$d")
-done <<<"$sd"
+if [ -n "$SCIONS" ]; then dirs=("$SCIONS"); pathspec=(":(literal)$SCIONS"); fi
 workflows=()
 for f in .forgejo/workflows/*; do
   if [ -f "$f" ] && [ ! -L "$f" ] && grep -q "^$WORKFLOW_MARKER" "$f"; then workflows+=("$f"); fi
 done
-[ -n "${kind[graft]:-}" ] || kind[graft]=graft   # a scion named graft is that scion
 
-# an input's pin as text: its version tag; another ref (a branch, under --override-input say) with
-# its commit; else its commit
+# a pin as text: its version tag; another ref (a branch, under --override-input say) with its
+# commit; else its commit
 label() {
   local ref rev
   ref=$(lock_ref "$1"); rev=$(jq -r '(.locked.rev // "-")[0:12]' <<<"$1")
   if is_semver "$ref"; then echo "$ref"; elif [ -n "$ref" ]; then echo "$ref at $rev"; else echo "$rev"; fi
 }
 
-# moved inputs: graft's and the scions' with what upstream says, any other just named
+# moved lock inputs: graft's with what upstream says, any other just named
 : > "$tmp/moved"; : > "$tmp/other"
 while IFS= read -r n; do
   o=$(lock_node "$tmp/base.lock" "$n"); nw=$(lock_node "$tmp/head.lock" "$n")
   ov=$(jq -r '.locked.rev // .locked.narHash // empty' <<<"${o:-null}")
   nv=$(jq -r '.locked.rev // .locked.narHash // empty' <<<"${nw:-null}")
   [ "$ov" != "$nv" ] || continue
-  k=${kind[$n]:-other}
-  if [ -z "$o" ] || [ -z "$nw" ]; then
-    jq -n --arg name "$n" --arg kind "$k" --arg s "$([ -z "$o" ] && echo added || echo removed)" \
-      --arg from "$([ -n "$o" ] && label "$o")" --arg to "$([ -n "$nw" ] && label "$nw")" \
-      '{name: $name, kind: $kind, status: $s, from: $from, to: $to}' >> "$tmp/$([ "$k" = other ] && echo other || echo moved)"
-  elif [ "$k" = other ]; then
-    jq -n --arg name "$n" --arg from "$(label "$o")" --arg to "$(label "$nw")" \
+  if [ "$n" != graft ]; then
+    jq -n --arg name "$n" --arg from "$([ -n "$o" ] && label "$o")" --arg to "$([ -n "$nw" ] && label "$nw")" \
       '{name: $name, kind: "other", status: "moved", from: $from, to: $to}' >> "$tmp/other"
+  elif [ -z "$o" ] || [ -z "$nw" ]; then
+    jq -n --arg s "$([ -z "$o" ] && echo added || echo removed)" --arg from "$([ -n "$o" ] && label "$o")" \
+      --arg to "$([ -n "$nw" ] && label "$nw")" '{name: "graft", kind: "graft", status: $s, from: $from, to: $to}' >> "$tmp/moved"
   else
-    echo "graft: reading what changed upstream in $n" >&2
-    j=$(upstream_input "$tmp/base.lock" "$tmp/head.lock" "$n")
-    # no commit to compare (a path input's narHash moved, say): named, nothing fetched
-    [ -n "$j" ] || j=$(jq -n --arg name "$n" --arg from "$(label "$o")" --arg to "$(label "$nw")" \
-      '{name: $name, from: $from, to: $to, status: "not-commit"}')
-    jq -c --arg kind "$k" '. + {kind: $kind}' <<<"$j" >> "$tmp/moved"
+    echo "graft: reading what changed upstream in graft" >&2
+    j=$(upstream_input "$tmp/base.lock" "$tmp/head.lock" graft)
+    [ -n "$j" ] || j=$(jq -n --arg from "$(label "$o")" --arg to "$(label "$nw")" \
+      '{name: "graft", from: $from, to: $to, status: "not-commit"}')
+    jq -c '. + {kind: "graft"}' <<<"$j" >> "$tmp/moved"
   fi
 done < <(jq -r -s '[.[].nodes.root.inputs | to_entries[] | select(.value|type=="string") | .key] | unique[]' "$tmp/base.lock" "$tmp/head.lock")
 
-# the scions diff, base against the working tree, through a throwaway index
+# moved scions: each gitlink at the base against the scion now (its checkout, else the index), with
+# what upstream says and what changed in its tree
 : > "$tmp/changes"; : > "$tmp/gone"
-if [ ${#dirs[@]} -gt 0 ]; then
-  # a copy of the repo's index (what's staged counts), only ever written to through tgit
-  real=$(git rev-parse --git-path index)
-  tgit() { GIT_INDEX_FILE=$tmp/index git "$@"; }
-  if [ -f "$real" ]; then cp "$real" "$tmp/index"; else tgit read-tree HEAD; fi
-  tgit add -A -- "${pathspec[@]}" 2>/dev/null || die "can't stage ${dirs[*]} in a throwaway index"
-  declare -A plus=() minus=()
-  while IFS= read -r -d '' rec; do
-    IFS=$'\t' read -r a m p <<<"$rec"
-    if [ -z "$p" ]; then IFS= read -r -d '' _ && IFS= read -r -d '' p; fi
-    plus[$p]=$a minus[$p]=$m
-  done < <(tgit diff-index --cached -z --numstat -M "$base" -- "${pathspec[@]}")
-  while IFS= read -r -d '' st; do
-    from=""
-    IFS= read -r -d '' p
-    if [[ $st == [RC]* ]]; then from=$p; IFS= read -r -d '' p; fi
-    skip=""
-    for d in "${dirs[@]}"; do if [ "$p" = "$d/README.md" ] || [ "$from" = "$d/README.md" ]; then skip=1; fi; done
-    [ -z "$skip" ] || continue
-    jq -n -c --arg s "${st:0:1}" --arg p "$p" --arg f "$from" --arg a "${plus[$p]:--}" --arg m "${minus[$p]:--}" \
-      '{status: $s, path: $p, from: (if $f == "" then null else $f end),
-        added: ($a | tonumber? // null), deleted: ($m | tonumber? // null)}' >> "$tmp/changes"
-    case ${st:0:1} in
-      R) printf '%s\t%s\t%s\0' "$from" renamed "$p" >> "$tmp/gone" ;;
-      D) printf '%s\t%s\t\0' "$p" deleted >> "$tmp/gone" ;;
-    esac
-  done < <(tgit diff-index --cached -z --name-status -M "$base" -- "${pathspec[@]}")
+if [ -n "$SCIONS" ]; then
+  git show "$base:.gitmodules" > "$tmp/base.gitmodules" 2>/dev/null || : > "$tmp/base.gitmodules"
+  declare -A surl=()
+  while IFS=$'\t' read -r name path url; do [ -z "$name" ] || surl[$name]=$url; done < <(scions_registered "$tmp/base.gitmodules")
+  while IFS=$'\t' read -r name path url; do [ -z "$name" ] || surl[$name]=$url; done < <(scions_registered .gitmodules)
+  for name in $(printf '%s\n' "${!surl[@]}" | LC_ALL=C sort); do
+    path=$SCIONS/$name url=${surl[$name]}
+    ov=$(gitlink "$path" "$base")
+    nv=$(gitlink "$path")
+    if [ -n "$nv" ] && [ -e "$path/.git" ]; then nv=$(git -C "$path" rev-parse -q --verify HEAD 2>/dev/null) || nv=$(gitlink "$path"); fi
+    [ "$ov" != "$nv" ] || continue
+    ot=""; nt=""
+    [ -z "$ov" ] || ot=$(version_at "$url" "$ov" 2>/dev/null) || ot=""
+    [ -z "$nv" ] || nt=$(version_at "$url" "$nv" 2>/dev/null) || nt=""
+    if [ -z "$ov" ] || [ -z "$nv" ]; then
+      jq -n -c --arg name "$name" --arg s "$([ -z "$ov" ] && echo added || echo removed)" \
+        --arg from "${ot:-${ov:0:12}}" --arg to "${nt:-${nv:0:12}}" \
+        '{name: $name, kind: "scion", status: $s, from: $from, to: $to}' >> "$tmp/moved"
+      continue
+    fi
+    echo "graft: reading what changed upstream in $name" >&2
+    j=$(upstream_range "$name" "$(scion_node "$url" "$ot")" "$ov" "$nv" "$ot" "$nt")
+    jq -c '. + {kind: "scion"}' <<<"$j" >> "$tmp/moved"
+    # the tree's changes: in the scion's own clone when it has both commits, else a bare fetch
+    r=$path
+    if ! { [ -e "$path/.git" ] && git -C "$path" cat-file -e "$ov^{commit}" 2>/dev/null && git -C "$path" cat-file -e "$nv^{commit}" 2>/dev/null; }; then
+      r=$tmp/repo-$name
+      git init -q --bare "$r"
+      git -C "$r" -c http.extraHeader= fetch -q --no-tags -- "$url" "$ov" "$nv" 2>/dev/null \
+        || git -C "$r" -c http.extraHeader= fetch -q -- "$url" 'refs/tags/*:refs/tags/*' 2>/dev/null || true
+      if ! git -C "$r" cat-file -e "$ov^{commit}" 2>/dev/null || ! git -C "$r" cat-file -e "$nv^{commit}" 2>/dev/null; then
+        echo "graft: can't fetch $name's commits from $url: its changes are left out" >&2
+        continue
+      fi
+    fi
+    declare -A plus=() minus=()
+    while IFS= read -r -d '' rec; do
+      IFS=$'\t' read -r a m q <<<"$rec"
+      if [ -z "$q" ]; then IFS= read -r -d '' _ && IFS= read -r -d '' q; fi
+      plus[$q]=$a minus[$q]=$m
+    done < <(git -C "$r" diff -z --numstat -M "$ov" "$nv")
+    while IFS= read -r -d '' st; do
+      from=""
+      IFS= read -r -d '' q
+      if [[ $st == [RC]* ]]; then from=$q; IFS= read -r -d '' q; fi
+      jq -n -c --arg s "${st:0:1}" --arg p "$path/$q" --arg f "${from:+$path/$from}" --arg a "${plus[$q]:--}" --arg m "${minus[$q]:--}" \
+        '{status: $s, path: $p, from: (if $f == "" then null else $f end),
+          added: ($a | tonumber? // null), deleted: ($m | tonumber? // null)}' >> "$tmp/changes"
+      case ${st:0:1} in
+        R) printf '%s\t%s\t%s\t%s\t%s\0' "$path/$from" renamed "$path/$q" "$r" "$nv" >> "$tmp/gone" ;;
+        D) printf '%s\t%s\t\t%s\t%s\0' "$path/$q" deleted "$r" "$nv" >> "$tmp/gone" ;;
+      esac
+    done < <(git -C "$r" diff -z --name-status -M "$ov" "$nv")
+    unset plus minus
+  done
 fi
 
 # references: lines of the repo's own files naming a renamed or deleted scion path (or a directory
@@ -161,19 +180,20 @@ if [ -s "$tmp/gone" ]; then
     target[$1]=$2
     if [[ $1 == *" "* ]]; then target[${1// /%20}]=$2; fi
   }
-  while IFS=$'\t' read -r -d '' p how to; do
-    for d in "${dirs[@]}"; do
-      [[ $p == "$d"/* ]] || continue
-      add_key "${d##*/}/${p#"$d"/}" "$(jq -n -c --arg t "$p" --arg h "$how" --arg to "$to" \
-        '{target: $t, status: $h, to: (if $to == "" then null else $to end)}')"
-      a=${p%/*}
-      while [ "$a" != "$d" ] && [[ $a == "$d"/* ]] && [ -z "${seen[$a]:-}" ]; do
-        seen[$a]=1
-        if [ ! -e "$a" ]; then
-          add_key "${d##*/}/${a#"$d"/}" "$(jq -n -c --arg t "$a/" '{target: $t, status: "gone", to: null}')"
-        fi
-        a=${a%/*}
-      done
+  d=$SCIONS
+  while IFS=$'\t' read -r -d '' p how to r nv; do
+    [[ $p == "$d"/* ]] || continue
+    add_key "${d##*/}/${p#"$d"/}" "$(jq -n -c --arg t "$p" --arg h "$how" --arg to "$to" \
+      '{target: $t, status: $h, to: (if $to == "" then null else $to end)}')"
+    sp=${p#"$d"/}; sp=${sp#*/}   # the path inside the scion
+    a=${sp%/*}
+    while [ "$a" != "$sp" ] && [ -n "$a" ] && [ -z "${seen[$p:$a]:-}" ]; do
+      seen[$p:$a]=1
+      if ! git -C "$r" cat-file -e "$nv:$a" 2>/dev/null; then
+        full=${p%"$sp"}$a
+        add_key "${d##*/}/${full#"$d"/}" "$(jq -n -c --arg t "$full/" '{target: $t, status: "gone", to: null}')"
+      fi
+      sp=$a; a=${a%/*}
     done
   done < "$tmp/gone"
   if [ ${#target[@]} -gt 0 ]; then
@@ -237,7 +257,7 @@ if [ -z "$name" ]; then
 fi
 branch=$(git branch --show-current)
 applied=committed
-if [ -n "$(git --no-optional-locks status --porcelain -- "$FLAKE_NIX" "$FLAKE_LOCK" "${pathspec[@]}")" ]; then applied=uncommitted; fi
+if [ -n "$(git --no-optional-locks status --porcelain --untracked-files=no -- "$FLAKE_NIX" "$FLAKE_LOCK" "${pathspec[@]}")" ]; then applied=uncommitted; fi
 # whether flake.nix moved too (a ref graft upgrade changed): the brief names it with the lock. Only
 # a changed line with an input's url counts (graft upgrade writes the tag there), so an edit of the
 # repo's own outputs doesn't; one to a url line by hand does, and is a pin too.

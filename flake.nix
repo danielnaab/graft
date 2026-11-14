@@ -1,10 +1,11 @@
 {
   description = "graft: other repositories as git submodules pinned to release tags, wired into your flake";
 
-  # graft's own scion (scions/knowledge-base-kit, its docs checker) is a git submodule, but this flake
-  # doesn't declare inputs.self.submodules: Nix refuses that attribute on a path: input, and repos
-  # and tests use graft as one (--override-input graft path:...). Check graft itself with the
-  # submodule: nix flake check '.?submodules=1' (or 'path:.').
+  # graft's own scion (scions/knowledge-base-kit, its docs checker) is a git submodule. A repo that
+  # uses graft fetches it with github:, which has no submodules, and graft's command never needs
+  # them. Nix refuses this attribute on a path: input: to try a checkout of graft in a repo, use
+  # --override-input graft git+file:///abs/path/to/graft (it reads what git tracks there).
+  inputs.self.submodules = true;
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
 
   outputs = { self, nixpkgs, ... }@inputs:
@@ -45,9 +46,9 @@
           path = ./template;
           description = "A repo that grafts other repositories, with graft's Forgejo workflows";
           welcomeText = ''
-            Edit `description` in flake.nix, then graft a first repository:
-              nix run github:danielnaab/graft/v2.13.0 -- add URL
-            and commit. See https://github.com/danielnaab/graft.
+            Graft a first repository (a git submodule at its newest release tag), then commit:
+              nix run github:danielnaab/graft/v2.13.0 -- add -C . URL
+            See https://github.com/danielnaab/graft.
           '';
         };
 

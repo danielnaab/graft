@@ -19,7 +19,7 @@
 #
 # A glob that could match a file graft-check reads is refused, since a push that changes only those
 # must be checked: one that starts with `*`, `/` or `.forgejo`, and one that could match a file in
-# .forgejo/, in a scions directory DIR (default `scions`), or the flake: FLAKEDIR's flake.nix and
+# .forgejo/ or .gitmodules, in a scions directory DIR (default `scions`), or the flake: FLAKEDIR's flake.nix and
 # flake.lock at the top (FLAKEDIR `.`, the default), or anything in FLAKEDIR otherwise. Each glob
 # is read as a shell pattern, where `*` and `?` also match `/`, so it errs toward refusing.
 #
@@ -27,10 +27,11 @@
 # copy says `[main]`; a repo whose default branch has another name writes its own, which is read from
 # the repo's copy and kept, in graft's form (`    branches: [v2]`, names of letters, digits, . _ / -).
 #
-# One more line is yours, in graft-check.yaml only: `# graft ssh: ...`, for a repo whose scions
-# include a private git+ssh one. Its job's container has no key, so with this line graft-check gets
-# a step, before the check, that writes an ssh key from an Actions secret, a known_hosts entry and
-# an ssh config for the host. The line (a comment, so it can sit anywhere; graft keeps it above
+# One more line is yours: `# graft ssh: ...`, for a repo whose scions include a private ssh one.
+# The job's container has no key, and both git (submodule update) and Nix (a git flake fetches every
+# scion to evaluate it) need one, so with this line each of the workflow's steps that runs graft gets
+# a step before it that writes an ssh key from an Actions secret, a known_hosts entry and an ssh
+# config for the host. The line (a comment, so it can sit anywhere; graft keeps it above
 # `name:`) names the host as the scion's url spells it, optionally the address it resolves to, the
 # host's public key, and optionally the secret (default GRAFT_SSH_KEY):
 #
@@ -55,7 +56,7 @@ case $mode in check|refresh) ;; *) echo "usage: workflows.sh check|refresh REPO 
 # (any file in it), any other a file.
 flakedir=${flakedir%/}
 if [ -z "$flakedir" ] || [ "$flakedir" = . ]; then protected=(flake.nix flake.lock); else protected=("$flakedir/"); fi
-protected+=(.forgejo/)
+protected+=(.forgejo/ .gitmodules)
 if [ $# -eq 0 ]; then set -- scions; fi
 for d in "$@"; do protected+=("${d%/}/"); done
 
@@ -237,15 +238,20 @@ ssh_step() {
 EOF
 }
 
+# The steps of graft's workflows that run graft (and so fetch scions)
+graft_steps=("      - name: Scions registered and at release tags"
+             "      - name: Upgrade, check the result, push it to graft/upgrade"
+             "      - name: Open (or update) the PR")
+
 # render_ssh FILE LINE: FILE with LINE (a `# graft ssh:` line, graft's form) above its first line
-# that isn't a comment, and ssh_step before its check step. Fails, saying why, when FILE has no
-# check step (a workflow other than graft-check.yaml).
+# that isn't a comment, and ssh_step before each step that runs graft. Fails, saying why, when FILE
+# has none.
 render_ssh() {
-  local file=$1 line top="" step="" l
+  local file=$1 line top="" step="" l s
   ssh_parse "$2" >/dev/null || return 1
   while IFS= read -r l || [ -n "$l" ]; do
     if [ -z "$top" ] && [[ ! $l =~ ^# ]]; then printf '%s\n' "$2"; top=1; fi
-    if [ "$l" = "      - name: Scions match flake.lock" ]; then ssh_step; step=1; fi
+    for s in "${graft_steps[@]}"; do if [ "$l" = "$s" ]; then ssh_step; step=1; fi; done
     printf '%s\n' "$l"
   done < "$file"
   [ -n "$step" ]
@@ -308,7 +314,7 @@ for src in "$examples"/*; do
   fi
   if [ -n "$sl" ]; then
     if ! render_ssh "$want" "$sl" > "$want.ssh"; then
-      echo "graft: $wf: its \"# graft ssh:\" line is kept only in graft-check.yaml, before its check step, and this graft version's copy has none; delete the line" >&2
+      echo "graft: $wf: its \"# graft ssh:\" line is kept only in a workflow with a step that runs graft, and this graft version's copy has none; delete the line" >&2
       rc=1; continue
     fi
     mv "$want.ssh" "$want"

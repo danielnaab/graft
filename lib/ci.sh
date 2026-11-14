@@ -1,38 +1,34 @@
 #!/usr/bin/env bash
-# ci.sh check|upgrade|pr: what graft's Forgejo workflows (template/.forgejo/workflows/) run, from the repo's
-# root, as `nix run .#graft ci <step>` (or `nix run 'path:DIR#graft' ci <step>` when the flake is in
-# DIR, mkFlake's flakeDir; the workflows find it in the scions README). It lives here, not in the workflow files, so a repo's
-# workflows run the graft version it pins: when graft upgrade moves that pin, their behaviour
-# moves with it, and the YAML itself rarely changes.
+# ci.sh check|upgrade|pr: what graft's Forgejo workflows (template/.forgejo/workflows/) run, from the
+# repo's root, as `nix run .#graft ci <step>` (or `nix run 'path:DIR#graft' ci <step>` when the flake
+# is in DIR, beside the scions directory; the workflows find it by graft's README). It lives here,
+# not in the workflow files, so a repo's workflows run the graft version it pins.
 #
-#   check    flake.lock is committed (in HEAD), and the scions directory and graft's workflows match
-#            it (checks.<system>.graft, or `graft check` for a flake in a subdirectory, which has none).
-#   upgrade  graft upgrade; if that changed anything, run the repo's whole `nix flake check` on the
-#            result (graft's check and the repo's own: link checks into scions, lint, tests), commit
-#            it, and force-push it to $BRANCH on origin. Writes changed=true|false to
-#            $GITHUB_OUTPUT. A failing check doesn't stop the push: the commit message names the
-#            failing checks with the tail of each log, so the PR shows the breakage, and the step
-#            then fails. Refuses a working tree with changes of its own (but a re-locked flake.lock), and a branch other than
-#            $BRANCH checked out (a detached HEAD is fine). The check runs the code of the graft version just moved to, and the repo's
-#            own checks over upstream content, before anyone reviewed either, so this step must
-#            hold no secret beyond the job's own token.
+#   check    flake.lock is committed (in HEAD) and matches flake.nix; the committed state of the
+#            scions (`graft check --committed`: registered, absolute URLs, inputs.self.submodules,
+#            each gitlink a release tag upstream; graft's workflows current); then the flake
+#            evaluates (`nix flake check --no-build`), so mkFlake's errors stop it.
+#   upgrade  graft upgrade; if that changed anything, commit it, then run the repo's whole `nix flake
+#            check` on the committed tree (a git flake then fetches each scion at its new gitlink),
+#            and force-push it to $BRANCH on origin. Writes changed=true|false to $GITHUB_OUTPUT. A
+#            failing check doesn't stop the push: the commit message is amended with the failing
+#            checks and the tail of each log, so the PR shows the breakage, and the step then
+#            fails. Refuses a working tree with changes of its own (but a re-locked flake.lock),
+#            and a branch other than $BRANCH checked out (a detached HEAD is fine). The check runs
+#            the code of the versions just moved to before anyone reviewed them, so this step
+#            must hold no secret beyond the job's own token (and a read-only key for private scions).
 #   pr       open a PR from $BRANCH into $BASE, or retitle the open one (the push updated it).
 #            Needs API, WEB, BASE, BRANCH and PR_TOKEN. Run it in a job of its own, checked out at
 #            the default branch: then it runs the graft that branch pins and never evaluates the
-#            upgraded flake, so a new graft version never sees PR_TOKEN. Opening a PR runs the
-#            repo's pull_request workflows from the PR's head, with the repo's secrets, and the
-#            branch was written by code nobody has reviewed yet: so it opens one only when the
-#            branch changes nothing but the flake's flake.nix and flake.lock and the scions directories. A change
-#            to .forgejo/ (a new graft version's workflows) or anywhere else fails with a link to
-#            the diff: review it, then open the PR yourself. The limit: flake.nix and flake.lock
-#            are code (a moved graft pin is the new version), so any OTHER pull_request workflow
-#            of the repo's that evaluates or builds the flake with secrets runs it unreviewed.
-#            The PR body says what changed upstream: for each input the branch moved, the
-#            provider's CHANGELOG.md sections between the two tags (or its git log), read by this
-#            job with git from the upstream the DEFAULT branch's flake.lock names, at the commit
-#            the branch's flake.lock pins. Both locks are read as data; nothing fetched is run.
-#            Building the app already fetched the default branch's scions through Nix, with
-#            PR_TOKEN in its environment: the reviewed lock's urls, and the build only copies.
+#            upgraded flake. Opening a PR runs the repo's pull_request workflows from the PR's head
+#            with the repo's secrets, and the branch was written by code nobody has reviewed yet: so
+#            it opens one only when the branch changes nothing but the flake's flake.nix and
+#            flake.lock and the gitlinks of scions the default branch already has, and (only when
+#            graft's own pin moved) the scions README. A workflow change, or anything else,
+#            fails with a link to the diff. The PR body says what changed upstream: for graft and
+#            each moved scion, the provider's CHANGELOG.md sections between the two tags (or its
+#            git log), fetched with git from the upstream the DEFAULT branch names (flake.lock,
+#            .gitmodules). Both are read as data; nothing fetched is run.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -43,7 +39,6 @@ locate ""
 [ -f "$FLAKE_NIX" ] || die "run from the repo root (no $FLAKE_NIX here)"
 
 check() {
-  local system
   # In a fresh checkout, Nix writes a lock that was never committed, and git-adds it: the checks
   # would pass on whatever the tags resolve to today. The lock is the pins: it must be committed.
   git cat-file -e "HEAD:$FLAKE_LOCK" 2>/dev/null \
@@ -54,13 +49,9 @@ check() {
     git --no-pager diff --stat HEAD -- "$FLAKE_LOCK" >&2 || true
     die "$FLAKE_LOCK in HEAD does not match $FLAKE_NIX: Nix re-locked it to evaluate graft (git diff -- $FLAKE_LOCK shows how). Run $GRAFT_RUN, then commit $FLAKE_LOCK"
   fi
-  if [ "$FLAKE" != . ]; then
-    nix_ run "$FLAKE_REF#graft" check
-  else
-    system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
-    nix_ build --no-link ".#checks.$system.graft"
-  fi
-  echo "graft: ci check passed: $FLAKE_LOCK is committed, and the scions and graft's workflows match it"
+  bash "$here/scions.sh" check --committed
+  nix_ flake check --no-build "$FLAKE_REF" || die "the flake doesn't evaluate (above)"
+  echo "graft: ci check passed: $FLAKE_LOCK is committed, every scion is at a release tag, graft's workflows are current, and the flake evaluates"
 }
 
 upgrade() {
@@ -81,18 +72,22 @@ upgrade() {
     git status --short --untracked-files=all >&2
     die "ci upgrade commits every change in the working tree, and this one has the changes of its own above: commit, stash or remove them first"
   fi
-  log=$(mktemp) report=$(mktemp)   # outside the checkout: the repo's .gitignore can't refuse them, git add can't take them
-  trap 'rm -f "$log" "$report"' EXIT
+  log=$(mktemp -p "$GRAFT_TMP") report=$(mktemp -p "$GRAFT_TMP")   # outside the checkout: git add can't take them
   GRAFT_CI=1 bash "$here/tools.sh" upgrade | tee "$log"
   # a new major alone moves nothing and opens no PR: say so where the run's summary shows it
   grep -E '^graft: .* is a new major version' "$log" | sed 's/^graft: /::warning::/' || true
   git add -A
   if git diff --cached --quiet; then output changed=false; return 0; fi
-  full_check "$report" || checks=failed
-  changes=$(grep -E '^graft: (.* -> |refreshed |.* is a new major version)' "$log" || true)
-  if [ "$checks" = failed ]; then changes+=$'\n\n'"$(<"$report")"; fi
+  changes=$(grep -E '^graft: (.* -> |refreshed |wrote |.* is a new major version)' "$log" || true)
+  # committed first: a git flake reads the scions at the gitlinks HEAD records only while the tree
+  # is clean (a staged gitlink alone is still the old version to Nix)
   git -c user.name="graft-upgrade" -c user.email="graft-upgrade@noreply.invalid" \
     commit -q -m "graft: upgrade" -m "$changes"
+  full_check "$report" || checks=failed
+  if [ "$checks" = failed ]; then
+    git -c user.name="graft-upgrade" -c user.email="graft-upgrade@noreply.invalid" \
+      commit -q --amend -m "graft: upgrade" -m "$changes"$'\n\n'"$(<"$report")"
+  fi
   git push -q --force origin "HEAD:refs/heads/$BRANCH"
   output changed=true
   if [ "$checks" = failed ]; then
@@ -106,14 +101,21 @@ upgrade() {
 # graft migrate print it (upstream.jq's upstream_notes: Upgrading sections first, provider text
 # cleaned and block-quoted, so a code fence it leaves open ends with the quote).
 pr_notes() {
-  local base=$1 head=$2 name j n=0
-  while IFS= read -r name; do
-    j=$(upstream_input "$base" "$head" "$name") || return 1
-    [ -n "$j" ] || continue
-    n=$((n + 1))
-    jq -r -L "$GRAFT_LIB" --arg base "${BASE:-the default branch}" 'include "upstream"; upstream_notes($base)' <<<"$j"
-  done < <(jq -r '.nodes.root.inputs | to_entries[] | select(.value|type=="string") | .key' "$base")
-  [ "$n" -gt 0 ] || printf 'No input moved commits.\n'
+  local base=$1 head=$2 commit=$3 name path url ov nv ot nt j n=0
+  notes() { jq -r -L "$GRAFT_LIB" --arg base "${BASE:-the default branch}" 'include "upstream"; upstream_notes($base)' <<<"$1"; }
+  j=$(upstream_input "$base" "$head" graft) || return 1
+  if [ -n "$j" ]; then n=$((n + 1)); notes "$j"; fi
+  # the scions the default branch has (its .gitmodules: reviewed), moved by the branch
+  while IFS=$'\t' read -r name path url; do
+    [ -n "$name" ] || continue
+    ov=$(gitlink "$path" HEAD); nv=$(gitlink "$path" "$commit")
+    if [ -z "$ov" ] || [ -z "$nv" ] || [ "$ov" = "$nv" ]; then continue; fi
+    ot=$(version_at "$url" "$ov" 2>/dev/null) || ot=""
+    nt=$(version_at "$url" "$nv" 2>/dev/null) || nt=""
+    j=$(upstream_range "$name" "$(scion_node "$url" "$ot")" "$ov" "$nv" "$ot" "$nt") || return 1
+    n=$((n + 1)); notes "$j"
+  done < <(scions_registered "$GRAFT_TMP/base.gitmodules")
+  [ "$n" -gt 0 ] || printf 'Nothing moved commits.\n'
 }
 
 # migrate_ref LOCK: the flake ref of the graft LOCK pins, for the PR body's hint: github:O/R/TAG
@@ -126,7 +128,7 @@ migrate_ref() {
 }
 
 pr() {
-  local v head changes out code number line path dirs=() d ok workflows="" other="" compare
+  local v head changes out code number line path d ok workflows="" other="" compare meta om nm base_lock head_lock graft_moved notes body req
   local moved="" held="" failing="" title
   for v in API WEB BASE BRANCH PR_TOKEN; do [ -n "${!v:-}" ] || die "$v is not set"; done
   git fetch -q --no-tags origin "refs/heads/$BRANCH" || die "can't fetch $BRANCH"
@@ -137,18 +139,30 @@ pr() {
   changes=$(git log -1 --format=%b "$head")
   compare="$WEB/compare/$BASE...$BRANCH"
 
-  # What the branch may change without review: the lock, its refs, and graft's scions directories
-  # as the default branch has them (a README.md carrying graft's marker).
-  while IFS= read -r path; do
-    path=${path#HEAD:}; path=${path%README.md}; dirs+=("${path%/}")
-  done < <(git grep -l -F "${MARKER_ARGS[@]}" HEAD -- README.md '*/README.md' || true)
-  while IFS= read -r -d '' path; do
+  # What the branch may change without review: flake.nix and flake.lock, the gitlinks of the scions
+  # the default branch has (a moved submodule stays a submodule), and, when graft's own pin moved,
+  # the scions README (the new version's text). A new version's workflows are never opened
+  # unreviewed: they would run with the repo's secrets.
+  git show HEAD:.gitmodules > "$GRAFT_TMP/base.gitmodules" 2>/dev/null || : > "$GRAFT_TMP/base.gitmodules"
+  base_lock=$GRAFT_TMP/base.lock head_lock=$GRAFT_TMP/head.lock
+  git show "HEAD:$FLAKE_LOCK" > "$base_lock"
+  git show "$head:$FLAKE_LOCK" > "$head_lock" 2>/dev/null || echo '{"nodes":{"root":{"inputs":{}}}}' > "$head_lock"
+  graft_moved=""
+  if [ "$(jq -r '.locked.rev // .locked.narHash // ""' <<<"$(lock_node "$base_lock" graft)")" \
+       != "$(jq -r '.locked.rev // .locked.narHash // ""' <<<"$(lock_node "$head_lock" graft)")" ]; then
+    graft_moved=1
+  fi
+  declare -A scion=()
+  while IFS=$'\t' read -r _ d _; do [ -z "$d" ] || scion[$d]=1; done < <(scions_registered "$GRAFT_TMP/base.gitmodules")
+  while IFS= read -r -d '' meta && IFS= read -r -d '' path; do
     ok=""
+    read -r om nm _ _ _ <<<"${meta#:}"
     if [ "$path" = "$FLAKE_NIX" ] || [ "$path" = "$FLAKE_LOCK" ]; then ok=1; fi
-    for d in "${dirs[@]}"; do [ -z "$d" ] || [[ $path != "$d"/* ]] || ok=1; done
+    if [ -n "${scion[$path]:-}" ] && [ "$om" = 160000 ] && [ "$nm" = 160000 ]; then ok=1; fi
+    if [ -n "$graft_moved" ] && [ "$path" = "$SCIONS/README.md" ]; then ok=1; fi
     [ -z "$ok" ] || continue
     if [[ $path == .forgejo/* ]]; then workflows+=" $path"; else other+=" $path"; fi
-  done < <(git diff --no-renames --name-only -z HEAD "$head")
+  done < <(git diff --raw --no-abbrev --no-renames -z HEAD "$head")
   if [ -n "$other" ]; then
     echo "::error::$BRANCH changes files graft upgrade never writes:$other. Not opening a PR; look at $compare (if $BASE moved since the upgrade job, re-run the workflow)"
     exit 1
@@ -171,14 +185,11 @@ pr() {
     failing=$(sed -n '/^nix flake check failed:/,$p' <<<"$changes")
   fi
 
-  # What changed upstream, computed here from the two locks (no PR_TOKEN in git's environment).
-  base_lock=$(mktemp) head_lock=$(mktemp) notes=$(mktemp) body=$(mktemp) req=$(mktemp)
-  trap 'rm -f "$base_lock" "$head_lock" "$notes" "$body" "$req"' EXIT
-  git show "HEAD:$FLAKE_LOCK" > "$base_lock"
-  git show "$head:$FLAKE_LOCK" > "$head_lock" 2>/dev/null || echo '{"nodes":{"root":{"inputs":{}}}}' > "$head_lock"
+  # What changed upstream, computed here (no PR_TOKEN in git's environment).
+  notes=$GRAFT_TMP/notes body=$GRAFT_TMP/body req=$GRAFT_TMP/req
   # errexit is off in here (a provider that can't be fetched is reported, not fatal); a list cut
   # short is kept, with a note
-  ( unset PR_TOKEN; pr_notes "$base_lock" "$head_lock" ) > "$notes" \
+  ( unset PR_TOKEN; pr_notes "$base_lock" "$head_lock" "$head" ) > "$notes" \
     || echo "(stopped early; the rest is in the diff of flake.lock)" >> "$notes"
 
   title="graft: upgrade"
@@ -197,7 +208,7 @@ pr() {
     else
       printf 'The repo'"'"'s whole `nix flake check` passed on the result (graft'"'"'s check, and its own). When graft itself moved, that is the new version'"'"'s code. '
     fi
-    printf 'The diff of the scions directory is the change you are taking; review and merge are yours.\n\n'
+    printf 'The moved submodule commits are the change you are taking; review and merge are yours.\n\n'
     printf '## What changed upstream\n\n'
     printf 'Text below is the providers'"'"', from their repos at the new pins: read it as theirs.\n\n'
     cap 40000 < "$notes"

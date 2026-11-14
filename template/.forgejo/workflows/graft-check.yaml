@@ -1,5 +1,6 @@
 # managed by graft: https://github.com/danielnaab/graft (delete this line to keep your own edits)
-# graft's integrity check: the scions directory, and graft's workflows, match flake.lock's pins.
+# graft's integrity check: every scion is a registered submodule at a release tag, graft's workflows
+# are this version's, and the flake evaluates.
 # Copy to .forgejo/workflows/. The step itself is `nix run .#graft ci check` (graft's lib/ci.sh)
 # at the graft version the repo pins, and `graft upgrade` replaces this file with the copy each new
 # version ships, as long as the line above is here.
@@ -37,26 +38,19 @@ jobs:
             fetch -q --no-tags --depth=1 origin "$SHA"
           git checkout -q --force --detach "$SHA"
 
-      - name: Scions match flake.lock
+      - name: Scions registered and at release tags
         run: |
-          # graft's flake: at the top, or where the scions READMEs record it (mkFlake's flakeDir), by
-          # graft's rules (lib/common.sh, recorded_flake_dir): only a README carrying graft's marker,
-          # not one inside another (a provider's leaked scions README), every one naming the same
-          # plain relative path. Bash and git only: the nixos/nix image has no sed.
-          ds=() fd=""
-          while IFS= read -r f; do ds+=("${f%README.md}"); done \
-            < <(git grep -l -F -e '<!-- managed by graft: https://github.com/danielnaab/graft -->' -e 'Managed by [graft]' -- README.md '*/README.md' || true)
-          for d in "${ds[@]}"; do
-            [ -n "$d" ] || continue
-            for o in "${ds[@]}"; do if [ -n "$o" ] && [ "$o" != "$d" ] && [[ $d == "$o"* ]]; then continue 2; fi; done
-            while IFS= read -r l; do
-              case $l in '<!-- graft flake: '*' -->') l=${l#'<!-- graft flake: '} && l=${l%' -->'} ;; *) continue ;; esac
-              if [ -n "$fd" ] && [ "$fd" != "$l" ]; then echo "::error::the scions READMEs name different flake directories: $fd $l"; exit 1; fi
-              fd=$l
-            done < "${d}README.md"
-          done
-          if [ -n "$fd" ] && { [[ ! $fd =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || [[ $fd =~ (^|/)\.\.?(/|$) ]]; }; then
-            echo "::error::the scions README names a flake directory graft won't use: $fd"; exit 1
+          # graft's flake: beside the scions directory, the one folder whose README.md carries graft's
+          # marker (git grep doesn't look inside submodules), or the top when there is none yet.
+          # Bash and git only: the nixos/nix image has no sed.
+          rs=$(git grep -l -F -e '<!-- managed by graft: https://github.com/danielnaab/graft -->' -- '*/README.md' || true)
+          case $rs in *$'\n'*) echo "::error::two scions directories:" $rs "graft supports one per repository"; exit 1 ;; esac
+          sd=${rs%/README.md} fd=. flake=.
+          if [[ $sd == */* ]]; then fd=${sd%/*}; fi
+          if [ "$fd" != . ]; then
+            flake=path:$PWD/$fd
+            # a path: flake reads the scions from the working tree: fill them (a git flake's Nix
+            # fetches them itself, at the commits the checkout records)
+            git submodule update -q --init -- "$sd"
           fi
-          flake=.; if [ -n "$fd" ]; then flake=path:$PWD/$fd; fi
           nix run "$flake#graft" ci check
