@@ -89,7 +89,8 @@ sb_profile() {
   echo "; last: what no rule above may reopen"
   for p in "${pinRO[@]}"; do sb_param ro subpath "$p"; done
   for p in "${pinDirs[@]}"; do sb_param keep literal "$p"; done
-  sb_rule "deny file-write*" "${ro[@]}"
+  # file-link: no new hard link to a pinned file (link(2) checks the file it links, and the new name)
+  sb_rule "deny file-write* file-link" "${ro[@]}"
   sb_rule "deny file-write-unlink file-write-create" "${keep[@]}"
   # F_MAKECOMPRESSED and F_TRANSFEREXTENTS change a file through a read-only descriptor (codex's policy)
   sb_rule "deny system-fcntl" "(fcntl-command 80 110)"
@@ -129,7 +130,9 @@ sb_host() {
 backend_prepare() {
   local p t fd
   runHome=$run/home lang=en_US.UTF-8 certFile=$cacert
-  backendEnv=(TMPDIR="$run/tmp")
+  # SHLVL: bash with a socket on stdin (an agent's tool call) reads /etc/bashrc, the host's, below
+  # SHLVL 2; on nix-darwin it is a store path outside the closure, so a denial on every run
+  backendEnv=(TMPDIR="$run/tmp" SHLVL=1)
   # the proxy's port (proxy_ready); none without network; a placeholder for --dry-run
   if [ ${#allow[@]} -eq 0 ]; then proxyPort=''; elif [ -n "$dry" ]; then proxyPort=PORT; fi
   proxyUrl=http://127.0.0.1:$proxyPort
@@ -198,8 +201,8 @@ backend_after() {
   sb_stop
   sbStopped=1
   [ "$repoReadOnly" = 0 ] || return 0
-  # Seatbelt matches the path a write names; a hard link the run made to a protected file would be
-  # another path to it
+  # the profile denies a new hard link to a protected file (file-link): this is a second check, in
+  # case a macOS lets one through
   while IFS= read -r -d '' f; do
     echo "graft: sandbox: WARNING: $(rel "$f") is protected and now has another hard link: the run may have written it through that link; read it, then replace it with a copy of its own (cp -p F F.copy && mv F.copy F)" | visible >&2
   done < <([ ${#pinRO[@]} -eq 0 ] || find "${pinRO[@]}" -type f -links +1 -print0)

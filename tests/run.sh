@@ -1373,6 +1373,8 @@ sec_seatbelt() {
   local sb=$src/lib/sandbox/seatbelt.sh base=$src/lib/sandbox/seatbelt.sb d=$work/sbp
   local store=/nix/store/0123456789abcdfghijklmnpqrsvwxyz-jq-1.7.1-bin
   mkdir -p "$d/home/ro" "$d/home/.cache/sb" "$d/repo/.git" && echo secret > "$d/home/.secret"
+  # resolved, as sb_host resolves paths.* (on a Mac, /tmp is /private/tmp)
+  d=$(cd "$d" && pwd -P)
   touch "$d/repo/flake.nix" "$d/repo/.git/config"
   expect "seatbelt: the base denies by default" grep -qxF "(deny default)" "$base"
   refuse "and allows no user's folder" grep -qE '"/(Users|Volumes|private/tmp|private/var/folders)' "$base"
@@ -1412,7 +1414,7 @@ sec_seatbelt() {
   expect "the repository: read, written, run" rule "(allow file-read* file-write* process-exec" "$(param "$d/repo")"
   expect "the run's HOME" rule "(allow file-read* file-write* process-exec" "$(param "$d/run/home")"
   expect "and TMPDIR" rule "(allow file-read* file-write* process-exec" "$(param "$d/run/tmp")"
-  expect "TMPDIR is the run's" has "TMPDIR: TMPDIR=$d/run/tmp"
+  expect "TMPDIR is the run's, and SHLVL 1 (no host /etc/bashrc)" has "TMPDIR: TMPDIR=$d/run/tmp SHLVL=1"
   expect "paths.readOnly: read" rule "(allow file-read* process-exec" "$(param "$d/home/ro")"
   expect "paths.writable: written" rule "(allow file-read* file-write* process-exec" "$(param "$d/home/.cache/sb")"
   expect "a ~/ entry is in the run's HOME, a link to the real one" has "$d/home/ro"
@@ -1423,8 +1425,8 @@ sec_seatbelt() {
   expect "nor its secret" test "$(grep -c secret <<<"$out")" = 0
   expect "an absent entry: skipped" test -z "$(param "$d/home/absent")"
   expect "--with's store path" has "  (subpath \"$store\"))"
-  expect "a protected file: written by nothing" rule "(deny file-write*" "$(param "$d/repo/flake.nix")"
-  expect "the git config" rule "(deny file-write*" "$(param "$d/repo/.git/config")"
+  expect "a protected file: written by nothing, linked by nothing" rule "(deny file-write* file-link" "$(param "$d/repo/flake.nix")"
+  expect "the git config" rule "(deny file-write* file-link" "$(param "$d/repo/.git/config")"
   expect ".git: not renamed, removed or replaced" rule "(deny file-write-unlink file-write-create" "$(param "$d/repo/.git")"
   expect "nor the repository, nor HOME" rule "(deny file-write-unlink file-write-create" "$(param "$d/run/home")"
   expect "the repository's parents: stat alone" rule "(allow file-read-metadata" "$(param "$d")"

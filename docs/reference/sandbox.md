@@ -220,6 +220,7 @@ The launcher starts the command with an empty environment, then sets:
 | `LANG` | `C.UTF-8` (on macOS, `en_US.UTF-8`). |
 | `SSL_CERT_FILE`, `NIX_SSL_CERT_FILE` | `/etc/ssl/certs/ca-certificates.crt` (on macOS, the CA bundle's store path). |
 | `TMPDIR` | On macOS only: a new empty folder, the run's only temporary folder. |
+| `SHLVL` | On macOS only: `1`, so that bash does not read the host's `/etc/bashrc` when its stdin is a socket. |
 | `TERMINFO_DIRS` | The closure's terminfo. |
 | `GRAFT_SANDBOX` | `1`. |
 | `PS1` | `(sandbox) \w \$ `. |
@@ -232,7 +233,8 @@ The launcher starts the command with an empty environment, then sets:
 On Linux, the launcher gives bubblewrap its arguments and these values through file descriptors, not its
 command line, so `ps` does not show a passed value. bubblewrap itself starts with an empty environment, so
 `/proc/1/environ` in the run is empty. On macOS, `env -i` sets them for `sandbox-exec`, which keeps them
-in its arguments until it starts the command; macOS shows a process's arguments only to its user.
+in its arguments until it starts the command. macOS shows a process's arguments and environment only to
+its user, and so to the run too: see [On macOS](#on-macos).
 
 ### git identity
 
@@ -431,7 +433,8 @@ terminal. A UTF-8 character that holds such a byte, such as `€`, is shown esca
 
 ## On macOS
 
-Untested on a Mac yet: `tests/macos-smoke.sh` checks it ([Development](../development.md#test)).
+`tests/macos-smoke.sh` checks it on a Mac ([Development](../development.md#test)); it passed on macOS 27.2,
+on Apple silicon.
 
 On macOS the launcher runs the command with `/usr/bin/sandbox-exec` and a Seatbelt profile that denies by
 default. The policy, the options, the arguments, the startup line, the checks before and after the run, the
@@ -448,14 +451,20 @@ messages and the exit statuses are the same. What differs:
   where it looks.
 - **Protected paths are path rules.** Seatbelt matches the resolved path of each access. Writing a
   protected path is denied, and so are renaming and removing each folder between it and the repository's
-  top. A symbolic link or a second hard link on a protected path stops the launcher, as on Linux. After the
-  run, the launcher also warns when a protected file has gained another hard link.
+  top. A symbolic link or a second hard link on a protected path stops the launcher, as on Linux. The
+  profile denies making a new hard link to a protected file, and after the run the launcher still warns
+  when one has gained another hard link.
 - **The network is a port.** There is no network namespace: the proxy listens on `127.0.0.1` at a free
   port, and the profile allows a connection to that port alone. Any other connection, unix sockets to the
   host's services included (DNS, ssh-agent, Docker), is denied. A unix socket below a writable path works.
-- **No other process.** The run cannot read another process's information (such as the launcher's
-  environment) or send it a signal. When the command ends, the launcher stops the processes it left
-  (found by the run's `TMPDIR` in their environment).
+- **Other processes: no signals, but their environment is readable.** The run cannot send a signal to a
+  process outside it, or read its details through `proc_pidinfo`. But Seatbelt does not check
+  `KERN_PROCARGS2`, the call that `ps -E` uses, so the run can read the arguments and the environment
+  that each process of your user started with: the launcher's, your shells', your other programs'. Only
+  another user's processes are hidden. On Linux, the process namespace hides them all. So on a Mac, keep
+  secrets out of the environment of the programs you run while a sandboxed command runs: use a credential
+  helper or the keychain, which the run cannot reach. When the command ends, the launcher stops the
+  processes it left (found by the run's `TMPDIR` in their environment).
 - **Seatbelt is deprecated by Apple**, and still what Chromium, OpenAI's codex and Anthropic's
   sandbox-runtime use. The launcher never runs a command without it.
 

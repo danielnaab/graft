@@ -151,7 +151,7 @@ sb bash -c 'ln .git/config hl && echo "[core]fsmonitor = touch pwned" >> hl'
 if [ "$(cksum <"$repo/.git/config")" != "$before" ]; then
   no "writing .git/config through a new hard link fails" "the run changed .git/config through a hard link: Seatbelt didn't stop it"
 else ok "writing .git/config through a new hard link fails"; fi
-[ ! -e "$repo/hl" ] || info "the run could make a hard link to .git/config (no write went through it)$(printf '%s' "$out" | grep -q 'now has another hard link' && echo '; the launcher warned')"
+check "nor can a hard link to it be made" test ! -e "$repo/hl"
 rm -f "$repo/hl"
 sb bash -c 'mkdir evil && git -C evil init -q'
 check "a planted nested repository is reported" has "evil/.git"
@@ -183,10 +183,12 @@ check "the command's exit status" test "$st" = 7
 
 # macOS alone: processes (the launcher's, launchd's, the run's after it), sockets, TIOCSTI
 if [ -n "$mac" ]; then
+  # a process of the caller's, outside the run, with the decoy in its environment
+  SMOKE_DECOY=decoy-launcher-env sleep 60 & other=$!
   SMOKE_DECOY=decoy-launcher-env sb --with python3 python3 -c '
 import ctypes, os, sys
 libc = ctypes.CDLL(None, use_errno=True)
-for name, pid in (("launcher", os.getppid()), ("pid-1", 1)):
+for name, pid in (("launcher", os.getppid()), ("pid-1", 1), ("other", int(sys.argv[1]))):
     mib = (ctypes.c_int * 3)(1, 49, pid)  # CTL_KERN, KERN_PROCARGS2
     size = ctypes.c_size_t(1 << 20)
     buf = ctypes.create_string_buffer(size.value)
@@ -198,10 +200,17 @@ for name, pid in (("launcher", os.getppid()), ("pid-1", 1)):
         os.kill(pid, 0); print(name, "signal sent")
     except OSError as e:
         print(name, "signal refused", e.errno)
-'
-  check "the launcher's environment can't be read (KERN_PROCARGS2)" has "launcher denied"
-  check "nor launchd's" has "pid-1 denied"
+' "$other"
+  kill "$other" 2>/dev/null
+  # a known limit, documented (reference/sandbox.md, On macOS): Seatbelt doesn't check KERN_PROCARGS2,
+  # so the run reads the first environment of the user's processes; only the kernel's same-user check
+  # applies. Reported, not failed; a FAIL if a macOS starts denying it, so the docs get updated.
+  if has "launcher read True" && has "other read True"; then
+    info "known limit: the run reads the environment of the user's processes (KERN_PROCARGS2), the launcher's and others'"
+  else no "the known KERN_PROCARGS2 limit changed: update On macOS in docs/reference/sandbox.md" "$out"; fi
+  check "another user's process (launchd) can't be read" has "pid-1 denied"
   check "no signal to the launcher" has "launcher signal refused"
+  check "nor to another process of the user's" has "other signal refused"
   sb bash -c 'sleep 60 >/dev/null 2>&1 & echo $!'
   left=$(printf '%s\n' "$out" | tail -1)
   sleep 0.5
@@ -220,6 +229,11 @@ for p in ("/private/var/run/mDNSResponder", "/private/var/run/syslog"):
 '
   check "socketpair works (Node's pipes)" has "socketpair ok"
   check "a host service's socket is unreachable (mDNSResponder)" has "refused /private/var/run/mDNSResponder"
+  # an agent's tool call: stdin a socket, where bash reads the host's /etc/bashrc below SHLVL 2
+  out=$(cd "$repo" && HOME=$home GRAFT_SANDBOX_QUIET=1 /usr/bin/perl -MSocket -e \
+    'socketpair(my $a, my $b, AF_UNIX, SOCK_STREAM, 0) or die; open(STDIN, "<&", $a) or die; exec @ARGV' \
+    "$tmp/sbl/bin/sandbox" bash -c 'echo ran' 2>&1)
+  check "bash with a socket on stdin: runs, and no denial of the host's /etc/bashrc" test "$out" = ran
   if command -v script >/dev/null; then
     out=$(cd "$repo" && HOME=$home GRAFT_SANDBOX_QUIET=1 script -q /dev/null "$tmp/sbl/bin/sandbox" --with python3 python3 -c '
 import fcntl, termios
@@ -227,7 +241,7 @@ try:
     fcntl.ioctl(0, termios.TIOCSTI, b"x"); print("typed")
 except OSError as e:
     print("refused", e.errno)
-' 2>&1)
+' </dev/null 2>&1)
     check "TIOCSTI on the caller's terminal is refused" has refused
   fi
 fi

@@ -178,13 +178,15 @@ Costs accepted:
   could also connect to (it forwards only to `network.allow`). A run cannot bind a port, so a test that
   starts a local server fails. A program that verifies TLS with macOS's own trust service (Go programs, for
   example) cannot reach it: it must read `SSL_CERT_FILE`. A process that drops the run's environment and
-  leaves its process group outlives the run, where on Linux the end of the process namespace stops it. The
-  Seatbelt support is untested on a Mac yet ([Sandbox](reference/sandbox.md#on-macos)).
+  leaves its process group outlives the run, where on Linux the end of the process namespace stops it.
+  Seatbelt does not check `KERN_PROCARGS2`, so a run can read the environment of every process of the same
+  user, the launcher's included; only a separate user would hide them ([Sandbox](reference/sandbox.md#on-macos)).
 - **Commands come only from the closure.** A program installed on the host outside Nix is not visible. Add
   its package to `sandbox.packages`, or use `--with PKG` for one run.
 - **A start costs about 50 ms, and about 100 ms with the network** (the proxy starts too), measured on one
-  machine with a small repository. The launcher walks the working tree before and after the run. Nix computes
-  the policy when it builds the launcher, not at each run.
+  machine with a small repository; on a Mac, about 350 ms (macOS 27.2, Apple silicon). The launcher walks
+  the working tree before and after the run. Nix computes the policy when it builds the launcher, not at
+  each run.
 
 Reopen when unprivileged user namespaces are no longer available on the machines that run graft, when Apple
 removes `sandbox-exec`, or when a provider's real needs cannot be expressed as requests that a consumer

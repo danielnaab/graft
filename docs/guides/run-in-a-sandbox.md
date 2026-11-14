@@ -10,7 +10,8 @@ hosts that you did not name, or change the files that decide what it may do.
 
 - Linux, with unprivileged user namespaces (the default on NixOS, Debian, Ubuntu and Fedora). In Docker, see
   [If something goes wrong](#if-something-goes-wrong). Or macOS, where the launcher uses Seatbelt
-  (untested on a Mac yet; see [On macOS](../reference/sandbox.md#on-macos) for what differs).
+  (see [On macOS](../reference/sandbox.md#on-macos) for what differs: on a Mac, a run can read the
+  environment of your other processes).
 - graft v2.14.0 or later: `nix run .#graft outdated` prints graft's pinned version. Until v2.14.0 is
   released, use a graft checkout that has the sandbox: add `--override-input graft path:/path/to/graft` to
   each `nix run` and `nix flake lock` below.

@@ -11,8 +11,9 @@
 ; (macos-sandbox-utils.ts), all after Chromium's mac/common.sb.
 (deny default)
 
-; Processes: its own. No process-info and no signal toward a process outside the sandbox (the
-; launcher's environment, through KERN_PROCARGS2, is process-info).
+; Processes: its own. No process-info (proc_pidinfo, task ports) and no signal toward a process
+; outside the sandbox. Seatbelt doesn't check KERN_PROCARGS2: a run can read the arguments and the
+; first environment of every process of the same user (docs/reference/sandbox.md#on-macos).
 (allow process-fork)
 (allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
