@@ -413,8 +413,13 @@ cmd_try() {
     echo "graft: build from the repository's top: nix build 'path:$FLAKE#tools', nix shell 'path:$FLAKE#tools' -c TOOL, or nix flake check 'path:$FLAKE'"
     return
   fi
-  [ "$(try_state)" != committed ] \
-    || die "$TRY is committed, so the tree is clean to Nix; nothing changed: graft try --stop, commit its removal, then graft try"
+  # HEAD holding the marker: refuse before writing anything (marking it again would leave it committed)
+  if git cat-file -e "HEAD:$TRY" 2>/dev/null; then
+    if [ -n "$(git diff --cached --name-only --diff-filter=D -- "$TRY")" ]; then
+      die "$TRY is committed and its removal is staged; nothing changed: commit the removal (git commit -m 'Remove graft try marker'), then graft try"
+    fi
+    die "$TRY is committed, so the tree is clean to Nix; nothing changed: graft try --stop, commit its removal, then graft try"
+  fi
   # Nix reads every scion from the work tree while try is on, and fails on an empty one
   while IFS=$'\t' read -r name path url; do
     [ -e "$path/.git" ] || die "$path is empty, and Nix fails on an empty scion while try is on; nothing changed: git submodule update --init --recursive -- $path (or graft sync)"

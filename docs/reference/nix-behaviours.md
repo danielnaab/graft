@@ -26,7 +26,8 @@ More of the same rule:
   that git tracks *in the scion*. A new file there is missing from the build
   (`opening file '/nix/store/…-scion-NAME/FILE': No such file or directory`) until git tracks it there; a
   file marked with intent to add (`git -C scions/NAME add -N FILE`) counts, but git then treats it as tracked
-  with empty content: `git checkout -- .` empties it and `git reset --hard` deletes it. Stage it for real.
+  with empty content: `git checkout -- .` empties it and `git reset --hard` deletes it. Stage it for real (`git add`), and commit it soon: `git reset --hard` deletes any
+  staged new file, as git always does.
   **tested**
 - **A file marked with intent to add makes the tree dirty.** `git add -N FILE` in the repository is enough
   for Nix to read the working tree; a plain `git commit` leaves the file out, `git commit -a` (or

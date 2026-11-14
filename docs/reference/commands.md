@@ -256,6 +256,7 @@ It refuses, before changing anything: an unknown name (`graft: no scion named NA
 scion (`graft: /…/scions/pa is a submodule of /…: run graft from the repository's top (-C /…)`); a committed
 marker, which leaves the tree clean to Nix
 (`graft: .graft-try is committed, so the tree is clean to Nix; nothing changed: graft try --stop, commit its removal, then graft try`);
+or, once `--stop` has staged that removal, `graft: .graft-try is committed and its removal is staged; nothing changed: commit the removal (git commit -m 'Remove graft try marker'), then graft try`;
 and an empty scion, because Nix fails on one while the tree is dirty:
 `graft: scions/pa is empty, and Nix fails on an empty scion while try is on; nothing changed: git submodule update --init --recursive -- scions/pa (or graft sync)`
 (and `graft: scions/pa's own submodules are empty (…), and Nix fails on them while try is on; nothing changed: …`).

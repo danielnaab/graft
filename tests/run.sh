@@ -1058,6 +1058,10 @@ EOF
   expect "the scion's commit left as it is" quiet git_ -C scions/tp cat-file -e HEAD:extra
   expect "the marker's removal staged" test "$(git_ status --porcelain -- .graft-try)" = "D  .graft-try"
   expect "says to commit it" has "graft: .graft-try was committed: its removal is staged; commit it"
+  # try again before that commit: refuse with advice that ends the loop, and change nothing (QA R1)
+  refused "try: refuses while the marker's removal is staged but not committed" G try -C .
+  expect "says to commit the removal" has "graft: .graft-try is committed and its removal is staged; nothing changed: commit the removal (git commit -m 'Remove graft try marker'), then graft try"
+  expect "the index unchanged" test "$(git_ status --porcelain -- .graft-try)" = "D  .graft-try"
   git_ commit -qm "no marker"
   git_ -C scions/tp checkout -q --detach v1.0.0 && git_ add scions/tp && commit "back to v1.0.0"
   # works while the repo's flake can't evaluate
