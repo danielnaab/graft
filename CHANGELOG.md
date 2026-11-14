@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.13.0 - unreleased
+## v2.13.0 - 2026-11-14
 
 graft now pins providers with git submodules. A scion is a submodule at a provider's release tag; its gitlink
 is the pin. A provider's `graft.nix` wires its tools, apps and checks into your flake, so your `flake.nix` names
