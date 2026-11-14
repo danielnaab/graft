@@ -161,6 +161,13 @@ deleted upstream. `nearest` is `git describe` of the commit.
   `nix run .#graft upgrade NAME` (the newest release in the major of the nearest tag). Then commit.
 - To go back to the last release instead: `nix run .#graft upgrade NAME@v1.0.0`, and commit.
 
+If the scion's commit was never pushed to the provider, `nix run .#graft` cannot even evaluate (Nix fails with
+`Cannot find Git revision …`, below). Run graft from its own flake instead:
+`nix run github:danielnaab/graft/v2.13.0 -- check -C .`.
+
+If a line before it says `(upstream unreadable: checked local tags)`, graft could not reach the provider, and
+compared with the scion's local tags. Fix the access, and run the check again.
+
 ### graft: scions/NAME: tag vX.Y.Z exists locally but not at URL: push it …
 
 The scion's commit carries a release tag in your clone only: the provider's release was tagged but never
@@ -182,13 +189,6 @@ Every rule passed, but evaluating the flake's tools or checks failed; the lines 
 (`… while evaluating scions/NAME/graft.nix`) and its error. graft never leaves a failing provider out. Fix it in
 the provider ([Fix a provider from a consumer](fix-a-provider.md)), or move the scion back to a release that
 works: `nix run .#graft upgrade NAME@TAG`.
-
-If the commit was never pushed to the provider, `nix run .#graft` cannot even evaluate (Nix fails with
-`Cannot find Git revision …`, below). Run graft from its own flake instead:
-`nix run github:danielnaab/graft/v2.13.0 -- check -C .`.
-
-If the line before says `(upstream unreadable: checked local tags)`, graft could not reach the provider, and
-compared with the scion's local tags. Fix the access, and run the check again.
 
 ### .forgejo/workflows/FILE differs from the copy this graft version ships
 
