@@ -1,260 +1,193 @@
-# mkFlake: a repo's flake outputs, with its scions, from its flake inputs.
+# mkFlake: a repo's flake outputs, wired from its scions.
 #
-# A scion is another repository's export grafted onto this one. Each is a flake input
-# (flake = false) whose fetched tree is the provider's export: Nix applies the provider's
-# `export-ignore` rules for `github:` inputs and for `git+…?exportIgnore=1` inputs, and pins the
-# commit and a content hash in flake.lock. mkFlake builds `expected`, the directory those inputs
-# make (one folder per scion, plus a README naming each pin), and gives the repo two outputs:
+# A scion is a git submodule in the scions directory (`dir`, beside flake.nix): another repository,
+# checked out at a release tag. The gitlink (the commit the repo records) is the pin and .gitmodules
+# the source; flake.lock pins graft alone. Nix reads the scions through `inputs.self.submodules =
+# true` (a git flake: Nix fetches each at its gitlink) or from the working tree (a `path:` flake).
 #
-#   apps.<system>.graft    the graft command (lib/graft.sh); with no arguments, replace <dir> with
-#                          `expected` (nix run .#graft); `graft check` compares the working tree's
-#                          <dir> (and graft's workflows) with it
-#   checks.<system>.graft  fail unless <dir> is `expected` (nix flake check); only when the flake is
-#                          at the repo's top, the only place its source holds <dir>
+# A scion whose repository has a `graft.nix` at its top is a provider: graft.nix is a function
 #
-# flake.lock holds the pins. `graft check` fails when git ignores it, and checks.<system>.graft when
-# git doesn't track it (the flake's source lacks it): a .gitignore that drops it would leave each
-# run to resolve the tags again, with every check passing. A lock that is only uncommitted passes
-# both, since Nix git-adds a lock it writes; `graft ci check` (lib/ci.sh) fails unless it is in HEAD.
+#   { pkgs, lib, system, scion, scions, consumer, ... }:
+#   { requires ? {}; tools ? {}; apps ? {}; packages ? {}; checks ? {}; ... }
 #
-# Arguments:
+# called once per system, with the repo's own `inputs.nixpkgs` (else graft's) as pkgs; scion is this
+# scion alone, copied to the store without its .git file; scions.<name> is every scion (its store
+# copy as outPath, merged with that provider's result); consumer is the repo's flake source. The
+# repo's own `perSystem` ({ pkgs, lib, system, scions, ... }: { tools; apps; packages; checks;
+# devShells; }) is merged the same way, named `self` in messages. mkFlake merges:
 #
-#   inputs   the flake's inputs
-#   scions   the input names to graft; default: every `flake = false` input. Name them when a
-#            non-flake input isn't one (source a repo builds from, say).
-#   dir      where they go; default `scions`, and may be any relative path inside the repo
-#            (`.scions`, `docs/Grafted Docs`, …). graft owns it entirely and replaces it on every
-#            run, so the app refuses to delete an existing directory that graft didn't write: a
-#            mistyped `dir = "src"` stops there.
-#   outputs  the repo's own flake outputs, merged with graft's at every level, so a repo's `checks`
-#            sit beside graft's. `apps.<system>.graft` and `checks.<system>.graft` are graft's: a
-#            repo's own is an error, raised when graft's app or check is evaluated.
-#   flakeDir where this flake.nix sits, relative to the repo's top; default `.`, the top. A
-#            subdirectory (`nix/workspace`) is for a repo with content that must never be copied
-#            into the world-readable Nix store: run as a `path:` flake (nix run 'path:nix/workspace#graft')
-#            Nix copies only that directory, never the repo's top, so the app finds the top with git
-#            and `dir` stays relative to it. Such a flake has no `checks.<system>.graft` (its source
-#            can't see <dir>): `graft check` is the check. The scions README records flakeDir, which
-#            is how graft's other commands, and its workflows, find the flake.
+#   tools      one pkgs.buildEnv, packages.<system>.tools; a name two give is an error, unless both
+#              are the same store path
+#   apps packages
+#              by name; a duplicate is an error, and so are apps.graft and packages.tools (graft's)
+#   checks     checks.<system>.<scion>-<name>; perSystem's as checks.<system>.<name>
+#   devShells  perSystem's only; devShells.<system>.default, when none is defined: a shell with the tools
+#   requires   { name = "url"; }: siblings the provider needs; a missing one is an error naming
+#              `graft add url`
 #
-# `expected` is built by lib/assemble.sh, which `graft upgrade` also uses, so an upgrade writes
-# exactly what the check expects.
+# plus apps.<system>.graft, the graft command (lib/graft.sh). The repo's own `outputs` are merged
+# last (per system, per name), so the repo can add or override; apps.<system>.graft is graft's, and
+# a repo's own is an error raised by graft's app.
 #
-# graft's workflows: a file in .forgejo/workflows/ named like one in template/.forgejo/workflows/
-# and carrying graft's marker line is graft's (lib/workflows.sh). The app replaces it with this
-# version's copy and the check fails if it differs; a workflow without the marker is never read.
-# The lines of graft's copy that are the repo's (`paths-ignore:` under its push and pull_request
-# triggers, `branches:` under push, and graft-check.yaml's `# graft ssh:` line) are read from the
-# repo's copy and kept; `dir` and flakeDir are passed so a paths-ignore glob that could match them
-# is refused.
-#
-# Nothing else: no config file, no lock of its own, no network access of its own. flake.lock is the
-# lock. Everything that looks at the arguments is inside `apps` and `checks`, so a repo's own
-# outputs (`nix develop`) evaluate without it.
-#
-# The app depends on `expected`, so `nix run .#graft COMMAND` needs every scion's pin fetchable. If
-# one has vanished, move it from outside: nix run github:danielnaab/graft -- upgrade -C . NAME
+# Every check on the scions (the marker README, .gitmodules against what the source holds, names,
+# requires, collisions) is an error inside the values it guards, never on an attribute set's names,
+# and the names a provider gives are read so that a failing provider gives none (builtins.tryEval):
+# apps.<system>.graft (`graft sync` fills empty scions) and the repo's own outputs evaluate
+# whatever state the scions are in. An empty scion (a path: flake's fresh clone; a private one left
+# uninitialised) fails only what uses it (scions.<name>); the tools leave its own out, with a warning.
 { nixpkgs, systems, cli }:
 
-{ inputs, scions ? null, dir ? "scions", flakeDir ? ".", outputs ? { } }:
+{ inputs, dir ? "scions", perSystem ? null, outputs ? { } }:
 
 let
   lib = nixpkgs.lib;
-  forAll = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+  src = inputs.self;
+  # the first line of the scions README (lib/graft.sh writes it); also lib/common.sh's MARKER
+  marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->";
 
-  # the directory as given, minus trailing slashes
-  path = lib.removeSuffix "/" (lib.removeSuffix "/" dir);
-  segments = lib.splitString "/" path;
-  validDir = path != ""
-    && !(lib.hasPrefix "/" path)
-    && !(lib.hasInfix "\n" path)
-    && lib.all (s: s != "" && s != "." && s != "..") segments
-    && lib.head segments != ".git";
-  q = lib.escapeShellArg path;
+  validDir = builtins.isString dir && builtins.match "[A-Za-z0-9._-]+" dir != null
+    && dir != "." && dir != ".." && dir != ".git";
+  validName = n: builtins.match "[A-Za-z0-9][A-Za-z0-9._-]*" n != null && n != "self";
+  root = "${src}/${dir}";
+  hasRoot = validDir && builtins.pathExists root;
+  readme = "${root}/README.md";
+  readmeText = if hasRoot && builtins.pathExists readme then builtins.readFile readme else "";
+  hasMarker = lib.hasInfix marker readmeText;
+  # what graft v2.12 and earlier wrote: a table of copied scions
+  copyMode = hasRoot && (lib.hasInfix "| Scion | Commit |" readmeText || lib.hasInfix "<!-- graft flake: " readmeText);
 
-  # where this flake sits under the repo's top: `.`, or a plain relative path (it goes into `path:`
-  # flake references and the scions README, so no spaces or URL punctuation)
-  fd = lib.removeSuffix "/" flakeDir;
-  root = fd == "." || fd == "";
-  validFlakeDir = root || (builtins.match "[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*" fd != null
-    && lib.all (s: s != "." && s != "..") (lib.splitString "/" fd)
-    && lib.head (lib.splitString "/" fd) != ".git");
-  flakeArg = if root then "." else fd;
-  # the flake's lock, from the repo's top
-  lockPath = if root then "flake.lock" else "${fd}/flake.lock";
-  # how a person runs this flake's app, from the repo's top
-  run = if root then "nix run .#graft" else "nix run 'path:${fd}#graft'";   # quoted: # is a glob in zsh with extendedglob
+  entries = if hasRoot && !copyMode then builtins.readDir root else { };
+  dirs = lib.attrNames (lib.filterAttrs (_: t: t == "directory") entries);
+  names = lib.filter validName dirs;
+  badNames = lib.filter (n: !validName n) dirs;
+  contents = n: builtins.readDir "${root}/${n}";
+  # a submodule Nix didn't fetch (a path: flake's fresh clone) is an empty directory in the source
+  empty = lib.filter (n: contents n == { }) names;
+  isEmpty = n: lib.elem n empty;
 
-  # flake.nix's `inputs` is a literal, so it's read here as data: asking the fetched inputs instead
-  # would fetch every one, and call every flake input's outputs.
-  declared = (import "${inputs.self}/flake.nix").inputs or { };
-  names = if scions != null then scions
-    else lib.attrNames (lib.filterAttrs (_: v: (v.flake or true) == false) declared);
+  # .gitmodules, when the source holds it (a flake at the repo's top): the submodules registered
+  # in the scions directory, one level down
+  gitmodules = "${src}/.gitmodules";
+  hasGitmodules = builtins.pathExists gitmodules;
+  registered = if !(validDir && hasGitmodules) then [ ] else
+    lib.filter (p: p != null) (map (l:
+      let m = builtins.match "[[:space:]]*path[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*" l;
+          p = if m == null then "" else lib.head m;
+      in if lib.hasPrefix "${dir}/" p && !(lib.hasInfix "/" (lib.removePrefix "${dir}/" p))
+         then lib.removePrefix "${dir}/" p else null)
+      (lib.splitString "\n" (builtins.readFile gitmodules)));
+  absent = lib.sort lib.lessThan (lib.filter (n: !(lib.elem n dirs)) registered);
+  # a folder that isn't a submodule: not registered (at the top), or (in a subdirectory flake, whose
+  # source has no .gitmodules) holding files but no .git, which every checked-out submodule has
+  unregistered = if hasGitmodules then lib.filter (n: !(lib.elem n registered)) names
+    else lib.filter (n: !(isEmpty n) && !((contents n) ? ".git")) names;
 
-  validName = n: builtins.match "[A-Za-z0-9][A-Za-z0-9._-]*" n != null;
-  bad = lib.filter (n: !validName n) names;
-  missing = lib.filter (n: !(inputs ? ${n})) names;
+  paths = ns: lib.concatMapStringsSep ", " (n: "${dir}/${n}") ns;
+  github = ". Fetched with github:? use git+https://…, which keeps submodules.";
+  problems =
+    if !validDir then [ "graft: mkFlake's dir must be one folder name (letters, digits, . _ -; not ., .. or .git), got \"${toString dir}\"" ]
+    else if copyMode then [ "graft: ${dir}/README.md is graft's copy-mode README (v2.12 or earlier): graft v2.13.0 pins scions with git submodules; follow the Upgrading steps of v2.13.0 in graft's CHANGELOG.md" ]
+    else lib.optional (hasRoot && !hasMarker)
+        "graft: ${dir}/README.md lacks graft's marker: is dir right? (mkFlake's dir = \"${dir}\")"
+      ++ lib.optional (absent != [ ])
+        "graft: .gitmodules registers ${paths absent} but the flake's source lacks ${if lib.length absent == 1 then "it" else "them"}: add inputs.self.submodules = true; to flake.nix (Nix >= 2.27)${github}"
+      ++ map (n: "graft: ${dir}/${n} is not a submodule: graft add URL, or remove it") unregistered
+      ++ map (n: "graft: ${dir}/${n}: a scion's folder name must be letters, digits, . _ and - (starting with a letter or digit), and not self") badNames;
+  # every value that reads the scions goes through this
+  ok = x: if problems == [ ] then x else throw (lib.concatStringsSep "\n" problems);
+  emptyMsg = ns: why: "graft: ${paths ns} ${if lib.length ns == 1 then "is" else "are"} empty in the flake's source${why}: run git submodule update --init (or graft sync)${lib.optionalString hasGitmodules github}";
 
-  pin = n: inputs.${n}.rev or inputs.${n}.dirtyRev or "unpinned (no rev)";
+  providers = lib.filter (n: !(isEmpty n) && builtins.pathExists "${root}/${n}/graft.nix") names;
+  # the units merged: each provider, then the repo's own perSystem as `self`
+  units = providers ++ lib.optional (perSystem != null) "self";
+  # each scion alone, without its .git file: a tool built from it doesn't change when the repo
+  # does (interpolating "${src}/${dir}/x" would make every repo commit a new tool)
+  copies = lib.genAttrs names (n: builtins.path {
+    path = "${root}/${n}";
+    name = "scion-${n}";
+    filter = p: _: baseNameOf p != ".git";
+  });
 
-  # The marker that lib/assemble.sh writes on README.md's first line: the app only ever deletes a
-  # directory whose README.md carries it, on any line (or the sentence graft 2.0.0 wrote, so a
-  # 2.0.0 directory can be replaced).
-  marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->";   # lib/common.sh MARKERS
+  forSystem = system:
+    let
+      pkgs = (inputs.nixpkgs or nixpkgs).legacyPackages.${system};
+      args = { inherit pkgs system; lib = pkgs.lib; scions = siblings; };
+      raw = lib.genAttrs providers (n: import "${copies.${n}}/graft.nix" (args // {
+        scion = copies.${n};
+        consumer = inputs.self;
+      })) // lib.optionalAttrs (perSystem != null) { self = perSystem args; };
+      # a provider's result, its requires asserted before anything else of it is used
+      results = lib.mapAttrs (n: r:
+        let
+          req = if n == "self" then { } else r.requires or { };
+          missing = lib.filter (m: !(lib.elem m names)) (lib.attrNames req);
+        in
+        if missing == [ ] then r else throw (lib.concatMapStringsSep "\n" (m:
+          "graft: ${n} needs ${m}, which this repository does not graft: graft add ${toString req.${m}}") missing))
+        raw;
+      siblings = lib.genAttrs names (n:
+        if isEmpty n then throw (emptyMsg [ n ] "")
+        else { outPath = copies.${n}; } // (results.${n} or { }));
 
-  # The scions flake.lock fetches as git inputs with exportIgnore. If such a lock holds an annotated
-  # tag's object, not its commit, Nix's exportIgnore ignores nothing (lib/common.sh, "Annotated
-  # tags"), and `expected` is the provider's whole tree: the check and the app look for that
-  # (lib/export-ignored.sh) and fail, naming it, where the drift diff alone would agree with it.
-  # Read from the lock as data; nothing is fetched beyond the inputs themselves.
-  lockFile = "${inputs.self}/flake.lock";
-  lock = if builtins.pathExists lockFile then builtins.fromJSON (builtins.readFile lockFile) else { };
-  lockedOf = n:
-    let k = lock.nodes.root.inputs.${n} or null;
-    in if builtins.isString k then lock.nodes.${k}.locked or { } else { };
-  exportIgnored = lib.filter (n: (lockedOf n).type or "" == "git" && (lockedOf n).exportIgnore or false) names;
-  # the command, or nothing when no scion needs it
-  exportCheck = pkgs: lib.optionalString (exportIgnored != [ ]) ''
-    PATH=${lib.makeBinPath [ pkgs.git pkgs.findutils pkgs.coreutils ]}:$PATH ${pkgs.bash}/bin/bash ${./export-ignored.sh} ${lib.escapeShellArg run} ${lib.concatMapStringsSep " " (n: lib.escapeShellArg "${n}=${inputs.${n}}") exportIgnored}'';
+      # the names a unit gives for KIND, read from its raw result; none when that fails
+      keysOf = n: kind:
+        let t = builtins.tryEval (let ks = lib.attrNames (raw.${n}.${kind} or { }); in builtins.deepSeq ks ks);
+        in if t.success then t.value else [ ];
+      # KIND's names from every unit, each with the units that give it
+      gather = kind: lib.foldl' (acc: n:
+        acc // lib.genAttrs (keysOf n kind) (k: (acc.${k} or [ ]) ++ [ n ])) { } units;
+      merge = kind: lib.mapAttrs (k: from:
+        let
+          v = n: results.${n}.${kind}.${k};
+          # the same store path from two units (both pass on one tool) is one tool
+          same = kind == "tools" && lib.length (lib.unique (map (n: toString (v n)) from)) == 1;
+        in
+        if lib.length from > 1 && !same
+        then throw "graft: ${kind} ${k} (from ${lib.concatStringsSep " and " from}): two scions provide the same name"
+        else ok (v (lib.head from))) (gather kind);
 
-  # this graft version's workflows, which the repo's marked copies must match
-  examples = ../template/.forgejo/workflows;
+      tools = merge "tools";
+      # graft's own names, taken by a unit: raised by the tools, which every repo builds
+      reserved = map (n: "graft: apps graft (from ${n}): that name is graft's; ${if n == "self" then "rename the repo's own" else "the provider must rename it"}")
+          (lib.filter (n: lib.elem "graft" (keysOf n "apps")) units)
+        ++ map (n: "graft: packages tools (from ${n}): that name is graft's; ${if n == "self" then "rename the repo's own" else "the provider must rename it"}")
+          (lib.filter (n: lib.elem "tools" (keysOf n "packages")) units);
+      warnEmpty = x: if empty == [ ] then x
+        else lib.warn (emptyMsg empty ", so the tools leave out what ${if lib.length empty == 1 then "it gives" else "they give"}") x;
+      toolsEnv = ok (if reserved != [ ] then throw (lib.concatStringsSep "\n" reserved)
+        else warnEmpty (pkgs.buildEnv { name = "tools"; paths = lib.attrValues tools; }));
+      devShells = lib.mapAttrs (_: ok) (results.self.devShells or { });
+      ownDefault = devShells ? default || outputs ? devShells.${system}.default;
+    in
+    {
+      packages = removeAttrs (merge "packages") [ "tools" ] // { tools = toolsEnv; };
+      apps = removeAttrs (merge "apps") [ "graft" ];
+      checks = lib.foldl' (acc: n:
+        acc // lib.listToAttrs (map (k: lib.nameValuePair (if n == "self" then k else "${n}-${k}")
+          (ok results.${n}.checks.${k})) (keysOf n "checks"))) { } units;
+      devShells = devShells // lib.optionalAttrs (!ownDefault) {
+        default = ok (pkgs.mkShell { packages = [ toolsEnv ]; });
+      };
+    };
 
-  expected = pkgs: pkgs.runCommand "graft-scions" { } ''
-    GRAFT_FLAKE_DIR=${flakeArg} ${pkgs.bash}/bin/bash ${./assemble.sh} $out ${q} ${lib.concatMapStringsSep " " (n: lib.escapeShellArg "${n}=${inputs.${n}}=${pin n}") names}
-  '';
+  bySystem = lib.genAttrs systems forSystem;
+  graftOut = lib.genAttrs [ "packages" "apps" "checks" "devShells" ]
+    (kind: lib.mapAttrs (_: o: o.${kind}) bySystem);
 
-  # The app's own work, `graft-sync [sync|check]`: sync replaces <dir> with `expected`; check compares
-  # the working tree's <dir> with it, as git would commit it (tracked files as they stand, and new
-  # ones git doesn't ignore), and graft's workflows with this version's.
-  sync = pkgs: pkgs.writeShellApplication {
-    name = "graft-sync";
-    runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.findutils pkgs.git pkgs.gnugrep ];
-    text = ''
-      mode=''${1:-sync}
-      ${if root then ''
-        if [ ! -f flake.nix ]; then
-          echo "graft: run from the repo root (no flake.nix here)" >&2
-          exit 1
-        fi
-      '' else ''
-        # the flake's source is only ${fd}/: the repo is the git checkout this runs in
-        top=$(git rev-parse --show-toplevel 2>/dev/null) \
-          || { echo ${lib.escapeShellArg "graft: run inside the repo's git checkout (this flake is its ${fd}/)"} >&2; exit 1; }
-        cd "$top"
-        if [ ! -f ${fd}/flake.nix ]; then
-          echo "graft: no ${fd}/flake.nix in $top: run inside the checkout this flake belongs to" >&2
-          exit 1
-        fi
-      ''}
-      case $mode in
-        sync)
-          ${lib.optionalString (exportIgnored != [ ]) ''
-            ${exportCheck pkgs} || { echo ${lib.escapeShellArg "graft: not replacing ${path}/ with an export Nix didn't filter"} >&2; exit 1; }
-          ''}
-          if [ -e ${q} ]; then
-            if ! grep -qsF -e ${lib.escapeShellArg marker} -e 'Managed by [graft]' ${q}/README.md; then
-              echo ${lib.escapeShellArg "graft: ${path}/ exists and graft didn't write it (no marker in its README.md); not replacing it"} >&2
-              exit 1
-            fi
-          fi
-          rm -rf ${q}
-          mkdir -p "$(dirname ${q})"
-          cp -R --no-preserve=mode ${expected pkgs} ${q}
-          ${lib.concatMapStrings (n: ''
-            echo ${lib.escapeShellArg "graft: ${path}/${n} <- ${pin n}"}
-          '') names}
-          # A flake sees only what git tracks: without this, a new scion's files fail the check.
-          git add -- ${q} 2>/dev/null || true
-          bash ${./workflows.sh} refresh . ${examples} ${lib.escapeShellArg run} ${flakeArg} ${q}
-          ;;
-        check)
-          if [ ! -d ${q} ]; then
-            echo ${lib.escapeShellArg "graft: ${path}/ is missing; run: ${run}"} >&2
-            exit 1
-          fi
-          rc=0
-          tmp=$(mktemp -d)
-          trap 'rm -rf "$tmp"' EXIT
-          mkdir -p "$tmp/actual/"${q}
-          if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            # the lock holds the pins: one git ignores (and doesn't track) is never committed
-            if git check-ignore -q -- ${lib.escapeShellArg lockPath}; then
-              echo ${lib.escapeShellArg "graft: git ignores ${lockPath}, so the pins are not committed: git check-ignore -v ${lockPath} names the rule; remove the rule, then commit ${lockPath}"} >&2
-              rc=1
-            fi
-            git ls-files -z --cached --others --exclude-standard -- ${lib.escapeShellArg ":(literal)${path}"} \
-              | while IFS= read -r -d ''' f; do
-                  if [ -e "$f" ] || [ -L "$f" ]; then cp -P --parents --no-preserve=mode -- "$f" "$tmp/actual/"; fi
-                done
-          else
-            cp -RP --no-preserve=mode ${q}/. "$tmp/actual/"${q}
-          fi
-          ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || rc=1"}
-          bash ${./drift.sh} git ${expected pkgs} "$tmp/actual/"${q} ${q} ${lib.escapeShellArg lockPath} ${lib.escapeShellArg run} || rc=1
-          bash ${./workflows.sh} check . ${examples} ${lib.escapeShellArg run} ${flakeArg} ${q} || rc=1
-          if [ "$rc" = 0 ]; then echo ${lib.escapeShellArg "graft: ${path}/ and graft's workflows match the pins"}; fi
-          exit "$rc"
-          ;;
-        *) echo "graft-sync: sync|check" >&2; exit 2 ;;
-      esac
-    '';
-  };
+  # the repo's own last, per system and name (a derivation is replaced whole, never merged into)
+  merged = lib.recursiveUpdateUntil
+    (path: l: r: lib.length path >= 3 || !(builtins.isAttrs l && builtins.isAttrs r)) graftOut outputs;
 
-  check = pkgs: pkgs.runCommand "graft-check" { } ''
-    actual=${inputs.self}/${q}
-    if [ ! -d "$actual" ]; then
-      echo ${lib.escapeShellArg "graft: ${path}/ is missing; run: nix run .#graft"} >&2
-      exit 1
-    fi
-    ${lib.optionalString (!builtins.pathExists lockFile) ''
-      echo ${lib.escapeShellArg "graft: git does not track flake.lock, so the pins are not committed: if git ignores it, git check-ignore -v flake.lock names the rule; remove the rule, then commit flake.lock"} >&2
-      exit 1
-    ''}
-    ${lib.optionalString (exportIgnored != [ ]) "${exportCheck pkgs} || exit 1"}
-    ${pkgs.bash}/bin/bash ${./drift.sh} nix ${expected pkgs} "$actual" ${q} flake.lock ${lib.escapeShellArg run} || exit 1
-    ${pkgs.bash}/bin/bash ${./workflows.sh} check ${inputs.self} ${examples} ${lib.escapeShellArg run} . ${q}
-    touch $out
-  '';
-
-  # every check on the arguments, on the way to anything that uses them
-  valid = x:
-    assert lib.assertMsg (names != [ ]) "graft: no scions: no input has flake = false, and scions names none";
-    assert lib.assertMsg (bad == [ ]) "graft: scion names must be plain folder names: ${toString bad}";
-    assert lib.assertMsg (missing == [ ]) "graft: scions not among the flake's inputs: ${toString missing}";
-    assert lib.assertMsg validDir
-      "graft: dir must be a relative path inside the repo (no leading /, no . or .. segments, not .git), got \"${dir}\"";
-    assert lib.assertMsg validFlakeDir
-      "graft: flakeDir must be `.` or a relative path of letters, digits, `.`, `_`, `-` and `/` (no . or .. segments, not .git), got \"${flakeDir}\"";
-    x;
-
-  # `apps.<system>.graft` and `checks.<system>.graft` are graft's names. A repo's own, in `outputs`,
-  # is an error that graft's app and check raise when evaluated: merged, graft's would replace it,
-  # and the repo's check would never run, silently. Raised there, not in the repo's own outputs, so
-  # those still evaluate (nix develop).
-  clashes = system: lib.filter (k: lib.hasAttrByPath [ k system "graft" ] outputs) [ "apps" "checks" ];
-  unclashed = pkgs: x:
-    let c = clashes pkgs.stdenv.hostPlatform.system; in
-    assert lib.assertMsg (c == [ ])
-      "graft: mkFlake's outputs has ${lib.concatStringsSep " and " (map (k: "${k}.${pkgs.stdenv.hostPlatform.system}.graft") c)}: that name is graft's; rename the repo's own";
-    x;
-
-  # without a check of graft's own, the name still isn't the repo's to take: the app fails on it
-  # (unclashed), and `checks.<system>` lists no `graft`
-  own = if root || !(outputs ? checks) then outputs
-    else outputs // { checks = lib.mapAttrs (_: c: removeAttrs c [ "graft" ]) outputs.checks; };
+  graftApp = system:
+    let pkgs = nixpkgs.legacyPackages.${system}; in
+    if outputs ? apps.${system}.graft
+    then throw "graft: mkFlake's outputs has apps.${system}.graft: that name is graft's; rename the repo's own"
+    else {
+      type = "app";
+      program = lib.getExe (cli pkgs { GRAFT_DIR = dir; GRAFT_IN_REPO = "1"; });
+      meta.description = "graft: add, sync, check, outdated, upgrade, changelog, migrate, ci";
+    };
 in
-# graft's side last
-lib.recursiveUpdate own
-  {
-    apps = forAll (pkgs: {
-      graft = valid (unclashed pkgs {
-        type = "app";
-        program = lib.getExe (cli pkgs (lib.getExe (sync pkgs)) flakeArg);
-        meta.description = "graft: sync, check, outdated, upgrade, migrate, ci";
-      });
-    });
-    # in a subdirectory, an empty set where a repo with no checks of its own would have none, so
-    # `checks.<system>` always evaluates (graft ci and migrate list it)
-    checks = forAll (pkgs: lib.optionalAttrs root { graft = valid (unclashed pkgs (check pkgs)); });
-  }
+merged // {
+  apps = (merged.apps or { }) // lib.genAttrs systems (s: (merged.apps.${s} or { }) // { graft = graftApp s; });
+}
