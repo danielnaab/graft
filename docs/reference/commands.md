@@ -199,9 +199,9 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 |---|---|
 | The repository's own app's `dir` is the scions directory | `graft: graft's README is in scions/ but mkFlake's dir is ".scions": set dir = "scions"; in flake.nix (or move the scions)` (only from `nix run .#graft`) |
 | Every folder in the scions directory is a submodule | `graft: scions/foo is not a submodule: graft add URL, or remove it` |
-| No `.gitmodules` path is tracked as files (a copied scion left in the index, then `git add`) | `graft: scions/x is tracked as files, not as a submodule: git rm -r -q --cached scions/x && git add scions/x (git then records the submodule's commit)` |
+| No `.gitmodules` path is tracked as files (a copied scion left in the index, then `git add`) | `graft: scions/x is tracked as files, not as a submodule: git rm -r -q --cached scions/x, then git add scions/x if scions/x/.git exists; otherwise delete the folder and graft add its URL@TAG again` |
 | Every submodule there is registered in `.gitmodules` | `graft: scions/x is a submodule .gitmodules doesn't register: git rm --cached scions/x, then graft add its URL` |
-| Every submodule has its folder | `graft: scions/x is a submodule with no folder: git submodule update --init -- scions/x, or git rm scions/x` |
+| Every submodule has its folder | `graft: scions/x is a submodule with no folder: git submodule update --init --recursive -- scions/x, or git rm scions/x` |
 | Every `.gitmodules` entry under the scions directory is a submodule | `graft: .gitmodules registers scions/x, which is not a submodule here: graft add its URL again, or remove its entry (git config -f .gitmodules --remove-section submodule.scions/x)` |
 | Every URL is absolute | `graft: scions/x: .gitmodules gives a relative URL (../x.git), which Nix can't resolve: give an absolute one (git config -f .gitmodules submodule.scions/x.url URL)` |
 | A top-level flake with scions declares `inputs.self.submodules = true;` (unless it carries the comment `# graft: no self.submodules`) | `graft: flake.nix doesn't declare inputs.self.submodules = true;, so Nix sees no scions: add it (Nix 2.27 or later)` |
