@@ -73,7 +73,7 @@ release tag.
    nix flake check
    ```
 
-   Remove the scratch file when you are done: `git rm -q --cached .graft-try && rm .graft-try`.
+   Remove the scratch file when you are done: `git rm -q --cached .graft-try && rm -f .graft-try`.
 
    For a flake in a subdirectory, skip the scratch file: `nix shell 'path:DIR#tools' -c kb-lint .` reads the
    working tree every time. Never build `path:.` at a repository's top instead: it copies every file there,

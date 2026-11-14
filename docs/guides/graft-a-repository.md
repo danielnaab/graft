@@ -151,7 +151,7 @@ and end with `graft check` passing and everything committed.
    nix flake check
    ```
 
-   `graft check` prints `graft: 1 scions clean and at release tags`, and exits 0. `nix flake check` builds
+   `graft check` prints `graft: 1 scion clean and at release tags`, and exits 0. `nix flake check` builds
    the provider's checks, named `checks.<system>.knowledge-base-kit-NAME`, beside your own. To require them
    before a merge, see [Make a pattern's checks gate your merges](gate-merges.md).
 

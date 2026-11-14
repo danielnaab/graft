@@ -87,7 +87,7 @@ those are git flakes, which copy the whole repository.
    nix build 'path:nix/agent-tools#tools'
    ```
 
-   `graft check` prints `graft: 1 scions clean and at release tags`.
+   `graft check` prints `graft: 1 scion clean and at release tags`.
 
 6. Commit the flake, the scions and the workflows, and nothing else:
 

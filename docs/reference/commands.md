@@ -14,7 +14,7 @@ flake outputs.
 |---|---|---|
 | `inputs` | (required) | The flake's inputs. `inputs.self` is the repository. If there is an `inputs.nixpkgs`, it is the `pkgs` that every `graft.nix` gets; otherwise graft's own pinned nixpkgs. |
 | `dir` | `"scions"` | The scions directory: one folder name (`[A-Za-z0-9._-]+`, not `.`, `..` or `.git`), in the flake's directory. For a [flake in a subdirectory](../guides/flake-in-a-subdirectory.md), `".scions"` by convention. |
-| `perSystem` | none | The repository's own tools, apps, packages, checks and dev shells: a function `{ pkgs, lib, system, scions, ... }: { tools ? { }; apps; packages; checks; devShells; }`, called once per system and merged like a provider's `graft.nix`, under the name `self` (collisions say `from A and self`). Its checks are not prefixed: `checks.<system>.NAME`. Its `devShells` are output as they are. Use it to put a tool of your own, such as `bun`, into `tools`. |
+| `perSystem` | none | The repository's own tools, apps, packages, checks and dev shells: a function `{ pkgs, lib, system, scions, ... }: { tools ? { }; apps; packages; checks; devShells; }`, called once per system and merged like a provider's `graft.nix`, under the name `self` (a collision says `from scion A and the consumer's perSystem`). Its checks are not prefixed: `checks.<system>.NAME`. Its `devShells` are output as they are. Use it to put a tool of your own, such as `bun`, into `tools`. |
 | `outputs` | `{ }` | Plain extra outputs, merged last with `recursiveUpdate`, so they add to and override graft's. |
 
 Removed in v2.13.0: `scions` (there is no input list) and `flakeDir` (graft finds the flake as the parent of
