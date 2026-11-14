@@ -51,8 +51,9 @@ gives the same message when Nix evaluates the tools.
 
 `.gitmodules` registers `scions/x`, but git records it as ordinary files: `git add` ran over a clone while the
 path was still in the index, typically a copied v2.12 scion removed with `rm` but not with `git rm --cached`.
-Nix then builds those files, never the provider's release, and the scion cannot be upgraded. Do what the
-message says:
+Nix then builds those files, never the provider's release, and the scion cannot be upgraded.
+
+If the folder is a clone (`test -e scions/x/.git` succeeds), do what the message says:
 
 ```
 git rm -r -q --cached scions/x
@@ -60,7 +61,17 @@ git add scions/x
 git ls-files -s scions/x     # one line, mode 160000
 ```
 
-Then commit. `graft add` refuses to graft over such a path, and `sync` stops on it.
+If it holds only files (no `.git`), `git add` would record the files again. Remove them, and graft the
+provider afresh at the version you want, with the URL that `.gitmodules` gives:
+
+```
+git config -f .gitmodules submodule.scions/x.url
+git rm -r -q --cached scions/x && rm -rf scions/x
+nix run github:danielnaab/graft/v2.13.0 -- add -C . URL@TAG x
+git ls-files -s scions/x     # one line, mode 160000
+```
+
+Then commit. `graft add` refuses to graft over such a path until it leaves the index, and `sync` stops on it.
 
 ### graft: scions/foo is not a submodule: graft add URL, or remove it
 
@@ -202,11 +213,11 @@ Two `README.md` files carry graft's marker line. graft finds the scions director
 the one beside your flake, and delete the other README (or its folder, if it is a left-over copy-mode
 scions directory).
 
-### graft: note: scions/NAME has its own submodules (…); Nix fetches them when evaluating
+### graft: note: scions/NAME has its own submodules (…)
 
-Not a failure. The provider grafts other repositories, and Nix fetches them too whenever it evaluates your
-flake. If one of them is private and you cannot read it, your evaluation fails: ask the provider to drop it
-([One level](../decisions.md#one-level)).
+Not a failure. The provider grafts other repositories. graft's `add`, `sync` and `upgrade` fill them on
+disk, and a git flake on a clean tree fetches them from their URLs as well. If one of them is private and you
+cannot read it, your evaluation fails: ask the provider to drop it ([One level](../decisions.md#one-level)).
 
 ## Nix evaluation errors
 
