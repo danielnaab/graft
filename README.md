@@ -73,8 +73,9 @@ git submodules give you a pinned clone. graft adds what makes them a dependency 
 
 - **Release-tag pins, checked.** `graft add` and `graft upgrade` move a scion only to a semver tag, and
   `graft check` fails on a scion that is dirty, away from its gitlink, or on an unreleased commit.
-- **A provider fix, tried in place.** `graft try` makes your builds use a scion's uncommitted edits and new
-  files, which a git flake otherwise ignores, and says what each build will see; `graft try --stop` undoes it.
+- **A provider fix, tried in place.** `graft try` makes your builds use a scion's uncommitted edits, which a
+  git flake otherwise ignores, and says what each build will see and how to make new files visible;
+  `graft try --stop` undoes it.
 - **Majors are a person's decision.** Upgrades stay in each major version unless you name the new one.
 - **Upgrade pull requests** that quote each provider's CHANGELOG, Upgrading sections first, checked by your
   whole `nix flake check`.

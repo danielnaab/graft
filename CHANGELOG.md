@@ -46,9 +46,10 @@ the scions untouched; every command then says the scions README is copy mode. Fo
 - **`graft add [-C REPO] [--scions PATH] URL[@TAG] [NAME]`:** a new scion, as a submodule at the newest
   release (or `TAG`).
 - **`graft try [-C REPO] [NAME...]` and `graft try --stop`:** build your repository with a scion's
-  uncommitted edits and new files, for a provider fix before its release. `try` marks `.graft-try` and the
-  scions' new files with intent to add (never a commit), so a git flake reads the working tree, and prints
-  what each build will see and the command to run; `--stop` undoes exactly that. `graft check` (and
+  uncommitted edits, for a provider fix before its release. `try` marks `.graft-try` with intent to add (never
+  a commit, never a scion's index), so a git flake reads the working tree, and prints what each build will
+  see, the `git -C … add` that makes a scion's new files visible, and the command to run; `--stop` removes
+  the marker. `graft check` (and
   `ci check`) fails while it is on, and `upgrade` refuses. A `path:` flake in a subdirectory needs nothing:
   `try` only reports. Replaces the scratch-file steps of the guides.
 - **`graft.nix`:** a provider's tools (`packages.<system>.tools`, one environment for every provider), apps,

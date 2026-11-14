@@ -28,8 +28,9 @@ usage: nix run .#graft [COMMAND] (a flag needs `--`: nix run .#graft -- outdated
   sync                                  fill empty scions; write graft's README and workflows (the
                                         default; a repo's own app only)
   check [-C REPO] [--committed]         every scion registered, initialised, clean, at a release tag
-  try [-C REPO] [NAME...]               make Nix builds read the scions' working trees, new files in
-                                        the named ones (default: all) included, until try --stop
+  try [-C REPO] [NAME...]               make Nix builds read the scions' working trees until
+                                        try --stop; say how to make the named ones' (default: all)
+                                        new files visible
   try [-C REPO] --stop                  undo what try did
   outdated [-C REPO] [--json]           tags against the newest upstream
   upgrade [-C REPO] [NAME[@TAG]...]     move graft and scions to newer tags

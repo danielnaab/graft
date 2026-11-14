@@ -31,13 +31,17 @@ trap 'rm -rf "$GRAFT_TMP"' EXIT
 die() { echo "graft: $*" >&2; exit 1; }
 
 # graft try's marker, at the repo's top: a file marked with intent to add, so that Nix reads the
-# working tree (a tracked file is "modified"); it lists the files try marked in each scion
+# working tree (a tracked file differs from HEAD)
 TRY=.graft-try
-# try_state (from the top): "on" while the marker is in the work tree or the index, "committed" when
-# HEAD holds it too, nothing when try is off (a committed marker whose removal is staged is off)
+# try_state (from the top): "on" while the index holds the marker and HEAD doesn't; "committed" when
+# HEAD holds it and the index still does (a staged removal is off); "left" when it is only an
+# untracked file (after a reset): Nix doesn't read the working tree for it; nothing when try is off
 try_state() {
-  [ -e "$TRY" ] || [ -n "$(git ls-files -- "$TRY")" ] || return 0
-  if git cat-file -e "HEAD:$TRY" 2>/dev/null; then echo committed; else echo on; fi
+  local indexed
+  indexed=$(git ls-files -- "$TRY")
+  if [ -n "$indexed" ]; then
+    if git cat-file -e "HEAD:$TRY" 2>/dev/null; then echo committed; else echo on; fi
+  elif [ -e "$TRY" ]; then echo left; fi
 }
 
 # The copy-mode README graft v2.12 and earlier wrote: a table of copied scions

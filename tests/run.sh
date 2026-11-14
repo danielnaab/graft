@@ -971,8 +971,13 @@ sec_try() {
 EOF
   printf 'v1.0.0' > "$work/src/tp/version"
   release tp v1.0.0
+  # tn: files only, with a submodule of its own
+  prov tn
+  git_ -C "$work/src/tn" submodule add -q "$(url docs)" sub/docs 2>/dev/null
+  release tn v1.0.0
   local c=$work/try && consumer "$c" && cd "$c"
-  by_hand tp && by_hand docs && commit init && quiet nix flake lock && commit lock
+  by_hand tp && by_hand tn && git_ -C scions/tn submodule update -q --init --recursive
+  commit init && quiet nix flake lock && commit lock
   local v1 && v1=$(sha tp v1.0.0 | cut -c1-7)
   git_ -C scions/tp switch -q -c fix
   printf 'edited' > scions/tp/version && printf 'extra' > scions/tp/extra
@@ -981,20 +986,42 @@ EOF
   refused "try: an unknown scion" G try -C . nope
   expect "says so" has "graft: no scion named nope"
   expect "and changes nothing" test ! -e .graft-try
+  refused "try: from inside a scion" G try -C scions/tp
+  expect "says to run it from the top" has "graft: $(pwd -P)/scions/tp is a submodule of $(pwd -P): run graft from the repository's top (-C $(pwd -P))"
   ran "try: on (from graft's flake: the repo's flake need not evaluate)" G try -C .
-  expect "says so" holds "graft: try is on: Nix builds of this repository read its working tree, and its scions' (.graft-try marks it)"
-  expect "what Nix builds of each scion" has "graft: scions/tp: branch fix at v1.0.0 ($v1), as recorded: 1 modified, 1 new"
+  expect "says so" has "graft: try is on: Nix builds of this repository read its working tree, and its scions' (.graft-try marks it)"
+  expect "what Nix builds of each scion" has "graft: scions/tp: branch fix at v1.0.0 ($v1), as recorded: 1 modified, 1 new Nix doesn't see"
+  expect "how to make Nix see the new file: stage it for real" has "graft: scions/tp: Nix sees a new file only once git tracks it: git -C scions/tp add -- extra"
   expect "the build command for a flake at the top" has "graft: build from the repository's top: nix build .#tools, nix shell .#tools -c TOOL, or nix flake check"
   refuse "never path: at the top" holds "path:"
   expect "the marker, marked with intent to add" test "$(git_ status --porcelain --untracked-files=no -- .graft-try)" = " A .graft-try"
-  expect "the new file marked in the scion, never committed" test "$(git_ -C scions/tp status --porcelain)" = "$(printf ' A extra\n M version')"
+  expect "the scion's index untouched" test "$(git_ -C scions/tp status --porcelain)" = "$(printf ' M version\n?? extra')"
   expect "the scion's HEAD unmoved" test "$(git_ -C scions/tp rev-parse HEAD)" = "$(sha tp v1.0.0)"
-  ran "try: on, a build sees the edit and the new file" tools_out tp
+  ran "try: on, a build sees the edit, not the untracked file" tools_out tp
+  expect "the edit" has "tp edited"
+  git_ -C scions/tp add -- extra
+  ran "try: the new file once staged" tools_out tp
   expect "both" has "tp edited extra"
-  ran "try: again (idempotent)" G try -C . tp
-  expect "the same report" has "graft: scions/tp: branch fix at v1.0.0 ($v1), as recorded: 1 modified, 1 new"
+  ran "try: again (idempotent)" G try -C .
+  expect "counts it as new" has "graft: scions/tp: branch fix at v1.0.0 ($v1), as recorded: 1 modified, 1 new"
+  # discarding in the scion loses nothing graft did: graft never touched its index
+  git_ -C scions/tp reset -q -- extra && printf 'precious' > scions/tp/extra2
+  git_ -C scions/tp checkout -q -- .
+  expect "try: git checkout -- . in a scion keeps the new files" test "$(cat scions/tp/extra)$(cat scions/tp/extra2)" = "extraprecious"
+  git_ -C scions/tp reset -q --hard
+  expect "and so does reset --hard" test "$(cat scions/tp/extra)$(cat scions/tp/extra2)" = "extraprecious"
+  rm scions/tp/extra2 && printf 'edited' > scions/tp/version
+  # a scion's own submodule: its new files are reported too
+  echo new > scions/tn/sub/docs/new.md
+  ran "try: a new file in a scion's own submodule" G try -C .
+  expect "counted" has "graft: scions/tn: detached at v1.0.0 ($(sha tn v1.0.0 | cut -c1-7)), as recorded: 1 new Nix doesn't see"
+  expect "with its command" has "graft: scions/tn/sub/docs: Nix sees a new file only once git tracks it: git -C scions/tn/sub/docs add -- new.md"
+  ran "try NAME: the commands for the named scions only" G try -C . tp
+  refuse "not another's" holds "git -C scions/tn/sub/docs add"
+  rm scions/tn/sub/docs/new.md
   refused "try: graft check refuses while it is on" g check
   expect "names graft try --stop" has "graft: graft try is on (.graft-try): Nix builds read the working tree, scions included: graft try --stop turns it off"
+  expect "and the scion's edits are used" has "graft: uncommitted edits in scions/tp: version (graft try is on: Nix builds use them)"
   refused "try: check --committed refuses too" G check -C . --committed
   expect "the same" has "graft: graft try is on (.graft-try): Nix builds read the working tree, scions included: graft try --stop turns it off"
   refused "try: ci check refuses too" ci_ check
@@ -1004,25 +1031,31 @@ EOF
   ran "try: sync runs, and says try is on" g sync
   expect "a note" has "graft: note: graft try is on: graft try --stop turns it off before you commit"
   git_ add scions/README.md && git_ commit -qm "sync's README" -- scions/README.md
+  # a parent reset leaves the marker untracked: Nix no longer reads the working tree
+  git_ reset -q
+  refused "try: check after a parent reset" G check -C .
+  expect "doesn't claim try is on" has "graft: .graft-try is left from graft try but untracked, so Nix builds read the recorded scions: graft try --stop removes it, or graft try turns try on again"
+  ran "try: again after the reset" G try -C .
+  expect "is on again" test "$(git_ status --porcelain --untracked-files=no -- .graft-try)" = " A .graft-try"
   ran "try --stop" G try -C . --stop
   expect "says so" has "graft: try is off: Nix builds the recorded scions while the tree is clean"
   expect "the marker gone" test ! -e .graft-try
   expect "and out of the index" test -z "$(git_ ls-files -- .graft-try)"
-  expect "says what it unmarked" has "graft: scions/tp: unmarked 1 file try marked (still there, untracked)"
-  expect "the new file untracked again, the edit kept" test "$(git_ -C scions/tp status --porcelain)" = "$(printf ' M version\n?? extra')"
-  expect "says the scion stays as it is" holds "graft: scions/tp stays as you left it: git submodule update --recursive -- scions/tp goes back to its pin"
+  expect "the scion untouched" test "$(git_ -C scions/tp status --porcelain)" = "$(printf ' M version\n?? extra')"
+  expect "says the scion stays as it is" has "graft: scions/tp stays as you left it: git submodule update --recursive -- scions/tp goes back to its pin (commit or stash its edits first)"
   ran "try: off again, a build ignores them" tools_out tp
   expect "the gitlink's" has "tp v1.0.0"
   ran "try --stop again (idempotent)" G try -C . --stop
   expect "nothing to undo" has "graft: try is not on; nothing to undo"
-  # committed meanwhile: in the scion, and the marker in the repo
+  # the marker committed (git add -A, then commit)
   quiet G try -C .
-  git_ -C scions/tp commit -qam "the fix" && git_ commit -qam "the marker by mistake"
+  git_ -C scions/tp add -A && git_ -C scions/tp commit -qm "the fix" && git_ add -A && git_ commit -qm "the marker by mistake"
   refused "try: check --committed fails on a committed marker" G check -C . --committed
   expect "says so" has "graft: .graft-try is committed (graft try's marker): graft try --stop, then commit its removal"
+  refused "try: refuses while the marker is committed (Nix would read the gitlinks)" G try -C .
+  expect "says how to remove it" has "graft: .graft-try is committed, so the tree is clean to Nix; nothing changed: graft try --stop, commit its removal, then graft try"
   ran "try --stop after commits" G try -C . --stop
   expect "the scion's commit left as it is" quiet git_ -C scions/tp cat-file -e HEAD:extra
-  expect "says so" has "graft: scions/tp: left 1 file try marked, now staged or committed there"
   expect "the marker's removal staged" test "$(git_ status --porcelain -- .graft-try)" = "D  .graft-try"
   expect "says to commit it" has "graft: .graft-try was committed: its removal is staged; commit it"
   git_ commit -qm "no marker"
@@ -1038,22 +1071,18 @@ EOF
   expect "says how to fill it" has "graft: scions/tp is empty, and Nix fails on an empty scion while try is on; nothing changed: git submodule update --init --recursive -- scions/tp (or graft sync)"
   expect "nothing changed" test ! -e .graft-try
   git_ submodule update -q --init -- scions/tp
-  # a scion not named: Nix reads its edits, not its new files
-  echo new > scions/docs/new.md
-  ran "try NAME: only the named scions' new files" G try -C . tp
-  expect "another's are listed as unseen" has "graft: scions/docs: detached at v1.0.0 ($(sha docs v1.0.0 | cut -c1-7)), as recorded: 1 new Nix doesn't see (graft try docs)"
-  expect "and stay untracked" test "$(git_ -C scions/docs status --porcelain)" = "?? new.md"
-  quiet G try -C . --stop && rm scions/docs/new.md
   # a path: flake in a subdirectory reads its working tree always: nothing to turn on
   local s=$work/try-sub && mkdir -p "$s/nix/tools" && git_ -C "$s" init -q
   printf '{\n  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; dir = ".scions"; };\n}\n' "$graft" > "$s/nix/tools/flake.nix"
   quiet G add -C "$s" --scions nix/tools/.scions "$(url tp)" && git_ -C "$s" add -A && git_ -C "$s" commit -qm sub
-  printf 'edited' > "$s/nix/tools/.scions/tp/version"
+  printf 'edited' > "$s/nix/tools/.scions/tp/version" && printf 'extra' > "$s/nix/tools/.scions/tp/extra"
   ran "try: a path: flake" G try -C "$s"
   expect "says there is nothing to turn on" has "graft: nix/tools is a path: flake: every build reads its working tree, scions and new files included; try has nothing to turn on"
-  expect "what it builds" has "graft: nix/tools/.scions/tp: detached at v1.0.0 ($v1), as recorded: 1 modified"
+  expect "what it builds" has "graft: nix/tools/.scions/tp: detached at v1.0.0 ($v1), as recorded: 1 modified, 1 new"
   expect "its build command" has "graft: build from the repository's top: nix build 'path:nix/tools#tools', nix shell 'path:nix/tools#tools' -c TOOL, or nix flake check 'path:nix/tools'"
   expect "no marker" test ! -e "$s/.graft-try"
+  refused "try: check in a path: flake" G check -C "$s"
+  expect "says builds use the edits" has "graft: uncommitted edits in nix/tools/.scions/tp: version (a path: flake's builds use them)"
   ran "try --stop: a path: flake" G try -C "$s" --stop
   expect "nothing to undo" has "graft: try is not on; nothing to undo"
 }

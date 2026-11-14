@@ -116,8 +116,9 @@ and end with `graft check` passing and everything committed.
    - Commit or stash in a scion before you switch, pull or check out this repository's branches: a move of the
      scion's gitlink can move the scion under your edits.
    - A Nix build of this repository uses a scion's uncommitted edits only while another tracked file here is
-     modified, and never its new files. To build with them, run `nix run .#graft -- try NAME`, build with the
-     command it prints, then `nix run .#graft -- try --stop`.
+     modified, and sees a new file in a scion only once it is `git add`-ed there. To build with them, run
+     `nix run .#graft -- try NAME` (it prints any `git -C … add` needed), build with the command it prints,
+     then `nix run .#graft -- try --stop`. Run `try --stop` before `git stash` here: stash fails while try is on.
    - `nix run .#graft check` fails while try is on, or while a scion has uncommitted edits, is away from its
      gitlink, or sits on an unreleased commit. Don't commit a moved scion unless it is at a release tag.
    ```

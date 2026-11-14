@@ -63,30 +63,38 @@ release tag.
 
    ```
    graft: try is on: Nix builds of this repository read its working tree, and its scions' (.graft-try marks it)
-   graft: scions/knowledge-base-kit: branch fix-status-values at v2.2.0 (19392ed), as recorded: 1 modified, 1 new
+   graft: scions/knowledge-base-kit: branch fix-status-values at v2.2.0 (19392ed), as recorded: 1 modified, 1 new Nix doesn't see
+   graft: scions/knowledge-base-kit: Nix sees a new file only once git tracks it: git -C scions/knowledge-base-kit add -- tests/test_statuses.py
    graft: build from the repository's top: nix build .#tools, nix shell .#tools -c TOOL, or nix flake check
-   graft: a file you create in a scion later needs graft try again; graft try --stop turns try off, and graft check fails until then
+   graft: graft try --stop turns try off (before git stash or a pull with --autostash here), and graft check fails until then
    ```
 
-   It marks `.graft-try` with intent to add, so every Nix build reads the working tree, and marks the scion's
-   new files with intent to add there, so Nix sees them. It commits nothing. Check its line for the scion:
-   the branch, the edits you expect. With no name, it does this for every scion. Then build and check with
+   It marks `.graft-try` at the top with intent to add, so every Nix build reads the working tree. It does
+   not touch the scion. Check its line for the scion: the branch, the edits you expect. A new file in the
+   scion stays invisible to Nix until git tracks it there; run the `git -C … add` that `try` prints (it stages
+   the file for real, in the provider's branch, where you will commit it anyway). Then build and check with
    the fix:
 
    ```
+   git -C scions/knowledge-base-kit add -- tests/test_statuses.py
    nix shell .#tools -c kb-lint .
    nix flake check
    ```
 
-   Created another file in the scion? Run `nix run .#graft -- try` again. When the consumer's flake cannot
-   evaluate (the fix broke `graft.nix`, say), run `nix run github:danielnaab/graft/v2.13.0 -- try -C .`.
+   Created another file in the scion? `git -C scions/knowledge-base-kit add` it, or run `try` again to see
+   the command. While try is on, `git stash` in the consumer fails, and so does `git pull --autostash`: turn
+   try off first (step 4).
+
+   When `nix run .#graft` itself fails (the fix broke `graft.nix`, or Nix cannot fetch a scion's gitlink),
+   run graft from its own flake: `nix run github:danielnaab/graft/v2.13.0 -- try -C .`.
 
    For a flake in a subdirectory, `try` changes nothing and prints `nix shell 'path:DIR#tools' -c TOOL`: a
    `path:` flake reads its working tree, new files included, on every build. Never build `path:.` at a
    repository's top instead: it copies every file there, untracked and ignored ones included, into the
    world-readable Nix store.
 
-4. While try is on, `graft check` fails first on that, then on the unreleased fix. That is expected:
+4. While try is on, `graft check` fails first on that, then on the scion's uncommitted edits. That is
+   expected:
 
    ```
    nix run .#graft check
@@ -94,11 +102,10 @@ release tag.
 
    ```
    graft: graft try is on (.graft-try): Nix builds read the working tree, scions included: graft try --stop turns it off
-   graft: uncommitted edits in scions/knowledge-base-kit: src/kb_linter/status.py (Nix builds ignore them while the rest of the tree is clean)
+   graft: uncommitted edits in scions/knowledge-base-kit: src/kb_linter/status.py tests/test_statuses.py (graft try is on: Nix builds use them)
    ```
 
-   When you are done building, turn try off. It unmarks the new files and removes `.graft-try`; your edits
-   stay:
+   When you are done building, turn try off. It removes `.graft-try`; the scion stays as it is:
 
    ```
    nix run .#graft -- try --stop
@@ -186,15 +193,21 @@ to push the consumer while the scion's commit is on no remote.
 - **`nix flake check` passes, and the fix is not in it; or it fails on an edit you already reverted.** A git
   flake build read the scion at its gitlink, or the working tree, depending on whether another tracked file
   was modified. Turn on `graft try` (step 3) and read its line for the scion.
-- **`opening file '/nix/store/…-scion-knowledge-base-kit/NEW-FILE': No such file or directory`.** You created
-  the file after `graft try`, so git does not track it in the scion. Run `nix run .#graft -- try` again.
-- **`graft: .graft-try is committed …`.** `git commit -a` took try's marker. `nix run .#graft -- try --stop`
-  stages its removal; commit that ([`graft check` fails](check-fails.md)).
+- **`opening file '/nix/store/…-scion-knowledge-base-kit/NEW-FILE': No such file or directory`.** git does
+  not track the file in the scion, so Nix does not see it:
+  `git -C scions/knowledge-base-kit add -- NEW-FILE` (step 3).
+- **`graft: .graft-try is committed …`.** `git commit -a`, or `git add -A` then a commit, took try's marker.
+  `nix run .#graft -- try --stop` stages its removal; commit that ([`graft check` fails](check-fails.md)).
+- **`error: Entry '.graft-try' not uptodate. Cannot merge.`, from `git stash` or a pull with `--autostash`.**
+  Try is on. `nix run .#graft -- try --stop`, then stash.
 - **`Cannot find Git revision '<sha>' in ref 'refs/heads/main' of repository '<url>'`.** The consumer records
   a scion commit that the provider does not have: you committed the gitlink before pushing the scion's
-  branch. Push it (step 5), or go back with step 7 and `git add scions/NAME`.
-- **`graft upgrade` refuses: the scion has uncommitted edits, or is checked out away from its gitlink.** Do
-  step 7 first. Commit or stash anything in the scion that you want to keep.
+  branch. `nix run .#graft` fails the same way, before graft runs; use graft's own flake meanwhile
+  (`nix run github:danielnaab/graft/v2.13.0 -- try -C .`, or `-- check -C .`). Push the branch (step 5), or
+  record the release again: `git -C scions/NAME checkout --detach v2.2.0` (the tag it was at), then
+  `git add scions/NAME` and commit. Step 7 does not help here: it checks out the recorded commit.
+- **`graft upgrade` refuses: the scion has uncommitted edits, or try is on.** Do step 7 first. Commit or stash
+  anything in the scion that you want to keep.
 - **`graft: scions/knowledge-base-kit is checked out at X but the repository records Y: …`.** The scion is
   on your branch. `git add scions/knowledge-base-kit` records it (only for [Use the fix before its
   release](#use-the-fix-before-its-release)); step 7 goes back. `graft sync` does not: it never moves a
@@ -202,9 +215,10 @@ to push the consumer while the scion's commit is on no remote.
 
 ## How it works
 
-- `graft try` marks `.graft-try` and the scion's new files with intent to add (`git add -N`): a marked file
-  counts as modified, so Nix reads the working tree, and as tracked, so Nix sees it. Nothing is staged for
-  real, so a plain `git commit` leaves them out. `graft try --stop` unmarks only what is still only marked.
+- `graft try` marks `.graft-try` with intent to add (`git add -N`): it differs from `HEAD`, so Nix reads the
+  working tree, and nothing is staged for real, so a plain `git commit` leaves it out. It never touches a
+  scion's index: a file marked with intent to add counts as tracked with empty content, so
+  `git checkout -- .` would empty it and `git reset --hard` delete it. `graft try --stop` removes the marker.
 - `graft check` fails while try is on, and on uncommitted edits, a scion away from its gitlink, and a
   gitlink that is not a version tag's commit. So a fix can live in a consumer's working tree and in a pushed branch, and still not
   merge unreleased.

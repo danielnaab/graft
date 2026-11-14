@@ -25,10 +25,15 @@ More of the same rule:
 - **Only files tracked in the scion.** With a dirty parent, Nix reads a scion's working tree but only the files
   that git tracks *in the scion*. A new file there is missing from the build
   (`opening file '/nix/store/…-scion-NAME/FILE': No such file or directory`) until git tracks it there; a
-  file marked with intent to add (`git -C scions/NAME add -N FILE`) counts. **tested**
+  file marked with intent to add (`git -C scions/NAME add -N FILE`) counts, but git then treats it as tracked
+  with empty content: `git checkout -- .` empties it and `git reset --hard` deletes it. Stage it for real.
+  **tested**
 - **A file marked with intent to add makes the tree dirty.** `git add -N FILE` in the repository is enough
-  for Nix to read the working tree; a plain `git commit` leaves the file out, `git commit -a` takes it.
-  [`graft try`](commands.md#try) uses both rules. **tested**
+  for Nix to read the working tree; a plain `git commit` leaves the file out, `git commit -a` (or
+  `git add -A` then a commit) takes it, and `git stash` refuses (`not uptodate. Cannot merge.`).
+  [`graft try`](commands.md#try) uses this rule, at the repository's top only. **tested**
+- **A scion's own submodules.** With a dirty parent, Nix reads them from their working trees too, tracked
+  files only.
 - **Every submodule, not only scions.** With `inputs.self.submodules = true`, Nix fetches every submodule
   that `.gitmodules` registers, wherever it is (a left-over `.graft/` entry too). One the build machine cannot
   read breaks every build: remove its entry, or make it readable.

@@ -130,7 +130,7 @@ Every command first refuses a copy-mode scions README (one with a `| Scion | Com
 | `add [-C REPO] [--scions PATH] URL[@TAG] [NAME]` | Adds a scion at `TAG`, default the newest version upstream. `NAME` defaults to the URL's last segment without `.git`. Runs `git submodule add`, checks out the tag's commit, writes the marker README if it is missing, and stages `.gitmodules`, the gitlink and the README. |
 | `sync` (the default) | Fills every empty scion and its own submodules, writes the marker README, and refreshes graft's workflows. Never moves a gitlink, and never moves a filled scion. In the repository's own flake only. |
 | `check [-C REPO] [--committed]` | Fails unless every rule in [Check](#check) holds. |
-| `try [-C REPO] [NAME...]`, `try [-C REPO] --stop` | Makes Nix builds read the scions' working trees, new files in the named scions (default: all) included, and reports what each build will see; `--stop` undoes it. See [try](#try). |
+| `try [-C REPO] [NAME...]`, `try [-C REPO] --stop` | Makes Nix builds read the scions' working trees, reports what each build will see, and prints the `git add` that makes the named scions' (default: all) new files visible; `--stop` undoes it. See [try](#try). |
 | `outdated [-C REPO] [--json]` | For graft and each scion: the pinned version, the newest version in its major, the status, and the newest later major. |
 | `changelog [-C REPO] [--json] [NAME[@TAG]...]` | Each provider's CHANGELOG sections between the pin and the target, **Upgrading** first, or its commits. Changes nothing. |
 | `upgrade [-C REPO] [NAME[@TAG]...]` | Moves pins. With no names: graft and every outdated scion, each in its major version. `NAME@TAG` is the only way to cross a major. |
@@ -199,7 +199,7 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 
 | Rule | Message |
 |---|---|
-| [try](#try) is off (both modes) | `graft: graft try is on (.graft-try): Nix builds read the working tree, scions included: graft try --stop turns it off`; when the marker is committed, `graft: .graft-try is committed (graft try's marker): graft try --stop, then commit its removal` |
+| [try](#try) is off (both modes) | `graft: graft try is on (.graft-try): Nix builds read the working tree, scions included: graft try --stop turns it off`; when the marker is committed, `graft: .graft-try is committed (graft try's marker): graft try --stop, then commit its removal`; when only an untracked marker is left (after a reset), `graft: .graft-try is left from graft try but untracked, so Nix builds read the recorded scions: graft try --stop removes it, or graft try turns try on again` |
 | The repository's own app's `dir` is the scions directory | `graft: graft's README is in scions/ but mkFlake's dir is ".scions": set dir = "scions"; in flake.nix (or move the scions)` (only from `nix run .#graft`) |
 | Every folder in the scions directory is a submodule | `graft: scions/foo is not a submodule: graft add URL, or remove it` |
 | No `.gitmodules` path is tracked as files (a copied scion left in the index, then `git add`) | `graft: scions/x is tracked as files, not as a submodule: git rm -r -q --cached scions/x, then git add scions/x if scions/x/.git exists; otherwise delete the folder and graft add its URL@TAG again` |
@@ -209,7 +209,7 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 | Every URL is absolute | `graft: scions/x: .gitmodules gives a relative URL (../x.git), which Nix can't resolve: give an absolute one (git config -f .gitmodules submodule.scions/x.url URL)` |
 | A top-level flake with scions declares `inputs.self.submodules = true;` (unless it carries the comment `# graft: no self.submodules`) | `graft: flake.nix doesn't declare inputs.self.submodules = true;, so Nix sees no scions: add it (Nix 2.27 or later)` |
 | Every scion is filled | `graft: scions/pa is empty: git submodule update --init --recursive -- scions/pa (or graft sync)` |
-| Every scion is clean: no modified or staged tracked file (untracked files do not count) | `graft: uncommitted edits in scions/pa: docs/status.md (Nix builds ignore them while the rest of the tree is clean)` |
+| Every scion is clean: no modified or staged tracked file (untracked files do not count) | `graft: uncommitted edits in scions/pa: docs/status.md (Nix builds ignore them while the rest of the tree is clean)`; the end is `(graft try is on: Nix builds use them)` while try is on, and `(a path: flake's builds use them)` for a flake in a subdirectory |
 | Every scion is checked out at its gitlink | `graft: scions/pa is checked out at e3f04b8 but the repository records 9147b3c: git add scions/pa to record it, or git submodule update --recursive -- scions/pa to go back` |
 | Every scion's own submodules are filled | `graft: scions/nest's own submodules are empty (scions/docs): git -C scions/nest submodule update --init --recursive (or graft sync); Nix fails on them while the repo's tree has a modified file` |
 | Every `graft.nix` parses | `graft: scions/x/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/x), or from outside: nix run github:danielnaab/graft/v2.13.0 -- upgrade -C . x@TAG` |
@@ -241,59 +241,70 @@ consumer: [Fix a provider from a consumer](../guides/fix-a-provider.md#steps), s
 
 A git flake builds each scion at its gitlink while no tracked file of the repository is modified, and reads
 the working trees (scion edits included) only while one is; even then it sees only files that git tracks in
-the scion ([Nix behaviours](nix-behaviours.md#what-a-build-sees-of-a-scion)). `try` makes both hold until
-`--stop`:
+the scion ([Nix behaviours](nix-behaviours.md#what-a-build-sees-of-a-scion)). `try` makes the first hold
+until `--stop`, and tells you how to get the second:
 
-- It writes `.graft-try` at the repository's top, and marks it with intent to add (`git add -N`): a tracked
-  file that is "modified", so every Nix build reads the working tree. The file lists what `try` marked.
-- In each named scion (default: every scion), it marks the untracked files that git does not ignore with
-  intent to add, so Nix sees them. Never a real `git add` there, never a commit, never a checkout.
-- Run it again after you create files in a scion; it adds to what it marked.
+- It writes `.graft-try` at the repository's top, and marks it with intent to add (`git add -N`): a file that
+  differs from `HEAD`, so every Nix build reads the working tree. It checks that git sees the change before it
+  says try is on.
+- It never touches a scion: no `git add`, no commit, no checkout there. A new file in a scion, or in a
+  scion's own submodule, stays untracked, and Nix does not see it. For each named scion (default: every
+  scion) with new files, `try` prints the `git -C … add` that stages them for real. Staged files behave as
+  git always does: `git checkout -- .` keeps them, `git reset --hard` deletes them.
 
-It refuses, before changing anything, an unknown name (`graft: no scion named NAME`) and an empty scion,
-because Nix fails on one while the tree is dirty:
+It refuses, before changing anything: an unknown name (`graft: no scion named NAME`); a run from inside a
+scion (`graft: /…/scions/pa is a submodule of /…: run graft from the repository's top (-C /…)`); a committed
+marker, which leaves the tree clean to Nix
+(`graft: .graft-try is committed, so the tree is clean to Nix; nothing changed: graft try --stop, commit its removal, then graft try`);
+and an empty scion, because Nix fails on one while the tree is dirty:
 `graft: scions/pa is empty, and Nix fails on an empty scion while try is on; nothing changed: git submodule update --init --recursive -- scions/pa (or graft sync)`
 (and `graft: scions/pa's own submodules are empty (…), and Nix fails on them while try is on; nothing changed: …`).
 
 Then it reports one line per scion: its checkout (a branch or detached), the commit as the nearest release
-tag, against the gitlink, and its edits. A scion that was not named lists the new files Nix does not see:
+tag, against the gitlink, and its edits: `N modified`, `N new` (staged), `N new Nix doesn't see` (untracked,
+in the scion or its own submodules), or `no edits`.
 
 ```
 graft: try is on: Nix builds of this repository read its working tree, and its scions' (.graft-try marks it)
-graft: scions/docs: detached at v1.0.0 (aabd284), as recorded: 1 new Nix doesn't see (graft try docs)
-graft: scions/kb: branch fix at 1f2e3d4, 1 commit after v2.2.0, not the recorded v2.2.0 (19392ed): 1 modified, 1 new
+graft: scions/docs: detached at v1.0.0 (aabd284), as recorded: no edits
+graft: scions/kb: branch fix at 1f2e3d4, 1 commit after v2.2.0, not the recorded v2.2.0 (19392ed): 1 modified, 1 new Nix doesn't see
+graft: scions/kb: Nix sees a new file only once git tracks it: git -C scions/kb add -- src/kb_linter/statuses.py
 graft: build from the repository's top: nix build .#tools, nix shell .#tools -c TOOL, or nix flake check
-graft: a file you create in a scion later needs graft try again; graft try --stop turns try off, and graft check fails until then
+graft: graft try --stop turns try off (before git stash or a pull with --autostash here), and graft check fails until then
 ```
+
+Running it again reports again and leaves the marker as it is. A git reset of the parent unmarks
+`.graft-try` (Nix then reads the gitlinks again); `try` marks it again.
 
 A flake in a subdirectory is a `path:` flake: every build copies its directory, scions and untracked files
 included, so `try` changes nothing, writes no marker, and reports:
 
 ```
 graft: nix/tools is a path: flake: every build reads its working tree, scions and new files included; try has nothing to turn on
-graft: nix/tools/.scions/kb: detached at v1.0.0 (19392ed), as recorded: 1 modified
+graft: nix/tools/.scions/kb: detached at v1.0.0 (19392ed), as recorded: 1 modified, 1 new
 graft: build from the repository's top: nix build 'path:nix/tools#tools', nix shell 'path:nix/tools#tools' -c TOOL, or nix flake check 'path:nix/tools'
 ```
 
-`--stop` undoes what `try` did, and nothing else: it unmarks each file it marked that is still only marked
-(one you staged or committed in the scion since stays), removes `.graft-try` from the index and the working
-tree, and never moves a scion or touches an edit. It is safe to run twice.
+`--stop` undoes what `try` did: it removes `.graft-try` from the index and the working tree. It never
+touches a scion, and it is safe to run twice:
 
 ```
-graft: scions/kb: unmarked 1 file try marked (still there, untracked)
 graft: try is off: Nix builds the recorded scions while the tree is clean
 graft: scions/kb stays as you left it: git submodule update --recursive -- scions/kb goes back to its pin (commit or stash its edits first)
 ```
 
-`graft: scions/kb: left 1 file try marked, now staged or committed there` when you committed it there.
-If `.graft-try` was committed (`git commit -a` commits a file marked with intent to add), `--stop` stages its
-removal: `graft: .graft-try was committed: its removal is staged; commit it`. With try off:
+If `.graft-try` was committed (`git commit -a`, or `git add -A` or `git add .` then a commit, takes a file
+marked with intent to add), `--stop` stages its removal:
+`graft: .graft-try was committed: its removal is staged; commit it`. With try off:
 `graft: try is not on; nothing to undo`.
 
-While try is on, `check` (and `check --committed`, so `ci check`) fails naming
-`graft try --stop`, `upgrade` refuses (`graft: graft try is on; nothing changed: graft try --stop first`),
-and `sync` adds a note. `try` reads no flake output, so
-`nix run github:danielnaab/graft/v2.13.0 -- try -C .` works while the repository's flake cannot evaluate.
+While the marker exists, `check` (and `check --committed`, so `ci check`) fails naming `graft try --stop`
+([Check](#check)), `upgrade` refuses (`graft: graft try is on; nothing changed: graft try --stop first`),
+and `sync` adds a note. `git stash` in the repository fails while `.graft-try` is marked
+(`error: Entry '.graft-try' not uptodate. Cannot merge.`), and so do `git pull --autostash` and
+`git rebase --autostash`: run `graft try --stop` first. `try` reads no flake output, so
+`nix run github:danielnaab/graft/v2.13.0 -- try -C .` works while the repository's flake cannot evaluate, or
+Nix cannot fetch a scion's gitlink (an unpushed commit).
 
 ### outdated
 

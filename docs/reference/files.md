@@ -15,7 +15,7 @@ The files graft reads and writes, and the lines in them that graft recognizes.
 | The gitlinks | Written by `add` and `upgrade`, or by `git add scions/NAME`. | The pins. Each must be a gitlink (mode 160000 in `git ls-files -s`), never the scion's files: `check` fails on a registered path tracked as files, and `add` refuses to graft over one. |
 | `<dir>/<name>/` | A submodule. Filled by `git submodule update --init --recursive`, `graft sync`, a recursive clone, or the post-checkout hook. | The provider's whole repository at a release tag. |
 | `<dir>/README.md` | Written by `add` and `sync`; `check` looks for its marker line. | The marker README. |
-| `.graft-try` | Written by `try`, at the repository's top, and marked with intent to add; removed by `try --stop`. `check` fails while it exists. Never committed. | Makes every Nix build of a git flake read the working tree; lists the files `try` marked in each scion (`PATH<TAB>FILE` lines under `#` comments). See [try](commands.md#try). |
+| `.graft-try` | Written by `try`, at the repository's top, and marked with intent to add; removed by `try --stop`. `check` fails while it exists. Never committed. | Makes every Nix build of a git flake read the working tree. Two `#` comment lines. See [try](commands.md#try). |
 | `.forgejo/workflows/graft-*.yaml` | Restored by `sync`, replaced by `upgrade`, compared by `check`. | graft's workflows, if they carry the marker. |
 | Settings files, such as `knowledge-base.yaml` | Read by providers' tools and checks, never by graft. | What a provider lets you configure. Each provider's README names its file. |
 

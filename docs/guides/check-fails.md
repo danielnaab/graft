@@ -45,16 +45,21 @@ committed. When the trial is done, turn it off from the repository's top:
 nix run .#graft -- try --stop
 ```
 
-It unmarks the new files that `try` marked in the scions, and removes `.graft-try`; the scions' edits stay.
-Then deal with them as the messages below say. `graft upgrade` refuses while try is on, with
-`graft: graft try is on; nothing changed: graft try --stop first`.
+It removes `.graft-try`; the scions' edits stay. Then deal with them as the messages below say.
+`graft upgrade` refuses while try is on, with `graft: graft try is on; nothing changed: graft try --stop first`,
+and `git stash` fails (`error: Entry '.graft-try' not uptodate. Cannot merge.`).
 
 ### graft: .graft-try is committed (graft try's marker): graft try --stop, then commit its removal
 
-A commit holds `.graft-try`: `git commit -a` takes a file marked with intent to add. In CI this is
-`graft ci check`'s failure. Run `nix run .#graft -- try --stop` (it stages the removal:
+A commit holds `.graft-try`: `git commit -a`, or `git add -A` (or `git add .`) then a commit, takes a file
+marked with intent to add. In CI this is `graft ci check`'s failure. Run `nix run .#graft -- try --stop` (it stages the removal:
 `graft: .graft-try was committed: its removal is staged; commit it`), then commit. If the commit also moved a
 scion to an unreleased commit, the release-tag message below says so.
+
+### graft: .graft-try is left from graft try but untracked, so Nix builds read the recorded scions: …
+
+A `git reset` of the repository unmarked try's marker, so builds no longer read the scions' working trees.
+`nix run .#graft -- try` marks it again; `nix run .#graft -- try --stop` removes it.
 
 ### graft: no scions here (no README.md carrying graft's marker); graft add URL grafts one
 
@@ -148,6 +153,9 @@ The provider grafts other repositories, and git did not fill them: `git submodul
 fails with `error: Failed to fetch git repository '…/scions/NAME/…'`.
 
 ### graft: uncommitted edits in scions/NAME: FILE … (Nix builds ignore them while the rest of the tree is clean)
+
+(The end reads `(graft try is on: Nix builds use them)` while try is on, and `(a path: flake's builds use
+them)` for a flake in a subdirectory, which always builds the working tree.)
 
 Someone edited a provider's tracked files in the scion, or staged a change there. A formatter or a linter's
 `--fix` may have done it. New untracked files, such as `__pycache__/`, do not count. Look:
