@@ -13,14 +13,16 @@ The files graft reads and writes, and the lines in them that graft recognizes.
 | `flake.lock` | Written by Nix, and by `upgrade` for graft's input. | graft's commit and hash, and nixpkgs if you have one. No provider entries. Must be committed: `graft ci check` fails when it is not in `HEAD`. |
 | `.gitmodules` | Written by `git submodule add` (through `graft add`) and `git rm`. Read by every command. | Each scion's path and URL. `upgrade` never changes it. |
 | The gitlinks | Written by `add` and `upgrade`, or by `git add scions/NAME`. | The pins. |
-| `<dir>/<name>/` | A submodule. Filled by `git submodule update --init`, `graft sync`, a recursive clone, or the post-checkout hook. | The provider's whole repository at a release tag. |
+| `<dir>/<name>/` | A submodule. Filled by `git submodule update --init --recursive`, `graft sync`, a recursive clone, or the post-checkout hook. | The provider's whole repository at a release tag. |
 | `<dir>/README.md` | Written by `add` and `sync`; `check` looks for its marker line. | The marker README. |
 | `.forgejo/workflows/graft-*.yaml` | Restored by `sync`, replaced by `upgrade`, compared by `check`. | graft's workflows, if they carry the marker. |
 | Settings files, such as `knowledge-base.yaml` | Read by providers' tools and checks, never by graft. | What a provider lets you configure. Each provider's README names its file. |
 
 ## The marker README
 
-`<dir>/README.md`. `add` and `sync` write it. For a flake at the repository's top:
+`<dir>/README.md`. `add` writes it when it is missing; `sync`, and `upgrade` when graft's pin moves, write
+it again with this graft version's text (`graft: wrote scions/README.md`). For a flake at the repository's
+top:
 
 ```markdown
 <!-- managed by graft: https://github.com/danielnaab/graft -->
@@ -35,9 +37,8 @@ Run `git submodule update --init` (or `nix run .#graft sync`).
 - Versions: `nix run .#graft outdated`.
 ```
 
-For a flake in a subdirectory, it names that flake's command, such as `nix run 'path:nix/agent-tools#graft'`,
-in place of `nix run .#graft`. `check` reads only the marker line, so you may add to the rest; `sync` writes it
-again.
+graft's text is `lib/scions-readme.md`, with `@RUN@` replaced by the flake's run command. For a flake in a
+subdirectory, that is `nix run 'path:nix/agent-tools#graft'`. `check` reads only the marker line.
 
 - **The marker line** is how graft's commands and workflows find the scions directory, and the flake (its
   parent directory). Exactly one per repository.
@@ -143,9 +144,11 @@ graft renders its own copy with the lines that are yours: `branches:`, `paths-ig
   ([Keep your own edits to a workflow](#keep-your-own-edits-to-a-workflow)).
 - graft never adds a workflow that you did not copy in.
 
-The workflows find the flake from the marker README: its directory's parent. For a flake in a subdirectory,
-the checkout step fills the scions (`git submodule update --init -- DIR`), because a `path:` flake reads the
-working tree. A top-level git flake does not need that: Nix fetches the scions itself.
+The workflows find the flake from the marker README: its directory's parent; two marker READMEs fail with
+`::error::two scions directories: … graft supports one per repository`. A flake in a subdirectory runs as
+`path:$PWD/DIR`, and the check and upgrade jobs first fill its scions (`git submodule update -q --init -- DIR`),
+because a `path:` flake reads the working tree. A top-level git flake does not need that: Nix fetches the
+scions itself. graft-check's step is named `Scions registered and at release tags`.
 
 ### Keep your own edits to a workflow
 
@@ -195,7 +198,7 @@ on:
   every changed file matches a glob.
 - A block list, or two lines that differ, fail the check. If the line is under one trigger only, `sync`
   writes it under the other.
-- graft refuses a glob that could match a file that graft-check reads: the scions directory,
+- graft refuses a glob that could match a file that graft-check reads: the scions directory, `.gitmodules`,
   `flake.nix`, `flake.lock` (for a flake in a subdirectory, that whole directory) and `.forgejo/`. It also
   refuses a glob that starts with `*` or `/`. Name a directory.
 - A pull request that changes only ignored files gets no graft-check status. Do not make that status
@@ -204,9 +207,10 @@ on:
 ### The graft ssh line
 
 One comment line, for a private scion that only an ssh key can read
-([Graft a private repository](../guides/private-providers.md)). graft keeps it above `name:`, and renders a
-step that installs the key before the check in `graft-check.yaml` and before the upgrade in
-`graft-upgrade.yaml`'s upgrade job.
+([Graft a private repository](../guides/private-providers.md)), in either workflow file. graft keeps it above
+`name:`, and renders a step that installs the key before each step that runs graft: graft-check's check, and
+graft-upgrade's upgrade and pr steps. In a file whose copy has no such step, the check fails with
+`graft: X: its "# graft ssh:" line is kept only in a workflow with a step that runs graft, and this graft version's copy has none; delete the line`.
 
 ```yaml
 # graft ssh: host=[git.example.com]:2222 address=192.168.1.51 hostkey=ssh-rsa AAAAB3NzaC1yc2E... secret=GRAFT_SSH_KEY

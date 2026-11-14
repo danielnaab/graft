@@ -22,22 +22,19 @@ with the repository's secrets.
    `graft/upgrade`. It holds the job token, and the `# graft ssh:` key if the repository has a private scion.
    Protect the default branch, so that the job token cannot push to it.
 2. **pr** is checked out at the default branch. It runs the graft version that the default branch pins, and
-   never evaluates the upgraded flake. It opens the pull request with `GRAFT_PR_TOKEN`.
+   never evaluates the upgraded flake. It opens the pull request with `GRAFT_PR_TOKEN`. Building the default
+   branch's `graft` app fetches the default branch's scions, so a private scion's key is installed here too.
 
-The **pr** job opens a pull request only if the branch changes nothing but gitlinks of existing scions, and,
-when graft's own pin moved, graft's lines in `flake.nix` and `flake.lock`, the marker README and graft's
-marked workflows. A `.gitmodules` change (a provider swapped for another URL) and any other file are refused,
-with a link to the diff. Read the diff, then open the pull request yourself
-([If something goes wrong](guides/ci.md#if-something-goes-wrong)).
-
-When graft's pin moves, its refreshed workflows are in the pull request, and the pull request's own
-`pull_request` workflows run from the branch: the new graft workflows run with your secrets before you merge.
-They are graft's release, which you chose to trust by pinning graft; read their diff in the pull request
-first ([Run graft in CI and review its upgrade pull requests](guides/ci.md#steps), step 7).
+The **pr** job opens a pull request only if the branch changes nothing but `flake.nix`, `flake.lock`, gitlinks
+of scions that the default branch's `.gitmodules` registers, and, when graft's own pin moved, the marker
+README. A branch that changes anything else could run its own code with the repository's secrets: a new
+graft version's workflow files (also when graft moved), a `.gitmodules` change (a provider swapped for another
+URL), or any other file. The job refuses, with a link to the diff. Read the diff, then open the pull request
+yourself ([If something goes wrong](guides/ci.md#if-something-goes-wrong)).
 
 The **pr** job writes the pull request body from data only:
 
-- It reads the gitlinks of the default branch and of `graft/upgrade` as data.
+- It reads the two `flake.lock` files and the gitlinks of the default branch and of `graft/upgrade` as data.
 - For each moved scion, it fetches the provider with plain `git`, from the URL in the **default branch's**
   `.gitmodules`, and reads its `CHANGELOG.md` between the two commits. Nothing is checked out or run, and
   `GRAFT_PR_TOKEN` is not in git's environment.
@@ -56,10 +53,10 @@ The **pr** job writes the pull request body from data only:
   graft's workflows do not hold secrets in the jobs that build. Keep yours the same.
 - **graft moves itself only from `graft ci`.** `graft upgrade` refuses to move graft's pin from another CI
   job, because that job could run the new version beside the token.
-- **A private scion's key is in the upgrade job.** Its `nix flake check` must fetch the private scion at its
-  new tag. Use a read-only deploy key for that one provider: the unreviewed code that the job runs is that
-  provider's own new version, which the key can already read. Without the key, upgrade private scions by
-  hand.
+- **A private scion's key is in both jobs.** The upgrade job's `nix flake check` must fetch the private scion
+  at its new tag, and the pr job's graft app fetches it at the default branch's commit. Use a read-only deploy
+  key for that one provider: the unreviewed code that the upgrade job runs is that provider's own new version,
+  which the key can already read. Without the key, upgrade private scions by hand.
 
 ## Sources
 

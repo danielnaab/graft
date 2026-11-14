@@ -96,7 +96,7 @@ Graft a provider that only an ssh key can read, on your machine and in graft's C
    ```
 
    It prints `graft: refreshed .forgejo/workflows/graft-check.yaml` and the same for `graft-upgrade.yaml`.
-   Each now has a step, `SSH key for private scions`, before graft runs. It writes the secret to
+   Each now has a step, `SSH key for private scions`, before each step that runs graft. It writes the secret to
    `~/.ssh/graft_scions`, the host key to `~/.ssh/known_hosts`, and a `Host` entry with
    `StrictHostKeyChecking yes` to `~/.ssh/config`, which git and Nix both use.
 
@@ -132,14 +132,14 @@ against a live forge.
   `[git.example.com]:2222`.
 - **In CI, `::error::the GRAFT_SSH_KEY secret is empty or not set`.** Add the secret of step 4 to this
   repository, with the name that `secret=` gives, if any.
-- **A fresh clone's `git submodule update --init` fails for this scion only.** The machine has no key for it.
-  Fill the others by name (`git submodule update --init -- scions/OTHER`); builds of a clean tree still fetch
+- **A fresh clone's `git submodule update --init --recursive` fails for this scion only.** The machine has no key for it.
+  Fill the others by name (`git submodule update --init --recursive -- scions/OTHER`); builds of a clean tree still fetch
   it through Nix, with your ssh setup.
 
 ## How it works
 
-- The upgrade job holds the deploy key too, because its `nix flake check` must fetch the private scion at
-  its new tag. The key is read-only, for the provider only, and the code that job runs unreviewed is that
+- The upgrade workflow's upgrade and pr steps hold the deploy key too: the upgrade's `nix flake check` must
+  fetch the private scion at its new tag, and the pr step's graft app fetches it at the default branch's commit. The key is read-only, for the provider only, and the code that job runs unreviewed is that
   provider's own new version, which the key can already read ([CI security](../ci-security.md#limits)).
 - Nix fetches scions with the system's git and ssh, so `~/.ssh/config` and your agent apply.
 

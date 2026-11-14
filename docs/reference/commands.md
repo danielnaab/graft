@@ -20,8 +20,9 @@ flake outputs.
 Removed in v2.13.0: `scions` (there is no input list) and `flakeDir` (graft finds the flake as the parent of
 the scions directory).
 
-A top-level git flake must declare `inputs.self.submodules = true;` (Nix 2.27 or later). A `path:` flake
-does not need it.
+A top-level git flake must declare `inputs.self.submodules = true;` (Nix 2.27 or later); `graft check` fails
+without it, unless `flake.nix` carries the comment `# graft: no self.submodules`. A `path:` flake does not
+need it.
 
 ### Discovery
 
@@ -96,96 +97,162 @@ In zsh with `extendedglob` set, `#` is a glob character, so a flake reference th
 write `.#graft` unquoted.
 
 graft finds the scions directory by its marker README, with
-`git grep -l -F '<!-- managed by graft: https://github.com/danielnaab/graft -->' -- README.md '*/README.md'`.
-`git grep` does not look inside submodules, so a provider's own scions README never counts. A repository has
-at most one: `graft: two scions directories: A, B; graft supports one per repository`. The flake's directory
-is the scions directory's parent.
+`git grep -l -F '<!-- managed by graft: https://github.com/danielnaab/graft -->' -- '*/README.md'`, in the
+files that git tracks. `git grep` does not look inside submodules, so a provider's own scions README never
+counts, and a top-level `README.md` with the marker is ignored. A repository has at most one:
+`graft: two scions directories: A, B; graft supports one per repository`. The flake's directory is the scions
+directory's parent; with none, the flake is at the top.
+
+Every command first refuses a copy-mode scions README (one with a `| Scion | Commit |` table or a
+`<!-- graft flake:` line):
+`graft: scions/README.md is graft's copy-mode README (v2.12 or earlier): graft v2.13.0 pins scions with git submodules; follow the Upgrading steps of v2.13.0 in graft's CHANGELOG.md (https://github.com/danielnaab/graft/blob/v2/CHANGELOG.md)`.
 
 | Command | What it does |
 |---|---|
 | `add [-C REPO] [--scions PATH] URL[@TAG] [NAME]` | Adds a scion at `TAG`, default the newest version upstream. `NAME` defaults to the URL's last segment without `.git`. Runs `git submodule add`, checks out the tag's commit, writes the marker README if it is missing, and stages `.gitmodules`, the gitlink and the README. |
-| `sync` (the default) | Fills every empty scion (`git submodule update --init`, not `--recursive`), writes the marker README, and refreshes graft's workflows. Never moves a gitlink, and never moves a filled scion. In the repository's own flake only. |
-| `check` | Fails unless every rule in [Check](#check) holds. |
+| `sync` (the default) | Fills every empty scion and its own submodules, writes the marker README, and refreshes graft's workflows. Never moves a gitlink, and never moves a filled scion. In the repository's own flake only. |
+| `check [-C REPO] [--committed]` | Fails unless every rule in [Check](#check) holds. |
 | `outdated [-C REPO] [--json]` | For graft and each scion: the pinned version, the newest version in its major, the status, and the newest later major. |
 | `changelog [-C REPO] [--json] [NAME[@TAG]...]` | Each provider's CHANGELOG sections between the pin and the target, **Upgrading** first, or its commits. Changes nothing. |
 | `upgrade [-C REPO] [NAME[@TAG]...]` | Moves pins. With no names: graft and every outdated scion, each in its major version. `NAME@TAG` is the only way to cross a major. |
 | `migrate [-C REPO] [--base REF] [--no-check] [--json]` | Prints a migration brief for an upgraded branch. |
 | `ci check\|upgrade\|pr` | The steps of graft's workflows. See [CI](#ci). |
-| `help` | Lists the commands. |
+| `help` | Prints the usage, one line per command. |
 
 There is no `remove`: `git rm scions/NAME` removes a scion, and git edits `.gitmodules`.
 
 ### add
 
-- `@TAG` is split off only when it is a version tag, so `git@host:team/x.git` is one URL.
-- The scions directory: the existing one; else `--scions`, a path from the repository's top whose parent
-  holds a `flake.nix` (`nix/agent-tools/.scions`); else `scions` at the top.
-- Prints `graft: scions/NAME <- vX.Y.Z (abc1234)`. For a top-level flake without `inputs.self.submodules`, it
-  then prints `graft: next: commit; a git flake also needs inputs.self.submodules = true;`.
-- When the new scion has submodules of its own, it prints
-  `note: scions/NAME has its own submodules (…); Nix fetches them when evaluating`.
-- Errors: `graft: URL has no semver tags`, `graft: NAME: no tag TAG upstream`, `graft: scions/NAME exists`,
-  `graft: a relative URL (../x.git) won't resolve for Nix; give an absolute URL`,
-  `graft: not inside a git work tree`.
+- `@TAG` is split off only when the part after the last `@` is a version tag, so `git@host:team/x.git` is one
+  URL.
+- `NAME` defaults to the URL's last path segment, without `.git`. It must match `[A-Za-z0-9][A-Za-z0-9._-]*`,
+  and not be `self`.
+- `TAG` defaults to the highest version tag upstream; an annotated tag is taken at its commit.
+- The scions directory: the existing one; else `--scions PATH`, from the repository's top, whose parent holds
+  a `flake.nix` (`nix/agent-tools/.scions`); else the repository's own app's `dir`, beside its flake; else
+  `scions` at the top.
+- It runs `git submodule add`, checks out the tag's commit detached, fills the scion's own submodules
+  recursively, writes the marker README if it is missing, and stages `.gitmodules`, the gitlink and the
+  README. A scion removed with `git rm` can be added again.
+- Prints `graft: scions/NAME <- v1.1.0 (abc1234)`, then
+  `graft: note: scions/NAME has its own submodules (scions/docs); Nix fetches them when evaluating` when it has
+  some, then `graft: next: commit`, or, for a flake at the top that lacks it,
+  `graft: next: commit; a git flake also needs inputs.self.submodules = true;`.
+- Errors: `graft: scions/NAME exists`; `graft: a relative URL (../x.git) won't resolve for Nix; give an absolute URL`;
+  `graft: URL has no semver tags`; `graft: NAME: no tag TAG upstream`; `graft: can't list tags at URL: …`
+  (git's last line); `graft: not inside a git work tree: DIR`;
+  `graft: --scions P: no flake.nix in D; the scions directory goes beside the flake that grafts them`;
+  `graft: this repository's scions are in X; graft supports one scions directory per repository`.
 
 ### sync
 
-Prints one line per scion: `graft: scions/NAME at vX.Y.Z (abc1234)`, or `graft: scions/NAME at abc1234 (untagged)`.
-A filled scion is left as it is, also one on a fix branch or away from its gitlink, and reported. To put a
-filled scion back at its gitlink, use `git submodule update -- scions/NAME`. Nested submodules are not filled:
-Nix fetches them itself when it needs them.
+Only in the repository's own flake. From graft's flake it says
+`graft: sync runs from the repo's own flake (it writes that graft version's files): nix run .#graft sync, or nix run 'path:DIR#graft' sync`.
+
+For each scion: when it is empty, `git submodule update --init`, then its own empty submodules. A filled scion
+is never moved, also one on a fix branch or away from its gitlink. One line per scion; the version comes from
+the scion's local tags:
+
+```
+graft: scions/pa at v1.1.0 (abc1234)
+graft: scions/pa at abc1234 (untagged)
+graft: scions/pa at v1.0.0 (abc1234), not the recorded def5678: left as it is (git add scions/pa records it; git submodule update -- scions/pa goes back)
+```
+
+Then it writes the marker README (`graft: wrote scions/README.md` when it changed) and refreshes graft's
+workflows (`graft: refreshed .forgejo/workflows/FILE`). With no scions:
+`graft: no scions here yet: graft add URL`.
 
 The marker README's commands name this flake's run command: `nix run .#graft` for a flake at the top,
 `nix run 'path:DIR#graft'` for a flake in a subdirectory.
 
 ### check
 
+`check [-C REPO] [--committed]`. Each failure is one `graft:` line on stderr, naming the scion; then it exits 1.
+
 | Rule | Message |
 |---|---|
-| One marker README, whose first line is the marker | `scions/README.md lacks graft's marker: run graft sync` |
-| Every folder in the scions directory is a submodule, and every `.gitmodules` entry under it exists | `scions/foo is not a submodule: graft add URL, or remove it` |
-| Every URL is absolute | `relative URL` |
-| A top-level git flake declares `inputs.self.submodules = true;` | `add inputs.self.submodules = true;` |
-| Every scion is filled | `scions/NAME is empty: graft sync` |
-| Every scion is clean: no modified or staged tracked file (untracked files do not count) | `uncommitted edits in scions/NAME: … (Nix builds ignore them while the rest of the tree is clean)` |
-| Every scion is checked out at its gitlink | `scions/NAME is checked out at X but the repository records Y: git add scions/NAME to record it, or graft sync to go back` |
-| Every gitlink is a version tag's commit | `scions/NAME at abc1234 is not a release tag of URL (nearest: v1.0.0-1-g…): release it, or graft upgrade NAME` |
+| Every folder in the scions directory is a submodule | `graft: scions/foo is not a submodule: graft add URL, or remove it` |
+| Every submodule there is registered in `.gitmodules` | `graft: scions/x is a submodule .gitmodules doesn't register: git rm --cached scions/x, then graft add its URL` |
+| Every submodule has its folder | `graft: scions/x is a submodule with no folder: git submodule update --init -- scions/x, or git rm scions/x` |
+| Every `.gitmodules` entry under the scions directory is a submodule | `graft: .gitmodules registers scions/x, which is not a submodule here: graft add its URL again, or remove its entry (git config -f .gitmodules --remove-section submodule.scions/x)` |
+| Every URL is absolute | `graft: scions/x: .gitmodules gives a relative URL (../x.git), which Nix can't resolve: give an absolute one (git config -f .gitmodules submodule.scions/x.url URL)` |
+| A top-level flake with scions declares `inputs.self.submodules = true;` (unless it carries the comment `# graft: no self.submodules`) | `graft: flake.nix doesn't declare inputs.self.submodules = true;, so Nix sees no scions: add it (Nix 2.27 or later)` |
+| Every scion is filled | `graft: scions/pa is empty: graft sync (or git submodule update --init -- scions/pa)` |
+| Every scion is clean: no modified or staged tracked file (untracked files do not count) | `graft: uncommitted edits in scions/pa: docs/status.md (Nix builds ignore them while the rest of the tree is clean)` |
+| Every scion is checked out at its gitlink | `graft: scions/pa is checked out at e3f04b8 but the repository records 9147b3c: git add scions/pa to record it, or git submodule update -- scions/pa to go back` |
+| Every scion's own submodules are filled | `graft: scions/nest's own submodules are empty (scions/docs): graft sync (Nix fails on them while the repo's tree has a modified file)` |
+| Every gitlink is a version tag's commit | `graft: scions/pa at ec99ed1 is not a release tag of URL (nearest: v1.0.0-1-gec99ed1): release it, or graft upgrade pa` (`nearest` only for a filled scion) |
 | graft's workflows match this version's | as in [Files](files.md#grafts-workflows) |
 
-It names each failing scion, and exits 1. If `git ls-remote` cannot read a provider, it checks the
-submodule's local tags instead and says `(upstream unreadable: checked local tags)`. On success it ends with
-`graft: N scions clean and at release tags`. Each message and its fix:
-[`graft check` fails](../guides/check-fails.md).
+- `--committed` checks only what is committed: it skips the filled, clean, at-gitlink and nested rules.
+  `graft ci check` uses it.
+- If `git ls-remote` cannot read a provider, it says
+  `graft: scions/pa: can't list tags at URL: … (upstream unreadable: checked local tags)`, and the scion's
+  local tags decide.
+- A scion with submodules of its own prints `graft: note: scions/nest has its own submodules (scions/docs); Nix fetches them when evaluating`
+  on stdout.
+- Success: `graft: N scions clean and at release tags`; with `--committed`,
+  `graft: N scions registered and at release tags`.
+- No scions directory: `graft: no scions here (no README.md carrying graft's marker); graft add URL grafts one`,
+  exit 0 (unless a workflow fails).
+
+`check` does not compare the marker README's text: the marker line is what finds the scions directory. Each
+message and its fix: [`graft check` fails](../guides/check-fails.md).
 
 ### outdated
 
-Columns `NAME DIR PINNED LATEST STATUS MAJOR`. `PINNED` is the highest version tag at the gitlink. `STATUS`
-is `current`, `outdated`, `untagged` (the gitlink is no version's commit) or `unknown` (the provider's
-repository cannot be read). graft's own row comes from `flake.lock`. In `--json`, `major` is `null` when there
-is no newer major.
+Columns `NAME DIR PINNED LATEST STATUS MAJOR`, then a line explaining `MAJOR` when a row has one:
+
+```
+NAME        DIR     PINNED  LATEST  STATUS    MAJOR
+graft       -       path    -       untagged  -
+page-rules  scions  v1.0.0  v1.1.0  outdated  -
+```
+
+`PINNED` is the highest version tag upstream at the gitlink; with none, `STATUS` is `untagged` and `PINNED`
+the gitlink's first 12 hex digits. When the provider cannot be read, `STATUS` is `unknown` and `PINNED` the
+scion's local tag, or the commit. graft's own row comes from `flake.lock` (a `path:` graft shows `path`,
+`untagged`). In `--json`, `major` is `null` when there is no newer major. With nothing to list:
+`graft: no scions here (no README.md carrying graft's marker), and no graft input`.
 
 ### upgrade
 
-- The target is the newest tag in the pinned major, unless `@TAG` names one. `NAME` without a tag reports any
-  newer major that it did not take.
-- graft's own pin moves first: graft rewrites the tag in `graft.url`, runs `nix flake update graft`, then the
-  new version's `sync` steps for the README and workflows. It moves graft's pin in CI only from `graft ci`.
-- A scion: refused when it has uncommitted edits or is checked out away from its gitlink. A filled scion is
-  fetched, checked out at the tag's commit and staged. An empty one (in CI) gets its gitlink set directly
-  (`git update-index --cacheinfo`), with no clone.
-- Never changes `.gitmodules`.
-- A `git+` flake build ignores a staged gitlink while the rest of the tree is clean: commit the upgrade on a
+- The target is the newest tag in the pinned major, unless `@TAG` names one (which may also go down).
+  `NAME` without a tag reports a newer major that it did not take:
+  `graft: pa: v2.0.0 is a new major version; not taken (graft upgrade pa@v2.0.0)`.
+- graft's own pin moves first (`graft: graft v2.13.0 -> v2.13.1`): graft rewrites the tag in `flake.nix`,
+  runs `nix flake update graft`, then the new version's `lib/refresh.sh`, which writes the marker README and
+  refreshes graft's workflows. It moves graft only to v2.13.0 or later
+  (`graft: graft upgrade moves graft only to v2.13.0 or later (submodule scions); move it by hand`), and in
+  CI only from `graft ci` (`graft: not moving graft itself from a CI job that isn't graft ci (…)`).
+- A filled scion is fetched at the tag from its `.gitmodules` URL, checked out detached, its own submodules
+  filled, and staged. An empty one (in CI) gets its gitlink set directly (`git update-index --cacheinfo`),
+  with no clone. Prints `graft: pa v1.1.0 -> v1.2.0`. It never changes `.gitmodules`, and never commits.
+- It refuses, before changing anything:
+  - `graft: pa: uncommitted edits in scions/pa (FILE); nothing changed: commit them in the provider, or git -C scions/pa checkout -- .`
+  - `graft: pa: scions/pa is checked out at <12 hex>, not the recorded <12 hex>; nothing changed: git add scions/pa, or git submodule update -- scions/pa`
+  - `graft: pa is at <12 hex>, not a release tag; move it by hand (git -C scions/pa checkout TAG, then git add)`,
+    also with `pa@TAG`
+  - `graft: pa: no tag v1.9.0 upstream; nothing changed`
+  - `graft: pa: can't tell whether v1.0.0 is current (see above); nothing changed`
+  - `graft: no scion (or graft input) named X`
+- A git flake build ignores a staged gitlink while the rest of the tree is clean: commit the upgrade on a
   branch before `nix flake check` ([Take a newer version by hand](../guides/upgrade.md)).
 
 ### changelog
 
 The same output as before v2.13.0: per provider, `### NAME vOLD -> vNEW`, the **Upgrading** sections first,
 then the rest, quoted. It reads the provider's `CHANGELOG.md` at the target tag from the URL in `.gitmodules`.
+For a GitHub `https` URL it adds a compare link.
 It fails after it prints if a provider cannot be read.
 
 ### migrate
 
-What moved is every gitlink that differs between the merge base and the working tree. The brief has: what
+What moved is graft (from `flake.lock`) and every scion whose gitlink at the base differs from now (the
+scion's checkout when it is filled, else the index); new and removed scions are listed as `(new)` and
+`(removed)`. The brief tells the reader not to edit the scions or graft's workflows, nor move the pins, and
+that a scion that needs a fix is a provider change. The brief has: what
 upstream says (each provider's CHANGELOG, quoted); what moved (`git diff --name-status` between the two
 commits of each provider, renames and deletions first); references here (lines of your own files, outside
 the scions directory and graft's workflows, that name a renamed or deleted `<dir>/<name>/<path>`); what broke
@@ -195,18 +262,19 @@ prints a brief, also when checks fail.
 
 ### ci
 
-- `ci check`: `flake.lock` committed and matching `flake.nix` for graft's input; then the rules of
-  [check](#check) that need only committed state (marker, registered, absolute URLs,
-  `self.submodules`, gitlinks at version tags, workflows). It does not need filled scions. Then it evaluates
-  `packages.<system>.tools`, so that mkFlake's evaluation errors fail CI.
+- `ci check`: `flake.lock` committed and matching `flake.nix` for graft's input; then `graft check
+  --committed`, which needs no filled scions; then `nix flake check --no-build`, so that the whole flake
+  evaluates. Success:
+  `graft: ci check passed: flake.lock is committed, every scion is at a release tag, graft's workflows are current, and the flake evaluates`.
+  An evaluation failure ends `graft: the flake doesn't evaluate (above)`.
 - `ci upgrade`: needs `BRANCH`, and refuses a working tree with changes of its own and a branch other than
-  `BRANCH`. Runs `upgrade`, commits, then runs the whole `nix flake check` on the clean committed tree (so Nix
-  fetches the new scions), records the result in the commit, and force-pushes `BRANCH`. Fails after the push
-  when a check fails.
-- `ci pr`: opens or updates the pull request, only when the branch changes nothing but gitlinks of existing
-  scions, and, when graft's own pin moved, graft's `flake.nix`/`flake.lock` lines, the marker README and
-  graft's marked workflows. Any other change, such as `.gitmodules` (a provider's URL), is refused, with a
-  link to the diff.
+  `BRANCH`. Runs `upgrade`, `git add -A`, commits, then runs the whole `nix flake check` on the clean committed
+  tree (so Nix fetches the new scions). On a failure it amends the commit with `nix flake check failed: …` and
+  the logs' ends. It force-pushes `BRANCH` either way, and then fails if a check failed.
+- `ci pr`: opens or updates the pull request only when the branch changes nothing but `flake.nix`,
+  `flake.lock`, gitlinks of scions that the default branch's `.gitmodules` registers, and the marker README
+  when graft's own pin moved. A change to `.forgejo/` is refused (`… changes CI workflows …`), also when
+  graft moved; so is `.gitmodules` and any other file (`… changes files graft upgrade never writes: …`).
 
 ### Argument errors
 

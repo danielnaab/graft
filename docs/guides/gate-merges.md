@@ -232,7 +232,7 @@ A `path:` flake's checks see only its directory, so a provider's check cannot re
 provider's tool on the working tree in your workflow instead, in place of `nix flake check`:
 
 ```
-git submodule update --init
+git submodule update --init --recursive
 nix shell 'path:nix/agent-tools#tools' -c pagecheck docs
 ```
 

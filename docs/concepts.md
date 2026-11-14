@@ -44,7 +44,7 @@ works this way, see [Decisions](decisions.md).
 ## How things change
 
 - **Add:** `graft add URL` makes a new scion at the newest release, and writes the marker README.
-- **Sync:** `graft sync` fills empty scions (`git submodule update --init`), writes the marker README, and
+- **Sync:** `graft sync` fills empty scions (`git submodule update --init --recursive`), writes the marker README, and
   refreshes graft's workflows. It never moves a pin.
 - **Check:** `graft check` fails unless every scion is registered, filled, clean, checked out at its gitlink,
   and at a release.

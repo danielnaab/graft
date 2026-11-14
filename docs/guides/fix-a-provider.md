@@ -26,7 +26,7 @@ release tag.
   `nix run 'path:DIR#graft'` for `nix run .#graft`.
 - You can push a branch to the provider, or you can hand a patch to someone who can.
 - The scion is filled: `ls scions/knowledge-base-kit` lists files. If not:
-  `git submodule update --init -- scions/knowledge-base-kit`.
+  `git submodule update --init --recursive -- scions/knowledge-base-kit`.
 - Know the Nix behaviour that makes this confusing: a git flake build (`nix build .#tools`,
   `nix flake check`) **ignores your uncommitted edit in a scion while every other tracked file is clean, and
   uses it as soon as any tracked file is modified**. Even then it sees only files that git tracks *in the
@@ -139,8 +139,12 @@ git commit -m "knowledge-base-kit: fix-status-values, until v2.2.1"
 ```
 
 Nix fetches a commit that is on any branch of the provider, so builds work. `graft check` fails with
-`scions/knowledge-base-kit at abc1234 is not a release tag of …: release it, or graft upgrade NAME`, so the
-pull request cannot pass graft-check until you upgrade to the release. With
+`graft: scions/knowledge-base-kit at abc1234 is not a release tag of …: release it, or graft upgrade knowledge-base-kit`, so the
+pull request cannot pass graft-check until the scion is at a release. `graft upgrade` refuses a scion that is
+not at a release, so move it by hand when the release is out:
+`git -C scions/knowledge-base-kit fetch --tags -q && git -C scions/knowledge-base-kit checkout -q --detach v2.2.1 && git add scions/knowledge-base-kit`.
+Until the commit is pushed, `nix run .#graft` itself cannot evaluate; run
+`nix run github:danielnaab/graft/v2.13.0 -- check -C .` instead. With
 `push.recurseSubmodules=check` ([Clones, worktrees, sandboxes and CI](clones-and-worktrees.md)), git refuses
 to push the consumer while the scion's commit is on no remote.
 

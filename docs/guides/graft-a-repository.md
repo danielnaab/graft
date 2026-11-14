@@ -74,7 +74,11 @@ and end with `graft check` passing and everything committed.
 
    ```
    graft: scions/knowledge-base-kit <- v2.2.0 (abc1234)
+   graft: next: commit
    ```
+
+   If `flake.nix` lacks `inputs.self.submodules = true;`, the last line is
+   `graft: next: commit; a git flake also needs inputs.self.submodules = true;`: add it.
 
    It wrote `scions/README.md`, and staged `.gitmodules`, the submodule and the README. To graft a version
    other than the newest, add it: `…/knowledge-base-kit@v2.1.0`.
@@ -105,7 +109,7 @@ and end with `graft check` passing and everything committed.
    ```markdown
    ## Scions (graft)
    `scions/` holds git submodules: other repositories at release tags. Read them; they are the rules and tools
-   this repository follows. If one is empty, run `git submodule update --init`.
+   this repository follows. If one is empty, run `git submodule update --init --recursive`.
    - Fix a provider bug here only as a provider change: in `scions/NAME`, `git switch -c fix-…`, edit, run the
      provider's own tests there, push the branch to the provider and open its pull request. This repository takes
      the fix with `nix run .#graft upgrade NAME` once it is released.
@@ -149,7 +153,7 @@ and end with `graft check` passing and everything committed.
    the provider's checks, named `checks.<system>.knowledge-base-kit-NAME`, beside your own. To require them
    before a merge, see [Make a pattern's checks gate your merges](gate-merges.md).
 
-Clones of the repository get empty `scions/` folders until someone runs `git submodule update --init`. Builds
+Clones of the repository get empty `scions/` folders until someone runs `git submodule update --init --recursive`. Builds
 still work while the clone's tracked files are unmodified. To fill them on every clone and worktree, see
 [Clones, worktrees, sandboxes and CI](clones-and-worktrees.md).
 

@@ -10,7 +10,7 @@ into its Nix flake: a flake library and one command. Read [README.md](README.md)
 - **Docs:** [guides](docs/guides/), [reference](docs/reference/), [decisions](docs/decisions.md)
 - **Code:** [lib/](lib/) (see [Development](docs/development.md#layout)), tests in [tests/run.sh](tests/run.sh)
 - **Grafted:** `scions/knowledge-base-kit`, a submodule: the conventions these docs follow. If it is empty,
-  run `git submodule update --init`.
+  run `git submodule update --init --recursive`.
 
 ## Rules
 
@@ -25,7 +25,7 @@ into its Nix flake: a flake library and one command. Read [README.md](README.md)
 
 ## Verify
 
-1. `nix flake check '.?submodules=1'`: bash -n and shellcheck, and the docs check. Nix sees an uncommitted
+1. `nix flake check`: bash -n and shellcheck, and the docs check. Nix sees an uncommitted
    edit in the scion only while another tracked file is modified.
 2. `nix run .#graft check`: the scion is clean and at a release tag.
 3. `tests/run.sh` after a change to `lib/` or `template/`. It takes minutes; do not run two at once.

@@ -28,15 +28,17 @@ How to change graft, test it, and release it.
 ## Test
 
 ```
-git submodule update --init      # graft's own scion, for the docs check
-nix flake check '.?submodules=1' # bash -n and shellcheck, and the docs check
+git submodule update --init --recursive      # graft's own scion, for the docs check
+nix flake check                  # bash -n and shellcheck, and the docs check
 tests/run.sh                     # the whole cycle against throwaway provider repositories
 tests/run.sh mkflake nix         # some sections only
 KEEP=1 tests/run.sh              # the same, and keep the work directory to debug a failure
 ```
 
-graft's flake does not declare `inputs.self.submodules` (Nix refuses it for a `path:` input, which the tests
-use), so check it with `'.?submodules=1'`.
+graft's flake declares `inputs.self.submodules = true;`, so Nix refuses it as a `path:` input
+(`error: input attribute 'submodules' not supported by scheme 'path'`). To try a checkout of graft in another
+repository, use `--override-input graft git+file:///ABSOLUTE/PATH/TO/graft`, which reads what git tracks
+there. `tests/run.sh` uses a copy of the checkout without that line.
 
 `tests/run.sh` builds local bare provider repositories with tags and `file://` submodule URLs, and covers
 mkFlake (discovery, isolation, siblings, collisions, the evaluation errors), the Nix fetch rules that graft
@@ -76,7 +78,7 @@ upgrade the kit with `nix run .#graft upgrade`, change their tag too.
 1. Add a section at the top of `CHANGELOG.md`: `## vX.Y.Z - YYYY-MM-DD`. A major version needs an
    `### Upgrading` subsection.
 2. Change the graft tag in `template/flake.nix`, `README.md` and the docs to the new version.
-3. Run `nix flake check '.?submodules=1'` and `tests/run.sh`.
+3. Run `nix flake check` and `tests/run.sh`.
 4. Commit.
 5. Tag the commit: `git tag -a -m vX.Y.Z vX.Y.Z`.
 6. Push the `v2` branch and the tag.

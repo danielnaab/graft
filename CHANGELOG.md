@@ -20,7 +20,7 @@ These are also a guide: [Move from copy mode](docs/guides/move-from-copy-mode.md
    top, add `inputs.self.submodules = true;`. Tools of your own that were in `tools` go in `mkFlake`'s new
    `perSystem`. Consumer settings that were Nix arguments move to the files that each provider's CHANGELOG
    names.
-4. For each provider: `nix run github:danielnaab/graft/v2.13.0 -- add URL@TAG`, at a release that ships a
+4. For each provider: `nix run github:danielnaab/graft/v2.13.0 -- add -C . URL@TAG`, at a release that ships a
    `graft.nix` if you used its Nix code. In a subdirectory flake, add `--scions nix/agent-tools/.scions` to the
    first.
 5. `nix flake lock`, then `nix run .#graft sync` (it writes the marker README and graft's v2.13.0 workflows).
@@ -32,8 +32,10 @@ These are also a guide: [Move from copy mode](docs/guides/move-from-copy-mode.md
 
 What a weekly upgrade job still on v2.12 does: it moves graft's pin to v2.13.0, then runs v2.13.0's copy step,
 which is now a stub. The stub prints
-`graft v2.13.0 replaced copied scions with git submodules: see https://github.com/danielnaab/graft/blob/v2.13.0/CHANGELOG.md`
-and exits 1, so the job fails and opens no pull request. Follow the steps above instead.
+`graft: graft v2.13.0 replaced copied scions with git submodules; this upgrade can't be automatic: follow the Upgrading steps of v2.13.0 in graft's CHANGELOG.md (https://github.com/danielnaab/graft/blob/v2/CHANGELOG.md)`
+and exits 1, so the job fails before it commits: no branch, no pull request, the message in the job's log.
+Run by hand (`nix run .#graft upgrade` on v2.12), it leaves `flake.nix` and `flake.lock` moved to v2.13.0 and
+the scions untouched; every command then says the scions README is copy mode. Follow the steps above.
 
 ### Added
 - **`graft add [-C REPO] [--scions PATH] URL[@TAG] [NAME]`:** a new scion, as a submodule at the newest
@@ -43,26 +45,30 @@ and exits 1, so the job fails and opens no pull request. Follow the steps above 
   `pkgs`, `lib`, `system`, `scion`, `scions`, `consumer` ([Files](docs/reference/files.md#graftnix)).
 - **mkFlake's `perSystem`:** a consumer's own tools, apps, packages, checks and dev shells, merged like a
   provider's.
-- **`graft check` rules:** every scion registered, filled, clean, checked out at its gitlink, and at a version
-  tag's commit; absolute URLs; `inputs.self.submodules` in a top-level flake.
+- **`graft check` rules:** every scion registered, filled (with its own submodules), clean, checked out at its
+  gitlink, and at a version tag's commit; absolute URLs; `inputs.self.submodules` in a top-level flake (opt
+  out with the comment `# graft: no self.submodules`). `check --committed` checks only what is committed.
 - Guides: [Clones, worktrees, sandboxes and CI](docs/guides/clones-and-worktrees.md) (empty scions, the
   post-checkout hook, git settings), [Fix a provider from a consumer](docs/guides/fix-a-provider.md),
   [Write a provider's graft.nix](docs/guides/write-graft-nix.md), and
   [Move from copy mode](docs/guides/move-from-copy-mode.md).
 
 ### Changed
-- **`sync`** fills empty scions, writes the marker README and refreshes graft's workflows. It never moves a pin
-  or a filled scion.
+- **`sync`** fills empty scions and their own submodules, writes the marker README and refreshes graft's
+  workflows. It never moves a pin or a filled scion. `add` and `upgrade` fill a scion's own submodules too.
 - **`upgrade`** moves gitlinks (with no clone, in CI) and graft's own pin; it never changes `.gitmodules`.
   **`ci upgrade`** commits, then runs `nix flake check` on the clean committed tree, so Nix builds the new
   scions.
-- **`ci pr`** opens a pull request for gitlink moves, and for graft's own move with its README and workflows;
-  it refuses a `.gitmodules` change.
+- **`ci check`** runs `graft check --committed`, then `nix flake check --no-build`: the whole flake must
+  evaluate.
+- **`ci pr`** opens a pull request for gitlink moves, and for graft's own move with the marker README; it
+  refuses a `.gitmodules` change, and (as before) a change to graft's workflows.
 - **`outdated`, `changelog`, `migrate`** derive each scion's version from its gitlink. `migrate` lists what
   moved from the provider's history between the two commits.
 - **The scions README** is a fixed marker and explanation, with the right run command for the flake's kind; no
   table, no `<!-- graft flake: -->` line. `check` reads only its marker line.
-- **The `# graft ssh:` line** also gives the upgrade job its key, for a private scion.
+- **The `# graft ssh:` line** may be in either workflow, and installs the key before every step that runs
+  graft: the check, the upgrade and the pr step. `paths-ignore` may not match `.gitmodules`.
 - [Concepts](docs/concepts.md), [Decisions](docs/decisions.md) (Pin with git submodules; let providers wire
   themselves), and every guide and reference page are rewritten for submodules.
   [Ship a tool or seed files](docs/guides/ship-tools.md) is now

@@ -31,14 +31,15 @@ works when they are empty, fill them where it matters, and set up your machine s
 Any one of these, from the repository's top:
 
 ```
-git submodule update --init      # git alone
-nix run .#graft sync             # the same, and rewrites the marker README and graft's workflows
-git clone --recurse-submodules URL   # at clone time
+git submodule update --init --recursive   # git alone
+nix run .#graft sync                      # the same, and rewrites the marker README and graft's workflows
+git clone --recurse-submodules URL        # at clone time
 ```
 
-They fill the scions at their gitlinks, and leave a scion's own submodules empty: Nix fetches those itself
-when it needs them. For a shallow clone, add `--depth 1` to `git submodule update`. To fill only some
-scions, name them: `git submodule update --init -- scions/notebook-kit`.
+They fill the scions at their gitlinks, and the scions' own submodules too. Fill those as well: without
+`--recursive`, git leaves them empty, and a build with any tracked file modified then fails on them
+(`graft check` says `scions/NAME's own submodules are empty`). For a shallow clone, add `--depth 1` to `git submodule update`. To fill only some
+scions, name them: `git submodule update --init --recursive -- scions/notebook-kit`.
 
 A private scion needs a key that can read it ([Graft a private repository](private-providers.md)). Where
 there is none, name only the public scions.
@@ -66,8 +67,8 @@ graftPopulate = pkgs.writeShellScript "graft-populate" ''
   case $1 in 0000000000000000000000000000000000000000) ;; *) exit 0 ;; esac
   [ -f .gitmodules ] || exit 0
   [ -z "$(git rev-parse --show-superproject-working-tree)" ] || exit 0   # not for a submodule's own checkout
-  git submodule update --init --quiet ||
-    echo "graft-populate: could not fill submodules; run git submodule update --init" >&2
+  git submodule update --init --recursive --quiet ||
+    echo "graft-populate: could not fill submodules; run git submodule update --init --recursive" >&2
   exit 0
 '';
 ```
@@ -87,7 +88,7 @@ with the script above saved as `~/.local/bin/graft-populate` and made executable
 
 - The hook runs on `git clone` and `git worktree add`, beside any repository's own `core.hooksPath` hook,
   in every repository with a `.gitmodules`, graft's or not. When a fetch fails (offline, a private scion
-  without its key), it prints a warning and the checkout still succeeds: run `git submodule update --init`
+  without its key), it prints a warning and the checkout still succeeds: run `git submodule update --init --recursive`
   later.
 - Config-based hooks (`hook.<name>.event`) need git 2.54 or later. On older git, run `nix run .#graft sync`
   after a clone or `worktree add`.
@@ -111,7 +112,7 @@ with the script above saved as `~/.local/bin/graft-populate` and made executable
 Add the fill to the environment's setup script, after the checkout:
 
 ```
-git submodule update --init --depth 1
+git submodule update --init --recursive --depth 1
 ```
 
 Without it, agents see empty `scions/` folders, and the rules in them are missing. A sandbox with no network
@@ -124,7 +125,7 @@ after setup must fill the scions during setup.
 - **GitHub Actions:** `actions/checkout` with `submodules: true`. For a private scion, also pass an `ssh-key`
   that can read it.
 - **Automation that clones or pulls** (a systemd pull timer, a workflow engine's job, a bootstrap script for
-  a new machine): clone with `--recurse-submodules`, and run `git submodule update --init --quiet` after each
+  a new machine): clone with `--recurse-submodules`, and run `git submodule update --init --recursive --quiet` after each
   pull or fast-forward. Do not rely on the machine's `submodule.recurse` or hook: a service may not read the
   user's git config, and a new machine has neither yet. Until the scions are filled, a `path:` flake builds
   `tools` without them, and a git flake build fails once the job modifies a tracked file.

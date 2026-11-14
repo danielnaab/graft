@@ -32,7 +32,7 @@ More of the same rule:
 - **An empty scion and a dirty tree.** A fresh clone builds while it is clean (Nix fetches the scions). Modify
   any tracked file, and Nix reads the empty folder and fails inside its fetcher, before graft can say anything:
   `error: Failed to fetch git repository 'file:///…/scions/NAME'` (or a similar `Failed to fetch` naming the
-  scion's path). Fill the scions: `git submodule update --init`. **tested**
+  scion's path). Fill the scions: `git submodule update --init --recursive`. **tested**
 
 The reliable ways:
 
@@ -74,9 +74,12 @@ itself for a flake that declares it. To use a consumer's outputs from elsewhere 
 A `github:` tarball has the submodule folders, empty. mkFlake then warns that the scions are empty, and
 builds `tools` without them.
 
-graft's own flake does not declare `inputs.self.submodules`: Nix 2.34 refuses that attribute when the flake
-is used as a `path:` input (`error: input attribute 'submodules' not supported by scheme 'path'`). To check
-graft with its own scions: `nix flake check '.?submodules=1'`.
+## A flake with `inputs.self.submodules` is not a `path:` input
+
+Nix 2.34 refuses the attribute when another flake takes this one as a `path:` input:
+`error: input attribute 'submodules' not supported by scheme 'path'`. graft's own flake declares it, so to try
+a checkout of graft in a consumer, use `--override-input graft git+file:///ABSOLUTE/PATH/TO/graft` (it reads
+what git tracks there), not `path:`. `github:` inputs are not affected. **tested**
 
 ## Nested submodules
 
@@ -84,9 +87,13 @@ Nix fetches a scion's own submodules, recursively, and ignores `update = none` a
 `.gitmodules`. A nested submodule whose URL the consumer cannot read fails the consumer's evaluation:
 `error: Failed to fetch git repository 'ssh://…'`. **tested**
 
-git itself does not fill nested submodules: `git submodule update --init` (graft's `sync`), and a checkout
-with `submodule.recurse=true`, leave them empty. So a scion's own scions are empty on disk, present in a git
-flake's build, and empty in a `path:` flake's build. A provider's `graft.nix` must never read its own scions. See [One level](../decisions.md#one-level).
+git fills nested submodules only when asked: `git submodule update --init` without `--recursive` leaves
+them empty. With a dirty tree Nix reads the working tree, and fails on an empty nested submodule:
+`error: Failed to fetch git repository 'file:///…/scions/nest/scions/docs'`. So graft's `add`, `sync` and
+`upgrade` fill a scion's own submodules recursively, and `check` fails while they are empty. **tested**
+
+A `path:` flake does not fetch nested submodules: they are in its build only if they are filled on disk. A
+provider's `graft.nix` must never read its own scions. See [One level](../decisions.md#one-level).
 
 ## `path:` flakes in a subdirectory
 

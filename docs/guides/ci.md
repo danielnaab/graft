@@ -129,8 +129,8 @@ merge it or fix it.
    ```
 
    Expect one line per moved scion, such as `scions/style-guide | 2 +-` (a gitlink), and, when graft's own pin
-   moved, `flake.nix`, `flake.lock`, `scions/README.md` and graft's workflows. The **pr** job opens no pull
-   request for a branch that changes anything else, `.gitmodules` included. On a fix branch of your own, also
+   moved, `flake.nix`, `flake.lock` and `scions/README.md`. The **pr** job opens no pull request for a branch
+   that changes anything else, `.gitmodules` and graft's workflows included. On a fix branch of your own, also
    expect the files that you fixed.
 
 7. Read what each moved scion takes. The gitlink diff names the two commits; the provider's history holds the
@@ -146,7 +146,6 @@ merge it or fix it.
    | a deleted or renamed file | your files can link to it |
    | a changed rule or policy text | your pages, or a check that quotes it, can stop matching |
    | changed checker code, or a changed `graft.nix` | your CI runs it on your files |
-   | a changed graft workflow, when graft moved | it runs in your CI with your secrets: read it before you merge |
 
 8. Merge the pull request, when your forge's required checks pass. Forgejo starts no workflow for a push
    made with the job token, so graft-check and your own workflows run on the pull request only when graft
@@ -161,7 +160,7 @@ After the merge, from the repository's top, paste this. It prints `ok` only if y
 every scion is clean and at a release, every pin is current or untagged, and your checks pass:
 
 ```sh
-git switch -q main && git pull -q --ff-only && git submodule update --init -q && nix run '.#graft' check && nix run '.#graft' -- outdated --json | jq -e 'length > 0 and all(.[]; .status == "current" or .status == "untagged")' >/dev/null && nix flake check && echo ok
+git switch -q main && git pull -q --ff-only && git submodule update --init --recursive -q && nix run '.#graft' check && nix run '.#graft' -- outdated --json | jq -e 'length > 0 and all(.[]; .status == "current" or .status == "untagged")' >/dev/null && nix flake check && echo ok
 ```
 
 If a provider tagged a new version after the run, its status is `outdated`, and the next weekly run takes
@@ -189,7 +188,7 @@ it. A status `unknown` means that graft cannot read the provider's repository.
 
   If graft's own pin moved, read the diff (step 7) before you run anything: `nix flake check` on this
   branch runs the new graft version ([CI security](../ci-security.md)). Fill the scions
-  (`git submodule update --init`), fix your own files, never the scions, and commit. Then run
+  (`git submodule update --init --recursive`), fix your own files, never the scions, and commit. Then run
   `nix flake check` on the committed tree until it passes, and push:
 
   ```
@@ -227,6 +226,10 @@ it. A status `unknown` means that graft cannot read the provider's repository.
     differs from the default branch in other files. Usually the default branch changed after the
     **upgrade** job made the branch. Run the workflow again. If that does not help, someone pushed to
     `graft/upgrade`: read the diff at the link in the message.
+  - `this upgrade changes CI workflows: .forgejo/workflows/graft-check.yaml. A PR would run them with the repo's secrets before anyone reads them, so none is opened: …`:
+    graft moved its own pin, and the new version's workflows differ. Read the diff at the link in the
+    message ([CI security](../ci-security.md)). If it is safe, open the pull request from `graft/upgrade`
+    yourself. For its description, run `nix run .#graft changelog` on the default branch.
   - A `.gitmodules` change (a provider's URL) is refused the same way: a provider swap needs a person. Make
     it by hand ([Ship and take an incompatible change](incompatible-change.md#if-something-goes-wrong)).
 
@@ -247,9 +250,10 @@ it. A status `unknown` means that graft cannot read the provider's repository.
   branch, with `GRAFT_PR_TOKEN`. It opens the pull request, or rewrites the title and description of the
   open one. Why: [CI security](../ci-security.md).
 - **graft-check** runs `nix run .#graft ci check` for pull requests and pushes to the default branch that
-  Forgejo starts workflows for. It checks the committed state (registered scions, absolute URLs, gitlinks at
-  version tags, graft's workflows) without filling the scions, and evaluates `tools` so that mkFlake's errors
-  fail it. When it fails, see
+  Forgejo starts workflows for. It runs `graft check --committed` (registered scions, absolute URLs, gitlinks
+  at version tags, graft's workflows), which needs no filled scions, then `nix flake check --no-build`, so the
+  whole flake must evaluate. It ends
+  `graft: ci check passed: flake.lock is committed, every scion is at a release tag, graft's workflows are current, and the flake evaluates`. When it fails, see
   [`graft check` fails](check-fails.md). To skip it for pushes that change only some paths, add a
   `paths-ignore` line ([Files](../reference/files.md#the-paths-ignore-line)).
 - **Run the steps yourself.** On GitHub, or to test, run the same commands from the top of a fresh clone

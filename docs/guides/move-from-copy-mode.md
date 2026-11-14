@@ -13,8 +13,8 @@ is a one-time change, by hand or by an agent following these steps.
 - Each provider you use from Nix (its tools, a `nix/package.nix`, a `src/` on `PYTHONPATH`) has a release with
   a `graft.nix`. Its CHANGELOG says which release, and which settings moved from Nix arguments to a file.
 - graft v2.12's weekly upgrade job cannot make this move. When it tries to take v2.13.0, the job fails, with
-  `graft v2.13.0 replaced copied scions with git submodules: see …CHANGELOG.md…` in its log, and opens no
-  pull request. Do these steps instead.
+  `graft: graft v2.13.0 replaced copied scions with git submodules; this upgrade can't be automatic: follow the Upgrading steps of v2.13.0 in graft's CHANGELOG.md (…)`
+  in its log, and pushes nothing. Do these steps instead.
 - The example has a flake at the top and scions in `scions/`. For a flake in a subdirectory, see the notes
   in each step.
 
@@ -64,7 +64,7 @@ is a one-time change, by hand or by an agent following these steps.
 
    ```
    git add flake.nix
-   nix run github:danielnaab/graft/v2.13.0 -- add https://github.com/danielnaab/knowledge-base-kit@v2.2.0
+   nix run github:danielnaab/graft/v2.13.0 -- add -C . https://github.com/danielnaab/knowledge-base-kit@v2.2.0
    ```
 
    In a subdirectory flake, add `--scions nix/agent-tools/.scions` to the first `add`.

@@ -1,6 +1,6 @@
 apiVersion: kb/v1
 name: graft
-description: "graft: copy pinned exports of other repositories into a repository"
+description: "graft: graft other repositories as git submodules at release tags, and wire what they ship into a Nix flake"
 
 entrypoints:
   human: README.md
@@ -8,7 +8,7 @@ entrypoints:
 
 imports:
   - kind: local
-    path: scions/knowledge-base-kit
+    path: scions/knowledge-base-kit  # a git submodule at a release tag
     relationship: foundational
     sync_policy: extend
 
@@ -39,4 +39,5 @@ rules:
       include: [docs/reference/**]
   writes:
     allow: ["docs/**", "lib/**", "tests/**", "template/**"]
-    deny: ["scions/**"]
+    # scions/** is left out on purpose: a scion is another repository, and an edit there is a change to that
+    # provider, made on a branch in the scion and upstreamed (docs/guides/fix-a-provider.md). Ask first.

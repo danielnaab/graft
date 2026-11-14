@@ -34,37 +34,65 @@ nix run '.#graft' check && test -z "$(git status --porcelain)" && nix flake chec
 
 ## `graft check` messages
 
-### scions/README.md lacks graft's marker: run graft sync
+### graft: no scions here (no README.md carrying graft's marker); graft add URL grafts one
 
-The scions directory's README was deleted, or its first line was edited away. Run `nix run .#graft sync`,
-and commit `scions/README.md`. graft reads only the marker line; the rest is yours to add to.
+Not a failure (exit 0). graft found no `README.md` with its marker line: the repository grafts nothing yet,
+or the scions README was deleted. If you have scions, run `nix run .#graft sync`, which writes it again, and
+commit `scions/README.md`.
 
-### scions/foo is not a submodule: graft add URL, or remove it
+### graft: scions/foo is not a submodule: graft add URL, or remove it
 
-A folder in the scions directory is not a submodule: files committed there by hand, a copy-mode scion left
-over from v2.12.0, or a submodule removed from `.gitmodules` but not from the tree. If it is a provider,
-`git rm -r scions/foo`, then `nix run .#graft add URL`. If it is not, move it out of the scions directory.
-The same message names an entry in `.gitmodules` under the scions directory whose folder does not exist:
-`git rm --cached scions/foo` and delete its section from `.gitmodules` (`git config -f .gitmodules
---remove-section submodule.scions/foo`).
+A folder in the scions directory is not a submodule: files committed there by hand, or a copy-mode scion left
+over from v2.12.0. If it is a provider, `git rm -r scions/foo`, then `nix run .#graft add URL`. If it is not,
+move it out of the scions directory.
 
-### relative URL
+### graft: scions/x is a submodule .gitmodules doesn't register: …
 
-A `.gitmodules` URL is relative, such as `../knowledge-base-kit.git`. git resolves it from your remote, but
-Nix cannot. Write the absolute URL: `git submodule set-url scions/NAME https://…`, then commit `.gitmodules`.
+The tree has a gitlink at `scions/x`, but `.gitmodules` has no entry for it, so nobody can fetch it. Do what
+the message says: `git rm --cached scions/x`, then `nix run .#graft add URL`.
 
-### add inputs.self.submodules = true;
+### graft: scions/x is a submodule with no folder: …
 
-The flake is at the repository's top, and is a git flake, so Nix leaves scions out of its source without
-this line. Add `inputs.self.submodules = true;` to `flake.nix`, and commit. It needs Nix 2.27 or later.
+The tree records the submodule, but its folder is gone from the working tree. Fill it,
+`git submodule update --init --recursive -- scions/x`, or remove the scion, `git rm scions/x`.
 
-### scions/NAME is empty: graft sync
+### graft: .gitmodules registers scions/x, which is not a submodule here: …
 
-The scion is not filled: a fresh clone or worktree. Run `nix run .#graft sync` (or
-`git submodule update --init`). To make it happen by itself, see
+A `.gitmodules` entry is left over from a scion that was removed without `git rm`. Remove the entry,
+`git config -f .gitmodules --remove-section submodule.scions/x`, or graft it again with `graft add`. Commit
+`.gitmodules`.
+
+### graft: scions/x: .gitmodules gives a relative URL (../x.git), which Nix can't resolve: …
+
+git resolves a relative URL from your remote, but Nix cannot. Write the absolute URL:
+
+```
+git config -f .gitmodules submodule.scions/x.url https://forge.example/team/x.git
+git submodule sync -- scions/x
+```
+
+Then commit `.gitmodules`.
+
+### graft: flake.nix doesn't declare inputs.self.submodules = true;, so Nix sees no scions: add it (Nix 2.27 or later)
+
+A git flake at the repository's top leaves scions out of its source without this line. Add
+`inputs.self.submodules = true;` to `flake.nix`, and commit. If your flake deliberately reads no scions (it
+only grafts docs, say), put the comment `# graft: no self.submodules` in `flake.nix` instead.
+
+### graft: scions/NAME is empty: graft sync (or git submodule update --init -- scions/NAME)
+
+The scion is not filled: a fresh clone or worktree. Run `nix run .#graft sync`, or
+`git submodule update --init --recursive`. To make it happen by itself, see
 [Clones, worktrees, sandboxes and CI](clones-and-worktrees.md).
 
-### uncommitted edits in scions/NAME: … (Nix builds ignore them while the rest of the tree is clean)
+### graft: scions/NAME's own submodules are empty (…): graft sync (Nix fails on them while the repo's tree has a modified file)
+
+The provider grafts other repositories, and git did not fill them: `git submodule update --init --recursive` without
+`--recursive` leaves them empty. Run `nix run .#graft sync`, or
+`git submodule update --init --recursive -- scions/NAME`. Until then, a build with any tracked file modified
+fails with `error: Failed to fetch git repository '…/scions/NAME/…'`.
+
+### graft: uncommitted edits in scions/NAME: FILE … (Nix builds ignore them while the rest of the tree is clean)
 
 Someone edited a provider's tracked files in the scion, or staged a change there. A formatter or a linter's
 `--fix` may have done it. New untracked files, such as `__pycache__/`, do not count. Look:
@@ -88,27 +116,41 @@ git -C scions/NAME diff
   | treefmt | `excludes = ["scions/**"]` under `[global]` in `treefmt.toml` |
   | An agent | the `AGENTS.md` section in [Graft your first pattern](graft-a-repository.md#steps), step 6 |
 
-### scions/NAME is checked out at X but the repository records Y: git add scions/NAME to record it, or graft sync to go back
+### graft: scions/NAME is checked out at X but the repository records Y: git add scions/NAME to record it, or git submodule update -- scions/NAME to go back
 
 The scion's checkout and the gitlink disagree (`git submodule status` shows `+`). Either someone switched the
 scion to another commit, or the gitlink moved (a pull, a merge, `git checkout` without
-`submodule.recurse=true`) and the scion did not follow.
+`submodule.recurse=true`) and the scion did not follow. While this lasts, a build reads the gitlink when the
+tree is clean and the checkout when it is not.
 
-- To go back to the recorded pin: `git submodule update -- scions/NAME`. (`graft sync` fills only empty
-  scions, and never moves a filled one.)
+- To go back to the recorded pin: `git submodule update -- scions/NAME`. (`graft sync` never moves a filled
+  scion.)
 - To record the checkout as the new pin: `git add scions/NAME`. Only do this at a release tag, or the next
   message follows. To take a newer release, prefer `nix run .#graft upgrade NAME`.
 
-### scions/NAME at abc1234 is not a release tag of URL (nearest: v1.0.0-1-g…): release it, or graft upgrade NAME
+### graft: scions/NAME at abc1234 is not a release tag of URL (nearest: v1.0.0-1-g…): release it, or graft upgrade NAME
 
 The gitlink is not the commit of any version tag of the provider: an unreleased fix was committed
 ([Use the fix before its release](fix-a-provider.md#use-the-fix-before-its-release)), or a tag was moved or
 deleted upstream. `nearest` is `git describe` of the commit.
 
-- If the provider has released the fix: `nix run .#graft upgrade NAME`, and commit.
-- If not: ask the provider for a release, or go back to the last one: `nix run .#graft upgrade NAME@TAG`.
+- Move the scion to a release by hand: the provider's release of the fix, or the last release before it.
+  `graft upgrade` refuses a scion that is not at a release
+  (`graft: NAME is at abc1234…, not a release tag; move it by hand (git -C scions/NAME checkout TAG, then git add)`):
 
-If the line ends with `(upstream unreadable: checked local tags)`, graft could not reach the provider, and
+  ```
+  git -C scions/NAME fetch --tags -q
+  git -C scions/NAME checkout -q --detach v1.1.0
+  git add scions/NAME
+  ```
+
+  Then commit.
+
+If the commit was never pushed to the provider, `nix run .#graft` cannot even evaluate (Nix fails with
+`Cannot find Git revision …`, below). Run graft from its own flake instead:
+`nix run github:danielnaab/graft/v2.13.0 -- check -C .`.
+
+If the line before says `(upstream unreadable: checked local tags)`, graft could not reach the provider, and
 compared with the scion's local tags. Fix the access, and run the check again.
 
 ### .forgejo/workflows/FILE differs from the copy this graft version ships
@@ -123,7 +165,7 @@ Two `README.md` files carry graft's marker line. graft finds the scions director
 the one beside your flake, and delete the other README (or its folder, if it is a left-over copy-mode
 scions directory).
 
-### note: scions/NAME has its own submodules (…); Nix fetches them when evaluating
+### graft: note: scions/NAME has its own submodules (…); Nix fetches them when evaluating
 
 Not a failure. The provider grafts other repositories, and Nix fetches them too whenever it evaluates your
 flake. If one of them is private and you cannot read it, your evaluation fails: ask the provider to drop it
@@ -137,10 +179,11 @@ mkFlake raises these when Nix evaluates `packages`, `apps`, `checks` or `devShel
 ### error: Failed to fetch git repository '…/scions/NAME'
 
 Nix's own message, before graft can say anything: the scion is empty (a fresh clone or worktree) and a
-tracked file is modified, so Nix reads the working tree and finds nothing to read. Fill the scions with git:
+tracked file is modified, so Nix reads the working tree and finds nothing to read. The same happens for an
+empty submodule *inside* a scion (`…/scions/NAME/scions/OTHER`). Fill the scions with git:
 
 ```
-git submodule update --init
+git submodule update --init --recursive
 ```
 
 `nix run .#graft sync` may not evaluate here; git always works. A clean clone builds without this, because
@@ -164,11 +207,12 @@ with no submodules: use `git+https://…` instead ([Nix behaviours](../reference
 A warning: `tools` built without those scions. A `path:` flake reads the working tree, and the scions are not
 filled; or the flake was fetched as `github:`, which has no submodules (use `git+https://…`). The same cause
 fails a provider that needs the empty scion: `graft: scions/NAME is empty in the flake's source: …`. Run either command from the
-repository's top; `git submodule update --init` always works ([Clones, worktrees, sandboxes and CI](clones-and-worktrees.md)).
+repository's top; `git submodule update --init --recursive` always works ([Clones, worktrees, sandboxes and CI](clones-and-worktrees.md)).
 
 ### graft: DIR/README.md is graft's copy-mode README (v2.12 or earlier): …
 
-The repository is still in copy mode, and graft's pin moved to v2.13.0. Follow
+Every command and mkFlake say this. The repository is still in copy mode, and graft's pin moved to v2.13.0.
+The message ends `… follow the Upgrading steps of v2.13.0 in graft's CHANGELOG.md (https://github.com/danielnaab/graft/blob/v2/CHANGELOG.md)`. Follow
 [Move from copy mode](move-from-copy-mode.md).
 
 ### graft: DIR/NAME: a scion's folder name must be letters, digits, . _ and - …

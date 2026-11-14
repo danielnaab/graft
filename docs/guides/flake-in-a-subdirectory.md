@@ -16,7 +16,7 @@ copies only that directory, and never your private files, into the Nix store.
   - The scions live **under** the flake's directory, such as `nix/agent-tools/.scions/`: a `path:` flake
     cannot see anything outside its directory.
   - A `path:` flake reads the working tree, so scions must be filled. In a fresh clone, `tools` builds
-    without them, with a warning, until you run `git submodule update --init`.
+    without them, with a warning, until you run `git submodule update --init --recursive`.
   - Your flake's checks cannot read files outside the directory: a provider's check of your pages skips
     ([Make a pattern's checks gate your merges](gate-merges.md#a-flake-in-a-subdirectory)).
 - The steps use `nix/agent-tools` for the subdirectory and `.scions` for the scions directory. Use your own
@@ -111,8 +111,8 @@ nix run 'path:nix/agent-tools#graft' check && test ! -e flake.nix && test -z "$(
 
 ## If something goes wrong
 
-- **`warning: graft: .scions/knowledge-base-kit, … are empty in the flake's source, so the tools leave out what they give: run git submodule update --init (or graft sync)`.**
-  A fresh clone or worktree: the tools build without those providers. Run `git submodule update --init`. To fill scions on every clone, see
+- **`warning: graft: .scions/knowledge-base-kit, … are empty in the flake's source, so the tools leave out what they give: run git submodule update --init --recursive (or graft sync)`.**
+  A fresh clone or worktree: the tools build without those providers. Run `git submodule update --init --recursive`. To fill scions on every clone, see
   [Clones, worktrees, sandboxes and CI](clones-and-worktrees.md).
 - **`error: cannot fetch input 'path:nix/agent-tools' because it uses a relative path`.** Nix 2.24 needs
   the absolute path to write the lock: do step 2.
@@ -125,7 +125,7 @@ nix run 'path:nix/agent-tools#graft' check && test ! -e flake.nix && test -z "$(
 
 | To | Run |
 |---|---|
-| Fill the scions | `git submodule update --init`, or `nix run 'path:nix/agent-tools#graft' sync` |
+| Fill the scions | `git submodule update --init --recursive`, or `nix run 'path:nix/agent-tools#graft' sync` |
 | Check | `nix run 'path:nix/agent-tools#graft' check` |
 | Build the tools | `nix build 'path:nix/agent-tools#tools'` |
 | Upgrade | `nix run 'path:nix/agent-tools#graft' upgrade` |

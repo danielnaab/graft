@@ -63,7 +63,7 @@ version. For `0.y.z`, a new `0.y` counts as one.
    ```
    git -C handbook worktree add -b try-page-rules-v2 ../handbook-try
    cd handbook-try
-   git submodule update --init
+   git submodule update --init --recursive
    ```
 
    For a consumer that is not on your machine, clone it instead:
