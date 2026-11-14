@@ -426,7 +426,7 @@ sec_add() {
   ran "add: --scions PATH" G add -C "$s" --scions nix/tools/.scions "$(url docs)"
   expect "there" has "graft: nix/tools/.scions/docs <- v1.0.0 ($(sha docs v1.0.0 | cut -c1-7))"
   expect "and its README names the path: command" grep -qF "\`nix run 'path:nix/tools#graft' check\`" "$s/nix/tools/.scions/README.md"
-  ran "add: the next scion goes to the same directory" G add -C "$s" "$(url kb)"
+  ran "add: the next scion goes to the same directory" G add -C "$s" "$(url kb)@v1.0.0"
   expect "found by graft's README" has "graft: nix/tools/.scions/kb <- v1.0.0 ($(sha kb v1.0.0 | cut -c1-7))"
   s2=$work/subcmd2 && mkdir -p "$s2/nix/tools" && git_ -C "$s2" init -q && cp "$s/nix/tools/flake.nix" "$s2/nix/tools/" && git_ -C "$s2" add -A
   ran "add: the repo's own app, run from its subdirectory, puts the first scion beside it" \
