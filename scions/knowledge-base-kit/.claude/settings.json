@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(/secrets/**)",
+      "Edit(/credentials/**)",
+      "Edit(/scions/**)"
+    ]
+  }
+}

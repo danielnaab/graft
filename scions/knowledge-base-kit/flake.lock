@@ -1,0 +1,67 @@
+{
+  "nodes": {
+    "graft": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1794330098,
+        "narHash": "sha256-Q0pCesVUeYOsGnOmgYSHYi4Vb+VLMBxGvC5MsKqg6co=",
+        "owner": "danielnaab",
+        "repo": "graft",
+        "rev": "1ca7006dd1387993923e6db61369f83828ed8f23",
+        "type": "github"
+      },
+      "original": {
+        "owner": "danielnaab",
+        "ref": "v2.9.0",
+        "repo": "graft",
+        "type": "github"
+      }
+    },
+    "living-specifications": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794413295,
+        "narHash": "sha256-Br1jA0NNj1AtFpIBLvLzIwo4O46NddUIDM96SsVK6gk=",
+        "owner": "danielnaab",
+        "repo": "living-specifications",
+        "rev": "3dba1ae2243074bf344cdf5464f7f5f3d311bc63",
+        "type": "github"
+      },
+      "original": {
+        "owner": "danielnaab",
+        "ref": "v1.0.2",
+        "repo": "living-specifications",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1767313136,
+        "narHash": "sha256-16KkgfdYqjaeRGBaYsNrhPRRENs0qzkQVUooNHtoy2w=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "ac62194c3917d5f474c1a844b6fd6da2db95077d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-25.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "graft": "graft",
+        "living-specifications": "living-specifications",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

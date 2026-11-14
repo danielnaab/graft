@@ -1,0 +1,44 @@
+apiVersion: kb/v1
+name: knowledge-base-kit
+version: 2.1.0
+description: "Knowledge base conventions, and the checker that enforces them"
+
+entrypoints:
+  human: README.md
+  agent: AGENTS.md
+
+paths:
+  docs: docs
+  notes: notes
+  specs: specs
+
+provides:
+  strategiesDir: docs/strategies
+  policiesDir: docs/policies
+  playbooksDir: docs/playbooks
+  examplesDir: examples
+  adaptersDir: adapters
+  tools: src
+
+sources:
+  canonical:
+    - path: docs/**
+      note: "Conventions and tool usage are canonical"
+    - path: specs/**
+      note: "Behavioral specifications of the checker are canonical"
+
+composition:
+  precedence: domain-over-imports
+  mergeStrategy: deep-merge
+
+rules:
+  lifecycle:
+    statuses: ["draft", "working", "stable", "deprecated"]
+  provenance:
+    requiredFor: ["tool-documentation", "behavioral-specifications"]
+  checks:
+    provenance:   # the conventions in docs/ are the source of their rules; the checker's docs cite theirs
+      include: ["specs/**", "docs/tools.md"]
+  writes:
+    allow: ["docs/**", "notes/**", "examples/**", "specs/**", "src/**", "tests/**"]
+    deny: ["secrets/**", "credentials/**", "scions/**"]   # enforced by .claude/settings.json

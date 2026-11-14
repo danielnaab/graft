@@ -1,0 +1,47 @@
+# managed by graft: https://github.com/danielnaab/graft (delete this line to keep your own edits)
+# graft's integrity check: the scions directory, and graft's workflows, match flake.lock's pins.
+# Copy to .forgejo/workflows/. The step itself is `nix run .#graft ci check` (graft's lib/ci.sh)
+# at the graft version the repo pins, and `graft upgrade` replaces this file with the copy each new
+# version ships, as long as the line above is here.
+name: graft-check
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: graft-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scions:
+    # Any runner with Nix. On Forgejo, a docker label for docker://nixos/nix keeps this off
+    # host runners; its jobs are short (a fetch and a diff).
+    runs-on: nixos-latest
+    timeout-minutes: 20
+    env:
+      NIX_CONFIG: |
+        experimental-features = nix-command flakes
+        sandbox = false
+    steps:
+      - name: Checkout
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin "$REPO_URL.git"
+          git -c "http.extraheader=Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" \
+            fetch -q --no-tags --depth=1 origin "$SHA"
+          git checkout -q --force --detach "$SHA"
+
+      - name: Scions match flake.lock
+        run: |
+          # graft's flake: at the top, or where the scions README records it (mkFlake's flakeDir).
+          # Bash and git only: the nixos/nix image has no sed.
+          d=$(git grep -h '^<!-- graft flake: .* -->$' -- README.md '*/README.md' || true)
+          d=${d%%$'\n'*} && d=${d#'<!-- graft flake: '} && d=${d%' -->'}
+          flake=.; if [ -n "$d" ]; then flake=path:$PWD/$d; fi
+          nix run "$flake#graft" ci check

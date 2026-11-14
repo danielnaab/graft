@@ -1,0 +1,99 @@
+# managed by graft: https://github.com/danielnaab/graft (delete this line to keep your own edits)
+# graft's upgrade bot, run by the repo itself: weekly, move graft's own pin and the scions pinned to
+# a tag to the newest tag upstream, and propose the change as a PR from the branch graft/upgrade.
+# Nothing is pushed to the default branch: review and merge are yours. Copy to .forgejo/workflows/.
+# The steps are `nix run .#graft ci upgrade|pr` (graft's lib/ci.sh) at the graft version the
+# repo pins, and `graft upgrade` replaces this file with the copy each new version ships, as long as
+# the line above is here.
+name: graft-upgrade
+on:
+  schedule:
+    - cron: "23 6 * * 1"   # Mondays 06:23 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: graft-upgrade
+  cancel-in-progress: false
+
+env:
+  NIX_CONFIG: |
+    experimental-features = nix-command flakes
+    sandbox = false
+  BRANCH: graft/upgrade
+
+jobs:
+  # Upgrade, check and push. An upgrade of graft itself runs the new version's code here (its
+  # check, its assemble.sh), and the repo's own checks run over the new upstream content, all
+  # before review, so this job is given no secret: only the job token. If `nix flake check` fails
+  # the branch is still pushed (its commit names the failing checks) and this job fails.
+  upgrade:
+    runs-on: nixos-latest
+    timeout-minutes: 60
+    outputs:
+      changed: ${{ steps.upgrade.outputs.changed }}
+    steps:
+      - name: Checkout the default branch
+        env:
+          SERVER: ${{ github.server_url }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          REF: ${{ github.event.repository.default_branch }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin "$REPO_URL.git"
+          # The token is for this server only (scoped), never for the providers graft-upgrade asks.
+          git config "http.$SERVER/.extraheader" "Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          git fetch -q --no-tags origin "$REF"
+          git checkout -q --force -B "$BRANCH" FETCH_HEAD
+
+      - name: Upgrade, check the result, push it to graft/upgrade
+        id: upgrade
+        run: |
+          # graft's flake: at the top, or where the scions README records it (mkFlake's flakeDir).
+          # Bash and git only: the nixos/nix image has no sed.
+          d=$(git grep -h '^<!-- graft flake: .* -->$' -- README.md '*/README.md' || true)
+          d=${d%%$'\n'*} && d=${d#'<!-- graft flake: '} && d=${d%' -->'}
+          flake=.; if [ -n "$d" ]; then flake=path:$PWD/$d; fi
+          nix run "$flake#graft" ci upgrade
+
+  # Open the PR (or retitle the open one, which the push updated), saying what changed upstream
+  # and whether the checks passed. A fresh job, checked out at the default branch: it runs the
+  # graft that branch pins and never evaluates the upgraded flake, so the PR token never meets
+  # code nobody has reviewed yet. It runs when the upgrade job pushed, even if its checks failed.
+  pr:
+    needs: upgrade
+    if: ${{ !cancelled() && needs.upgrade.outputs.changed == 'true' }}
+    runs-on: nixos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout the default branch
+        env:
+          SERVER: ${{ github.server_url }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          REF: ${{ github.event.repository.default_branch }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin "$REPO_URL.git"
+          git config "http.$SERVER/.extraheader" "Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          git fetch -q --no-tags origin "$REF"
+          git checkout -q --force --detach FETCH_HEAD
+
+      - name: Open (or update) the PR
+        env:
+          WEB: ${{ github.server_url }}/${{ github.repository }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          BASE: ${{ github.event.repository.default_branch }}
+          # The job token can push, but Forgejo (through 11 at least) refuses it when opening a PR
+          # on a private repo. A user's token, in the Actions secret GRAFT_PR_TOKEN (set it once for
+          # all your repos under Settings > Actions > Secrets), opens the PR as that user.
+          PR_TOKEN: ${{ secrets.GRAFT_PR_TOKEN || github.token }}
+        run: |
+          # graft's flake: at the top, or where the scions README records it (mkFlake's flakeDir).
+          # Bash and git only: the nixos/nix image has no sed.
+          d=$(git grep -h '^<!-- graft flake: .* -->$' -- README.md '*/README.md' || true)
+          d=${d%%$'\n'*} && d=${d#'<!-- graft flake: '} && d=${d%' -->'}
+          flake=.; if [ -n "$d" ]; then flake=path:$PWD/$d; fi
+          nix run "$flake#graft" ci pr
