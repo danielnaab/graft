@@ -118,7 +118,7 @@ require it before a merge.
 
    On GitHub, write `.github/workflows/flake-check.yaml` with the same `name:`, triggers and job key, and
    these steps: `uses: actions/checkout@v7`, `uses: cachix/install-nix-action@v31` (Nix 2.27 or later), then
-   `run: nix flake check`. A top-level git flake does not need `submodules: true`: Nix fetches the scions.
+   `run: nix flake check`. A top-level git flake does not need `submodules: recursive`: Nix fetches the scions.
 
 7. On a new branch, commit:
 

@@ -32,7 +32,10 @@ release tag.
   uses it as soon as any tracked file is modified**. Even then it sees only files that git tracks *in the
   scion*: a new file is invisible until `git -C scions/NAME add`. So the same command can pass, then fail,
   with no change to the scion ([Nix behaviours](../reference/nix-behaviours.md#what-a-build-sees-of-a-scion)).
-  The provider's own tests (step 2) are the reliable test; step 3 says how to read a consumer build.
+  The provider's own tests (step 2) are the reliable test; step 3 makes a consumer build use the fix.
+- **Do not switch the consumer's branch while you edit a scion.** A checkout, switch or pull of the parent
+  that moves the scion's gitlink can move the scion under your edits, and with `submodule.recurse=true` it
+  discards uncommitted ones without a word. Commit or stash in the scion first.
 
 ## Steps
 
@@ -50,27 +53,31 @@ release tag.
    PYTHONPATH=src python3 -m pytest tests
    ```
 
-3. Try the fix in the consumer, from the consumer's top. First add new files in the scion, so that Nix can see
-   them:
+3. Build the consumer with the fix, from the consumer's top. Two rules decide what Nix reads: it reads the
+   scion's working tree only while some tracked file *outside* the scion is modified or staged, and then only
+   the files that git tracks *in the scion*. So track new files in the scion, and mark a scratch file with
+   intent to add, which counts as a staged change:
 
    ```
    cd ../..
    git -C scions/knowledge-base-kit add -A
+   touch .graft-try && git add -N .graft-try
    git status --short --untracked-files=no
    ```
 
-   A consumer build uses your edit only if that lists a modified file **other than** `scions/…`, such as
-   ` M docs/outage.md`. If it lists only the scion, the build tests the release, not your fix. Then:
+   `git status` must list ` A .graft-try` (or another modified file outside `scions/`) besides
+   ` m scions/knowledge-base-kit`. Then build and check with the fix:
 
    ```
    nix shell .#tools -c kb-lint .
    nix flake check
    ```
 
-   For a flake in a subdirectory, `nix shell 'path:DIR#tools' -c kb-lint .` reads the working tree every
-   time. Never build `path:.` at a repository's top: it copies every file there, ignored ones included, into
-   the world-readable Nix store. To test the committed state exactly, push the branch and record it on a
-   consumer branch ([Use the fix before its release](#use-the-fix-before-its-release)).
+   Remove the scratch file when you are done: `git rm -q --cached .graft-try && rm .graft-try`.
+
+   For a flake in a subdirectory, skip the scratch file: `nix shell 'path:DIR#tools' -c kb-lint .` reads the
+   working tree every time. Never build `path:.` at a repository's top instead: it copies every file there,
+   untracked and ignored ones included, into the world-readable Nix store.
 
 4. While the fix is not released, `graft check` says so. That is expected:
 
@@ -82,7 +89,8 @@ release tag.
    graft: uncommitted edits in scions/knowledge-base-kit: src/kb_linter/status.py (Nix builds ignore them while the rest of the tree is clean)
    ```
 
-5. Commit the fix in the scion, and push the branch to the provider:
+5. Commit the fix in the scion (before you switch the consumer's branch), and push the branch to the
+   provider:
 
    ```
    cd scions/knowledge-base-kit
@@ -107,17 +115,25 @@ release tag.
 
    The scion is at its gitlink again. Your branch stays in the scion's git directory.
 
-8. When the provider releases the fix, take it:
+8. The provider merges the fix, tags a release, and pushes the tag:
 
    ```
-   nix run .#graft upgrade knowledge-base-kit
+   git -C ~/src/knowledge-base-kit tag v2.2.1 && git -C ~/src/knowledge-base-kit push origin main v2.2.1
+   ```
+
+   (Or its maintainers do.) Then take it in the consumer, naming the tag:
+
+   ```
+   nix run .#graft upgrade knowledge-base-kit@v2.2.1
    ```
 
    ```
    graft: knowledge-base-kit v2.2.0 -> v2.2.1
    ```
 
-   Then commit and check, as in [Take a newer version by hand](upgrade.md#steps).
+   `NAME@TAG` works also when the consumer recorded the unreleased fix
+   ([Use the fix before its release](#use-the-fix-before-its-release)). Then commit and check, as in
+   [Take a newer version by hand](upgrade.md#steps).
 
 ## Check it worked
 
@@ -140,10 +156,9 @@ git commit -m "knowledge-base-kit: fix-status-values, until v2.2.1"
 
 Nix fetches a commit that is on any branch of the provider, so builds work. `graft check` fails with
 `graft: scions/knowledge-base-kit at abc1234 is not a release tag of …: release it, or graft upgrade knowledge-base-kit`, so the
-pull request cannot pass graft-check until the scion is at a release. `graft upgrade` refuses a scion that is
-not at a release, so move it by hand when the release is out:
-`git -C scions/knowledge-base-kit fetch --tags -q && git -C scions/knowledge-base-kit checkout -q --detach v2.2.1 && git add scions/knowledge-base-kit`.
-Until the commit is pushed, `nix run .#graft` itself cannot evaluate; run
+pull request cannot pass graft-check until the scion is at a release: step 8's
+`nix run .#graft upgrade knowledge-base-kit@v2.2.1` moves it there. Until the commit is pushed, Nix cannot
+fetch it, so `nix run .#graft` itself cannot evaluate on a clean tree; run
 `nix run github:danielnaab/graft/v2.13.0 -- check -C .` instead. With
 `push.recurseSubmodules=check` ([Clones, worktrees, sandboxes and CI](clones-and-worktrees.md)), git refuses
 to push the consumer while the scion's commit is on no remote.

@@ -64,7 +64,7 @@ works this way, see [Decisions](decisions.md).
 | Scion | A submodule: an entry in `.gitmodules` (path and URL) and a gitlink (mode `160000`) in the tree. |
 | Pin | The gitlink. `git ls-files -s scions/NAME` prints it. |
 | Version | A semver git tag on the provider. graft reads tags with `git ls-remote --tags URL`. |
-| Scions in a build | A git flake with `inputs.self.submodules = true;` has each submodule in its source (`${inputs.self}/scions/NAME`). A `path:` flake copies the working tree, submodules included. |
+| Scions in a build | A git flake with `inputs.self.submodules = true;` has each submodule in its source (`${inputs.self}/scions/NAME`). Nix fetches **every** submodule in the repository then, not only scions, so each must be readable. A `path:` flake copies the working tree, submodules included. |
 | A scion in the Nix store | mkFlake copies each scion alone (`scion-NAME`), so a tool's store path does not change when an unrelated file of the consumer changes. |
 | Provider outputs | Each scion's `graft.nix`, called once per system. Its `tools` become `packages.<system>.tools`, one environment; its checks become `checks.<system>.<scion>-<name>`. |
 | Scions directory | `<dir>/`, where `dir` is a `mkFlake` argument, default `scions`, beside `flake.nix`. |

@@ -18,13 +18,13 @@ works when they are empty, fill them where it matters, and set up your machine s
 
 | Use | Empty scions |
 |---|---|
-| A top-level git flake: `nix build .#tools`, `nix flake check`, `nix run .#graft …`, with no tracked file modified | Works. Nix fetches each scion at its gitlink from the URL in `.gitmodules`. |
-| The same, after any tracked file is modified (an agent's first edit, a CI step that writes a file) | Fails inside Nix: `error: Failed to fetch git repository '…/scions/NAME'`. Nix reads the working tree, and the scion is empty. Fill the scions first. |
+| A top-level git flake: `nix build .#tools`, `nix flake check`, `nix run .#graft …`, with no tracked file modified | Works, if every scion's commit is on its provider's remote: Nix fetches each scion at its gitlink from the URL in `.gitmodules`, before graft runs. Otherwise `nix run github:danielnaab/graft/v2.13.0 -- check -C .` still runs. |
+| The same, after any tracked file is modified (an agent's first edit, a CI step that writes a file) | Fails inside Nix: `error: Failed to fetch git repository '…/scions/NAME'`. Nix reads the working tree, and the scion is empty. `nix run .#graft sync` cannot run either, because the flake does not evaluate: run `git submodule update --init --recursive` first. |
 | `nix run github:danielnaab/graft/v2.13.0 -- outdated -C .` and the other `-C` commands | Works: graft reads `.gitmodules` and the gitlinks. |
 | A `path:` flake in a subdirectory | `tools` builds without the empty scions, with a warning; a provider that needs one fails. Fill the scions first. |
 | Reading a scion's files, agents following them, `PYTHONPATH=scions/…` | Nothing to read. Fill the scions first. |
 | `just` with `import? "scions/…"` | Lists your own recipes, without the provider's. With `import` (no `?`), `just` fails to parse. |
-| `graft check` | Fails: `scions/NAME is empty: graft sync`. `graft ci check` does not need filled scions. |
+| `graft check` | Fails: `scions/NAME is empty: …`. `graft ci check` does not need filled scions. |
 
 ## Fill the scions
 
@@ -46,11 +46,11 @@ there is none, name only the public scions.
 
 ## Set up your machine once
 
-Git can fill scions and move them with the parent by itself. With Home Manager, in `programs.git.extraConfig`:
+Git can fill scions in new clones and worktrees by itself, and refuse a push that would break builds. With
+Home Manager, in `programs.git.extraConfig`:
 
 ```nix
 {
-  submodule.recurse = true;            # checkout, switch, pull and merge move scions with the parent
   push.recurseSubmodules = "check";    # refuse to push a gitlink whose commit is on no remote
   status.submoduleSummary = true;      # git status shows scion moves
   diff.submodule = "log";              # diffs list the provider commits that a scion move takes
@@ -76,7 +76,6 @@ graftPopulate = pkgs.writeShellScript "graft-populate" ''
 Without Home Manager, the same with `git config --global`:
 
 ```
-git config --global submodule.recurse true
 git config --global push.recurseSubmodules check
 git config --global status.submoduleSummary true
 git config --global diff.submodule log
@@ -90,6 +89,13 @@ with the script above saved as `~/.local/bin/graft-populate` and made executable
   in every repository with a `.gitmodules`, graft's or not. When a fetch fails (offline, a private scion
   without its key), it prints a warning and the checkout still succeeds: run `git submodule update --init --recursive`
   later.
+- **Do not set `submodule.recurse = true`.** With it, a checkout, switch or pull of the parent that moves a
+  scion's gitlink also checks out the scion, and discards uncommitted edits in it without a word: an agent
+  fixing a provider in place loses its work. Without it, the scion stays where it is after a pull, and
+  `graft check` reports it (`scions/NAME is checked out at X but the repository records Y`); move it on
+  purpose with `git submodule update --init --recursive -- scions/NAME`.
+- Even without it, commit (or stash) in a scion before you switch the parent's branch, and run
+  `git submodule update --init --recursive` after.
 - Config-based hooks (`hook.<name>.event`) need git 2.54 or later. On older git, run `nix run .#graft sync`
   after a clone or `worktree add`.
 - `push.recurseSubmodules=check` stops you pushing a consumer whose gitlink points at a scion commit that you
@@ -122,12 +128,12 @@ after setup must fill the scions during setup.
 
 - **graft's Forgejo workflows** fill the scions where it is needed (a flake in a subdirectory), and leave it
   to Nix for a top-level flake.
-- **GitHub Actions:** `actions/checkout` with `submodules: true`. For a private scion, also pass an `ssh-key`
+- **GitHub Actions:** `actions/checkout` with `submodules: recursive`. For a private scion, also pass an `ssh-key`
   that can read it.
 - **Automation that clones or pulls** (a systemd pull timer, a workflow engine's job, a bootstrap script for
   a new machine): clone with `--recurse-submodules`, and run `git submodule update --init --recursive --quiet` after each
-  pull or fast-forward. Do not rely on the machine's `submodule.recurse` or hook: a service may not read the
-  user's git config, and a new machine has neither yet. Until the scions are filled, a `path:` flake builds
+  pull or fast-forward. Do not rely on the machine's hook: a service may not read the user's git config, and
+  a new machine has none yet. Until the scions are filled, a `path:` flake builds
   `tools` without them, and a git flake build fails once the job modifies a tracked file.
 
 ## Check it worked

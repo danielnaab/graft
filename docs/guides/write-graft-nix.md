@@ -96,9 +96,52 @@ their flake, with no Nix code of theirs: one `graft.nix` at the top of your repo
    file matters: [Fix a provider from a consumer](fix-a-provider.md). When done,
    `git submodule update -- scions/note-kit` puts the scion back.
 
-5. Commit `graft.nix`, the tool and your README, then release
+5. Check the contract in your own flake ([below](#check-the-contract-before-you-tag)), and run
+   `nix flake check` there.
+
+6. Commit `graft.nix`, the tool and your README, then release
    ([Publish a pattern](publish.md)). Adding a `graft.nix` is a minor version. Removing a tool, renaming one,
    or changing a settings file's shape is a major version.
+
+## Check the contract before you tag
+
+A mistake in `graft.nix` reaches every consumer at their next upgrade, and it is loud:
+
+- An evaluation error (a `throw`, a missing attribute, a package that does not exist) fails the consumer's
+  `packages.<system>.tools`, its checks and `graft check`, naming your provider. The weekly upgrade's pull
+  request then shows `[checks failing]`.
+- A **parse error** (a missing `;` or brace) breaks the consumer's whole flake, its own outputs included: Nix
+  cannot contain it. The consumer has to move your scion back by hand.
+
+So evaluate `graft.nix` in your own flake, the way a consumer does, and assert what it gives. Use graft's
+`mkFlake` with `perSystem`, and import your `graft.nix` with your repository as both `scion` and `consumer`:
+
+```nix
+{
+  inputs.self.submodules = true;
+  inputs.graft.url = "github:danielnaab/graft/v2.13.0";
+  outputs = { self, graft, ... }@inputs: graft.lib.mkFlake {
+    inherit inputs;
+    perSystem = { pkgs, lib, system, scions, ... }:
+      let own = import ./graft.nix { inherit pkgs lib system scions; scion = self; consumer = self; }; in
+      {
+        inherit (own) tools;
+        checks = own.checks // {
+          graft-nix =
+            assert lib.assertMsg (lib.attrNames own.tools == [ "note-lint" ]) "graft.nix: tools are ${toString (lib.attrNames own.tools)}";
+            pkgs.runCommand "graft-nix" { nativeBuildInputs = lib.attrValues own.tools; } ''
+              note-lint --help > /dev/null
+              touch $out
+            '';
+        };
+      };
+  };
+}
+```
+
+`nix flake check` then parses `graft.nix`, builds every tool, runs your checks on your own repository, and
+fails if the contract changed. knowledge-base-kit's `flake.nix` does this with its `graft-nix` check. Then
+try the release candidate in one real consumer (step 4) before you tag.
 
 ## Use another provider
 
