@@ -80,8 +80,8 @@ git submodules give you a pinned clone. graft adds what makes them a dependency 
   checks fail.
 - **Provider wiring.** Each provider's `graft.nix` contributes tools, apps and checks; your `flake.nix` names
   no provider.
-- **Empty folders answered.** Nix fetches scions itself for a git flake, a post-checkout hook fills them in
-  new clones and worktrees, and `graft sync` fills them anywhere
+- **Empty folders answered.** Nix fetches scions itself for a git flake while its tree is clean, a
+  post-checkout hook that the guide gives fills them in new clones and worktrees, and `graft sync` fills them
   ([Clones, worktrees, sandboxes and CI](docs/guides/clones-and-worktrees.md)).
 - **An agent rule** for working with scions, ready to paste into `AGENTS.md`.
 
