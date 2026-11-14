@@ -76,25 +76,40 @@ their flake, with no Nix code of theirs: one `graft.nix` at the top of your repo
    space: `note-lint`, not `lint`. Checks are prefixed for you (`checks.<system>.note-kit-notes`). A clash is
    an evaluation error in the consumer that names both providers.
 
-4. Try it in the consumer before you release. In the consumer, check out your working branch in the scion:
+4. Try it in the consumer before you release. In the consumer, check out your working branch in the scion,
+   and turn on `graft try`, so that Nix builds the scion's working tree, new files included:
 
    ```
    git -C scions/note-kit fetch origin my-branch
    git -C scions/note-kit checkout --detach FETCH_HEAD
-   git -C scions/note-kit add -A
+   nix run .#graft -- try note-kit
    ```
 
-   Then, with a tracked file of the consumer modified (or, for a flake in a subdirectory, with
-   `'path:DIR#…'`):
+   ```
+   graft: try is on: Nix builds of this repository read its working tree, and its scions' (.graft-try marks it)
+   graft: scions/note-kit: detached at 4c5d6e7, 2 commits after v1.0.0, not the recorded v1.0.0 (19392ed): no edits
+   graft: build from the repository's top: nix build .#tools, nix shell .#tools -c TOOL, or nix flake check
+   …
+   ```
+
+   Then build with the command it prints:
 
    ```
    nix shell .#tools -c note-lint --help
    nix flake check
    ```
 
-   `nix eval .#checks.x86_64-linux --apply builtins.attrNames` lists `"note-kit-notes"`. Why the tracked
-   file matters: [Fix a provider from a consumer](fix-a-provider.md). When done,
-   `git submodule update -- scions/note-kit` puts the scion back.
+   `nix eval .#checks.x86_64-linux --apply builtins.attrNames` lists `"note-kit-notes"`. Why `try` is needed:
+   [Fix a provider from a consumer](fix-a-provider.md). When done, turn it off and put the scion back:
+
+   ```
+   nix run .#graft -- try --stop
+   git submodule update --recursive -- scions/note-kit
+   ```
+
+   For a flake in a subdirectory, `try` prints `'path:DIR#…'` commands and changes nothing: a `path:` flake
+   reads its working tree on every build. If the consumer's flake cannot evaluate, run
+   `nix run github:danielnaab/graft/v2.13.0 -- try -C .` instead.
 
 5. Check the contract in your own flake ([below](#check-the-contract-before-you-tag)), and run
    `nix flake check` there.
@@ -204,7 +219,8 @@ Use your machine's system for `x86_64-linux`.
 ## If something goes wrong
 
 - **`opening file '/nix/store/…-scion-note-kit/bin/note-lint': No such file or directory`.** The file is not
-  committed (or, while you try it, not `git add`-ed in the scion). Nix sees only tracked files.
+  committed, and, while you try it, you created it after `graft try`: run `nix run .#graft -- try` again. A git
+  flake sees only files that git tracks in the scion, and `try` marks the new ones it finds.
 - **The consumer's check fails with `cannot execute: required file not found`.** It runs your script
   directly, and its `#!/usr/bin/env bash` names a path that Nix's build sandbox lacks. Run the built tool
   (`note-lint` from `nativeBuildInputs`), not `bin/note-lint`.

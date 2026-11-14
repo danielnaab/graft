@@ -30,9 +30,10 @@ release tag.
 - Know the Nix behaviour that makes this confusing: a git flake build (`nix build .#tools`,
   `nix flake check`) **ignores your uncommitted edit in a scion while every other tracked file is clean, and
   uses it as soon as any tracked file is modified**. Even then it sees only files that git tracks *in the
-  scion*: a new file is invisible until `git -C scions/NAME add`. So the same command can pass, then fail,
-  with no change to the scion ([Nix behaviours](../reference/nix-behaviours.md#what-a-build-sees-of-a-scion)).
-  The provider's own tests (step 2) are the reliable test; step 3 makes a consumer build use the fix.
+  scion*: a new file is invisible. So the same command can pass, then fail, with no change to the scion
+  ([Nix behaviours](../reference/nix-behaviours.md#what-a-build-sees-of-a-scion)). The provider's own tests
+  (step 2) are the reliable test; `graft try` (step 3) makes every consumer build use the fix, until you turn
+  it off.
 - **Do not switch the consumer's branch while you edit a scion.** A checkout, switch or pull of the parent
   that moves the scion's gitlink can move the scion under your edits, and with `submodule.recurse=true` it
   discards uncommitted ones without a word. Commit or stash in the scion first.
@@ -53,40 +54,54 @@ release tag.
    PYTHONPATH=src python3 -m pytest tests
    ```
 
-3. Build the consumer with the fix, from the consumer's top. Two rules decide what Nix reads: it reads the
-   scion's working tree only while some tracked file *outside* the scion is modified or staged, and then only
-   the files that git tracks *in the scion*. So track new files in the scion, and mark a scratch file with
-   intent to add, which counts as a staged change:
+3. Build the consumer with the fix. From the consumer's top, turn on `graft try`:
 
    ```
    cd ../..
-   git -C scions/knowledge-base-kit add -A
-   touch .graft-try && git add -N .graft-try
-   git status --short --untracked-files=no
+   nix run .#graft -- try knowledge-base-kit
    ```
 
-   `git status` must list ` A .graft-try` (or another modified file outside `scions/`) besides
-   ` m scions/knowledge-base-kit`. Then build and check with the fix:
+   ```
+   graft: try is on: Nix builds of this repository read its working tree, and its scions' (.graft-try marks it)
+   graft: scions/knowledge-base-kit: branch fix-status-values at v2.2.0 (19392ed), as recorded: 1 modified, 1 new
+   graft: build from the repository's top: nix build .#tools, nix shell .#tools -c TOOL, or nix flake check
+   graft: a file you create in a scion later needs graft try again; graft try --stop turns try off, and graft check fails until then
+   ```
+
+   It marks `.graft-try` with intent to add, so every Nix build reads the working tree, and marks the scion's
+   new files with intent to add there, so Nix sees them. It commits nothing. Check its line for the scion:
+   the branch, the edits you expect. With no name, it does this for every scion. Then build and check with
+   the fix:
 
    ```
    nix shell .#tools -c kb-lint .
    nix flake check
    ```
 
-   Remove the scratch file when you are done: `git rm -q --cached .graft-try && rm -f .graft-try`.
+   Created another file in the scion? Run `nix run .#graft -- try` again. When the consumer's flake cannot
+   evaluate (the fix broke `graft.nix`, say), run `nix run github:danielnaab/graft/v2.13.0 -- try -C .`.
 
-   For a flake in a subdirectory, skip the scratch file: `nix shell 'path:DIR#tools' -c kb-lint .` reads the
-   working tree every time. Never build `path:.` at a repository's top instead: it copies every file there,
-   untracked and ignored ones included, into the world-readable Nix store.
+   For a flake in a subdirectory, `try` changes nothing and prints `nix shell 'path:DIR#tools' -c TOOL`: a
+   `path:` flake reads its working tree, new files included, on every build. Never build `path:.` at a
+   repository's top instead: it copies every file there, untracked and ignored ones included, into the
+   world-readable Nix store.
 
-4. While the fix is not released, `graft check` says so. That is expected:
+4. While try is on, `graft check` fails first on that, then on the unreleased fix. That is expected:
 
    ```
    nix run .#graft check
    ```
 
    ```
+   graft: graft try is on (.graft-try): Nix builds read the working tree, scions included: graft try --stop turns it off
    graft: uncommitted edits in scions/knowledge-base-kit: src/kb_linter/status.py (Nix builds ignore them while the rest of the tree is clean)
+   ```
+
+   When you are done building, turn try off. It unmarks the new files and removes `.graft-try`; your edits
+   stay:
+
+   ```
+   nix run .#graft -- try --stop
    ```
 
 5. Commit the fix in the scion (before you switch the consumer's branch), and push the branch to the
@@ -94,7 +109,8 @@ release tag.
 
    ```
    cd scions/knowledge-base-kit
-   git commit -am "kb-lint: accept every status that knowledge-base.yaml lists"
+   git add -A
+   git commit -m "kb-lint: accept every status that knowledge-base.yaml lists"
    git push origin fix-status-values
    ```
 
@@ -106,10 +122,12 @@ release tag.
 6. Open a pull request on the provider from `fix-status-values`. Say which consumer showed the bug, and how
    to reproduce it.
 
-7. Put the scion back to its pin, so that the consumer stays clean while you wait:
+7. Put the scion back to its pin, so that the consumer stays clean while you wait. If try is still on, turn
+   it off first (`graft upgrade` refuses while it is on):
 
    ```
    cd ../..
+   nix run .#graft -- try --stop
    git submodule update -- scions/knowledge-base-kit
    ```
 
@@ -167,9 +185,11 @@ to push the consumer while the scion's commit is on no remote.
 
 - **`nix flake check` passes, and the fix is not in it; or it fails on an edit you already reverted.** A git
   flake build read the scion at its gitlink, or the working tree, depending on whether another tracked file
-  was modified. Read step 3's `git status` again.
-- **`opening file '/nix/store/…-scion-knowledge-base-kit/NEW-FILE': No such file or directory`.** A file that
-  you created in the scion is not tracked there. `git -C scions/knowledge-base-kit add NEW-FILE`.
+  was modified. Turn on `graft try` (step 3) and read its line for the scion.
+- **`opening file '/nix/store/…-scion-knowledge-base-kit/NEW-FILE': No such file or directory`.** You created
+  the file after `graft try`, so git does not track it in the scion. Run `nix run .#graft -- try` again.
+- **`graft: .graft-try is committed …`.** `git commit -a` took try's marker. `nix run .#graft -- try --stop`
+  stages its removal; commit that ([`graft check` fails](check-fails.md)).
 - **`Cannot find Git revision '<sha>' in ref 'refs/heads/main' of repository '<url>'`.** The consumer records
   a scion commit that the provider does not have: you committed the gitlink before pushing the scion's
   branch. Push it (step 5), or go back with step 7 and `git add scions/NAME`.
@@ -182,16 +202,20 @@ to push the consumer while the scion's commit is on no remote.
 
 ## How it works
 
-- `graft check` fails on uncommitted edits, a scion away from its gitlink, and a gitlink that is not a
-  version tag's commit. So a fix can live in a consumer's working tree and in a pushed branch, and still not
+- `graft try` marks `.graft-try` and the scion's new files with intent to add (`git add -N`): a marked file
+  counts as modified, so Nix reads the working tree, and as tracked, so Nix sees it. Nothing is staged for
+  real, so a plain `git commit` leaves them out. `graft try --stop` unmarks only what is still only marked.
+- `graft check` fails while try is on, and on uncommitted edits, a scion away from its gitlink, and a
+  gitlink that is not a version tag's commit. So a fix can live in a consumer's working tree and in a pushed branch, and still not
   merge unreleased.
 - The provider's release is what every other consumer takes, through its weekly upgrade. Fixing it in the
   provider, not in a consumer's file, is the point.
 
 ## Sources
 
-- [lib/tools.sh](../../lib/tools.sh): `upgrade` refuses a dirty or moved scion.
-- [lib/graft.sh](../../lib/graft.sh): the `check` rules.
+- [lib/tools.sh](../../lib/tools.sh): `upgrade` refuses a dirty scion, and refuses while try is on.
+- [lib/scions.sh](../../lib/scions.sh): `try`, `try --stop` and the `check` rules.
 - [tests/run.sh](../../tests/run.sh): the Nix semantics tests (clean parent ignores a scion edit; dirty parent
-  uses it; an unpushed gitlink fails; a branch commit is fetched).
+  uses it; an unpushed gitlink fails; a branch commit is fetched), and `try` (a build sees the edit and a new
+  file only while it is on; `check` refuses while it is on).
 - [tests/fixtures.sh](../../tests/fixtures.sh) `fix-a-provider`: the repositories this page was read against.

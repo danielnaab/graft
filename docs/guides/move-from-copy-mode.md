@@ -129,8 +129,8 @@ is a one-time change, by hand or by an agent following these steps.
 8. Update your agent instructions: the file your agents read first (`AGENTS.md`, `CLAUDE.md`, or the entry
    point that `knowledge-base.yaml` names). Replace a rule like "never edit `scions/`" with the section in
    [Graft your first pattern](graft-a-repository.md#steps), step 6. If an agent tool or `knowledge-base.yaml`
-   denies writes to the scions directory, decide whether to keep that or to ask instead: a scion edit is now a
-   change to the provider, made on a branch and upstreamed.
+   denies writes to the scions directory, make it ask instead: a scion edit is now a change to the provider,
+   made on a branch and upstreamed, which a person approves.
 
 9. Commit, run `nix flake check` and `nix run .#graft check` again, push, and merge. The next weekly upgrade
    runs v2.13.0's workflows.

@@ -109,24 +109,26 @@ and end with `graft check` passing and everything committed.
    ## Scions (graft)
    `scions/` holds git submodules: other repositories at release tags. Read them; they are the rules and tools
    this repository follows. If one is empty, run `git submodule update --init --recursive`.
-   - Fix a provider bug here only as a provider change: in `scions/NAME`, `git switch -c fix-…`, edit, run the
-     provider's own tests there, push the branch to the provider and open its pull request. This repository takes
-     the fix with `nix run .#graft upgrade NAME@TAG` once it is released.
+   - Ask before you edit a scion: an edit there is a change to another repository. Fix it in the provider: in
+     `scions/NAME`, `git switch -c fix-…`, edit, run the provider's own tests there, push the branch to the
+     provider and open its pull request. This repository takes the fix with `nix run .#graft upgrade NAME@TAG`
+     once it is released.
    - Commit or stash in a scion before you switch, pull or check out this repository's branches: a move of the
      scion's gitlink can move the scion under your edits.
-   - Nix builds of this repository see a scion edit only while another tracked file here is modified, and only
-     files that are `git add`-ed inside the scion. A scion checked out away from its gitlink (`git submodule
-     status` shows `+`) changes what Nix builds the same way. Test a provider fix with the provider's own tests.
-   - `nix run .#graft check` fails while a scion has uncommitted edits, is away from its gitlink, or sits on an
-     unreleased commit. Don't commit a moved scion unless it is at a release tag.
+   - A Nix build of this repository uses a scion's uncommitted edits only while another tracked file here is
+     modified, and never its new files. To build with them, run `nix run .#graft -- try NAME`, build with the
+     command it prints, then `nix run .#graft -- try --stop`.
+   - `nix run .#graft check` fails while try is on, or while a scion has uncommitted edits, is away from its
+     gitlink, or sits on an unreleased commit. Don't commit a moved scion unless it is at a release tag.
    ```
 
    For a flake in a subdirectory, write its command, `nix run 'path:DIR#graft'`, for `nix run .#graft`.
 
    Then add a line that says what to follow, for example
    `Follow the policies in scions/knowledge-base-kit/docs/policies/.` If your agent tool denies edits to
-   `scions/`, change that to ask: a scion edit is a provider change that a person should see
-   ([Fix a provider from a consumer](fix-a-provider.md)).
+   `scions/` (a Claude Code `permissions.deny` rule such as `Edit(scions/**)`, say), make it ask instead
+   (`permissions.ask`), and list `scions/**` as ask-first, not denied, in any write rules your agents follow:
+   a scion edit is a provider fix that a person approves ([Fix a provider from a consumer](fix-a-provider.md)).
 
 7. If you use `just`, import a provider's recipes with `import?`, so that a clone with empty scions still
    lists your own recipes:

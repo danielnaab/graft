@@ -183,7 +183,7 @@ graft never takes a new major version unless you name it, `upgrade NAME@TAG`, on
 ### Try a provider's unreleased change
 
 Moved to [Fix a provider from a consumer](fix-a-provider.md): a scion is a clone, so you check out the
-provider's branch in it, and build with a tracked file of your own modified (step 3 there).
+provider's branch in it, and build under `graft try` (step 3 there).
 
 ## Related
 

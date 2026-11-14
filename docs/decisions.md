@@ -40,7 +40,8 @@ Costs accepted:
 - Nix fetches nested submodules, so [One level](#one-level) is now a rule, not only a convention.
 - Nix 2.27 or later, for `inputs.self.submodules`.
 - A git flake sees a scion's uncommitted edits only while another tracked file is modified
-  ([Nix behaviours](reference/nix-behaviours.md)).
+  ([Nix behaviours](reference/nix-behaviours.md)). `graft try` turns that on and off on purpose, with a marker
+  file that `graft check` refuses, so it never merges.
 
 Reopen when Nix can apply a provider's export rules to a submodule (`exportIgnore` with `submodules`), or a
 real consumer cannot use git.

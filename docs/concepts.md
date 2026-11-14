@@ -73,7 +73,9 @@ works this way, see [Decisions](decisions.md).
 Nix and git see a scion differently, and one difference matters every day: a git flake's build reads a scion
 at its **committed** gitlink while the rest of your tree is clean, and from your working tree once any tracked
 file is modified ([Nix behaviours](reference/nix-behaviours.md)). So test a provider fix with the provider's
-own tests, inside the scion, and let `graft check` keep unreleased scions from merging.
+own tests, inside the scion; build your repository with it under [`graft try`](reference/commands.md#try),
+which makes every build read the working tree until `graft try --stop`; and let `graft check` keep
+unreleased scions (and try's marker) from merging.
 
 graft adds, checks, moves tags and wires outputs, and does nothing more. The limits and their reasons are in
 [Decisions](decisions.md#scope-nix-git-submodules-and-a-tag-comparison).

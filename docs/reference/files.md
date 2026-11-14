@@ -15,6 +15,7 @@ The files graft reads and writes, and the lines in them that graft recognizes.
 | The gitlinks | Written by `add` and `upgrade`, or by `git add scions/NAME`. | The pins. Each must be a gitlink (mode 160000 in `git ls-files -s`), never the scion's files: `check` fails on a registered path tracked as files, and `add` refuses to graft over one. |
 | `<dir>/<name>/` | A submodule. Filled by `git submodule update --init --recursive`, `graft sync`, a recursive clone, or the post-checkout hook. | The provider's whole repository at a release tag. |
 | `<dir>/README.md` | Written by `add` and `sync`; `check` looks for its marker line. | The marker README. |
+| `.graft-try` | Written by `try`, at the repository's top, and marked with intent to add; removed by `try --stop`. `check` fails while it exists. Never committed. | Makes every Nix build of a git flake read the working tree; lists the files `try` marked in each scion (`PATH<TAB>FILE` lines under `#` comments). See [try](commands.md#try). |
 | `.forgejo/workflows/graft-*.yaml` | Restored by `sync`, replaced by `upgrade`, compared by `check`. | graft's workflows, if they carry the marker. |
 | Settings files, such as `knowledge-base.yaml` | Read by providers' tools and checks, never by graft. | What a provider lets you configure. Each provider's README names its file. |
 
@@ -31,9 +32,10 @@ top:
 Each folder here is a git submodule: another repository, grafted at a release tag. Empty folders?
 Run `git submodule update --init --recursive` (or `nix run .#graft sync`).
 
-- Read them freely. To fix one, see graft's "Fix a provider from a consumer" guide: edit, test, push to the
-  provider, release, then `graft upgrade NAME`.
-- `graft check` fails until every scion is clean and at a release tag.
+- Read them freely. Ask before you edit one: a fix belongs in the provider. See graft's "Fix a provider from
+  a consumer" guide: edit on a branch, test, build with it (`nix run .#graft -- try NAME`, then `nix run .#graft -- try --stop`),
+  push to the provider, release, then `nix run .#graft upgrade NAME`.
+- `nix run .#graft check` fails until every scion is clean and at a release tag, and while try is on.
 - Versions: `nix run .#graft outdated`.
 ```
 

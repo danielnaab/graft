@@ -39,5 +39,6 @@ rules:
       include: [docs/reference/**]
   writes:
     allow: ["docs/**", "lib/**", "tests/**", "template/**"]
-    # scions/** is left out on purpose: a scion is another repository, and an edit there is a change to that
-    # provider, made on a branch in the scion and upstreamed (docs/guides/fix-a-provider.md). Ask first.
+    # scions/** is ask-first, so it is in neither list (knowledge-base-kit v2.1.0 has allow and deny only): a
+    # scion is another repository, and an edit there is a change to that provider, made on a branch in the
+    # scion and upstreamed (docs/guides/fix-a-provider.md). Ask before editing it.

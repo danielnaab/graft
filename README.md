@@ -63,8 +63,8 @@ The provider releases new versions on its own schedule, and says what changed in
 ## When the pattern has a bug, fix it where you found it
 
 A scion is a real clone of the provider. You, or an agent, can fix a provider's bug in it, run the provider's
-tests there, and push the fix to the provider as a branch. `graft check` keeps the unreleased fix from
-merging; when the provider releases it, every consumer takes it as an upgrade
+tests there, build your repository with it (`graft try`, then `graft try --stop`), and push the fix to the
+provider as a branch. `graft check` keeps the unreleased fix from merging; when the provider releases it, every consumer takes it as an upgrade
 ([Fix a provider from a consumer](docs/guides/fix-a-provider.md)).
 
 ## What graft adds to plain submodules
@@ -73,6 +73,8 @@ git submodules give you a pinned clone. graft adds what makes them a dependency 
 
 - **Release-tag pins, checked.** `graft add` and `graft upgrade` move a scion only to a semver tag, and
   `graft check` fails on a scion that is dirty, away from its gitlink, or on an unreleased commit.
+- **A provider fix, tried in place.** `graft try` makes your builds use a scion's uncommitted edits and new
+  files, which a git flake otherwise ignores, and says what each build will see; `graft try --stop` undoes it.
 - **Majors are a person's decision.** Upgrades stay in each major version unless you name the new one.
 - **Upgrade pull requests** that quote each provider's CHANGELOG, Upgrading sections first, checked by your
   whole `nix flake check`.

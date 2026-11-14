@@ -14,8 +14,9 @@ into its Nix flake: a flake library and one command. Read [README.md](README.md)
 
 ## Rules
 
-1. `scions/knowledge-base-kit` is another repository. Fix a bug in it only as a change to knowledge-base-kit:
-   a branch in the scion, its own tests, a pull request there. Take the release with
+1. `scions/knowledge-base-kit` is another repository. Ask before you edit it, and fix a bug in it only as a
+   change to knowledge-base-kit: a branch in the scion, its own tests, a pull request there. To build graft
+   with the fix, `nix run .#graft -- try`, then `nix run .#graft -- try --stop`. Take the release with
    `nix run .#graft upgrade knowledge-base-kit`. Never commit the scion away from a release tag:
    `nix run .#graft check` fails.
 2. Behaviour and docs change together. A change to a command, argument, message or file format updates its
