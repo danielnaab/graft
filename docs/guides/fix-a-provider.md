@@ -73,7 +73,7 @@ release tag.
    nix flake check
    ```
 
-   Remove the scratch file when you are done: `git rm -q --cached .graft-try && rm .graft-try`.
+   Remove the scratch file when you are done: `git rm -q --cached .graft-try && rm -f .graft-try`.
 
    For a flake in a subdirectory, skip the scratch file: `nix shell 'path:DIR#tools' -c kb-lint .` reads the
    working tree every time. Never build `path:.` at a repository's top instead: it copies every file there,
@@ -155,7 +155,7 @@ git commit -m "knowledge-base-kit: fix-status-values, until v2.2.1"
 ```
 
 Nix fetches a commit that is on any branch of the provider, so builds work. `graft check` fails with
-`graft: scions/knowledge-base-kit at abc1234 is not a release tag of …: release it, or graft upgrade knowledge-base-kit`, so the
+`graft: scions/knowledge-base-kit at abc1234 is not a release tag of …: release it, then graft upgrade knowledge-base-kit@TAG …`, so the
 pull request cannot pass graft-check until the scion is at a release: step 8's
 `nix run .#graft upgrade knowledge-base-kit@v2.2.1` moves it there. Until the commit is pushed, Nix cannot
 fetch it, so `nix run .#graft` itself cannot evaluate on a clean tree; run

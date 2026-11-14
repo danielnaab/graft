@@ -35,7 +35,6 @@ and end with `graft check` passing and everything committed.
 
    ```nix
    {
-     description = "What this repo is";
      inputs.self.submodules = true;
      inputs.graft.url = "github:danielnaab/graft/v2.13.0";
      outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
@@ -60,7 +59,7 @@ and end with `graft check` passing and everything committed.
 
      If you have an `inputs.nixpkgs`, every provider builds its tools with it.
 
-2. In a new repository, set `description`.
+2. Optionally, add a line `description = "What this repo is";` to `flake.nix`.
 
 3. Graft the provider:
 
@@ -151,7 +150,7 @@ and end with `graft check` passing and everything committed.
    nix flake check
    ```
 
-   `graft check` prints `graft: 1 scions clean and at release tags`, and exits 0. `nix flake check` builds
+   `graft check` prints `graft: 1 scion clean and at release tags`, and exits 0. `nix flake check` builds
    the provider's checks, named `checks.<system>.knowledge-base-kit-NAME`, beside your own. To require them
    before a merge, see [Make a pattern's checks gate your merges](gate-merges.md).
 

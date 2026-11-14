@@ -163,7 +163,8 @@ It needs `jq`. A newer major version does not make it fail: that pin's status st
 ## How it works
 
 - **Which tags count.** Only semver tags (`v1.2.3` or `1.2.3`) are versions. A scion whose gitlink is no
-  version's commit shows as `untagged`, and `upgrade` does not move it. For `0.y.z`, each `0.y` series counts
+  version's commit (an unreleased fix) shows as `untagged`. `upgrade` with no names leaves it; name it,
+  `NAME@TAG`, or `NAME` for the newest release in the major of its nearest tag. For `0.y.z`, each `0.y` series counts
   as a major version.
 - **All or nothing.** `upgrade` reads every provider's tags first, and changes nothing if one cannot be read
   or a named tag does not exist.
@@ -182,7 +183,7 @@ graft never takes a new major version unless you name it, `upgrade NAME@TAG`, on
 ### Try a provider's unreleased change
 
 Moved to [Fix a provider from a consumer](fix-a-provider.md): a scion is a clone, so you check out the
-provider's branch in it and build with `path:`.
+provider's branch in it, and build with a tracked file of your own modified (step 3 there).
 
 ## Related
 

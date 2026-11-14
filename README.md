@@ -27,7 +27,7 @@ its own identity and grows as part of its new host.
 
 ```
 team-kb/
-├── flake.nix                     # four lines: graft, and nothing about knowledge-base-kit
+├── flake.nix                     # three lines: graft, and nothing about knowledge-base-kit
 ├── .gitmodules                   # scions/knowledge-base-kit = https://github.com/danielnaab/knowledge-base-kit
 ├── scions/knowledge-base-kit/    # a submodule, at the release tag v2.2.0
 ├── AGENTS.md                     # points agents at the kit's policies and playbooks
@@ -80,8 +80,8 @@ git submodules give you a pinned clone. graft adds what makes them a dependency 
   checks fail.
 - **Provider wiring.** Each provider's `graft.nix` contributes tools, apps and checks; your `flake.nix` names
   no provider.
-- **Empty folders answered.** Nix fetches scions itself for a git flake, a post-checkout hook fills them in
-  new clones and worktrees, and `graft sync` fills them anywhere
+- **Empty folders answered.** Nix fetches scions itself for a git flake while its tree is clean, a
+  post-checkout hook that the guide gives fills them in new clones and worktrees, and `graft sync` fills them
   ([Clones, worktrees, sandboxes and CI](docs/guides/clones-and-worktrees.md)).
 - **An agent rule** for working with scions, ready to paste into `AGENTS.md`.
 
@@ -105,7 +105,6 @@ It writes graft's CI workflows and this `flake.nix`:
 
 ```nix
 {
-  description = "What this repo is";
   inputs.self.submodules = true;
   inputs.graft.url = "github:danielnaab/graft/v2.13.0";
   outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };

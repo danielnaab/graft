@@ -14,7 +14,7 @@ flake outputs.
 |---|---|---|
 | `inputs` | (required) | The flake's inputs. `inputs.self` is the repository. If there is an `inputs.nixpkgs`, it is the `pkgs` that every `graft.nix` gets; otherwise graft's own pinned nixpkgs. |
 | `dir` | `"scions"` | The scions directory: one folder name (`[A-Za-z0-9._-]+`, not `.`, `..` or `.git`), in the flake's directory. For a [flake in a subdirectory](../guides/flake-in-a-subdirectory.md), `".scions"` by convention. |
-| `perSystem` | none | The repository's own tools, apps, packages, checks and dev shells: a function `{ pkgs, lib, system, scions, ... }: { tools ? { }; apps; packages; checks; devShells; }`, called once per system and merged like a provider's `graft.nix`, under the name `self` (collisions say `from A and self`). Its checks are not prefixed: `checks.<system>.NAME`. Its `devShells` are output as they are. Use it to put a tool of your own, such as `bun`, into `tools`. |
+| `perSystem` | none | The repository's own tools, apps, packages, checks and dev shells: a function `{ pkgs, lib, system, scions, ... }: { tools ? { }; apps; packages; checks; devShells; }`, called once per system and merged like a provider's `graft.nix`, under the name `self` (a collision says `from scion A and the consumer's perSystem`). Its checks are not prefixed: `checks.<system>.NAME`. Its `devShells` are output as they are. Use it to put a tool of your own, such as `bun`, into `tools`. |
 | `outputs` | `{ }` | Plain extra outputs, merged last with `recursiveUpdate`, so they add to and override graft's. |
 
 Removed in v2.13.0: `scions` (there is no input list) and `flakeDir` (graft finds the flake as the parent of
@@ -153,8 +153,8 @@ There is no `remove`: `git rm scions/NAME` removes a scion, and git edits `.gitm
   recursively, writes the marker README if it is missing, and stages `.gitmodules`, the gitlink and the
   README. A scion removed with `git rm` can be added again.
 - Prints `graft: scions/NAME <- v1.1.0 (abc1234)`, then
-  `graft: note: scions/NAME has its own submodules (scions/docs); Nix fetches them when evaluating` when it has
-  some, then `graft: next: commit`, or, for a flake at the top that lacks it,
+  `graft: note: scions/NAME has its own submodules (scions/docs) …` when it has
+  some (it has filled them), then `graft: next: commit`, or, for a flake at the top that lacks it,
   `graft: next: commit; a git flake also needs inputs.self.submodules = true;`.
 - When the scion's `graft.nix` requires a sibling this repository does not graft (read from its text,
   `requires.X = "URL";` or `requires = { X = "URL"; };`), it prints
@@ -221,8 +221,8 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 - If `git ls-remote` cannot read a provider, it says
   `graft: scions/pa: can't list tags at URL: … (upstream unreadable: checked local tags)`, and the scion's
   local tags decide.
-- A scion with submodules of its own prints `graft: note: scions/nest has its own submodules (scions/docs); Nix fetches them when evaluating`
-  on stdout.
+- A scion with submodules of its own prints `graft: note: scions/nest has its own submodules (scions/docs) …`
+  on stdout: a git flake on a clean tree fetches them from their URLs too.
 - Success: `graft: N scions clean and at release tags` (`1 scion`); with `--committed`,
   `graft: N scions registered and at release tags`.
 - No scions directory: `graft: no scions here (no README.md carrying graft's marker); graft add URL grafts one`,

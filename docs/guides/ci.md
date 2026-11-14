@@ -9,7 +9,7 @@ merge it or fix it.
 ## Before you begin
 
 - graft's two workflows are in `.forgejo/workflows/`: `graft-check.yaml` and `graft-upgrade.yaml`.
-  `nix flake init -t github:danielnaab/graft` writes them. If you did not use it, copy graft's
+  `nix flake init -t github:danielnaab/graft/v2.13.0` writes them. If you did not use it, copy graft's
   [template/.forgejo/workflows/](../../template/.forgejo/workflows/) there, and commit them. graft keeps
   them current ([Files](../reference/files.md#grafts-workflows)).
 - A Forgejo Actions runner has the label `nixos-latest`, mapped to `docker://nixos/nix`. Each job must get a
