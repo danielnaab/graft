@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.14.0 - unreleased
+## v2.14.0 - 2026-11-15
 
 A sandbox for agents and other commands. Every repository gets a launcher, `packages.<system>.sandbox`,
 that runs one command so that it sees its closure, the repository, and only what the repository declares.

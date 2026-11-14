@@ -41,7 +41,7 @@ More of the same rule:
 - **`nix run .#graft` fetches first.** On a clean tree, `nix run .#graft …` (sync, check, upgrade) fetches every
   scion at its gitlink before graft runs. A gitlink the provider's remote lacks (an unpushed fix) fails there
   with `Cannot find Git revision …`; run graft from its own flake instead:
-  `nix run github:danielnaab/graft/v2.13.1 -- check -C .`.
+  `nix run github:danielnaab/graft/v2.14.0 -- check -C .`.
 - **A stale scion.** After `git pull` without `submodule.recurse`, a scion can be checked out at an older commit
   than the gitlink (`git submodule status` shows `+`). The clean tree builds the gitlink; the same commit with a
   note edited builds the old checkout. `graft check` fails on `+`. **tested**

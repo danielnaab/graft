@@ -12,9 +12,7 @@ hosts that you did not name, or change the files that decide what it may do.
   [If something goes wrong](#if-something-goes-wrong). Or macOS, where the launcher uses Seatbelt
   (see [On macOS](../reference/sandbox.md#on-macos) for what differs: on a Mac, a run can read the
   environment of your other processes).
-- graft v2.14.0 or later: `nix run .#graft outdated` prints graft's pinned version. Until v2.14.0 is
-  released, use a graft checkout that has the sandbox: add `--override-input graft path:/path/to/graft` to
-  each `nix run` and `nix flake lock` below.
+- graft v2.14.0 or later: `nix run .#graft outdated` prints graft's pinned version.
 - The steps use `team-kb`, a repository in your home folder with a flake at its top, and Claude Code as the
   agent. For a [flake in a subdirectory](flake-in-a-subdirectory.md), write
   `nix run 'path:nix/agent-tools#sandbox'` for `nix run .#sandbox`, from the repository's top.
