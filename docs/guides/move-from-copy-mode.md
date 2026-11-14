@@ -83,7 +83,7 @@ is a one-time change, by hand or by an agent following these steps.
    }
    ```
 
-   With one provider and nothing of your own, the whole flake is four lines: see
+   With one provider and nothing of your own, the whole flake is three lines: see
    [Graft your first pattern](graft-a-repository.md#steps), step 1.
 
 4. Graft each provider at the version you picked. `git add flake.nix` first, so that `add` sees the new flake:

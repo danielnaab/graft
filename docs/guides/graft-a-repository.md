@@ -35,7 +35,6 @@ and end with `graft check` passing and everything committed.
 
    ```nix
    {
-     description = "What this repo is";
      inputs.self.submodules = true;
      inputs.graft.url = "github:danielnaab/graft/v2.13.0";
      outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
@@ -60,7 +59,7 @@ and end with `graft check` passing and everything committed.
 
      If you have an `inputs.nixpkgs`, every provider builds its tools with it.
 
-2. In a new repository, set `description`.
+2. Optionally, add a line `description = "What this repo is";` to `flake.nix`.
 
 3. Graft the provider:
 
