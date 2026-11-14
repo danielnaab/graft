@@ -32,14 +32,19 @@ in a consumer.
 
    graft reads sections headed `## vX.Y.Z` or `## X.Y.Z`. Anything can follow the version, such as the date.
 
-2. Commit the release on your default branch:
+2. If you ship a `graft.nix`, run `nix flake check` in your repository, with a check that evaluates it as a
+   consumer would ([Check the contract before you tag](write-graft-nix.md#check-the-contract-before-you-tag)).
+   An error in `graft.nix` fails every consumer's checks at their next upgrade; a parse error breaks their
+   whole flake.
+
+3. Commit the release on your default branch:
 
    ```
    git add CHANGELOG.md bin/note-lint
    git commit -m "v1.2.0"
    ```
 
-3. Tag the commit:
+4. Tag the commit:
 
    ```
    git tag v1.2.0
@@ -49,7 +54,7 @@ in a consumer.
    `push.recurseSubmodules=check` cannot push a gitlink that only a tag reaches. Never move a released tag:
    consumers' gitlinks point at its commit.
 
-4. Push the branch, then the tag:
+5. Push the branch, then the tag:
 
    ```
    git push origin main
@@ -59,7 +64,7 @@ in a consumer.
    Git prints `* [new tag]         v1.2.0 -> v1.2.0`. graft reads tags with `git ls-remote`, so consumers see
    the release only after this push.
 
-5. Take the release in a repository that grafts yours. In team-notes:
+6. Take the release in a repository that grafts yours. In team-notes:
 
    ```
    nix run .#graft upgrade note-kit
@@ -71,7 +76,7 @@ in a consumer.
 
 ## Check it worked
 
-After step 4, in your repository, set `t` to the new tag. Paste this. It prints `ok` only if the tag is
+After step 5, in your repository, set `t` to the new tag. Paste this. It prints `ok` only if the tag is
 pushed, it is on `origin/main`, and `CHANGELOG.md` at the tag has its section. If the tag is not on `origin`,
 it prints `not pushed: v1.2.0`:
 
@@ -85,7 +90,7 @@ t=v1.2.0 && { git ls-remote --exit-code origin "refs/tags/$t" >/dev/null || { ec
   `tag.gpgSign`. Give it a message, `git tag -m v1.2.0 v1.2.0`, or make a lightweight one:
   `git -c tag.gpgSign=false tag v1.2.0`.
 - **A consumer's `graft add` or `upgrade` says `graft: NAME: no tag v1.2.0 upstream`.** The tag is not pushed:
-  step 4.
+  step 5.
 - **A consumer's build fails with `Cannot find Git revision '<sha>' in ref 'refs/heads/main' of repository '<url>'`.**
   The consumer records a commit that your remote does not have: you deleted or rewrote a pushed commit or tag.
   Push it again, or release a new version.

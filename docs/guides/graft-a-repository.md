@@ -112,7 +112,9 @@ and end with `graft check` passing and everything committed.
    this repository follows. If one is empty, run `git submodule update --init --recursive`.
    - Fix a provider bug here only as a provider change: in `scions/NAME`, `git switch -c fix-…`, edit, run the
      provider's own tests there, push the branch to the provider and open its pull request. This repository takes
-     the fix with `nix run .#graft upgrade NAME` once it is released.
+     the fix with `nix run .#graft upgrade NAME@TAG` once it is released.
+   - Commit or stash in a scion before you switch, pull or check out this repository's branches: a move of the
+     scion's gitlink can move the scion under your edits.
    - Nix builds of this repository see a scion edit only while another tracked file here is modified, and only
      files that are `git add`-ed inside the scion. A scion checked out away from its gitlink (`git submodule
      status` shows `+`) changes what Nix builds the same way. Test a provider fix with the provider's own tests.
@@ -170,6 +172,12 @@ nix run '.#graft' check && git ls-files --error-unmatch flake.nix flake.lock .gi
 
 - **`error: path '…/flake.nix' does not exist` or `… is not tracked by Git`.** Nix reads only files that git
   knows. Run `git add -N flake.nix`, then step 3 again.
+- **`error: Failed to fetch git repository '…/scions/knowledge-base-kit'`, in a fresh clone or worktree.**
+  The scions are empty and a tracked file is modified, so Nix reads the empty folder. `nix run .#graft sync`
+  cannot run then either: fill them with git, `git submodule update --init --recursive`.
+- **`Cannot find Git revision …`, from `nix run .#graft` on a clean tree.** Nix fetches every scion at its
+  gitlink before graft runs, and one is not on its provider's remote. Push it, or run graft from its own
+  flake, which does not evaluate yours: `nix run github:danielnaab/graft/v2.13.0 -- check -C .`.
 - **`graft: .gitmodules registers scions/knowledge-base-kit but the flake's source lacks it: add inputs.self.submodules = true; …`.**
   Your `flake.nix` lacks the line, or Nix is older than 2.27. Add it as in step 1.
 - **`graft: scions/knowledge-base-kit exists`.** The repository already has a folder of that name. Give
