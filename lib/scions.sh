@@ -57,7 +57,7 @@ nested() {
   local subs
   [ -f "$2/.gitmodules" ] || return 0
   subs=$(git config -f "$2/.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null | awk '{ print $2 }' | paste -sd ' ' -) || true
-  [ -z "$subs" ] || echo "graft: note: $2 has its own submodules ($subs); Nix fetches them when evaluating"
+  [ -z "$subs" ] || echo "graft: note: $2 has its own submodules ($subs); graft fills them, and Nix fetches them too, so each must be reachable"
 }
 
 # A flake at the repo's top must declare inputs.self.submodules, or a git flake sees no scions. A
@@ -158,7 +158,7 @@ requires_note() {
 }
 
 # files_msg PATH: a submodule path the index holds as files
-files_msg() { echo "$1 is tracked as files, not as a submodule: git rm -r -q --cached $1 && git add $1 (git then records the submodule's commit)"; }
+files_msg() { echo "$1 is tracked as files, not as a submodule: git rm -r -q --cached $1, then git add $1 if $1/.git exists; otherwise delete the folder and graft add its URL@TAG again"; }
 
 # status_line NAME PATH: where an initialised scion is
 status_line() {
@@ -229,7 +229,7 @@ cmd_check() {
     done
     # gitlinks git knows of whose folder is gone (committed mode: a clean checkout has every folder)
     while IFS= read -r d; do
-      [ -n "$d" ] && [ ! -d "$d" ] && bad "$d is a submodule with no folder: git submodule update --init -- $d, or git rm $d"
+      [ -n "$d" ] && [ ! -d "$d" ] && bad "$d is a submodule with no folder: git submodule update --init --recursive -- $d, or git rm $d"
     done < <(git ls-files -s -- "$SCIONS" | awk '$1 == "160000" { sub(/^[^\t]*\t/, ""); print }')
     while IFS=$'\t' read -r name path url; do
       [ -n "$name" ] || continue

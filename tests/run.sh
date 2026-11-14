@@ -420,7 +420,7 @@ sec_add() {
   ran "add: URL@TAG" g add "$(url docs)@v1.0.0"
   expect "at that tag" has "graft: scions/docs <- v1.0.0 ($(sha docs v1.0.0 | cut -c1-7))"
   ran "add: a provider with submodules of its own" g add "$(url nest)"
-  expect "says Nix fetches them" has "graft: note: scions/nest has its own submodules (scions/docs); Nix fetches them when evaluating"
+  expect "says Nix fetches them" has "graft: note: scions/nest has its own submodules (scions/docs); graft fills them, and Nix fetches them too, so each must be reachable"
   expect "and fills them" test -f scions/nest/scions/docs/policy.md
   refused "add: an existing scion" g add "$(url pa)"
   expect "says so" has "graft: scions/pa exists"
@@ -492,7 +492,7 @@ sec_check() {
   # a submodule the index holds as files (what `git add` does over a copied scion still in the index)
   git_ rm -q --cached scions/docs && git_ update-index --add --cacheinfo "100644,$(git_ hash-object -w scions/docs/policy.md),scions/docs/policy.md"
   refused "check: a submodule tracked as files" G check -C .
-  expect "says how to fix it" has "graft: scions/docs is tracked as files, not as a submodule: git rm -r -q --cached scions/docs && git add scions/docs (git then records the submodule's commit)"
+  expect "says how to fix it" has "graft: scions/docs is tracked as files, not as a submodule: git rm -r -q --cached scions/docs, then git add scions/docs if scions/docs/.git exists; otherwise delete the folder and graft add its URL@TAG again"
   refused "check --committed: too" G check -C . --committed
   refused "sync: refuses it" g sync
   git_ reset -q -- scions/docs

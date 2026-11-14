@@ -51,6 +51,6 @@ jobs:
             flake=path:$PWD/$fd
             # a path: flake reads the scions from the working tree: fill them (a git flake's Nix
             # fetches them itself, at the commits the checkout records)
-            git submodule update -q --init -- "$sd"
+            git submodule update -q --init --recursive -- "$sd"
           fi
           nix run "$flake#graft" ci check
