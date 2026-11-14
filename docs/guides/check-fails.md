@@ -35,6 +35,27 @@ nix run '.#graft' check && test -z "$(git status --porcelain)" && nix flake chec
 
 ## `graft check` messages
 
+### graft: graft try is on (.graft-try): Nix builds read the working tree, scions included: graft try --stop turns it off
+
+`graft try` is on: someone (or an agent) is building the repository with a scion's uncommitted edits
+([Fix a provider from a consumer](fix-a-provider.md#steps), step 3). Its marker, `.graft-try`, must not be
+committed. When the trial is done, turn it off from the repository's top:
+
+```
+nix run .#graft -- try --stop
+```
+
+It unmarks the new files that `try` marked in the scions, and removes `.graft-try`; the scions' edits stay.
+Then deal with them as the messages below say. `graft upgrade` refuses while try is on, with
+`graft: graft try is on; nothing changed: graft try --stop first`.
+
+### graft: .graft-try is committed (graft try's marker): graft try --stop, then commit its removal
+
+A commit holds `.graft-try`: `git commit -a` takes a file marked with intent to add. In CI this is
+`graft ci check`'s failure. Run `nix run .#graft -- try --stop` (it stages the removal:
+`graft: .graft-try was committed: its removal is staged; commit it`), then commit. If the commit also moved a
+scion to an unreleased commit, the release-tag message below says so.
+
 ### graft: no scions here (no README.md carrying graft's marker); graft add URL grafts one
 
 Not a failure (exit 0). graft found no `README.md` with its marker line: the repository grafts nothing yet,

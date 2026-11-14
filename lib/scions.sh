@@ -12,6 +12,12 @@
 #             every scion registered, initialised, clean, checked out at its gitlink, and the gitlink
 #             a release tag upstream; graft's workflows this version's. --committed (graft ci check)
 #             checks only what a commit holds: no initialised scion needed.
+#   try [-C REPO] [NAME...] | try [-C REPO] --stop
+#             make a git flake's builds read the working tree, every scion's included, by marking
+#             TRY (.graft-try) with intent to add; mark the named scions' (default: all) untracked
+#             files with intent to add there; report what Nix builds of each scion and how to build.
+#             --stop unmarks what try marked (and nothing staged or committed since) and removes TRY.
+#             A path: flake reads its working tree always: try only reports.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -194,6 +200,7 @@ cmd_sync() {
     done < <(scions_registered .gitmodules)
   fi
   bash "$here/refresh.sh" "$SCIONS" "$FLAKE" "$GRAFT_RUN" "$template"
+  [ -z "$(try_state)" ] || echo "graft: note: graft try is on: graft try --stop turns it off before you commit"
 }
 
 cmd_check() {
@@ -207,6 +214,10 @@ cmd_check() {
   done
   locate "$repo"
   bad() { echo "graft: $*" >&2; rc=1; }
+  case $(try_state) in
+    on) bad "graft try is on ($TRY): Nix builds read the working tree, scions included: graft try --stop turns it off" ;;
+    committed) bad "$TRY is committed (graft try's marker): graft try --stop, then commit its removal" ;;
+  esac
   if [ -z "$SCIONS" ]; then
     echo "graft: no scions here (no README.md carrying graft's marker); graft add URL grafts one" >&2
   else
@@ -312,10 +323,147 @@ cmd_check() {
   return "$rc"
 }
 
+# describe_commit PATH COMMIT: a scion's commit and the release tag it is, or the nearest before it
+describe_commit() {
+  local t n
+  if t=$(git -C "$1" describe --tags --exact-match "$2" 2>/dev/null); then echo "$t ($(short "$2"))"
+  elif t=$(git -C "$1" describe --tags --abbrev=0 "$2" 2>/dev/null); then
+    n=$(git -C "$1" rev-list --count "$t..$2")
+    if [ "$n" = 1 ]; then n="1 commit"; else n="$n commits"; fi
+    echo "$(short "$2"), $n after $t"
+  else echo "$(short "$2") (no tag before it)"; fi
+}
+
+# try_line PATH NAME KIND: what Nix builds of the scion at PATH: its checkout, against the gitlink,
+# and its edits. KIND: marked (try marked its new files), unmarked (a git flake doesn't see its
+# untracked files), path (a path: flake copies them)
+try_line() {
+  local p=$1 head link branch where rec mod new un parts=()
+  head=$(git -C "$p" rev-parse -q --verify HEAD 2>/dev/null) || head=""
+  if [ ! -e "$p/.git" ] || [ -z "$head" ]; then echo "graft: $p is empty: graft sync fills it"; return; fi
+  link=$(gitlink "$p")
+  if branch=$(git -C "$p" symbolic-ref -q --short HEAD); then where="branch $branch at"; else where="detached at"; fi
+  if [ "$head" = "$link" ]; then rec="as recorded"; else rec="not the recorded $(describe_commit "$p" "$link")"; fi
+  mod=$(git -C "$p" diff HEAD --name-status --no-renames | awk '$1 != "A"' | wc -l)
+  new=$(git -C "$p" diff HEAD --name-status --no-renames | awk '$1 == "A"' | wc -l)
+  un=$(git -C "$p" ls-files --others --exclude-standard | wc -l)
+  [ "$mod" = 0 ] || parts+=("$mod modified")
+  if [ "$3" = path ]; then new=$((new + un)); un=0; fi
+  [ "$new" = 0 ] || parts+=("$new new")
+  [ "$un" = 0 ] || parts+=("$un new Nix doesn't see (graft try $2)")
+  [ ${#parts[@]} -gt 0 ] || parts=("no edits")
+  echo "graft: $p: $where $(describe_commit "$p" "$head"), $rec: $(printf '%s, ' "${parts[@]}" | sed 's/, $//')"
+}
+
+cmd_try() {
+  local repo="" stop="" names=() all name path url n marked list f
+  while [ $# -gt 0 ]; do
+    case $1 in
+      -C) if [ $# -lt 2 ] || [ -z "$2" ]; then die "-C needs a repository"; fi; repo=$2; shift 2 ;;
+      --stop) stop=1; shift ;;
+      --) shift ;;
+      -h|--help) sed -n '/^#   try /,/^set /p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
+      -*) die "unknown option $1 (usage: graft try [-C REPO] [NAME...], or graft try [-C REPO] --stop)" ;;
+      *) names+=("$1"); shift ;;
+    esac
+  done
+  [ -z "$stop" ] || [ ${#names[@]} -eq 0 ] || die "try --stop takes no names: it undoes all that try did"
+  locate "$repo"
+  if [ -n "$stop" ]; then try_stop; return; fi
+  all=$(scions_registered .gitmodules)
+  [ -n "$all" ] || die "no scions here: graft add URL grafts one"
+  for name in "${names[@]}"; do
+    cut -f1 <<<"$all" | grep -qxF -- "$name" || die "no scion named $name"
+  done
+  if [ "$FLAKE" != . ]; then
+    echo "graft: $FLAKE is a path: flake: every build reads its working tree, scions and new files included; try has nothing to turn on"
+    while IFS=$'\t' read -r name path url; do try_line "$path" "$name" path; done <<<"$all"
+    echo "graft: build from the repository's top: nix build 'path:$FLAKE#tools', nix shell 'path:$FLAKE#tools' -c TOOL, or nix flake check 'path:$FLAKE'"
+    return
+  fi
+  # Nix reads every scion from the work tree while try is on, and fails on an empty one
+  while IFS=$'\t' read -r name path url; do
+    [ -e "$path/.git" ] || die "$path is empty, and Nix fails on an empty scion while try is on; nothing changed: git submodule update --init --recursive -- $path (or graft sync)"
+    n=$(empty_nested "$path")
+    [ -z "$n" ] || die "$path's own submodules are empty ($n), and Nix fails on them while try is on; nothing changed: git -C $path submodule update --init --recursive (or graft sync)"
+  done <<<"$all"
+  list=$GRAFT_TMP/try
+  { [ ! -f "$TRY" ] || grep -v '^#' "$TRY" | grep -F $'\t' || true; } > "$list"
+  while IFS=$'\t' read -r name path url; do
+    [ ${#names[@]} -eq 0 ] || printf '%s\n' "${names[@]}" | grep -qxF -- "$name" || continue
+    marked=()
+    while IFS= read -r -d '' f; do
+      [[ $f != */ && $f != *$'\n'* && $f != *$'\t'* ]] || continue
+      marked+=("$f")
+    done < <(git -C "$path" ls-files -z --others --exclude-standard)
+    [ ${#marked[@]} -gt 0 ] || continue
+    git -C "$path" add -N -- "${marked[@]}"
+    for f in "${marked[@]}"; do printf '%s\t%s\n' "$path" "$f"; done >> "$list"
+  done <<<"$all"
+  {
+    echo "# graft try is on: Nix builds of this repository read its working tree, and its scions'."
+    echo "# graft try --stop turns it off (nix run .#graft -- try --stop); graft check fails until then."
+    echo "# Never commit this file. The files try marked with intent to add, in each scion:"
+    awk '!seen[$0]++' "$list"
+  } > "$TRY"
+  [ -n "$(git ls-files -- "$TRY")" ] || git add -N -f -- "$TRY"
+  echo "graft: try is on: Nix builds of this repository read its working tree, and its scions' ($TRY marks it)"
+  while IFS=$'\t' read -r name path url; do
+    if [ ${#names[@]} -eq 0 ] || printf '%s\n' "${names[@]}" | grep -qxF -- "$name"; then try_line "$path" "$name" marked
+    else try_line "$path" "$name" unmarked; fi
+  done <<<"$all"
+  echo "graft: build from the repository's top: nix build .#tools, nix shell .#tools -c TOOL, or nix flake check"
+  echo "graft: a file you create in a scion later needs graft try again; graft try --stop turns try off, and graft check fails until then"
+}
+
+files_n() { if [ "$1" = 1 ]; then echo "1 file"; else echo "$1 files"; fi; }
+
+# try_stop: undo what try did: unmark the files it marked that are still only marked (not staged or
+# committed since), and remove its marker (a committed one: the removal is staged). Never moves a
+# scion or touches an edit.
+try_stop() {
+  local state p files ita f un kept name path url head link
+  state=$(try_state)
+  if [ -z "$state" ]; then echo "graft: try is not on; nothing to undo"; return 0; fi
+  if [ -f "$TRY" ]; then
+    while IFS= read -r p; do
+      { [ -n "$p" ] && [ -e "$p/.git" ]; } || continue
+      files=$(grep -v '^#' "$TRY" | awk -F'\t' -v p="$p" '$1 == p { print substr($0, length(p) + 2) }')
+      # marked with intent to add: in the index, but neither in HEAD nor staged
+      ita=$(comm -23 <(git -C "$p" ls-files | LC_ALL=C sort -u) \
+        <( { git -C "$p" ls-tree -r --name-only HEAD 2>/dev/null; git -C "$p" diff --cached --name-only --no-renames --diff-filter=A; } | LC_ALL=C sort -u))
+      un=() kept=0
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        if grep -qxF -- "$f" <<<"$ita"; then un+=("$f")
+        elif [ -n "$(git -C "$p" ls-files -- "$f")" ]; then kept=$((kept + 1)); fi
+      done <<<"$files"
+      [ ${#un[@]} -eq 0 ] || git -C "$p" update-index --force-remove -- "${un[@]}"
+      [ ${#un[@]} -eq 0 ] || echo "graft: $p: unmarked $(files_n ${#un[@]}) try marked (still there, untracked)"
+      [ "$kept" = 0 ] || echo "graft: $p: left $(files_n "$kept") try marked, now staged or committed there"
+    done < <(grep -v '^#' "$TRY" | cut -f1 | awk '!seen[$0]++')
+  fi
+  [ -z "$(git ls-files -- "$TRY")" ] || git update-index --force-remove -- "$TRY"
+  rm -f -- "$TRY"
+  echo "graft: try is off: Nix builds the recorded scions while the tree is clean"
+  [ "$state" != committed ] || echo "graft: $TRY was committed: its removal is staged; commit it"
+  while IFS=$'\t' read -r name path url; do
+    { [ -n "$name" ] && [ -e "$path/.git" ]; } || continue
+    head=$(git -C "$path" rev-parse -q --verify HEAD 2>/dev/null) || continue
+    link=$(gitlink "$path")
+    if [ -n "$(git -C "$path" status --porcelain --untracked-files=no)" ]; then
+      echo "graft: $path stays as you left it: git submodule update --recursive -- $path goes back to its pin (commit or stash its edits first)"
+    elif [ "$head" != "$link" ]; then
+      echo "graft: $path stays as you left it: git submodule update --recursive -- $path goes back to its pin"
+    fi
+  done < <(scions_registered .gitmodules)
+}
+
 sub=${1:-}; shift || true
 case $sub in
   add) cmd_add "$@" ;;
   sync) cmd_sync "$@" ;;
   check) cmd_check "$@" ;;
-  *) die "usage: scions.sh add|sync|check" ;;
+  try) cmd_try "$@" ;;
+  *) die "usage: scions.sh add|sync|check|try" ;;
 esac

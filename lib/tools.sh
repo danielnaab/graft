@@ -376,6 +376,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 locate "$repo"
+# upgrade moves the scions try reads, and refuses a scion with marked files: one state at a time
+if [ "$sub" = upgrade ] && [ -n "$(try_state)" ]; then die "graft try is on; nothing changed: graft try --stop first"; fi
 case $sub in
   outdated) cmd_outdated ;;
   upgrade) cmd_upgrade "${args[@]}" ;;

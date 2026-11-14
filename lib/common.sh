@@ -30,6 +30,16 @@ trap 'rm -rf "$GRAFT_TMP"' EXIT
 
 die() { echo "graft: $*" >&2; exit 1; }
 
+# graft try's marker, at the repo's top: a file marked with intent to add, so that Nix reads the
+# working tree (a tracked file is "modified"); it lists the files try marked in each scion
+TRY=.graft-try
+# try_state (from the top): "on" while the marker is in the work tree or the index, "committed" when
+# HEAD holds it too, nothing when try is off (a committed marker whose removal is staged is off)
+try_state() {
+  [ -e "$TRY" ] || [ -n "$(git ls-files -- "$TRY")" ] || return 0
+  if git cat-file -e "HEAD:$TRY" 2>/dev/null; then echo committed; else echo on; fi
+}
+
 # The copy-mode README graft v2.12 and earlier wrote: a table of copied scions
 copy_mode_readme() { grep -qsF -e '| Scion | Commit |' -e '<!-- graft flake: ' "$1"; }
 COPY_MODE="is graft's copy-mode README (v2.12 or earlier): graft v2.13.0 pins scions with git submodules; follow the Upgrading steps of v2.13.0 in graft's CHANGELOG.md (https://github.com/danielnaab/graft/blob/v2/CHANGELOG.md)"

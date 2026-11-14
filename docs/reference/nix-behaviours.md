@@ -24,8 +24,11 @@ More of the same rule:
 
 - **Only files tracked in the scion.** With a dirty parent, Nix reads a scion's working tree but only the files
   that git tracks *in the scion*. A new file there is missing from the build
-  (`opening file '/nix/store/…-scion-NAME/FILE': No such file or directory`) until `git -C scions/NAME add FILE`.
-  **tested**
+  (`opening file '/nix/store/…-scion-NAME/FILE': No such file or directory`) until git tracks it there; a
+  file marked with intent to add (`git -C scions/NAME add -N FILE`) counts. **tested**
+- **A file marked with intent to add makes the tree dirty.** `git add -N FILE` in the repository is enough
+  for Nix to read the working tree; a plain `git commit` leaves the file out, `git commit -a` takes it.
+  [`graft try`](commands.md#try) uses both rules. **tested**
 - **Every submodule, not only scions.** With `inputs.self.submodules = true`, Nix fetches every submodule
   that `.gitmodules` registers, wherever it is (a left-over `.graft/` entry too). One the build machine cannot
   read breaks every build: remove its entry, or make it readable.
@@ -43,7 +46,8 @@ More of the same rule:
 
 The reliable ways:
 
-- **To test a provider edit:** the provider's own tests, inside the scion. For a flake in a subdirectory,
+- **To test a provider edit:** the provider's own tests, inside the scion. To build the consumer with it,
+  [`graft try`](commands.md#try), then `graft try --stop`. For a flake in a subdirectory,
   `nix build 'path:DIR#tools'` always reads the working tree. Never build `path:.` at a repository's top: it
   copies untracked and ignored files into the world-readable store.
 - **To check what will merge:** commit, then `nix flake check` on a clean tree.

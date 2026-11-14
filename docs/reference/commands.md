@@ -130,6 +130,7 @@ Every command first refuses a copy-mode scions README (one with a `| Scion | Com
 | `add [-C REPO] [--scions PATH] URL[@TAG] [NAME]` | Adds a scion at `TAG`, default the newest version upstream. `NAME` defaults to the URL's last segment without `.git`. Runs `git submodule add`, checks out the tag's commit, writes the marker README if it is missing, and stages `.gitmodules`, the gitlink and the README. |
 | `sync` (the default) | Fills every empty scion and its own submodules, writes the marker README, and refreshes graft's workflows. Never moves a gitlink, and never moves a filled scion. In the repository's own flake only. |
 | `check [-C REPO] [--committed]` | Fails unless every rule in [Check](#check) holds. |
+| `try [-C REPO] [NAME...]`, `try [-C REPO] --stop` | Makes Nix builds read the scions' working trees, new files in the named scions (default: all) included, and reports what each build will see; `--stop` undoes it. See [try](#try). |
 | `outdated [-C REPO] [--json]` | For graft and each scion: the pinned version, the newest version in its major, the status, and the newest later major. |
 | `changelog [-C REPO] [--json] [NAME[@TAG]...]` | Each provider's CHANGELOG sections between the pin and the target, **Upgrading** first, or its commits. Changes nothing. |
 | `upgrade [-C REPO] [NAME[@TAG]...]` | Moves pins. With no names: graft and every outdated scion, each in its major version. `NAME@TAG` is the only way to cross a major. |
@@ -186,7 +187,8 @@ graft: scions/pa at v1.0.0 (abc1234), not the recorded def5678: left as it is (g
 
 Then it writes the marker README (`graft: wrote scions/README.md` when it changed) and refreshes graft's
 workflows (`graft: refreshed .forgejo/workflows/FILE`). With no scions:
-`graft: no scions here yet: graft add URL`.
+`graft: no scions here yet: graft add URL`. While [try](#try) is on it runs as usual, and ends with
+`graft: note: graft try is on: graft try --stop turns it off before you commit`.
 
 The marker README's commands name this flake's run command: `nix run .#graft` for a flake at the top,
 `nix run 'path:DIR#graft'` for a flake in a subdirectory.
@@ -197,6 +199,7 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 
 | Rule | Message |
 |---|---|
+| [try](#try) is off (both modes) | `graft: graft try is on (.graft-try): Nix builds read the working tree, scions included: graft try --stop turns it off`; when the marker is committed, `graft: .graft-try is committed (graft try's marker): graft try --stop, then commit its removal` |
 | The repository's own app's `dir` is the scions directory | `graft: graft's README is in scions/ but mkFlake's dir is ".scions": set dir = "scions"; in flake.nix (or move the scions)` (only from `nix run .#graft`) |
 | Every folder in the scions directory is a submodule | `graft: scions/foo is not a submodule: graft add URL, or remove it` |
 | No `.gitmodules` path is tracked as files (a copied scion left in the index, then `git add`) | `graft: scions/x is tracked as files, not as a submodule: git rm -r -q --cached scions/x, then git add scions/x if scions/x/.git exists; otherwise delete the folder and graft add its URL@TAG again` |
@@ -230,6 +233,67 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 
 `check` does not compare the marker README's text: the marker line is what finds the scions directory. Each
 message and its fix: [`graft check` fails](../guides/check-fails.md).
+
+### try
+
+`try [-C REPO] [NAME...]` and `try [-C REPO] --stop`. For trying an unreleased provider change in the
+consumer: [Fix a provider from a consumer](../guides/fix-a-provider.md#steps), step 3.
+
+A git flake builds each scion at its gitlink while no tracked file of the repository is modified, and reads
+the working trees (scion edits included) only while one is; even then it sees only files that git tracks in
+the scion ([Nix behaviours](nix-behaviours.md#what-a-build-sees-of-a-scion)). `try` makes both hold until
+`--stop`:
+
+- It writes `.graft-try` at the repository's top, and marks it with intent to add (`git add -N`): a tracked
+  file that is "modified", so every Nix build reads the working tree. The file lists what `try` marked.
+- In each named scion (default: every scion), it marks the untracked files that git does not ignore with
+  intent to add, so Nix sees them. Never a real `git add` there, never a commit, never a checkout.
+- Run it again after you create files in a scion; it adds to what it marked.
+
+It refuses, before changing anything, an unknown name (`graft: no scion named NAME`) and an empty scion,
+because Nix fails on one while the tree is dirty:
+`graft: scions/pa is empty, and Nix fails on an empty scion while try is on; nothing changed: git submodule update --init --recursive -- scions/pa (or graft sync)`
+(and `graft: scions/pa's own submodules are empty (…), and Nix fails on them while try is on; nothing changed: …`).
+
+Then it reports one line per scion: its checkout (a branch or detached), the commit as the nearest release
+tag, against the gitlink, and its edits. A scion that was not named lists the new files Nix does not see:
+
+```
+graft: try is on: Nix builds of this repository read its working tree, and its scions' (.graft-try marks it)
+graft: scions/docs: detached at v1.0.0 (aabd284), as recorded: 1 new Nix doesn't see (graft try docs)
+graft: scions/kb: branch fix at 1f2e3d4, 1 commit after v2.2.0, not the recorded v2.2.0 (19392ed): 1 modified, 1 new
+graft: build from the repository's top: nix build .#tools, nix shell .#tools -c TOOL, or nix flake check
+graft: a file you create in a scion later needs graft try again; graft try --stop turns try off, and graft check fails until then
+```
+
+A flake in a subdirectory is a `path:` flake: every build copies its directory, scions and untracked files
+included, so `try` changes nothing, writes no marker, and reports:
+
+```
+graft: nix/tools is a path: flake: every build reads its working tree, scions and new files included; try has nothing to turn on
+graft: nix/tools/.scions/kb: detached at v1.0.0 (19392ed), as recorded: 1 modified
+graft: build from the repository's top: nix build 'path:nix/tools#tools', nix shell 'path:nix/tools#tools' -c TOOL, or nix flake check 'path:nix/tools'
+```
+
+`--stop` undoes what `try` did, and nothing else: it unmarks each file it marked that is still only marked
+(one you staged or committed in the scion since stays), removes `.graft-try` from the index and the working
+tree, and never moves a scion or touches an edit. It is safe to run twice.
+
+```
+graft: scions/kb: unmarked 1 file try marked (still there, untracked)
+graft: try is off: Nix builds the recorded scions while the tree is clean
+graft: scions/kb stays as you left it: git submodule update --recursive -- scions/kb goes back to its pin (commit or stash its edits first)
+```
+
+`graft: scions/kb: left 1 file try marked, now staged or committed there` when you committed it there.
+If `.graft-try` was committed (`git commit -a` commits a file marked with intent to add), `--stop` stages its
+removal: `graft: .graft-try was committed: its removal is staged; commit it`. With try off:
+`graft: try is not on; nothing to undo`.
+
+While try is on, `check` (and `check --committed`, so `ci check`) fails naming
+`graft try --stop`, `upgrade` refuses (`graft: graft try is on; nothing changed: graft try --stop first`),
+and `sync` adds a note. `try` reads no flake output, so
+`nix run github:danielnaab/graft/v2.13.0 -- try -C .` works while the repository's flake cannot evaluate.
 
 ### outdated
 
@@ -265,6 +329,7 @@ scion's local tag, or the commit. graft's own row comes from `flake.lock` (a `pa
   `graft upgrade pa` for the newest version in the major of its nearest release. With no names it is left
   alone. A scion checked out on a fix branch moves too; the branch stays.
 - It refuses, before changing anything:
+  - `graft: graft try is on; nothing changed: graft try --stop first` ([try](#try))
   - `graft: pa: uncommitted edits in scions/pa (FILE); nothing changed: commit them in the provider, or git -C scions/pa checkout -- .`
   - `graft: pa is at <12 hex>, not a release tag, and graft can't tell its major: name the tag (graft upgrade pa@TAG)`
   - `graft: pa: no tag v1.9.0 upstream; nothing changed`
@@ -319,6 +384,8 @@ prints a brief, also when checks fail.
   `graft: NAME: TAG is not a version tag`, `graft: NAME: no tag TAG upstream` (exit 1).
 - `migrate`: `graft: usage: graft migrate [-C REPO] [--base REF] [--no-check] [--json]` (exit 1).
 - `sync` and `check` take no arguments: `graft: sync takes no arguments`, exit 2.
+- `try`: `graft: unknown option OPTION (usage: graft try [-C REPO] [NAME...], or graft try [-C REPO] --stop)`,
+  `graft: try --stop takes no names: it undoes all that try did`, `graft: no scion named NAME` (exit 1).
 - `ci` with another step: `graft: usage: graft ci check|upgrade|pr`, exit 1.
 - An unknown command prints the usage on stderr, and exits 2.
 
@@ -326,7 +393,8 @@ prints a brief, also when checks fail.
 
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): arguments, discovery, outputs, and the evaluation errors
 - [lib/graft.sh](../../lib/graft.sh): commands and usage
-- [lib/tools.sh](../../lib/tools.sh): `add`, `outdated`, `changelog`, `upgrade`
+- [lib/scions.sh](../../lib/scions.sh): `add`, `sync`, `check`, `try`
+- [lib/tools.sh](../../lib/tools.sh): `outdated`, `changelog`, `upgrade`
 - [lib/common.sh](../../lib/common.sh): finding the scions directory, tags with `git ls-remote`
 - [lib/migrate.sh](../../lib/migrate.sh), [lib/ci.sh](../../lib/ci.sh)
 - [tests/run.sh](../../tests/run.sh)
