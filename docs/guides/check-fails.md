@@ -1,183 +1,208 @@
 ---
 status: working
 ---
-# `graft check` fails: find what changed in a scion, and fix it
+# `graft check` fails
 
-When `nix run .#graft check` or `nix flake check` fails on drift, find which files changed and why,
-save any change someone meant, put the scions back to their pins, and stop the cause from doing it again.
+Find the message that `graft check`, `graft ci check` or a Nix build printed, and fix what it names. Each
+heading below is one message.
 
 ## Before you begin
 
-- graft never keeps an edit to a scion: step 5 replaces it. A change that you want to keep belongs in the
-  provider, or in a file of your own ([Change a grafted file](change-a-grafted-file.md)).
-- The commands assume the scions directory is `scions/` and `flake.nix` is at the repository's top. If
-  `mkFlake` sets `dir`, read your directory for `scions/`. If your flake is in a subdirectory, run
-  `nix run 'path:DIR#graft'` for `nix run .#graft`. Then `nix flake check` does not check the scions:
-  `nix run 'path:DIR#graft' check` is the check ([Keep private files out of the Nix store](flake-in-a-subdirectory.md)).
-  In zsh, quote flake references ([The graft command](../reference/commands.md#the-graft-command)).
-- Commit or stash work that is not about the scions, so that `git status` shows only the drift.
+- Run the check from the repository's top: `nix run .#graft check`. For a flake in a subdirectory,
+  `nix run 'path:DIR#graft' check`. In zsh, quote flake references
+  ([The graft command](../reference/commands.md#the-graft-command)).
+- It prints one `graft:` line per problem, naming each scion, and exits 1. Fix them in the order printed.
+- Read your scions directory for `scions/` below.
+- If a scion has edits that someone meant, keep them before you go back to the pin: they are a provider fix
+  ([Fix a provider from a consumer](fix-a-provider.md)).
 
 ## Steps
 
-1. Run the check from the repository's top:
-
-   ```
-   nix run .#graft check
-   ```
-
-   Nix may first warn `Git tree '…' is dirty`: that only means uncommitted changes. On drift, graft
-   names each file that differs from the pin's copy, then prints this line, and exits 1:
-
-   ```
-   graft: scions/ differs from the pins in flake.lock; run: nix run .#graft
-   ```
-
-   If it prints `graft: scions/ and graft's workflows match the pins`, the scions are fine. If it prints
-   neither line, read its `graft:` lines, and see [If something goes wrong](#if-something-goes-wrong).
-
-2. Read each `graft:` line about a file. In the report, "the pin" is [the pin's copy](../concepts.md#what-a-consumer-holds),
-   the scions directory that `flake.lock` makes. "Your copy" is the scions directory in your working tree.
-
-   | The check says | It means | Usual cause |
-   |---|---|---|
-   | `graft: scions/NAME/FILE: edited`, then a diff from `--- scions/NAME/FILE (pin)` to `+++ scions/NAME/FILE (your copy)` | a grafted file was edited | you, an agent, a formatter or a linter's `--fix` |
-   | `graft: scions/NAME/FILE: edited (in the pin, a symbolic link to TARGET; in your copy, a file)` | a symbolic link was replaced, or now points elsewhere | a tool that copies files instead of links, or an edit to the link |
-   | `graft: scions/NAME/FILE: only in your copy, not in the pin` | a file that the pin's copy does not have | a tool wrote it (`__pycache__/`, a build), or someone added it |
-   | `graft: scions/NAME/FILE: only in the pin, not in your copy` | a grafted file that your copy lacks | it was deleted; or git ignores it; or, for `nix flake check` only, it is not added to git yet |
-   | `graft: scions/README.md: edited`, with a changed line in its table of commits | the pin moved, and the scions did not | see [If something goes wrong](#if-something-goes-wrong) |
-
-   After the line from step 1, the check says what each kind of file usually is, once for each kind that it
-   found. For a file only in the pin, it names the command that finds the ignore rule, if there is one:
-
-   ```
-   graft: a file only in your copy was written by a tool (__pycache__/, a build) or added by someone; nix run .#graft deletes it
-   graft: a file only in the pin was deleted, or git ignores it: git check-ignore -v scions/NAME/FILE names the rule
-   ```
-
-   A line `graft: .forgejo/workflows/FILE differs from the copy this graft version ships` is one of graft's
-   workflows. Step 5 restores it. To keep your edits instead, delete its marker line first
-   ([Keep your own edits to a workflow](../reference/files.md#keep-your-own-edits-to-a-workflow)).
-
-3. Find which changes someone meant. The check shows committed and uncommitted edits alike, so ask git:
-
-   ```
-   git status --short -- scions/
-   git log --oneline -- scions/
-   ```
-
-   Uncommitted changes are often a tool's output. A commit with a message of its own is usually a person's.
-   A meant change that fits only your repository is better as a file of your own: copy the file out of
-   the scions directory now, before step 5 replaces it ([Change a grafted file](change-a-grafted-file.md)).
-
-4. Commit each meant change that is not committed yet, new files included, naming its files, so that a
-   tool's output stays out:
-
-   ```
-   git add -- scions/NAME/FILE
-   git commit -m "Meant scion edit" -- scions/NAME/FILE
-   ```
-
-5. Put the scions back to their pins:
-
-   ```
-   nix run .#graft
-   ```
-
-   It prints one line for each scion, `graft: scions/NAME <- COMMIT`. It replaces the whole scions
-   directory, so stray files go too, and stages it. It also restores graft's workflows, which it does not
-   stage.
-
-6. Save each meant change, from the staged undo of it, outside the repository:
-
-   ```
-   git diff --cached -R -- scions/NAME/FILE > /tmp/scion-change.patch
-   ```
-
-   Its headers read `b/` before `a/`, which `git apply` does not mind. In the provider's checkout,
-   `git apply -p3 /tmp/scion-change.patch` applies it: add one to `-p` for each extra segment in your
-   scions directory's path. Commit and release it there, then take the new version with [Take a newer version by hand](upgrade.md).
-   To try it here first, see [a provider's unreleased change](upgrade.md#try-a-providers-unreleased-change).
-   The whole path is in [Fix it in the provider](change-a-grafted-file.md#fix-it-in-the-provider).
-
-7. Stop the cause from doing it again. Tell each tool that the scions directory is not yours:
-
-   | Tool | Add |
-   |---|---|
-   | ruff | `extend-exclude = ["scions"]` and `force-exclude = true`, under `[tool.ruff]` in `pyproject.toml` |
-   | black | `extend-exclude = "^/scions/"` and `force-exclude = "^/scions/"`, under `[tool.black]` in `pyproject.toml` |
-   | pre-commit | `exclude: ^scions/` at the top of `.pre-commit-config.yaml` |
-   | Prettier | `scions/` in `.prettierignore` |
-   | treefmt | `excludes = ["scions/**"]` under `[global]` in `treefmt.toml` |
-   | Python run from a scion | `__pycache__/` in `.gitignore`, or `PYTHONDONTWRITEBYTECODE=1` |
-   | An agent | "Never edit `scions/`: graft replaces it" in `AGENTS.md` |
-
-   `force-exclude` matters because pre-commit and an editor's format-on-save name each file, and without
-   it ruff and black format a named file even when it is excluded. The check reads files as git would commit
-   them, so a file that git ignores does not count.
-
-8. Check again:
-
-   ```
-   nix run .#graft check
-   ```
-
-   Expected, with exit 0:
-
-   ```
-   graft: scions/ and graft's workflows match the pins
-   ```
-
-9. Commit the restored scions and each file that you changed in step 7, here `pyproject.toml` and
-   `.gitignore`:
-
-   ```
-   git add -A -- scions/
-   git add -- pyproject.toml .gitignore
-   git commit -m "Restore scions to their pins"
-   ```
-
-   If step 5 printed `graft: refreshed .forgejo/workflows/FILE`, add that file too. Name only paths that
-   exist: when one does not, `git add` stages nothing at all. Then `git status --short` should list nothing.
+1. Run the check, and find each message below.
+2. Do the fix under it.
+3. Run the check again. On success it prints `graft: N scions clean and at release tags`, and exits 0.
+4. Commit what the fixes changed: `git status --short` names it.
 
 ## Check it worked
 
-From the repository's top, paste this. It prints `ok` only if the scions match their pins, nothing is left
-to commit, and the check that CI runs passes:
+From the repository's top, paste this. It prints `ok` only if the check passes, nothing is left to commit,
+and `nix flake check` passes on the committed tree:
 
 ```sh
 nix run '.#graft' check && test -z "$(git status --porcelain)" && nix flake check && echo ok
 ```
 
-## If something goes wrong
+## `graft check` messages
 
-- **`graft check` and `nix flake check` disagree.** `nix flake check` sees only what git tracks.
-  `graft check` also sees files that git would add. So a new file in `scions/` that git does not ignore
-  fails only `graft check`, and a grafted file removed from git (`git rm --cached`, or a new scion that was
-  never added) fails only `nix flake check`. For a file only in the pin, `nix flake check` says
-  `graft: a file only in the pin was deleted, is not added to git (nix flake check sees only what git tracks), or git ignores it: …`.
-  It shows the last 25 lines of the report; run `nix flake check -L` for all of it.
-- **The check shows a commit changing in `scions/README.md`.** The pin moved and the scions did not: a tag
-  edited in `flake.nix`, `nix flake update`, or a bot. Every other file in the report changed upstream, not
-  here. Run `nix run .#graft` to take the new pin, or go back to the old one, and see [Take a newer version by hand](upgrade.md).
-- **Step 5 prints `graft: flake.lock re-pinned; nothing synced yet: run nix run .#graft again`.** The lock
-  pointed at an annotated tag's object, and graft fixed it. Run step 5 again, and commit `flake.lock`
-  with the scions.
-- **Step 5 refuses: `graft: scions/ exists and graft didn't write it (no marker in its README.md)`.** The
-  scions README lost its first line, or was deleted. Save any uncommitted meant change first, with
-  `git diff -- scions/NAME/FILE > /tmp/scion-change.patch`. Then restore the README with
-  `git checkout HEAD -- scions/README.md`, and run step 5 again. Delete the directory only if graft never
-  wrote it.
+### scions/README.md lacks graft's marker: run graft sync
+
+The scions directory's README was deleted, or its first line was edited away. Run `nix run .#graft sync`,
+and commit `scions/README.md`. graft reads only the marker line; the rest is yours to add to.
+
+### scions/foo is not a submodule: graft add URL, or remove it
+
+A folder in the scions directory is not a submodule: files committed there by hand, a copy-mode scion left
+over from v2.12.0, or a submodule removed from `.gitmodules` but not from the tree. If it is a provider,
+`git rm -r scions/foo`, then `nix run .#graft add URL`. If it is not, move it out of the scions directory.
+The same message names an entry in `.gitmodules` under the scions directory whose folder does not exist:
+`git rm --cached scions/foo` and delete its section from `.gitmodules` (`git config -f .gitmodules
+--remove-section submodule.scions/foo`).
+
+### relative URL
+
+A `.gitmodules` URL is relative, such as `../knowledge-base-kit.git`. git resolves it from your remote, but
+Nix cannot. Write the absolute URL: `git submodule set-url scions/NAME https://…`, then commit `.gitmodules`.
+
+### add inputs.self.submodules = true;
+
+The flake is at the repository's top, and is a git flake, so Nix leaves scions out of its source without
+this line. Add `inputs.self.submodules = true;` to `flake.nix`, and commit. It needs Nix 2.27 or later.
+
+### scions/NAME is empty: graft sync
+
+The scion is not filled: a fresh clone or worktree. Run `nix run .#graft sync` (or
+`git submodule update --init`). To make it happen by itself, see
+[Clones, worktrees, sandboxes and CI](clones-and-worktrees.md).
+
+### uncommitted edits in scions/NAME: … (Nix builds ignore them while the rest of the tree is clean)
+
+Someone edited a provider's tracked files in the scion, or staged a change there. A formatter or a linter's
+`--fix` may have done it. New untracked files, such as `__pycache__/`, do not count. Look:
+
+```
+git -C scions/NAME status --short
+git -C scions/NAME diff
+```
+
+- **A provider fix that someone meant:** follow [Fix a provider from a consumer](fix-a-provider.md) from
+  step 1. The edit stays in the scion until you push it.
+- **Anything else:** discard it with `git -C scions/NAME reset -q --hard`. Then stop the cause: tell each
+  tool that the scions directory is not yours.
+
+  | Tool | Add |
+  |---|---|
+  | ruff | `extend-exclude = ["scions"]` and `force-exclude = true`, under `[tool.ruff]` in `pyproject.toml` |
+  | black | `extend-exclude = "^/scions/"` and `force-exclude = "^/scions/"`, under `[tool.black]` |
+  | pre-commit | `exclude: ^scions/` at the top of `.pre-commit-config.yaml` |
+  | Prettier | `scions/` in `.prettierignore` |
+  | treefmt | `excludes = ["scions/**"]` under `[global]` in `treefmt.toml` |
+  | An agent | the `AGENTS.md` section in [Graft your first pattern](graft-a-repository.md#steps), step 6 |
+
+### scions/NAME is checked out at X but the repository records Y: git add scions/NAME to record it, or graft sync to go back
+
+The scion's checkout and the gitlink disagree (`git submodule status` shows `+`). Either someone switched the
+scion to another commit, or the gitlink moved (a pull, a merge, `git checkout` without
+`submodule.recurse=true`) and the scion did not follow.
+
+- To go back to the recorded pin: `git submodule update -- scions/NAME`. (`graft sync` fills only empty
+  scions, and never moves a filled one.)
+- To record the checkout as the new pin: `git add scions/NAME`. Only do this at a release tag, or the next
+  message follows. To take a newer release, prefer `nix run .#graft upgrade NAME`.
+
+### scions/NAME at abc1234 is not a release tag of URL (nearest: v1.0.0-1-g…): release it, or graft upgrade NAME
+
+The gitlink is not the commit of any version tag of the provider: an unreleased fix was committed
+([Use the fix before its release](fix-a-provider.md#use-the-fix-before-its-release)), or a tag was moved or
+deleted upstream. `nearest` is `git describe` of the commit.
+
+- If the provider has released the fix: `nix run .#graft upgrade NAME`, and commit.
+- If not: ask the provider for a release, or go back to the last one: `nix run .#graft upgrade NAME@TAG`.
+
+If the line ends with `(upstream unreadable: checked local tags)`, graft could not reach the provider, and
+compared with the scion's local tags. Fix the access, and run the check again.
+
+### .forgejo/workflows/FILE differs from the copy this graft version ships
+
+One of graft's workflows was edited, or graft's pin moved without a sync. `nix run .#graft sync` restores
+it (`graft: refreshed .forgejo/workflows/FILE`). To keep your edits instead, delete its marker line first
+([Keep your own edits to a workflow](../reference/files.md#keep-your-own-edits-to-a-workflow)).
+
+### graft: two scions directories: A, B; graft supports one per repository
+
+Two `README.md` files carry graft's marker line. graft finds the scions directory and the flake by it. Keep
+the one beside your flake, and delete the other README (or its folder, if it is a left-over copy-mode
+scions directory).
+
+### note: scions/NAME has its own submodules (…); Nix fetches them when evaluating
+
+Not a failure. The provider grafts other repositories, and Nix fetches them too whenever it evaluates your
+flake. If one of them is private and you cannot read it, your evaluation fails: ask the provider to drop it
+([One level](../decisions.md#one-level)).
+
+## Nix evaluation errors
+
+mkFlake raises these when Nix evaluates `packages`, `apps`, `checks` or `devShells`: in `nix build`,
+`nix flake check`, `nix run .#…`, and `graft ci check`.
+
+### error: Failed to fetch git repository '…/scions/NAME'
+
+Nix's own message, before graft can say anything: the scion is empty (a fresh clone or worktree) and a
+tracked file is modified, so Nix reads the working tree and finds nothing to read. Fill the scions with git:
+
+```
+git submodule update --init
+```
+
+`nix run .#graft sync` may not evaluate here; git always works. A clean clone builds without this, because
+Nix then fetches the scions itself ([Nix behaviours](../reference/nix-behaviours.md#what-a-build-sees-of-a-scion)).
+
+### Cannot find Git revision '<sha>' in ref 'refs/heads/main' of repository '<url>'
+
+Nix's own message: the consumer records a scion commit that the provider's remote does not have. Push the
+scion's commit to the provider (any branch or tag), or go back to a release:
+`git submodule update -- scions/NAME`, then `git add scions/NAME`. `push.recurseSubmodules=check` prevents
+this ([Clones, worktrees, sandboxes and CI](clones-and-worktrees.md#set-up-your-machine-once)).
+
+### graft: .gitmodules registers scions/NAME but the flake's source lacks it: add inputs.self.submodules = true; …
+
+Nix gave mkFlake a source without submodules. Either `flake.nix` lacks `inputs.self.submodules = true;`
+(add it), Nix is older than 2.27 (upgrade it), or the flake was fetched as `github:OWNER/REPO`, a tarball
+with no submodules: use `git+https://…` instead ([Nix behaviours](../reference/nix-behaviours.md)).
+
+### graft: scions/a, scions/b are empty in the flake's source, so the tools leave out what they give: run git submodule update --init (or graft sync)
+
+A warning: `tools` built without those scions. A `path:` flake reads the working tree, and the scions are not
+filled; or the flake was fetched as `github:`, which has no submodules (use `git+https://…`). The same cause
+fails a provider that needs the empty scion: `graft: scions/NAME is empty in the flake's source: …`. Run either command from the
+repository's top; `git submodule update --init` always works ([Clones, worktrees, sandboxes and CI](clones-and-worktrees.md)).
+
+### graft: DIR/README.md is graft's copy-mode README (v2.12 or earlier): …
+
+The repository is still in copy mode, and graft's pin moved to v2.13.0. Follow
+[Move from copy mode](move-from-copy-mode.md).
+
+### graft: DIR/NAME: a scion's folder name must be letters, digits, . _ and - …
+
+Rename the submodule's folder: `git mv scions/OLD scions/NEW`. `self` is reserved for your own `perSystem`.
+
+### graft: mkFlake's dir must be one folder name …
+
+`dir` is a single folder name in the flake's directory, such as `".scions"`, not a path.
+
+### graft: DIR/README.md lacks graft's marker: is dir right? (mkFlake's dir = "DIR")
+
+`mkFlake`'s `dir` names a folder without the marker README: `dir` is wrong, or the README was deleted or
+edited. Correct `dir` in `flake.nix`, or write the README again with `nix run .#graft sync`.
+
+### graft: A needs B, which this repository does not graft: graft add URL
+
+Provider `A`'s `graft.nix` requires provider `B` (it uses B's tools or files). Run the `graft add` command
+that the message prints, then commit. If you grafted B under another folder name, rename the folder to B's
+name: `requires` finds it by name.
+
+### graft: tools NAME (from A and B): two scions provide the same name
+
+Two providers ship a tool (or app or package) with the same name. `self` in the message is your own
+`perSystem`: rename your tool. Neither consumer setting can
+choose between them: ask one provider to rename its tool, or stop grafting one of them
+(`git rm scions/A`). Two providers that ship the same store path, such as the same `just`, do not
+collide.
 
 ## Sources
 
-- [lib/mk-flake.nix](../../lib/mk-flake.nix): the `check` case of the app (`graft-sync`) and the
-  `checks.<system>.graft` derivation; the `sync` case, which replaces and stages the scions directory, and
-  refuses one without the marker.
-- [lib/drift.sh](../../lib/drift.sh): the drift report that both checks print.
-- [lib/graft.sh](../../lib/graft.sh): the re-pin before a sync.
-- [lib/workflows.sh](../../lib/workflows.sh): the check and refresh of graft's workflows.
-- [tests/run.sh](../../tests/run.sh): "check catches an edited scion", "check catches a scion file git
-  doesn't track", "graft check catches a deleted scion file", "graft check catches an untracked file in a
-  scion", "an ignored file passes graft check", "check catches a pin moved without grafting", "check catches an edited graft workflow",
-  "graft won't replace a directory it didn't write", and the `subdir:` checks.
-- [Commands](../reference/commands.md), [Files](../reference/files.md).
+- [lib/graft.sh](../../lib/graft.sh): `check` and its messages.
+- [lib/mk-flake.nix](../../lib/mk-flake.nix): the evaluation errors.
+- [lib/workflows.sh](../../lib/workflows.sh): the workflow comparison.
+- [tests/run.sh](../../tests/run.sh): one failing fixture per `check` rule, and each mkFlake error.
+- [tests/fixtures.sh](../../tests/fixtures.sh) `check-fails`: the repositories this page was read against.
+- [Commands](../reference/commands.md#check).

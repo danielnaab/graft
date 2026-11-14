@@ -3,198 +3,199 @@ status: working
 ---
 # Graft your first pattern
 
-Graft one provider's pattern into a new or existing repository, and end with its check passing and everything
-committed.
+Graft one provider into a new or existing repository, get its tools on your `PATH`, point your agents at it,
+and end with `graft check` passing and everything committed.
 
 ## Before you begin
 
 - The example grafts [knowledge-base-kit](https://github.com/danielnaab/knowledge-base-kit). The terms
-  provider, pin and scion are in [Concepts](../concepts.md).
-- Nix with flakes: `nix config show experimental-features` must list `flakes` and `nix-command`. If it does
-  not, add `experimental-features = nix-command flakes` to `~/.config/nix/nix.conf`.
+  provider, scion and pin are in [Concepts](../concepts.md).
+- Nix 2.27 or later, with flakes: `nix --version` prints the version, and
+  `nix config show experimental-features` must list `flakes` and `nix-command`. If it does not, add
+  `experimental-features = nix-command flakes` to `~/.config/nix/nix.conf`.
 - A git repository. For a new one: `mkdir team-kb && cd team-kb && git init`.
-- `git check-ignore -v flake.lock` must print nothing. If it prints a rule, remove that rule and commit
-  `.gitignore`: `flake.lock` holds the pins, and git would leave it out without a word.
+- `git check-ignore -v flake.lock` must print nothing. If it prints a rule, remove that rule: `flake.lock`
+  pins graft.
 - Commit or stash other work, so that `git status` shows only what graft adds.
 - In zsh with `extendedglob` set, `.#graft` is a glob (`no matches found`): quote it, `nix run '.#graft'`
   ([The graft command](../reference/commands.md#the-graft-command)).
+- If your repository has private files that must not enter the world-readable Nix store, read
+  [Keep private files out of the Nix store](flake-in-a-subdirectory.md) instead.
 
 ## Steps
 
 1. At the top of the repository, write graft's template:
 
    ```
-   nix flake init -t github:danielnaab/graft
+   nix flake init -t github:danielnaab/graft/v2.13.0
    ```
 
-   It writes `flake.nix` and graft's two CI workflows in `.forgejo/workflows/`, marks them for git
-   (`git add --intent-to-add`: `git status --short` shows ` A`), and prints
-   `Edit description and the inputs in flake.nix …`.
+   It writes `flake.nix` and graft's two CI workflows in `.forgejo/workflows/`, and marks them for git
+   (`git status --short` shows ` A`). The `flake.nix` it writes is the whole flake:
+
+   ```nix
+   {
+     description = "What this repo is";
+     inputs.self.submodules = true;
+     inputs.graft.url = "github:danielnaab/graft/v2.13.0";
+     outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
+   }
+   ```
 
    If the repository already has a `flake.nix`, it writes the workflows but not `flake.nix`
-   (`refusing to overwrite existing file`), ends with `error: Encountered 1 conflicts - see above`, and exits
-   1. That is expected: step 2 edits your own `flake.nix`.
+   (`refusing to overwrite existing file`), and exits 1. Then make three changes to your own flake, and keep
+   everything else:
 
-2. Edit `flake.nix`. In a new repository, set `description`. The template already pins knowledge-base-kit
-   and graft. To graft another provider, add an input pinned to a tag, with `flake = false`:
-
-   ```nix
-   knowledge-base-kit = { url = "github:danielnaab/knowledge-base-kit/v2.1.0"; flake = false; };
-   ```
-
-   In an existing flake, make three changes, and keep everything else:
-
-   - Add graft and the provider to your inputs, in the form your flake already uses:
+   - Add `inputs.self.submodules = true;` and `inputs.graft.url = "github:danielnaab/graft/v2.13.0";`
+     (inside an `inputs = { … };` block, drop the `inputs.` prefix).
+   - Name the outputs function's argument `inputs`, with `...`: `outputs = { self, nixpkgs, ... }@inputs:`.
+   - Pass what the function returned as `mkFlake`'s `outputs`:
 
      ```nix
-     inputs.graft.url = "github:danielnaab/graft/v2.12.0";
-     inputs.knowledge-base-kit = { url = "github:danielnaab/knowledge-base-kit/v2.1.0"; flake = false; };
+     outputs = { self, nixpkgs, ... }@inputs: inputs.graft.lib.mkFlake {
+       inherit inputs;
+       outputs = YOUR_OLD_RESULT;   # an attribute set, `let … in { … }`, or flake-utils' eachDefaultSystem (…)
+     };
      ```
 
-     Inside an `inputs = { … };` block, drop the `inputs.` prefix.
-   - Add `graft` and `...` to your outputs function's arguments, and name it `inputs`. Keep its other
-     arguments as they are: naming an input that the flake does not have makes Nix add one.
-   - Pass what the function returned as `mkFlake`'s `outputs`. Any expression that gives an attribute set
-     works:
+     If you have an `inputs.nixpkgs`, every provider builds its tools with it.
 
-   ```nix
-   outputs = { self, graft, ... }@inputs: graft.lib.mkFlake {
-     inherit inputs;
-     outputs = YOUR_OLD_RESULT;   # the attribute set, `let … in { … }`, or flake-utils' eachDefaultSystem (…)
-   };
-   ```
+2. In a new repository, set `description`.
 
-   If the flake already has `flake = false` inputs that are not patterns (source code that it builds, say),
-   add `scions = [ "knowledge-base-kit" ];` beside `inherit inputs;`: otherwise graft copies those too.
-   `apps.<system>.graft` and `checks.<system>.graft` are graft's names: rename any of your own. If you do
-   not, step 3 fails with `graft: mkFlake's outputs has checks.SYSTEM.graft: that name is graft's; rename the repo's own`.
-
-3. Graft:
+3. Graft the provider:
 
    ```
-   nix run .#graft
+   nix run .#graft add https://github.com/danielnaab/knowledge-base-kit
    ```
 
-   The first run fetches graft and the provider, which can take a minute. Nix warns that the git tree is
-   dirty (it has uncommitted changes, which is expected until step 8), prints `warning: creating lock file`
-   (or `updating lock file`, if there was one), and an `• Added input` line for each new input, graft's own
-   included. graft prints one line for each scion, then exits 0:
+   The first run fetches graft, which can take a minute. Nix warns that the git tree is dirty (expected until
+   step 8) and prints `warning: creating lock file`. graft adds a submodule at the newest release, and
+   prints:
 
    ```
-   graft: scions/knowledge-base-kit <- COMMIT
+   graft: scions/knowledge-base-kit <- v2.2.0 (abc1234)
    ```
 
-   It wrote `flake.lock`, and wrote and staged `scions/`.
+   It wrote `scions/README.md`, and staged `.gitmodules`, the submodule and the README. To graft a version
+   other than the newest, add it: `…/knowledge-base-kit@v2.1.0`.
 
 4. Look at what arrived:
 
    ```
-   cat scions/README.md
+   cat .gitmodules
+   ls scions/knowledge-base-kit
    ```
 
-   It names each scion and its pinned commit, and says not to edit them. `scions/knowledge-base-kit/` holds
-   the provider's export: its files, minus what the provider keeps to itself.
+   `.gitmodules` names the path and the URL. `scions/knowledge-base-kit/` is the provider's whole repository,
+   checked out at the tag. `scions/README.md` says what the folder is.
 
-5. Check it:
-
-   ```
-   nix run .#graft check
-   ```
-
-   Expected, with exit 0:
+5. Use what the provider ships. If it has a `graft.nix`, its tools are in `packages.<system>.tools`:
 
    ```
-   graft: scions/ and graft's workflows match the pins
+   nix shell .#tools
+   kb-lint --help
    ```
 
-   If it says `scions/ differs from the pins` instead, a tool in your repository changed the scions: see
-   [`graft check` fails](check-fails.md).
+   `nix develop` gives a shell with the same tools, and direnv's `use flake` does it on `cd`. Its checks
+   run in `nix flake check` (step 9). The provider's README says what each tool does, and which settings file
+   it reads, such as `knowledge-base.yaml` at your repository's top.
 
-6. Point your agents at the pattern. For example, add this line to `AGENTS.md`, or create it:
+6. Point your agents at the pattern. Add this section to `AGENTS.md`, or create it:
 
+   ```markdown
+   ## Scions (graft)
+   `scions/` holds git submodules: other repositories at release tags. Read them; they are the rules and tools
+   this repository follows. If one is empty, run `git submodule update --init`.
+   - Fix a provider bug here only as a provider change: in `scions/NAME`, `git switch -c fix-…`, edit, run the
+     provider's own tests there, push the branch to the provider and open its pull request. This repository takes
+     the fix with `nix run .#graft upgrade NAME` once it is released.
+   - Nix builds of this repository see a scion edit only while another tracked file here is modified, and only
+     files that are `git add`-ed inside the scion. A scion checked out away from its gitlink (`git submodule
+     status` shows `+`) changes what Nix builds the same way. Test a provider fix with the provider's own tests.
+   - `nix run .#graft check` fails while a scion has uncommitted edits, is away from its gitlink, or sits on an
+     unreleased commit. Don't commit a moved scion unless it is at a release tag.
    ```
-   Follow the policies in scions/knowledge-base-kit/docs/policies/. Never edit scions/: graft replaces it.
+
+   For a flake in a subdirectory, write its command, `nix run 'path:DIR#graft'`, for `nix run .#graft`.
+
+   Then add a line that says what to follow, for example
+   `Follow the policies in scions/knowledge-base-kit/docs/policies/.` If your agent tool denies edits to
+   `scions/`, change that to ask: a scion edit is a provider change that a person should see
+   ([Fix a provider from a consumer](fix-a-provider.md)).
+
+7. If you use `just`, import a provider's recipes with `import?`, so that a clone with empty scions still
+   lists your own recipes:
+
+   ```just
+   import? "scions/notebook-kit/tools/kit.just"
    ```
 
-   If a grafted file does not fit your repository, see [Change a grafted file](change-a-grafted-file.md).
-
-7. On GitHub, delete `.forgejo/`. Those workflows are for Forgejo Actions, and graft never adds a workflow
-   that you did not keep ([Run graft in CI and review its upgrade pull requests](ci.md)). On Forgejo, keep it.
-
-8. Commit:
+8. On GitHub, delete `.forgejo/`: those workflows are for Forgejo Actions
+   ([Run graft in CI and review its upgrade pull requests](ci.md)). On Forgejo, keep it. Then commit:
 
    ```
    git add -A
-   git commit -m "Graft knowledge-base-kit v2.1.0"
+   git commit -m "Graft knowledge-base-kit v2.2.0"
    ```
 
-   Then `git ls-files flake.lock` must print `flake.lock`. If it prints nothing, see
-   [If something goes wrong](#if-something-goes-wrong).
-
-9. Run the check that CI runs:
+9. Check it:
 
    ```
+   nix run .#graft check
    nix flake check
    ```
 
-   It exits 0. It runs graft's check, `checks.<system>.graft`, beside your own checks. To run the pattern's
-   checks here too, and require them before a merge, see [Make a pattern's checks gate your merges](gate-merges.md).
+   `graft check` prints `graft: 1 scions clean and at release tags`, and exits 0. `nix flake check` builds
+   the provider's checks, named `checks.<system>.knowledge-base-kit-NAME`, beside your own. To require them
+   before a merge, see [Make a pattern's checks gate your merges](gate-merges.md).
+
+Clones of the repository get empty `scions/` folders until someone runs `git submodule update --init`. Builds
+still work while the clone's tracked files are unmodified. To fill them on every clone and worktree, see
+[Clones, worktrees, sandboxes and CI](clones-and-worktrees.md).
 
 ## Check it worked
 
-From the repository's top, paste this. It prints `ok` only if the scions match their pins, the pins are
-committed, nothing is left to commit, and `nix flake check` passes:
+From the repository's top, paste this. It prints `ok` only if the scion is registered, clean and at a release,
+everything is committed, and `nix flake check` passes:
 
 ```sh
-nix run '.#graft' check && git ls-files --error-unmatch flake.nix flake.lock scions/README.md >/dev/null && test -z "$(git status --porcelain)" && nix flake check && echo ok
+nix run '.#graft' check && git ls-files --error-unmatch flake.nix flake.lock .gitmodules scions/README.md >/dev/null && test -z "$(git status --porcelain)" && nix flake check && echo ok
 ```
 
 ## If something goes wrong
 
-- **`experimental Nix feature 'flakes' is disabled`.** Enable flakes, as in
-  [Before you begin](#before-you-begin).
-- **`error: path '/nix/store/…-source/flake.nix' does not exist`.** A provider's input lacks `flake = false`
-  in its attribute set, so Nix tried to read it as a flake. Nix ignores `?flake=false` in a URL. Write it as
-  in step 2. (If no input at all is a scion, graft says `graft: no scions: no input has flake = false`.)
-- **`graft: git ignores flake.lock, so the pins are not committed`**, from step 5, or
-  **`graft: git does not track flake.lock, so the pins are not committed`**, from step 9. Or
-  `git ls-files flake.lock` prints nothing, or Nix prints `• Added input` on every run. `flake.lock` is not
-  committed, usually because `.gitignore` drops it (`git check-ignore -v flake.lock` names the rule). Then
-  nothing is pinned: each run resolves the tags again. Remove the rule, then do step 8 again.
-- **`graft: scions/ exists and graft didn't write it`.** The repository already has a `scions/` of its
-  own. graft never replaces it: put the scions elsewhere with `dir`, for example
-  `graft.lib.mkFlake { inherit inputs; dir = ".scions"; }`, and run step 3 again. Read `.scions/` for
-  `scions/` in the later steps.
+- **`error: path '…/flake.nix' does not exist` or `… is not tracked by Git`.** Nix reads only files that git
+  knows. Run `git add -N flake.nix`, then step 3 again.
+- **`graft: .gitmodules registers scions/knowledge-base-kit but the flake's source lacks it: add inputs.self.submodules = true; …`.**
+  Your `flake.nix` lacks the line, or Nix is older than 2.27. Add it as in step 1.
+- **`graft: scions/knowledge-base-kit exists`.** The repository already has a folder of that name. Give
+  the scion another name, as the last argument of `add`, or another directory: `--scions .scions` (and
+  `dir = ".scions";` in `mkFlake`).
+- **`graft: https://… has no semver tags`.** The repository has no release yet. Ask its maintainers to tag
+  one ([Publish a pattern](publish.md)).
 
 ## How it works
 
-- Write `inputs` as a literal attribute set: Nix reads it without evaluation, and so does graft.
-- Take one repository through one input only. If two inputs name one repository at one commit, Nix
-  fetches it once, and both get the tree of the first fetch.
-- To keep one copy of an input that graft also has, add a `follows`. graft uses its own
-  `knowledge-base-kit` input only for its own docs, so the second line only keeps `flake.lock` to one entry:
-
-  ```nix
-  graft.inputs.nixpkgs.follows = "nixpkgs";                       # if your repository has nixpkgs
-  graft.inputs.knowledge-base-kit.follows = "knowledge-base-kit"; # if it grafts knowledge-base-kit
-  ```
-
-- `mkFlake` also takes `dir`, `scions` and `flakeDir`: see [Commands](../reference/commands.md#mkflake). See also
-  [Keep private files out of the Nix store](flake-in-a-subdirectory.md) and
-  [Graft a private repository](private-providers.md). To take newer versions, see
-  [Take a newer version by hand](upgrade.md).
+- `add` runs `git submodule add`, then checks out the tag's commit. The gitlink is the pin; there is no other
+  lock.
+- mkFlake finds scions by folder: every submodule in `scions/` is one, and one with a `graft.nix` adds tools,
+  apps and checks. Your `flake.nix` never names a provider.
+- To graft more providers, run `add` again. To stop grafting one: `git rm scions/NAME`, then commit; git
+  removes its `.gitmodules` entry. `nix flake check` then fails if another provider `requires` it.
+- To add tools of your own to `tools` (a compiler your scripts need, say), use `mkFlake`'s `perSystem`
+  ([Commands](../reference/commands.md#mkflake)).
+- Commands and flags: [Commands](../reference/commands.md).
 
 ## Try a provider's unreleased change
 
-Moved to [Take a newer version by hand](upgrade.md#try-a-providers-unreleased-change).
+Moved to [Fix a provider from a consumer](fix-a-provider.md).
 
 ## Sources
 
 - [template/](../../template/): the `flake.nix` and workflows that step 1 writes.
-- [lib/mk-flake.nix](../../lib/mk-flake.nix): `valid` (the argument checks), `names` (which inputs are
-  scions), `expected`, the `sync` and `check` cases, and the merge of a repository's own `outputs`.
-- [lib/assemble.sh](../../lib/assemble.sh): the scions directory and its README.
-- [tests/run.sh](../../tests/run.sh): the first graft ("export grafted", "check passes on a fresh graft"),
-  "graft won't replace a directory it didn't write", the `lock:` checks, and the template ("template: grafts and passes the check").
+- [lib/tools.sh](../../lib/tools.sh): `add`.
+- [lib/mk-flake.nix](../../lib/mk-flake.nix): discovery, `tools`, prefixed checks, and the error without
+  `inputs.self.submodules`.
+- [tests/run.sh](../../tests/run.sh): `add` and the first-pattern checks.
 - [tests/fixtures.sh](../../tests/fixtures.sh) `first-pattern`: the repositories this page was read against.
 - [Commands](../reference/commands.md), [Files](../reference/files.md).

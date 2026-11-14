@@ -10,53 +10,31 @@ require it before a merge.
 
 - The repository grafts the pattern, and `nix flake check` passes ([Graft your first pattern](graft-a-repository.md)).
   The example grafts `page-rules`, a provider with one rule (each page in `docs/` gives its status in front
-  matter) and a Python checker. Its README, `scions/page-rules/README.md`, says how to run the checker:
-  `python3 -m pagecheck DIR`, with the provider's directory on `PYTHONPATH`. Read your provider's README
-  for its own command.
+  matter) and a checker. Its `graft.nix` contributes a check, `pages`, that runs the checker on your `docs/`.
 - CI must be able to fetch the provider. For a private provider, see
   [Graft a private repository](private-providers.md).
-- `flake.nix` is at the repository's top. A flake in a subdirectory sees only that directory, so a check in it
-  cannot read your pages. Instead, skip steps 1 to 5, and in step 6's workflow run the checker from the
-  scion in place of `nix flake check`:
-
-  ```
-  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=scions/page-rules nix run nixpkgs#python3 -- -m pagecheck docs
-  ```
-
-  It copies none of your files into the Nix store. `PYTHONDONTWRITEBYTECODE=1` keeps Python from writing
-  `__pycache__/` into the scion. Keep `graft-check.yaml` beside it: it runs graft's check.
+- `flake.nix` is at the repository's top. A flake in a subdirectory sees only that directory, so a provider's
+  check there cannot read your pages: see [A flake in a subdirectory](#a-flake-in-a-subdirectory).
 
 ## Steps
 
-1. In `flake.nix`, give `mkFlake` a check that runs the checker. If the flake has no `nixpkgs` input, add
-   one, and make graft use it:
+1. List the checks that your providers contribute:
 
-   ```nix
-   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
-   inputs.graft.inputs.nixpkgs.follows = "nixpkgs";
+   ```
+   nix eval .#checks.x86_64-linux --apply builtins.attrNames
    ```
 
-   Then pass the check as `outputs.checks`:
-
-   ```nix
-   outputs = { self, nixpkgs, graft, ... }@inputs: graft.lib.mkFlake {
-     inherit inputs;
-     outputs.checks = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ] (system:
-       let pkgs = nixpkgs.legacyPackages.${system}; in {
-         pages = pkgs.runCommand "pages" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-           cd ${self}
-           PYTHONPATH=${inputs.page-rules} python3 -m pagecheck docs
-           touch $out
-         '';
-       });
-   };
+   ```
+   [ "page-rules-pages" ]
    ```
 
-   `${inputs.page-rules}` is the provider's fetched export, and `${self}` is your repository. `pages` is your
-   name for the check: any name but `graft`. If your outputs already have checks for each system, add
-   `pages = …;` beside them, in the same set.
+   Each is named `SCION-CHECK`. Use your machine's system for `x86_64-linux`. If a provider has no check, its
+   README says how to run its tool; add a check of your own ([A check of your own](#a-check-of-your-own)).
 
-2. Stage your pages:
+2. If the provider reads a settings file, write it. Its README names the file and its fields. A check skips,
+   and passes, when the file is absent.
+
+3. Stage your pages:
 
    ```
    git add docs/
@@ -64,14 +42,13 @@ require it before a merge.
 
    A flake sees only what git tracks, so the check cannot see a new page until you add it.
 
-3. Run the check:
+4. Run the checks:
 
    ```
    nix flake check
    ```
 
-   Nix warns `Git tree '…' is dirty` until you commit. The check fails, and names each page that breaks
-   the rule:
+   The check fails, and names each page that breaks the rule:
 
    ```
    error: builder for '/nix/store/…-pages.drv' failed with exit code 1;
@@ -80,24 +57,14 @@ require it before a merge.
           > docs/retry-idea.md: status 'idea' is not one of draft, working, stable, deprecated
    ```
 
-4. Fix each page that the check names. In the example, add front matter to the top of
-   `docs/outage-2026-11-03.md`, and, if your repository has `docs/retry-idea.md`, change its `status: idea`
-   to `status: draft`:
+   Fix each page that it names, stage it, and run the check again until it exits 0.
+
+5. Commit the pages, and any settings file:
 
    ```
-   ---
-   status: working
-   ---
+   git add docs/
+   git commit -m "Pages pass page-rules"
    ```
-
-5. Run the check again:
-
-   ```
-   nix flake check
-   ```
-
-   It exits 0. Nix warns `The check omitted these incompatible systems: …`: it builds the checks of your
-   machine's system only.
 
 6. Write a workflow that runs `nix flake check` on each pull request. On Forgejo, write
    `.forgejo/workflows/flake-check.yaml`:
@@ -142,23 +109,23 @@ require it before a merge.
    ([Run graft in CI and review its upgrade pull requests](ci.md)). Like `graft-check.yaml`, it cancels a run
    when a newer push to the same branch starts one. Change `main` to your default branch.
 
-   graft's `graft-check.yaml` stays as it is: it checks only that the scions match their pins. Your checks
-   are a status of their own, from this workflow, which you own. graft never changes a workflow that does
+   graft's `graft-check.yaml` stays as it is: it checks that the scions are clean and at release tags. Your
+   checks are a status of their own, from this workflow, which you own. graft never changes a workflow that does
    not carry its marker line.
 
    Give this workflow no secrets. On graft's upgrade pull request, `nix flake check` runs the new graft
    version and the new provider's checker before anyone has reviewed them ([CI security](../ci-security.md)).
 
    On GitHub, write `.github/workflows/flake-check.yaml` with the same `name:`, triggers and job key, and
-   these steps: `uses: actions/checkout@v7`, `uses: cachix/install-nix-action@v31`, then
-   `run: nix flake check`.
+   these steps: `uses: actions/checkout@v7`, `uses: cachix/install-nix-action@v31` (Nix 2.27 or later), then
+   `run: nix flake check`. A top-level git flake does not need `submodules: true`: Nix fetches the scions.
 
 7. On a new branch, commit:
 
    ```
    git switch -c check-pages
-   git add flake.nix docs/ .forgejo/workflows/flake-check.yaml
-   git commit -m "Check pages against page-rules"
+   git add .forgejo/workflows/flake-check.yaml
+   git commit -m "Run nix flake check on pull requests"
    ```
 
 8. Push the branch, and open a pull request. When the workflow runs, the pull request's checks list
@@ -213,8 +180,8 @@ curl -fsS -H "Authorization: token $FORGEJO_TOKEN" "https://forgejo.example/api/
 - **A page that breaks the rule passes `nix flake check`.** git does not track it yet, and a flake sees only
   what git tracks: `git status --short` lists it with `??`. Do step 2 again, then check again. CI checks
   only committed pages, so the gate still holds.
-- **`error: attribute 'page_rules' missing`, and `Did you mean page-rules?`.** The name in
-  `${inputs.…}` is not the input's name in `flake.nix`. Use the input's name exactly.
+- **The check names no page, and passes, though a page breaks the rule.** The provider's check reads a
+  settings file that is absent, and skips. Write it (step 2).
 - **graft's upgrade pull request says `Some required checks are missing.`** No workflow ran on its newest
   commit. graft's upgrade job pushes `graft/upgrade` with the job token, and Forgejo starts no workflow for
   that push. Your workflow runs only when graft opens the pull request with `GRAFT_PR_TOKEN`, a user's
@@ -231,32 +198,57 @@ curl -fsS -H "Authorization: token $FORGEJO_TOKEN" "https://forgejo.example/api/
 
 ## How it works
 
-- **Why `${inputs.page-rules}` and not `scions/page-rules`.** The fetched export is the pin itself, in the
-  read-only Nix store ([Concepts](../concepts.md#the-nix-binding)). The check is a Nix build that uses only
-  the tools it names, at the versions that `flake.lock` pins, so CI uses the same Python as you. It is part
+- **Where the check comes from.** The provider's `graft.nix` returns `checks.pages`, a Nix build that reads
+  your repository through `consumer`. mkFlake adds it as `checks.<system>.page-rules-pages`. It uses the tools the
+  provider names, at the versions that the scion's commit pins, so CI uses the same checker as you. It is part
   of `nix flake check`, which graft's weekly upgrade also runs, so a new version of the pattern is tested on
-  your pages before you merge it ([Take a newer version by hand](upgrade.md)).
-- **The other way.** You can run the checker from the scion in the working tree, as in
-  [Before you begin](#before-you-begin), in a script or a pre-commit hook. It uses an unpinned Python, and
-  it is not part of `nix flake check`, so graft's upgrade does not run it. Without
-  `PYTHONDONTWRITEBYTECODE=1`, Python writes `__pycache__/` into the scion, and `graft check` fails
-  ([`graft check` fails](check-fails.md), step 7).
-- `mkFlake` merges `outputs` with its own at every level, so your `checks` sit beside `checks.<system>.graft`
-  ([Commands](../reference/commands.md#mkflake)).
+  your pages before you merge it.
+- **Which pages it sees.** A git flake's source is what is committed, plus uncommitted edits to tracked files.
+  CI checks only committed pages, so the gate holds.
+
+### A check of your own
+
+When a provider ships a tool but no check, write one with `mkFlake`'s `perSystem`. Its `scions` argument has
+each provider's tools:
+
+```nix
+outputs = { self, ... }@inputs: inputs.graft.lib.mkFlake {
+  inherit inputs;
+  perSystem = { pkgs, scions, ... }: {
+    checks.pages = pkgs.runCommand "pages" { nativeBuildInputs = [ scions.page-rules.tools.pagecheck ]; } ''
+      cd ${self}
+      pagecheck docs
+      touch $out
+    '';
+  };
+};
+```
+
+It appears as `checks.<system>.pages`: your own checks are not prefixed.
+
+### A flake in a subdirectory
+
+A `path:` flake's checks see only its directory, so a provider's check cannot read your pages. Run the
+provider's tool on the working tree in your workflow instead, in place of `nix flake check`:
+
+```
+git submodule update --init
+nix shell 'path:nix/agent-tools#tools' -c pagecheck docs
+```
+
+Keep `graft-check.yaml` beside it: it runs graft's check.
 
 ## Sources
 
-- [lib/mk-flake.nix](../../lib/mk-flake.nix): the merge of a repository's own `outputs` (`own`, and
-  `lib.recursiveUpdate`).
-- [flake.nix](../../flake.nix): graft's own `checks.docs`, which runs knowledge-base-kit's checkers from
-  `${inputs.knowledge-base-kit}` the same way.
-- [lib/ci.sh](../../lib/ci.sh): `check`, which builds only `checks.<system>.graft`; `upgrade`, which runs the
+- [lib/mk-flake.nix](../../lib/mk-flake.nix): prefixed checks from each `graft.nix`, `consumer`, `perSystem`, and the merge of a
+  repository's own `outputs` (`lib.recursiveUpdate`).
+- [lib/ci.sh](../../lib/ci.sh): `check`, which evaluates `tools` but builds no check; `upgrade`, which runs the
   whole `nix flake check` and pushes; `pr`, which titles a failing upgrade.
 - [template/.forgejo/workflows/](../../template/.forgejo/workflows/): `graft-check.yaml`, whose runner label
   and checkout step 6 copies, and `graft-upgrade.yaml`, which pushes with the job token and opens the pull
   request with `GRAFT_PR_TOKEN`.
-- [tests/run.sh](../../tests/run.sh): "gate: ci upgrade fails when the repo's own check fails", and "own
-  outputs evaluate without graft's argument checks".
+- [tests/run.sh](../../tests/run.sh): the `gate:` checks, a provider check reading a settings file from `consumer`,
+  and a consumer's own `outputs` overriding graft's.
 - [tests/fixtures.sh](../../tests/fixtures.sh) `gate-merges`: the repositories this page was read against.
 - Forgejo's source, read but not run against a forge for this page: the status name
   ([services/actions/commit_status.go](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/services/actions/commit_status.go)),

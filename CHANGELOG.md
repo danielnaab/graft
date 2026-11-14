@@ -1,21 +1,84 @@
 # Changelog
 
-## Unreleased
+## v2.13.0 - unreleased
+
+graft now pins providers with git submodules. A scion is a submodule at a provider's release tag; its gitlink
+is the pin. A provider's `graft.nix` wires its tools, apps and checks into your flake, so your `flake.nix` names
+no provider. Copy mode is gone: every consumer moves once, by hand or by an agent following the Upgrading
+steps. Needs Nix 2.27 or later.
+
+### Upgrading
+
+These are also a guide: [Move from copy mode](docs/guides/move-from-copy-mode.md).
+
+1. On a branch, note each scion's tag: `nix run .#graft outdated` (before you upgrade graft).
+2. `git rm -r -q scions` (your scions directory). For a flake in a subdirectory, the scions directory moves
+   under the flake's directory (`nix/agent-tools/.scions`): delete the old one at the top.
+3. In `flake.nix`: delete every `flake = false` provider input and its wiring in `outputs`
+   (`import "${inputs.X}/…"`); delete `mkFlake`'s `scions` and `flakeDir` (in a subdirectory flake, set
+   `dir = ".scions";`); set `graft.url` to `github:danielnaab/graft/v2.13.0`; for a flake at the repository's
+   top, add `inputs.self.submodules = true;`. Tools of your own that were in `tools` go in `mkFlake`'s new
+   `perSystem`. Consumer settings that were Nix arguments move to the files that each provider's CHANGELOG
+   names.
+4. For each provider: `nix run github:danielnaab/graft/v2.13.0 -- add URL@TAG`, at a release that ships a
+   `graft.nix` if you used its Nix code. In a subdirectory flake, add `--scions nix/agent-tools/.scions` to the
+   first.
+5. `nix flake lock`, then `nix run .#graft sync` (it writes the marker README and graft's v2.13.0 workflows).
+   Commit, then run `nix flake check` and `nix run .#graft check`.
+6. Fix paths that named the old scions directory: links, `just` imports (use `import?`), hooks, source imports,
+   lint excludes. Replace the "never edit scions" agent rule with the section in
+   [Graft your first pattern](docs/guides/graft-a-repository.md#steps), step 6.
+7. Commit and push.
+
+What a weekly upgrade job still on v2.12 does: it moves graft's pin to v2.13.0, then runs v2.13.0's copy step,
+which is now a stub. The stub prints
+`graft v2.13.0 replaced copied scions with git submodules: see https://github.com/danielnaab/graft/blob/v2.13.0/CHANGELOG.md`
+and exits 1, so the job fails and opens no pull request. Follow the steps above instead.
+
+### Added
+- **`graft add [-C REPO] [--scions PATH] URL[@TAG] [NAME]`:** a new scion, as a submodule at the newest
+  release (or `TAG`).
+- **`graft.nix`:** a provider's tools (`packages.<system>.tools`, one environment for every provider), apps,
+  packages and checks (`checks.<system>.<scion>-<name>`), with `requires` for providers it needs. Arguments
+  `pkgs`, `lib`, `system`, `scion`, `scions`, `consumer` ([Files](docs/reference/files.md#graftnix)).
+- **mkFlake's `perSystem`:** a consumer's own tools, apps, packages, checks and dev shells, merged like a
+  provider's.
+- **`graft check` rules:** every scion registered, filled, clean, checked out at its gitlink, and at a version
+  tag's commit; absolute URLs; `inputs.self.submodules` in a top-level flake.
+- Guides: [Clones, worktrees, sandboxes and CI](docs/guides/clones-and-worktrees.md) (empty scions, the
+  post-checkout hook, git settings), [Fix a provider from a consumer](docs/guides/fix-a-provider.md),
+  [Write a provider's graft.nix](docs/guides/write-graft-nix.md), and
+  [Move from copy mode](docs/guides/move-from-copy-mode.md).
+
+### Changed
+- **`sync`** fills empty scions, writes the marker README and refreshes graft's workflows. It never moves a pin
+  or a filled scion.
+- **`upgrade`** moves gitlinks (with no clone, in CI) and graft's own pin; it never changes `.gitmodules`.
+  **`ci upgrade`** commits, then runs `nix flake check` on the clean committed tree, so Nix builds the new
+  scions.
+- **`ci pr`** opens a pull request for gitlink moves, and for graft's own move with its README and workflows;
+  it refuses a `.gitmodules` change.
+- **`outdated`, `changelog`, `migrate`** derive each scion's version from its gitlink. `migrate` lists what
+  moved from the provider's history between the two commits.
+- **The scions README** is a fixed marker and explanation, with the right run command for the flake's kind; no
+  table, no `<!-- graft flake: -->` line. `check` reads only its marker line.
+- **The `# graft ssh:` line** also gives the upgrade job its key, for a private scion.
+- [Concepts](docs/concepts.md), [Decisions](docs/decisions.md) (Pin with git submodules; let providers wire
+  themselves), and every guide and reference page are rewritten for submodules.
+  [Ship a tool or seed files](docs/guides/ship-tools.md) is now
+  [Write a provider's graft.nix](docs/guides/write-graft-nix.md);
+  [Change a grafted file](docs/guides/change-a-grafted-file.md) is now
+  [Fix a provider from a consumer](docs/guides/fix-a-provider.md).
+
+### Removed
+- Copy mode: committed copies of exports, the drift check and report, `checks.<system>.graft`, export rules
+  (`export-ignore` is no longer read), the annotated-tag re-pin, mkFlake's `scions` and `flakeDir`, and the
+  scions README's table.
 
 ### Fixed
 - **On Nix 2.34, `graft ci upgrade`'s commit and pull request no longer show Nix's `For full logs, run:`,
   `nix log /nix/store/…` and `Output paths:` lines** of a failing check. Nix 2.34 words a failed build's
   error differently from 2.24; graft now drops both forms.
-
-### Docs
-- [Publish](docs/guides/publish.md#if-something-goes-wrong) and [Nix behaviours](docs/reference/nix-behaviours.md):
-  a consumer locked on the provider's own machine can hold the hash of the whole commit, not of the export,
-  and fail CI with `NAR hash mismatch`; how to check a lock against an empty fetch cache.
-- Nix 2.34: [Nix behaviours](docs/reference/nix-behaviours.md) says which behaviours hold in 2.34. Nix 2.34
-  cannot lock `?ref=TAG` over ssh or HTTP even after a fetch of the tag, so
-  [Graft a private repository](docs/guides/private-providers.md#steps) now locks the first tag's commit with
-  `nix flake lock --override-input` (it works on 2.24 too). Publish and Ship a tool name 2.34's error,
-  `couldn't find remote ref refs/heads/TAG`.
 
 ## v2.12.0 - 2026-11-13
 
