@@ -9,7 +9,7 @@ How to change graft, test it, and release it.
 
 | Path | Contents |
 |---|---|
-| `flake.nix` | `lib.mkFlake`, the `graft` package, the template, and graft's own checks. graft grafts its own scion with this checkout's `mkFlake`. |
+| `flake.nix` | `lib.mkFlake`, the `graft` package (`packages.default`), graft's own app (`apps.graft`), the template, and graft's own checks. It does not call `mkFlake` on itself and does not declare `inputs.self.submodules` ([below](#test)). |
 | `lib/mk-flake.nix` | `mkFlake`: discovery of scions, `graft.nix` calls, the merge of outputs, and the evaluation errors. |
 | `lib/graft.sh` | The command: dispatches to the scripts below; `sync` and `check`. |
 | `lib/tools.sh` | `add`, `outdated`, `changelog`, `upgrade`. |
@@ -22,23 +22,38 @@ How to change graft, test it, and release it.
 | `tests/run.sh`, `tests/stub-api.py` | The end-to-end test, and a stub of Forgejo's API. |
 | `tests/fixtures.sh` | The repositories that a guide is read against. |
 | `docs/`, `README.md`, `AGENTS.md` | Documentation, checked against knowledge-base-kit's conventions. |
-| `scions/` | graft's own scion, knowledge-base-kit, a submodule. |
+| `scions/` | graft's own scion, knowledge-base-kit, a submodule, for reading. The docs check reads the same commit from the `knowledge-base-kit` flake input. |
 | `.forgejo/workflows/` | graft's own CI: the template's workflows, kept current by `nix run .#graft sync`. |
 
 ## Test
 
 ```
-git submodule update --init --recursive      # graft's own scion, for the docs check
+git submodule update --init --recursive      # graft's own scion, to read its conventions
 nix flake check                  # bash -n and shellcheck, and the docs check
+nix run .#graft check            # the scion is clean and at a release tag
 tests/run.sh                     # the whole cycle against throwaway provider repositories
 tests/run.sh mkflake nix         # some sections only
 KEEP=1 tests/run.sh              # the same, and keep the work directory to debug a failure
 ```
 
-graft's flake declares `inputs.self.submodules = true;`, so Nix refuses it as a `path:` input
-(`error: input attribute 'submodules' not supported by scheme 'path'`). To try a checkout of graft in another
-repository, use `--override-input graft git+file:///ABSOLUTE/PATH/TO/graft`, which reads what git tracks
-there. `tests/run.sh` uses a copy of the checkout without that line.
+graft's flake is other flakes' input (`github:` for consumers, `path:` and a tarball in the tests), so it must
+not declare `inputs.self.submodules`: Nix applies the attribute to that fetch, and those schemes reject it
+(`error: input attribute 'submodules' not supported by scheme 'github'`; graft v2.13.0 had this bug). The
+`own` section of `tests/run.sh` fails if the line comes back. Without it, graft's own scion is absent from
+its flake's source, so graft does not call `mkFlake` on itself:
+
+- The docs check reads knowledge-base-kit's checker from the `knowledge-base-kit` input (`flake = false`), at
+  the scion's gitlink. `tests/run.sh own` fails when the two differ. When you move the scion
+  (`nix run .#graft upgrade knowledge-base-kit`, or the weekly job), move the input too: set its tag in
+  `flake.nix`, run `nix flake update knowledge-base-kit`, and commit both. To check the docs against an
+  unreleased edit in the scion: `nix flake check --override-input knowledge-base-kit path:$PWD/scions/knowledge-base-kit`.
+- `apps.graft` is graft's own app, as `mkFlake` gives a consumer one (`nix run .#graft check`, `sync`,
+  `ci …`); `packages.tools` is an empty environment, which `graft check` evaluates.
+- `flake.nix` carries the comment `# graft: no self.submodules`, so `graft check` accepts it.
+
+To try a checkout of graft in another repository: `--override-input graft path:/ABSOLUTE/PATH/TO/graft` (its
+working tree) or `git+file:///ABSOLUTE/PATH/TO/graft` (what git tracks). `tests/run.sh` uses a copy of the
+checkout's working tree as a `path:` input, and a tarball of it as a `tarball+file:` input.
 
 `tests/run.sh` builds local bare provider repositories with tags and `file://` submodule URLs, and covers
 mkFlake (discovery, isolation, siblings, collisions, the evaluation errors), the Nix fetch rules that graft

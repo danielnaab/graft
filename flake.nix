@@ -1,12 +1,13 @@
 {
   description = "graft: other repositories as git submodules pinned to release tags, wired into your flake";
 
-  # graft's own scion (scions/knowledge-base-kit, its docs checker) is a git submodule. A repo that
-  # uses graft fetches it with github:, which has no submodules, and graft's command never needs
-  # them. Nix refuses this attribute on a path: input: to try a checkout of graft in a repo, use
-  # --override-input graft git+file:///abs/path/to/graft (it reads what git tracks there).
-  inputs.self.submodules = true;
+  # graft is other flakes' input (github:, and path: or tarballs in its tests), so this flake.nix must not
+  # declare inputs.self.submodules: Nix applies it to that fetch too, and those schemes reject it
+  # ("input attribute 'submodules' not supported by scheme 'github'"). # graft: no self.submodules
+  # So graft can't mkFlake itself: its scion is absent from its source. The docs check reads
+  # knowledge-base-kit from this input instead, at the scion's gitlink (tests/run.sh `own` checks they match).
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+  inputs.knowledge-base-kit = { url = "github:danielnaab/knowledge-base-kit/v2.1.0"; flake = false; };
 
   outputs = { self, nixpkgs, ... }@inputs:
     let
@@ -28,49 +29,55 @@
         meta.description = "Graft other repositories as git submodules pinned to release tags";
       };
       mkFlake = import ./lib/mk-flake.nix { inherit nixpkgs systems cli; };
-      # the docs checker, from the knowledge-base-kit scion alone (not the whole checkout)
-      kbKit = builtins.path { path = "${self}/scions/knowledge-base-kit"; name = "scion-knowledge-base-kit"; filter = p: _: baseNameOf p != ".git"; };
+      kbKit = inputs.knowledge-base-kit;
     in
-    # graft grafts its own scions with this checkout's mkFlake
-    mkFlake {
-      inherit inputs;
-      outputs = {
-        lib.mkFlake = mkFlake;
+    {
+      lib.mkFlake = mkFlake;
 
-        # Run against any checkout without evaluating its flake:
-        #   nix run github:danielnaab/graft -- outdated -C path/to/repo
-        packages = forAll (pkgs: { default = cli pkgs { }; });
+      # Run against any checkout without evaluating its flake:
+      #   nix run github:danielnaab/graft -- outdated -C path/to/repo
+      # tools: empty (graft grafts only docs conventions); `graft check` from the repo's app evaluates it
+      packages = forAll (pkgs: {
+        default = cli pkgs { };
+        tools = pkgs.buildEnv { name = "tools"; paths = [ ]; };
+      });
 
-        # A new repo's flake.nix and graft's workflows: nix flake init -t github:danielnaab/graft
-        templates.default = {
-          path = ./template;
-          description = "A repo that grafts other repositories, with graft's Forgejo workflows";
-          welcomeText = ''
-            Graft a first repository (a git submodule at its newest release tag), then commit:
-              nix run github:danielnaab/graft/v2.13.0 -- add -C . URL
-            See https://github.com/danielnaab/graft.
-          '';
-        };
+      # graft's own app, as mkFlake gives a consumer one: nix run .#graft check, sync, ci …
+      apps = forAll (pkgs: {
+        graft = { type = "app"; program = lib.getExe (cli pkgs { GRAFT_DIR = "scions"; GRAFT_IN_REPO = "1"; }); meta.description = "graft, for this repository"; };
+      });
 
-        checks = forAll (pkgs: {
-          # bash -n first: bash's own parser, so a script bash can't run fails even where shellcheck's
-          # parser would differ
-          shellcheck = pkgs.runCommand "graft-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
-            for f in ${./tests}/*.sh ${./lib}/*.sh; do bash -n "$f" || exit 1; done
-            shellcheck -x ${./tests/run.sh} ${./tests/fixtures.sh} ${./lib}/*.sh
-            touch $out
-          '';
-          # graft's docs against knowledge-base-kit's conventions: links and anchors, lifecycle status,
-          # provenance (scopes in knowledge-base.yaml). The checker is the scion's src/.
-          docs = pkgs.runCommand "graft-docs" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-            cd ${self}
-            export PYTHONPATH=${kbKit}/src
-            # one command per line: under set -e, a failure left of `&&` would not stop the build
-            python3 -m link_validator .
-            python3 -m kb_linter .
-            touch $out
-          '';
-        });
+      devShells = forAll (pkgs: { default = pkgs.mkShell { packages = [ (cli pkgs { }) pkgs.shellcheck pkgs.jq ]; }; });
+
+      # A new repo's flake.nix and graft's workflows: nix flake init -t github:danielnaab/graft
+      templates.default = {
+        path = ./template;
+        description = "A repo that grafts other repositories, with graft's Forgejo workflows";
+        welcomeText = ''
+          Graft a first repository (a git submodule at its newest release tag), then commit:
+            nix run github:danielnaab/graft/v2.13.1 -- add -C . URL
+          See https://github.com/danielnaab/graft.
+        '';
       };
+
+      checks = forAll (pkgs: {
+        # bash -n first: bash's own parser, so a script bash can't run fails even where shellcheck's
+        # parser would differ
+        shellcheck = pkgs.runCommand "graft-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
+          for f in ${./tests}/*.sh ${./lib}/*.sh; do bash -n "$f" || exit 1; done
+          shellcheck -x ${./tests/run.sh} ${./tests/fixtures.sh} ${./lib}/*.sh
+          touch $out
+        '';
+        # graft's docs against knowledge-base-kit's conventions: links and anchors, lifecycle status,
+        # provenance (scopes in knowledge-base.yaml). The checker is knowledge-base-kit's src/.
+        docs = pkgs.runCommand "graft-docs" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          cd ${self}
+          export PYTHONPATH=${kbKit}/src
+          # one command per line: under set -e, a failure left of `&&` would not stop the build
+          python3 -m link_validator .
+          python3 -m kb_linter .
+          touch $out
+        '';
+      });
     };
 }

@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.13.1 - 2026-11-14
+
+### Fixed
+- **graft v2.13.0 can't be a flake input.** Its own `flake.nix` declared `inputs.self.submodules = true;`, and
+  Nix applies that to the fetch of a flake taken as an input: every consumer with
+  `inputs.graft.url = "github:danielnaab/graft/v2.13.0"` failed to lock or evaluate with
+  `error: input attribute 'submodules' not supported by scheme 'github'` (`'path'` for a `path:` checkout).
+  graft's flake no longer declares it, and no longer calls `mkFlake` on itself; its docs check reads
+  knowledge-base-kit from a `flake = false` input at its scion's commit. `nix run github:…/v2.13.0 -- …`
+  (graft's command, not an input) was not affected.
+- The docs said `github:` inputs were not affected by a flake's `inputs.self.submodules`: they are. A flake
+  that others take as an input must not declare it ([Nix behaviours](docs/reference/nix-behaviours.md)).
+
+### Upgrading
+- On v2.13.0: set `inputs.graft.url` to `github:danielnaab/graft/v2.13.1`, run `nix flake update graft`, and
+  commit. `nix run .#graft upgrade` can't do it, because v2.13.0 doesn't evaluate as an input. Nothing else
+  changes. Moving from v2.12 or earlier: follow v2.13.0's Upgrading steps below with v2.13.1 for v2.13.0.
+
 ## v2.13.0 - 2026-11-14
 
 graft now pins providers with git submodules. A scion is a submodule at a provider's release tag; its gitlink

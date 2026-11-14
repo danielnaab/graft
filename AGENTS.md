@@ -15,9 +15,10 @@ into its Nix flake: a flake library and one command. Read [README.md](README.md)
 ## Rules
 
 1. `scions/knowledge-base-kit` is another repository. Ask before you edit it, and fix a bug in it only as a
-   change to knowledge-base-kit: a branch in the scion, its own tests, a pull request there. To build graft
-   with the fix, `nix run .#graft -- try`, then `nix run .#graft -- try --stop`. Take the release with
-   `nix run .#graft upgrade knowledge-base-kit`. Never commit the scion away from a release tag:
+   change to knowledge-base-kit: a branch in the scion, its own tests, a pull request there. To check graft's
+   docs with the fix: `nix flake check --override-input knowledge-base-kit path:$PWD/scions/knowledge-base-kit`.
+   Take the release with `nix run .#graft upgrade knowledge-base-kit`, and move the `knowledge-base-kit` input
+   in `flake.nix` to the same tag ([Development](docs/development.md#test)). Never commit the scion away from a release tag:
    `nix run .#graft check` fails.
 2. Behaviour and docs change together. A change to a command, argument, message or file format updates its
    reference page in the same commit.
@@ -26,7 +27,7 @@ into its Nix flake: a flake library and one command. Read [README.md](README.md)
 
 ## Verify
 
-1. `nix flake check`: bash -n and shellcheck, and the docs check. Nix sees an uncommitted
-   edit in the scion only while another tracked file is modified.
+1. `nix flake check`: bash -n and shellcheck, and the docs check (knowledge-base-kit from the flake input,
+   not the scion). `flake.nix` must not declare `inputs.self.submodules`: graft is other flakes' input.
 2. `nix run .#graft check`: the scion is clean and at a release tag.
 3. `tests/run.sh` after a change to `lib/` or `template/`. It takes minutes; do not run two at once.

@@ -11,11 +11,11 @@ src=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 trap '[ -n "${KEEP:-}" ] || rm -rf "$work"' EXIT
 [ -z "${KEEP:-}" ] || echo "work: $work"
-# graft as the consumers use it: a copy of this checkout's working tree, used as a path: input. Nix
-# refuses inputs.self.submodules on a path: input, so the copy's flake.nix drops that line.
+# graft as the consumers use it: a copy of this checkout's working tree, unchanged, used as a path:
+# input (a scheme without submodules, like github: and tarballs: Nix refuses an input whose flake.nix
+# declares inputs.self.submodules there)
 graft=$work/graft
 mkdir -p "$graft" && (cd "$src" && tar --exclude=./.git --exclude=./result -cf - .) | tar -C "$graft" -xf -
-sed -i '/^  inputs.self.submodules = true;$/d' "$graft/flake.nix"
 # git as a reader's would run, with what tests need: file:// submodules (git >= 2.38 refuses them by
 # default), no signing, a name. Through the environment, so graft's own git calls get it too.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
@@ -232,7 +232,7 @@ sec_mkflake() {
   printf '{ pkgs, ... }: { tools.x = pkgs.hello;\n' > "$work/src/bad/graft.nix" && release bad v1.0.1
   git_ -C scions/bad fetch -q --tags && git_ -C scions/bad checkout -q --detach v1.0.1 && commit "bad v1.0.1"
   refused "check: a graft.nix that doesn't parse, from graft's own flake" G check -C .
-  expect "names it" holds "graft: scions/bad/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/bad), or from outside: nix run github:danielnaab/graft/v2.13.0 -- upgrade -C . bad@TAG"
+  expect "names it" holds "graft: scions/bad/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/bad), or from outside: nix run github:danielnaab/graft/v2.13.1 -- upgrade -C . bad@TAG"
   git_ rm -q scions/bad && commit "no bad"
 
   # a scion with no graft.nix, and one with its own pinned source
@@ -1098,9 +1098,28 @@ sec_tarball() {
   tar -C "$work" -czf "$work/graft.tar.gz" graft-src
   ran "tarball: graft's command runs from a tarball of graft (no submodules)" nix run "tarball+file://$work/graft.tar.gz" -- help
   expect "its usage" holds "usage:"
+  # a consumer taking graft as a tarball input (as github: fetches it): lock, evaluate, its own app
+  local c=$work/tarball-consumer
+  consumer "$c" "$(printf '  inputs.self.submodules = true;\n  inputs.graft.url = "tarball+file://%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };' "$work/graft.tar.gz")"
+  cd "$c" && by_hand kb && commit init
+  ran "tarball: a consumer locks graft as a tarball input" nix flake lock
+  commit lock
+  ran "tarball: and builds its tools" tools_out kb-lint
+  ran "tarball: and runs its own graft" g check
+  expect "which passes" has "graft: 1 scion clean and at release tags"
 }
 
-sections=(mkflake tarball nix try add sync check outdated changelog upgrade graft workflows ci migrate)
+sec_own() {
+  # graft's docs check reads knowledge-base-kit from a flake input: the same commit as its scion
+  local link rev
+  link=$(git_ -C "$src" ls-files -s scions/knowledge-base-kit | awk '$1 == "160000" { print $2 }')
+  rev=$(jq -r '.nodes["knowledge-base-kit"].locked.rev' "$src/flake.lock")
+  expect "own: graft's knowledge-base-kit input is at its scion's gitlink ($link)" test "$link" = "$rev"
+  expect "own: graft's flake.nix doesn't declare self.submodules (it is others' input)" \
+    test -z "$(grep -E '^[^#]*submodules *= *true' "$src/flake.nix")"
+}
+
+sections=(own mkflake tarball nix try add sync check outdated changelog upgrade graft workflows ci migrate)
 [ $# -eq 0 ] || sections=("$@")
 for s in "${sections[@]}"; do
   echo "== $s"

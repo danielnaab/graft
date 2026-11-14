@@ -41,7 +41,7 @@ More of the same rule:
 - **`nix run .#graft` fetches first.** On a clean tree, `nix run .#graft …` (sync, check, upgrade) fetches every
   scion at its gitlink before graft runs. A gitlink the provider's remote lacks (an unpushed fix) fails there
   with `Cannot find Git revision …`; run graft from its own flake instead:
-  `nix run github:danielnaab/graft/v2.13.0 -- check -C .`.
+  `nix run github:danielnaab/graft/v2.13.1 -- check -C .`.
 - **A stale scion.** After `git pull` without `submodule.recurse`, a scion can be checked out at an older commit
   than the gitlink (`git submodule status` shows `+`). The clean tree builds the gitlink; the same commit with a
   note edited builds the old checkout. `graft check` fails on `+`. **tested**
@@ -83,20 +83,25 @@ which is a tracked file and always present, and fails:
 
 ## `github:` drops submodules; `git+https:` keeps them
 
-A flake fetched as `github:OWNER/REPO` (a tarball) has no submodules, even when it declares
+`nix run github:OWNER/REPO` (a tarball) gets no submodules, even when the flake declares
 `inputs.self.submodules`. A `git+https://…` reference keeps them: Nix adds `submodules=1` to the locked URL by
-itself for a flake that declares it. To use a consumer's outputs from elsewhere (another flake's input, or
-`nix run`), use `git+https:`. **tested**
+itself for a flake that declares it. To use a consumer's outputs from elsewhere (`nix run`, or another flake's
+input, below), use `git+https:`. **tested**
 
 A `github:` tarball has the submodule folders, empty. mkFlake then warns that the scions are empty, and
 builds `tools` without them.
 
-## A flake with `inputs.self.submodules` is not a `path:` input
+## A flake with `inputs.self.submodules` can't be a `github:`, `path:` or tarball input
 
-Nix 2.34 refuses the attribute when another flake takes this one as a `path:` input:
-`error: input attribute 'submodules' not supported by scheme 'path'`. graft's own flake declares it, so to try
-a checkout of graft in a consumer, use `--override-input graft git+file:///ABSOLUTE/PATH/TO/graft` (it reads
-what git tracks there), not `path:`. `github:` inputs are not affected. **tested**
+When another flake takes this one as an input, Nix applies `inputs.self.submodules` to that fetch, and every
+scheme without submodules refuses it: `error: input attribute 'submodules' not supported by scheme 'github'`
+(or `'path'`, `'tarball'`), when the consumer locks or evaluates. So:
+
+- A flake that others take as an input (a provider's own flake, a library) must not declare it. graft's own
+  flake does not (v2.13.0 did: v2.13.1 fixes it), and grafts no scion into its own outputs.
+- To take a flake that declares it as an input, use `git+https://…` (or `git+ssh://`, `git+file://`).
+
+**tested** (`tarball+file:` and `path:`; `github:` reported on Nix 2.34.6)
 
 ## Nested submodules
 
