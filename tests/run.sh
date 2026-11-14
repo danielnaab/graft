@@ -217,6 +217,24 @@ sec_mkflake() {
   expect "graft's" holds "graft: add, sync"
   git_ rm -q scions/rs && commit "no rs"
 
+  # a provider whose graft.nix throws fails the tools and the checks, naming it (never dropped)
+  prov bad
+  printf '{ pkgs, ... }: throw "bad: unsupported configuration"\n' > "$work/src/bad/graft.nix" && release bad v1.0.0
+  by_hand bad && commit "bad"
+  refused "mkflake: a provider that throws fails the tools" nix build --no-link .#tools
+  expect "with its message" holds "bad: unsupported configuration"
+  expect "naming its graft.nix" holds "while evaluating scions/bad/graft.nix"
+  refused "mkflake: and nix flake check" nix flake check --no-build
+  ran "mkflake: graft's app still evaluates" nix eval --raw ".#apps.$sys.graft.type"
+  refused "check: fails on it, from the repo's own app" g check
+  expect "says why" holds "graft: the flake's tools or checks don't evaluate (above): a provider's graft.nix fails"
+  # one that doesn't parse breaks every output (Nix can't catch it): check from outside names it
+  printf '{ pkgs, ... }: { tools.x = pkgs.hello;\n' > "$work/src/bad/graft.nix" && release bad v1.0.1
+  git_ -C scions/bad fetch -q --tags && git_ -C scions/bad checkout -q --detach v1.0.1 && commit "bad v1.0.1"
+  refused "check: a graft.nix that doesn't parse, from graft's own flake" G check -C .
+  expect "names it" holds "graft: scions/bad/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/bad), or from outside: nix run github:danielnaab/graft/v2.13.0 -- upgrade -C . bad@TAG"
+  git_ rm -q scions/bad && commit "no bad"
+
   # a scion with no graft.nix, and one with its own pinned source
   by_hand docs && by_hand lk && commit "docs, lk"
   ran "mkflake: a docs-only scion beside providers; a provider's own pinned fetch" tools_out lk
@@ -235,7 +253,7 @@ sec_mkflake() {
   expect "own-shell" has "own-shell"
   sed -i 's|tools.mine = |tools.lk = |' flake.nix && commit "perSystem lk"
   refused "mkflake: perSystem: a tool named like a provider's" nix build --no-link .#tools
-  expect "is a collision, naming self" holds "graft: tools lk (from lk and self): two scions provide the same name"
+  expect "is a collision, naming self" holds "graft: tools lk (from scion lk and the consumer's perSystem): both provide the same name; rename the consumer's own"
   git_ checkout -q HEAD~2 -- flake.nix && commit "no perSystem"
 
   # the repo's own outputs: merged last, per name; graft's app stays graft's
@@ -259,7 +277,7 @@ sec_mkflake() {
   # a tarball of the repo (what github: fetches) has no submodules either
   git_ archive --format=tar.gz -o "$work/c1.tar.gz" --prefix=c1/ HEAD
   ran "mkflake: a tarball of the repo (github:): the tools build without the scions" nix build --no-link "tarball+file://$work/c1.tar.gz#tools"
-  expect "warning, and saying use git+https" holds "graft: scions/docs, scions/kb, scions/lk, scions/nk are empty in the flake's source, so the tools leave out what they give: run git submodule update --init (or graft sync). Fetched with github:? use git+https://…, which keeps submodules."
+  expect "warning, and saying use git+https" holds "graft: scions/docs, scions/kb, scions/lk, scions/nk are empty in the flake's source, so the tools leave out what they give: run git submodule update --init --recursive (or graft sync). Fetched with github:? use git+https://…, which keeps submodules."
 
   # a folder that isn't a submodule
   mkdir -p scions/stray && echo x > scions/stray/x.md && commit "stray"
@@ -268,10 +286,16 @@ sec_mkflake() {
   git_ rm -rq scions/stray && commit "no stray"
 
   # the wrong dir: graft's marker README is how it knows
-  sed -i 's|mkFlake { inherit inputs; }|mkFlake { inherit inputs; dir = "docs"; }|' flake.nix
+  sed -i 's|mkFlake { inherit inputs; }|mkFlake { inherit inputs; dir = ".scions"; }|' flake.nix && commit "dir = .scions"
+  refused "mkflake: dir names no folder, and graft's README is elsewhere" nix build --no-link .#tools
+  expect "says where it is" holds "graft: graft's README is in scions/ but mkFlake's dir is \".scions\": set dir = \"scions\"; (or move the scions)"
+  ran "mkflake: and graft's app still evaluates" nix eval --raw ".#apps.$sys.graft.type"
+  refused "check: from the repo's own app, too" g check
+  expect "says so" holds "graft: graft's README is in scions/ but mkFlake's dir is \".scions\""
+  sed -i 's|dir = ".scions";|dir = "docs";|' flake.nix
   mkdir -p docs && echo "# docs" > docs/README.md && commit "dir = docs"
   refused "mkflake: dir names a folder without graft's README" nix build --no-link .#tools
-  expect "asks whether dir is right" holds "graft: docs/README.md lacks graft's marker: is dir right? (mkFlake's dir = \"docs\")"
+  expect "says where it is" holds "graft: graft's README is in scions/ but mkFlake's dir is \"docs\": set dir = \"scions\"; (or move the scions)"
   sed -i 's|dir = "docs";|dir = "a/b";|' flake.nix && commit "dir = a/b"
   refused "mkflake: dir must be one folder name" nix build --no-link .#tools
   expect "says so" holds "graft: mkFlake's dir must be one folder name (letters, digits, . _ -; not ., .. or .git), got \"a/b\""
@@ -298,7 +322,7 @@ EOF
   expect "with its scions" quiet "$work/result/bin/nb-index"
   git_ clone -q "$s" "$work/sub-clone" && cd "$work/sub-clone"
   ran "mkflake: path: flake, fresh clone: the tools build without the empty scions" nix build -o "$work/result" "path:$PWD/nix/tools#tools"
-  expect "warning which" holds "graft: .scions/kb, .scions/nk are empty in the flake's source, so the tools leave out what they give: run git submodule update --init (or graft sync)"
+  expect "warning which" holds "graft: .scions/kb, .scions/nk are empty in the flake's source, so the tools leave out what they give: run git submodule update --init --recursive (or graft sync)"
   expect "and leave their tools out" test ! -e "$work/result/bin/nb-index"
   ran "mkflake: and graft's app evaluates, to fill them" nix eval --raw "path:$PWD/nix/tools#apps.$sys.graft.type"
   ran "mkflake: and the repo's own outputs" nix eval --raw "path:$PWD/nix/tools#own"
@@ -445,7 +469,7 @@ sec_sync() {
   expect "sync: and a scion's own submodules (Nix reads them while the tree is dirty)" test -f scions/nest/scions/docs/policy.md
   git_ -C scions/pa checkout -q v1.0.0
   ran "sync: a scion checked out elsewhere (an agent's fix branch)" g
-  expect "is left there, and said" has "graft: scions/pa at v1.0.0 ($(sha pa v1.0.0 | cut -c1-7)), not the recorded $(sha pa v1.1.0 | cut -c1-7): left as it is (git add scions/pa records it; git submodule update -- scions/pa goes back)"
+  expect "is left there, and said" has "graft: scions/pa at v1.0.0 ($(sha pa v1.0.0 | cut -c1-7)), not the recorded $(sha pa v1.1.0 | cut -c1-7): left as it is (git add scions/pa records it; git submodule update --recursive -- scions/pa goes back)"
   expect "not moved" test "$(git_ -C scions/pa rev-parse HEAD)" = "$(sha pa v1.0.0)"
   git_ -C scions/pa checkout -q --detach "$(sha pa v1.1.0)"
   echo "mine" >> scions/README.md
@@ -465,6 +489,20 @@ sec_check() {
   cd "$work/cmd"
   ran "check: every scion clean and at a release tag" g check
   expect "says so" has "graft: 3 scions clean and at release tags"
+  # a submodule the index holds as files (what `git add` does over a copied scion still in the index)
+  git_ rm -q --cached scions/docs && git_ update-index --add --cacheinfo "100644,$(git_ hash-object -w scions/docs/policy.md),scions/docs/policy.md"
+  refused "check: a submodule tracked as files" G check -C .
+  expect "says how to fix it" has "graft: scions/docs is tracked as files, not as a submodule: git rm -r -q --cached scions/docs && git add scions/docs (git then records the submodule's commit)"
+  refused "check --committed: too" G check -C . --committed
+  refused "sync: refuses it" g sync
+  git_ reset -q -- scions/docs
+  git_ update-index --add --cacheinfo "100644,$(git_ hash-object -w scions/docs/policy.md),scions/x/a.md"
+  refused "add: over a path still tracked as files" G add -C . "$(url docs)" x
+  expect "says so" has "graft: scions/x is still tracked as files (a copied scion?): git rm -r -q --cached scions/x, delete the folder, then graft add again"
+  git_ rm -q --cached scions/x/a.md
+  # shellcheck disable=SC2016 # sh's own expressions
+  refuse "check: graft's README outside mkFlake's dir" sh -c 'env GRAFT_IN_REPO=1 GRAFT_DIR=.scions nix run "path:$1" -- check -C . >"$2" 2>&1' _ "$graft" "$work/out"
+  expect "says set dir" grep -qF "graft: graft's README is in scions/ but mkFlake's dir is \".scions\": set dir = \"scions\"; in flake.nix (or move the scions)" "$work/out"
   ran "check: from graft's flake, -C" G check -C "$work/cmd"
   echo "x" > scions/pa/untracked.txt
   ran "check: an untracked file in a scion (Nix doesn't read it)" g check
@@ -475,10 +513,15 @@ sec_check() {
   git_ -C scions/pa checkout -q -- version
   git_ -C scions/pa checkout -q --detach v1.0.1
   refused "check: a scion checked out at another commit than the gitlink" g check
-  expect "says both, and the fixes" has "graft: scions/pa is checked out at $(sha pa v1.0.1 | cut -c1-7) but the repository records $(sha pa v1.1.0 | cut -c1-7): git add scions/pa to record it, or git submodule update -- scions/pa to go back"
+  expect "says both, and the fixes" has "graft: scions/pa is checked out at $(sha pa v1.0.1 | cut -c1-7) but the repository records $(sha pa v1.1.0 | cut -c1-7): git add scions/pa to record it, or git submodule update --recursive -- scions/pa to go back"
   git_ -C scions/pa commit -q --allow-empty -m "a fix" && git_ add scions/pa
   refused "check: a gitlink at no release" g check
   expect "names the nearest" holds "graft: scions/pa at $(git_ -C scions/pa rev-parse --short=7 HEAD) is not a release tag of $(url pa) (nearest: v1.0.1-1-g"
+  expect "and the way on" holds "release it, then graft upgrade pa@TAG (or graft upgrade pa, the newest release of its major)"
+  git_ -C scions/pa tag v1.0.9
+  refused "check: a tag only the scion's clone has" g check
+  expect "says push it" has "graft: scions/pa: tag v1.0.9 exists locally but not at $(url pa): push it (git -C scions/pa push origin v1.0.9)"
+  git_ -C scions/pa tag -d v1.0.9 >/dev/null
   git_ -C scions/pa checkout -q --detach "$(sha pa v1.1.0)" && git_ add scions/pa
   command mv "$work/pa.git" "$work/pa.away"
   ran "check: an upstream it can't list: the scion's own tags" G check -C .
@@ -502,7 +545,7 @@ sec_check() {
   git_ checkout -q -- .forgejo
   git_ clone -q "$work/cmd" "$work/cmd-fresh" && cd "$work/cmd-fresh"
   refused "check: a fresh clone's empty scions" g check
-  expect "says sync" has "graft: scions/pa is empty: graft sync (or git submodule update --init -- scions/pa)"
+  expect "says how to fill it" has "graft: scions/pa is empty: git submodule update --init --recursive -- scions/pa (or graft sync)"
   ran "check --committed: what a commit holds, with no scion filled" g check --committed
   expect "says so" has "graft: 3 scions registered and at release tags"
   cd "$work/cmd"
@@ -557,7 +600,7 @@ sec_outdated() {
   expect "the same" grep -qE "^pa +scions +v1.1.0 +v1.2.0 +outdated" <<<"$out"
   git_ -C scions/docs commit -q --allow-empty -m wip && git_ add scions/docs
   ran "outdated: a scion at no release" g outdated
-  expect "untagged, with its commit" grep -qE "^docs +scions +$(git_ -C scions/docs rev-parse --short=12 HEAD) +- +untagged" <<<"$out"
+  expect "untagged, with its commit, and the newest release of its nearest release's major" grep -qE "^docs +scions +$(git_ -C scions/docs rev-parse --short=12 HEAD) +v1.0.0 +untagged" <<<"$out"
   git_ -C scions/docs checkout -q --detach HEAD~1 && git_ add scions/docs
   command mv "$work/docs.git" "$work/docs.away"
   ran "outdated: an upstream it can't list" G outdated -C .
@@ -597,10 +640,8 @@ sec_upgrade() {
   refused "upgrade: refuses a scion with uncommitted edits" g upgrade
   expect "says so" holds "graft: pa: uncommitted edits in scions/pa (version); nothing changed"
   git_ -C scions/pa checkout -q -- version
-  git_ -C scions/pa checkout -q --detach v1.0.1
-  refused "upgrade: refuses a scion away from its gitlink" g upgrade pa
-  expect "says so" holds "graft: pa: scions/pa is checked out at $(sha pa v1.0.1 | cut -c1-12), not the recorded $(sha pa v1.1.0 | cut -c1-12); nothing changed"
-  git_ -C scions/pa checkout -q --detach "$(sha pa v1.1.0)"
+  # a scion on a fix branch, away from its gitlink: it moves, and the branch stays
+  git_ -C scions/pa switch -q -c fix v1.0.1
   cp .gitmodules "$work/gm-before"
   ran "upgrade: within the pinned major" g upgrade
   expect "says what moved" has "graft: pa v1.1.0 -> v1.2.0"
@@ -608,11 +649,21 @@ sec_upgrade() {
   expect "the scion checked out at the tag" test "$(git_ -C scions/pa rev-parse HEAD)" = "$(sha pa v1.2.0)"
   expect "and its gitlink staged" test "$(git_ diff --cached --name-only)" = "scions/pa"
   expect ".gitmodules untouched" cmp -s .gitmodules "$work/gm-before"
+  expect "the fix branch kept" quiet git_ -C scions/pa rev-parse -q --verify refs/heads/fix
   ran "upgrade: again, nothing to do" g upgrade
   expect "says so" holds "graft: nothing to upgrade"
   commit "pa v1.2.0"
   ran "upgrade: the tools build the new version" tools_out pa
   expect "v1.2.0" has "pa v1.2.0"
+  # from an untagged gitlink (a fix, recorded before its release): NAME@TAG, or NAME (its major's newest)
+  git_ -C scions/pa commit -q --allow-empty -m "a fix" && git_ add scions/pa
+  fix=$(git_ -C scions/pa rev-parse HEAD)
+  ran "upgrade NAME: from an untagged gitlink, the newest of its nearest release's major" G upgrade -C . pa
+  expect "moved" has "graft: pa ${fix:0:12} -> v1.2.0"
+  git_ -C scions/pa checkout -q --detach "$fix" && git_ add scions/pa
+  ran "upgrade NAME@TAG: from an untagged gitlink" G upgrade -C . pa@v1.1.0
+  expect "moved" has "graft: pa ${fix:0:12} -> v1.1.0"
+  git_ reset -q && git_ submodule update -q -- scions/pa
   ran "upgrade NAME@TAG: across a major, by name" g upgrade pa@v2.0.0
   expect "moved" has "graft: pa v1.2.0 -> v2.0.0"
   git_ reset -q --hard && git_ submodule update -q -- scions/pa
@@ -628,6 +679,7 @@ sec_upgrade() {
   git_ clone -q "$work/cmd" "$work/cmd-ci" && cd "$work/cmd-ci"
   ran "upgrade: a scion not filled" G upgrade -C "$work/cmd-ci" docs@v1.0.0 pa@v1.1.0
   expect "moved" has "graft: pa v1.2.0 -> v1.1.0"
+  refuse "quietly (no fetch progress)" grep -qE "remote:|Receiving objects|Cloning into" <<<"$out"
   expect "its gitlink written" test "$(git_ ls-files -s scions/pa | cut -d' ' -f2)" = "$(sha pa v1.1.0)"
   expect "and the folder still empty" test ! -e scions/pa/version
   commit "pa back to v1.1.0"
@@ -677,7 +729,8 @@ sec_graft() {
   expect "and its workflow" cmp -s .forgejo/workflows/graft-check.yaml "$gr/template/.forgejo/workflows/graft-check.yaml"
   expect "a workflow without the marker untouched" cmp -s .forgejo/workflows/graft-upgrade.yaml "$work/mine.yaml"
   commit "graft v9.1.0"
-  expect "graft: check passes under the new pin" quiet g check
+  ran "graft: check passes under the new pin" g check
+  expect "one scion, singular" has "graft: 1 scion clean and at release tags"
   # v2.12's upgrade, moving its graft to this version, runs this version's lib/assemble.sh: a stub
   refused "graft: lib/assemble.sh (what a v2.12 upgrade runs) stops it" bash "$graft/lib/assemble.sh" out scions x=y=z
   expect "naming the Upgrading steps" holds "graft v2.13.0 replaced copied scions with git submodules"

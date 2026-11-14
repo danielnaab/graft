@@ -20,7 +20,8 @@ heading below is one message.
 
 1. Run the check, and find each message below.
 2. Do the fix under it.
-3. Run the check again. On success it prints `graft: N scions clean and at release tags`, and exits 0.
+3. Run the check again. On success it prints `graft: N scions clean and at release tags` (`1 scion` for
+   one), and exits 0.
 4. Commit what the fixes changed: `git status --short` names it.
 
 ## Check it worked
@@ -39,6 +40,27 @@ nix run '.#graft' check && test -z "$(git status --porcelain)" && nix flake chec
 Not a failure (exit 0). graft found no `README.md` with its marker line: the repository grafts nothing yet,
 or the scions README was deleted. If you have scions, run `nix run .#graft sync`, which writes it again, and
 commit `scions/README.md`.
+
+### graft: graft's README is in scions/ but mkFlake's dir is "DIR": set dir = "scions"; …
+
+`mkFlake`'s `dir` in `flake.nix` names another folder than the one holding your scions, so Nix would build
+without them. Set `dir` to the folder the message names (or leave `dir` out for `scions`), and commit. mkFlake
+gives the same message when Nix evaluates the tools.
+
+### graft: scions/x is tracked as files, not as a submodule: …
+
+`.gitmodules` registers `scions/x`, but git records it as ordinary files: `git add` ran over a clone while the
+path was still in the index, typically a copied v2.12 scion removed with `rm` but not with `git rm --cached`.
+Nix then builds those files, never the provider's release, and the scion cannot be upgraded. Do what the
+message says:
+
+```
+git rm -r -q --cached scions/x
+git add scions/x
+git ls-files -s scions/x     # one line, mode 160000
+```
+
+Then commit. `graft add` refuses to graft over such a path, and `sync` stops on it.
 
 ### graft: scions/foo is not a submodule: graft add URL, or remove it
 
@@ -79,17 +101,18 @@ A git flake at the repository's top leaves scions out of its source without this
 `inputs.self.submodules = true;` to `flake.nix`, and commit. If your flake deliberately reads no scions (it
 only grafts docs, say), put the comment `# graft: no self.submodules` in `flake.nix` instead.
 
-### graft: scions/NAME is empty: graft sync (or git submodule update --init -- scions/NAME)
+### graft: scions/NAME is empty: git submodule update --init --recursive -- scions/NAME (or graft sync)
 
-The scion is not filled: a fresh clone or worktree. Run `nix run .#graft sync`, or
-`git submodule update --init --recursive`. To make it happen by itself, see
+The scion is not filled: a fresh clone or worktree. Run `git submodule update --init --recursive` first: it
+always works, while `nix run .#graft sync` needs the flake to evaluate, which a fresh clone with a modified
+tracked file cannot (below). To make it happen by itself, see
 [Clones, worktrees, sandboxes and CI](clones-and-worktrees.md).
 
-### graft: scions/NAME's own submodules are empty (…): graft sync (Nix fails on them while the repo's tree has a modified file)
+### graft: scions/NAME's own submodules are empty (…): git -C scions/NAME submodule update --init --recursive (or graft sync); …
 
-The provider grafts other repositories, and git did not fill them: `git submodule update --init --recursive` without
-`--recursive` leaves them empty. Run `nix run .#graft sync`, or
-`git submodule update --init --recursive -- scions/NAME`. Until then, a build with any tracked file modified
+The provider grafts other repositories, and git did not fill them: `git submodule update --init` without
+`--recursive` leaves them empty. Run `git -C scions/NAME submodule update --init --recursive`, or
+`nix run .#graft sync`. Until then, a build with any tracked file modified
 fails with `error: Failed to fetch git repository '…/scions/NAME/…'`.
 
 ### graft: uncommitted edits in scions/NAME: FILE … (Nix builds ignore them while the rest of the tree is clean)
@@ -116,35 +139,49 @@ git -C scions/NAME diff
   | treefmt | `excludes = ["scions/**"]` under `[global]` in `treefmt.toml` |
   | An agent | the `AGENTS.md` section in [Graft your first pattern](graft-a-repository.md#steps), step 6 |
 
-### graft: scions/NAME is checked out at X but the repository records Y: git add scions/NAME to record it, or git submodule update -- scions/NAME to go back
+### graft: scions/NAME is checked out at X but the repository records Y: git add scions/NAME to record it, or git submodule update --recursive -- scions/NAME to go back
 
 The scion's checkout and the gitlink disagree (`git submodule status` shows `+`). Either someone switched the
 scion to another commit, or the gitlink moved (a pull, a merge, `git checkout` without
 `submodule.recurse=true`) and the scion did not follow. While this lasts, a build reads the gitlink when the
 tree is clean and the checkout when it is not.
 
-- To go back to the recorded pin: `git submodule update -- scions/NAME`. (`graft sync` never moves a filled
-  scion.)
+- To go back to the recorded pin: `git submodule update --recursive -- scions/NAME`. (`graft sync` never
+  moves a filled scion.) Commit or stash edits in the scion first.
 - To record the checkout as the new pin: `git add scions/NAME`. Only do this at a release tag, or the next
   message follows. To take a newer release, prefer `nix run .#graft upgrade NAME`.
 
-### graft: scions/NAME at abc1234 is not a release tag of URL (nearest: v1.0.0-1-g…): release it, or graft upgrade NAME
+### graft: scions/NAME at abc1234 is not a release tag of URL (nearest: v1.0.0-1-g…): release it, then graft upgrade NAME@TAG …
 
 The gitlink is not the commit of any version tag of the provider: an unreleased fix was committed
 ([Use the fix before its release](fix-a-provider.md#use-the-fix-before-its-release)), or a tag was moved or
 deleted upstream. `nearest` is `git describe` of the commit.
 
-- Move the scion to a release by hand: the provider's release of the fix, or the last release before it.
-  `graft upgrade` refuses a scion that is not at a release
-  (`graft: NAME is at abc1234…, not a release tag; move it by hand (git -C scions/NAME checkout TAG, then git add)`):
+- Once the provider has released the fix: `nix run .#graft upgrade NAME@v1.0.1` (that release), or
+  `nix run .#graft upgrade NAME` (the newest release in the major of the nearest tag). Then commit.
+- To go back to the last release instead: `nix run .#graft upgrade NAME@v1.0.0`, and commit.
 
-  ```
-  git -C scions/NAME fetch --tags -q
-  git -C scions/NAME checkout -q --detach v1.1.0
-  git add scions/NAME
-  ```
+### graft: scions/NAME: tag vX.Y.Z exists locally but not at URL: push it …
 
-  Then commit.
+The scion's commit carries a release tag in your clone only: the provider's release was tagged but never
+pushed. Push it, `git -C scions/NAME push origin vX.Y.Z`, and run the check again. Until then, Nix (which
+fetches from the URL) cannot fetch that commit unless a pushed branch holds it.
+
+### graft: scions/NAME/graft.nix doesn't evaluate (above): every output of this flake fails until it does, …
+
+The provider's `graft.nix` does not parse (the lines above show Nix's error). Nix cannot contain a parse
+error, so every output of the flake fails, `nix run .#graft` too: `check` prints this only when run from
+graft's own flake, `nix run github:danielnaab/graft/v2.13.0 -- check -C .`. Move the scion back to a release
+that parses: `git submodule update --recursive -- scions/NAME` (back to the recorded pin, if you edited it),
+or `nix run github:danielnaab/graft/v2.13.0 -- upgrade -C . NAME@TAG` (an earlier release). Tell the
+provider.
+
+### graft: the flake's tools or checks don't evaluate (above): a provider's graft.nix fails
+
+Every rule passed, but evaluating the flake's tools or checks failed; the lines above name the provider
+(`… while evaluating scions/NAME/graft.nix`) and its error. graft never leaves a failing provider out. Fix it in
+the provider ([Fix a provider from a consumer](fix-a-provider.md)), or move the scion back to a release that
+works: `nix run .#graft upgrade NAME@TAG`.
 
 If the commit was never pushed to the provider, `nix run .#graft` cannot even evaluate (Nix fails with
 `Cannot find Git revision …`, below). Run graft from its own flake instead:
@@ -191,9 +228,12 @@ Nix then fetches the scions itself ([Nix behaviours](../reference/nix-behaviours
 
 ### Cannot find Git revision '<sha>' in ref 'refs/heads/main' of repository '<url>'
 
-Nix's own message: the consumer records a scion commit that the provider's remote does not have. Push the
-scion's commit to the provider (any branch or tag), or go back to a release:
-`git submodule update -- scions/NAME`, then `git add scions/NAME`. `push.recurseSubmodules=check` prevents
+Nix's own message: the consumer records a scion commit that the provider's remote does not have. On a
+clean tree `nix run .#graft …` fetches every scion before graft runs, so it fails here too: run graft from
+its own flake, `nix run github:danielnaab/graft/v2.13.0 -- check -C .`. The same happens to `graft add` of a
+provider whose own pinned submodules are not pushed yet (before the provider's release is pushed): push
+first. Push the scion's commit to the provider (any branch or tag), or go back to a release:
+`git submodule update --recursive -- scions/NAME`, then `git add scions/NAME`. `push.recurseSubmodules=check` prevents
 this ([Clones, worktrees, sandboxes and CI](clones-and-worktrees.md#set-up-your-machine-once)).
 
 ### graft: .gitmodules registers scions/NAME but the flake's source lacks it: add inputs.self.submodules = true; …
@@ -202,7 +242,7 @@ Nix gave mkFlake a source without submodules. Either `flake.nix` lacks `inputs.s
 (add it), Nix is older than 2.27 (upgrade it), or the flake was fetched as `github:OWNER/REPO`, a tarball
 with no submodules: use `git+https://…` instead ([Nix behaviours](../reference/nix-behaviours.md)).
 
-### graft: scions/a, scions/b are empty in the flake's source, so the tools leave out what they give: run git submodule update --init (or graft sync)
+### graft: scions/a, scions/b are empty in the flake's source, so the tools leave out what they give: run git submodule update --init --recursive (or graft sync)
 
 A warning: `tools` built without those scions. A `path:` flake reads the working tree, and the scions are not
 filled; or the flake was fetched as `github:`, which has no submodules (use `git+https://…`). The same cause
@@ -223,6 +263,10 @@ Rename the submodule's folder: `git mv scions/OLD scions/NEW`. `self` is reserve
 
 `dir` is a single folder name in the flake's directory, such as `".scions"`, not a path.
 
+### graft: graft's README is in scions/ but mkFlake's dir is "DIR": set dir = "scions"; (or move the scions)
+
+The same fix as for this message from `graft check`, above: set `dir` to the folder the message names.
+
 ### graft: DIR/README.md lacks graft's marker: is dir right? (mkFlake's dir = "DIR")
 
 `mkFlake`'s `dir` names a folder without the marker README: `dir` is wrong, or the README was deleted or
@@ -234,17 +278,24 @@ Provider `A`'s `graft.nix` requires provider `B` (it uses B's tools or files). R
 that the message prints, then commit. If you grafted B under another folder name, rename the folder to B's
 name: `requires` finds it by name.
 
+### error: … while evaluating scions/NAME/graft.nix (graft calls it for the scion NAME)
+
+The provider's `graft.nix` threw: the line after names its error. It fails `packages.<system>.tools`,
+`checks` and `nix flake check`; `nix run .#graft` still works. Fix it as for
+[the flake's tools or checks don't evaluate](#graft-the-flakes-tools-or-checks-dont-evaluate-above-a-providers-graftnix-fails).
+
 ### graft: tools NAME (from A and B): two scions provide the same name
 
-Two providers ship a tool (or app or package) with the same name. `self` in the message is your own
-`perSystem`: rename your tool. Neither consumer setting can
+Two providers ship a tool (or app or package) with the same name. When one side is your own `perSystem` the
+message says `(from scion A and the consumer's perSystem): both provide the same name; rename the consumer's own`:
+rename your tool. Neither consumer setting can
 choose between them: ask one provider to rename its tool, or stop grafting one of them
 (`git rm scions/A`). Two providers that ship the same store path, such as the same `just`, do not
 collide.
 
 ## Sources
 
-- [lib/graft.sh](../../lib/graft.sh): `check` and its messages.
+- [lib/scions.sh](../../lib/scions.sh): `check` and its messages.
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): the evaluation errors.
 - [lib/workflows.sh](../../lib/workflows.sh): the workflow comparison.
 - [tests/run.sh](../../tests/run.sh): one failing fixture per `check` rule, and each mkFlake error.

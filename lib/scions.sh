@@ -102,6 +102,8 @@ cmd_add() {
   if [[ $SCIONS == */* ]]; then FLAKE=${SCIONS%/*}; else FLAKE=.; fi
   flake_vars
   path=$SCIONS/$name
+  # a copied scion (graft v2.12) still in the index: `git add` would record the clone as files
+  [ -z "$(git ls-files -s -- "$path" | awk '$1 != "160000"')" ] || die "$path is still tracked as files (a copied scion?): git rm -r -q --cached $path, delete the folder, then graft add again"
   [ ! -e "$path" ] || die "$path exists"
   list=$(tags_of "$url") || die "can't list $url's tags (see above)"
   [ -n "$list" ] || die "$url has no semver tags"
@@ -127,14 +129,36 @@ cmd_add() {
   fill_nested "$path"
   write_readme
   git add -- .gitmodules "$path" "$SCIONS/README.md"
+  [ "$(gitlink "$path")" = "$commit" ] || die "$path was not recorded as a submodule (git ls-files -s $path); remove it (git rm -r -q --cached $path) and try again"
   echo "graft: $path <- $tag ($(short "$commit"))"
   nested "$name" "$path"
+  requires_note "$name" "$path"
   if [ "$FLAKE" = . ] && [ -f "$FLAKE_NIX" ] && ! declares_submodules; then
     echo "graft: next: commit; a git flake also needs inputs.self.submodules = true;"
   else
     echo "graft: next: commit"
   fi
 }
+
+# requires_note NAME PATH: a note for each sibling the scion's graft.nix requires that this repo
+# doesn't graft (read from the text: `requires.X = "URL";` or `requires = { X = "URL"; };`)
+requires_note() {
+  local f=$2/graft.nix text pairs sib u
+  [ -f "$f" ] || return 0
+  text=$(tr '\n' ' ' < "$f")
+  pairs=$( { grep -oE 'requires\.[A-Za-z0-9._-]+[[:space:]]*=[[:space:]]*"[^"]*"' <<<"$text" | sed -E 's/^requires\.//'
+             grep -oE 'requires[[:space:]]*=[[:space:]]*\{[^}]*\}' <<<"$text" | grep -oE '[A-Za-z0-9._-]+[[:space:]]*=[[:space:]]*"[^"]*"'; } || true)
+  while IFS= read -r sib; do
+    [ -n "$sib" ] || continue
+    u=${sib#*\"}; u=${u%\"}; sib=${sib%%[[:space:]=]*}
+    if ! scions_registered .gitmodules | cut -f1 | grep -qxF -- "$sib"; then
+      echo "graft: note: $1 requires $sib, which this repository does not graft: graft add $u"
+    fi
+  done <<<"$pairs"
+}
+
+# files_msg PATH: a submodule path the index holds as files
+files_msg() { echo "$1 is tracked as files, not as a submodule: git rm -r -q --cached $1 && git add $1 (git then records the submodule's commit)"; }
 
 # status_line NAME PATH: where an initialised scion is
 status_line() {
@@ -145,7 +169,7 @@ status_line() {
   v=$(local_version_at "$2" "$head")
   if [ -n "$v" ]; then v="$v ($(short "$head"))"; else v="$(short "$head") (untagged)"; fi
   if [ -n "$link" ] && [ "$head" != "$link" ]; then
-    echo "graft: $2 at $v, not the recorded $(short "$link"): left as it is (git add $2 records it; git submodule update -- $2 goes back)"
+    echo "graft: $2 at $v, not the recorded $(short "$link"): left as it is (git add $2 records it; git submodule update --recursive -- $2 goes back)"
   else
     echo "graft: $2 at $v"
   fi
@@ -161,6 +185,7 @@ cmd_sync() {
   else
     while IFS=$'\t' read -r name path url; do
       [ -n "$name" ] || continue
+      [ -n "$(gitlink "$path")" ] || [ -z "$(git ls-files -- "$path")" ] || die "$(files_msg "$path")"
       if [ ! -e "$path/.git" ]; then
         git submodule update -q --init -- "$path" || die "can't initialise $path from $url (see above)"
       fi
@@ -172,7 +197,7 @@ cmd_sync() {
 }
 
 cmd_check() {
-  local repo="" committed="" rc=0 name path url link head v list n=0 d dirt nearest mode registered en
+  local repo="" committed="" rc=0 name path url link head v lt list n=0 d dirt nearest mode registered en err system
   while [ $# -gt 0 ]; do
     case $1 in
       -C) if [ $# -lt 2 ] || [ -z "$2" ]; then die "-C needs a repository"; fi; repo=$2; shift 2 ;;
@@ -186,13 +211,18 @@ cmd_check() {
     echo "graft: no scions here (no README.md carrying graft's marker); graft add URL grafts one" >&2
   else
     registered=$(scions_registered .gitmodules)
+    # the repo's own app knows mkFlake's dir: graft's README must be in it
+    if [ -n "${GRAFT_IN_REPO:-}" ] && [ -n "${GRAFT_DIR:-}" ] && [ "${SCIONS##*/}" != "$GRAFT_DIR" ]; then
+      bad "graft's README is in $SCIONS/ but mkFlake's dir is \"$GRAFT_DIR\": set dir = \"${SCIONS##*/}\"; in $FLAKE_NIX (or move the scions)"
+    fi
     # every folder in the scions directory is a submodule
     for d in "$SCIONS"/*/ "$SCIONS"/.[!.]*/; do
       [ -d "$d" ] || continue
       d=${d%/}
       mode=$(git ls-files -s -- "$d" | awk 'NR == 1 { print $1 }')
       if [ "$mode" != 160000 ]; then
-        bad "$d is not a submodule: graft add URL, or remove it"
+        # one .gitmodules registers is reported below
+        awk -F'\t' -v p="$d" '$2 == p { f = 1 } END { exit !f }' <<<"$registered" || bad "$d is not a submodule: graft add URL, or remove it"
       elif ! awk -F'\t' -v p="$d" '$2 == p { f = 1 } END { exit !f }' <<<"$registered"; then
         bad "$d is a submodule .gitmodules doesn't register: git rm --cached $d, then graft add its URL"
       fi
@@ -204,7 +234,10 @@ cmd_check() {
     while IFS=$'\t' read -r name path url; do
       [ -n "$name" ] || continue
       link=$(gitlink "$path")
-      if [ -z "$link" ]; then
+      if [ -z "$link" ] && [ -n "$(git ls-files -- "$path")" ]; then
+        bad "$(files_msg "$path")"
+        continue
+      elif [ -z "$link" ]; then
         bad ".gitmodules registers $path, which is not a submodule here: graft add its URL again, or remove its entry (git config -f .gitmodules --remove-section submodule.$path)"
         continue
       fi
@@ -215,7 +248,7 @@ cmd_check() {
       fi
       if [ -z "$committed" ]; then
         if [ ! -e "$path/.git" ]; then
-          bad "$path is empty: graft sync (or git submodule update --init -- $path)"
+          bad "$path is empty: git submodule update --init --recursive -- $path (or graft sync)"
         else
           dirt=$(git -C "$path" status --porcelain --untracked-files=no 2>/dev/null | head -5 | cut -c4- | paste -sd ' ' -)
           if [ -n "$dirt" ]; then
@@ -223,11 +256,16 @@ cmd_check() {
           fi
           head=$(git -C "$path" rev-parse -q --verify HEAD 2>/dev/null) || head=""
           if [ "$head" != "$link" ]; then
-            bad "$path is checked out at $(short "$head") but the repository records $(short "$link"): git add $path to record it, or git submodule update -- $path to go back"
+            bad "$path is checked out at $(short "$head") but the repository records $(short "$link"): git add $path to record it, or git submodule update --recursive -- $path to go back"
           fi
           nested "$name" "$path"
           en=$(empty_nested "$path")
-          [ -z "$en" ] || bad "$path's own submodules are empty ($en): graft sync (Nix fails on them while the repo's tree has a modified file)"
+          [ -z "$en" ] || bad "$path's own submodules are empty ($en): git -C $path submodule update --init --recursive (or graft sync); Nix fails on them while the repo's tree has a modified file"
+          # a graft.nix that doesn't parse breaks every output of the flake, graft's app too
+          if [ -f "$path/graft.nix" ] && ! err=$(nix_ eval --impure --expr "builtins.isFunction (import $(pwd -P)/$path/graft.nix)" 2>&1); then
+            echo "$err" | tail -5 >&2
+            bad "$path/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- $path), or from outside: nix run github:danielnaab/graft/v2.13.0 -- upgrade -C . $name@TAG"
+          fi
         fi
       fi
       # the gitlink is a release: upstream, else (unreadable) the scion's own tags
@@ -238,9 +276,16 @@ cmd_check() {
         v=$(local_version_at "$path" "$link")
       fi
       if [ -z "$v" ]; then
-        nearest=""
-        if [ -e "$path/.git" ]; then nearest=$(git -C "$path" describe --tags "$link" 2>/dev/null) || nearest=""; fi
-        bad "$path at $(short "$link") is not a release tag of $url${nearest:+ (nearest: $nearest)}: release it, or graft upgrade $name"
+        nearest="" lt=""
+        if [ -e "$path/.git" ]; then
+          lt=$(local_version_at "$path" "$link")
+          nearest=$(git -C "$path" describe --tags "$link" 2>/dev/null) || nearest=""
+        fi
+        if [ -n "$lt" ]; then
+          bad "$path: tag $lt exists locally but not at $url: push it (git -C $path push origin $lt)"
+        else
+          bad "$path at $(short "$link") is not a release tag of $url${nearest:+ (nearest: $nearest)}: release it, then graft upgrade $name@TAG (or graft upgrade $name, the newest release of its major)"
+        fi
       fi
     done <<<"$registered"
     # a top-level git flake sees no scions without inputs.self.submodules
@@ -249,9 +294,20 @@ cmd_check() {
     fi
   fi
   bash "$here/workflows.sh" check . "$template/.forgejo/workflows" "$GRAFT_RUN" "$FLAKE" ${SCIONS:+"$SCIONS"} || rc=1
+  # every provider evaluates (a graft.nix that throws fails here, naming it): from the repo's own app,
+  # which has evaluated the flake already (from outside, -C, nothing of the repo's is evaluated)
+  if [ -z "$committed" ] && [ -n "${GRAFT_IN_REPO:-}" ] && [ "$rc" = 0 ] && [ -n "$SCIONS" ]; then
+    system=$(nix_ eval --impure --raw --expr builtins.currentSystem)
+    if ! err=$( { nix_ eval --raw "$FLAKE_REF#packages.$system.tools.drvPath" >/dev/null && nix_ eval --json "$FLAKE_REF#checks.$system" --apply builtins.attrNames >/dev/null; } 2>&1); then
+      grep -v "^warning: Git tree" <<<"$err" | tail -15 >&2
+      bad "the flake's tools or checks don't evaluate (above): a provider's graft.nix fails"
+    fi
+  fi
   if [ "$rc" = 0 ] && [ -n "$SCIONS" ]; then
-    if [ -n "$committed" ]; then echo "graft: $n scions registered and at release tags"
-    else echo "graft: $n scions clean and at release tags"; fi
+    local noun=scions
+    [ "$n" != 1 ] || noun=scion
+    if [ -n "$committed" ]; then echo "graft: $n $noun registered and at release tags"
+    else echo "graft: $n $noun clean and at release tags"; fi
   fi
   return "$rc"
 }

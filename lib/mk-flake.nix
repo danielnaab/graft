@@ -82,11 +82,18 @@ let
   unregistered = if hasGitmodules then lib.filter (n: !(lib.elem n registered)) names
     else lib.filter (n: !(isEmpty n) && !((contents n) ? ".git")) names;
 
+  # folders at the top of the flake's source holding graft's README: one that isn't dir means dir is wrong
+  markerDirs = if !validDir then [ ] else lib.filter (d:
+      let f = "${src}/${d}/README.md"; in builtins.pathExists f && lib.hasInfix marker (builtins.readFile f))
+    (lib.attrNames (lib.filterAttrs (_: t: t == "directory") (builtins.readDir src)));
+  wrongDir = markerDirs != [ ] && !(lib.elem dir markerDirs);
+
   paths = ns: lib.concatMapStringsSep ", " (n: "${dir}/${n}") ns;
   github = ". Fetched with github:? use git+https://…, which keeps submodules.";
   problems =
     if !validDir then [ "graft: mkFlake's dir must be one folder name (letters, digits, . _ -; not ., .. or .git), got \"${toString dir}\"" ]
     else if copyMode then [ "graft: ${dir}/README.md is graft's copy-mode README (v2.12 or earlier): graft v2.13.0 pins scions with git submodules; follow the Upgrading steps of v2.13.0 in graft's CHANGELOG.md" ]
+    else if wrongDir then [ "graft: graft's README is in ${lib.head markerDirs}/ but mkFlake's dir is \"${dir}\": set dir = \"${lib.head markerDirs}\"; (or move the scions)" ]
     else lib.optional (hasRoot && !hasMarker)
         "graft: ${dir}/README.md lacks graft's marker: is dir right? (mkFlake's dir = \"${dir}\")"
       ++ lib.optional (absent != [ ])
@@ -95,7 +102,7 @@ let
       ++ map (n: "graft: ${dir}/${n}: a scion's folder name must be letters, digits, . _ and - (starting with a letter or digit), and not self") badNames;
   # every value that reads the scions goes through this
   ok = x: if problems == [ ] then x else throw (lib.concatStringsSep "\n" problems);
-  emptyMsg = ns: why: "graft: ${paths ns} ${if lib.length ns == 1 then "is" else "are"} empty in the flake's source${why}: run git submodule update --init (or graft sync)${lib.optionalString hasGitmodules github}";
+  emptyMsg = ns: why: "graft: ${paths ns} ${if lib.length ns == 1 then "is" else "are"} empty in the flake's source${why}: run git submodule update --init --recursive (or graft sync)${lib.optionalString hasGitmodules github}";
 
   providers = lib.filter (n: !(isEmpty n) && builtins.pathExists "${root}/${n}/graft.nix") names;
   # the units merged: each provider, then the repo's own perSystem as `self`
@@ -112,10 +119,13 @@ let
     let
       pkgs = (inputs.nixpkgs or nixpkgs).legacyPackages.${system};
       args = { inherit pkgs system; lib = pkgs.lib; scions = siblings; };
-      raw = lib.genAttrs providers (n: import "${copies.${n}}/graft.nix" (args // {
+      # an error inside a provider names it
+      ctx = n: x: if n == "self" then x
+        else builtins.addErrorContext "while evaluating ${dir}/${n}/graft.nix (graft calls it for the scion ${n})" x;
+      raw = lib.genAttrs providers (n: ctx n (import "${copies.${n}}/graft.nix" (args // {
         scion = copies.${n};
         consumer = inputs.self;
-      })) // lib.optionalAttrs (perSystem != null) { self = perSystem args; };
+      }))) // lib.optionalAttrs (perSystem != null) { self = perSystem args; };
       # a provider's result, its requires asserted before anything else of it is used
       results = lib.mapAttrs (n: r:
         let
@@ -129,24 +139,31 @@ let
         if isEmpty n then throw (emptyMsg [ n ] "")
         else { outPath = copies.${n}; } // (results.${n} or { }));
 
-      # the names a unit gives for KIND, read from its raw result; none when that fails
+      # the names a unit gives for KIND, read from its raw result: a provider that fails fails them,
+      # loudly (never dropped). keysOf, for apps and packages alone, gives none instead, so that
+      # apps.graft (the repair path) and the repo's own outputs still evaluate; the tools and the
+      # checks read every provider with keysStrict, so a failing one fails them, naming it
+      keysStrict = n: kind: ctx n (lib.attrNames (raw.${n}.${kind} or { }));
       keysOf = n: kind:
-        let t = builtins.tryEval (let ks = lib.attrNames (raw.${n}.${kind} or { }); in builtins.deepSeq ks ks);
+        let t = builtins.tryEval (let ks = keysStrict n kind; in builtins.deepSeq ks ks);
         in if t.success then t.value else [ ];
       # KIND's names from every unit, each with the units that give it
-      gather = kind: lib.foldl' (acc: n:
-        acc // lib.genAttrs (keysOf n kind) (k: (acc.${k} or [ ]) ++ [ n ])) { } units;
-      merge = kind: lib.mapAttrs (k: from:
+      gather = keys: kind: lib.foldl' (acc: n:
+        acc // lib.genAttrs (keys n kind) (k: (acc.${k} or [ ]) ++ [ n ])) { } units;
+      who = n: if n == "self" then "the consumer's perSystem" else "scion ${n}";
+      merge = keys: kind: lib.mapAttrs (k: from:
         let
-          v = n: results.${n}.${kind}.${k};
+          v = n: ctx n results.${n}.${kind}.${k};
           # the same store path from two units (both pass on one tool) is one tool
           same = kind == "tools" && lib.length (lib.unique (map (n: toString (v n)) from)) == 1;
         in
         if lib.length from > 1 && !same
-        then throw "graft: ${kind} ${k} (from ${lib.concatStringsSep " and " from}): two scions provide the same name"
-        else ok (v (lib.head from))) (gather kind);
+        then throw (if lib.elem "self" from
+          then "graft: ${kind} ${k} (from ${lib.concatMapStringsSep " and " who from}): both provide the same name; rename the consumer's own"
+          else "graft: ${kind} ${k} (from ${lib.concatStringsSep " and " from}): two scions provide the same name")
+        else ok (v (lib.head from))) (gather keys kind);
 
-      tools = merge "tools";
+      tools = merge keysStrict "tools";
       # graft's own names, taken by a unit: raised by the tools, which every repo builds
       reserved = map (n: "graft: apps graft (from ${n}): that name is graft's; ${if n == "self" then "rename the repo's own" else "the provider must rename it"}")
           (lib.filter (n: lib.elem "graft" (keysOf n "apps")) units)
@@ -160,11 +177,14 @@ let
       ownDefault = devShells ? default || outputs ? devShells.${system}.default;
     in
     {
-      packages = removeAttrs (merge "packages") [ "tools" ] // { tools = toolsEnv; };
-      apps = removeAttrs (merge "apps") [ "graft" ];
+      # packages' names by keysOf too: `nix build .#NAME` and `nix eval` look in packages.<system>
+      # first, so its names must evaluate for the repo's own outputs (and apps.graft) to; the tools
+      # (strict) fail on the provider instead
+      packages = removeAttrs (merge keysOf "packages") [ "tools" ] // { tools = toolsEnv; };
+      apps = removeAttrs (merge keysOf "apps") [ "graft" ];
       checks = lib.foldl' (acc: n:
         acc // lib.listToAttrs (map (k: lib.nameValuePair (if n == "self" then k else "${n}-${k}")
-          (ok results.${n}.checks.${k})) (keysOf n "checks"))) { } units;
+          (ok (ctx n results.${n}.checks.${k}))) (keysStrict n "checks"))) { } units;
       devShells = devShells // lib.optionalAttrs (!ownDefault) {
         default = ok (pkgs.mkShell { packages = [ toolsEnv ]; });
       };

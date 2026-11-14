@@ -26,6 +26,13 @@ More of the same rule:
   that git tracks *in the scion*. A new file there is missing from the build
   (`opening file '/nix/store/…-scion-NAME/FILE': No such file or directory`) until `git -C scions/NAME add FILE`.
   **tested**
+- **Every submodule, not only scions.** With `inputs.self.submodules = true`, Nix fetches every submodule
+  that `.gitmodules` registers, wherever it is (a left-over `.graft/` entry too). One the build machine cannot
+  read breaks every build: remove its entry, or make it readable.
+- **`nix run .#graft` fetches first.** On a clean tree, `nix run .#graft …` (sync, check, upgrade) fetches every
+  scion at its gitlink before graft runs. A gitlink the provider's remote lacks (an unpushed fix) fails there
+  with `Cannot find Git revision …`; run graft from its own flake instead:
+  `nix run github:danielnaab/graft/v2.13.0 -- check -C .`.
 - **A stale scion.** After `git pull` without `submodule.recurse`, a scion can be checked out at an older commit
   than the gitlink (`git submodule status` shows `+`). The clean tree builds the gitlink; the same commit with a
   note edited builds the old checkout. `graft check` fails on `+`. **tested**
@@ -99,7 +106,7 @@ provider's `graft.nix` must never read its own scions. See [One level](../decisi
 
 A `path:` flake copies its directory's working tree, including filled submodules under it, their uncommitted
 edits, and each submodule's `.git` file. A scion must be under the flake's directory. After a fresh clone the
-scions are empty, and mkFlake warns `graft: … are empty in the flake's source, so the tools leave out what they give: run git submodule update --init (or graft sync)`.
+scions are empty, and mkFlake warns `graft: … are empty in the flake's source, so the tools leave out what they give: run git submodule update --init --recursive (or graft sync)`.
 **tested**
 
 Nix 2.24 does not write the lock of a relative `path:` flake (`cannot fetch input … because it uses a relative

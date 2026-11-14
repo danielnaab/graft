@@ -12,7 +12,7 @@ The files graft reads and writes, and the lines in them that graft recognizes.
 | `flake.nix` | Read as data. `upgrade` changes graft's tag. | The input named `graft` is graft's pin. A top-level flake declares `inputs.self.submodules = true;`. Names no provider. |
 | `flake.lock` | Written by Nix, and by `upgrade` for graft's input. | graft's commit and hash, and nixpkgs if you have one. No provider entries. Must be committed: `graft ci check` fails when it is not in `HEAD`. |
 | `.gitmodules` | Written by `git submodule add` (through `graft add`) and `git rm`. Read by every command. | Each scion's path and URL. `upgrade` never changes it. |
-| The gitlinks | Written by `add` and `upgrade`, or by `git add scions/NAME`. | The pins. |
+| The gitlinks | Written by `add` and `upgrade`, or by `git add scions/NAME`. | The pins. Each must be a gitlink (mode 160000 in `git ls-files -s`), never the scion's files: `check` fails on a registered path tracked as files, and `add` refuses to graft over one. |
 | `<dir>/<name>/` | A submodule. Filled by `git submodule update --init --recursive`, `graft sync`, a recursive clone, or the post-checkout hook. | The provider's whole repository at a release tag. |
 | `<dir>/README.md` | Written by `add` and `sync`; `check` looks for its marker line. | The marker README. |
 | `.forgejo/workflows/graft-*.yaml` | Restored by `sync`, replaced by `upgrade`, compared by `check`. | graft's workflows, if they carry the marker. |
@@ -29,7 +29,7 @@ top:
 # Scions
 
 Each folder here is a git submodule: another repository, grafted at a release tag. Empty folders?
-Run `git submodule update --init` (or `nix run .#graft sync`).
+Run `git submodule update --init --recursive` (or `nix run .#graft sync`).
 
 - Read them freely. To fix one, see graft's "Fix a provider from a consumer" guide: edit, test, push to the
   provider, release, then `graft upgrade NAME`.
@@ -47,6 +47,30 @@ subdirectory, that is `nix run 'path:nix/agent-tools#graft'`. `check` reads only
   fixtures.
 - v2.12.0 and earlier wrote a table of scions and a second line, `<!-- graft flake: DIR -->`. Both are gone;
   `sync` rewrites the README.
+
+## `just` imports from a scion
+
+A justfile that imports a provider's recipes uses `import?` (with `?`), so a fresh clone with empty scions
+still parses: `import? "scions/notebook-kit/tools/kit.just"`. That holds only while no recipe of your own
+depends on an imported one. A recipe `check: kit-check` makes `just` fail to parse when the import is missing
+(`error: Recipe 'check' has unknown dependency 'kit-check'`), whatever recipe you ask for. Call the imported
+recipe from the body instead, which `just` resolves only when it runs:
+
+```just
+import? "scions/notebook-kit/tools/kit.just"
+
+check:
+    just kit-check
+```
+
+## Nested scions: the One-level cost
+
+A provider's own submodules are filled recursively by `add`, `sync` and `upgrade` (git leaves them empty
+otherwise, and Nix fails on an empty one while a tracked file is modified), and Nix fetches them on every
+evaluation of a git flake. So each level costs every consumer a fetch, and a private or unpushed nested
+submodule breaks consumers who cannot read it: a consumer of notebook-kit fetches knowledge-base-kit, then
+living-specifications, then meta-knowledge-base. Keep providers to one level
+([One level](../decisions.md#one-level)).
 
 ## In a provider
 

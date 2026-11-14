@@ -12,7 +12,10 @@ steps. Needs Nix 2.27 or later.
 These are also a guide: [Move from copy mode](docs/guides/move-from-copy-mode.md).
 
 1. On a branch, note each scion's tag: `nix run .#graft outdated` (before you upgrade graft).
-2. `git rm -r -q scions` (your scions directory). For a flake in a subdirectory, the scions directory moves
+2. `git rm -r -q scions` (your scions directory), so the copied files leave the index and the working tree.
+   Never only `rm -rf` it: `git add` over a path the index still holds as files records the new clone as
+   files, not as a submodule (`graft add` refuses to, and `graft check` fails on it:
+   `… is tracked as files, not as a submodule`). For a flake in a subdirectory, the scions directory moves
    under the flake's directory (`nix/agent-tools/.scions`): delete the old one at the top.
 3. In `flake.nix`: delete every `flake = false` provider input and its wiring in `outputs`
    (`import "${inputs.X}/…"`); delete `mkFlake`'s `scions` and `flakeDir` (in a subdirectory flake, set
@@ -45,18 +48,32 @@ the scions untouched; every command then says the scions README is copy mode. Fo
   `pkgs`, `lib`, `system`, `scion`, `scions`, `consumer` ([Files](docs/reference/files.md#graftnix)).
 - **mkFlake's `perSystem`:** a consumer's own tools, apps, packages, checks and dev shells, merged like a
   provider's.
-- **`graft check` rules:** every scion registered, filled (with its own submodules), clean, checked out at its
-  gitlink, and at a version tag's commit; absolute URLs; `inputs.self.submodules` in a top-level flake (opt
-  out with the comment `# graft: no self.submodules`). `check --committed` checks only what is committed.
+- **`graft check` rules:** every scion registered as a gitlink (not as files), filled (with its own
+  submodules), clean, checked out at its gitlink, at a version tag's commit (a tag that exists only in the
+  scion's clone says "push it"), and its `graft.nix` parses; absolute URLs; `inputs.self.submodules` in a
+  top-level flake (opt out with the comment `# graft: no self.submodules`); from `nix run .#graft`, mkFlake's
+  `dir` is the scions directory, and the tools and checks evaluate. `check --committed` checks only what is
+  committed.
+- **A provider that fails is never dropped:** its error fails `packages.<system>.tools`, the checks,
+  `nix flake check` and `graft check`, under `… while evaluating scions/NAME/graft.nix`; `nix run .#graft` and
+  your own outputs still evaluate. A `graft.nix` that does not parse breaks every output: run
+  `nix run github:danielnaab/graft/v2.13.0 -- check -C .` to name it.
+- **mkFlake names a wrong `dir`:** `graft: graft's README is in scions/ but mkFlake's dir is "DIR": set dir = "scions"; …`.
+- **`add`** notes each sibling the new scion's `graft.nix` requires that you do not graft, with its
+  `graft add` line.
 - Guides: [Clones, worktrees, sandboxes and CI](docs/guides/clones-and-worktrees.md) (empty scions, the
   post-checkout hook, git settings), [Fix a provider from a consumer](docs/guides/fix-a-provider.md),
   [Write a provider's graft.nix](docs/guides/write-graft-nix.md), and
   [Move from copy mode](docs/guides/move-from-copy-mode.md).
 
 ### Changed
+- Every fill graft does or advises is recursive: `git submodule update --init --recursive`.
 - **`sync`** fills empty scions and their own submodules, writes the marker README and refreshes graft's
   workflows. It never moves a pin or a filled scion. `add` and `upgrade` fill a scion's own submodules too.
 - **`upgrade`** moves gitlinks (with no clone, in CI) and graft's own pin; it never changes `.gitmodules`.
+  It moves an untagged scion (a fix recorded before its release) when named, `NAME@TAG`, or `NAME` for the
+  newest release in the major of its nearest tag; it refuses only a scion with uncommitted edits (a fix
+  branch in the scion stays).
   **`ci upgrade`** commits, then runs `nix flake check` on the clean committed tree, so Nix builds the new
   scions.
 - **`ci check`** runs `graft check --committed`, then `nix flake check --no-build`: the whole flake must

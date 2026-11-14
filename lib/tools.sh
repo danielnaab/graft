@@ -46,6 +46,12 @@ remote() {  # the git URL of a locked input's upstream
 row() {
   local name=$1 dir=$2 url=$3 ref=$4 tags t series latest="" major="" status
   case $ref in
+    untagged:*:*)
+      # an untagged scion with a release behind it (git describe): its major's newest is the target
+      # `graft upgrade NAME` takes; the status stays untagged
+      t=${ref#untagged:}
+      row "$name" "$dir" "$url" "${t#*:}" | awk -F'\t' -v OFS='\t' -v p="${t%%:*}" '{ $3 = p; $5 = "untagged"; print }'
+      return ;;
     untagged:*) printf '%s\t%s\t%s\t-\tuntagged\t-\n' "$name" "$dir" "${ref#untagged:}"; return ;;
     unknown:*) printf '%s\t%s\t%s\t-\tunknown\t-\n' "$name" "$dir" "${ref#unknown:}"; return ;;
   esac
@@ -79,7 +85,10 @@ scion_pin() {
     # upstream unreadable: the scion's own tags say what it is, if it's filled
     v=$(local_version_at "$1" "$link"); echo "unknown:${v:-${link:0:12}}"; return
   fi
-  if [ -n "$v" ]; then echo "$v"; else echo "untagged:${link:0:12}"; fi
+  if [ -n "$v" ]; then echo "$v"; return; fi
+  # the nearest release behind it, from the scion's own clone (filled only)
+  v=$(git -C "$1" describe --tags --abbrev=0 "$link" 2>/dev/null) || v=""
+  if is_semver "$v"; then echo "untagged:${link:0:12}:$v"; else echo "untagged:${link:0:12}"; fi
 }
 
 # URLS: name<TAB>url for every row (graft's, then the scions'), for upgrade and changelog
@@ -185,7 +194,7 @@ move_scion() {
 }
 
 cmd_upgrade() {
-  local rows want=() name dir pinned latest status major target named spec plan=() held=() src="" moved_graft="" text path head dirt
+  local rows want=() name dir pinned latest status major target named spec plan=() held=() src="" moved_graft="" text path dirt
   rows=$(report)
   urls
   for spec in "$@"; do want+=("$spec"); done
@@ -208,7 +217,11 @@ cmd_upgrade() {
         if [[ $spec == *@* ]]; then target=${spec#*@}; named=1; else target=$latest; named=""; fi
       done
       [ -n "$target" ] || continue
-      [ "$status" != untagged ] || die "$name is at $pinned, not a release tag; move it by hand (git -C ${PATHS[$name]:-.} checkout TAG, then git add)"
+      # an untagged scion (a fix not yet released) moves only to a named tag, or to the newest of
+      # the major its nearest release is in
+      if [ "$status" = untagged ] && [ "$target" = - ]; then
+        die "$name is at $pinned, not a release tag, and graft can't tell its major: name the tag (graft upgrade $name@TAG)"
+      fi
     else
       [ "$status" = outdated ] || continue
       # graft's workflows before 2.3 run graft upgrade and open the PR in one job: moving graft
@@ -229,10 +242,9 @@ cmd_upgrade() {
     if [ "$dir" != - ]; then
       path=${PATHS[$name]}
       if [ -e "$path/.git" ]; then
+        # only uncommitted edits stop it: commits on a branch in the scion (a fix) stay on that branch
         dirt=$(git -C "$path" status --porcelain --untracked-files=no | head -5 | cut -c4- | paste -sd ' ' -)
         [ -z "$dirt" ] || die "$name: uncommitted edits in $path ($dirt); nothing changed: commit them in the provider, or git -C $path checkout -- ."
-        head=$(git -C "$path" rev-parse -q --verify HEAD) || head=""
-        [ "$head" = "$(gitlink "$path")" ] || die "$name: $path is checked out at ${head:0:12}, not the recorded $(gitlink "$path" | cut -c1-12); nothing changed: git add $path, or git submodule update -- $path"
       fi
     fi
     plan+=("$name"$'\t'"$dir"$'\t'"$pinned"$'\t'"$target")
