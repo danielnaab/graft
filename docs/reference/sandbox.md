@@ -326,7 +326,7 @@ item on its own.
 | `read` | a host path | ordinary |
 | `network` | `"host"` (port 443), `"host:port"` | ordinary; a wildcard host is powerful |
 | `env` | a name, or `{ name; secret = true; }` | ordinary. A secret shows `(the run holds it)`. |
-| `state` | `{ name; at; }`, scoped per kit, workspace and context | ordinary |
+| `state` | `{ name; at; }`, scoped per kit, workspace and context. `at` is in the run's `HOME`, default `~/.local/state/<name>`. | ordinary |
 | `state` with `shared = true` | one scope for every workspace and context, for caches | powerful |
 | `write` | a host path | powerful |
 | `socket` | a socket path in a granted directory | powerful |
@@ -743,7 +743,8 @@ A hidden path is unmounted and unwritable in every run, `inspect` included. graf
   `~/.git-credentials`, `~/.config/gh`, `~/.config/sops`;
 - the agents' credential and configuration homes: `~/.claude`, `~/.claude.json`, `~/.pi/agent/auth.json`,
   `~/.codex/auth.json`, `~/.local/share/opencode/auth.json`;
-- `~/.local/share/keyrings`, browser profiles, `/etc/ssh/*_key`;
+- `~/.local/share/keyrings`; the browser profiles `~/.mozilla`, `~/.config/google-chrome`, `~/.config/chromium`,
+  `~/.config/BraveSoftware`, `~/.config/vivaldi` and `~/snap/firefox`; `/etc/ssh/*_key`;
 - `sb`'s state directory, and every grants file;
 - each file that a binding's `from` names.
 
@@ -786,16 +787,17 @@ run tried", and gives the fix as a form, not as a command to paste.
 | Denial | Message, after `graft sandbox (<context>): ` |
 |---|---|
 | Network, live (tmux) | `refused example.com:443 · sb why example.com` |
-| Network | `the run tried example.com:443 (not in this run). one run: sb --net HOST …  permanent: the repo kit's requests.network, or programs.sb.kits.daniel for every repository (sb why example.com)` |
+| Network | `the run tried example.com:443 (not in this run). one run: sb --net HOST …  permanent: the repo kit's requests.network (perSystem.kit), or programs.sb.kits.daniel.requests.network for every repository (home-manager switch) (sb why example.com)` |
 | Requested, not granted | `api.github.com:443 is requested by meeting-kit, not granted: sb grant meeting-kit` |
 | No binding | `needs git.push for ssh://…/flexion-assistant; this root binds none: programs.sb.bindings."git.push"."…" (home-manager switch)` |
-| A program | `rg is not in this run. one run: sb --package ripgrep …  permanent: programs.sb.tools (switch), or the repo kit's packages` |
+| A program | `rg is not in this run. one run: sb --package ripgrep …  permanent: programs.sb.tools (home-manager switch), or the repo kit's packages` |
 | Outside the workspace | `~/src/other is not in this run: sb --repo ~/src/other` |
 | Hidden | `~/.ssh is hidden by your root in every run` |
 | Protected | `justfile is protected (the host runs it): edit it on the host, or in a dispatch run` |
 | A root repository | `~/.workstation is a root: sb inspect, or claude (unsandboxed) until sb dispatch (1b)` |
 | Not a repository | `~/Downloads is not inside a git repository: sb inspect CMD, or sb host CMD` |
-| Stale grant (125) | the difference, and `sb grant KIT` |
+| Stale grant (125) | `meeting-kit (git:…) asks for more than its grant:`, then each new request as `  + network api.github.com:443`, then `  grant it: sb grant meeting-kit`. Also `… requests reach that is not granted:`, `… changed source since its grant:` with `  source: OLD -> NEW`, and `… is not a verified release, so its grant does not apply`. |
+| Clone mode (1) | `clone mode (dispatch) lands in 1b; in 1a, sb works in place` |
 | Missing guarantee (125) | `requires separate-kernel; bubblewrap proves …` |
 
 On the startup line: `METAMCP_API_KEY requested and granted, unset on the host`. On macOS:
@@ -809,11 +811,17 @@ v2.15.0 does not have. -->
 ## Exit status
 
 - The command's exit status.
-- `125` when `sb` refuses to start the run: a stale or missing grant, or a missing guarantee. The message says
-  why. `sb` never runs the command with a weaker policy, a weaker backend or no sandbox.
+- `125` when `sb` refuses to start the run because of a grant (stale, missing or unverified) or a missing
+  guarantee.
+- `1` when `sb` refuses to start the run for another reason, such as a root repository, a hidden path in a flag,
+  a conflict between kits, or clone mode.
+- `2` for a usage error, such as an unknown context, an `--account` that the root does not declare, or two kits
+  that ship the same command.
 
-<!-- unverified: the exit status of the other refusals at start (root repository, hidden flag, not a repository,
-usage error, macOS), and of a command not in the run. -->
+The message says why. `sb` never runs the command with a weaker policy, a weaker backend or no sandbox.
+
+<!-- unverified: from lib/sb/compose.py's Refusal statuses while it was being written; the launcher's own
+statuses (macOS, not a repository, command not found) are not confirmed. -->
 
 ## Claude Code
 
