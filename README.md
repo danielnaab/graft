@@ -87,9 +87,10 @@ git submodules give you a pinned clone. graft adds what makes them a dependency 
   post-checkout hook that the guide gives fills them in new clones and worktrees, and `graft sync` fills them
   ([Clones, worktrees, sandboxes and CI](docs/guides/clones-and-worktrees.md)).
 - **An agent rule** for working with scions, ready to paste into `AGENTS.md`.
-- **A sandbox for agents.** `nix run .#sandbox -- claude` runs a command that sees its closure and the
-  repository, and only the host paths and hosts that you declare or grant. It cannot change the files that
-  decide the sandbox (Linux; [Run an agent or a command in a sandbox](docs/guides/run-in-a-sandbox.md)).
+- **A sandbox for agents (experimental).** `sb claude` runs an agent, or any command, so that it writes the
+  repository but reaches only what you granted from your own root, and cannot change the files that decide the
+  sandbox. Repositories and providers declare what they need as kits; only you grant it (Linux;
+  [Run an agent or a command in a sandbox](docs/guides/run-in-a-sandbox.md)).
 
 Compared with the other ways:
 
@@ -168,7 +169,8 @@ and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 | Consumer on v2.12 or earlier: move to submodules | [Move from copy mode](docs/guides/move-from-copy-mode.md) |
 | Look up a command, flag, `mkFlake` argument or error | [Commands](docs/reference/commands.md) |
 | Look up a file graft reads or writes, or the `graft.nix` contract | [Files](docs/reference/files.md) |
-| Look up a sandbox option, what a run sees, or a launcher message | [Sandbox](docs/reference/sandbox.md) |
+| Look up a context, a kit field, a request, a grant, an `sb` flag or message | [Sandbox](docs/reference/sandbox.md) |
+| Anyone on v2.14.0's sandbox: move to `sb` | [Move from v2.14.0's sandbox](docs/guides/move-from-the-v2-14-sandbox.md) |
 | Know how Nix sees a scion | [Nix behaviours](docs/reference/nix-behaviours.md) |
 | Know why graft is this small, and where graft v1 went | [Decisions](docs/decisions.md) |
 | Change graft itself | [Development](docs/development.md) |

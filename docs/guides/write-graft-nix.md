@@ -206,8 +206,8 @@ in
 `nix-prefetch-url --unpack URL` prints the hash. Your own `flake.nix` and `flake.lock` are for work on your
 repository: consumers never evaluate them.
 
-A tool that needs the network, a host path or an environment variable in a consumer's sandbox declares it
-in `sandbox` ([Declare what your tools need](run-in-a-sandbox.md#declare-what-your-tools-need-provider)).
+A tool that needs the network, a host path or an environment variable in a consumer's sandbox requests it in
+`kit` ([Sandbox](../reference/sandbox.md#schema), [Move a provider](move-from-the-v2-14-sandbox.md#move-a-provider)).
 
 ## Check it worked
 

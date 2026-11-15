@@ -59,23 +59,24 @@ works this way, see [Decisions](decisions.md).
 
 ## What runs in a sandbox
 
-- **Closure:** the store paths that a package needs to run: the package, and every store path it refers to,
-  with theirs. Nix knows it exactly.
-- **Sandbox:** a run of one command that sees only its closure (read-only), the repository's working tree,
-  and what the repository declares: host paths, hosts and environment variables. The rest of the host is not
-  there: your home folder, your keys, the Nix daemon.
-- **Launcher:** `sandbox`, the program that starts a sandbox. mkFlake builds it for every repository as
-  `packages.<system>.sandbox`: `nix run .#sandbox -- COMMAND`. graft has no command of its own for it, and
-  never starts a sandbox by itself.
-- **Sandbox policy:** what a sandbox sees, declared as `sandbox = { … };` by graft's base, each provider's
-  `graft.nix` and the consumer's `perSystem`, and merged by Nix. `sandbox --explain` prints it, with the file
-  that set each value.
-- **Protected path:** a path in the repository that the sandbox sees read-only, such as `flake.nix`, each
-  `graft.nix` and the git metadata: what decides the sandbox, or what the host runs.
-- **Request and grant:** a provider can add to what a run sees (packages, fixed environment values,
-  protected paths), but not to what it reaches (the network, host paths, the caller's environment). Those
-  are requests. A request applies only when the consumer **grants** it, by the scion's name:
-  `sandbox.grant = [ "notebook-kit" ];`.
+`sb`, graft's sandbox, runs one command as a **run**, under one policy. Its terms are defined in
+[Sandbox](reference/sandbox.md#the-model); these are the ones that touch a consumer's or a provider's files:
+
+- **Kit:** what a run needs, declared as `kit = { … };`: packages and fixed values that it sees, paths that it
+  protects, and requests. A provider's kit is in its `graft.nix` (a **scion kit**); a consumer's own is in mkFlake's
+  `perSystem` (its **repo kit**). mkFlake exports them as `packages.<system>.graft-kits`.
+- **Request:** a kit's ask for reach: a host path, a network host, a variable from the caller, persistent state,
+  or a **capability** such as `nix` or `git.fetch`. A request does nothing on its own.
+- **Root and grant:** a person's **root**, such as a home-manager configuration, holds their **grants**. `sb grant`
+  approves a kit's request set, by the kit's identity, in the root's grants file. A repository cannot grant its
+  own requests.
+- **Context:** where a run starts from: `work` writes the repository in place, `inspect` reads the machine and
+  changes nothing, `host` has no sandbox.
+- **Protected path:** a path in the repository that a run sees read-only, such as `flake.nix`, each `graft.nix`
+  and the git metadata: what decides the sandbox, or what the host runs.
+
+graft has no command of its own for it, and never starts a run by itself: a person, a recipe or a scheduler runs
+`sb`.
 
 ## The git and Nix binding
 
@@ -89,7 +90,7 @@ works this way, see [Decisions](decisions.md).
 | Provider outputs | Each scion's `graft.nix`, called once per system. Its `tools` become `packages.<system>.tools`, one environment; its checks become `checks.<system>.<scion>-<name>`. |
 | Scions directory | `<dir>/`, where `dir` is a `mkFlake` argument, default `scions`, beside `flake.nix`. |
 | graft's pin | The flake input named `graft`. |
-| Sandbox | `packages.<system>.sandbox`: a launcher that runs the command with the merged policy: bubblewrap on Linux, Seatbelt on macOS. Each provider's `graft.nix` and `perSystem` can return `sandbox`. |
+| Kit | A provider's `graft.nix` and `perSystem` can return `kit`. mkFlake exports the workspace's kits and tools as `packages.<system>.graft-kits`, which `sb` builds with `path:`. |
 
 Nix and git see a scion differently, and one difference matters every day: a git flake's build reads a scion
 at its **committed** gitlink while the rest of your tree is clean, and from your working tree once any tracked
@@ -98,5 +99,5 @@ own tests, inside the scion; build your repository with it under [`graft try`](r
 which makes every build read the working tree until `graft try --stop`; and let `graft check` keep
 unreleased scions (and try's marker) from merging.
 
-graft adds, checks, moves tags, wires outputs and the sandbox policy, and does nothing more. The limits and
-their reasons are in [Decisions](decisions.md#scope-nix-git-submodules-a-tag-comparison-and-a-sandbox-policy).
+graft adds, checks, moves tags, wires outputs and kits, starts a sandboxed run when a person asks, and does
+nothing more. The limits and their reasons are in [Decisions](decisions.md#scope-nix-git-submodules-a-tag-comparison-and-a-sandbox-policy).

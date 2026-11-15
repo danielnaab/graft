@@ -1,223 +1,258 @@
 ---
-status: working
+status: draft
 ---
 # Run an agent or a command in a sandbox
 
-Run an agent, or any command, so that it can change your repository but cannot read your home folder, reach
-hosts that you did not name, or change the files that decide what it may do.
+Run Claude Code, or any command, with `sb`, so that it can change your repository but cannot read your keys,
+reach hosts that you did not grant, or change what decides the sandbox. `sb` is experimental in v2.15.0. The terms
+are in [Sandbox](../reference/sandbox.md#the-model).
 
 ## Before you begin
 
-- Linux, with unprivileged user namespaces (the default on NixOS, Debian, Ubuntu and Fedora). In Docker, see
-  [If something goes wrong](#if-something-goes-wrong). Or macOS, where the launcher uses Seatbelt
-  (see [On macOS](../reference/sandbox.md#on-macos) for what differs: on a Mac, a run can read the
-  environment of your other processes).
-- graft v2.14.0 or later: `nix run .#graft outdated` prints graft's pinned version.
-- The steps use `team-kb`, a repository in your home folder with a flake at its top, and Claude Code as the
-  agent. For a [flake in a subdirectory](flake-in-a-subdirectory.md), write
-  `nix run 'path:nix/agent-tools#sandbox'` for `nix run .#sandbox`, from the repository's top.
-- A sandbox protects your machine, not the repository's history: a command inside can delete commits that
-  you have not pushed. Push first ([What the sandbox does not protect](../reference/sandbox.md#what-the-sandbox-does-not-protect)).
+- Linux, with unprivileged user namespaces (the default on NixOS, Debian, Ubuntu and Fedora). On macOS, `sb`
+  refuses to start in v2.15.0: stay on graft v2.14.0's sandbox there ([On macOS](../reference/sandbox.md#on-macos)).
+- A root, the place where your grants live ([Set up a root](#set-up-a-root)).
+- Claude Code installed on the host.
+- tmux, if you want to see denials while the agent runs. Without it, you see them when the run ends.
+- The steps use `team-kb`, a repository in `~/src`, a home-manager root in `~/.workstation`, and the account
+  `personal`.
 
 ## Steps
 
-1. Start a shell in the sandbox, from the repository's top:
+1. Make a login token for the account, once per account:
 
    ```
-   nix run .#sandbox
+   claude setup-token
    ```
 
-   The launcher prints one line, then starts `bash` with the prompt `(sandbox)`:
+   It prints a long-lived token. Save it in the file that your root's `credential` binding names, readable only by
+   you, such as `~/.config/graft/sb/claude-token-personal` (`chmod 600`). Do not paste it on a command line.
+
+2. Start Claude in the repository:
 
    ```
-   graft: sandbox: ~/team-kb, 11 paths protected; network: none
+   cd ~/src/team-kb
+   sb claude
    ```
 
-   The number of protected paths depends on your repository. If a provider requests something, the line
-   ends with `1 request not granted: sandbox --explain` (step 5).
-
-2. Look around, then leave:
+3. The first time, `sb` shows the grant prompt before the run. It lists what the claude-code kit asks for,
+   ordinary items together and each powerful item on its own:
 
    ```
-   ls -A ~
-   git status --short
-   exit
+   claude-code@personal   root kit                                       not granted
+     ordinary:  + network api.anthropic.com · claude.ai
+                + read    ~/.local/share/claude
+                + state   claude (per workspace and context)
+                + capability status.relay        bound: workmux relay
+     grant these? [y/N]
    ```
 
-   `ls -A ~` prints only `team-kb`: your home folder is empty inside, except for the way to the repository.
-   On macOS it prints nothing: `HOME` is a new, empty folder. `git status` works on the repository.
+   Type `y` for each set that you accept. The repo kit and any scion kits that ask for something come next.
 
-3. Add the agent's package, and what it needs, to `perSystem` in `flake.nix`. Claude Code is unfree, so the
-   example takes it from a nixpkgs that allows unfree packages. The flake needs an `inputs.nixpkgs`:
-
-   ```nix
-   {
-     inputs.self.submodules = true;
-     inputs.graft.url = "github:danielnaab/graft/v2.14.0";
-     inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-     outputs = inputs: inputs.graft.lib.mkFlake {
-       inherit inputs;
-       perSystem = { system, ... }: {
-         sandbox = {
-           packages = [ (import inputs.nixpkgs { inherit system; config.allowUnfree = true; }).claude-code ];
-           paths.writable = [ "~/.claude" "~/.claude.json" ];
-           network.allow = [ "*.anthropic.com" ];
-         };
-       };
-     };
-   }
-   ```
-
-   - `packages`: the commands that the sandbox can run. Only the closure is visible, so a program installed
-     on the host outside Nix is not.
-   - `paths.writable`: Claude Code keeps its login and settings in `~/.claude` and `~/.claude.json`. These
-     also hold the transcripts of every project you use Claude Code in, so the agent can read them all. To
-     give it none of that, leave out `paths.writable`, log in with a token
-     (`env.pass = [ "CLAUDE_CODE_OAUTH_TOKEN" ];`), and accept that its settings are lost after each run.
-   - `network.allow`: the hosts the agent may reach, through a proxy. `"*.anthropic.com"` means ports 443 and
-     80 of every host in that domain.
-
-4. Lock the new input, and stage `flake.nix`, so that the flake sees it:
+4. Claude starts. The startup line names what differs from the usual shape, and `sb explain`:
 
    ```
-   nix flake lock
-   git add flake.nix flake.lock
+   sb: work · team-kb · sb explain
    ```
 
-5. Read the policy:
+5. Commit the grants file with your root's next change:
 
    ```
-   nix run .#sandbox -- --explain
+   git -C ~/.workstation add sandbox/grants.json
+   git -C ~/.workstation commit -m "sb: grant claude-code@personal"
    ```
 
-   Each value is listed with the file that set it: `graft` for graft's base, `flake.nix (perSystem)` for
-   yours, `scions/NAME/graft.nix` for a provider's. If a provider requests something that you have not
-   granted, a list near the end names it:
+   From now on, `sb claude` starts with no prompt, until a kit asks for more.
 
-   ```
-   requested, not granted (inert until perSystem's sandbox.grant names the scion)
-     network.allow api.example.com           scions/notebook-kit/graft.nix
-   ```
-
-6. Grant a provider's requests only if you accept them. A provider can add packages to the sandbox, but its
-   network, host paths and environment variables apply only when you name the scion in `grant`:
-
-   ```nix
-         sandbox = {
-           # …the values of step 3…
-           grant = [ "notebook-kit" ];
-         };
-   ```
-
-   Stage `flake.nix`, and run `nix run .#sandbox -- --explain` again. The request is now in the policy, and
-   no longer in the list of requests not granted. When an upgrade pull request moves a granted scion, its new
-   requests apply too: read `--explain` on that branch.
-
-7. Run the agent:
-
-   ```
-   nix run .#sandbox -- claude
-   ```
-
-   The line before the agent starts now names the writable paths and the network:
-
-   ```
-   graft: sandbox: ~/team-kb, 11 paths protected; also writable: ~/.claude, ~/.claude.json; network: *.anthropic.com
-   ```
-
-   A path that does not exist on your machine is skipped, and the line says so: `absent, skipped: ~/.claude.json`.
-
-   In the dev shell (`nix develop`, or direnv), the launcher is on `PATH`: `sandbox claude`. The dev shell
-   keeps the launcher that it had when you entered it: after you change `flake.nix`, leave the shell and enter
-   it again.
-
-8. After the run, read the launcher's last lines. If it warns that the run created git metadata (a line that
-   starts with `graft: sandbox: WARNING:`), read each path that it names before you run git there
-   ([What the sandbox does not protect](../reference/sandbox.md#what-the-sandbox-does-not-protect)).
-
-9. To try a command for one run, add its nixpkgs package with `--with`:
-
-   ```
-   nix run .#sandbox -- --with ripgrep rg TODO
-   ```
-
-   The launcher builds `ripgrep` from the flake's nixpkgs, says that it added it, and runs `rg`. The version
-   is your nixpkgs':
-
-   ```
-   graft: sandbox: with ripgrep 14.1.1 (the flake's nixpkgs), for this run
-   ```
-
-   For a command that you keep using, add it to `packages` in step 3. To let one run reach one more host,
-   use `--allow HOST`.
+<!-- unverified: where the token file goes and how the binding names it; the inline prompt's exact text; whether
+sb asks for the repo kit's and scion kits' grants in the same prompt. -->
 
 ## Check it worked
 
-From the repository's top, paste this. It prints `ok` only if the sandbox can write the repository, cannot
-write `flake.nix`, and sees an empty home folder (at most the folder on the way to the repository):
+From the repository's top, paste this. It prints `ok` only if the run is in `work`, can write the repository,
+cannot write `justfile`, and cannot see `~/.ssh`:
 
 ```sh
-GRAFT_SANDBOX_QUIET=1 nix run .#sandbox -- bash -c \
-  'touch .sandbox-check && ! touch flake.nix 2>/dev/null && test "$(ls -A ~ | wc -l)" -le 1' &&
-  test -e .sandbox-check && rm -f .sandbox-check && echo ok
+sb bash -c 'test "$GRAFT_SANDBOX" = work && touch .sb-check && ! touch justfile 2>/dev/null && ! test -e ~/.ssh' &&
+  test -e .sb-check && rm -f .sb-check && echo ok
 ```
 
-## If something goes wrong
+If the repository has no `justfile`, write another [protected path](../reference/sandbox.md#protected-paths),
+such as `flake.nix`.
 
-- **In Docker, the launcher fails before the command starts,** with
-  `graft: sandbox: bubblewrap can't create a user namespace here (above). …`. Docker's default seccomp profile
-  blocks user namespaces. Run the command on the host or in a virtual machine. Or run the container with
-  `--security-opt seccomp=unconfined --security-opt systempaths=unconfined`; both weaken the container. The
-  launcher never runs the command without the sandbox.
-- **The agent cannot connect, and after the run the launcher prints**
-  `graft: sandbox: the proxy refused: HOST:PORT (N); network.allow lists the hosts a run may reach`. Add the
-  host to `network.allow`, or, if a provider requested it, grant that provider. Only programs that use
-  `HTTPS_PROXY` reach the network: `git push` over ssh fails in the sandbox. Push from outside.
-- **`graft: sandbox: claude is not on the sandbox's PATH: add its package to sandbox.packages, or run with --with PKG`.**
-  The command is not in the closure. Add its package to `packages`, stage `flake.nix`, and run again. A
-  program installed on the host outside Nix is never visible.
-- **`touch: cannot touch 'flake.nix': Read-only file system`** (or `Device or resource busy`, or the agent
-  says that it cannot edit `flake.nix`, a `graft.nix`, `justfile` or `.git/config`). These are protected: the
-  sandbox never writes what decides the sandbox or what the host runs. Edit them outside the sandbox.
-- **`graft: sandbox: justfile is a symbolic link, so the sandbox can't make it read-only …`.** A protected
-  path is a symbolic link, and the launcher stops. Replace the link with the file that it points to, or
-  remove it. For `… has another hard link …`, give the file a copy of its own:
-  `cp -p F F.copy && mv F.copy F`.
+## Choose a context
 
-## Declare what your tools need (provider)
+| You want to | Run | The run |
+|---|---|---|
+| Work on this repository | `sb claude` | writes the repository in place, reaches only what is granted |
+| Diagnose the machine, change nothing | `sb inspect claude` | reads the machine except secrets and hidden paths, writes nothing, reaches only the model API |
+| Do what only the host may do | `sb host CMD`, or plain `claude` | has no sandbox |
 
-A provider's `graft.nix` can return `sandbox`, next to the tools that need it:
+`inspect` diagnoses; the host repairs. `sudo`, `systemctl restart`, `docker run` and `home-manager switch` are
+host-only. To carry a diagnosis from a run to the host, as quoted data: `sb host --resume RUN claude`.
+
+In workmux, set the agent command to `sb claude`. The `status.relay` capability keeps the pane's status working.
+
+## When something is denied
+
+A denial reaches you as a tmux message on the agent's pane, in the agent's own words (its hook reads the denials
+file), and on the exit line:
+
+```
+graft sandbox (work): refused pypi.org:443 · sb why pypi.org
+```
+
+1. Ask `sb` where the item would come from:
+
+   ```
+   sb why pypi.org
+   ```
+
+2. To allow it for one run, give the flag that `sb why` names:
+
+   ```
+   sb --net pypi.org claude --continue
+   ```
+
+   The exit line names the permanent fix for each flag that you used.
+
+3. To allow it in every run of this repository, add it to the repo kit (see [Add a repo kit](#add-a-repo-kit)):
+
+   ```nix
+   kit.requests.network = [ "pypi.org" ];
+   ```
+
+   To allow it in every repository, add it to your root's standing kit, the root kit that `work` includes, then
+   `home-manager switch`.
+
+4. Run `sb grant`, and accept the new item. Commit the grants file.
+
+## When a kit asks for more
+
+When an upgrade gives a kit new requests, or a new source for a powerful one, its runs stop with exit 125 and the
+difference:
+
+1. Read the difference that `sb` printed, or run `sb grant --diff`.
+2. If you accept it, run `sb grant KIT`, and commit the grants file. Otherwise, take back the upgrade.
+
+Runs that the kit's requests do not apply to still start, with a note on the startup line:
+`meeting-kit asks for more: sb grant`.
+
+## Root repositories
+
+Your root's own repository (`~/.workstation` here) decides what every run may do, so `sb` never writes it in
+place. In v2.15.0, `sb claude` refuses there:
+
+```
+graft sandbox (work): ~/.workstation is a root: sb inspect, or claude (unsandboxed) until sb dispatch (1b)
+```
+
+- To read it, use `sb inspect claude`.
+- To change it, use plain `claude`, then review the diff before `home-manager switch`.
+- In its worktrees, set workmux's agent command to `claude` in `~/.workstation/.workmux.yaml`:
+
+  ```yaml
+  agent: claude
+  ```
+
+<!-- unverified: the .workmux.yaml key for the agent command. -->
+
+## Add a repo kit
+
+A repository's own needs are its repo kit: the packages its work needs, paths to protect, and requests.
+
+1. In a graft consumer, add `kit` to mkFlake's `perSystem`:
+
+   ```nix
+   outputs = inputs: inputs.graft.lib.mkFlake {
+     inherit inputs;
+     perSystem = { pkgs, ... }: {
+       kit = {
+         packages = [ pkgs.nodejs_22 ];
+         protect = [ "AGENTS.md" ];
+         requests.network = [ "registry.npmjs.org" ];
+         requests.capabilities = [ { name = "nix"; } ];   # graft check evaluates graft.nix
+       };
+     };
+   };
+   ```
+
+   A repository that runs `graft check` inside a run needs the `nix` capability: `graft check` evaluates each
+   scion's `graft.nix`.
+
+2. Stage `flake.nix`, so that the flake sees it: `git add flake.nix`.
+3. Read what a run would get: `sb explain claude`. The repo kit's items are named `repo:…`.
+4. Run `sb grant`, and accept the repo kit's requests. Commit the grants file in your root.
+
+For a repository that is not a graft consumer, the root declares its repo kit, keyed by its normalised origin:
 
 ```nix
-{ pkgs, ... }:
+programs.sb.repoKits."github.com/example/site".requests.network = [ "registry.npmjs.org" ];
+```
+
+If the repository's `ensure.sh` or `justfile` builds tools with `nix`, make it use the tools that `sb` built
+([Move from v2.14.0's sandbox](move-from-the-v2-14-sandbox.md#run-the-repositorys-tools-inside)).
+
+## Set up a root
+
+| Root | Use it when | Start it with |
+|---|---|---|
+| A home-manager root | You manage your home with home-manager. | `programs.sb` (below) |
+| graft's default root | You have no root and want to try `sb`. | `nix run github:danielnaab/graft/v2.15.0#sb -- claude` |
+| A minimal root of your own | You want a root without home-manager. | `sb init` |
+
+A home-manager root:
+
+```nix
+{ inputs, ... }:
 {
-  tools   = { nb-index = …; };
-  sandbox = {
-    packages = [ pkgs.ripgrep ];                  # applies
-    protect = [ "notebook/tasks/index.md" ];      # applies: read-only inside
-    network.allow = [ "api.example.com" ];        # a request
+  imports = [ inputs.graft.homeManagerModules.sb ];
+  programs.sb = {
+    enable = true;
+    grantsFile = "~/.workstation/sandbox/grants.json";
+    kits."claude-code@personal" = inputs.graft.kits.claude-code { account = "personal"; };
+    kits.standing.requests.network = [ "pypi.org" "registry.npmjs.org" ];
+    contexts.work.include = [ "standing" ];
+    bindings = {
+      "status.relay"."*" = { workmux = true; };
+      credential."api.anthropic.com kit=claude-code@personal" = {
+        via = "file"; from.file = "~/.config/graft/sb/claude-token-personal"; };
+    };
   };
 }
 ```
 
-`packages`, `env.set` and `protect` apply to every consumer. `network.allow`, `paths.readOnly`,
-`paths.writable` and `env.pass` are requests, and apply only for a consumer that grants them. Say in your
-README which requests your tools need and why, so that consumers can decide. A new request in a release is a
-change to what consumers must grant: say so in the CHANGELOG.
+Run `home-manager switch`. `sb` is then on `PATH`, and `~/.config/graft/sb/launcher` points at it. The options are
+in [Home-manager options](../reference/sandbox.md#home-manager-options).
+
+<!-- unverified: homeManagerModules.sb, graft.kits.claude-code's call form, the default root's flake attribute,
+and what sb init writes. -->
+
+## If something goes wrong
+
+- **`sb` fails before the command starts, in Docker,** because bubblewrap cannot create a user namespace.
+  Docker's default seccomp profile blocks them. Run `sb` on the host or in a VM. `sb` never runs the command
+  without the sandbox.
+- **The run stops with exit 125 and a list of requests.** A kit asks for more than its grant, or was never
+  granted where no prompt can appear (an agent, a script). Run `sb grant KIT` at a terminal
+  ([When a kit asks for more](#when-a-kit-asks-for-more)).
+- **A tool prints `CONNECT tunnel failed, response 403`, `tunnel error` or `Could not resolve host`.** The
+  sandbox refused the host. Read `/run/graft-sandbox/denials` inside, or run `sb why HOST`
+  ([When something is denied](#when-something-is-denied)).
+- **`sb: no backend for darwin in v2.15.0`.** You are on macOS. Use graft v2.14.0's sandbox there.
 
 ## How it works
 
-The launcher is a program that Nix builds from the merged policy, so the closure, `PATH` and the `protect`
-entries are fixed when it builds. At each run it finds the repository's git metadata and the paths that
-`protect` matches, and starts the network proxy if the run has network. On Linux it starts bubblewrap with a
-new set of namespaces, binds the closure read-only, the repository writable, and each protected path
-read-only over it. On macOS it writes a Seatbelt profile that allows the same paths and denies writing the
-protected ones, and starts the command with `sandbox-exec` ([Sandbox](../reference/sandbox.md)).
+At start, `sb` finds the kits of the run: the command's, the repository's, its scions', and the root kits its
+context includes. It reads your grants file, and composes the run's policy: what the run sees, its limits, and
+the reach that you granted. Then bubblewrap starts the command with only that. Network goes through a proxy on
+the host that allows only granted hosts. Nothing that the run writes can widen a later run: the grants file and
+`sb`'s state are hidden, and your root's repository is never written in place
+([Decisions](../decisions.md#roots-grant-reach-kits-only-ask)).
 
 ## Sources
 
-- [Sandbox](../reference/sandbox.md): options, what a run sees, messages
-- [lib/mk-flake.nix](../../lib/mk-flake.nix): `sandbox` from `graft.nix` and `perSystem`, requests and grants
-- [lib/sandbox/launcher.sh](../../lib/sandbox/launcher.sh): the launcher, its startup line and messages
-- [tests/run.sh](../../tests/run.sh): the `sandbox` section
-- [Decisions](../decisions.md#enforce-the-boundary-in-a-sandbox-not-in-rules): why a sandbox, and its costs
+- [Sandbox](../reference/sandbox.md): contexts, kits, requests, grants, flags, messages
+- [Move from v2.14.0's sandbox](move-from-the-v2-14-sandbox.md)
+- [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit` in `perSystem`
+- [tests/run.sh](../../tests/run.sh)

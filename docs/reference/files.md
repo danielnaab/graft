@@ -19,7 +19,7 @@ The files graft reads and writes, and the lines in them that graft recognizes.
 | `.forgejo/workflows/graft-*.yaml` | Restored by `sync`, replaced by `upgrade`, compared by `check`. | graft's workflows, if they carry the marker. |
 | Settings files, such as `knowledge-base.yaml` | Read by providers' tools and checks, never by graft. | What a provider lets you configure. Each provider's README names its file. |
 
-Inside a [sandbox](sandbox.md#protected-paths), `flake.nix`, `flake.lock`, `.gitmodules`, each `graft.nix`,
+Inside an [`sb` run](sandbox.md#protected-paths), the flake directory, `.gitmodules`, each `graft.nix`,
 `.envrc`, `justfile` and `.pre-commit-config.yaml` (at any depth), and the git metadata, are read-only.
 
 ## The marker README
@@ -103,7 +103,7 @@ A function, called once per system by the consumer's mkFlake:
   apps     = { check-kb = { type = "app"; program = "…"; }; };
   checks   = { tasks = pkgs.runCommand "tasks" { } "…"; };
   packages = { obsidian-plugins = …; };
-  sandbox  = { packages = [ pkgs.ripgrep ]; network.allow = [ "api.example.com" ]; };
+  kit      = { packages = [ pkgs.ripgrep ]; requests.network = [ "api.example.com" ]; };
 }
 ```
 
@@ -115,16 +115,17 @@ A function, called once per system by the consumer's mkFlake:
 | `scion` | This scion, copied alone into the store, without its `.git` file. Relative paths (`./bin/tool`) resolve in it too. |
 | `scions` | Every scion of the consumer. `scions.NAME` is the scion's store path (`"${scions.NAME}/src"` works) merged with its `graft.nix` result (`scions.NAME.tools.TOOL`). |
 | `consumer` | The consumer flake's source: the repository for a top-level flake, only the flake's directory for a `path:` flake. Checks read the consumer's settings from it, such as `${consumer}/knowledge-base.yaml`, and skip, not fail, when the file is absent. |
+| `kitArgs` | The consumer's `perSystem.kitArgs.<name>` for this scion, or `{ }`. A kit computes its requests from it, never from a file in the workspace. <!-- unverified: kitArgs as a graft.nix argument --> |
 
 **Returned attributes.** All optional.
 
 | Attribute | Becomes | Collision |
 |---|---|---|
 | `tools` | Part of `packages.<system>.tools`, on the consumer's `PATH` | An error, unless both are the same store path. |
-| `apps` | `apps.<system>.<name>` | An error; `graft` and `sandbox` are reserved. |
-| `packages` | `packages.<system>.<name>` | An error; `tools` and `sandbox` are reserved. |
+| `apps` | `apps.<system>.<name>` | An error; `graft`, `sandbox` and `sb` are reserved. |
+| `packages` | `packages.<system>.<name>` | An error; `tools`, `sandbox`, `sb` and `graft-kits` are reserved. |
 | `checks` | `checks.<system>.<scion>-<name>` | None: prefixed. |
-| `sandbox` | Part of the [sandbox policy](sandbox.md#options). `packages`, `env.set` and `protect` apply. `network.allow`, `paths.readOnly`, `paths.writable` and `env.pass` are requests: they apply only when the consumer grants them. | None: merged. `repository.readOnly`, `grant`, and `mkForce` (or `mkOverride` below 100) are an error. |
+| `kit` | The provider's [scion kit](sandbox.md#schema), in `packages.<system>.graft-kits`. Its `requests` apply only when a person grants them, in their root, with `sb grant`. | None: each kit keeps its own identity. |
 | `requires` | Nothing. Checked first: each named scion must exist, or evaluation fails with `graft add URL`. | |
 | Anything else | Visible to other providers as `scions.NAME.ATTR`, not a flake output. | |
 
@@ -261,7 +262,7 @@ image with no ssh client, it takes `openssh` from Nix.
 ## Sources
 
 - [lib/common.sh](../../lib/common.sh): finding the marker README; semver tags
-- [lib/mk-flake.nix](../../lib/mk-flake.nix): the `graft.nix` arguments, merging and collisions, `sandbox`
+- [lib/mk-flake.nix](../../lib/mk-flake.nix): the `graft.nix` arguments, merging and collisions, `kit`
 - [lib/workflows.sh](../../lib/workflows.sh): workflow ownership, the branches, paths-ignore and ssh lines
 - [lib/tools.sh](../../lib/tools.sh): `add`, `upgrade` and `.gitmodules`
 - [lib/common.sh](../../lib/common.sh) `upstream_range`, `changelog_between`: `CHANGELOG.md` read from the

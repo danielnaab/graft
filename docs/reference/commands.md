@@ -14,8 +14,8 @@ flake outputs.
 |---|---|---|
 | `inputs` | (required) | The flake's inputs. `inputs.self` is the repository. If there is an `inputs.nixpkgs`, it is the `pkgs` that every `graft.nix` gets; otherwise graft's own pinned nixpkgs. |
 | `dir` | `"scions"` | The scions directory: one folder name (`[A-Za-z0-9._-]+`, not `.`, `..` or `.git`), in the flake's directory. For a [flake in a subdirectory](../guides/flake-in-a-subdirectory.md), `".scions"` by convention. |
-| `perSystem` | none | The repository's own tools, apps, packages, checks, dev shells and sandbox policy: a function `{ pkgs, lib, system, scions, ... }: { tools ? { }; apps; packages; checks; devShells; sandbox; }`, called once per system and merged like a provider's `graft.nix`, under the name `self` (a collision says `from scion A and the consumer's perSystem`). Its checks are not prefixed: `checks.<system>.NAME`. Its `devShells` are output as they are. Use it to put a tool of your own, such as `bun`, into `tools`. Its `sandbox` can set every [sandbox option](sandbox.md#options), `grant` and `repository.readOnly` included. |
-| `outputs` | `{ }` | Plain extra outputs, merged last with `recursiveUpdate`, so they add to and override graft's, except `apps.<system>.graft`, `apps.<system>.sandbox` and `packages.<system>.sandbox`. |
+| `perSystem` | none | The repository's own tools, apps, packages, checks, dev shells and repo kit: a function `{ pkgs, lib, system, scions, ... }: { tools ? { }; apps; packages; checks; devShells; kit; kitArgs; }`, called once per system and merged like a provider's `graft.nix`, under the name `self` (a collision says `from scion A and the consumer's perSystem`). Its checks are not prefixed: `checks.<system>.NAME`. Its `devShells` are output as they are. Use it to put a tool of your own, such as `bun`, into `tools`. Its `kit` is the repository's [repo kit](sandbox.md#schema), and its `kitArgs.<kit>` are the arguments that a provider's kit reads. |
+| `outputs` | `{ }` | Plain extra outputs, merged last with `recursiveUpdate`, so they add to and override graft's, except `apps.<system>.graft` and graft's reserved names `sandbox`, `sb` and `graft-kits`. |
 
 Removed in v2.13.0: `scions` (there is no input list) and `flakeDir` (graft finds the flake as the parent of
 the scions directory).
@@ -41,9 +41,9 @@ For `x86_64-linux`, `aarch64-linux`, `x86_64-darwin` and `aarch64-darwin`:
 | `packages.<system>.<name>` | Each scion's `packages`. |
 | `apps.<system>.<name>` | Each scion's `apps`. |
 | `apps.<system>.graft` | The `graft` command for this repository. |
-| `packages.<system>.sandbox` | The [sandbox launcher](sandbox.md), with the merged policy built in, and the attributes `policy` (the policy as data) and `explain`. `apps.<system>.sandbox` runs it. A provider, `perSystem` or `outputs` cannot define either name, so `nix run .#sandbox` and `nix build .#sandbox` are always graft's launcher. On macOS it fails when it runs. |
+| `packages.<system>.graft-kits` | The workspace's kits as manifests, with the tools, `graft` included, that [`sb`](sandbox.md) builds with `path:` and passes to a run as `GRAFT_SANDBOX_TOOLS`. A provider, `perSystem` or `outputs` cannot define `graft-kits`, `sandbox` or `sb`. Since v2.15.0 there is no `packages.<system>.sandbox`. |
 | `checks.<system>.<scion>-<name>` | Each scion's `checks`, prefixed with the scion's folder name. |
-| `devShells.<system>.<name>` | `perSystem`'s `devShells`. If none defines `default`, `devShells.<system>.default` is a shell with `tools` and `sandbox` on `PATH`. Providers ship no dev shells. |
+| `devShells.<system>.<name>` | `perSystem`'s `devShells`. If none defines `default`, `devShells.<system>.default` is a shell with `tools` on `PATH`. Providers ship no dev shells. |
 
 Everything that reads scions is evaluated lazily. `apps.<system>.graft` and the repository's own `outputs`
 evaluate when a scion is empty or broken, so `nix run .#graft …` can still repair it. A provider whose
@@ -80,11 +80,13 @@ value, so other outputs still evaluate. The fix for each is in
 - `graft: scions/NAME is empty in the flake's source: run git submodule update --init --recursive (or graft sync)`, when a
   provider uses an empty sibling (`scions.NAME`).
 - `graft: apps graft (from NAME): that name is graft's; the provider must rename it`, and the same for
-  `packages tools`, `apps sandbox` and `packages sandbox`; for `perSystem`, `…; rename the repo's own`.
-- A provider's `sandbox` that is not valid fails `packages.<system>.sandbox` only
-  ([Sandbox messages](sandbox.md#messages)).
+  `packages tools` and the reserved names `sandbox`, `sb` and `graft-kits`; for `perSystem`, `…; rename the repo's
+  own`.
+- A provider's `kit` that is not valid fails `packages.<system>.graft-kits` only.
 - `graft: mkFlake's outputs has apps.<system>.graft: that name is graft's; rename the repo's own`, and the same for
-  `apps.<system>.sandbox` and `packages.<system>.sandbox`
+  the reserved names.
+
+<!-- unverified: the evaluation errors for kit, the reserved names, and a leftover sandbox attribute. -->
 
 An empty scion is not an error by itself. `packages.<system>.tools` builds without it, and Nix prints a
 warning:
@@ -143,7 +145,7 @@ Every command first refuses a copy-mode scions README (one with a `| Scion | Com
 | `help` | Prints the usage, one line per command. |
 
 There is no `remove`: `git rm scions/NAME` removes a scion, and git edits `.gitmodules`. There is no
-`graft sandbox`: run the [launcher](sandbox.md#the-launcher), `nix run .#sandbox -- CMD`.
+`graft sandbox`: run [`sb`](sandbox.md#the-command-line), your root's command.
 
 ### add
 
@@ -409,7 +411,7 @@ prints a brief, also when checks fail.
 ## Sources
 
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): arguments, discovery, outputs, and the evaluation errors
-- [lib/sandbox/default.nix](../../lib/sandbox/default.nix): the sandbox launcher
+<!-- unverified: the source of packages.<system>.graft-kits (lib/mk-flake.nix?). -->
 - [lib/graft.sh](../../lib/graft.sh): commands and usage
 - [lib/scions.sh](../../lib/scions.sh): `add`, `sync`, `check`, `try`
 - [lib/tools.sh](../../lib/tools.sh): `outdated`, `changelog`, `upgrade`
