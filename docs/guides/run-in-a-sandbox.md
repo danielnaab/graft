@@ -161,13 +161,12 @@ graft sandbox (work): ~/.workstation is a root: sb inspect, or claude (unsandbox
 
 - To read it, use `sb inspect claude`.
 - To change it, use plain `claude`, then review the diff before `home-manager switch`.
-- In its worktrees, set workmux's agent command to `claude` in `~/.workstation/.workmux.yaml`:
+- In its worktrees, set workmux's agent command in `~/.workstation/.workmux.yaml` to anything but `sb claude`,
+  because the project file overrides the global `agent`:
 
   ```yaml
   agent: claude
   ```
-
-<!-- unverified: the .workmux.yaml key for the agent command. -->
 
 ## Add a repo kit
 
