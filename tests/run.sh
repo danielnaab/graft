@@ -1432,7 +1432,9 @@ EOF
 
   # S: a repo kit with a powerful request: a changed source exits 125 with the changed paths
   sed -i 's|kit = { protect|kit = { requests.capabilities = [ { name = "nix"; } ]; protect|' flake.nix && commit "nix"
+  local objs && objs=$(git_ count-objects -v)
   ran "sb: grant the repo kit's nix" tty_ $'y\n' "$work/sbr/bin/sb" grant sbc
+  expect "sb writes no git object into the workspace (its source tree goes to sb's state)" test "$(git_ count-objects -v)" = "$objs"
   echo more >> notes.md && commit "a tracked change"
   sb_ true >/dev/null 2>&1 && st=0 || st=$?
   expect "sb: a changed source exits 125" test "$st" = 125

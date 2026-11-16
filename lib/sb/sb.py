@@ -248,12 +248,23 @@ def source_tree(host, top, rel):
         except OSError:
             pass
         r = subprocess.run([host.git, "-C", top, "write-tree"] + ([f"--prefix={rel}/"] if rel else []),
-                           capture_output=True, text=True, env={**os.environ, "GIT_INDEX_FILE": tmp.name})
+                           capture_output=True, text=True, env={**os.environ, **object_env(host, top), "GIT_INDEX_FILE": tmp.name})
     return r.stdout.strip() or None
 
 
+def object_env(host, top):
+    """Trees sb writes go to an object directory in its own state (per repository), never into the
+    workspace's: the repository's objects are read through alternates."""
+    objs = run_git(host, top, "rev-parse", "--path-format=absolute", "--git-path", "objects").stdout.strip()
+    mine = os.path.join(host.state, "cache", "objects", hashlib.sha256(objs.encode()).hexdigest()[:16])
+    os.makedirs(mine, exist_ok=True)
+    return {"GIT_OBJECT_DIRECTORY": mine, "GIT_ALTERNATE_OBJECT_DIRECTORIES": objs}
+
+
 def tree_diffstat(host, top, old, new):
-    r = run_git(host, top, "diff", "--stat=100", old, new)
+    r = subprocess.run([host.git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*",
+                        "-C", top, "diff", "--stat=100", old, new], capture_output=True, text=True,
+                       env={**os.environ, **object_env(host, top)})
     return r.stdout.rstrip("\n").splitlines()[-12:] if r.returncode == 0 else []
 
 
