@@ -1137,7 +1137,7 @@ EOF
   prov sbapp
   printf '{ ... }: { apps.sb = { type = "app"; program = "/bin/sh"; }; }\n' > "$work/src/sbapp/graft.nix" && release sbapp v1.0.0
 
-  local c=$work/sbc && consumer "$c" "$(printf '  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; perSystem = { pkgs, ... }: { kitArgs.sbk.word = "hi"; kit = { protect = [ "AGENTS.md" ]; packages = [ pkgs.hello ]; }; }; };' "$graft")" && cd "$c"
+  local c=$work/sbc && consumer "$c" "$(printf '  inputs.self.submodules = true;\n  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; perSystem = { pkgs, ... }: { kitArgs.sbk.word = "hi"; kit = { protect = [ "AGENTS.md" ]; packages = [ pkgs.hello ]; }; }; };' "$graft")" && cd "$c"
   echo "# agents" > AGENTS.md && echo "a: 1" > sbk.yaml && echo "default:" > justfile && echo data > notes.md
   by_hand sbk && commit init && quiet nix flake lock && commit lock
 
@@ -1160,7 +1160,7 @@ EOF
   expect "names kit" holds "graft: scions/sbold/graft.nix gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\`"
   git_ rm -q scions/sbold && by_hand sbbadkit && commit sbbadkit
   refused "sb: a kit with an unknown field" nix build --no-link .#graft-kits
-  expect "names the field and the file" holds "graft: scions/sbbadkit/graft.nix (kit): paths is not a kit field"
+  expect "names the field and the file" holds "graft: scions/sbbadkit/graft.nix: paths is not a kit field"
   git_ rm -q scions/sbbadkit && by_hand sbapp && commit sbapp
   refused "sb: a provider's apps.sb" nix build --no-link .#tools
   expect "is reserved" holds "graft: apps sb (from sbapp): that name is graft's; the provider must rename it"
@@ -1236,8 +1236,10 @@ EOF
   expect "and the run continues" holds "ran-after-grant"
   ran "the grants file" jq -c '.grants["root:daniel"].requests' "$work/sbgrants/grants.json"
   expect "holds the approved set" has '["network 127.0.0.1:1"]'
-  ran "sb: sb grant, nothing new" sb_ grant
-  expect "says so" has "sb grant: every kit here is granted"
+  ran "sb: sb grant KIT, nothing new" sb_ grant daniel
+  expect "says so" has "sb grant: daniel is granted"
+  refused "sb: sb grant with no terminal" sb_ grant
+  expect "is refused" holds "sb grant is for people: it reads its answers from /dev/tty, and there is none"
 
   ran "sb: a command runs, in the repository" sb_loud pwd
   expect "there" has "$(pwd -P)"
@@ -1299,7 +1301,7 @@ EOF
   expect "and the exit line says so" holds "graft sandbox (work): the run tried denied.example:443 (1x, not in this run): sb why denied.example"
   ran "sb: a granted host (nothing listens: Bad Gateway)" sb_ bash -c "$ask" _ 127.0.0.1:1
   expect "passes the proxy" holds "HTTP/1.1 502 Bad Gateway"
-  ran "sb: the readonly context" sb_loud readonly bash -c 'cat /proc/net/dev; echo z >> notes.md' 
+  ran "sb: the readonly context" sb_loud readonly bash -c 'echo z >> notes.md 2>&1; true'
   expect "has no write" holds "Read-only file system"
   ran "sb: a log per run" bash -c "cat '$work'/sbstate/runs/*/log.jsonl"
   expect "start" holds '"ev":"start","by":"host"'
@@ -1335,7 +1337,7 @@ EOF
   expect "names it" holds "  + network more.example:443"
   sed -i 's|requests.network = \[ "more.example" \]; ||' flake.nix && commit "less"
   cp "$work/sbgrants/grants.json" "$work/sbgrants.bak"
-  jq '.grants["root:other"] = {"digest": "sha256-oaSD3ZR42IHM3yEsKFP/Ju4UQS4wSvN6iEQmIRsnNSM=", "requests": ["x"]}' "$work/sbgrants.bak" > "$work/sbgrants/grants.json"
+  jq '.grants["root:other"] = {"digest": "sha256-c8s4WKaHqElMozIwUwFigvPa051Cz2LKTnndoqrH2aw=", "requests": ["x"]}' "$work/sbgrants.bak" > "$work/sbgrants/grants.json"
   ran "sb: grants that arrived by git" sb_loud true
   expect "one line" holds "sb: 1 grant arrived by git: sb grant --diff"
   echo '{' > "$work/sbgrants/grants.json"
@@ -1360,19 +1362,22 @@ EOF
   refused "sb: a program not in the run" sb_ nosuch
   expect "says how to add it" holds "graft sandbox (work): nosuch is not in this run. one run: sb --package PKG"
 
-  # inspect (D20): its own pid namespace, the workspace read-only, secrets and sockets masked
-  echo "TOKEN=secret-value" > .env && echo "keep" > .envrc.example
-  python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$c/sb.sock"
-  # shellcheck disable=SC2016 # the run's shell expands them
-  ran "sb: inspect" sb_ inspect bash -c 'ps -e | wc -l; cat .env; echo "[$(cat .env)]"; cat .envrc.example; test -S sb.sock && echo sock || echo nosock; touch x 2>&1; ls -A /tmp | wc -l'
-  expect "its own processes" test "$(head -1 <<<"$out")" -lt 6
-  expect "a secret is empty" holds "[]"
-  refuse "its value never shows" holds "secret-value"
-  expect "other files read" holds "keep"
-  expect "a socket masked" holds "nosock"
-  expect "nothing written" holds "Read-only file system"
-  rm -f -- .env .envrc.example sb.sock
-  (cd "$work/sbrootrepo" && ran "sb: inspect in a root repository" sb_ inspect true)
+  # inspect (D20): its own pid namespace, the workspace read-only, secrets and sockets masked. In the
+  # root repository (no flake: a path: flake directory can't hold a socket)
+  (
+    cd "$work/sbrootrepo"
+    echo "TOKEN=secret-value" > .env && echo "keep" > .envrc.example
+    python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$work/sbrootrepo/sb.sock"
+    # shellcheck disable=SC2016 # the run's shell expands them
+    ran "sb: inspect, in a root repository" sb_ inspect bash -c 'ps -e | wc -l; echo "[$(cat .env)]"; cat .envrc.example; test -S sb.sock && echo sock || echo nosock; touch x 2>&1; true'
+    expect "its own processes" test "$(head -1 <<<"$out")" -lt 6
+    expect "a secret is empty" holds "[]"
+    refuse "its value never shows" holds "secret-value"
+    expect "other files read" holds "keep"
+    expect "a socket masked" holds "nosock"
+    expect "nothing written" holds "Read-only file system"
+    rm -f -- .env .envrc.example sb.sock
+  )
 
   # sb init
   local i=$work/sbinit

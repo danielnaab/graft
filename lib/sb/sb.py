@@ -254,8 +254,9 @@ def repo_kit(host, w, rel):
     say(f"sb: building the repo kit ({attr})")
     r = subprocess.run([nix, "build", "--no-link", "--print-out-paths", attr], stdout=subprocess.PIPE, text=True)
     if r.returncode != 0:
-        raise C.Refusal(f"graft sandbox: the repo kit of {w['top']} did not build (above): its flake needs graft "
-                        "v2.15.0 or later (graft-kits); fix it, or run sb host CMD")
+        raise C.Refusal(f"graft sandbox: the repo kit did not build (nix build {attr}, above): it needs graft "
+                        "v2.15.0 or later (packages.<system>.graft-kits), and a path: flake directory holds no "
+                        "sockets or other special files; fix it, or run sb host CMD")
     out = r.stdout.strip().splitlines()[-1]
     os.makedirs(cdir, exist_ok=True)
     with open(cfile, "w") as f:
@@ -1122,9 +1123,10 @@ def grant(host, root, flags, kits_named):
             for a in s["added"]:
                 print(visible(f"  + {a}"))
         return 0
-    todo = [s for s in sts if s["status"] in ("never", "grown", "source", "unverified") or (kits_named and s["status"] != "none")]
+    todo = [s for s in sts if s["status"] in ("never", "grown", "source", "unverified")]
     if not todo:
-        print("sb grant: every kit here is granted")
+        print("sb grant: " + (", ".join(s["name"] for s in sts) + (" is" if len(sts) == 1 else " are") if kits_named
+                              else "every kit here is") + " granted")
         return 0
     grant_flow(host, root, grants, todo)
     return 0
