@@ -274,7 +274,7 @@ kit = {
 |---|---|---|
 | `packages` | see | On `PATH`. A repo kit's packages reach every run in its workspace; a scion kit's do not. |
 | `env.set` | see | Fixed values, for the kit's own commands. Names that `sb` owns are refused: `BASH_ENV`, `PATH`, `HOME`, `GRAFT_SANDBOX*`, the proxy variables, `NIX_REMOTE`, `SSL_CERT_FILE`, `TZ`. |
-| `files."<path>"` | see | A file in the run. A key starts with `~/` (in the run's `HOME`) or `/` (needs the `root-files` guarantee). `mode`: `fixed`, bound read-only; `seed`, copied into state on first use, then the run's own; `reassert`, the listed `keys` written from `source` at every start. |
+| `files."<path>"` | see | A file in the run. A key starts with `~/` (in the run's `HOME`) or `/` (needs the `root-files` guarantee). `mode`: `fixed`, bound read-only; `seed`, copied in once, into state on first use, then the run's own; `reassert`, the listed `keys` copied in from `source` at each start. |
 | `protect` | limits | Workspace paths, read-only inside. A path relative to the repository's top, or `**/NAME`. |
 | `requests.*` | reach | Requests, inert until [granted](#grants). |
 | `commands.<name>` | | A program the kit ships: `program` (a store path, or `{ host = "~/…"; }`), `args` (strings or store paths), `access`, `requests`, `fixedDirs` (`{ "~/run/path" = "~/host/dir"; }`, or `null` for an empty one, bound read-only, links one level deep), `realDirs` (run paths whose host folder is bound whole, read-only), `skillDirs` (names of real directories in a fixed folder to bind) and `memory` (`{ at; host; }`: host files bound read-only, new files kept in state). |
@@ -452,7 +452,7 @@ programs.sb.bindings = {
 | `git.fetch` | `broker = "git"`; `key.agent = true` or `key.file = "~/…"` |
 | `nix` | `via = "daemon-untrusted"` |
 | `credential` | `via = "env"` or `"file"`; `from.file = "~/…"` or `from.envFile = "~/…"` (a [key file](#key-files)), or `from.env = "NAME"` (the host's variable); `refresh`, the host command that the startup line names when the variables are unset or expired. `via = "proxy"` is refused: `… 1a carries env and file (proxy comes in a later release)`. |
-| `mcp` | `url`; `via = "env"`; `env`, the variable that holds the key; `from.file` (a [key file](#key-files)) and the other `from` forms; `header` (default `"Authorization"`) and `scheme` (default `"Bearer"`) |
+| `mcp` | `url`; `via = "env"`; `env`, the variable that holds the key; `from.file` (a [key file](#key-files)) and the other `from` forms; `header` (default `"Authorization"`) and `scheme` (default `"Bearer"`; `""` sends the bare key) |
 
 #### Key files
 
@@ -539,14 +539,16 @@ is `sha256-` and the base64 of the SHA-256 of the sorted, unique canonical lines
 | A repo kit that is not granted, in `inspect` | The run proceeds: a repo kit's reach does not apply in `inspect`. The startup line notes `NAME not granted (its reach does not apply in inspect)`. |
 | Never granted, at a terminal, with no agent marker | The grant prompt appears inline, and the run continues after it. The agent markers are `CLAUDECODE`, `CODEX_SANDBOX` and `GRAFT_SANDBOX`. A workmux pane is not one. |
 | Never granted, otherwise | Exit 125, with `sb grant KIT`. |
-| The file changed since this machine last read it | One line, `sb: 3 grants arrived by git: sb grant --diff`, at each start until `sb grant --diff` or a grant acknowledges it. Nothing stops. |
-| The file does not parse, has another version, an unknown field, or an entry whose digest does not match its requests | Every run stops, with a message that ends `every run stops until it is fixed`. A parse error names the file and suggests a merge conflict: `~/…/grants.json: the grants file does not parse (…): every run stops until it is fixed (a merge conflict? git diff on it shows the markers; resolve them, keep both machines' entries)`. |
+| The file changed since this machine last read it | One line, `sb: the grants file changed since this machine last read it: sb grant --diff`, at each start until `sb grant --diff` or a grant acknowledges it. Nothing stops. A pull and a local edit read the same. |
+| The file does not parse, has another version, an unknown field, or an entry whose digest does not match its requests | Every run stops, with a message that says `every run stops until it is fixed`. A parse error names the file and suggests a merge conflict: `~/…/grants.json: the grants file does not parse (…): every run stops until it is fixed (a merge conflict? git diff on it shows the markers; resolve them, keep both machines' entries)`. A digest mismatch names its repair: `~/…/grants.json: the grants file's entry ID: its digest does not match its requests (an edit by hand?): every run stops until it is fixed: sb grant --revoke SHORT, then sb grant SHORT (a merge conflict? …)`. |
 
 The status words, in `sb grant`, the startup line and `sb explain`: `granted`, `not granted`, `asks for more`,
 `changed source` and `unverified`.
 
-The inline prompt needs stdin and stderr to be terminals, and only never-granted kits: a kit that asks for more
-always stops.
+At a terminal (stdin and stderr), with no agent marker, every stale kit is prompted inline, with its difference:
+not granted, asks for more, or changed source (with the same `git diff --stat` lines as the 125 message). The run
+goes on after the prompt. Elsewhere, the run stops with exit 125 and every kit's difference. The inline prompt is
+`sb grant`'s own: ordinary items together, each powerful item alone, recorded with its `source`.
 
 ## policy.json
 
@@ -656,7 +658,7 @@ and the exit line names each one's permanent form. `--flag=value` works too.
 | `--from REF`, `--detach` | | Clone mode. Refused in v2.15.0, as `--clone` is. |
 | `--account NAME` | | Chooses an agent kit instance. |
 | `--backend NAME` | | Chooses a backend that the root defines. |
-| `--resume RUN`, `--resume last` | | Only with `host`: passes run `RUN`'s (or the newest run's) transcript into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `sb: --resume RUN goes with sb host (sb host --resume RUN claude)`. |
+| `--resume RUN`, `--resume last` | | Only with `host`: passes run `RUN`'s (or the newest run that left a transcript) transcript into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `sb: --resume RUN goes with sb host (sb host --resume RUN claude)`. |
 
 A flag or `--repo` that names a hidden path, or a root repository in `work`, is refused at start.
 
@@ -668,7 +670,8 @@ sb explain [CONTEXT] [FLAGS] [CMD] [--json] [--backend-command]
 
 Prints the run's policy without running it: every item with the kit, file or grant that it came from, and a
 note that kit tools run as the run's own programs in v2.15.0. `--json` prints [policy.json](#policyjson).
-`--backend-command` prints bubblewrap's command line, with each secret variable shown as `(the run holds it)`.
+`--backend-command` prints bubblewrap's command line, with each secret variable shown as `(the run holds it)`;
+with `host`, it prints `argv       CMD` (and `(+ the transcript of run ID, as data)` with `--resume`).
 Inside a run, `sb explain` prints the run's policy.json.
 
 The rows: `run` (the command and its kit), `argv` (a kit command's program and arguments), `context`,
@@ -678,7 +681,7 @@ capability's binding, `children`, `not in run` (kits whose grants do not apply),
 guarantees) and `note`. `sb explain --backend-command claude` prints the whole bubblewrap command and Claude's
 assembled arguments.
 
-For Daniel's flexion-assistant, in a scratch clone (long store paths cut with `…`):
+For Daniel's flexion-assistant (store hashes cut to `…`):
 
 ```
 run        claude -> root:claude-code@personal
@@ -686,7 +689,7 @@ argv       /home/daniel/.local/share/claude/versions/2.1.326 --settings /nix/sto
 hooks      PostToolUse Bash|WebFetch (sb's --settings overlay; /hooks does not list it)
 hooks      PreToolUse Bash|WebFetch (sb's --settings overlay; /hooks does not list it)
 context    work: in-place, access write, bubblewrap; includes root:daniel
-workspace  repo:platform-vm:2222/daniel/flexion-assistant (write) /home/daniel/src/graft__worktrees/.sb-1a-team/implementer/m2/fa
+workspace  repo:platform-vm:2222/daniel/flexion-assistant (write) ~/src/flexion-assistant
            scions: knowledge-base-kit, meeting-kit, notebook-kit
 see        standard tools (25) · glibc-2.40-66 (claude-code@personal) · graft-kits (repo)
            env.set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 (claude-code@personal)
@@ -694,39 +697,49 @@ see        standard tools (25) · glibc-2.40-66 (claude-code@personal) · graft-
            env.set DISABLE_AUTOUPDATER=1 (claude-code@personal)
            env.set NIX_LD=/nix/store/…-glibc-2.40-66/lib/ld-linux-x86-64.so.2 (claude-code@personal)
            env.set NIX_LD_LIBRARY_PATH=/nix/store/…-gcc-14.3.0-lib/lib (claude-code@personal)
-           file /lib64/ld-linux-x86-64.so.2 (fixed) (claude-code@personal)
-           file ~/.claude/.claude.json (reassert) (claude-code@personal)
-           file ~/.claude/CLAUDE.md (fixed) (claude-code@personal)
-           file ~/.claude/settings.json (fixed) (claude-code@personal)
+           file /lib64/ld-linux-x86-64.so.2, read-only (claude-code@personal)
+           file ~/.claude/.claude.json, keys copied in at each start (claude-code@personal)
+           file ~/.claude/CLAUDE.md, read-only (claude-code@personal)
+           file ~/.claude/settings.json, read-only (claude-code@personal)
            env.set TZ=America/Chicago (root)
            dir ~/.claude/agents (read-only): 0 entries (claude-code@personal)
            dir ~/.claude/commands (read-only): 0 entries (claude-code@personal)
            dir ~/.claude/hooks (read-only): 0 entries (claude-code@personal)
            dir ~/.claude/plugins (read-only): 10 entries (claude-code@personal)
-           dir ~/.claude/skills (read-only): 21 entries, 1 left out (claude-code@personal)
-limits     protect: **/flake.nix **/flake.lock **/graft.nix **/.gitmodules **/.envrc **/justfile **/.pre-commit-config.yaml .githooks **/.claude **/.mcp.json **/.pi **/.codex **/.vscode nix/agent-tools nix/agent-tools/.scions (graft) · nix/agent-tools/ensure.sh .local .githooks AGENTS.md docs/boundaries.md (repo) · **/.claude **/.mcp.json (claude-code@personal)
+           dir ~/.claude/skills (read-only): 21 entries (claude-code@personal)
+             left out: address-pr-comments
+limits     protect: **/flake.nix **/flake.lock **/graft.nix **/.gitmodules **/.envrc **/justfile
+                   **/.pre-commit-config.yaml .githooks **/.claude **/.mcp.json **/.pi **/.codex **/.vscode
+                   nix/agent-tools nix/agent-tools/.scions (graft)
+                    nix/agent-tools/ensure.sh .local .githooks AGENTS.md docs/boundaries.md (repo)
+                    **/.claude **/.mcp.json (claude-code@personal)
            hidden: 28 paths (sb explain --json lists them)
-reach                                                                                                                                  granted by
-  network    api.anthropic.com:443                                                                                                        claude-code@personal
-  network    claude.ai:443                                                                                                                claude-code@personal
-  network    pypi.org:443                                                                                                                 daniel
-  network    mcp.crushingpennies.com:443 (mcp)                                                                                            claude-code@personal, binding
-  read       ~/.local/share/claude                                                                                                        claude-code@personal
-  read       ~/src/agent-skills                                                                                                           claude-code@personal
-  read       ~/src/agent-skills-private                                                                                                   claude-code@personal
-  state      claude -> ~/.claude                                                                                                          claude-code@personal
-  capability status.relay: workmux relay                                                                                                  claude-code@personal
-  capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN: file ~/.config/graft/sb/claude-token-personal (the run holds it)   claude-code@personal
-  capability mcp metamcp: env METAMCP_API_KEY from ~/.config/metamcp/key.env (the run holds it)                                           claude-code@personal
-  capability nix: untrusted daemon relay: exposes the whole store read-only, drops closure-store                                          repo
-  capability git.fetch ssh://forgejo@platform-vm:2222/*: ssh broker (fetch only), the host's ssh agent                                    daniel
+reach                                                                    granted by
+  network    api.anthropic.com:443                                          claude-code@personal
+  network    claude.ai:443                                                  claude-code@personal
+  network    pypi.org:443                                                   daniel
+  network    mcp.crushingpennies.com:443 (mcp)                              claude-code@personal, binding
+  read       ~/.local/share/claude                                          claude-code@personal
+  read       ~/src/agent-skills                                             claude-code@personal
+  read       ~/src/agent-skills-private                                     claude-code@personal
+  state      claude -> ~/.claude                                            claude-code@personal
+  capability status.relay: workmux relay                                    claude-code@personal
+  capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN: file ~/.config/graft/sb/claude-token-personal (the run holds it)
+                                                                            claude-code@personal
+  capability mcp metamcp: env METAMCP_API_KEY from ~/.config/metamcp/key.env (the run holds it)
+                                                                            claude-code@personal
+  capability nix: untrusted daemon relay: exposes the whole store read-only, drops closure-store
+                                                                            flexion-assistant
+  capability git.fetch ssh://forgejo@platform-vm:2222/*: ssh broker (fetch only), the host's ssh agent
+                                                                            daniel
 children   none (nesting comes in a later release)
 backend    bubblewrap proves own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files; lacks closure-store resource-limits separate-kernel nest
 note       kit tools run as this run's own programs; sandboxing each kit command comes in a later release
 ```
 
-`daniel` here is the root kit that Daniel's `work` includes. The `nix` capability is why this run lacks
-`closure-store`. The labels are `(graft)`, `(root)`, `(repo)`, `(<kit>)`, `(one run)` and `(<context>)`. A kit
+`daniel` here is the root kit that Daniel's `work` includes, and `flexion-assistant` is the repo kit's short
+name. The `nix` capability is why this run lacks `closure-store`. File modes are in words: `read-only` (`fixed`),
+`copied in once` (`seed`) and `keys copied in at each start` (`reassert`). Long rows wrap. The labels are `(graft)`, `(root)`, `(repo)`, `(<kit>)`, `(one run)` and `(<context>)`. A kit
 whose grant does not apply has no rows in `reach`; it is listed as `not in run NAME (ID): <status word>: …`. With
 host memory for the workspace, a `see` row says `host memory: N files, read-only …`.
 
@@ -747,10 +760,11 @@ every repository, and leaves that part out when the context includes none.
 | A granted host | `api.anthropic.com:443 is granted (claude-code@personal); reaches sb claude runs`; for a repo or included kit, `; reaches every run here`; inside a run, `; in this run` |
 | A host not granted, on the host | `graft sandbox (work): a run here would be refused example.com:443 (not in a run here). one run: sb --net example.com …  permanent: the repo kit's requests.network (perSystem.kit), or programs.sb.kits.standing.requests.network for every repository (home-manager switch)` |
 | A host not granted, inside a run | `graft sandbox (work): the run tried example.com:443 (not in this run). one run: sb --net example.com …  permanent: …` |
-| A kit command | `claude is claude-code@personal's command: sb claude`. A name that is also a workspace path gets both answers, command first. |
-| A variable that a binding carries | `CLAUDE_CODE_OAUTH_TOKEN is carried by the credential binding api.anthropic.com (claude-code@personal): the run holds it` |
+| A kit command | `claude is claude-code@personal's command: sb claude`. A name that is also a workspace path (`nix`) gets both answers, command first. |
+| A variable that a binding carries | `CLAUDE_CODE_OAUTH_TOKEN is carried by claude-code@personal's credential (file ~/.config/graft/sb/claude-token-personal (the run holds it)), in sb claude runs`. It never suggests `--env`. |
+| `nix`, in a run with the `nix` capability | `nix is in this run: the host's nix, through the nix capability's relay` |
 | A file `sb` generates | `/etc/passwd is readable: sb generates it for each run` |
-| A store path | `… is readable: in the store, which this run sees as its closure (another path is absent)`, or `… as a whole` |
+| A store path | `… is readable: in the store, which this run sees as its closure (another path is absent)`; in a run with `nix`, `… which this run sees whole` |
 | A path a request reads | `~/src/agent-skills is readable: read ~/src/agent-skills (claude-code@personal)` |
 | A path not in the run | `graft sandbox (work): ~/src/other is not in this run: sb --read ~/src/other (one run), or sb --repo ~/src/other for a repository; permanent: …` |
 | A hidden path | `graft sandbox (work): ~/.ssh is hidden by your root in every run (~/.ssh, …)` |
@@ -765,12 +779,26 @@ sb grant [KIT...] [--revoke KIT] [--diff] [--workspace PATH]
 - With no `KIT`: every root kit, and every kit of this workspace, that is not granted, asks for more, changed
   source, or is unverified. With nothing to do: `sb grant: every kit here is granted`, or
   `sb grant: standing is granted` for a named kit.
-- `KIT` and `--revoke KIT` take the short names that `sb` prints: `daniel`, `flexion-assistant`, or `claude-code`
-  for every instance. A repo kit's short name is the last path part of its normalised origin, else its checkout's
-  folder. A name that matches several grants is refused: `sb grant --revoke X: several grants match: …`.
-- `--diff` lists each grant that arrived by git (`arrived by git: ID`, or `… (revoked)`), with its `  + request`
-  and `  - request` lines, then each kit as `NAME (ID): <status word>`. It changes nothing, and acknowledges the
-  arrival line.
+- `KIT` and `--revoke KIT` take the short names that `sb` prints everywhere (startup line, grant list, `--diff`,
+  `sb explain`, the 125 message): `daniel`, `flexion-assistant`, or `claude-code` for every instance
+  (`claude-code@*`). A repo kit's short name is the last path part of its normalised origin, else its checkout's
+  folder. `sb grant claude-code` lists every instance, and prompts each stale one.
+- `--revoke KIT` that names several grants asks at the terminal:
+
+  ```
+  claude-code names 2 grants:
+    - root:claude-code@personal
+    - root:claude-code@flexion
+  revoke them all? [y/N]
+  ```
+
+  It is refused under an agent marker, and without a terminal: `… confirm at a terminal, or name one`.
+- `--diff` lists each grant that changed since this machine last read the file (`changed since this machine last
+  read it: ID`, or `… (revoked)`), with its `  + request` and `  - request` lines, then each kit as
+  `NAME (ID): <status word>`. It changes nothing, and acknowledges the changed-file line.
+- An entry whose digest does not match stops every run, but not `sb grant`: it sets such entries aside
+  (`sb grant: set aside N entries whose digest does not match: IDs (grant again to replace)`), so `--revoke` and
+  a new grant repair the file.
 - `--workspace PATH` grants for another workspace. `--root ROOT` is refused with exit 2:
   `sb grant --root comes with deployment roots, in a later release`.
 
@@ -851,7 +879,9 @@ The notes:
 - unset or expired AWS credentials: `AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY unset on the host: aws sso login (or
   your AWS credential helper), then start again` (or the binding's `refresh` command), and
   `AWS credentials expired at T: …`;
-- folders left out of a fixed folder: `~/.claude/skills: N left out (a, b …): a link outside the read requests, or a real folder skillDirs does not name`;
+- entries left out of a fixed folder: `claude-code: 3 entries left out of ~/.claude/skills (sb explain)` (`1 entry`);
+  `sb explain` names them, under the folder's row, as `left out: a b …`. An entry is left out when it is a link
+  outside the read requests, or a real folder that `skillDirs` does not name;
 - hooks that will not run: `team-kb has .githooks but core.hooksPath is unset: commits run no hook (git config core.hooksPath .githooks, on the host)`.
 
 ```
@@ -871,7 +901,7 @@ graft sandbox (work): the run tried pypi.org:443 (not in this run). one run: sb 
 sb: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from: evil/.git, …
 sb: the run changed host-run files (review before the host runs them): justfile, …
 sb: 2 unsigned commits: sign on the host with git rebase --exec 'git commit --amend --no-edit -S' <base>
-sb: the run wrote 2 memory files: ~/.local/state/graft/sb/state/…/memory
+sb: the run wrote 2 memory files (notes.md, todo.md): copies in ~/.local/state/graft/sb/runs/7f3a/memory-out/-home-me-src-team-kb
 sb: resume this session with: sb claude --resume 4c1e…
 sb: --net pypi.org:443 was for this run; permanent: the repo kit's requests.network (perSystem.kit), or programs.sb.kits.standing.requests.network for every repository (home-manager switch)
 ```
@@ -1023,6 +1053,8 @@ A network refusal has one phrasing, in the denials file, on the exit line and fr
 graft sandbox (work): the run tried HOST:PORT (not in this run). one run: sb --net HOST …  permanent: FIX
 ```
 
+For a port other than 443, the one-run flag names it: `sb --net HOST:80 …`.
+
 The exit line adds ` (Nx)` when it repeated. A request the proxy cannot read is
 `graft sandbox (work): the run sent the proxy a malformed request`.
 
@@ -1055,7 +1087,7 @@ The other messages, after `graft sandbox (<context>): `:
 | Clone mode (1) | `--clone is clone mode (dispatch), which comes in a later release`; `clone mode (dispatch) comes in a later release; this release works in place` |
 | Missing guarantee (125) | `requires separate-kernel; bubblewrap proves …` |
 | `sb` inside a run (1) | `sb inside a run starts nested runs in a later release: run it on the host` |
-| A missing lock | `graft sandbox: ~/…/nix/agent-tools/flake.lock is missing, and sb never writes one into a workspace: run nix flake lock there, on the host, and commit it` |
+| A missing lock | `graft sandbox (work): ~/…/nix/agent-tools/flake.lock is missing, and sb never writes one into a workspace: run nix flake lock there, on the host, and commit it` |
 
 On macOS: `sb: no backend for darwin in v2.15.0; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)`.
 On the startup line, a requested variable that the host lacks is `env NAME unset`, and a capability with no binding
@@ -1085,7 +1117,7 @@ The message says why. `sb` never runs the command with a weaker policy, a weaker
 | `cache/kits/` | The built `graft-kits`, by the flake directory's tree hash. |
 | `cache/scions.json` | Verified scion releases, by URL and commit. |
 | `cache/probe-<hash>` | The backend's probed guarantees, per backend build. |
-| `grants-seen.json` | The grants this machine last read, for the "arrived by git" line. |
+| `grants-seen.json` | The grants file as this machine last read it, for the changed-file line. |
 
 A state directory inside a workspace is refused.
 
@@ -1117,16 +1149,24 @@ The run gets its own agent home, configured by the root:
 - **Skills, agents, commands, hooks:** `~/.claude/{skills,agents,commands,hooks}` are read-only, from
   `~/<configDir>/<folder>` on the host. Each link's target is bound, one level deep: a store target, or a checkout
   under the kit's `read` requests (`skillSources`). A real directory is bound only when `skillDirs` names it; by
-  default that is `synced`, Claude's synced skills, read-only. Others are left out, and the startup line says so:
-  `~/.claude/skills: N left out (a, b …): a link outside the read requests, or a real folder skillDirs does not name`.
+  default that is `synced`, read-only. Others are left out: the startup line counts them
+  (`claude-code: 3 entries left out of ~/.claude/skills (sb explain)`), and `sb explain` names them. A real entry
+  is bound onto a placeholder in the run's view of the folder, so `configDir = ".claude"` works too.
+- **Synced claude.ai skills do not load in a run.** `skills/synced` is bound, but Claude loads synced skills (and
+  claude.ai plugin sync) only when it is signed in to claude.ai, through its own credential store, which `sb`
+  hides. A run signs in with a token instead. Install the skills you need as ordinary skill folders: a link into a
+  checkout under `skillSources`, or a real folder that `skillDirs` names.
   A folder that the host lacks is an empty read-only one.
-- **Plugins:** with `plugins = true` (the default), the account's whole plugins folder, read-only.
+- **Plugins:** with `plugins = true` (the default), the account's whole plugins folder, read-only. With
+  `plugins = false`, there is no `~/.claude/plugins` in the run.
 - **Host memory, read-only:** each file of the host's project memory for this workspace,
   `~/<configDir>/projects/<key>/memory` (the key is the directory path with every character that is not a letter
   or digit as `-`), for the current directory and the workspace's top, is bound read-only at the path Claude reads
-  it from. New memory that the run writes stays in the run's state, and the exit line says
-  `sb: the run wrote N memory files: <state path>`. They are run output: read them, and copy what you want into the
-  host's memory by hand. Nothing applies them. Prompt history stays per state scope.
+  it from. The run cannot change those files. New files that the run writes stay in its state. The exit line lists
+  only them, and copies them to the run's directory:
+  `sb: the run wrote N memory files (a.md, b.md …): copies in ~/…/runs/ID/memory-out/<project key>`. They are run
+  output: read them, and copy what you want into the host's memory by hand. Nothing applies them. Prompt history
+  stays per state scope.
 - **The program:** `binary = "native"` runs `~/.local/bin/claude`; `binary = "host"` runs the `claude` on the
   host's `PATH`. Both are resolved on the host at each start, not at grant time. The target must be in the store
   or fall under a granted `read` request; otherwise the run is refused:
