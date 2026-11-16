@@ -200,13 +200,19 @@ class Grants(unittest.TestCase):
     def test_machine_sections(self):
         g = C.parse_grants(None)
         self.assertEqual(C.write_grant(g, "root:c", ["network api.anthropic.com:443"], None, "m1", "t", False), "grants")
-        # growth: still the shared entry
-        self.assertEqual(C.write_grant(g, "root:c", ["network api.anthropic.com:443", "env A"], None, "m1", "t", False), "grants")
+        # the same set again: the shared entry
+        self.assertEqual(C.write_grant(g, "root:c", ["network api.anthropic.com:443"], None, "m1", "t", False), "grants")
+        # a superset on m1: m1's section; the shared entry is unchanged, so m2 is not widened
+        shared = copy.deepcopy(g["grants"]["root:c"])
+        self.assertEqual(C.write_grant(g, "root:c", ["network api.anthropic.com:443", "env A"], None, "m1", "t", False), "machines.m1")
+        self.assertEqual(g["grants"]["root:c"], shared)
+        self.assertEqual(C.grant_status("root:c", "root", ["env A"], False, None, g, "m2")["status"], "grown")
+        self.assertEqual(C.grant_status("root:c", "root", ["env A"], False, None, g, "m1")["status"], "match")
+        del g["machines"]["m1"]
         # a different set (Bedrock on m2): m2's section, and the shared entry stays
         self.assertEqual(C.write_grant(g, "root:c", ["network bedrock:443"], None, "m2", "t", False), "machines.m2")
         self.assertEqual(C.grant_status("root:c", "root", ["network bedrock:443"], False, None, g, "m2")["status"], "match")
         self.assertEqual(C.grant_status("root:c", "root", ["network bedrock:443"], False, None, g, "m1")["status"], "grown")
-        self.assertEqual(C.grant_status("root:c", "root", ["env A"], False, None, g, "m1")["status"], "match")
         # no remote: its machine's section
         self.assertEqual(C.write_grant(g, "repo:m1:/s/.git", ["read ~/x"], None, "m1", "t", True), "machines.m1")
         self.assertEqual(C.revoke_grant(g, "root:c", "m2"), "machines.m2")

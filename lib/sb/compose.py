@@ -442,8 +442,9 @@ def grant_status(ident, kind, canons, powerful, source, grants, machine, verifie
 
 
 def write_grant(grants, ident, canons, source, machine, when, local):
-    """Record a grant: the shared section when the set grows the shared entry (or there is none), the
-    machine's section when it differs otherwise, or the identity is machine-bound (no remote)."""
+    """Record a grant: the shared section when there is no shared entry or the set equals it; this
+    machine's section otherwise (a superset here must not widen the grant on every other machine),
+    and always for a machine-bound identity (no remote). A machine entry overrides the shared one."""
     canons = sorted(set(canons))
     e = {"digest": digest(canons), "requests": canons}
     if source:
@@ -455,7 +456,7 @@ def write_grant(grants, ident, canons, source, machine, when, local):
         mach.setdefault(machine, {})[ident] = e
         return f"machines.{machine}"
     old = shared.get(ident)
-    if old is None or set(old["requests"]) <= set(canons):
+    if old is None or sorted(set(old["requests"])) == canons:
         shared[ident] = e
         return "grants"
     mach.setdefault(machine, {})[ident] = e
