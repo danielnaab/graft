@@ -577,7 +577,24 @@ def backend_cmd(host, name):
     return name, backends[name]["program"]
 
 
-def probe(prog, rundir):
+def probe(prog, rundir, host=None):
+    """The backend's guarantees, probed once per backend build (cached in sb's state by its path)."""
+    cf = os.path.join(host.state, "cache", "probe-" + hashlib.sha256(os.path.realpath(prog).encode()).hexdigest()[:16]) if host else None
+    if cf:
+        try:
+            with open(cf) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            pass
+    g = probe_now(prog, rundir)
+    if cf:
+        os.makedirs(os.path.dirname(cf), exist_ok=True)
+        with open(cf, "w") as f:
+            json.dump(g, f)
+    return g
+
+
+def probe_now(prog, rundir):
     r = subprocess.run([prog, "probe", rundir], capture_output=True, text=True)
     try:
         p = json.loads(r.stdout)
@@ -664,7 +681,7 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
             for e in rq.get("env") or []:
                 env_names.add(e if isinstance(e, str) else e.get("name", ""))
     bname, bprog = backend_cmd(host, flags.get("backend") or ctx.get("backend"))
-    probed = probe(bprog, rundir or host.state)
+    probed = probe(bprog, rundir or host.state, host)
     inp = {"root": root, "context": ctx["name"], "argv": cmd, "flags": fl, "workspace": ws, "grants": grants,
            "machine": host.machine, "run": run_id, "probe": probed, "backendName": bname,
            "stateDir": host.state, "grantsName": os.path.basename(host.grants_path),
