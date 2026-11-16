@@ -67,8 +67,17 @@ A root is where the person's authority lives. A run never writes a root in place
 | Root | Where | For |
 |---|---|---|
 | A home-manager root | `programs.sb` in your home-manager configuration, from `inputs.graft.homeManagerModules.sb` | Your own machine. Its source repository is a [root repository](#root-repositories). |
-| graft's default root | `nix run github:danielnaab/graft/v2.15.0#sb -- CMD` (`packages.<system>.sb`, `apps.<system>.sb`) | Someone without a root: graft's contexts, hidden list and standard tools, and its grants file at `~/.config/graft/sb/grants.json`. |
-| A minimal root of your own | `sb init [DIR]` writes `DIR/flake.nix` (default `~/.config/graft/sb/root`), built with `graft.lib.mkRoot` | A start for a root that you then edit. |
+| graft's default root | `nix run github:danielnaab/graft/v2.15.0#sb -- CMD` (`packages.<system>.sb`, `apps.<system>.sb`) | Someone without a root. Its grants file is `~/.config/graft/sb/grants.json`. |
+| A minimal root of your own | `sb init DIR` writes `DIR/flake.nix`, built with `graft.lib.mkRoot` | A start for a root that you then edit and commit. |
+
+graft's default root and the root that `sb init` writes have graft's contexts, hidden list and standard tools,
+and:
+
+- a `claude-code@personal` instance with `binary = "host"` (the `claude` on the host's `PATH`, resolved at each
+  start), and `defaultAccount = "personal"`;
+- a `credential` binding for it, by file: `~/.config/graft/sb/claude-token-personal`, which you make with
+  `claude setup-token`;
+- `status.relay."*"`, and `nix."*"` bound to the relay.
 
 `graft.lib.mkRoot` builds a root's `sb`:
 
@@ -106,7 +115,7 @@ host-wide `/etc` pointer.
 | `stateDir` | `sb`'s state: agent homes, caches, run directories ([State](#state)). Default `"~/.local/state/graft/sb"`. Hidden from every run, and refused inside a workspace. |
 | `defaultContext` | The context when none is typed. Default `"work"`. |
 | `defaultAccount` | The agent kit instance (`NAME@ACCOUNT`) used with no `--account`. |
-| `rootRepos` | The root's source repositories: checkout paths (`~/…`, `/…`) or origin patterns. Default `[ ]`: list your home-manager flake's repository, such as `[ "~/.workstation" ]`. See [Root repositories](#root-repositories). |
+| `rootRepos` | The root's source repositories: checkout paths (`~/…`, `/…`) or origin patterns. mkRoot's default is `[ ]`; the home-manager module's is `[ "~/.workstation" ]`. See [Root repositories](#root-repositories). |
 | `hidden` | Paths hidden from every run, added to [graft's default list](#hidden-paths). |
 | `inspect.home` | The paths under `~` that `inspect` can read. Default `[ "~/src" ]`; a list replaces it. |
 | `inspect.homeManagerFiles` | Default `true`: `inspect` also reads home-manager's generated files. |
@@ -265,7 +274,7 @@ kit = {
 | `files."<path>"` | see | A file in the run. A key starts with `~/` (in the run's `HOME`) or `/` (needs the `root-files` guarantee). `mode`: `fixed`, bound read-only; `seed`, copied into state on first use, then the run's own; `reassert`, the listed `keys` written from `source` at every start. |
 | `protect` | limits | Workspace paths, read-only inside. A path relative to the repository's top, or `**/NAME`. |
 | `requests.*` | reach | Requests, inert until [granted](#grants). |
-| `commands.<name>` | | A program the kit ships: `program` (a store path, or `{ host = "~/…"; }`), `args` (strings or store paths), `access`, `requests`, `fixedDirs` (`{ "~/run/path" = "~/host/dir"; }`, or `null` for an empty one, bound read-only) and `skillDirs` (names of real directories to bind). |
+| `commands.<name>` | | A program the kit ships: `program` (a store path, or `{ host = "~/…"; }`), `args` (strings or store paths), `access`, `requests`, `fixedDirs` (`{ "~/run/path" = "~/host/dir"; }`, or `null` for an empty one, bound read-only, links one level deep), `realDirs` (run paths whose host folder is bound whole, read-only), `skillDirs` (names of real directories in a fixed folder to bind) and `memory` (`{ at; host; }`: host files bound read-only, new files kept in state). |
 | `recipes.<name>` | | A just recipe body: `"<command> <args>"`. |
 
 - **Requests are literal.** A kit may compute them from its consumer's Nix arguments, never from a workspace
@@ -273,7 +282,7 @@ kit = {
   the consumer's `perSystem.kitArgs.<scion>` (default `{ }`).
 - **Unknown fields are errors:** `graft: <file>: <field> is not a kit field (commands, env, files, packages,
   protect, recipes, requests)`. `env` takes only `set`. A command's fields are `program`, `access` (`read` or
-  `write`), `requests`, `args`, `fixedDirs`, `skillsDir`, `skillDirs`, `settings` and `description`.
+  `write`), `requests`, `args`, `fixedDirs`, `realDirs`, `skillDirs`, `memory`, `settings` and `description`.
 - **Paths are normalised.** `..` is refused. A path under your home is recorded as `~/…`.
 - A `program` written `{ host = "~/.local/bin/claude"; }` is resolved on the host at start. Its target must fall
   under a `read` request.
@@ -492,12 +501,18 @@ is `sha256-` and the base64 of the SHA-256 of the sorted, unique canonical lines
 
 - **Machine-independent.** Identities hold no store paths, no system and no absolute paths, except for
   repositories with no remote. A path under your home is recorded as `~/…`. So the file is shared across
-  machines through git. `sb grant` writes the shared section, unless the new set does not contain the shared
-  entry's set, or the identity has no remote; then it writes the machine's section.
+  machines through git.
+- **Shared or machine section.** `sb grant` writes the shared section when there is no shared entry, or when the
+  new set contains the shared entry's set (equal included); it then removes this machine's entry, if any. It
+  writes this machine's section only when the sets diverge, each with items the other lacks: for example a
+  Bedrock and an Anthropic claude-code instance on two machines. A repository with no remote always goes in its
+  machine's section. A set smaller than its grant needs no write: asking for less needs no approval.
 - **`source`:** none for a root kit, whose code the root's own lock pins. The verified release commit and tag for
-  a scion kit's powerful grants (`{ commit; tag; }`). The tree hash of the flake directory for a repo kit's
-  powerful grants (`{ tree = "sha256-…"; }`: tracked files, their status, untracked contents, submodule status). Ordinary
-  items carry no source: the digest fixes them.
+  a scion kit's powerful grants (`{ commit; tag; }`). For a repo kit's powerful grants, the git tree of its flake
+  directory as committed and staged (`{ tree = "<git tree id>"; }`: `git write-tree --prefix=<flake dir>/` from a
+  copy of the index), never the working tree or the scions' status. So a commit or a staged change under the
+  flake directory changes the source, and the next run stops with exit 125 until you grant again. A source from a
+  release before this one asks once again. Ordinary items carry no source: the digest fixes them.
 - **Hidden, not secret.** No run can see or write the grants file: it is unmounted and unwritable. It is not
   confidential: its committed contents are readable through the root's git history wherever the root's `.git` is
   readable, `inspect` included. Grants hold no secrets.
@@ -507,11 +522,15 @@ is `sha256-` and the base64 of the SHA-256 of the sorted, unique canonical lines
 | Case | Result |
 |---|---|
 | Nothing new | The run proceeds. |
-| More requested, or a changed source | Exit 125, with the difference and `sb grant KIT`. |
+| More requested, or a changed source | Exit 125, with the difference and `sb grant KIT`. A changed repo-kit source shows `  source: tree A -> tree B` and up to 12 lines of `git diff --stat` between the two trees. |
+| A repo kit that is not granted, in `inspect` | The run proceeds: a repo kit's reach does not apply in `inspect`. The startup line notes `NAME not granted (its reach does not apply in inspect)`. |
 | Never granted, at a terminal, with no agent marker | The grant prompt appears inline, and the run continues after it. The agent markers are `CLAUDECODE`, `CODEX_SANDBOX` and `GRAFT_SANDBOX`. A workmux pane is not one. |
 | Never granted, otherwise | Exit 125, with `sb grant KIT`. |
-| The file changed since this machine last read it | One line, `sb: 3 grants arrived by git: sb grant --diff`. Nothing stops. |
-| The file does not parse, has another version, an unknown field, or an entry whose digest does not match its requests | Every run stops, with a message that ends `every run stops until it is fixed`. |
+| The file changed since this machine last read it | One line, `sb: 3 grants arrived by git: sb grant --diff`, at each start until `sb grant --diff` or a grant acknowledges it. Nothing stops. |
+| The file does not parse, has another version, an unknown field, or an entry whose digest does not match its requests | Every run stops, with a message that ends `every run stops until it is fixed`. A parse error names the file and suggests a merge conflict: `~/…/grants.json: the grants file does not parse (…): every run stops until it is fixed (a merge conflict? git diff on it shows the markers; resolve them, keep both machines' entries)`. |
+
+The status words, in `sb grant`, the startup line and `sb explain`: `granted`, `not granted`, `asks for more`,
+`changed source` and `unverified`.
 
 The inline prompt needs stdin and stderr to be terminals, and only never-granted kits: a kit that asks for more
 always stops.
