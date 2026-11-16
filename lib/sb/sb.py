@@ -727,8 +727,6 @@ def run(host, root, context, flags, cmd):
     if inside_run():
         ctxn = os.environ.get("GRAFT_SANDBOX", "run")
         raise C.Refusal(f"graft sandbox ({ctxn}): sb inside a run starts nested runs from 1b: run it on the host")
-    if flags.get("resume"):
-        raise C.Refusal("sb: --resume RUN goes with sb host (sb host --resume RUN claude)", 2)
     for f in ("from", "detach"):
         if flags.get(f):
             raise C.Refusal(f"graft sandbox ({context or root.get('defaultContext', 'work')}): --{f} is clone mode (dispatch), which lands in 1b")
@@ -736,6 +734,8 @@ def run(host, root, context, flags, cmd):
     ctx = C.resolve_context(root, context)
     if ctx["mode"] == "none":
         return host_run(host, root, ctx, flags, cmd)
+    if flags.get("resume"):
+        raise C.Refusal("sb: --resume RUN goes with sb host (sb host --resume RUN claude)", 2)
     rid, rundir = new_run_id(host)
     try:
         inp, policy, report, bprog, ws = gather(host, root, context, flags, cmd or [root.get("shell", "bash")], rundir, rid)
