@@ -70,8 +70,6 @@ A root is where the person's authority lives. A run never writes a root in place
 | graft's default root | `nix run github:danielnaab/graft/v2.15.0#sb -- CMD` (`packages.<system>.sb`, `apps.<system>.sb`) | Someone without a root: graft's contexts, hidden list and standard tools, and its grants file at `~/.config/graft/sb/grants.json`. |
 | A minimal root of your own | `sb init [DIR]` writes `DIR/flake.nix` (default `~/.config/graft/sb/root`), built with `graft.lib.mkRoot` | A start for a root that you then edit. |
 
-<!-- unverified: the home-manager module's attribute (homeManagerModules.sb): milestone 2. -->
-
 `graft.lib.mkRoot` builds a root's `sb`:
 
 ```nix
@@ -102,12 +100,13 @@ host-wide `/etc` pointer.
 
 | Option | Meaning |
 |---|---|
-| `enable` | Installs `sb` and writes the launcher link. |
+| `enable` | Installs `sb` in `home.packages`, and links `~/.config/graft/sb/launcher` to its `bin/sb`. |
+| `package` | Read-only: the root's `sb`. |
 | `grantsFile` | The [grants file](#the-grants-file). Default `"~/.config/graft/sb/grants.json"`; a home-manager root keeps it in its repository, such as `"~/.workstation/sandbox/grants.json"`. Hidden from every run. |
 | `stateDir` | `sb`'s state: agent homes, caches, run directories ([State](#state)). Default `"~/.local/state/graft/sb"`. Hidden from every run, and refused inside a workspace. |
 | `defaultContext` | The context when none is typed. Default `"work"`. |
 | `defaultAccount` | The agent kit instance (`NAME@ACCOUNT`) used with no `--account`. |
-| `rootRepos` | The root's source repositories: checkout paths (`~/…`, `/…`) or origin patterns. See [Root repositories](#root-repositories). |
+| `rootRepos` | The root's source repositories: checkout paths (`~/…`, `/…`) or origin patterns. Default `[ ]`: list your home-manager flake's repository, such as `[ "~/.workstation" ]`. See [Root repositories](#root-repositories). |
 | `hidden` | Paths hidden from every run, added to [graft's default list](#hidden-paths). |
 | `inspect.home` | The paths under `~` that `inspect` can read. Default `[ "~/src" ]`; a list replaces it. |
 | `inspect.homeManagerFiles` | Default `true`: `inspect` also reads home-manager's generated files. |
@@ -117,13 +116,10 @@ host-wide `/etc` pointer.
 | `repoKits."<pattern>"` | A repo kit for a repository that is not a graft consumer. The pattern is a [normalised origin](#identity), with `*` and `?` (`"platform-vm:2222/daniel/graft"`), or a URL, which is normalised. |
 | `contexts.<name>` | Changes to the contexts, and new ones ([Contexts](#contexts)). |
 | `bindings.<capability>."<selector>"` | How each capability is carried out ([Bindings](#bindings)). |
-| `skillDirs` | Real directories in the agent's skills directory to bind read-only. Others are absent. |
 
-The home-manager module asserts `workmux.sandbox.enable = false` while `programs.sb.enable` is on: workmux's
-Docker sandbox is replaced for agent panes, never stacked with `sb`.
-
-<!-- unverified: the programs.sb module (enable, the launcher link, skillDirs, the workmux assertion): milestone 2.
-The other options match mkRoot's arguments. -->
+The other options are mkRoot's arguments. While `programs.sb.enable` is on, the module asserts that workmux's
+Docker sandbox is off, because `sb` replaces it for agent panes and never stacks with it:
+`programs.sb.enable: set workmux.sandbox.enable = false (sb replaces workmux's Docker sandbox for agent panes; it never stacks with it)`.
 
 ## Contexts
 
@@ -220,11 +216,9 @@ A kit is a bundle with an identity that the host establishes:
 | Scion kit | a provider's `graft.nix`: `kit = { … };` | `git:<url>`, verified: the gitlink is a release tag at that URL |
 | Repo kit | a consumer's mkFlake `perSystem`: `kit = { … };`; or the root's `repoKits."<origin>"` | `repo:<normalised origin>` |
 
-graft ships agent kits as functions that a root calls, such as `graft.kits.claude-code`. Each account is an
-instance: `root:claude-code@personal`, `root:claude-code@flexion`.
-
-<!-- unverified: the attribute graft.kits.claude-code and its arguments (account, binary, files, skillsDir,
-skillSources, provider, region, mcp): milestone 2. -->
+graft ships agent kits as functions that a root calls, such as `graft.kits.claude-code`
+([Claude Code](#claude-code)). The root names each instance: `root:claude-code@personal`,
+`root:claude-code@flexion`.
 
 ### Schema
 
@@ -258,7 +252,7 @@ kit = {
 | `files."<path>"` | see | A file in the run. A key starts with `~/` (in the run's `HOME`) or `/` (needs the `root-files` guarantee). `mode`: `fixed`, bound read-only; `seed`, copied into state on first use, then the run's own; `reassert`, the listed `keys` written from `source` at every start. |
 | `protect` | limits | Workspace paths, read-only inside. A path relative to the repository's top, or `**/NAME`. |
 | `requests.*` | reach | Requests, inert until [granted](#grants). |
-| `commands.<name>` | | A program the kit ships, with its own `access` and `requests`. |
+| `commands.<name>` | | A program the kit ships: `program` (a store path, or `{ host = "~/…"; }`), `args` (strings or store paths), `access`, `requests`, `fixedDirs` (`{ "~/run/path" = "~/host/dir"; }`, or `null` for an empty one, bound read-only) and `skillDirs` (names of real directories to bind). |
 | `recipes.<name>` | | A just recipe body: `"<command> <args>"`. |
 
 - **Requests are literal.** A kit may compute them from its consumer's Nix arguments, never from a workspace
@@ -384,22 +378,34 @@ reserved now. v2.15.0 binds those marked 1a.
 Also reserved: the network forms `host-loopback:PORT` and `{ host; via = "forward"; }`. A field that this version
 does not know is an error.
 
-- **`status.relay`:** a `workmux` shim inside forwards only `set-window-status` and `register-agent` to the
-  launching tmux pane, which the host reads from its own `TMUX_PANE` at start. It escapes the text.
-- **`git.fetch`:** `GIT_SSH_COMMAND` points at a shim. The host broker runs host `ssh`, with your agent, and
-  allows only `git-upload-pack` to the bound URLs. Push from the host.
-- **`credential`:** the run holds the secret, as a variable (`env`) or a file that the binding reads (`file`).
-- **`mcp`:** the agent gets `--mcp-config <file> --strict-mcp-config`, so it reads no other MCP configuration.
-- **`nix`:** a host relay runs `nix daemon --stdio --force-untrusted --process-ops` with the experimental
-  features `daemon-trust-override` and `mounted-ssh-store`. The run gets
-  `NIX_REMOTE=unix:///run/graft-sandbox/nix.sock`. The daemon reports `Trusted: 0`; builds and offline
-  evaluation of locked inputs work. The run sees the whole store read-only, so it loses the `closure-store`
-  guarantee. Fixed-output derivations reach the network outside the proxy. `sb explain` says both.
+- **`status.relay`:** a `workmux` shim, first on `PATH` (`/run/graft-sandbox/bin`), forwards only
+  `set-window-status` and `register-agent` to the host's `workmux`, aimed at the launching tmux pane (`sb`'s own
+  `TMUX_PANE` at start, under tmux). It drops other subcommands, and cuts arguments to printable text.
+- **`git.fetch`:** the run gets `GIT_SSH_COMMAND=/run/graft-sandbox/bin/sb-ssh` and `GIT_SSH_VARIANT=ssh`. The
+  host broker runs host `ssh` (in batch mode, with your agent or a key file) and allows only
+  `git-upload-pack '<path>'` to URLs that match the request's `remote`. Push from the host. Refusals go to the
+  run's stderr and the denials file:
+  `graft sandbox (work): the run tried ssh HOST git-receive-pack '…': only git-upload-pack (fetch) is brokered; push from the host`,
+  and `graft sandbox (work): the run tried git fetch URL (not a bound git.fetch remote): sb why HOST`.
+- **`credential`:** `sb` reads the value on the host when the run starts, and sets it as the request's `env`
+  variables. It is never in policy.json, the run's files or logs; `sb explain` shows `(the run holds it)`.
+- **`mcp`:** `sb` writes `/run/graft-sandbox/mcp.json`, one HTTP server per granted `mcp` request, with an
+  `Authorization: Bearer ${VAR}` header, and sets the key in the run's environment. The claude-code kit passes
+  `--mcp-config /run/graft-sandbox/mcp.json --strict-mcp-config`, so Claude reads no other MCP configuration.
+  `inspect` has no MCP.
+- **`nix`:** a host relay runs the host's `nix daemon --stdio --force-untrusted --process-ops
+  --extra-experimental-features 'daemon-trust-override mounted-ssh-store'`. The run gets
+  `NIX_REMOTE=unix:///run/graft-sandbox/nix.sock`, `NIX_CONFIG=experimental-features = nix-command flakes`, and
+  the host nix's `bin/` on `PATH`. The daemon treats the run as untrusted; builds and offline evaluation of
+  locked inputs work. The run sees the whole store read-only, so it loses the `closure-store` guarantee.
+  Fixed-output derivations reach the network outside the proxy. `sb explain` says both.
 
 ### Bindings
 
 `bindings.<capability>."<selector>"`. The selector is the capability's key (a host, a remote URL pattern, an MCP
-server name, or `*`), and may name one kit instance: `"api.anthropic.com kit=claude-code@flexion"`.
+server name; `*` and `?` match), or `*`, and may name one kit instance: `"api.anthropic.com kit=claude-code@flexion"`.
+The narrowest selector wins: one narrowed to a kit, then an exact key, then a pattern, then `*`. A capability with
+no binding is inert: the startup line notes `CAPABILITY: no binding`, and `sb explain` says `no binding`.
 
 ```nix
 programs.sb.bindings = {
@@ -413,14 +419,17 @@ programs.sb.bindings = {
 };
 ```
 
-- `from` is always a reference. A file that it names is hidden from every run.
-- A binding may add see items, such as a shim or a config file. It never adds reach beyond its capability.
-- `sb` resolves remote names in requests (`origin`) at start, from the protected `.git/config`.
-- Host git never opens a repository that a run can write: the broker reads through a sandboxed `upload-pack`
-  into staging that the host owns, with `transfer.fsckObjects=true`.
+| Binding | Fields |
+|---|---|
+| `status.relay` | `workmux = true` |
+| `git.fetch` | `broker = "git"`; `key.agent = true` or `key.file = "~/…"` |
+| `nix` | `via = "daemon-untrusted"` |
+| `credential` | `via = "env"` or `"file"`; `from.file = "~/…"` (`KEY=VALUE` lines that name the variables, or else the whole file, trimmed, for the first one), `from.envFile = "~/…"`, or `from.env = "NAME"` (the host's variable). `via = "proxy"` is refused: `… 1a carries env and file (proxy lands in phase 2)`. |
+| `mcp` | `url`; `via = "env"`; `env`, the variable that holds the key; `from.file` and the other `from` forms; `header` (default `"Authorization"`) and `scheme` (default `"Bearer"`) |
 
-<!-- unverified: bindings are carried out from milestone 2: their attribute names (workmux, broker, key.agent,
-via, from.file, url, env) and every capability's behaviour above. -->
+- `from` is always a reference. Each file that `from.file`, `from.envFile` or `key.file` names is hidden from
+  every run.
+- A binding may add see items, such as a shim or a config file. It never adds reach beyond its capability.
 
 ## Grants
 
