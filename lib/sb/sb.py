@@ -261,11 +261,17 @@ def object_env(host, top):
     return {"GIT_OBJECT_DIRECTORY": mine, "GIT_ALTERNATE_OBJECT_DIRECTORIES": objs}
 
 
-def tree_diffstat(host, top, old, new):
+def tree_diffstat(host, top, old, new, rel=None):
     r = subprocess.run([host.git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*",
                         "-C", top, "diff", "--stat=100", old, new], capture_output=True, text=True,
                        env={**os.environ, **object_env(host, top)})
-    return r.stdout.rstrip("\n").splitlines()[-12:] if r.returncode == 0 else []
+    if r.returncode != 0:
+        return []
+    lines = r.stdout.rstrip("\n").splitlines()
+    if rel:
+        # the trees are the flake directory's: paths relative to the workspace, as people see them
+        lines = [f" {rel}/{l.lstrip()}" if " | " in l else l for l in lines]
+    return lines[-12:]
 
 
 def repo_kit(host, w, rel, ctxname="work"):
@@ -825,8 +831,11 @@ def fixed_dirs(host, root, policy, report, ws=()):
                 for name in sorted(os.listdir(hd)):
                     p = os.path.join(hd, name)
                     if os.path.isfile(p) and not os.path.islink(p):
+                        # MEMORY.md (the index) is a writable copy, refreshed at each start; the rest read-only
+                        idx = name == "MEMORY.md"
                         policy["items"].append({"kind": "file", "value": f"{at}/{name}", "class": "see", "effective": True,
-                                                "mode": "fixed", "source": p, "sources": src, "memory": True})
+                                                "mode": "seed" if idx else "fixed", "source": p, "sources": src, "memory": True,
+                                                **({"refresh": True} if idx else {})})
                 report["memory"] = report.get("memory", []) + [at]
 
 
@@ -930,7 +939,7 @@ def run(host, root, context, flags, cmd):
                 if s["status"] == "source" and (s.get("was") or {}).get("tree") and (s.get("now") or {}).get("tree"):
                     w = next((w for w in ws if w["id"] == s["kit"]), None)
                     if w:
-                        s["diffstat"] = tree_diffstat(host, w["top"], s["was"]["tree"], s["now"]["tree"])
+                        s["diffstat"] = tree_diffstat(host, w["top"], s["was"]["tree"], s["now"]["tree"], flake_dir(w["top"]))
                 err(C.stale_message(ctx["name"], s))
             return C.EXIT_GRANT
         launch = launch_facts(host, root, policy, ws, flags, report["argv"])
@@ -1013,12 +1022,23 @@ def memory_lines(host, policy, report, rundir):
         if not st:
             continue
         d = os.path.join(st["dir"], at[len(st["at"]) + 1:])
-        bound = {i["value"].rsplit("/", 1)[-1] for i in policy["items"] if i.get("memory") and i["value"].startswith(at + "/")}
+        mine = [i for i in policy["items"] if i.get("memory") and i["value"].startswith(at + "/")]
+        bound = {i["value"].rsplit("/", 1)[-1] for i in mine}
         try:
             wrote = [n for n in os.listdir(d) if n not in bound and os.path.isfile(os.path.join(d, n))
                      and not os.path.islink(os.path.join(d, n))]
         except OSError:
             continue
+        for i in mine:
+            # a writable copy (MEMORY.md) the run changed
+            n, here = i["value"].rsplit("/", 1)[-1], os.path.join(d, i["value"].rsplit("/", 1)[-1])
+            if i.get("refresh") and os.path.isfile(here) and not os.path.islink(here):
+                try:
+                    with open(here, "rb") as a, open(i["source"], "rb") as b:
+                        if a.read() != b.read():
+                            wrote.append(n)
+                except OSError:
+                    pass
         if wrote:
             dest = os.path.join(rundir, "memory-out", os.path.basename(os.path.dirname(d)))
             os.makedirs(dest, exist_ok=True)
@@ -1087,6 +1107,9 @@ def check_command(policy, launch, ctx, given=True):
             return
     if launch.get("sbBin") and os.access(os.path.join(launch["sbBin"], name), os.X_OK):
         return
+    nix = (launch.get("hostTools") or {}).get("nix")
+    if name == "nix" and nix and any(b["capability"] == "nix" for b in policy.get("bindings") or []):
+        return       # the host's nix, on the run's PATH through the nix capability (bwrap.run_env)
     if given and not shutil.which(name):
         raise C.Refusal(f"sb: unknown context or command {name}; contexts: {', '.join(C.context_names(launch.get('root') or {}))}", 2)
     raise C.Refusal(f"graft sandbox ({ctx['name']}): {name} is not in this run. one run: sb --package PKG …  "
@@ -1466,7 +1489,7 @@ def grant_flow(host, root, grants, sts, inline=False):
                 was, now = st.get("was") or {}, st.get("now") or st.get("source") or {}
                 t.write(visible(f"  source: {C.fmt_source(was)} -> {C.fmt_source(now)}\n"))
                 if st.get("top") and was.get("tree") and now.get("tree"):
-                    for d in tree_diffstat(host, st["top"], was["tree"], now["tree"]):
+                    for d in tree_diffstat(host, st["top"], was["tree"], now["tree"], flake_dir(st["top"])):
                         t.write(visible(f"    {d}\n"))
             approved = {c for c in set(have) & set(reqs) if not (again and cls[c] == "powerful")}
             ordinary = [c for c in reqs if c not in have and cls[c] == "ordinary"]

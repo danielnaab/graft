@@ -370,7 +370,7 @@ def into_state(policy, launch, i):
     if os.path.islink(target):
         os.unlink(target)
     if i["mode"] == "seed":
-        if not os.path.lexists(target):
+        if i.get("refresh") or not os.path.lexists(target):
             with open(i["source"], "rb") as f, open(target + ".sb-tmp", "wb") as g:
                 g.write(f.read())
             os.replace(target + ".sb-tmp", target)
@@ -414,6 +414,13 @@ NOTFOUND = {
 # bash's command_not_found_handle (BASH_ENV), and the startup check of the command itself.
 
 
+def not_found_body(ctx, launch):
+    """The not-found handler's body: the startup check's words and permanent fix."""
+    fix = (launch.get("pkgFix") or "programs.sb.tools, or the repo kit's packages").replace("'", "'\\''")
+    return ("{ printf 'graft sandbox (%s): %s is not in this run. one run: sb --package PKG …  permanent: %s\\n' "
+            f"'{ctx}' \"$1\" '{fix}' >&2; return 127; }}")
+
+
 def write_own(cfg, rundir, policy, launch):
     ctx = policy["context"]
     b = os.path.join(rundir, "bin")
@@ -438,10 +445,7 @@ def write_own(cfg, rundir, policy, launch):
         os.chmod(os.path.join(nf, n), 0o555)
     with open(os.path.join(rundir, "bash_env"), "w") as f:
         f.write("# graft sb: what a run's bash says for a program that is not in the run\n"
-                "command_not_found_handle() {\n"
-                f"  printf 'graft sandbox ({ctx}): %s is not in this run. one run: sb --package PKG …  permanent: "
-                "programs.sb.tools (home-manager switch), or the repo kit'\\''s packages\\n' \"$1\" >&2\n"
-                "  return 127\n}\n")
+                f"command_not_found_handle() {not_found_body(ctx, launch)}\n")
     servers = {}
     for m in binding(policy, "mcp"):
         env = (m.get("env") or [None])[0]
@@ -526,6 +530,9 @@ The policy is /run/graft-sandbox/policy.json; `sb why PATH|HOST|CMD|VAR` explain
 - Protected files (what decides the sandbox, what the host runs, agent configuration) are
   read-only, and their folders cannot be renamed or removed. Edit them on the host.
 - Commits made here are unsigned; the host signs them afterwards.
+- Claude's host memory for this workspace is read-only here; MEMORY.md is a writable copy. New memory
+  files, and a changed MEMORY.md, are copied out for the person to review when the run ends; nothing is
+  written back to the host.
 - Every denial message starts `graft sandbox ({ctx}):`.
 """
 
@@ -792,6 +799,8 @@ def run_env(cfg, policy, launch):
         n, _, v = i["value"].partition("=")
         env[n] = home + v[1:] if v == "~" or v.startswith("~/") else v
     env["BASH_ENV"] = f"{run_mnt}/bash_env"
+    # and exported, a backstop for a bash that skips BASH_ENV
+    env["BASH_FUNC_command_not_found_handle%%"] = "() " + not_found_body(ctx, launch)
     if binding(policy, "git.fetch"):
         env["GIT_SSH_COMMAND"] = f"{run_mnt}/bin/sb-ssh"
         env["GIT_SSH_VARIANT"] = "ssh"

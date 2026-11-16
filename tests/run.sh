@@ -1206,6 +1206,9 @@ EOF
           realDirs = [ "~/.claude/plugins" ]; skillDirs = [ "synced" ];
           memory = { at = "~/.claude/projects"; host = "$work/cfg/projects"; };
           requests.state = [ { name = "claude"; at = "~/.claude"; } ]; };
+        kits."claude-code@t" = graft.kits.claude-code { pkgs = nixpkgs.legacyPackages.\${s}; account = "t";
+          configDir = ".sb-test-no-such-config"; plugins = false;
+          binary = nixpkgs.legacyPackages.\${s}.writeShellScriptBin "claude" (builtins.readFile ./stub-claude.sh); };
         kits."pair@a".requests.read = [ "/tmp" ];
         kits."pair@b".requests.read = [ "/var" ];
         kits.nixer.commands.nixcheck = { program = "\${nixpkgs.legacyPackages.\${s}.bashInteractive}/bin/bash"; requests.capabilities = [ { name = "nix"; } ]; };
@@ -1224,6 +1227,16 @@ EOF
   };
 }
 EOF
+  # the stub claude: the overlay's SessionStart, PreToolUse, a refused request, and PostToolUseFailure, as
+  # Claude runs them for a failed Bash call
+  cat > "$r/stub-claude.sh" <<'STUB'
+o=$2
+hook() { jq -r --arg e "$1" '.hooks[$e][0].hooks[0].command' "$o"; }
+"$(hook SessionStart)" </dev/null
+echo '{"hook_event_name":"PreToolUse"}' | "$(hook PreToolUse)"
+curl -s -o /dev/null https://denied-tool.example/ || true
+echo '{"hook_event_name":"PostToolUseFailure"}' | "$(hook PostToolUseFailure)"
+STUB
   (cd "$r" && quiet nix flake lock)
   ran "sb: mkRoot builds a root" nix build -o "$work/sbr" "path:$r#packages.$sys.sb"
   ran "sb: on aarch64-darwin, the root evaluates" nix eval --raw "path:$r#packages.aarch64-darwin.sb.drvPath"
@@ -1376,8 +1389,14 @@ EOF
   # shellcheck disable=SC2016 # the run's shell expands them
   ran "sb: not-found" sb_ bash -c 'ssh x; nosuchprogram; nix --version; true'
   expect "a host-only program's shim" holds "graft sandbox (work): ssh is not in this run: git fetch over ssh is the git.fetch capability"
-  expect "bash's handler for any other" holds "graft sandbox (work): nosuchprogram is not in this run. one run: sb --package PKG"
+  if ! holds "graft sandbox (work): nosuchprogram is not in this run"; then
+    # shellcheck disable=SC2016 # the run's shell expands them
+    echo "diagnostics: $(sb_ bash -c 'echo "BASH_ENV=$BASH_ENV"; ls -la "$BASH_ENV"; declare -F command_not_found_handle; set -o | grep -E "posix|privileged"; env | grep -c BASH_FUNC; echo "$BASHOPTS"' 2>&1 | tr '\n' ';')" >&2
+  fi
+  expect "bash's handler for any other" holds "graft sandbox (work): nosuchprogram is not in this run. one run: sb --package PKG …  permanent: tools (rebuild the root), or the repo kit's packages (perSystem.kit)"
   expect "nix without the capability" holds "graft sandbox (work): nix needs the nix capability"
+  ran "sb: the handler, exported as a function too" sb_ env -u BASH_ENV bash -c 'nosuchprogram2; true'
+  expect "a bash that skips BASH_ENV still has it" holds "graft sandbox (work): nosuchprogram2 is not in this run"
   refuse "sb: the scions directory is read-only" sb_ touch scions/new 2>/dev/null
 
   # S: git.fetch through the broker. The host's ssh is a fake that runs the remote command locally, so
@@ -1452,6 +1471,8 @@ EOF
   expect "holds both items and its source" has '[["capability nix","network inline.example:443"],40]'
   expect "sb writes no git object into the workspace (its source tree goes to sb's state)" test "$(git_ count-objects -v)" = "$objs"
   ran "sb: the next run proceeds" sb_ true
+  ran "sb: nix, with the nix capability" sb_ nix --version
+  expect "runs the host's nix" holds "nix (Nix)"
   echo more >> notes.md && commit "a tracked change"
   sb_ true >/dev/null 2>&1 && st=0 || st=$?
   expect "sb: a changed source exits 125" test "$st" = 125
@@ -1482,13 +1503,23 @@ EOF
   # host memory: read-only, file by file; what the run writes is copied out for review
   local key && key=$(pwd -P | sed 's/[^A-Za-z0-9]/-/g')
   mkdir -p "$work/cfg/projects/$key/memory" && echo host-memory > "$work/cfg/projects/$key/memory/m.md"
-  ran "sb: host memory" sb_loud fixedtest -c "cat ~/.claude/projects/$key/memory/m.md; echo x >> ~/.claude/projects/$key/memory/m.md 2>&1; echo new > ~/.claude/projects/$key/memory/new.md"
+  echo "- [m](m.md)" > "$work/cfg/projects/$key/memory/MEMORY.md"
+  ran "sb: host memory" sb_loud fixedtest -c "cat ~/.claude/projects/$key/memory/m.md; echo x >> ~/.claude/projects/$key/memory/m.md 2>&1; echo new > ~/.claude/projects/$key/memory/new.md; echo '- [new](new.md)' >> ~/.claude/projects/$key/memory/MEMORY.md"
   expect "is read" holds "host-memory"
   expect "read-only" holds "Read-only file system"
-  expect "the exit line names only what the run wrote" holds "sb: the run wrote 1 memory file (new.md): copies in "
+  expect "the exit line names only what the run wrote" holds "sb: the run wrote 2 memory files (MEMORY.md, new.md): copies in "
+  expect "MEMORY.md, a writable copy, is copied out changed" grep -q "new.md" "$(find "$work/sbstate/runs" -path '*/memory-out/*/MEMORY.md' | head -1)"
+  expect "and never written back" test "$(cat "$work/cfg/projects/$key/memory/MEMORY.md")" = "- [m](m.md)"
   expect "copied out" test -n "$(ls "$work"/sbstate/runs/*/memory-out/*/new.md)"
   refuse "and never the placeholders" test -n "$(ls "$work"/sbstate/runs/*/memory-out/*/m.md 2>/dev/null)"
   expect "the host's memory is unchanged" test "$(cat "$work/cfg/projects/$key/memory/m.md")" = host-memory
+
+  # the claude-code kit's overlay: a failed call's denial reaches the model through PostToolUseFailure
+  ran "sb: sb grant claude-code" tty_ $'y\ny\n' "$work/sbr/bin/sb" grant claude-code
+  ran "sb: the overlay's hooks" sb_ claude
+  expect "SessionStart says how memory works here" holds "MEMORY.md is a writable copy"
+  expect "a failed call's denial reaches the model" holds '"hookEventName": "PostToolUseFailure"'
+  expect "with its text" holds "the run tried denied-tool.example:443 (not in this run)"
 
   # one name for a kit everywhere; KIT names every instance
   ran "sb: sb grant pair" tty_ $'y\ny\n' "$work/sbr/bin/sb" grant pair

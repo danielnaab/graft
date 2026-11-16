@@ -497,7 +497,7 @@ def grants_dump(grants):
 
 
 def arrived(old, new):
-    """Identities whose entries differ between two parsed grants files (for "arrived by git")."""
+    """Identities whose entries differ between two parsed grants files (for "changed since this machine last read it")."""
     def flat(g):
         out = {f"grants/{k}": v for k, v in g.get("grants", {}).items()}
         for m, s in g.get("machines", {}).items():
@@ -1285,7 +1285,7 @@ def explain_text(policy, report, root):
         for w in words:
             if len(cur) + len(w) + 1 > width and cur.strip():
                 lines.append(cur)
-                cur = " " * len(head)
+                cur = " " * (len(head) + (0 if head.endswith(" ") else 1))
             cur += ("" if cur.endswith(" ") or not cur.strip() else " ") + w
         lines.append(cur)
         return lines
@@ -1333,7 +1333,7 @@ def explain_text(policy, report, root):
             groups.setdefault(src(i), []).append(i["value"])
         first = True
         for k, v in groups.items():
-            out += wrap("limits     protect:" if first else "                    ", v + [f"({k})"])
+            out += wrap("limits     protect:" if first else " " * len("limits     protect: "), v + [f"({k})"])
             first = False
     else:
         out.append(f"limits     the workspace is read-only (access {policy['access']})")

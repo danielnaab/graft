@@ -51,19 +51,26 @@ let
     ${pkgs.coreutils}/bin/stat -c %s "$d" > "''${TMPDIR:-/tmp}/.sb-denials-offset" 2>/dev/null || true
   '';
   denialHook = pkgs.writeShellScript "sb-denial-hook" ''
-    # graft sb's PostToolUse hook: sandbox denials during this tool call, as context for the model
+    # graft sb's PostToolUse and PostToolUseFailure hook (Claude runs the second for a failed call):
+    # sandbox denials during this tool call, as context for the model, under the event Claude names
+    ev=$(${pkgs.jq}/bin/jq -r '.hook_event_name // "PostToolUse"' 2>/dev/null) || ev=PostToolUse
     d=/run/graft-sandbox/denials o=''${TMPDIR:-/tmp}/.sb-denials-offset
     [ -s "$d" ] && [ -f "$o" ] || exit 0
     size=$(${pkgs.coreutils}/bin/stat -c %s "$d"); seen=$(${pkgs.coreutils}/bin/cat "$o")
     [ "$size" -gt "$seen" ] || exit 0
     echo "$size" > "$o"
-    ${pkgs.coreutils}/bin/tail -c +"$((seen + 1))" "$d" | ${pkgs.jq}/bin/jq -Rs '{hookSpecificOutput: {hookEventName: "PostToolUse",
+    ${pkgs.coreutils}/bin/tail -c +"$((seen + 1))" "$d" | ${pkgs.jq}/bin/jq -Rs --arg ev "$ev" '{hookSpecificOutput: {hookEventName: $ev,
       additionalContext: ("The sandbox (graft sb) refused this during the command; read /run/graft-sandbox/README.md:\n" + .)}}'
+  '';
+  # at start: what the model should know about its memory here
+  sessionHook = pkgs.writeShellScript "sb-session-start" ''
+    echo '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"In this graft sandbox run, the host memory files are read-only and MEMORY.md is a writable copy: write new memory as new files in the usual memory folder; sb copies new files and a changed MEMORY.md out for the person to review when the run ends."}}'
   '';
   hookFor = c: [ { matcher = "Bash|WebFetch"; hooks = [ { type = "command"; command = "${c}"; } ]; } ];
   overlay = pkgs.writeText "sb-claude-overlay.json" (builtins.toJSON ({
     sandbox.enabled = false;
-    hooks = { PreToolUse = hookFor mark; PostToolUse = hookFor denialHook; };
+    hooks = { PreToolUse = hookFor mark; PostToolUse = hookFor denialHook; PostToolUseFailure = hookFor denialHook;
+              SessionStart = [ { hooks = [ { type = "command"; command = "${sessionHook}"; } ]; } ]; };
   } // lib.optionalAttrs bedrock {
     # nothing inside can refresh AWS credentials (no aws CLI, no SSO): the host refreshes them
     awsAuthRefresh = "";
