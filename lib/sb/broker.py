@@ -39,7 +39,13 @@ def clean(s, n=200):
     return "".join(c for c in str(s) if c.isprintable())[:n]
 
 
+def note(what):
+    """The broker's log (the run directory's bindings.log, host-written)."""
+    print(clean(what, 500), file=sys.stderr, flush=True)
+
+
 def denied(what):
+    note(f"refused: {what}")
     if A.get("denials"):
         with open(A["denials"], "a") as f:
             f.write(clean(f"graft sandbox ({A.get('context')}): {what}", 500) + "\n")
@@ -49,6 +55,7 @@ async def status(r, w):
     try:
         argv = json.loads(await r.readline())
         ok = isinstance(argv, list) and argv and argv[0] in STATUS_ALLOW and len(argv) <= 8
+        note(f"status.relay {'relayed' if ok else 'refused'}: {' '.join(clean(a, 40) for a in (argv or [])[:3])}")
         if ok and A.get("pane"):
             p = await asyncio.create_subprocess_exec(A["workmux"], *[clean(a) for a in argv],
                                                      env={**os.environ, "TMUX_PANE": A["pane"]},
@@ -123,10 +130,11 @@ async def git(r, w):
         cmd += [dest, f"git-upload-pack '{path}'"]
         p = await asyncio.create_subprocess_exec(*cmd, env=env, stdin=asyncio.subprocess.PIPE,
                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        note(f"fetch {url}")
         w.write(b"OK\n")
         await w.drain()
         await asyncio.gather(pipe(r, p.stdin), pipe(p.stdout, w))
-        await p.wait()
+        note(f"fetch {url}: ssh exited {await p.wait()}")
     except PermissionError as e:
         denied(str(e))
         w.write(f"ERR {e}\n".encode())

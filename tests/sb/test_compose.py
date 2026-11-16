@@ -381,9 +381,9 @@ class Compose(unittest.TestCase):
         self.assertEqual(p["workspace"][0]["protected"], [])
 
     def test_clone_lands_in_1b(self):
-        with self.assertRaisesRegex(C.Refusal, "1b"):
+        with self.assertRaisesRegex(C.Refusal, "a later release"):
             C.compose(inp(context="dispatch"))
-        with self.assertRaisesRegex(C.Refusal, "1b"):
+        with self.assertRaisesRegex(C.Refusal, "a later release"):
             C.compose(inp(flags={"mode": "clone"}))
 
     def test_inspect(self):
@@ -458,17 +458,23 @@ class Compose(unittest.TestCase):
     def test_explain_text(self):
         p, rep = C.compose(inp(flags={"net": ["x.org"]}))
         t = C.explain_text(p, rep, root())
-        for s in ("context    work", "limits     protect:", "network  x.org:443", "backend    bubblewrap proves",
-                  "D4 lands in 1b"):
+        for s in ("context    work", "limits     protect:", "  network    x.org:443", "backend    bubblewrap proves",
+                  "standard tools (1)", "comes in a later release"):
             self.assertIn(s, t)
 
     def test_permanent_fix(self):
-        r = root(kits={"daniel": {}}, contexts={"work": {"include": ["daniel"]}})
-        _, rep = C.compose(inp(r=r, flags={"net": ["x.org"]}))
+        r = root(name="home-manager", kits={"daniel": {}}, contexts={"work": {"include": ["daniel"]}})
+        _, rep = C.compose(inp(r=r, flags={"net": ["x.org"]}, workspace=[ws(kit={})]))
         self.assertEqual(C.permanent_fix("--net", "x.org:443", rep, r),
                          "the repo kit's requests.network (perSystem.kit), or programs.sb.kits.daniel.requests.network "
                          "for every repository (home-manager switch)")
-
+        # an mkRoot root, a repository that is not a consumer, no included kit
+        r = root()
+        _, rep = C.compose(inp(r=r, flags={"net": ["x.org"]}))
+        self.assertEqual(C.permanent_fix("--net", "x.org:443", rep, r),
+                         'repoKits."example.com/o/r".requests.network (rebuild the root)')
+        self.assertEqual(C.denial_text("work", "x.org:443", "F"),
+                         "graft sandbox (work): the run tried x.org:443 (not in this run). one run: sb --net x.org …  permanent: F")
 
 if __name__ == "__main__":
     unittest.main()

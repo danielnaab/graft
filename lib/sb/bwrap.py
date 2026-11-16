@@ -689,7 +689,11 @@ def prepare(cfg, rundir, print_cmd=False):
         mount(dest, 1, ["--ro-bind", d, dest])
     # sb's own: shims, the not-found handler, the MCP configuration, the bindings' sockets
     write_own(cfg, rundir, policy, launch)
-    for n in ("bin", "notfound", "bash_env", "mcp.json"):
+    for n in ("explain.txt", "why.json"):
+        if not os.path.exists(os.path.join(rundir, n)):
+            with open(os.path.join(rundir, n), "w") as f:
+                f.write("{}" if n.endswith(".json") else "")
+    for n in ("bin", "notfound", "bash_env", "mcp.json", "explain.txt", "why.json"):
         mount(f"{run_mnt}/{n}", 1, ["--ro-bind", os.path.join(rundir, n), f"{run_mnt}/{n}"])
     for b in {b["socket"]: b for b in policy.get("bindings") or [] if b.get("socket")}.values():
         if b.get("socket"):
@@ -877,6 +881,7 @@ def run(cfg, rundir):
         log = open(os.path.join(rundir, "proxy.log"), "w")
         tmux = (launch.get("hostTools") or {}).get("tmux")
         live = ["--tmux", tmux, "--pane", launch["pane"]] if tmux and launch.get("pane") else []
+        live += ["--fix", launch.get("netFix") or "the repo kit's requests.network"]
         proxy = subprocess.Popen([cfg["python"], "-I", "-S", cfg["proxy"], "proxy.sock",
                                   "--denials", os.path.join(rundir, "denials"), "--context", policy["context"]] + live + allow,
                                  cwd=rundir, stdout=log, stderr=subprocess.STDOUT)
@@ -921,6 +926,11 @@ def run(cfg, rundir):
         status = p.wait()
     finally:
         signal.signal(signal.SIGINT, old)
+        tools = launch.get("hostTools") or {}
+        if binding(policy, "status.relay") and tools.get("workmux") and launch.get("pane"):
+            # the agent is gone: clear its pane (workmux has no command that unregisters an agent)
+            subprocess.run([tools["workmux"], "set-window-status", "clear"], env={**os.environ, "TMUX_PANE": launch["pane"]},
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for h in ([proxy] if proxy else []) + helpers:
             h.terminate()
             try:
@@ -957,9 +967,13 @@ def after(cfg, rundir):
         ev["touches_host_run"] += sorted(visible(p) for p in set(now) | set(was) if now.get(p) != was.get(p))
         old = set(before["refs"].get(top, {}).get("refs", []))
         cur = refs(cfg, top)
-        newrefs = [l.split(" ", 1)[0] for l in cur["refs"] if l not in old]
+        # commits new on local branches and HEAD only: fetched ones (refs/remotes) are not the run's
+        local = [l for l in cur["refs"] if l.split(" ", 1)[1].startswith("refs/heads/")]
+        newrefs = [l.split(" ", 1)[0] for l in local if l not in old]
+        if cur["head"] and cur["head"] != before["refs"].get(top, {}).get("head"):
+            newrefs.append(cur["head"])
         if newrefs:
-            olds = [l.split(" ", 1)[0] for l in old]
+            olds = [l.split(" ", 1)[0] for l in old] + ([before["refs"][top]["head"]] if before["refs"].get(top, {}).get("head") else [])
             r = git(cfg, top, "rev-list", *newrefs, "--not", *olds) if olds else git(cfg, top, "rev-list", *newrefs)
             commits = [c for c in r.stdout.split() if c]
             ev["commits"] += [c[:12] for c in commits]

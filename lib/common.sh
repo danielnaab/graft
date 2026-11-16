@@ -151,6 +151,11 @@ newer() { [ "$(printf '%s\n%s\n' "$(semver_key "$1")" "$(semver_key "$2")" | sor
 tags_of() {
   local url=$1 key out
   key=$GRAFT_TMP/tags.$(printf '%s' "$url" | cksum | cut -d' ' -f1)
+  # inside a graft sb run, only what the run's policy reaches is tried: no refusal left behind
+  if [ ! -f "$key" ] && [ -n "${GRAFT_SANDBOX:-}" ] && ! sandbox_reaches "$url"; then
+    echo "graft: $url is not reachable from this sandbox run" >&2
+    return 1
+  fi
   if [ ! -f "$key" ]; then
     out=$(git -c http.extraHeader= ls-remote --tags -- "$url" 2>&1) \
       || { echo "graft: can't list tags at $url: $(tail -1 <<<"$out")" >&2; return 1; }
@@ -161,6 +166,24 @@ tags_of() {
     mv "$key.part" "$key"
   fi
   cat "$key"
+}
+
+# sandbox_reaches URL: inside a graft sb run (GRAFT_SANDBOX set), whether its policy lets the run reach
+# URL: a file URL or path; an https/http host:port among the run's network reach; ssh with git.fetch
+sandbox_reaches() {
+  local url=$1 policy=${GRAFT_SANDBOX_POLICY:-/run/graft-sandbox/policy.json} hp
+  case $url in
+    file://* | /*) return 0 ;;
+    https://* | http://*)
+      hp=${url#*://}; hp=${hp%%/*}; hp=${hp##*@}
+      case $hp in
+        *:*) ;;
+        *) if [[ $url == https://* ]]; then hp=$hp:443; else hp=$hp:80; fi ;;
+      esac
+      jq -e --arg hp "${hp,,}" '[.items[] | select(.kind == "network" and .class == "reach" and .effective) | .value] | index($hp) != null' \
+        "$policy" >/dev/null 2>&1 ;;
+    *) jq -e '[.bindings[] | select(.capability == "git.fetch")] | length > 0' "$policy" >/dev/null 2>&1 ;;
+  esac
 }
 
 # version_at URL COMMIT: the highest semver tag at URL that is COMMIT, or nothing. Fails as tags_of.

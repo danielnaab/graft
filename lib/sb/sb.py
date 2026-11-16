@@ -47,7 +47,7 @@ USAGE = """usage: sb [VERB | CONTEXT] [FLAGS] [--] [CMD [ARGS...]]
 flags (before CMD; one run only):
   --package PKG  --read PATH  --write PATH  --net HOST[:PORT]  --env NAME
   --access read|write  --repo PATH  --account NAME  --backend NAME
-  (--mode clone, --clone, --from, --detach: dispatch, in 1b; --resume RUN: with sb host)"""
+  (--mode clone, --clone, --from, --detach: dispatch, in a later release; --resume RUN|last: with sb host)"""
 
 
 def visible(s):
@@ -277,7 +277,10 @@ def repo_kit(host, w, rel):
     nix = host.root.get("nix") or "nix"
     attr = f"path:{fdir}#packages.{host.root['system']}.graft-kits"
     say(f"sb: building the repo kit ({attr})")
-    r = subprocess.run([nix, "build", "--no-link", "--print-out-paths", attr], stdout=subprocess.PIPE, text=True)
+    if not os.path.isfile(os.path.join(fdir, "flake.lock")):
+        raise C.Refusal(f"graft sandbox: {C.canon_path(fdir, host.home)}/flake.lock is missing, and sb never writes one into a "
+                        "workspace: run nix flake lock there, on the host, and commit it")
+    r = subprocess.run([nix, "build", "--no-link", "--no-write-lock-file", "--print-out-paths", attr], stdout=subprocess.PIPE, text=True)
     if r.returncode != 0:
         raise C.Refusal(f"graft sandbox: the repo kit did not build (nix build {attr}, above): it needs graft "
                         "v2.15.0 or later (packages.<system>.graft-kits), and a path: flake directory holds no "
@@ -417,7 +420,11 @@ def load_grants(host):
             text = f.read()
     except FileNotFoundError:
         text = None
-    return C.parse_grants(text), text
+    try:
+        return C.parse_grants(text), text
+    except C.Refusal as e:
+        raise C.Refusal(f"{C.canon_path(host.grants_path, host.home)}: {e.message} (a merge conflict? "
+                        "git diff on it shows the markers; resolve them, keep both machines' entries)")
 
 
 def seen_path(host):
@@ -435,19 +442,17 @@ def arrived_line(host, grants, text):
         old_text = None
     if old_text == text:
         return None
-    line = None
-    if old_text is not None:
-        try:
-            old = json.loads(old_text)
-            n = len(C.arrived(old, grants))
-            if n:
-                line = f"sb: {n} grant{'s' if n != 1 else ''} arrived by git: sb grant --diff"
-        except ValueError:
-            pass
-    os.makedirs(host.state, exist_ok=True)
-    with open(seen_path(host), "w") as f:
-        f.write(text)
-    return line
+    if old_text is None:
+        os.makedirs(host.state, exist_ok=True)
+        with open(seen_path(host), "w") as f:
+            f.write(text)
+        return None
+    try:
+        n = len(C.arrived(json.loads(old_text), grants))
+    except ValueError:
+        return None
+    # repeated until `sb grant --diff` (or a grant) acknowledges it
+    return f"sb: {n} grant{'s' if n != 1 else ''} arrived by git: sb grant --diff" if n else None
 
 
 def save_grants(host, grants):
@@ -531,7 +536,7 @@ def parse(argv, root):
         cmd = rest[j:]
         break
     for a in cmd[1:]:
-        if a.partition("=")[0] in FLAG_ARGS | FLAG_BOOL:
+        if a.partition("=")[0] in (FLAG_ARGS | FLAG_BOOL) - {"--resume", "--continue", "--account"}:
             err(f"sb: {a} after {cmd[0]} belongs to {cmd[0]}; sb's flags go before the command")
             break
     if flags.get("clone"):
@@ -593,8 +598,11 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
     cwd = os.path.realpath(os.getcwd())
     paths = [cwd] + [os.path.realpath(os.path.expanduser(p) if not p.startswith("~") else C.expand(p, host.home))
                      for p in flags.get("repo") or []]
+    hidden_now = [h for hs in resolve_hidden(host, root).values() for h in hs]
     for p in flags.get("repo") or []:
         rp = os.path.realpath(C.expand(p, host.home) if p.startswith("~") else p)
+        if any(C.under(rp, h) for h in hidden_now):
+            raise C.Refusal(f"graft sandbox ({ctx['name']}): --repo {p}: {C.canon_path(rp, host.home)} is hidden by your root in every run")
         if repo_of(host, rp) is None:
             raise C.Refusal(f"graft sandbox ({ctx['name']}): --repo {p} is not inside a git repository")
     cache_f = os.path.join(host.state, "cache", "scions.json")
@@ -608,7 +616,7 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
         if ctx.get("view"):
             paths = paths[1:]
         else:
-            raise C.Refusal(f"{C.canon_path(cwd, host.home)} is not inside a git repository: sb inspect CMD, or sb host CMD")
+            raise C.Refusal(f"graft sandbox ({ctx['name']}): {C.canon_path(cwd, host.home)} is not inside a git repository: sb inspect CMD, or sb host CMD")
     if ctx.get("access") == "write" and not ctx.get("view") and flags.get("access") != "read":
         for p in paths:
             r = repo_of(host, p)
@@ -617,7 +625,9 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
             m = C.root_repo_match(r["top"], r["originKey"], root.get("rootRepos"), host.home)
             if m:
                 shown = C.canon_path(r["top"], host.home)
-                raise C.Refusal(f"graft sandbox ({ctx['name']}): {shown} is a root: sb inspect, or claude (unsandboxed) until sb dispatch (1b)")
+                agent = cmd and any(cmd[0] in (k.get("commands") or {}) for k in (root.get("kits") or {}).values())
+                alt = f"{cmd[0]} (unsandboxed)" if agent else "sb host CMD"
+                raise C.Refusal(f"graft sandbox ({ctx['name']}): {shown} is a root: sb inspect, or {alt} until sb dispatch (a later release)")
     # state, logs and caches are never inside a workspace (§4.4)
     for p in paths:
         r = repo_of(host, p)
@@ -633,6 +643,7 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
         pkgs.append(build_package(host, p))
     fl = dict(flags)
     fl["package"] = [o for outs in pkgs for o in outs]
+    fl["packageAttrs"] = {o: a for a, outs in zip(flags.get("package") or [], pkgs) for o in outs}
     if not fl.get("account") and cmd and os.environ.get("CLAUDE_CONFIG_DIR"):
         # §4.4: the caller's CLAUDE_CONFIG_DIR chooses among the instances the root declares, by its
         # folder's name (~/.claude-accounts/flexion: flexion); ~/.claude is the default account
@@ -660,11 +671,32 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
            "host": {"home": host.home, "user": host.user, "env": {n: n in os.environ for n in env_names},
                     "resolve": resolve, "hidden": resolve_hidden(host, root), "tz": host.tz()}}
     policy, report = C.compose(inp)
+    for w in ws:
+        if os.path.isdir(os.path.join(w["top"], ".githooks")) and not run_git(host, w["top"], "config", "core.hooksPath").stdout.strip():
+            report["notes"].append(f"{os.path.basename(w['top'])} has .githooks but core.hooksPath is unset: commits run no hook "
+                                   "(git config core.hooksPath .githooks, on the host)")
     fixed_dirs(host, root, policy, report, ws)
     credential_notes(report)
+    report["overlayHooks"] = overlay_hooks(report.get("argv") or [])
     report["arrived"] = arrived_line(host, grants, text)
     report["grantsText"] = text
     return inp, policy, report, bprog, ws
+
+
+def overlay_hooks(argv):
+    """§6.3: hooks a --settings overlay adds (Claude's /hooks does not list them), for explain."""
+    out = []
+    for i, a in enumerate(argv[:-1]):
+        if a == "--settings" and argv[i + 1].startswith("/nix/store/"):
+            try:
+                with open(argv[i + 1]) as f:
+                    hooks = json.load(f).get("hooks") or {}
+            except (OSError, ValueError):
+                continue
+            for ev, rules in sorted(hooks.items()):
+                for r in rules:
+                    out.append(f"{ev} {r.get('matcher', '*')}")
+    return out
 
 
 def credential_notes(report):
@@ -781,6 +813,9 @@ def startup_line(policy, report, ws, root):
         parts.append(f"{r.canonical.replace('capability ', '')}: no binding")
     if policy["access"] != C.resolve_context(root, ctx["name"])["access"]:
         parts.append(f"access {policy['access']}")
+    once = [f"{f} {v}" for f, v in report["oneRun"] if f != "--access"]
+    if once:
+        parts.append("one run: " + " ".join(once))
     parts.append("sb explain")
     return "sb: " + " · ".join(parts)
 
@@ -788,29 +823,34 @@ def startup_line(policy, report, ws, root):
 def exit_lines(ev, policy, report, root):
     out = []
     ctxn = policy["context"]
+    fix = C.permanent_fix("--net", "", report, root)
     for d in ev.get("denials") or []:
-        host = d["host"].rpartition(":")[0] if d["host"] != "(malformed)" else d["host"]
-        out.append(f"graft sandbox ({ctxn}): the run tried {d['host']} ({d['count']}x, not in this run): sb why {host}")
+        if d["host"] == "(malformed)":
+            out.append(f"graft sandbox ({ctxn}): the run sent the proxy a malformed request ({d['count']}x)")
+            continue
+        out.append(C.denial_text(ctxn, d["host"], fix) + (f" ({d['count']}x)" if d["count"] > 1 else ""))
     if ev.get("new_git_metadata"):
         out.append(f"sb: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from: "
                    + ", ".join(ev["new_git_metadata"][:8]) + (" …" if len(ev["new_git_metadata"]) > 8 else ""))
     if ev.get("touches_host_run"):
         out.append("sb: the run changed host-run files (review before the host runs them): " + ", ".join(ev["touches_host_run"][:8]))
     if ev.get("unsigned"):
-        out.append(f"sb: {ev['unsigned']} unsigned commit{'s' if ev['unsigned'] != 1 else ''}: sign on the host with "
-                   f"git rebase --exec 'git commit --amend --no-edit -S' {ev.get('base') or '<base>'}")
+        base = ev.get("base")
+        how = f"git rebase --exec 'git commit --amend --no-edit -S' {base}" if base else \
+            "git rebase --root --exec 'git commit --amend --no-edit -S'"
+        out.append(f"sb: {ev['unsigned']} unsigned commit{'s' if ev['unsigned'] != 1 else ''}: sign on the host with {how}")
     for flag, value in report["oneRun"]:
         out.append(f"sb: {flag} {value} was for this run; permanent: {C.permanent_fix(flag, value, report, root)}")
-    return out
+    return list(dict.fromkeys(out))
 
 
 def run(host, root, context, flags, cmd):
     if inside_run():
         ctxn = os.environ.get("GRAFT_SANDBOX", "run")
-        raise C.Refusal(f"graft sandbox ({ctxn}): sb inside a run starts nested runs from 1b: run it on the host")
+        raise C.Refusal(f"graft sandbox ({ctxn}): sb inside a run starts nested runs in a later release: run it on the host")
     for f in ("from", "detach"):
         if flags.get(f):
-            raise C.Refusal(f"graft sandbox ({context or root.get('defaultContext', 'work')}): --{f} is clone mode (dispatch), which lands in 1b")
+            raise C.Refusal(f"graft sandbox ({context or root.get('defaultContext', 'work')}): --{f} is clone mode (dispatch), which comes in a later release")
     context = context or root.get("defaultContext") or "work"
     ctx = C.resolve_context(root, context)
     if ctx["mode"] == "none":
@@ -843,11 +883,18 @@ def run(host, root, context, flags, cmd):
                 err(C.stale_message(ctx["name"], s))
             return C.EXIT_GRANT
         launch = launch_facts(host, root, policy, ws, flags, report["argv"])
+        launch["netFix"] = C.permanent_fix("--net", "", report, root)
+        launch["pkgFix"] = C.permanent_fix("--package", "", report, root)
+        launch["root"] = {"contexts": root.get("contexts") or {}}
         with open(os.path.join(rundir, "policy.json"), "w") as f:
             json.dump(policy, f, indent=1)
         with open(os.path.join(rundir, "launch.json"), "w") as f:
             json.dump(launch, f)
-        check_command(policy, launch, ctx)
+        with open(os.path.join(rundir, "explain.txt"), "w") as f:
+            f.write(C.explain_text(policy, report, root))
+        with open(os.path.join(rundir, "why.json"), "w") as f:
+            json.dump(why_facts(policy, report, root), f)
+        check_command(policy, launch, ctx, given=bool(cmd))
         r = subprocess.run([bprog, "prepare", rundir])
         if r.returncode != 0:
             return 1
@@ -856,6 +903,7 @@ def run(host, root, context, flags, cmd):
                      "argv": launch["argv"], "kits": [{"id": k["kit"], "grant": k["status"]} for k in report["kits"]],
                      "invoker": "person" if sys.stdin.isatty() else "script",
                      "time": datetime.datetime.now().isoformat(timespec="seconds")})
+        started = time.time()
         status = subprocess.run([bprog, "run", rundir]).returncode
         log(rundir, {"ev": "exit", "by": "host", "status": status})
         a = subprocess.run([bprog, "after", rundir], capture_output=True, text=True)
@@ -870,7 +918,10 @@ def run(host, root, context, flags, cmd):
         log(rundir, ev)
         if run_git(host, launch["cwd"], "config", "--bool", "commit.gpgsign").stdout.strip() != "true":
             ev["unsigned"] = 0    # the host does not sign: nothing to say
-        for line in exit_lines(ev, policy, report, root) + memory_lines(host, policy, report):
+        lines = exit_lines(ev, policy, report, root) + memory_lines(host, policy, report) \
+            + resume_lines(policy, report, flags, started)
+        say(f"sb: run {rid}" + (f" · exit {status}" if status else ""))
+        for line in lines:
             err(line)
         return status
     finally:
@@ -881,6 +932,23 @@ def run(host, root, context, flags, cmd):
             pass
         if prog and os.path.exists(os.path.join(rundir, "launch.json")):
             subprocess.run([prog, "cleanup", rundir])
+
+
+def resume_lines(policy, report, flags, started):
+    """Claude prints a host `claude --resume ID` at exit; the sb form resumes it in the same scope."""
+    cmd = report.get("command") or {}
+    if not cmd.get("kit"):
+        return []
+    found = []
+    for m in policy["mounts"]["state"]:
+        for d, _, fs in os.walk(os.path.join(m["dir"], "projects")):
+            found += [os.path.join(d, f) for f in fs if f.endswith(".jsonl") and os.path.getmtime(os.path.join(d, f)) >= started]
+    if not found:
+        return []
+    sid = os.path.basename(max(found, key=os.path.getmtime))[:-len(".jsonl")]
+    acct = f" --account {flags['account']}" if flags.get("account") else ""
+    ctx = "" if policy["context"] == "work" else f" {policy['context']}"
+    return [f"sb: resume this session with: sb{ctx}{acct} {cmd['name']} --resume {sid}"]
 
 
 def memory_lines(host, policy, report):
@@ -949,8 +1017,10 @@ def store_root(p):
     return "/".join(parts[:4])
 
 
-def check_command(policy, launch, ctx):
-    """The command must be in the run: a name, on the run's PATH (§12.3: Program)."""
+def check_command(policy, launch, ctx, given=True):
+    """The command must be in the run: a name, on the run's PATH (§12.3: Program). A first word that
+    is no program here nor on the host's PATH is more likely a mistyped context."""
+    import shutil
     name = launch["argv"][0]
     if "/" in name:
         return
@@ -959,8 +1029,10 @@ def check_command(policy, launch, ctx):
             return
     if launch.get("sbBin") and os.access(os.path.join(launch["sbBin"], name), os.X_OK):
         return
+    if given and not shutil.which(name):
+        raise C.Refusal(f"sb: unknown context or command {name}; contexts: {', '.join(C.context_names(launch.get('root') or {}))}", 2)
     raise C.Refusal(f"graft sandbox ({ctx['name']}): {name} is not in this run. one run: sb --package PKG …  "
-                    "permanent: programs.sb.tools (home-manager switch), or the repo kit's packages", 127)
+                    f"permanent: {launch.get('pkgFix') or 'programs.sb.tools, or the repo kit packages'}", 127)
 
 
 def host_run(host, root, ctx, flags, cmd, quiet_line=False):
@@ -987,6 +1059,12 @@ def host_run(host, root, ctx, flags, cmd, quiet_line=False):
 def resume_prompt(host, rid):
     """D15: a sandboxed run's newest Claude transcript, as quoted data for a new host conversation."""
     import re
+    if rid == "last":
+        runs = os.path.join(host.state, "runs")
+        cands = [d for d in os.listdir(runs) if re.fullmatch(r"[0-9a-f]{4}", d) and os.path.isfile(os.path.join(runs, d, "policy.json"))]
+        if not cands:
+            raise C.Refusal("sb host --resume last: no sandboxed run yet")
+        rid = max(cands, key=lambda d: os.path.getmtime(os.path.join(runs, d, "policy.json")))
     if not re.fullmatch(r"[0-9a-f]{4}", rid):
         raise C.Refusal(f"sb host --resume {rid}: a run id (4 hex digits; sb's state runs/ID)", 2)
     try:
@@ -1067,115 +1145,139 @@ def explain(host, root, context, flags, cmd):
         scratch_done(host, tmp)
 
 
+def why_facts(policy, report, root):
+    """What sb why needs beyond policy.json, computed on the host (and bound into the run as
+    /run/graft-sandbox/why.json): the permanent fixes and the root kits' commands."""
+    cmds = {}
+    for n, k in (root.get("kits") or {}).items():
+        for c in (k.get("commands") or {}):
+            cmds.setdefault(c, []).append(n)
+    return {"netFix": C.permanent_fix("--net", "", report, root), "envFix": C.permanent_fix("--env", "", report, root),
+            "pkgFix": C.permanent_fix("--package", "", report, root), "readFix": C.permanent_fix("--read", "", report, root),
+            "commands": cmds}
+
+
 def why(host, root, flags, args):
     if len(args) != 1:
         raise Usage("sb why PATH|HOST|CMD|VAR")
-    x = args[0]
-    if inside_run():
-        with open(INSIDE_POLICY) as f:
-            policy = json.load(f)
-        report = None
-    else:
-        tmp = os.path.join(host.state, "runs", "why-" + secrets.token_hex(3))
-        os.makedirs(tmp, exist_ok=True)
-        try:
-            _, policy, report, _, _ = gather(host, root, root.get("defaultContext") or "work", flags, [], tmp, "why")
-        finally:
-            scratch_done(host, tmp)
-    print(visible(answer_why(policy, x, host.home)))
+    tmp = os.path.join(host.state, "runs", "why-" + secrets.token_hex(3))
+    os.makedirs(tmp, exist_ok=True)
+    try:
+        _, policy, report, _, _ = gather(host, root, root.get("defaultContext") or "work", flags, [], tmp, "why")
+    finally:
+        scratch_done(host, tmp)
+    print(visible(answer_why(policy, args[0], host.home, why_facts(policy, report, root), on_host=True)))
     return 0
 
 
-def answer_why(policy, x, home):
+GENERATED = {"/etc/passwd", "/etc/group", "/etc/hosts", "/etc/ssl/certs/ca-certificates.crt", "/bin/sh", "/usr/bin/env"}
+
+
+def answer_why(policy, x, home, facts, on_host=False):
+    """One item, explained. On the host it says what a run here would get; inside, what this run has."""
     ctx = policy["context"]
     pre = f"graft sandbox ({ctx}):"
+    items = policy["items"]
 
     def srcs(i):
-        out = []
-        for s in i["sources"]:
-            if "kit" in s:
-                out.append(f"{s['kit']} ({s['file']})")
-            elif "grant" in s:
-                out.append(f"granted in {s['grant']} ({s['digest'][:15]}…)")
-            elif "flag" in s:
-                out.append(f"{s['flag']}, this run only")
-            elif "root" in s:
-                out.append(f"the root ({s['root']})")
-            elif "context" in s:
-                out.append(f"context {s['context']}")
-        return "; ".join(out)
-    items = policy["items"]
+        return ", ".join(dict.fromkeys(l for l in (C.label(s) for s in i["sources"]) if l)) or "sb"
+
+    def granted(i):
+        return any("grant" in s for s in i["sources"])
+
+    answers = []
+    # a kit command (and, below, a path of the same name)
+    if x in (facts.get("commands") or {}):
+        answers.append(f"{x} is {' and '.join(facts['commands'][x])}'s command: sb {x}")
+        if not os.path.lexists(x):
+            return answers[0]
     # a variable
-    if C.ENV_RE.fullmatch(x) and x.upper() == x and not x.startswith("~"):
-        hits = [i for i in items if (i["kind"] == "env" and i["value"] == x) or (i["kind"] == "env.set" and i["value"].startswith(x + "="))]
-        if x in ("HOME", "PATH", "TZ", "SSL_CERT_FILE") or x.startswith("GRAFT_SANDBOX"):
+    if not answers and C.ENV_RE.fullmatch(x) and x.upper() == x:
+        if x in C.OWNED_ENV or x.startswith("GRAFT_SANDBOX"):
             return f"{x} is set by sb itself (a name sb owns)"
+        for b in policy.get("bindings") or []:
+            if x in (b.get("env") or []):
+                return f"{x} is carried by the {b['capability']} binding {b['selector']} ({b['kit'].replace('root:', '', 1)}): the run holds it"
+        hits = [i for i in items if (i["kind"] == "env" and i["value"] == x) or (i["kind"] == "env.set" and i["value"].startswith(x + "="))]
         for i in hits:
             if i["effective"]:
-                return f"{x} is in this run: {i['kind']} from {srcs(i)}"
+                return f"{x} is {'set' if i['kind'] == 'env.set' else 'passed'} in {'a run here' if on_host else 'this run'} ({srcs(i)})"
         for i in hits:
-            return f"{pre} {x} is requested by {srcs(i)}, not in this run ({i.get('why', 'not granted')}): sb grant"
-        return f"{pre} {x} is not in this run. one run: sb --env {x} …  permanent: the repo kit's requests.env"
+            return f"{pre} {x} is requested by {srcs(i)}, not in {'a run here' if on_host else 'this run'} ({i.get('why', 'not granted')})"
+        return f"{pre} {x} is not in {'a run here' if on_host else 'this run'}. one run: sb --env {x} …  permanent: {facts.get('envFix')}"
     # a path
-    if x.startswith("/") or x.startswith("~") or x.startswith(".") or "/" in x or os.path.lexists(x):
-        p = os.path.realpath(C.expand(x, home)) if not x.startswith(".") else os.path.realpath(x)
+    if x.startswith(("/", "~", ".")) or "/" in x or os.path.lexists(x):
+        p = os.path.realpath(C.expand(x, home)) if x.startswith("~") or x.startswith("/") else os.path.realpath(x)
         cp = C.canon_path(p, home)
-        for i in items:
-            if i["kind"] == "hidden" and any(C.under(p, h) for h in i.get("paths", [])):
-                return f"{pre} {cp} is hidden by your root in every run ({i['value']}, {srcs(i)})"
-        for w in policy["workspace"]:
-            if C.under(p, w["path"]):
-                rel = p[len(w["path"]) + 1:]
-                for i in items:
-                    if i["kind"] == "protect" and policy["access"] == "write" and (
-                            (i["value"].startswith("**/") and i["value"][3:] in rel.split("/"))
-                            or rel == i["value"] or rel.startswith(i["value"].rstrip("/") + "/")):
-                        return f"{pre} {rel} is protected ({i['value']}, {srcs(i)}): edit it on the host, or in a dispatch run"
-                return f"{cp} is in the workspace {w['id']} ({policy['access']})"
-        best = None
-        for i in items:
-            if i["kind"] in ("read", "write", "socket") and i.get("path") and C.under(p, i["path"]):
-                if best is None or len(i["path"]) > len(best["path"]):
-                    best = i
-        if best:
-            if best["effective"]:
-                return f"{cp} is in this run: {best['kind']} {best['value']}, from {srcs(best)}"
-            return f"{pre} {cp} is requested ({best['kind']}) by {srcs(best)}, not in this run ({best.get('why')})"
-        if p.startswith("/nix/store/"):
-            return f"{cp} is in the store: a run sees its closure" + (" (and inspect, the whole store)" if policy["context"] == "inspect" else "")
-        view = next((i for i in items if i["kind"] == "view" and i["effective"]), None)
-        if view:
-            if not C.under(p, home) and not any(C.under(p, d) for d in ("/run", "/tmp")):
-                return f"{cp} is readable in inspect (outside ~, read-only)"
-            if any(C.under(p, C.expand(h, home)) for h in view["home"]):
-                return f"{cp} is readable in inspect (inspect.home), unless it matches a secret pattern"
-        return f"{pre} {cp} is not in this run: sb --read {cp} (one run), or sb --repo {cp} for a repository"
+        answers.append(path_answer(policy, p, cp, pre, home, facts, srcs))
+        return "\n".join(answers)
     # a host
     if "." in x or ":" in x:
-        host = x.lower()
-        port = None
-        if ":" in host:
-            host, _, port = host.rpartition(":")
         import fnmatch
+        h, port = (x.lower().rpartition(":")[0], x.rpartition(":")[2]) if ":" in x else (x.lower(), None)
         for i in items:
             if i["kind"] == "network" and i["class"] == "reach":
-                h, _, pp = i["value"].rpartition(":")
-                if fnmatch.fnmatchcase(host, h) and (port is None or port == pp):
+                ih, _, ip = i["value"].rpartition(":")
+                if fnmatch.fnmatchcase(h, ih) and (port is None or port == ip):
+                    kit = srcs(i)
                     if i["effective"]:
-                        return f"{host}:{pp} is in this run: from {srcs(i)}"
-                    return f"{pre} {host}:{pp} is requested by {srcs(i)}, not in this run ({i.get('why', 'not granted')}): sb grant"
+                        where = "reaches every run here" if on_host else "in this run"
+                        return f"{h}:{ip} is {'granted' if granted(i) else 'allowed'} ({kit}); {where}"
+                    if granted(i):
+                        cmds = [c for c, ks in (facts.get("commands") or {}).items() if kit in ks]
+                        return f"{h}:{ip} is granted ({kit}); reaches " + (" and ".join(f"sb {c}" for c in cmds) or f"{kit}'s") + " runs"
+                    return f"{pre} {h}:{ip} is requested by {kit}, not granted: sb grant {kit}"
         if any(i["kind"] == "network" and i["value"] == "none" for i in items):
             return f"{pre} this context has no network"
-        inc = [i["value"] for i in items if i["kind"] == "include"]
-        alt = f", or programs.sb.kits.{inc[0]}.requests.network for every repository" if inc else ""
-        return (f"{pre} the run tried {host}:{port or 443} (not in this run). one run: sb --net HOST …  permanent: "
-                f"the repo kit's requests.network{alt}")
+        hp = f"{h}:{port or 443}"
+        if on_host:
+            return f"{pre} a run here would be refused {hp} (not in a run here). one run: sb --net {h} …  permanent: {facts.get('netFix')}"
+        return C.denial_text(ctx, hp, facts.get("netFix"))
     # a command
     for i in items:
         if i["kind"] == "package" and i["effective"] and os.access(os.path.join(i["value"], "bin", x), os.X_OK):
-            return f"{x} is in this run: {i['value']}/bin/{x}, from {srcs(i)}"
-    return (f"{pre} {x} is not in this run. one run: sb --package PKG …  permanent: programs.sb.tools (home-manager switch), "
-            "or the repo kit's packages")
+            return f"{x} is in {'a run here' if on_host else 'this run'}: {i['value']}/bin/{x} ({srcs(i)})"
+    return (f"{pre} {x} is not in {'a run here' if on_host else 'this run'}. one run: sb --package PKG …  "
+            f"permanent: {facts.get('pkgFix')}")
+
+
+def path_answer(policy, p, cp, pre, home, facts, srcs):
+    items = policy["items"]
+    for i in items:
+        if i["kind"] == "hidden" and any(C.under(p, h) for h in i.get("paths", [])):
+            return f"{pre} {cp} is hidden by your root in every run ({i['value']}, {srcs(i)})"
+    for w in policy["workspace"]:
+        if C.under(p, w["path"]):
+            rel = p[len(w["path"]) + 1:]
+            for i in items:
+                if i["kind"] == "protect" and policy["access"] == "write" and rel and (
+                        (i["value"].startswith("**/") and i["value"][3:] in rel.split("/"))
+                        or rel == i["value"] or rel.startswith(i["value"].rstrip("/") + "/")):
+                    return f"{pre} {rel} is protected ({i['value']}, {srcs(i)}): edit it on the host"
+            return f"{cp} is in the workspace {w['id']} ({policy['access']})"
+    best = None
+    for i in items:
+        if i["kind"] in ("read", "write", "socket") and i.get("path") and C.under(p, i["path"]):
+            if best is None or len(i["path"]) > len(best["path"]):
+                best = i
+    if best:
+        if best["effective"]:
+            return f"{cp} is readable{' and writable' if best['kind'] == 'write' else ''}: {best['kind']} {best['value']} ({srcs(best)})"
+        return f"{pre} {cp} is requested ({best['kind']}) by {srcs(best)}, not in this run ({best.get('why')})"
+    view = next((i for i in items if i["kind"] == "view" and i["effective"]), None)
+    if p in GENERATED and not view:
+        return f"{cp} is readable: sb generates it for each run"
+    if p.startswith("/nix/store/"):
+        whole = "closure-store" not in policy["backend"]["proved"]
+        return f"{cp} is readable: in the store, which this run sees {'whole' if whole else 'as its closure (another path is absent)'}"
+    if p == "/run/current-system" or p.startswith("/run/graft-sandbox"):
+        return f"{cp} is readable: sb binds it read-only"
+    if view:
+        if not C.under(p, home) and not any(C.under(p, d) for d in ("/run", "/tmp")):
+            return f"{cp} is readable in inspect (outside ~, read-only; secrets and sockets masked)"
+        if any(C.under(p, C.expand(h, home)) for h in view["home"]):
+            return f"{cp} is readable in inspect (inspect.home), unless it matches a secret pattern"
+    return f"{pre} {cp} is not in this run: sb --read {cp} (one run), or sb --repo {cp} for a repository; permanent: {facts.get('readFix')}"
 
 
 # ---------------------------------------------------------------- grant
@@ -1215,14 +1317,20 @@ def ask(t, prompt):
     return a in ("y", "yes")
 
 
-def binding_note(root, canon):
+def binding_note(root, canon, kit_id):
+    """The prompt's `bound:` line: explain's description of the binding this kit instance gets."""
     if not canon.startswith("capability "):
         return ""
-    name = canon.split()[1]
-    b = (root.get("bindings") or {}).get(name)
+    parts = canon.split()
+    name = parts[1]
+    spec = C.CAPABILITIES.get(name)
+    if spec is None:
+        return ""
+    data = {spec["key"]: parts[2]} if spec["key"] and len(parts) > 2 and "=" not in parts[2] else {}
+    b = C.find_binding(root.get("bindings") or {}, C.Request("capability", name, canon, spec["class"], data), kit_id)
     if not b:
-        return "  (no binding yet)"
-    return "  bound: " + ", ".join(sorted(b))
+        return "  (no binding yet: nothing carries it out)"
+    return "  bound: " + C.binding_desc(name, b[1])
 
 
 def grant_flow(host, root, grants, sts, inline=False):
@@ -1245,7 +1353,7 @@ def grant_flow(host, root, grants, sts, inline=False):
             kind = {"root": "root kit", "repo": "repo kit", "scion": "scion kit"}[st["kind"]]
             scope = {"root": "every run that uses it", "repo": "every run in this repository",
                      "scion": f"every workspace that grafts {st['kit'][4:]}"}[st["kind"]]
-            state = "not granted" if not entry else ("asks for more" if st["status"] == "grown" else "source changed")
+            state = C.STATUS_WORDS[st["status"]]
             t.write(visible(f"{st['name']}   {kind} ({st['kit']}), for {scope}   {state}\n"))
             if st.get("uncommitted"):
                 t.write("  note: its defining file has uncommitted changes\n")
@@ -1260,11 +1368,11 @@ def grant_flow(host, root, grants, sts, inline=False):
             if ordinary:
                 t.write("  ordinary:\n")
                 for c in ordinary:
-                    t.write(visible(f"    + {c}{binding_note(root, c)}\n"))
+                    t.write(visible(f"    + {c}{binding_note(root, c, st['kit'])}\n"))
                 if ask(t, "  grant these? [y/N] "):
                     approved |= set(ordinary)
             for c in powerful:
-                t.write(visible(f"  powerful: + {c}{binding_note(root, c)}\n"))
+                t.write(visible(f"  powerful: + {c}{binding_note(root, c, st['kit'])}\n"))
                 if ask(t, "    grant? [y/N] "):
                     approved.add(c)
             if not approved:
@@ -1290,8 +1398,16 @@ def grant(host, root, flags, kits_named):
     grants, text = load_grants(host)
     for k in flags.get("revoke") or []:
         ident = k
-        if ":" not in k:
-            ident = f"root:{k}" if k in (root.get("kits") or {}) else k
+        if ":" not in k or k.split(":", 1)[0] not in ("root", "repo", "git"):
+            if k in (root.get("kits") or {}):
+                ident = f"root:{k}"
+            else:
+                ids = [i for i in list(grants["grants"]) + [i for m in grants["machines"].values() for i in m]
+                       if i.rstrip("/").rsplit("/", 1)[-1] == k or i.split(":", 1)[-1] == k]
+                if len(set(ids)) == 1:
+                    ident = ids[0]
+                elif ids:
+                    raise C.Refusal(f"sb grant --revoke {k}: several grants match: {', '.join(sorted(set(ids)))}", 2)
         where = C.revoke_grant(grants, ident, host.machine)
         if where is None:
             raise C.Refusal(f"sb grant --revoke {k}: no grant for {ident}")
@@ -1299,7 +1415,7 @@ def grant(host, root, flags, kits_named):
         print(visible(f"revoked {ident} ({where}) in {C.canon_path(host.grants_path, host.home)}"))
         return 0
     if flags.get("root"):
-        raise C.Refusal("sb grant --root lands with deployment roots (phase 2)", 2)
+        raise C.Refusal("sb grant --root comes with deployment roots, in a later release", 2)
     if flags.get("workspace"):
         os.chdir(C.expand(flags["workspace"][0], host.home))
     context = root.get("defaultContext") or "work"
@@ -1312,7 +1428,7 @@ def grant(host, root, flags, kits_named):
     if kits_named:
         sel = []
         for n in kits_named:
-            hit = [s for s in sts if n in (s["name"], s["kit"], s["kit"].split(":", 1)[-1])]
+            hit = [s for s in sts if n in (s["name"], s["kit"], s["kit"].split(":", 1)[-1], s["name"].split("@")[0])]
             if not hit:
                 raise C.Refusal(f"sb grant: no kit {n!r} here ({', '.join(s['name'] for s in sts)})")
             sel += hit
@@ -1322,12 +1438,23 @@ def grant(host, root, flags, kits_named):
             try:
                 with open(seen_path(host)) as f:
                     old = json.loads(f.read())
-                for ident in C.arrived(old, grants):
-                    print(visible(f"arrived by git: {ident}"))
             except (OSError, ValueError):
-                pass
+                old = {"grants": {}, "machines": {}}
+            for ident in C.arrived(old, grants):
+                was = set((old.get("grants", {}).get(ident) or {}).get("requests", []))
+                now = set((grants["grants"].get(ident) or {}).get("requests", []))
+                for m in set(old.get("machines", {})) | set(grants["machines"]):
+                    was |= set((old.get("machines", {}).get(m, {}).get(ident) or {}).get("requests", []))
+                    now |= set((grants["machines"].get(m, {}).get(ident) or {}).get("requests", []))
+                print(visible(f"arrived by git: {ident}" + ("" if now else " (revoked)")))
+                for c in sorted(now - was):
+                    print(visible(f"  + {c}"))
+                for c in sorted(was - now):
+                    print(visible(f"  - {c}"))
+            with open(seen_path(host), "w") as f:
+                f.write(text)
         for s in sts:
-            print(visible(f"{s['name']} ({s['kit']}): {s['status']}"))
+            print(visible(f"{s['name']} ({s['kit']}): {C.STATUS_WORDS[s['status']]}"))
             for a in s["added"]:
                 print(visible(f"  + {a}"))
         return 0
@@ -1445,14 +1572,24 @@ def inner(root, verb, flags, cmd):
     if verb == "why":
         if len(cmd) != 1:
             raise Usage("sb why PATH|HOST|CMD|VAR")
-        print(visible(answer_why(policy, cmd[0], pwd.getpwuid(os.getuid()).pw_dir)))
+        facts = {}
+        try:
+            with open("/run/graft-sandbox/why.json") as f:
+                facts = json.load(f)
+        except (OSError, ValueError):
+            pass
+        print(visible(answer_why(policy, cmd[0], pwd.getpwuid(os.getuid()).pw_dir, facts)))
         return 0
     if verb == "explain":
-        print(json.dumps(policy, indent=1))
+        if flags.get("json"):
+            print(json.dumps(policy, indent=1))
+        else:
+            with open("/run/graft-sandbox/explain.txt") as f:
+                sys.stdout.write(f.read())
         return 0
     if verb == "grant":
         raise C.Refusal("sb grant is for people, on the host: a run never writes its root's grants file")
-    raise C.Refusal(f"graft sandbox ({ctxn}): sb inside a run starts nested runs from 1b: run it on the host")
+    raise C.Refusal(f"graft sandbox ({ctxn}): sb inside a run starts nested runs in a later release: run it on the host")
 
 
 def main(argv):
@@ -1463,7 +1600,7 @@ def main(argv):
         root = json.load(f)
     args = argv[1:]
     if sys.platform == "darwin" or root.get("darwin"):
-        err("sb: no backend for darwin in v2.15.0; Seatbelt returns in 1b (v2.14.0 has v2's sandbox)")
+        err("sb: no backend for darwin in v2.15.0; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)")
         return 1
     try:
         verb, context, flags, cmd = parse(args, root)
@@ -1479,9 +1616,9 @@ def main(argv):
             return inner(root, verb, flags, cmd)
         host = Host(root)
         if verb in ("run", "serve"):
-            raise C.Refusal(f"sb {verb} is reserved ({'the wrappers’ entry, 1b' if verb == 'run' else 'the supervisor, phase 3'})", 2)
+            raise C.Refusal(f"sb {verb} is reserved ({'the wrappers’ entry' if verb == 'run' else 'the supervisor'})", 2)
         if verb == "review":
-            raise C.Refusal("sb review lands in 1b, with dispatch; this run's log is in sb's state (runs/ID/log.jsonl)", 2)
+            raise C.Refusal("sb review comes in a later release, with dispatch; this run's log is in sb's state (runs/ID/log.jsonl)", 2)
         if verb == "explain":
             return explain(host, root, context, flags, cmd)
         if verb == "why":
@@ -1500,4 +1637,9 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except BrokenPipeError:
+        # `sb explain | head`: the reader left; say nothing more
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        sys.exit(141)

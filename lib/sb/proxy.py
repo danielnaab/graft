@@ -24,7 +24,7 @@ import urllib.parse
 
 ARGS = sys.argv[2:]
 OPT = {}
-while ARGS and ARGS[0] in ("--denials", "--context", "--tmux", "--pane"):
+while ARGS and ARGS[0] in ("--denials", "--context", "--tmux", "--pane", "--fix"):
     OPT[ARGS[0][2:]] = ARGS[1]
     ARGS = ARGS[2:]
 DENIALS, CONTEXT = OPT.get("denials"), OPT.get("context")
@@ -41,11 +41,15 @@ def denied(what):
     DENIED.add(what)
     host = what.rpartition(":")[0] if what != "(malformed)" else what
     with open(DENIALS, "a") as f:
-        f.write(f"graft sandbox ({CONTEXT}): the run tried {what} (not in this run): sb why {host}\n")
+        if what == "(malformed)":
+            f.write(f"graft sandbox ({CONTEXT}): the run sent the proxy a malformed request\n")
+        else:
+            f.write(f"graft sandbox ({CONTEXT}): the run tried {what} (not in this run). one run: sb --net {host} …  "
+                    f"permanent: {OPT.get('fix', 'the repo kit')}\n")
     if OPT.get("tmux") and OPT.get("pane"):
         import subprocess
         subprocess.Popen([OPT["tmux"], "display-message", "-t", OPT["pane"], "-d", "5000",
-                          f"graft sandbox ({CONTEXT}): refused {what} · sb why {host}".replace("#", "##")],
+                          f"graft sandbox ({CONTEXT}): the run tried {what} (not in this run) · sb why {host}".replace("#", "##")],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 

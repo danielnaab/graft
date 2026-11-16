@@ -603,12 +603,12 @@ def compose(inp):
     grants = inp["grants"]
 
     if ctx["mode"] == "clone" or flags.get("mode") == "clone":
-        raise Refusal(f"graft sandbox ({ctx['name']}): clone mode (dispatch) lands in 1b; in 1a, sb works in place")
+        raise Refusal(f"graft sandbox ({ctx['name']}): clone mode (dispatch) comes in a later release; this release works in place")
     if ctx["mode"] == "none":
         raise Refusal("sb: host runs no sandbox and composes no policy")
     trust = ctx.get("trust", "workspace")
     if trust == "root":
-        raise Refusal(f"graft sandbox ({ctx['name']}): trust = \"root\" lands in phase 2")
+        raise Refusal(f"graft sandbox ({ctx['name']}): trust = \"root\" comes in a later release")
 
     # ---- the kits of the run (§4.1)
     kits = []
@@ -669,6 +669,8 @@ def compose(inp):
     if cmdkit is None and flags.get("account"):
         raise Refusal("sb: --account chooses an agent kit's account; this command has no kit", 2)
     report["command"] = {"kit": cmdkit["id"] if cmdkit else None, "name": cmdname}
+    report["workspaces"] = [{"consumer": w.get("repoKit") is not None, "key": w.get("originKey") or w["id"][len("repo:"):]}
+                            for w in inp["workspace"]]
     if cmdkit and cmdkit.get("instance") and cmdkit["instance"] != root.get("defaultAccount"):
         report["notes"].append(f"account {cmdkit['instance']}")
     if cmdkit and cmdkit["kind"] == "scion" and not cmdkit.get("verified"):
@@ -707,6 +709,7 @@ def compose(inp):
         st["applies"] = k["id"] in applying_ids
         st["digest"] = digest(canons) if canons else None
         st["requests"] = sorted(set(canons))
+        st["source"] = k.get("source")
         status[k["id"]] = st
         report["kits"].append(st)
         if st["status"] in ("grown", "source", "never") and not st["applies"]:
@@ -747,13 +750,13 @@ def compose(inp):
             item("package", p, "see", [ksrc(k, "see")])
         for n, v in ((k["manifest"].get("env") or {}).get("set") or {}).items():
             if n in env_set and env_set[n][0] != v:
-                raise Refusal(f"graft sandbox ({ctx['name']}): env.set {n} has two values, from {env_set[n][1]} and {k['id']} (M2)")
+                raise Refusal(f"graft sandbox ({ctx['name']}): env.set {n} has two values, from {env_set[n][1]} and {k['id']}")
             env_set[n] = (v, k["id"])
             item("env.set", f"{n}={v}", "see", [ksrc(k, "see")])
         for path, f in (k["manifest"].get("files") or {}).items():
             pth = norm_path(path, k["file"])
             if pth in files and files[pth][0] != f["source"]:
-                raise Refusal(f"graft sandbox ({ctx['name']}): two different files at {pth}, from {files[pth][1]} and {k['id']} (M2)")
+                raise Refusal(f"graft sandbox ({ctx['name']}): two different files at {pth}, from {files[pth][1]} and {k['id']}")
             if pth.startswith("/") and "root-files" not in (inp.get("probe") or []):
                 raise Refusal(f"graft sandbox ({ctx['name']}): {k['id']} places a file at {pth}, which needs the root-files guarantee")
             files[pth] = (f["source"], k["id"])
@@ -767,9 +770,11 @@ def compose(inp):
     for w in inp["workspace"]:
         if w.get("tools"):
             item("package", w["tools"], "see", [ksrc(w["kit"], "tools")], tools=True)
+    attrs = flags.get("packageAttrs") or {}
     for p in flags.get("package") or []:
-        item("package", p, "see", [{"flag": "--package"}])
-        report["oneRun"].append(("--package", p))
+        item("package", p, "see", [{"flag": "--package"}], **({"attr": attrs[p]} if p in attrs else {}))
+        if attrs.get(p) not in [v for f, v in report["oneRun"] if f == "--package"]:
+            report["oneRun"].append(("--package", attrs.get(p, p)))
     if inp["host"].get("tz"):
         item("env.set", f"TZ={inp['host']['tz']}", "see", [{"root": "base"}])
     if root.get("caBundle"):
@@ -871,7 +876,7 @@ def compose(inp):
                     eff, why = False, "no binding"
                     report["noBinding"].append((k["id"], r))
                 elif eff and CAPABILITIES[r.value]["phase"] != "1a":
-                    eff, why = False, f"phase {CAPABILITIES[r.value]['phase']}"
+                    eff, why = False, "comes in a later release"
                 elif eff:
                     extra["binding"] = b[0]
                     bound.append((k, r, b))
@@ -1054,7 +1059,7 @@ def binding_entry(k, r, b, inp, ctx):
         via = cfg.get("via", "env")
         if via not in ("env", "file"):
             raise Refusal(f"graft sandbox ({ctx['name']}): bindings.{r.value}.\"{sel}\".via = {via!r}: 1a carries "
-                          "env and file (proxy lands in phase 2)")
+                          "env and file (proxy comes in a later release)")
         e.update(via=via, env=env, **{"from": cfg.get("from") or {}}, holds="the run holds it",
                  **({"refresh": cfg["refresh"]} if cfg.get("refresh") else {}))
         if r.value == "mcp":
@@ -1090,11 +1095,11 @@ def merge_manifests(ms):
                     elif isinstance(vv, dict):
                         for kkk, vvv in vv.items():
                             if kkk in cur.setdefault(kk, {}) and cur[kk][kkk] != vvv:
-                                raise KitError(f"{f}: {k}.{kk}.{kkk} has two values (M2)")
+                                raise KitError(f"{f}: {k}.{kk}.{kkk} has two values")
                             cur[kk][kkk] = vvv
                     else:
                         if kk in cur and cur[kk] != vv:
-                            raise KitError(f"{f}: {k}.{kk} has two values (M2)")
+                            raise KitError(f"{f}: {k}.{kk} has two values")
                         cur[kk] = vv
             else:
                 out[k] = v
@@ -1176,20 +1181,85 @@ def fmt_source(s):
     return json.dumps(s, sort_keys=True)
 
 
+def root_paths(root):
+    """How a fix to the root is written, and what applies it: home-manager's programs.sb or mkRoot's."""
+    if root.get("name") == "home-manager":
+        return "programs.sb.", "home-manager switch"
+    return "", "rebuild the root"
+
+
+def repo_fix(report, root, kind):
+    """The repo kit's KIND: perSystem.kit in a graft consumer, the root's repoKits for any other."""
+    pre, apply = root_paths(root)
+    ws = (report.get("workspaces") or [{}])[0]
+    if ws.get("consumer"):
+        return f"the repo kit's {kind} (perSystem.kit)"
+    return f"{pre}repoKits.\"{ws.get('key') or '<origin>'}\".{kind} ({apply})"
+
+
 def permanent_fix(flag, value, report, root):
-    """§12.2: the one permanent fix for a one-run flag."""
+    """§12.2: the one permanent fix for a one-run flag: the command's kit when it is a workspace kit;
+    otherwise the repo kit, with the context's included kit as the every-repository alternative."""
     kind = {"--net": "requests.network", "--read": "requests.read", "--write": "requests.write",
             "--env": "requests.env", "--package": "packages", "--access": "access"}[flag]
+    pre, apply = root_paths(root)
     cmd = report.get("command") or {}
     inc = [n for n in (report["context"].get("include") or [])]
     if flag == "--access":
-        return f"a context with access = \"{value}\" (programs.sb.contexts)"
+        return f"a context with access = \"{value}\" ({pre}contexts; {apply})"
     if flag == "--package":
-        return "programs.sb.tools (home-manager switch), or the repo kit's packages"
-    if cmd.get("kit") and not cmd["kit"].startswith("root:") and not cmd["kit"].startswith("repo:"):
-        return f"{cmd['kit']}'s {kind} (a kit change)"
-    alt = f", or programs.sb.kits.{inc[0]}.{kind} for every repository (home-manager switch)" if inc else ""
-    return f"the repo kit's {kind} (perSystem.kit){alt}"
+        return f"{pre}tools ({apply}), or {repo_fix(report, root, 'packages')}"
+    if cmd.get("kit") and cmd["kit"].startswith("git:"):
+        return f"{kit_short(cmd['kit'], report)}'s {kind} (its graft.nix: a kit release)"
+    alt = f", or {pre}kits.{inc[0]}.{kind} for every repository ({apply})" if inc else ""
+    return repo_fix(report, root, kind) + alt
+
+
+def kit_short(ident, report):
+    return next((k["name"] for k in report.get("kits") or [] if k["kit"] == ident), ident)
+
+
+def denial_text(ctxname, hostport, fix):
+    """The one phrasing of a network refusal (exit line, denials file, sb why inside a run)."""
+    host = hostport.rpartition(":")[0] if ":" in hostport else hostport
+    return f"graft sandbox ({ctxname}): the run tried {hostport} (not in this run). one run: sb --net {host} …  permanent: {fix}"
+
+
+def binding_desc(cap, cfg, root_name=None):
+    """A binding as people read it, in explain and the grant prompt (Appendix C)."""
+    cfg = cfg or {}
+    src = cfg.get("from") or {}
+    if cap == "status.relay":
+        return "workmux relay"
+    if cap == "git.fetch":
+        return "ssh broker (fetch only)" + (f", key {cfg['key']['file']}" if (cfg.get("key") or {}).get("file") else ", the host's ssh agent")
+    if cap == "nix":
+        return "untrusted daemon relay: exposes the whole store read-only, drops closure-store"
+    if cap in ("credential", "mcp"):
+        where = src.get("file") or src.get("envFile") or (f"host ${src['env']}" if isinstance(src.get("env"), str) else "the host's environment")
+        how = f"{cfg.get('via', 'env')} {where}" if cap == "credential" else f"env {cfg.get('env', '')} from {where}"
+        return how + " (the run holds it)"
+    return "bound"
+
+
+def label(x, report=None):
+    """A source as Appendix C labels it: (graft), (root), (repo), (<kit>), (one run), (<context>)."""
+    if "kit" in x:
+        k = x["kit"]
+        if k.startswith("root:"):
+            return k[5:]
+        if k.startswith("repo:"):
+            return "repo"
+        return kit_short(k, report or {})
+    if "flag" in x:
+        return "one run"
+    if "root" in x:
+        return "graft" if x["root"] == "graft" else "root"
+    if "context" in x:
+        return x["context"]
+    if "binding" in x:
+        return "binding"
+    return ""
 
 
 def explain_text(policy, report, root):
@@ -1200,21 +1270,13 @@ def explain_text(policy, report, root):
     eff = [i for i in policy["items"] if i["effective"]]
 
     def src(i):
-        s = []
-        for x in i["sources"]:
-            if "kit" in x:
-                s.append(x["kit"].replace("root:", "", 1))
-            elif "flag" in x:
-                s.append(f"{x['flag']} (one run)")
-            elif "root" in x:
-                s.append(f"root {x['root']}")
-            elif "context" in x:
-                s.append(f"context {x['context']}")
-        return ", ".join(dict.fromkeys(s))
+        return ", ".join(dict.fromkeys(l for l in (label(x, report) for x in i["sources"]) if l))
 
     out.append(f"run        {cmd.get('name') or '(shell)'}" + (f" -> {cmd['kit']}" if cmd.get("kit") else " (no kit ships it)"))
     if report.get("argv") and report["argv"][:1] != [cmd.get("name")]:
         out.append("argv       " + " ".join(report["argv"]))
+    for h in report.get("overlayHooks") or []:
+        out.append(f"hooks      {h} (sb's --settings overlay; /hooks does not list it)")
     inc = ctx.get("include") or []
     out.append(f"context    {ctx['name']}: {policy['mode']}, access {policy['access']}, {policy['backend']['name']}"
                + (f"; includes {', '.join('root:' + n for n in inc)}" if inc else ""))
@@ -1222,53 +1284,72 @@ def explain_text(policy, report, root):
         out.append(f"workspace  {w['id']} ({policy['access']}) {w['path']}")
     scions = [k for k in report["kits"] if k["kind"] == "scion"]
     if scions:
-        out.append("           scions: " + ", ".join(f"{k['name']} ({k['kit']})" + ("" if k["status"] != "unverified" else " unverified") for k in scions))
+        out.append("           scions: " + ", ".join(f"{k['name']} {(k.get('source') or {}).get('tag', '')}".rstrip()
+                                                  + (" (unverified)" if k["status"] == "unverified" else "") for k in scions))
     pk = [i for i in eff if i["kind"] == "package"]
-    out.append(f"see        {len(pk)} packages: " + " · ".join(f"{posixpath.basename(i['value'])[33:] or i['value']} ({src(i)})" for i in pk))
+    std = [i for i in pk if any(x.get("root") == "standard" for x in i["sources"])]
+    rest = [i for i in pk if i not in std]
+    def pname(i):
+        v = i.get("attr") or i["value"]
+        return posixpath.basename(v)[33:] if v.startswith("/nix/store/") else v
+    see = [f"standard tools ({len(std)})"] + [f"{pname(i)} ({src(i)})" for i in rest]
+    out.append("see        " + " · ".join(see))
     for i in eff:
         if i["kind"] == "dir":
             out.append(f"           dir {i['value']} (read-only): {len(i.get('links') or [])} entries"
-                       + (f", {len(i['skipped'])} left out (outside the read requests)" if i.get("skipped") else ""))
-        if i["kind"] in ("env.set", "file"):
-            out.append(f"           {i['kind']} {i['value']}" + (f" ({i.get('mode')})" if i["kind"] == "file" else "") + f"  [{src(i)}]")
+                       + (f", {len(i['skipped'])} left out" if i.get("skipped") else "") + f" ({src(i)})")
+        elif i["kind"] == "file" and i.get("memory"):
+            continue
+        elif i["kind"] in ("env.set", "file"):
+            out.append(f"           {i['kind']} {i['value']}" + (f" ({i.get('mode')})" if i["kind"] == "file" else "") + f" ({src(i)})")
+    mem = [i for i in eff if i.get("memory")]
+    if mem:
+        out.append(f"           host memory: {len(mem)} files, read-only (what the run writes stays in its state)")
     prot = [i for i in eff if i["kind"] == "protect"]
     if policy["access"] == "write":
-        out.append("limits     protect: " + " · ".join(f"{i['value']} ({src(i)})" for i in prot))
+        groups = {}
+        for i in prot:
+            groups.setdefault(src(i), []).append(i["value"])
+        out.append("limits     protect: " + " · ".join(f"{' '.join(v)} ({k})" for k, v in groups.items()))
     else:
         out.append(f"limits     the workspace is read-only (access {policy['access']})")
     hid = [i for i in eff if i["kind"] == "hidden"]
     out.append(f"           hidden: {len(hid)} paths (sb explain --json lists them)")
     if any(i["kind"] == "network" and i["value"] == "none" for i in policy["items"]):
         out.append(f"           network: none (context {ctx['name']})")
-    out.append(f"reach{' ' * 60}granted")
-    view = [i for i in eff if i["kind"] == "view"]
-    for v in view:
-        out.append(f"  view     inspect: the machine read-only, minus secrets; in ~: {' '.join(v['home'])}")
+    rows = []
+    for v in [i for i in eff if i["kind"] == "view"]:
+        rows.append(("view", f"inspect: the machine read-only, minus secrets; in ~: {' '.join(v['home'])}", ctx["name"]))
     for kind in ("network", "read", "write", "socket", "env", "state", "capability", "unsandboxed"):
-        rows = [i for i in policy["items"] if i["kind"] == kind and i["class"] == "reach"]
-        for i in rows:
+        for i in [i for i in policy["items"] if i["kind"] == kind and i["class"] == "reach"]:
+            if not i["effective"] and i.get("why") == "not in this run":
+                continue      # listed once, under "not in run"
             v = i["value"] if kind != "capability" else i.get("request", i["value"]).replace("capability ", "", 1)
             if kind == "state":
                 v = f"{i['value']} -> {i.get('at')}" + (" (shared)" if i.get("shared") else "")
             if kind == "env" and i.get("secret"):
                 v += " (the run holds it)"
-            status = src(i) if i["effective"] else f"{src(i)}: {i.get('why', 'not in run')}"
+            if i.get("via") == "mcp":
+                v += " (mcp)"
             if kind == "capability" and i["effective"]:
                 b = next((b for b in policy.get("bindings") or [] if b["request"] == i.get("request") and b["kit"] in str(i["sources"])), None)
                 if b:
-                    how = b.get("via") or ", ".join(b.get("see") or []) or "bound"
-                    if b.get("holds"):
-                        how += " (the run holds it)"
-                    v += f": {how}" + (f"; {'; '.join(b['notes'])}" if b.get("notes") else "")
-            out.append(f"  {kind[:8]:<8} {v:<55} {status}")
-    out.append("children   none (nesting lands in 1b)")
-    stale = [k for k in report["kits"] if k["status"] in ("never", "grown", "source", "unverified")]
-    for k in stale:
-        out.append(f"not in run {k['name']} ({k['kit']}): {k['status']}" + (": " + ", ".join(k["added"][:4]) + (" …" if len(k["added"]) > 4 else "") if k["added"] else ""))
+                    cfg = ((root.get("bindings") or {}).get(b["capability"]) or {}).get(b["selector"])
+                    v += f": {binding_desc(b['capability'], cfg)}"
+            status = src(i) if i["effective"] else f"{src(i)}: {i.get('why', 'not in this run')}"
+            rows.append((kind, v, status))
+    w = max([len(v) for _, v, _ in rows] + [40]) + 2
+    out.append(f"reach{' ' * (w + 6)}granted by")
+    for kind, v, status in rows:
+        out.append(f"  {kind:<10} {v:<{w}} {status}")
+    out.append("children   none (nesting comes in a later release)")
+    for k in [k for k in report["kits"] if k["status"] in ("never", "grown", "source", "unverified")]:
+        added = (": " + ", ".join(k["added"][:4]) + (" …" if len(k["added"]) > 4 else "")) if k["added"] else ""
+        out.append(f"not in run {k['name']} ({k['kit']}): {STATUS_WORDS[k['status']]}{added}")
     b = policy["backend"]
     lacks = [g for g in GUARANTEES if g not in b["proved"]]
     out.append(f"backend    {b['name']} proves {' '.join(b['proved']) or 'nothing'}; lacks {' '.join(lacks)}")
-    out.append("note       phase 1a: kit tools run as the run's own programs, not as sandboxed commands (D4 lands in 1b)")
+    out.append("note       kit tools run as this run's own programs; sandboxing each kit command comes in a later release")
     return "\n".join(out) + "\n"
 
 
