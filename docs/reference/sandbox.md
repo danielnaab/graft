@@ -821,7 +821,8 @@ sb: --net pypi.org:443 was for this run; permanent: the repo kit's requests.netw
 | `GRAFT_SANDBOX_TOOLS` | The `bin/` of `packages.<system>.graft-kits`, which `sb` built and cached on the host. Set when the workspace has a repo kit. |
 | `GRAFT_SANDBOX_POLICY` | `/run/graft-sandbox/policy.json`. |
 | `GRAFT_SANDBOX_CLONE` | `1` in clone mode. Never set in v2.15.0. |
-| `PATH` | The standard set first, then the root's tools, the kits' packages and the workspace's tools. |
+| `PATH` | `/run/graft-sandbox/bin` (the capabilities' shims) first, then the standard set, the root's tools, the kits' packages and the workspace's tools, and `/run/graft-sandbox/notfound` last. |
+| `BASH_ENV` | `/run/graft-sandbox/bash_env`, which defines bash's `command_not_found_handle`. |
 | `HOME`, `USER`, `LOGNAME` | Your home's path and your user name. Only what the run's items bind is in `HOME`. |
 | `SHELL` | The run's bash. |
 | `LANG` | `C.UTF-8`. |
@@ -833,9 +834,18 @@ sb: --net pypi.org:443 was for this run; permanent: the repo kit's requests.netw
 | `TERM`, `COLORTERM` | The caller's, when set. |
 | A kit's `env.set` | For the command kit, and the included root kits. |
 | Granted `env` requests | Each name that the caller has set, with the caller's value. |
+| `NIX_REMOTE`, `NIX_CONFIG` | With the `nix` capability: `unix:///run/graft-sandbox/nix.sock`, and `experimental-features = nix-command flakes`. |
+| `GIT_SSH_COMMAND`, `GIT_SSH_VARIANT` | With `git.fetch`: `/run/graft-sandbox/bin/sb-ssh`, and `ssh`. |
+| A `credential`'s variables | The bound value, such as `CLAUDE_CODE_OAUTH_TOKEN`, read on the host at start. |
+| An `mcp` binding's `env` | The MCP key, such as `METAMCP_API_KEY`. |
 
-<!-- unverified: milestone 2: NIX_REMOTE (unix:///run/graft-sandbox/nix.sock) with the nix capability,
-GIT_SSH_COMMAND with git.fetch, a credential's variable by env, and the not-found BASH_ENV handler and shims. -->
+A program that is not in the run fails with exit 127 and
+`graft sandbox (work): NAME is not in this run. one run: sb --package PKG …  permanent: programs.sb.tools (home-manager switch), or the repo kit's packages`:
+from bash's handler, or from a not-found shim. Shims exist only for host-only programs: `nix` (without the
+capability: `nix needs the nix capability: the repo kit's requests.capabilities = [ { name = "nix"; } ], then sb grant`),
+`nix-build`, `nix-shell`, `ssh`, `scp`, `sudo`, `systemctl`, `docker`, `home-manager`, `darwin-rebuild` and
+`nixos-rebuild`. A shim for an ordinary name would defeat a program that looks for it on `PATH` and falls back
+when it is absent.
 
 Inside, git uses a generated `~/.gitconfig`: `user.name` and `user.email` from the host's git config at the
 workspace, `commit.gpgsign` and `tag.gpgsign` false, and `safe.directory = *`. Commits are unsigned.
@@ -858,12 +868,11 @@ depth: the tree after a run is untrusted output.
 - What the host runs: `**/.envrc`, `**/justfile`, `**/.pre-commit-config.yaml`, `.githooks`, and the
   `core.hooksPath` folder.
 - Agent configuration: `**/.claude`, `**/.mcp.json`, `**/.pi`, `**/.codex`, `**/.vscode`.
+- Each workspace's scions directory, such as `scions` or `nix/agent-tools/.scions`.
 - Each kit's `protect`.
 - In every git directory (the top `.git`, each scion's, each worktree's): `config`, `config.worktree`, `hooks/`,
   `info/`, `commondir` and `gitdir`; and every `.git` file. The rest is writable, so a run can commit. It can also
   delete other branches' refs.
-
-<!-- unverified: the design also protects the scions directory; lib/sb's base list does not name it. -->
 
 A protected file with a second hard link stops the run. To change a protected file, edit it on the host.
 
@@ -905,10 +914,11 @@ path:
 | Audience | Channel |
 |---|---|
 | You, live | `sb` never writes to the run's terminal while it runs: a line there corrupts a full-screen program such as Claude Code. Under tmux, the host shows one `tmux display-message` on the launching pane for each new denial. Repeats are counted, not shown again. Outside tmux, nothing is live. |
-| The agent | The proxy appends each new denial to `/run/graft-sandbox/denials`, once for each host and port, which the run can read but not write. The claude-code kit adds a `PostToolUse` hook (matchers `Bash` and `WebFetch`) that gives the model each new denial line as context. |
+| The agent | The proxy appends each new denial to `/run/graft-sandbox/denials`, once for each host and port, which the run can read but not write. The claude-code kit's `PostToolUse` hook (matcher `Bash\|WebFetch`) gives the model each new denial line as context, after `The sandbox (graft sb) refused this during the command; read /run/graft-sandbox/README.md:`. It keeps its read offset in `$TMPDIR`. A missing program reaches the agent through bash's not-found handler or a not-found shim ([Environment](#environment)). |
 | Afterwards | The exit line lists the run's denials, with a count for each. |
 
-<!-- unverified: the tmux display-message, the PostToolUse hook, and the not-found shims: milestone 2. -->
+Under tmux, the live message is `tmux display-message -t <pane> -d 5000`, once for each new host and port:
+`graft sandbox (work): refused HOST:PORT · sb why HOST`.
 
 The proxy answers a refused request with `HTTP/1.1 403 Forbidden (graft sandbox: not in this run)`.
 `/run/graft-sandbox/README.md` tells a reader inside that `CONNECT … 403`, `tunnel failed` or
@@ -921,6 +931,7 @@ run tried", and gives the fix as a form, not as a command to paste.
 
 | Denial | Message, after `graft sandbox (<context>): ` |
 |---|---|
+| Network, live (tmux) | `refused example.com:443 · sb why example.com` |
 | Network, in the denials file | `the run tried example.com:443 (not in this run): sb why example.com` |
 | Network, on the exit line | `the run tried example.com:443 (3x, not in this run): sb why example.com` |
 | Network, from `sb why` | `the run tried example.com:443 (not in this run). one run: sb --net HOST …  permanent: the repo kit's requests.network, or programs.sb.kits.standing.requests.network for every repository` (the `, or …` part only when the context includes a kit) |
@@ -973,30 +984,57 @@ A state directory inside a workspace is refused.
 
 ## Claude Code
 
-<!-- unverified: this whole section: the claude-code kit is milestone 2. -->
+`graft.kits.claude-code` returns a kit (data). The root names the instance:
 
-The claude-code kit runs Claude with its own agent home, configured by the root:
+```nix
+programs.sb.kits."claude-code@personal" = inputs.graft.kits.claude-code {
+  inherit pkgs;
+  account = "personal";                 # default "default"
+  binary = "native";                    # or a package
+  files = config.home.file;             # home-manager's files
+  configDir = ".claude";                # this account's folder under ~, such as ".claude-accounts/work"
+  skillDirs = [ ];                      # real directories in the skills folder to bind
+  skillSources = [ "~/src/agent-skills" ];   # checkouts that skill links point into
+  provider = "anthropic";               # or "bedrock", with region
+  mcp = [ "metamcp" ];
+};
+```
 
-- **Settings, instructions, statusline:** `fixed` files from the root's home-manager files, plus a `--settings`
-  overlay. The overlay sets `sandbox.enabled = false`, which Claude treats as managed (`/sandbox` cannot turn it
-  on again), and adds the denial hook. Overlay hooks are added to your own hooks, which still run.
-- **Skills, agents, commands, hooks, plugins:** `~/.claude/{skills,agents,commands,hooks,plugins}` are read-only.
-  Each skill link's target is bound read-only: a store target is a see item, and a checkout target must fall
-  under the kit's `read` requests. A real directory in the skills directory is absent unless the root names it
-  in `skillDirs`.
-- **MCP:** an `mcp` request gives `--mcp-config <file> --strict-mcp-config`.
+The run gets its own agent home, configured by the root:
+
+- **Settings and instructions:** every `files` entry whose target is under `configDir/` (except the folders
+  below) becomes a `fixed` file at `~/.claude/<rest>`. A `--settings` overlay sets `sandbox.enabled = false`,
+  which Claude treats as managed (`/sandbox` cannot turn it on again), and adds the denial hook. Overlay hooks are
+  added to your own hooks, which still run; Claude's `/hooks` does not list them.
+- **Skills, agents, commands, hooks, plugins:** `~/.claude/{skills,agents,commands,hooks,plugins}` are read-only,
+  from `~/<configDir>/<folder>` on the host. Each link's target is bound, one level deep: a store target, or a
+  checkout under the kit's `read` requests (`skillSources`). A real directory is bound only when `skillDirs` names
+  it. Others are left out, and the startup line says so: `~/.claude/skills: N outside the read requests, left
+  out`. A folder that the host lacks is an empty read-only one.
+- **The program:** `binary = "native"` runs `~/.local/bin/claude`, resolved on the host at start; it must fall
+  under a granted `read` request, or the run is refused:
+  `graft sandbox (work): claude's program ~/.local/bin/claude resolves to …, outside claude-code@personal's granted read requests`.
+  Native also gets `NIX_LD`, `NIX_LD_LIBRARY_PATH`, glibc, and nix-ld fixed at `/lib64/ld-linux-x86-64.so.2`
+  (`/lib/ld-linux-aarch64.so.1` on aarch64). A package runs its `bin/claude`.
+- **Variables:** `CLAUDE_CONFIG_DIR=~/.claude` (in the run's `HOME`) and `DISABLE_AUTOUPDATER=1`.
+- **MCP:** with `mcp`, Claude gets `--mcp-config /run/graft-sandbox/mcp.json --strict-mcp-config`.
 - **Login:** a `credential` for `api.anthropic.com` with `env = "CLAUDE_CODE_OAUTH_TOKEN"`, bound to a file that
   you make once per account with `claude setup-token`. There is no `/login` inside, and the run never reaches a
   keychain.
-- **Onboarding and folder trust:** `reassert` keys in `.claude.json`.
+- **Onboarding and folder trust:** `~/.claude/.claude.json` is `reassert`, with the keys `hasCompletedOnboarding`
+  and `projects.*.hasTrustDialogAccepted` (`*` is each workspace path). The host writes seeded and reasserted
+  files into state, and refuses to write through a link that a run planted.
 - **Transcripts:** `state claude` at `~/.claude`, scoped per account, workspace and context.
-- **Accounts:** one kit instance per account, `claude-code@<account>`, each granted on its own.
-- **Bedrock:** `provider = "bedrock"` requests `bedrock-runtime.<region>.amazonaws.com`, the Bedrock variables,
-  and a `credential` for the `AWS_*` keys.
-- **workmux status:** `status.relay`.
+- **Requests:** `read ~/.local/share/claude` (native) and `skillSources`; `network` `api.anthropic.com` and
+  `claude.ai`, or `bedrock-runtime.<region>.amazonaws.com`; with Bedrock, `env` `CLAUDE_CODE_USE_BEDROCK`,
+  `ANTHROPIC_MODEL` and `AWS_REGION`; `state claude`; and the capabilities `status.relay`, `credential`
+  (`CLAUDE_CODE_OAUTH_TOKEN`, or the three `AWS_*` keys) and one `mcp` per server.
+- **Accounts:** one instance per account, each granted on its own. With no `--account`, the caller's
+  `CLAUDE_CONFIG_DIR` picks the instance named like its folder (`~/.claude-accounts/flexion` is
+  `claude-code@flexion`) when the root declares it; `~/.claude` is the default.
 
 A sandboxed transcript is run output. `sb host --resume RUN claude` starts a new host conversation with it
-attached as quoted data.
+attached as quoted data ([Resume on the host](#resume-on-the-host)).
 
 ## On macOS
 
@@ -1054,8 +1092,11 @@ backend returns.
 - [lib/sb/bwrap.py](../../lib/sb/bwrap.py): the bubblewrap backend, guarantees, the run's environment
 - [lib/sb/proxy.py](../../lib/sb/proxy.py): the network proxy and the denials file
 - [lib/sb/root.nix](../../lib/sb/root.nix): `graft.lib.mkRoot`, the standard set
+- [lib/sb/hm.nix](../../lib/sb/hm.nix): `homeManagerModules.sb`
+- [lib/sb/kits/claude-code.nix](../../lib/sb/kits/claude-code.nix): the claude-code kit, its overlay and denial hook
+- [lib/sb/broker.py](../../lib/sb/broker.py) and [lib/sb/shim.py](../../lib/sb/shim.py): the `git.fetch` broker,
+  the `workmux` and ssh shims
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit` and `kitArgs` from each `graft.nix` and `perSystem`, and
   `packages.<system>.graft-kits`
 - [tests/run.sh](../../tests/run.sh): the `sb` section; [tests/sb/test_compose.py](../../tests/sb/test_compose.py)
 
-<!-- unverified: the claude-code kit and the home-manager module's source files: milestone 2. -->
