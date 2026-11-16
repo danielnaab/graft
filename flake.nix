@@ -28,11 +28,17 @@
         '';
         meta.description = "Graft other repositories as git submodules pinned to release tags";
       };
-      mkFlake = import ./lib/mk-flake.nix { inherit nixpkgs systems cli; };
+      # graft sb's programs (python), alone in the store: a change elsewhere in graft changes no root
+      sbSrc = builtins.path { path = ./lib/sb; name = "graft-sb"; filter = p: _: lib.hasSuffix ".py" p; };
+      mkFlake = import ./lib/mk-flake.nix { inherit nixpkgs systems cli sbSrc; };
+      mkRoot = import ./lib/sb/root.nix { inherit cli sbSrc; };
+      # graft's default root: for someone without one (sb init writes a minimal one to edit)
+      defaultRoot = pkgs: mkRoot { inherit pkgs; };
       kbKit = inputs.knowledge-base-kit;
     in
     {
       lib.mkFlake = mkFlake;
+      lib.mkRoot = mkRoot;
 
       # Run against any checkout without evaluating its flake:
       #   nix run github:danielnaab/graft -- outdated -C path/to/repo
@@ -40,11 +46,14 @@
       packages = forAll (pkgs: {
         default = cli pkgs { };
         tools = pkgs.buildEnv { name = "tools"; paths = [ ]; };
+        # graft's default root's sb (experimental, v2.15.0): nix run github:danielnaab/graft#sb -- CMD
+        sb = defaultRoot pkgs;
       });
 
       # graft's own app, as mkFlake gives a consumer one: nix run .#graft check, sync, ci …
       apps = forAll (pkgs: {
         graft = { type = "app"; program = lib.getExe (cli pkgs { GRAFT_DIR = "scions"; GRAFT_IN_REPO = "1"; }); meta.description = "graft, for this repository"; };
+        sb = { type = "app"; program = lib.getExe (defaultRoot pkgs); meta.description = "graft sb with graft's default root (experimental)"; };
       });
 
       devShells = forAll (pkgs: { default = pkgs.mkShell { packages = [ (cli pkgs { }) pkgs.shellcheck pkgs.jq ]; }; });
@@ -68,6 +77,14 @@
           shellcheck -x ${./tests/run.sh} ${./tests/fixtures.sh} ${./tests/macos-smoke.sh} ${./lib}/*.sh ${./lib}/sandbox/*.sh
           touch $out
         '';
+        # graft sb's unit tests: composition, identity, normalisation, digests, merge rules, grants
+        sb-unit = pkgs.runCommand "graft-sb-unit" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          cp -r ${sbSrc} sb && chmod -R u+w sb && cp ${./tests/sb}/*.py sb/
+          cd sb && python3 -I -m unittest discover -s . -p 'test_*.py' -v
+          touch $out
+        '';
+        # the default root builds (on Darwin: an sb that refuses, D21)
+        sb-root = defaultRoot pkgs;
         # graft's docs against knowledge-base-kit's conventions: links and anchors, lifecycle status,
         # provenance (scopes in knowledge-base.yaml). The checker is knowledge-base-kit's src/.
         docs = pkgs.runCommand "graft-docs" { nativeBuildInputs = [ pkgs.python3 ]; } ''

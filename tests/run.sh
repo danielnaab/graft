@@ -2,7 +2,7 @@
 # End-to-end test of graft: providers are local bare repositories with release tags, grafted into
 # consumers as git submodules with file:// URLs. Sections: mkflake (discovery, wiring, the errors),
 # nix (the Nix behaviours graft relies on: regression tests against Nix changes), seatbelt (the macOS
-# sandbox profile, from fixtures), sandbox, add, sync, check, outdated, changelog, upgrade, graft
+# sandbox profile, from fixtures; unwired until 1b), sb (graft sb), add, sync, check, outdated, changelog, upgrade, graft
 # (graft's own pin), workflows, ci, migrate. Needs nix, git and jq; fetches nixpkgs on the first run.
 # Usage: tests/run.sh [SECTION...] (from anywhere; default: every section, in order). KEEP=1 leaves the
 # work directory, to debug a failure.
@@ -1110,261 +1110,279 @@ sec_tarball() {
   expect "which passes" has "graft: 1 scion clean and at release tags"
 }
 
-# The sandbox (lib/sandbox): the policy (graft's base, providers' requests, the consumer's grant),
-# mkFlake's wiring, and the launcher against a throwaway consumer. The launcher's runs need
-# unprivileged user namespaces; without them that part is skipped, saying so.
-sec_sandbox() {
-  # sb: what a run sees (a package, a value) and what it requests (a host, a writable host path)
-  prov sb
-  cat > "$work/src/sb/graft.nix" <<'EOF'
-{ pkgs, ... }:
+# graft sb (lib/sb): mkFlake's kits and graft-kits, graft.lib.mkRoot, and runs under a test root whose
+# grants file and state are in the work directory. Composition's rules have unit tests (tests/sb,
+# from nix flake check); here, what a run does. Runs need unprivileged user namespaces; without them
+# that part is skipped, saying so.
+sec_sb() {
+  # sbk: a scion kit (limits, requests, a command) that reads kitArgs; sbold: v2.14.0's `sandbox`
+  prov sbk
+  cat > "$work/src/sbk/graft.nix" <<'EOF'
+{ pkgs, kitArgs ? { }, ... }:
+let tool = pkgs.writeShellScriptBin "sbk-tool" "echo sbk-tool ${kitArgs.word or "none"}"; in
 {
-  sandbox = {
-    packages = [ pkgs.hello pkgs.python3 ];
-    env.set.SB_MODE = "strict";
-    network.allow = [ "api.sb.example" ];
-    paths.writable = [ "~/.cache/sb" ];
+  tools.sbk-tool = tool;
+  kit = {
+    protect = [ "sbk.yaml" ];
+    requests.network = [ "api.sbk.example" ];
+    commands.sbk-tool.program = "${tool}/bin/sbk-tool";
   };
 }
 EOF
-  release sb v1.0.0
-  prov sbforce
-  printf '{ lib, ... }: { sandbox.packages = lib.mkForce [ ]; }\n' > "$work/src/sbforce/graft.nix" && release sbforce v1.0.0
-  prov sbgrant
-  printf '{ ... }: { sandbox.grant = [ "sb" ]; }\n' > "$work/src/sbgrant/graft.nix" && release sbgrant v1.0.0
-  prov sbbad
-  printf '{ ... }: { sandbox.network.allow = [ "https://api.example.com" ]; }\n' > "$work/src/sbbad/graft.nix" && release sbbad v1.0.0
+  release sbk v1.0.0
+  prov sbold
+  printf '{ ... }: { sandbox.packages = [ ]; }\n' > "$work/src/sbold/graft.nix" && release sbold v1.0.0
+  prov sbbadkit
+  printf '{ ... }: { kit.paths = [ ]; }\n' > "$work/src/sbbadkit/graft.nix" && release sbbadkit v1.0.0
   prov sbapp
-  printf '{ ... }: { apps.sandbox = { type = "app"; program = "/bin/sh"; }; }\n' > "$work/src/sbapp/graft.nix" && release sbapp v1.0.0
+  printf '{ ... }: { apps.sb = { type = "app"; program = "/bin/sh"; }; }\n' > "$work/src/sbapp/graft.nix" && release sbapp v1.0.0
 
-  local c=$work/sbc && consumer "$c" && cd "$c"
-  # own SB: the consumer's sandbox (perSystem), replaced whole
-  own() { sed -i "s|mkFlake { inherit inputs;.*|mkFlake { inherit inputs; perSystem = { pkgs, ... }: { sandbox = { $1 }; }; };|" flake.nix && commit "sandbox: $1"; }
-  echo "# agents" > AGENTS.md && mkdir -p docs && echo "doc" > docs/a.md
-  by_hand kb && by_hand sb && commit init && quiet nix flake lock && commit lock
-  own 'protect = [ "AGENTS.md" ];'
+  local c=$work/sbc && consumer "$c" "$(printf '  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; perSystem = { pkgs, ... }: { kitArgs.sbk.word = "hi"; kit = { protect = [ "AGENTS.md" ]; packages = [ pkgs.hello ]; }; }; };' "$graft")" && cd "$c"
+  echo "# agents" > AGENTS.md && echo "a: 1" > sbk.yaml && echo "default:" > justfile && echo data > notes.md
+  by_hand sbk && commit init && quiet nix flake lock && commit lock
 
-  # the policy: what each file gives, and the requests not granted
-  ran "sandbox: --explain data names each definition's file" nix eval --json ".#packages.$sys.sandbox.explain"
-  expect "the provider's package, from its graft.nix" holds '{"file":"scions/sb/graft.nix","path":'
-  expect "graft's base" holds '"file":"graft","value":"**/flake.nix"'
-  expect "the consumer's" holds '{"file":"flake.nix (perSystem)","value":"AGENTS.md"}'
-  expect "a provider's request, not granted" holds '"notGranted":[{"file":"scions/sb/graft.nix","option":"paths.writable","scion":"sb","value":"~/.cache/sb"},{"file":"scions/sb/graft.nix","option":"network.allow","scion":"sb","value":"api.sb.example"}]'
-  ran "sandbox: passthru.policy, without the requests" nix eval --json ".#packages.$sys.sandbox.policy.network.allow"
-  expect "is empty" has "[]"
-  own 'protect = [ "AGENTS.md" ]; grant = [ "sb" ];'
-  ran "sandbox: granted, a provider's requests apply" nix eval --json ".#packages.$sys.sandbox.policy.network.allow"
-  expect "its host, with the ports a bare host means" has '[{"host":"api.sb.example","ports":[443,80]}]'
-  own 'grant = [ "nope" ];'
-  refused "sandbox: a grant naming no scion" nix eval --raw ".#packages.$sys.sandbox.drvPath"
-  expect "says so" holds "graft: sandbox: grant names nope, which this repository does not graft"
-  own 'paths.readOnly = [ "docs" ];'
-  refused "sandbox: a host path that isn't one" nix eval --raw ".#packages.$sys.sandbox.drvPath"
-  expect "points to protect" holds 'is not of type `host path starting with "~/" or "/" (a path in the repository goes in protect)'"'"'. Definition values:'
-  expect "naming the file" holds "In \`flake.nix (perSystem)'"
-  own 'network.allow = [ "https://x.example" ];'
-  refused "sandbox: a host that isn't one" nix eval --raw ".#packages.$sys.sandbox.drvPath"
-  expect "says the syntax" holds 'is not of type `"host" or "host:port"'
-  own 'repository.readOnly = "yes";'
-  refused "sandbox: repository.readOnly, not a bool" nix eval --raw ".#packages.$sys.sandbox.drvPath"
-  expect "names the option" holds 'A definition for option `repository.readOnly'"'"' is not of type `boolean'"'"'.'
-  expect "and the file" holds "In \`flake.nix (perSystem)'"
-  own 'repository = true;'
-  refused "sandbox: repository, not a set" nix eval --raw ".#packages.$sys.sandbox.drvPath"
-  expect "names the option" holds 'A definition for option `repository'"'"' is not of type `submodule'"'"'.'
-  own 'protect = [ "AGENTS.md" ];'
-
-  # what providers may not do
-  by_hand sbforce && commit sbforce
-  refused "sandbox: a provider's mkForce" nix eval --raw ".#packages.$sys.sandbox.drvPath"
-  expect "is an error naming it" holds "graft: sandbox: scions/sbforce/graft.nix uses mkForce (or mkOverride below 100) on packages: a provider adds to the policy, never overrides it"
-  git_ rm -q scions/sbforce && by_hand sbgrant && commit sbgrant
-  refused "sandbox: a provider's grant" nix eval --raw ".#packages.$sys.sandbox.drvPath"
-  expect "is the consumer's" holds "graft: sandbox: scions/sbgrant/graft.nix sets grant: only the consumer's perSystem may"
-  git_ rm -q scions/sbgrant && by_hand sbbad && commit sbbad
-  refused "sandbox: a provider whose sandbox fails" nix eval --raw ".#packages.$sys.sandbox.drvPath"
-  expect "names its graft.nix" holds "In \`scions/sbbad/graft.nix'"
-  ran "sandbox: graft's app still evaluates" nix eval --raw ".#apps.$sys.graft.type"
-  expect "and the tools build" quiet nix build --no-link .#tools
-  git_ rm -q scions/sbbad && commit "no sbbad"
-
-  # graft's names
-  by_hand sbapp && commit sbapp
-  refused "sandbox: a provider's apps.sandbox" nix build --no-link .#tools
-  expect "is an error" holds "graft: apps sandbox (from sbapp): that name is graft's; the provider must rename it"
+  # mkFlake: graft-kits
+  ran "sb: graft-kits builds" nix build -o "$work/sbkits" ".#graft-kits"
+  ran "its kit.json" jq -c . "$work/sbkits/kit.json"
+  expect "holds the repo kit" holds '"self":{"file":"flake.nix (perSystem)","packages":["/nix/store/'
+  expect "and the scion kit, with its file" holds '"sbk":{"commands":{"sbk-tool":{"program":"/nix/store/'
+  expect "naming its graft.nix" holds '"file":"scions/sbk/graft.nix"'
+  expect "its tools hold graft" test -x "$work/sbkits/bin/graft"
+  expect "and the repo kit's packages" test -x "$work/sbkits/bin/hello"
+  ran "sb: kitArgs reaches the provider" "$work/sbkits/bin/sbk-tool"
+  expect "its value" has "sbk-tool hi"
+  expect "graft-kits has its closure" grep -q hello "$work/sbkits/closure"
+  ran "sb: the default devShell" nix eval --json ".#devShells.$sys.default.nativeBuildInputs" --apply 'map (p: p.name)'
+  refuse "holds no sandbox launcher" holds '"sandbox"'
+  refused "sb: v2.14.0's packages.sandbox is gone" nix eval --raw ".#packages.$sys.sandbox.drvPath"
+  by_hand sbold && commit sbold
+  refused "sb: a provider's sandbox" nix build --no-link .#graft-kits
+  expect "names kit" holds "graft: scions/sbold/graft.nix gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\`"
+  git_ rm -q scions/sbold && by_hand sbbadkit && commit sbbadkit
+  refused "sb: a kit with an unknown field" nix build --no-link .#graft-kits
+  expect "names the field and the file" holds "graft: scions/sbbadkit/graft.nix (kit): paths is not a kit field"
+  git_ rm -q scions/sbbadkit && by_hand sbapp && commit sbapp
+  refused "sb: a provider's apps.sb" nix build --no-link .#tools
+  expect "is reserved" holds "graft: apps sb (from sbapp): that name is graft's; the provider must rename it"
   git_ rm -q scions/sbapp && commit "no sbapp"
-  sed -i 's|mkFlake { inherit inputs;.*|mkFlake { inherit inputs; perSystem = { pkgs, ... }: { packages.sandbox = pkgs.hello; }; };|' flake.nix && commit "own packages.sandbox"
-  refused "sandbox: perSystem's packages.sandbox" nix build --no-link .#tools
-  expect "is an error" holds "graft: packages sandbox (from self): that name is graft's; rename the repo's own"
-  sed -i 's|mkFlake { inherit inputs;.*|mkFlake { inherit inputs; outputs.apps.'"$sys"'.sandbox = { type = "app"; program = "/bin/sh"; }; };|' flake.nix && commit "own apps.sandbox"
-  refused "sandbox: outputs' apps.sandbox" nix eval --raw ".#apps.$sys.sandbox.program"
-  expect "is an error" holds "graft: mkFlake's outputs has apps.$sys.sandbox: that name is graft's; rename the repo's own"
-  ran "sandbox: and graft's app evaluates" nix eval --raw ".#apps.$sys.graft.type"
-  sed -i 's|mkFlake { inherit inputs;.*|mkFlake { inherit inputs; outputs.packages.'"$sys"'.sandbox = inputs.self; };|' flake.nix && commit "own packages.sandbox in outputs"
-  refused "sandbox: outputs' packages.sandbox (it and apps.sandbox are one launcher)" nix eval --raw ".#packages.$sys.sandbox.outPath"
-  expect "is an error" holds "graft: mkFlake's outputs has packages.$sys.sandbox: that name is graft's; rename the repo's own"
-  own 'protect = [ "AGENTS.md" ];'
-  ran "sandbox: the default devShell holds the launcher" nix eval --json ".#devShells.$sys.default.nativeBuildInputs" --apply 'map (p: p.name)'
-  expect "sandbox" holds '"sandbox"'
-  ran "sandbox: apps.sandbox runs the launcher" nix eval --raw ".#apps.$sys.sandbox.program"
-  expect "bin/sandbox" holds "/bin/sandbox"
-  # macOS: the Seatbelt launcher evaluates here (it builds on a Mac alone: tests/macos-smoke.sh)
-  for d in aarch64-darwin x86_64-darwin; do
-    ran "sandbox: on $d, the Seatbelt launcher evaluates" nix eval --raw ".#packages.$d.sandbox.drvPath"
-    ran "its profile holds the closure" nix eval --raw ".#packages.$d.sandbox.text"
-    expect "and it runs sandbox-exec" holds "seatbelt.sh"
-  done
+  sed -i 's|perSystem = { pkgs, ... }: {|perSystem = { pkgs, ... }: { packages.graft-kits = pkgs.hello;|' flake.nix && commit "own graft-kits"
+  refused "sb: perSystem's packages.graft-kits" nix build --no-link .#tools
+  expect "is graft's" holds "graft: packages graft-kits (from self): that name is graft's; rename the repo's own"
+  sed -i 's|{ packages.graft-kits = pkgs.hello;|{|' flake.nix && commit "no own graft-kits"
+  local c2=$work/sbc2 && consumer "$c2" "$(printf '  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; outputs.packages.%s.sandbox = inputs.self; };' "$graft" "$sys")"
+  (cd "$c2" && commit init && refused "sb: outputs' packages.sandbox" nix eval --raw ".#packages.$sys.sandbox.outPath" \
+    && expect "is reserved" holds "graft: mkFlake's outputs has packages.$sys.sandbox: that name is reserved (graft sb)")
 
-  # the launcher
+  # graft.lib.mkRoot: a test root
+  local r=$work/sbroot && mkdir -p "$r" "$work/sbrootrepo" "$work/sbhidden"
+  git_ -C "$work/sbrootrepo" init -q && git_ -C "$work/sbrootrepo" commit -q --allow-empty -m init
+  cat > "$r/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  inputs.nixpkgs.follows = "graft/nixpkgs";
+  outputs = { graft, nixpkgs, ... }: {
+    packages = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (s: {
+      sb = graft.lib.mkRoot {
+        pkgs = nixpkgs.legacyPackages.\${s};
+        name = "test";
+        grantsFile = "$work/sbgrants/grants.json";
+        stateDir = "$work/sbstate";
+        rootRepos = [ "$work/sbrootrepo" ];
+        hidden = [ "$work/sbhidden" ];
+        kits.daniel.requests.network = [ "127.0.0.1:1" ];
+        contexts.work.include = [ "daniel" ];
+        contexts.readonly = { extends = "work"; access = "read"; };
+        inspect.home = [ ];
+      };
+    });
+  };
+}
+EOF
+  (cd "$r" && quiet nix flake lock)
+  ran "sb: mkRoot builds a root" nix build -o "$work/sbr" "path:$r#packages.$sys.sb"
+  ran "sb: on aarch64-darwin, the root evaluates" nix eval --raw "path:$r#packages.aarch64-darwin.sb.drvPath"
+  ran "and it is darwin's" nix eval --json "path:$r#packages.aarch64-darwin.sb.passthru.root.darwin"
+  expect "(it refuses at start, D21)" has "true"
+  ran "sb: graft's default root" nix eval --raw "path:$graft#packages.$sys.sb.drvPath"
+  ran "sb: apps.sb" nix eval --raw "path:$graft#apps.$sys.sb.program"
+  expect "runs sb" holds "/bin/sb"
+
   local bw && bw=$(nix build --no-link --print-out-paths "$np#bubblewrap")/bin/bwrap
-  if ! "$bw" --unshare-all --ro-bind / / true 2>/dev/null; then
-    echo "skip sandbox: the launcher's runs (bubblewrap can't create an unprivileged user namespace here)"
+  if ! "$bw" --unshare-all --unshare-user --disable-userns --ro-bind / / true 2>/dev/null; then
+    echo "skip sb: runs (bubblewrap can't create an unprivileged user namespace here)"
     return 0
   fi
-  local home=$work/sbhome && mkdir -p "$home" && echo "secret" > "$home/.secret"
-  # sb_ ARGS: the launcher (sbl builds it from the flake), with a HOME holding a secret, quiet;
-  # sb_loud: with its startup lines
+  # sb_ ARGS: the test root's sb, quiet, never as an agent (the marker would refuse the prompt);
+  # sb_loud: with its startup and exit lines
   # shellcheck disable=SC2317 # run through ran, expect and refuse
-  sb_() { GRAFT_SANDBOX_QUIET=1 sb_loud "$@"; }
+  sb_loud() { env -u CLAUDECODE -u CODEX_SANDBOX -u GRAFT_SANDBOX "$work/sbr/bin/sb" "$@"; }
   # shellcheck disable=SC2317
-  sb_loud() { HOME=$home "$work/sbl/bin/sandbox" "$@"; }
-  sbl() { nix build -o "$work/sbl" .#sandbox; }
-  sbl
-  ran "sandbox: a command runs, in the repository" sb_loud pwd
-  expect "there" has "$(pwd -P)"
-  expect "with a startup line" holds "graft: sandbox: $(pwd -P), "
-  expect "and no network" holds "; network: none"
-  expect "counting what isn't granted" holds "; 2 requests not granted: sandbox --explain"
-  ran "sandbox: GRAFT_SANDBOX_QUIET" sb_ true
-  expect "silences the startup line" test -z "$out"
-  # the caller's environment: none of it but TERM, COLORTERM and env.pass, not even in bwrap's (PID 1)
-  ran "sandbox: a variable env.pass doesn't name" env SB_DECOY=decoy-secret GRAFT_SANDBOX_QUIET=1 HOME="$home" "$work/sbl/bin/sandbox" bash -c 'cat /proc/[0-9]*/environ 2>/dev/null | tr "\0" "\n" | grep -c decoy-secret; tr "\0" " " </proc/1/cmdline'
-  expect "is in no process's environment" has "0"
-  expect "and bwrap's arguments name no host path" test "$(grep -c "$work" <<<"$out")" = 0
-  refused "sandbox: a command not in the closure" sb_ nosuch
-  expect "says so" has "graft: sandbox: nosuch is not on the sandbox's PATH: add its package to sandbox.packages, or run with --with PKG"
-  expect "exit 127" test "$(sb_ nosuch 2>/dev/null; echo $?)" = 127
-  refused "sandbox: an unknown option" sb_ --bogus
-  expect "is a usage error" holds "usage: sandbox [--with PKG]... [--allow HOST[:PORT]]... [--explain [--json]] [--dry-run] [--] [CMD [ARGS...]]"
-  expect "exit 2" test "$(sb_ --bogus 2>/dev/null; echo $?)" = 2
-  # shellcheck disable=SC2016 # the sandbox's bash expands them
-  ran "sandbox: the provider's package and value" sb_ bash -c 'hello; echo "SB_MODE=$SB_MODE"'
-  expect "hello" has "Hello, world!"
-  expect "SB_MODE" has "SB_MODE=strict"
-  # shellcheck disable=SC2016 # the sandbox's bash expands them
-  expect "sandbox: HOME is empty, and the host's files outside the repository are not there" sb_ bash -c '! test -e ~/.secret && ! test -e "$0"' "$work/src"
-  expect "sandbox: the repository is writable" sb_ bash -c 'echo new > new.md'
-  expect "on the host" test -f new.md
-  ran "sandbox: a commit inside" sb_ bash -c 'git add new.md && git commit -qm inside && git log -1 --format="%an %s"'
-  expect "with the host's identity" has "test inside"
-  expect "on the host" test "$(git_ log -1 --format=%s)" = inside
-  for p in AGENTS.md flake.nix flake.lock .gitmodules scions/sb/graft.nix scions/sb/.git .git/config .git/hooks/pre-commit .git/modules/scions/sb/config; do
-    refuse "sandbox: read-only: $p" sb_ bash -c "echo x >> $p" 2>/dev/null
-  done
-  refuse "sandbox: .git can't be renamed" sb_ mv .git .git2 2>/dev/null
-  refuse "sandbox: nor the folder holding a scion" sb_ mv scions s2 2>/dev/null
-  refuse "sandbox: nor a scion's" sb_ mv scions/sb scions/sb2 2>/dev/null
-  # the escape the git metadata rule stops: a planted core.fsmonitor that host git runs
-  refuse "sandbox: a planted core.fsmonitor" sb_ git config core.fsmonitor "touch $work/pwned" 2>/dev/null
-  git_ status >/dev/null
-  expect "host git status runs nothing" test ! -e "$work/pwned"
-  ran "sandbox: a nested repository, created inside" sb_ bash -c 'mkdir evil && git -C evil init -q'
-  expect "is reported after the run" holds "graft: sandbox: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from (in $(pwd -P)):"
-  expect "naming it" has "  evil/.git"
-  expect "with the next step" holds "git --no-pager config --file DIR/.git/config --list | cat -v"
-  rm -rf evil
-  # what the run names reaches the host's terminal with its control bytes shown, never sent
-  # shellcheck disable=SC2016 # the sandbox's bash expands them
-  ran "sandbox: a nested repository named with escape sequences" sb_ bash -c 'd=$(printf "x\033[2K\033[1Ay"); mkdir "$d" && git -C "$d" init -q'
-  expect "is reported, its control bytes shown" holds 'x\x1b[2K\x1b[1Ay/.git'
-  expect "and never sent" test "$(grep -c $'\033' <<<"$out")" = 0
-  rm -rf -- "x"$'\033'"[2K"$'\033'"[1Ay"
-  # a hard link: a pinned file written through another name
-  echo "echo hi" > j2 && ln j2 .envrc
-  refused "sandbox: a protected file with another hard link" sb_ true
-  expect "stops the run, naming it" has "graft: sandbox: .envrc has another hard link, so a run could write it through that link (a run must not write what decides the sandbox or what the host runs): replace it with a copy of its own (cp -p F F.copy && mv F.copy F), then run again"
-  rm .envrc j2
-  # symbolic links: the launcher can't pin through one, so it stops before the run
-  echo "recipe" > just-target && ln -s just-target justfile
-  refused "sandbox: a protected name that is a symbolic link" sb_ true
-  expect "stops the run, naming it" has "graft: sandbox: justfile is a symbolic link, so the sandbox can't make it read-only (a run must not write what decides the sandbox or what the host runs): replace the link with what it points to, or remove it, then run again"
-  rm justfile just-target
-  own 'protect = [ "AGENTS.md" "nix/agent-tools" ];' && sbl
-  ln -s "$home" nix
-  refused "sandbox: a directory on a protected path that is a symbolic link (planted: nix -> HOME)" sb_ true
-  expect "stops the run, naming both" has "graft: sandbox: nix is a symbolic link, so the sandbox can't pin nix/agent-tools, below it (a run must not write what decides the sandbox or what the host runs): replace the link with what it points to, or remove it, then run again"
-  rm nix
-  own 'protect = [ "AGENTS.md" ];' && sbl
-  # core.hooksPath in the repository: read-only too
-  mkdir -p .githooks && echo "#!/bin/sh" > .githooks/pre-commit && git_ config core.hooksPath .githooks
-  refuse "sandbox: core.hooksPath's hooks are read-only" sb_ bash -c 'echo x >> .githooks/pre-commit' 2>/dev/null
-  git_ config --unset core.hooksPath && rm -r .githooks
-  # a worktree: its common git directory is the repository's, pinned the same way
-  git_ worktree add -q "$work/sbwt" -b sbwt
-  (cd "$work/sbwt" && refuse "sandbox: in a worktree, the common config is read-only" sb_ bash -c "echo x >> '$c/.git/config'" 2>/dev/null)
-  (cd "$work/sbwt" && refuse "and its gitdir file" sb_ bash -c "echo x >> '$c/.git/worktrees/sbwt/gitdir'" 2>/dev/null)
-  (cd "$work/sbwt" && expect "and a commit works" sb_ bash -c 'echo w > w.md && git add w.md && git commit -qm in-worktree')
-  expect "on the host" test "$(git_ -C "$work/sbwt" log -1 --format=%s)" = in-worktree
-  git_ worktree remove --force "$work/sbwt"
-  # Ctrl-C: the command gets it, the launcher doesn't; its status and the checks after the run survive
-  if command -v script >/dev/null; then
-    # shellcheck disable=SC2016 # the sandbox's bash expands them
-    out=$( (sleep 1; printf '\003'; sleep 4) | script -qec "HOME='$home' GRAFT_SANDBOX_QUIET=1 '$work/sbl/bin/sandbox' bash -c 'trap \"echo got-INT\" INT; mkdir evil && git -C evil init -q; sleep 3; exit 3'" /dev/null 2>&1) && st=0 || st=$?
-    expect "sandbox: Ctrl-C reaches the command" holds "got-INT"
-    expect "its exit status passes through" test "$st" = 3
-    expect "and the warning still prints" holds "  evil/.git"
-    rm -rf evil
-    # a run keeps the caller's terminal, but can't type into it (TIOCSTI)
-    printf 'import fcntl, termios\ntry:\n  fcntl.ioctl(0, termios.TIOCSTI, b"x"); print("typed")\nexcept OSError as e: print("refused", e.errno)\n' > sti.py
-    ran "sandbox: TIOCSTI, on a terminal" script -qec "HOME='$home' GRAFT_SANDBOX_QUIET=1 '$work/sbl/bin/sandbox' python3 sti.py" /dev/null
-    expect "is refused" holds "refused 1"
-    rm sti.py
-  fi
-  ran "sandbox: no network: the loopback alone" sb_ cat /proc/net/dev
-  expect "lo" test "$(grep -c : <<<"$out")" = 1
-  refused "sandbox: outside a git repository" bash -c "cd '$work' && HOME='$home' '$work/sbl/bin/sandbox' true"
-  expect "says so" holds "is not in a git repository: a run writes to the repository around the current directory"
-  ran "sandbox: --with" sb_loud --with jq -- jq -n '1 + 1'
-  expect "runs the package" has "2"
-  expect "and says so" holds "graft: sandbox: with jq 1."
-  expect "from graft's nixpkgs (the flake has none)" holds "(graft's nixpkgs), for this run"
-  ran "sandbox: --explain" sb_ --explain
-  expect "names the provider's graft.nix" holds "scions/sb/graft.nix"
-  expect "and what isn't granted" holds "requested, not granted"
-  ran "sandbox: --explain --json" sb_ --explain --json
-  expect "is JSON" test "$(jq -r '.notGranted | length' <<<"$out")" = 2
-  ran "sandbox: --allow and --with on --explain" sb_ --allow x.example --with jq --explain
-  expect "the host, from the command line" grep -qE '^  network\.allow x\.example +command line$' <<<"$out"
-  expect "and the package" grep -qE '^  packages jq +command line$' <<<"$out"
-  ran "sandbox: --dry-run" sb_ --allow 127.0.0.1:1 --dry-run touch dry-ran
-  expect "prints the command" holds " --args 3 --args 7 --args 6 -- "
-  expect "and runs nothing" test ! -e dry-ran
-  refused "sandbox: --allow, not a host" sb_ --allow https://x
-  expect "is a usage error" holds "graft: sandbox: --allow https://x: give \"host\" or \"host:port\""
+  sb_() { GRAFT_SANDBOX_QUIET=1 sb_loud "$@"; }
+  # tty_ ANSWERS CMD: CMD on a terminal, its prompts answered from ANSWERS (one line each)
+  # shellcheck disable=SC2317
+  tty_() { local a=$1; shift; (sleep 2; printf '%s' "$a") | script -qec "env -u CLAUDECODE -u CODEX_SANDBOX -u GRAFT_SANDBOX $*" /dev/null; }
 
-  # granted: the network, through the proxy (no internet needed: the proxy's answer is the test)
-  own 'protect = [ "AGENTS.md" ]; grant = [ "sb" ];' && sbl
-  # shellcheck disable=SC2016 # the sandbox's bash expands them
-  ask='exec 3<>/dev/tcp/127.0.0.1/3128; printf "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n" "$1" "$1" >&3; head -1 <&3'
-  ran "sandbox: a host not allowed" sb_ bash -c "$ask" _ denied.example:443
-  expect "the proxy refuses it" holds "HTTP/1.1 403 Forbidden (graft sandbox: not in network.allow)"
-  expect "and says so after the run" has "graft: sandbox: the proxy refused: denied.example:443 (1); network.allow lists the hosts a run may reach"
-  ran "sandbox: a CONNECT with escape sequences in its host" sb_ bash -c "$ask" _ "$(printf '\033[2Kevil'):443"
-  expect "is refused as malformed" holds "HTTP/1.1 400 Bad Request"
-  expect "and summarised without its bytes" has "graft: sandbox: the proxy refused: (malformed) (1); network.allow lists the hosts a run may reach"
-  expect "nothing raw" test "$(grep -c $'\033' <<<"$out")" = 0
-  ran "sandbox: the startup line" sb_loud true
-  expect "lists the granted host" holds "; network: api.sb.example"
-  ran "sandbox: an allowed host, --allow (nothing listens on 127.0.0.1:1: Bad Gateway)" sb_ --allow 127.0.0.1:1 bash -c "$ask" _ 127.0.0.1:1
-  expect "passes the allowlist" holds "HTTP/1.1 502 Bad Gateway"
-  if command -v script >/dev/null; then
-    ran "sandbox: with network, on a terminal" script -qec "HOME='$home' GRAFT_SANDBOX_QUIET=1 '$work/sbl/bin/sandbox' bash -c 'test -t 0 && echo stdin-tty'" /dev/null
-    expect "the command keeps it" holds "stdin-tty"
-  fi
-  own 'repository.readOnly = true;' && sbl
-  refuse "sandbox: repository.readOnly = true" sb_ touch x 2>/dev/null
-  ran "sandbox: the startup line" sb_loud true
-  expect "says read-only" holds "graft: sandbox: $(pwd -P) read-only; "
+  refused "sb: never granted, no terminal" sb_loud true
+  expect "stops with the diff" holds "graft sandbox (work): daniel (root:daniel) requests reach that is not granted:"
+  expect "each item" holds "  + network 127.0.0.1:1"
+  expect "and the fix" holds "  grant it: sb grant daniel"
+  sb_ true >/dev/null 2>&1 && st=0 || st=$?
+  expect "exit 125" test "$st" = 125
+  refused "sb: sb grant under an agent marker" env CLAUDECODE=1 "$work/sbr/bin/sb" grant
+  expect "is refused" holds "sb grant is for people: CLAUDECODE is set"
+  ran "sb: the inline first-grant prompt, at a terminal" tty_ $'y\n' "$work/sbr/bin/sb" echo ran-after-grant
+  expect "asks" holds "daniel   root kit (root:daniel), for every run that uses it   not granted"
+  expect "ordinary items together" holds "grant these? [y/N]"
+  expect "and the run continues" holds "ran-after-grant"
+  ran "the grants file" jq -c '.grants["root:daniel"].requests' "$work/sbgrants/grants.json"
+  expect "holds the approved set" has '["network 127.0.0.1:1"]'
+  ran "sb: sb grant, nothing new" sb_ grant
+  expect "says so" has "sb grant: every kit here is granted"
+
+  ran "sb: a command runs, in the repository" sb_loud pwd
+  expect "there" has "$(pwd -P)"
+  expect "with a startup line" holds "sb: work · sbc · sb explain"
+  # shellcheck disable=SC2016 # the run's shell expands them
+  ran "sb: the run's environment" sb_ bash -c 'echo "ctx=$GRAFT_SANDBOX home=$HOME tools=${GRAFT_SANDBOX_TOOLS:+set}"; ls -A ~; hello; cat /run/graft-sandbox/policy.json | jq -r .context; head -1 /run/graft-sandbox/README.md'
+  expect "GRAFT_SANDBOX is the context" holds "ctx=work home="
+  expect "the repo tools" holds "tools=set"
+  expect "HOME holds the hidden list and the gitconfig" holds ".graft-sandbox-hidden"
+  expect "the repo kit's package" holds "Hello, world!"
+  expect "policy.json" has "work"
+  expect "the README" has "# graft sandbox: this run (work)"
+  ran "sb: ~/.graft-sandbox-hidden" sb_ bash -c 'cat ~/.graft-sandbox-hidden'
+  expect "lists the root's hidden paths" has "$work/sbhidden"
+  # shellcheck disable=SC2088 # sb prints ~ literally
+  expect "and graft's" has "~/.ssh"
+  ran "sb: the caller's variables" env SB_DECOY=decoy-secret GRAFT_SANDBOX_QUIET=1 "$work/sbr/bin/sb" bash -c 'env | grep -c decoy-secret; tr "\0" " " </proc/1/cmdline'
+  expect "none of them" has "0"
+  refuse "and no host path on bwrap's command line" holds "$work/sbstate"
+
+  # protections
+  for p in justfile AGENTS.md sbk.yaml flake.nix .gitmodules .git/config; do
+    refuse "sb: read-only: $p" sb_ bash -c "echo x >> $p" 2>/dev/null
+  done
+  expect "sb: the repository is writable" sb_ bash -c 'echo y >> notes.md'
+  refuse "sb: .git can't be renamed" sb_ mv .git .git2 2>/dev/null
+  refuse "sb: nor a scion's folder" sb_ mv scions/sbk scions/sbk2 2>/dev/null
+  ran "sb: a commit inside" sb_ bash -c 'git add notes.md && git commit -qm inside && git log -1 --format=%s'
+  expect "is made" has "inside"
+  ran "sb: a nested repository, made inside" sb_loud bash -c 'mkdir evil && git -C evil init -q'
+  expect "is reported after the run" holds "sb: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from: evil/.git"
+  rm -rf -- "$c/evil"
+  ln AGENTS.md "$work/sb-agents-link"
+  refused "sb: a protected file with another hard link" sb_ true
+  expect "stops the run" holds "graft sandbox (work): AGENTS.md has another hard link"
+  rm -f -- "$work/sb-agents-link"
+  ln -s "$work" linked && sed -i 's|protect = \[ "AGENTS.md" \]|protect = [ "AGENTS.md" "linked/x" ]|' flake.nix && commit "a link"
+  refused "sb: a link on a protected path" sb_ true
+  expect "stops the run" holds "graft sandbox (work): linked is a symbolic link, so the sandbox can't pin linked/x, below it"
+  git_ rm -q linked && sed -i 's| "linked/x"||' flake.nix && commit "no link"
+
+  # hidden, and reach flags
+  refused "sb: --read of a hidden path" sb_ --read "$work/sbhidden" true
+  expect "is refused" holds "graft sandbox (work): --read $work/sbhidden: which resolves into a hidden path"
+  refused "sb: --read of sb's state" sb_ --read "$work/sbstate" true
+  expect "is refused" holds "which is sb's own state"
+  mkdir -p "$work/sbextra" && echo extra > "$work/sbextra/f"
+  ran "sb: --read" sb_loud --read "$work/sbextra" cat "$work/sbextra/f"
+  expect "reads it" has "extra"
+  expect "and the exit line names the permanent fix" holds "sb: --read $work/sbextra was for this run; permanent: the repo kit's requests.read (perSystem.kit), or programs.sb.kits.daniel.requests.read for every repository"
+  refuse "sb: without --read, it is not there" sb_ cat "$work/sbextra/f" 2>/dev/null
+
+  # network: through the proxy, to granted hosts alone; denials reach the run and the exit line
+  # shellcheck disable=SC2016 # the run's shell expands them
+  local ask='exec 3<>/dev/tcp/127.0.0.1/3128 && printf "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n" "$1" "$1" >&3 && head -1 <&3'
+  ran "sb: a host not granted" sb_loud bash -c "$ask; cat /run/graft-sandbox/denials" _ denied.example:443
+  expect "the proxy refuses it" holds "HTTP/1.1 403 Forbidden (graft sandbox: not in this run)"
+  expect "the run reads the denial" holds "graft sandbox (work): the run tried denied.example:443 (not in this run): sb why denied.example"
+  expect "and the exit line says so" holds "graft sandbox (work): the run tried denied.example:443 (1x, not in this run): sb why denied.example"
+  ran "sb: a granted host (nothing listens: Bad Gateway)" sb_ bash -c "$ask" _ 127.0.0.1:1
+  expect "passes the proxy" holds "HTTP/1.1 502 Bad Gateway"
+  ran "sb: the readonly context" sb_loud readonly bash -c 'cat /proc/net/dev; echo z >> notes.md' 
+  expect "has no write" holds "Read-only file system"
+  ran "sb: a log per run" bash -c "cat '$work'/sbstate/runs/*/log.jsonl"
+  expect "start" holds '"ev":"start","by":"host"'
+  expect "after" holds '"ev":"after","by":"host"'
+
+  # explain and why
+  ran "sb: explain" sb_ explain
+  expect "the context" holds "context    work: in-place, access write, bubblewrap; includes root:daniel"
+  expect "the repo kit's protect" holds "AGENTS.md (repo:"
+  expect "the scion kit's" holds "sbk.yaml (git:file://$work/sbk.git)"
+  ran "sb: explain --json" sb_ explain --json
+  expect "is policy.json v1" test "$(jq -c '[.version, .context, .mode, (.children|length)]' <<<"$out")" = '[1,"work","in-place",0]'
+  ran "sb: explain --backend-command" sb_ explain --backend-command true
+  expect "prints bwrap's" holds "--disable-userns"
+  ran "sb: why, on the host" sb_ why justfile
+  expect "protected" holds "graft sandbox (work): justfile is protected (**/justfile, the root (graft))"
+  ran "sb: why, inside a run" sb_ bash -c 'sb why denied.example; sb why 127.0.0.1:1; sb why ~/.ssh'
+  expect "a host not in the run" holds "graft sandbox (work): the run tried denied.example:443 (not in this run)"
+  expect "a granted host" holds "127.0.0.1:1 is in this run: from root:daniel"
+  # shellcheck disable=SC2088 # sb prints ~ literally
+  expect "a hidden path" holds "~/.ssh is hidden by your root in every run"
+  refused "sb: sb inside a run" sb_ sb true
+  expect "nests from 1b" holds "graft sandbox (work): sb inside a run starts nested runs from 1b"
+  refused "sb: sb grant inside a run" sb_ sb grant
+  expect "is the host's" holds "sb grant is for people, on the host"
+
+  # grants: grown sets, arrival by git, a file that does not parse
+  sed -i 's|kit = { protect|kit = { requests.network = [ "more.example" ]; protect|' flake.nix && commit "more"
+  refused "sb: a repo kit that asks for more" sb_ true
+  expect "stops" holds "requests reach that is not granted:"
+  expect "with the item" holds "  + network more.example:443"
+  ran "sb: sb grant --diff" sb_ grant --diff
+  expect "names it" holds "  + network more.example:443"
+  sed -i 's|requests.network = \[ "more.example" \]; ||' flake.nix && commit "less"
+  cp "$work/sbgrants/grants.json" "$work/sbgrants.bak"
+  jq '.grants["root:other"] = {"digest": "sha256-oaSD3ZR42IHM3yEsKFP/Ju4UQS4wSvN6iEQmIRsnNSM=", "requests": ["x"]}' "$work/sbgrants.bak" > "$work/sbgrants/grants.json"
+  ran "sb: grants that arrived by git" sb_loud true
+  expect "one line" holds "sb: 1 grant arrived by git: sb grant --diff"
+  echo '{' > "$work/sbgrants/grants.json"
+  refused "sb: a grants file that does not parse" sb_ true
+  expect "stops every run" holds "the grants file does not parse"
+  cp "$work/sbgrants.bak" "$work/sbgrants/grants.json"
+
+  # root repositories, contexts, verbs
+  (cd "$work/sbrootrepo" && refused "sb: work in a root repository" sb_ true \
+    && expect "is refused (D23)" holds "is a root: sb inspect, or claude (unsandboxed) until sb dispatch (1b)")
+  refused "sb: --repo to a root repository" sb_ --repo "$work/sbrootrepo" true
+  expect "is refused" holds "is a root: sb inspect"
+  refused "sb: dispatch" sb_ dispatch true
+  expect "lands in 1b" holds "clone mode (dispatch) lands in 1b"
+  refused "sb: run is reserved" sb_ run true
+  expect "says so" holds "sb run is reserved"
+  refused "sb: serve is reserved" sb_ serve
+  refused "sb: outside a git repository" bash -c "cd '$work' && GRAFT_SANDBOX_QUIET=1 '$work/sbr/bin/sb' true"
+  expect "names inspect and host" holds "is not inside a git repository: sb inspect CMD, or sb host CMD"
+  ran "sb: host" sb_loud host true
+  expect "says no sandbox" holds "sb: host · no sandbox · logged as "
+  refused "sb: a program not in the run" sb_ nosuch
+  expect "says how to add it" holds "graft sandbox (work): nosuch is not in this run. one run: sb --package PKG"
+
+  # inspect (D20): its own pid namespace, the workspace read-only, secrets and sockets masked
+  echo "TOKEN=secret-value" > .env && echo "keep" > .envrc.example
+  python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$c/sb.sock"
+  # shellcheck disable=SC2016 # the run's shell expands them
+  ran "sb: inspect" sb_ inspect bash -c 'ps -e | wc -l; cat .env; echo "[$(cat .env)]"; cat .envrc.example; test -S sb.sock && echo sock || echo nosock; touch x 2>&1; ls -A /tmp | wc -l'
+  expect "its own processes" test "$(head -1 <<<"$out")" -lt 6
+  expect "a secret is empty" holds "[]"
+  refuse "its value never shows" holds "secret-value"
+  expect "other files read" holds "keep"
+  expect "a socket masked" holds "nosock"
+  expect "nothing written" holds "Read-only file system"
+  rm -f -- .env .envrc.example sb.sock
+  (cd "$work/sbrootrepo" && ran "sb: inspect in a root repository" sb_ inspect true)
+
+  # sb init
+  local i=$work/sbinit
+  ran "sb: init" env GRAFT_SB_INIT_GRAFT="path:$graft" "$work/sbr/bin/sb" init "$i"
+  expect "writes a flake" test -f "$i/flake.nix"
+  expect "names mkRoot" grep -q "graft.lib.mkRoot" "$i/flake.nix"
+  refused "sb: init again" "$work/sbr/bin/sb" init "$i"
+  (cd "$i" && quiet nix flake lock)
+  ran "sb: the init flake builds" nix build --no-link "path:$i#packages.$sys.sb"
+  cd "$work"
 }
 
 # The Seatbelt profile (lib/sandbox/seatbelt.sh, seatbelt.sb), generated here from fixtures: macOS
@@ -1452,7 +1470,7 @@ sec_own() {
     test -z "$(grep -E '^[^#]*submodules *= *true' "$src/flake.nix")"
 }
 
-sections=(own mkflake tarball nix try seatbelt sandbox add sync check outdated changelog upgrade graft workflows ci migrate)
+sections=(own mkflake tarball nix try seatbelt sb add sync check outdated changelog upgrade graft workflows ci migrate)
 [ $# -eq 0 ] || sections=("$@")
 for s in "${sections[@]}"; do
   echo "== $s"

@@ -8,42 +8,43 @@
 # A scion whose repository has a `graft.nix` at its top is a provider: graft.nix is a function
 #
 #   { pkgs, lib, system, scion, scions, consumer, ... }:
-#   { requires ? {}; tools ? {}; apps ? {}; packages ? {}; checks ? {}; sandbox ? {}; ... }
+#   { requires ? {}; tools ? {}; apps ? {}; packages ? {}; checks ? {}; kit ? {}; ... }
 #
 # called once per system, with the repo's own `inputs.nixpkgs` (else graft's) as pkgs; scion is this
 # scion alone, copied to the store without its .git file; scions.<name> is every scion (its store
-# copy as outPath, merged with that provider's result); consumer is the repo's flake source. The
+# copy as outPath, merged with that provider's result); consumer is the repo's flake source; and,
+# when the function names it, kitArgs: the consumer's perSystem.kitArgs.<scion> (default { }). The
 # repo's own `perSystem` ({ pkgs, lib, system, scions, ... }: { tools; apps; packages; checks;
-# devShells; sandbox; }) is merged the same way, named `self` in messages. mkFlake merges:
+# devShells; kit; kitArgs; }) is merged the same way, named `self` in messages. mkFlake merges:
 #
 #   tools      one pkgs.buildEnv, packages.<system>.tools; a name two give is an error, unless both
 #              are the same store path
 #   apps packages
-#              by name; a duplicate is an error, and so are apps.graft, apps.sandbox, packages.tools
-#              and packages.sandbox (graft's)
+#              by name; a duplicate is an error, and so are apps.graft, packages.tools and
+#              packages.graft-kits (graft's), and the reserved names sandbox and sb
 #   checks     checks.<system>.<scion>-<name>; perSystem's as checks.<system>.<name>
 #   devShells  perSystem's only; devShells.<system>.default, when none is defined: a shell with the
-#              tools and the sandbox launcher
+#              tools
 #   requires   { name = "url"; }: siblings the provider needs; a missing one is an error naming
 #              `graft add url`
-#   sandbox    a module (lib/sandbox/options.nix), with graft's base: packages.<system>.sandbox, the
-#              launcher (passthru.policy, passthru.explain), and apps.<system>.sandbox. A provider's
-#              packages, env.set and protect apply; its paths, network.allow and env.pass are
-#              requests, applied when perSystem's sandbox.grant names the scion (lib/sandbox/policy.nix)
+#   kit        each provider's (a scion kit) and perSystem's (the repo kit), as data (lib/sb/kit.nix):
+#              packages.<system>.graft-kits, which graft sb builds with path: and reads: kit.json (the
+#              repo kit and each provider's), bin/ (the tools, graft's CLI, the repo kit's packages)
+#              and closure. graft v2.14.0's `sandbox` is an error naming `kit`.
 #
 # plus apps.<system>.graft, the graft command (lib/graft.sh). The repo's own `outputs` are merged
-# last (per system, per name), so the repo can add or override; apps.<system>.graft,
-# apps.<system>.sandbox and packages.<system>.sandbox are graft's, and a repo's own is an error
-# raised by graft's own value.
+# last (per system, per name), so the repo can add or override; apps.<system>.graft and
+# packages.<system>.graft-kits are graft's, and a repo's own is an error raised by graft's own value;
+# sandbox and sb are reserved names in apps and packages.
 #
 # Every check on the scions (the marker README, .gitmodules against what the source holds, names,
 # requires, collisions) is an error inside the values it guards, never on an attribute set's names,
 # and the names a provider gives are read so that a failing provider gives none (builtins.tryEval):
 # apps.<system>.graft (`graft sync` fills empty scions) and the repo's own outputs evaluate
-# whatever state the scions are in; the sandbox, like the tools, fails on a failing provider. An
+# whatever state the scions are in; graft-kits, like the tools, fails on a failing provider. An
 # empty scion (a path: flake's fresh clone; a private one left uninitialised) fails only what uses
 # it (scions.<name>); the tools leave its own out, with a warning.
-{ nixpkgs, systems, cli }:
+{ nixpkgs, systems, cli, sbSrc }:
 
 { inputs, dir ? "scions", perSystem ? null, outputs ? { } }:
 
@@ -130,10 +131,13 @@ let
       # an error inside a provider names it
       ctx = n: x: if n == "self" then x
         else builtins.addErrorContext "while evaluating ${dir}/${n}/graft.nix (graft calls it for the scion ${n})" x;
-      raw = lib.genAttrs providers (n: ctx n (import "${copies.${n}}/graft.nix" (args // {
-        scion = copies.${n};
-        consumer = inputs.self;
-      }))) // lib.optionalAttrs (perSystem != null) { self = perSystem args; };
+      # kitArgs: the consumer's perSystem.kitArgs.<scion>, for a provider whose function names it
+      kitArgsOf = n: (raw.self.kitArgs or { }).${n} or { };
+      raw = lib.genAttrs providers (n: ctx n (
+        let f = import "${copies.${n}}/graft.nix"; in
+        f (args // { scion = copies.${n}; consumer = inputs.self; }
+          // lib.optionalAttrs ((builtins.functionArgs f) ? kitArgs) { kitArgs = kitArgsOf n; })))
+        // lib.optionalAttrs (perSystem != null) { self = perSystem args; };
       # a provider's result, its requires asserted before anything else of it is used
       results = lib.mapAttrs (n: r:
         let
@@ -175,23 +179,42 @@ let
       # graft's own names, taken by a unit: raised by the tools, which every repo builds
       taken = kind: k: map (n: "graft: ${kind} ${k} (from ${n}): that name is graft's; ${if n == "self" then "rename the repo's own" else "the provider must rename it"}")
         (lib.filter (n: lib.elem k (keysOf n kind)) units);
-      reserved = taken "apps" "graft" ++ taken "apps" "sandbox" ++ taken "packages" "tools" ++ taken "packages" "sandbox";
+      reserved = taken "apps" "graft" ++ taken "packages" "tools"
+        ++ lib.concatMap (k: taken "apps" k ++ taken "packages" k) [ "sandbox" "sb" "graft-kits" ];
       warnEmpty = x: if empty == [ ] then x
         else lib.warn (emptyMsg empty ", so the tools leave out what ${if lib.length empty == 1 then "it gives" else "they give"}") x;
       toolsEnv = ok (if reserved != [ ] then throw (lib.concatStringsSep "\n" reserved)
         else warnEmpty (pkgs.buildEnv { name = "tools"; paths = lib.attrValues tools; }));
-      # the sandbox launcher (lib/sandbox): graft's base, each provider's `sandbox` and perSystem's.
-      # Its name is graft's, its value lazy: a provider whose sandbox fails fails it alone
-      sandbox = ok (import ./sandbox {
-        inherit pkgs dir;
-        nixpkgs = inputs.nixpkgs or nixpkgs;
-        nixpkgsFrom = if inputs ? nixpkgs then "the flake's nixpkgs" else "graft's nixpkgs";
-        tools = toolsEnv;
-        scions = names;
-        providers = lib.listToAttrs (lib.concatMap (n:
-          lib.optional (ctx n (results.${n} ? sandbox)) (lib.nameValuePair n (ctx n results.${n}.sandbox))) providers);
-        consumer = results.self.sandbox or null;
-      });
+      # graft-kits: the repo kit (perSystem's `kit`) and each provider's, for graft sb (lib/sb). v2.14.0's
+      # `sandbox` is an error that names its replacement
+      kitLib = import ./sb/kit.nix { inherit lib; };
+      kitOf = n: let r = results.${n}; in
+        if r ? sandbox then throw "graft: ${if n == "self" then "the consumer's perSystem" else "${dir}/${n}/graft.nix"} gives `sandbox`: graft v2.15.0 replaced it with `kit` (graft sb; see graft's CHANGELOG)"
+        else r.kit or null;
+      kitFile = n: if n == "self" then "flake.nix (perSystem)" else "${dir}/${n}/graft.nix";
+      kitData = lib.filterAttrs (_: v: v != null) (lib.genAttrs units (n:
+        let k = ctx n (kitOf n); in if k == null then null else kitLib.manifest { kit = k; file = kitFile n; }));
+      kitRoots = lib.concatMap (n: let k = ctx n (kitOf n); in if k == null then [ ] else kitLib.roots k) units;
+      graftForRepo = cli pkgs { GRAFT_DIR = dir; GRAFT_IN_REPO = "1"; };
+      selfKit = if perSystem != null then kitOf "self" else null;
+      kitTools = pkgs.buildEnv { name = "graft-kits-tools"; paths = lib.attrValues tools ++ [ graftForRepo ]
+        ++ (if selfKit == null then [ ] else selfKit.packages or [ ]); };
+      graftKits = ok (pkgs.runCommand "graft-kits" {
+        nativeBuildInputs = [ pkgs.python3 ];
+        kitJson = builtins.toJSON {
+          version = 1; inherit dir;
+          self = kitData.self or null;
+          file = "flake.nix (perSystem)";
+          scions = removeAttrs kitData [ "self" ];
+        };
+        passAsFile = [ "kitJson" ];
+      } ''
+        mkdir -p $out
+        cp "$kitJsonPath" $out/kit.json
+        python3 -I ${sbSrc}/compose.py validate $out/kit.json
+        ln -s ${kitTools}/bin $out/bin
+        cp ${pkgs.closureInfo { rootPaths = [ kitTools ] ++ kitRoots; }}/store-paths $out/closure
+      '');
       devShells = lib.mapAttrs (_: ok) (results.self.devShells or { });
       ownDefault = devShells ? default || outputs ? devShells.${system}.default;
     in
@@ -199,13 +222,14 @@ let
       # packages' names by keysOf too: `nix build .#NAME` and `nix eval` look in packages.<system>
       # first, so its names must evaluate for the repo's own outputs (and apps.graft) to; the tools
       # (strict) fail on the provider instead
-      packages = removeAttrs (merge keysOf "packages") [ "tools" "sandbox" ] // { tools = toolsEnv; inherit sandbox; };
-      apps = removeAttrs (merge keysOf "apps") [ "graft" "sandbox" ];
+      packages = removeAttrs (merge keysOf "packages") [ "tools" "graft-kits" "sandbox" "sb" ]
+        // { tools = toolsEnv; graft-kits = graftKits; };
+      apps = removeAttrs (merge keysOf "apps") [ "graft" "sandbox" "sb" "graft-kits" ];
       checks = lib.foldl' (acc: n:
         acc // lib.listToAttrs (map (k: lib.nameValuePair (if n == "self" then k else "${n}-${k}")
           (ok (ctx n results.${n}.checks.${k}))) (keysStrict n "checks"))) { } units;
       devShells = devShells // lib.optionalAttrs (!ownDefault) {
-        default = ok (pkgs.mkShell { packages = [ toolsEnv sandbox ]; });
+        default = ok (pkgs.mkShell { packages = [ toolsEnv ]; });
       };
     };
 
@@ -217,11 +241,14 @@ let
   merged = lib.recursiveUpdateUntil
     (path: l: r: lib.length path >= 3 || !(builtins.isAttrs l && builtins.isAttrs r)) graftOut outputs;
 
-  # graft's own outputs: the repo's own `outputs` may not replace them (`nix run .#sandbox` and
-  # `nix build .#sandbox` are one launcher)
+  # graft's own outputs: the repo's own `outputs` may not replace them; sandbox and sb are reserved
   own = system: kind: k: v: if outputs ? ${kind}.${system}.${k}
     then throw "graft: mkFlake's outputs has ${kind}.${system}.${k}: that name is graft's; rename the repo's own"
     else v;
+  reservedOut = lib.concatMap (kind: lib.concatMap (s: map (k: "graft: mkFlake's outputs has ${kind}.${s}.${k}: that name is reserved (graft sb); rename the repo's own")
+    (lib.filter (k: lib.elem k [ "sandbox" "sb" ]) (lib.attrNames (outputs.${kind}.${s} or { }))))
+    (lib.attrNames (outputs.${kind} or { }))) [ "apps" "packages" ];
+  noReserved = v: if reservedOut == [ ] then v else throw (lib.concatStringsSep "\n" reservedOut);
   graftApps = system:
     let pkgs = nixpkgs.legacyPackages.${system}; in
     lib.mapAttrs (own system "apps") {
@@ -230,16 +257,11 @@ let
         program = lib.getExe (cli pkgs { GRAFT_DIR = dir; GRAFT_IN_REPO = "1"; });
         meta.description = "graft: add, sync, check, outdated, upgrade, changelog, migrate, ci";
       };
-      sandbox = {
-        type = "app";
-        program = lib.getExe bySystem.${system}.packages.sandbox;
-        meta.description = "Run a command in the repository's sandbox; sandbox --explain prints its policy";
-      };
     };
 in
 merged // {
-  apps = (merged.apps or { }) // lib.genAttrs systems (s: (merged.apps.${s} or { }) // graftApps s);
-  packages = (merged.packages or { }) // lib.genAttrs systems (s: (merged.packages.${s} or { }) // {
-    sandbox = own s "packages" "sandbox" bySystem.${s}.packages.sandbox;
+  apps = (merged.apps or { }) // lib.genAttrs systems (s: lib.mapAttrs (_: noReserved) (merged.apps.${s} or { }) // graftApps s);
+  packages = (merged.packages or { }) // lib.genAttrs systems (s: lib.mapAttrs (_: noReserved) (merged.packages.${s} or { }) // {
+    graft-kits = own s "packages" "graft-kits" bySystem.${s}.packages.graft-kits;
   });
 }

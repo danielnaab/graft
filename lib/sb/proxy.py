@@ -1,14 +1,16 @@
 """graft's sandbox proxy, on the host: a run's only way out to the network.
 
-Usage: proxy.py LISTEN HOST:PORT...
+Usage: proxy.py LISTEN [--denials FILE --context NAME] HOST:PORT...
 
 LISTEN is a unix socket path (bubblewrap: the launcher binds it into the run, where socat serves it
 as 127.0.0.1:3128), or tcp:ADDRESS:PORT (Seatbelt: 127.0.0.1, port 0 for a free one; the proxy
 writes "LISTENING PORT" first, and the run's profile allows connecting to that port alone). It
 forwards CONNECT requests (HTTPS) and absolute-form HTTP requests to the HOST:PORT pairs given (the
 policy's network.allow, each host with its ports), and refuses the rest. A host may use fnmatch
-patterns ("*.example.com"). Writes one line per request: ALLOW or DENY, then host:port. It exits
-when the launcher, its parent, is gone.
+patterns ("*.example.com"). Writes one line per request: ALLOW or DENY, then host:port. With
+--denials, it also appends each newly refused host:port to FILE, once, as the message the run reads
+(/run/graft-sandbox/denials; the claude-code kit's hook passes new lines to the model). It exits when
+the launcher, its parent, is gone.
 """
 import asyncio
 import fnmatch
@@ -18,9 +20,28 @@ import sys
 import urllib.parse
 
 
-LISTEN, RULES = sys.argv[1], [e.rpartition(":")[::2] for e in sys.argv[2:]]
+ARGS = sys.argv[2:]
+DENIALS = CONTEXT = None
+while ARGS and ARGS[0] in ("--denials", "--context"):
+    if ARGS[0] == "--denials":
+        DENIALS = ARGS[1]
+    else:
+        CONTEXT = ARGS[1]
+    ARGS = ARGS[2:]
+LISTEN, RULES = sys.argv[1], [e.rpartition(":")[::2] for e in ARGS]
+DENIED = set()
 # a host name, an IPv4 literal, or an IPv6 literal in brackets: nothing else is looked up, or logged
 HOST = re.compile(r"[A-Za-z0-9_.-]+|\[?[0-9A-Fa-f:.]+\]?")
+
+
+def denied(what):
+    """The run's own record of a refusal: one line per new host:port, never the raw bytes."""
+    if DENIALS is None or what in DENIED:
+        return
+    DENIED.add(what)
+    host = what.rpartition(":")[0] if what != "(malformed)" else what
+    with open(DENIALS, "a") as f:
+        f.write(f"graft sandbox ({CONTEXT}): the run tried {what} (not in this run): sb why {host}\n")
 
 
 def allowed(host, port):
@@ -70,12 +91,14 @@ async def handle(r, w):
     except ValueError:
         # never the raw bytes: the launcher prints this log on the host's terminal
         print("DENY (malformed)", flush=True)
+        denied("(malformed)")
         await refuse(w, "400 Bad Request")
         return
     ok = allowed(host, port)
     print(f"{'ALLOW' if ok else 'DENY'} {host}:{port}", flush=True)
     if not ok:
-        await refuse(w, "403 Forbidden (graft sandbox: not in network.allow)")
+        denied(f"{host}:{port}")
+        await refuse(w, "403 Forbidden (graft sandbox: not in this run)")
         return
     try:
         ur, uw = await asyncio.open_connection(host.strip("[]"), port)
