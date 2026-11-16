@@ -51,8 +51,8 @@ are in [Sandbox](../reference/sandbox.md#the-model).
    ```
 
    Type `y` for each set that you accept. Each powerful item, such as the login `credential`, asks on its own:
-   `grant? [y/N]`. The repo kit and any scion kits that were never granted come next, in the same prompt. The
-   prompt appears only at a terminal; elsewhere the run stops with exit 125 and `sb grant KIT`.
+   `grant? [y/N]`. The repo kit and any scion kits that need a grant come next, in the same prompt. The prompt
+   appears only at a terminal; elsewhere the run stops with exit 125 and `sb grant KIT`.
 
 4. Claude starts. The startup line names what differs from the usual shape, and `sb explain`:
 
@@ -137,11 +137,13 @@ graft sandbox (work): the run tried pypi.org:443 (not in this run). one run: sb 
 
 ## When a kit asks for more
 
-When an upgrade gives a kit new requests, or a new source for a powerful one, its runs stop with exit 125 and the
-difference:
+When an upgrade gives a kit new requests, or a new source for a powerful one, the next run shows the difference.
+At a terminal, it is the grant prompt, inline: accept or refuse each item, and the run goes on. Elsewhere (an
+agent, a script), the run stops with exit 125 and the difference:
 
 1. Read the difference that `sb` printed, or run `sb grant --diff`.
-2. If you accept it, run `sb grant KIT`, and commit the grants file. Otherwise, take back the upgrade.
+2. If you accept it, run `sb grant KIT` at a terminal, with the short name that `sb` printed (`claude-code` names
+   every instance). Commit the grants file. Otherwise, take back the upgrade.
 
 Runs that the kit's requests do not apply to still start, with a note on the startup line:
 `meeting-kit asks for more: sb grant`.
@@ -213,7 +215,8 @@ If the repository's `ensure.sh` or `justfile` builds tools with `nix`, make it u
 | graft's default root | You have no root and want to try `sb`. | `nix run github:danielnaab/graft/v2.15.0#sb -- claude` |
 | A minimal root of your own | You want a root without home-manager. | `sb init ~/src/sb-root`, then the steps that it prints |
 
-Both work without home-manager. Each has a `claude-code@personal` instance (the `claude` on your `PATH`), its
+graft's default root and the root that `sb init` writes work without home-manager. Each has a
+`claude-code@personal` instance (the `claude` on your `PATH`), its
 token binding at `~/.config/graft/sb/claude-token-personal` (step 1), and the `nix` relay. graft's default root keeps
 its grants in `~/.config/graft/sb/grants.json`. `sb init DIR` writes `DIR/flake.nix`, with its grants file beside
 it: track `DIR` in git. A home-manager root keeps its grants file in its own repository, where you review and
@@ -234,11 +237,33 @@ A home-manager root:
     contexts.work.include = [ "standing" ];
     bindings = {
       "status.relay"."*" = { workmux = true; };
+      nix."*" = { via = "daemon-untrusted"; };
       credential."api.anthropic.com kit=claude-code@personal" = {
         via = "file"; from.file = "~/.config/graft/sb/claude-token-personal"; };
     };
   };
 }
+```
+
+What the claude-code kit binds from your host into each run, read-only:
+
+- your skills folder: links into the store or into a checkout under `skillSources`, and the real folders that
+  `skillDirs` names (default `[ "synced" ]`; `skillDirs = [ ]` binds none);
+- your plugins folder, whole (`plugins = false` leaves it out);
+- your project memory for the workspace. The run cannot change it; new memory files it writes are listed on the
+  exit line, with a copy in the run's directory, for you to read and copy by hand.
+
+Claude's synced claude.ai skills do not load in a run, even though `skills/synced` is bound: Claude loads them
+only when it is signed in to claude.ai, and a run signs in with a token. Install the skills you need as ordinary
+skill folders: a link into a checkout under `skillSources`, or a real folder that `skillDirs` names.
+
+```nix
+kits."claude-code@personal" = inputs.graft.kits.claude-code {
+  inherit pkgs; account = "personal";
+  skillSources = [ "~/src/agent-skills" ];   # your checked-out skills
+  skillDirs = [ ];                           # no synced or hand-placed real folders
+  plugins = false;                           # no plugins folder in the run
+};
 ```
 
 Run `home-manager switch`. `sb` is then on `PATH`, and `~/.config/graft/sb/launcher` points at it. The options are
@@ -256,7 +281,10 @@ in [Home-manager options](../reference/sandbox.md#home-manager-options).
   sandbox refused the host. Read `/run/graft-sandbox/denials` inside, or run `sb why HOST`
   ([When something is denied](#when-something-is-denied)).
 - **A test fails because `/run/current-system/sw/bin/…` is missing.** In `work`, `/run/current-system` is a
-  link whose target the run does not see: a run sees only its closure. Make the test use the `PATH` it was given.
+  link whose target the run does not see: without the `nix` capability, a run sees only its closure in the store.
+  Make the test use the `PATH` it was given.
+- **A claude.ai skill is missing inside a run.** Synced claude.ai skills do not load in a run (above). Install the
+  skill as an ordinary skill folder.
 - **`sb: no backend for darwin in v2.15.0`.** You are on macOS. Use graft v2.14.0's sandbox there.
 
 ## How it works

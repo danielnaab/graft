@@ -149,7 +149,7 @@ Use your machine's system for `x86_64-linux`.
 
 - **`… gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\``.** A `perSystem` or a provider still declares
   `sandbox`. Rename it to `kit` (step 2), or take the provider's release that does.
-- **A test fails because `/run/current-system/sw/bin/…` is missing.** In `work`, the run sees only its closure, so
+- **A test fails because `/run/current-system/sw/bin/…` is missing.** In `work` without the `nix` capability, the run sees only its closure in the store, so
   that link does not resolve. Make the test use the `PATH` it was given.
 - **`just check` inside a run fails with `nix: command not found`.** The repo kit lacks the `nix` capability, or
   `graft_run` still calls `nix run`. Add both changes, then `sb grant`.

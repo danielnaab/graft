@@ -968,10 +968,10 @@ when it is absent.
 Inside, git uses a generated `~/.gitconfig`: `user.name` and `user.email` from the host's git config at the
 workspace, `commit.gpgsign` and `tag.gpgsign` false, and `safe.directory = *`. Commits are unsigned.
 
-`/run/current-system` is bound read-only where it exists, as a link into the store. Only `inspect` sees the whole
-store, so only there does the link resolve. In `work`, the run sees its closure alone, so
-`/run/current-system/sw/bin` is absent: a test that hard-codes that path fails there. Give it the `PATH` it was
-started with instead.
+`/run/current-system` is bound read-only where it exists, as a link into the store. It resolves only where the run
+sees the whole store: in `inspect`, and in a run with the `nix` capability. Otherwise the run sees its closure
+alone, so `/run/current-system/sw/bin` is absent: a test that hard-codes that path fails there. Give it the `PATH`
+it was started with instead.
 
 The standard set: bash, coreutils, findutils, grep, sed, gawk, diffutils, less, git, which, file, tree, ripgrep,
 fd, jq, curl, gnutar, gzip, unzip, xz, patch, python3, just, gh, and graft's command.
