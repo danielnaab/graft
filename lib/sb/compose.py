@@ -1182,6 +1182,8 @@ def explain_text(policy, report, root):
         return ", ".join(dict.fromkeys(s))
 
     out.append(f"run        {cmd.get('name') or '(shell)'}" + (f" -> {cmd['kit']}" if cmd.get("kit") else " (no kit ships it)"))
+    if report.get("argv") and report["argv"][:1] != [cmd.get("name")]:
+        out.append("argv       " + " ".join(report["argv"]))
     inc = ctx.get("include") or []
     out.append(f"context    {ctx['name']}: {policy['mode']}, access {policy['access']}, {policy['backend']['name']}"
                + (f"; includes {', '.join('root:' + n for n in inc)}" if inc else ""))
@@ -1193,6 +1195,9 @@ def explain_text(policy, report, root):
     pk = [i for i in eff if i["kind"] == "package"]
     out.append(f"see        {len(pk)} packages: " + " · ".join(f"{posixpath.basename(i['value'])[33:] or i['value']} ({src(i)})" for i in pk))
     for i in eff:
+        if i["kind"] == "dir":
+            out.append(f"           dir {i['value']} (read-only): {len(i.get('links') or [])} entries"
+                       + (f", {len(i['skipped'])} left out (outside the read requests)" if i.get("skipped") else ""))
         if i["kind"] in ("env.set", "file"):
             out.append(f"           {i['kind']} {i['value']}" + (f" ({i.get('mode')})" if i["kind"] == "file" else "") + f"  [{src(i)}]")
     prot = [i for i in eff if i["kind"] == "protect"]
@@ -1217,6 +1222,13 @@ def explain_text(policy, report, root):
             if kind == "env" and i.get("secret"):
                 v += " (the run holds it)"
             status = src(i) if i["effective"] else f"{src(i)}: {i.get('why', 'not in run')}"
+            if kind == "capability" and i["effective"]:
+                b = next((b for b in policy.get("bindings") or [] if b["request"] == i.get("request") and b["kit"] in str(i["sources"])), None)
+                if b:
+                    how = b.get("via") or ", ".join(b.get("see") or []) or "bound"
+                    if b.get("holds"):
+                        how += " (the run holds it)"
+                    v += f": {how}" + (f"; {'; '.join(b['notes'])}" if b.get("notes") else "")
             out.append(f"  {kind[:8]:<8} {v:<55} {status}")
     out.append("children   none (nesting lands in 1b)")
     stale = [k for k in report["kits"] if k["status"] in ("never", "grown", "source", "unverified")]

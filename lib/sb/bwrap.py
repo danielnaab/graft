@@ -578,7 +578,7 @@ def prepare(cfg, rundir, print_cmd=False):
         if net:
             with open(cfg["netClosure"]) as f:
                 closure = sorted(set(closure) | {l.strip() for l in f if l.strip()})
-        launch["closureCount"] = len(closure) if closure else "the whole store"
+        launch["closureCount"] = "the whole store (nix)" if binding(policy, "nix") else len(closure)
         with open(os.path.join(rundir, "closure.args"), "wb") as f:
             for p in closure:
                 if not binding(policy, "nix"):
@@ -780,7 +780,8 @@ def print_command(cfg, rundir, policy, launch, args):
         print(f"  --setenv {k} {shlex.quote(shown)} \\")
     print("  -- " + " ".join(shlex.quote(x) for x in launch["argv"]))
     if "closureCount" in launch:
-        print(f"# --args 3: --ro-bind for each of {launch['closureCount']} store paths (the closure)")
+        print(f"# --args 3: --ro-bind for each of {launch['closureCount']} store paths (the closure)"
+              if isinstance(launch["closureCount"], int) else f"# the store: {launch['closureCount']}, read-only")
     print(f"# fd 4: the TIOCSTI seccomp filter ({cfg['bpf']})")
 
 

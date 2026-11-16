@@ -918,6 +918,15 @@ def resume_prompt(host, rid):
 
 # ---------------------------------------------------------------- explain and why
 
+def scratch_done(host, tmp):
+    """Remove an explain/why/grant scratch run directory: only one sb made, under its state's runs/."""
+    import shutil
+    runs = os.path.join(host.state, "runs") + "/"
+    name = os.path.basename(tmp)
+    if tmp.startswith(runs) and "/" not in tmp[len(runs):] and name.split("-")[0] in ("explain", "why", "grant"):
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def explain(host, root, context, flags, cmd):
     if inside_run():
         with open(INSIDE_POLICY) as f:
@@ -950,11 +959,7 @@ def explain(host, root, context, flags, cmd):
             sys.stdout.write(C.explain_text(policy, report, root))
         return 0
     finally:
-        for n in os.listdir(tmp):
-            p = os.path.join(tmp, n)
-            if os.path.isfile(p) or os.path.islink(p) or stat.S_ISSOCK(os.lstat(p).st_mode):
-                os.unlink(p)
-        os.rmdir(tmp)
+        scratch_done(host, tmp)
 
 
 def why(host, root, flags, args):
@@ -971,9 +976,7 @@ def why(host, root, flags, args):
         try:
             _, policy, report, _, _ = gather(host, root, root.get("defaultContext") or "work", flags, [], tmp, "why")
         finally:
-            for n in os.listdir(tmp):
-                os.unlink(os.path.join(tmp, n))
-            os.rmdir(tmp)
+            scratch_done(host, tmp)
     print(visible(answer_why(policy, x, host.home)))
     return 0
 
@@ -1200,9 +1203,7 @@ def grant(host, root, flags, kits_named):
     try:
         sts = all_kit_status(host, root, context, flags)
     finally:
-        for n in os.listdir(tmp):
-            os.unlink(os.path.join(tmp, n))
-        os.rmdir(tmp)
+        scratch_done(host, tmp)
     if kits_named:
         sel = []
         for n in kits_named:
