@@ -194,7 +194,8 @@ starts a new Claude conversation that reads the run's transcript as a report, ne
 - **Outside `~`:** readable, except `/run`, `/tmp` and `$XDG_RUNTIME_DIR`. `/run/current-system`, `/etc` and the
   whole Nix store are bound back read-only. Sockets are masked everywhere.
 - **Inside `~`:** only `inspect.home`.
-- **Secret patterns** are masked inside readable trees ([Secret patterns](#secret-patterns)).
+- **Secret patterns** are masked inside readable trees ([Secret patterns](#secret-patterns)), from an index made at
+  start: a secret file that the host creates later is not masked.
 - **Processes:** its own pid namespace and a new `/proc`. `ps` shows only the run. `journalctl` reads the
   journal files your user can read. `systemctl status` and `docker ps` need the system bus or the docker
   socket, so they are host-only.
@@ -414,7 +415,8 @@ does not know is an error.
 - **`credential`:** `sb` reads the value on the host when the run starts, and sets it as the request's `env`
   variables. It is never in policy.json, the run's files or logs; `sb explain` shows `(the run holds it)`.
 - **`mcp`:** `sb` writes `/run/graft-sandbox/mcp.json`, one HTTP server per granted `mcp` request, with an
-  `Authorization: Bearer ${VAR}` header, and sets the key in the run's environment. The claude-code kit passes
+  `Authorization: Bearer ${VAR}` header, and sets the key in the run's environment. The server's host and port
+  are network reach of the run (`sb explain` shows `HOST:443 (mcp)`). The claude-code kit passes
   `--mcp-config /run/graft-sandbox/mcp.json --strict-mcp-config`, so Claude reads no other MCP configuration.
   `inspect` has no MCP.
 - **`nix`:** a host relay runs the host's `nix daemon --stdio --force-untrusted --process-ops
@@ -448,8 +450,16 @@ programs.sb.bindings = {
 | `status.relay` | `workmux = true` |
 | `git.fetch` | `broker = "git"`; `key.agent = true` or `key.file = "~/…"` |
 | `nix` | `via = "daemon-untrusted"` |
-| `credential` | `via = "env"` or `"file"`; `from.file = "~/…"` (`KEY=VALUE` lines that name the variables, or else the whole file, trimmed, for the first one), `from.envFile = "~/…"`, or `from.env = "NAME"` (the host's variable). `via = "proxy"` is refused: `… 1a carries env and file (proxy comes in a later release)`. |
-| `mcp` | `url`; `via = "env"`; `env`, the variable that holds the key; `from.file` and the other `from` forms; `header` (default `"Authorization"`) and `scheme` (default `"Bearer"`) |
+| `credential` | `via = "env"` or `"file"`; `from.file = "~/…"` or `from.envFile = "~/…"` (a [key file](#key-files)), or `from.env = "NAME"` (the host's variable); `refresh`, the host command that the startup line names when the variables are unset or expired. `via = "proxy"` is refused: `… 1a carries env and file (proxy comes in a later release)`. |
+| `mcp` | `url`; `via = "env"`; `env`, the variable that holds the key; `from.file` (a [key file](#key-files)) and the other `from` forms; `header` (default `"Authorization"`) and `scheme` (default `"Bearer"`) |
+
+#### Key files
+
+A key file holds `NAME=VALUE` lines. `export NAME=VALUE`, `#` comments, blank lines and quotes around a value
+are allowed. For a `credential` that carries one variable, a file with no `NAME=` line is the value itself, such
+as the token that `claude setup-token` prints. An `mcp` key file must name its variable, or the run is refused:
+`the mcp binding SEL reads F, which holds no NAME=VALUE line for METAMCP_API_KEY: write METAMCP_API_KEY=… in it`.
+A file that lacks a variable it should hold: `… reads F, which has no NAME`.
 
 - `from` is always a reference. Each file that `from.file`, `from.envFile` or `key.file` names is hidden from
   every run.
@@ -1085,10 +1095,11 @@ A state directory inside a workspace is refused.
 programs.sb.kits."claude-code@personal" = inputs.graft.kits.claude-code {
   inherit pkgs;
   account = "personal";                 # default "default"
-  binary = "native";                    # or a package
+  binary = "native";                    # "native", "host" (the claude on the host's PATH), or a package
   files = config.home.file;             # home-manager's files
   configDir = ".claude";                # this account's folder under ~, such as ".claude-accounts/work"
-  skillDirs = [ ];                      # real directories in the skills folder to bind
+  skillDirs = [ "synced" ];             # the default: real directories in the skills folder to bind; [ ] opts out
+  plugins = true;                       # the default: the plugins folder, read-only; false opts out
   skillSources = [ "~/src/agent-skills" ];   # checkouts that skill links point into
   provider = "anthropic";               # or "bedrock", with region
   mcp = [ "metamcp" ];
@@ -1101,18 +1112,30 @@ The run gets its own agent home, configured by the root:
   below) becomes a `fixed` file at `~/.claude/<rest>`. A `--settings` overlay sets `sandbox.enabled = false`,
   which Claude treats as managed (`/sandbox` cannot turn it on again), and adds the denial hook. Overlay hooks are
   added to your own hooks, which still run; Claude's `/hooks` does not list them.
-- **Skills, agents, commands, hooks, plugins:** `~/.claude/{skills,agents,commands,hooks,plugins}` are read-only,
-  from `~/<configDir>/<folder>` on the host. Each link's target is bound, one level deep: a store target, or a
-  checkout under the kit's `read` requests (`skillSources`). A real directory is bound only when `skillDirs` names
-  it. Others are left out, and the startup line says so: `~/.claude/skills: N outside the read requests, left
-  out`. A folder that the host lacks is an empty read-only one.
-- **The program:** `binary = "native"` runs `~/.local/bin/claude`, resolved on the host at start; it must fall
-  under a granted `read` request, or the run is refused:
+- **Skills, agents, commands, hooks:** `~/.claude/{skills,agents,commands,hooks}` are read-only, from
+  `~/<configDir>/<folder>` on the host. Each link's target is bound, one level deep: a store target, or a checkout
+  under the kit's `read` requests (`skillSources`). A real directory is bound only when `skillDirs` names it; by
+  default that is `synced`, Claude's synced skills, read-only. Others are left out, and the startup line says so:
+  `~/.claude/skills: N left out (a, b …): a link outside the read requests, or a real folder skillDirs does not name`.
+  A folder that the host lacks is an empty read-only one.
+- **Plugins:** with `plugins = true` (the default), the account's whole plugins folder, read-only.
+- **Host memory, read-only:** each file of the host's project memory for this workspace,
+  `~/<configDir>/projects/<key>/memory` (the key is the directory path with every character that is not a letter
+  or digit as `-`), for the current directory and the workspace's top, is bound read-only at the path Claude reads
+  it from. New memory that the run writes stays in the run's state, and the exit line says
+  `sb: the run wrote N memory files: <state path>`. They are run output: read them, and copy what you want into the
+  host's memory by hand. Nothing applies them. Prompt history stays per state scope.
+- **The program:** `binary = "native"` runs `~/.local/bin/claude`; `binary = "host"` runs the `claude` on the
+  host's `PATH`. Both are resolved on the host at each start, not at grant time. The target must be in the store
+  or fall under a granted `read` request; otherwise the run is refused:
   `graft sandbox (work): claude's program ~/.local/bin/claude resolves to …, outside claude-code@personal's granted read requests`.
+  This check runs after the grant flow, so a first run reaches the grant prompt.
   Native also gets `NIX_LD`, `NIX_LD_LIBRARY_PATH`, glibc, and nix-ld fixed at `/lib64/ld-linux-x86-64.so.2`
   (`/lib/ld-linux-aarch64.so.1` on aarch64). A package runs its `bin/claude`.
-- **Variables:** `CLAUDE_CONFIG_DIR=~/.claude` (in the run's `HOME`) and `DISABLE_AUTOUPDATER=1`.
-- **MCP:** with `mcp`, Claude gets `--mcp-config /run/graft-sandbox/mcp.json --strict-mcp-config`.
+- **Variables:** `CLAUDE_CONFIG_DIR=~/.claude` (in the run's `HOME`), `DISABLE_AUTOUPDATER=1` and
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, which keeps Claude's startup traffic to its model API.
+- **MCP:** with `mcp`, Claude gets `--mcp-config /run/graft-sandbox/mcp.json --strict-mcp-config`, and the run
+  reaches the MCP server's host.
 - **Login:** a `credential` for `api.anthropic.com` with `env = "CLAUDE_CODE_OAUTH_TOKEN"`, bound to a file that
   you make once per account with `claude setup-token`. There is no `/login` inside, and the run never reaches a
   keychain.
@@ -1121,9 +1144,16 @@ The run gets its own agent home, configured by the root:
   files into state, and refuses to write through a link that a run planted.
 - **Transcripts:** `state claude` at `~/.claude`, scoped per account, workspace and context.
 - **Requests:** `read ~/.local/share/claude` (native) and `skillSources`; `network` `api.anthropic.com` and
-  `claude.ai`, or `bedrock-runtime.<region>.amazonaws.com`; with Bedrock, `env` `CLAUDE_CODE_USE_BEDROCK`,
-  `ANTHROPIC_MODEL` and `AWS_REGION`; `state claude`; and the capabilities `status.relay`, `credential`
-  (`CLAUDE_CODE_OAUTH_TOKEN`, or the three `AWS_*` keys) and one `mcp` per server.
+  `claude.ai`, or with Bedrock `bedrock-runtime.<region>.amazonaws.com`, `bedrock.<region>.amazonaws.com` and
+  `sts.<region>.amazonaws.com`; with Bedrock, `env` `CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_MODEL` and `AWS_REGION`;
+  `state claude`; and the capabilities `status.relay`, `credential` (`CLAUDE_CODE_OAUTH_TOKEN`, or
+  `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`, with `AWS_CREDENTIAL_EXPIRATION` when it is
+  set) and one `mcp` per server.
+- **Bedrock credentials:** the run cannot refresh them, so the overlay sets `awsAuthRefresh` to empty. When the
+  `AWS_*` keys are unset or expired on the host, the startup line says so, with the command that refreshes them:
+  1. On the host, run `aws sso login` (or your AWS credential helper, or the binding's `refresh` command).
+  2. Export the keys into the shell that starts `sb`, if your helper does not.
+  3. Start the run again. A run keeps the keys it started with, until they expire.
 - **Accounts:** one instance per account, each granted on its own. With no `--account`, the caller's
   `CLAUDE_CONFIG_DIR` picks the instance named like its folder (`~/.claude-accounts/flexion` is
   `claude-code@flexion`) when the root declares it; `~/.claude` is the default.
@@ -1179,6 +1209,14 @@ backend returns.
 14. **Live denials need tmux.** Outside tmux, you see denials on the exit line, and the agent sees them through
     its hook and the denials file.
 15. **Some denials cannot be observed:** reads of hidden paths, and lookups of variables that were not passed.
+16. **`inspect` indexes secret files once, at start.** A file that matches a secret pattern and that a host
+    process creates after the run starts is not masked. The run cannot create such a file itself: `inspect` writes
+    nothing.
+17. **A stale workmux agent may remain.** Under `status.relay`, the host clears the pane's status after the run
+    (`workmux set-window-status clear`), but workmux has no command that unregisters an agent.
+18. **`binary = "host"` and `"native"` are resolved at each start, not at grant time.** The grant approves the
+    `read` request that the program must fall under, not one binary: a new `claude` under that path runs without a
+    new grant.
 
 ## Sources
 
