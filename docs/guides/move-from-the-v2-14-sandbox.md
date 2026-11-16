@@ -21,7 +21,7 @@ consumer, a provider and a person's habits. The new model is in [Sandbox](../ref
 | `--explain`, `--dry-run` | `sb explain`, `sb explain --backend-command` |
 | `GRAFT_SANDBOX=1` | `GRAFT_SANDBOX=<context>`. Test it with `[ -n "${GRAFT_SANDBOX:-}" ]` only. |
 | A policy built with the launcher | Kit manifests, composed at each start with your grants |
-| Seatbelt on macOS | None in v2.15.0: `sb` refuses on macOS. Stay on v2.14.0 there. |
+| Seatbelt on macOS | None in v2.15.0: `sb` refuses on macOS. A repository used on a Mac keeps its sandbox only on v2.14.0; the choice is per repository, by its graft pin. |
 
 The names `sandbox`, `sb` and `graft-kits` are graft's: a provider, `perSystem` or mkFlake's `outputs` cannot
 define them as packages or apps. There is no `packages.<system>.sandbox` or `apps.<system>.sandbox` any more.
@@ -41,7 +41,7 @@ always a `path:` flake, never `.#` or `git+file:`, which would copy the whole re
 
 1. Take graft v2.15.0: `nix run F#graft upgrade graft` (`nix run .#graft upgrade graft`, or
    `nix run 'path:nix/agent-tools#graft' upgrade graft`).
-2. In `flake.nix`, rename `perSystem`'s `sandbox` to `kit`, and move each option to its new name:
+2. In your flake's `flake.nix`, rename `perSystem`'s `sandbox` to `kit`, and move each option to its new name:
 
    ```nix
    # v2.14.0
@@ -116,7 +116,7 @@ run needs the `nix` capability (step 5).
 1. In `graft.nix`, rename `sandbox` to `kit`, and move `network.allow`, `paths.readOnly`, `paths.writable` and
    `env.pass` under `requests`, as for a consumer.
 2. If a request depends on the consumer, take it from the `kitArgs` argument of `graft.nix`, which the consumer
-   sets in `perSystem.kitArgs.<your kit>`. Never read it from a file in the workspace: requests are literal.
+   sets in `perSystem.kitArgs.<scion>`, under your scion's folder name. Never read it from a file in the workspace: requests are literal.
 3. Release it. A new request is a change that every consumer must grant: say so in your CHANGELOG. A consumer's
    `sb` stops the runs that the request applies to until the consumer runs `sb grant`.
 
@@ -149,10 +149,11 @@ Use your machine's system for `x86_64-linux`.
 
 - **`… gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\``.** A `perSystem` or a provider still declares
   `sandbox`. Rename it to `kit` (step 2), or take the provider's release that does.
-- **A test fails because `/run/current-system/sw/bin/…` is missing.** In `work` without the `nix` capability, the run sees only its closure in the store, so
-  that link does not resolve. Make the test use the `PATH` it was given.
-- **`just check` inside a run fails with `nix: command not found`.** The repo kit lacks the `nix` capability, or
-  `graft_run` still calls `nix run`. Add both changes, then `sb grant`.
+- **A test fails because `/run/current-system/sw/bin/…` is missing.** In `work` without the `nix` capability, the
+  run sees only its closure in the store, so that link does not resolve. Make the test use the `PATH` it was given.
+- **`just check` inside a run fails with `nix needs the nix capability: …`.** The repo kit lacks the `nix`
+  capability, or the root binds none, or `graft_run` still calls `nix run`. Make all three changes, then
+  `sb grant`.
 - **`ensure.sh: … nix: command not found` inside a run.** `ensure.sh` lacks the `GRAFT_SANDBOX_TOOLS` branch, or
   it is not the first step.
 - **On macOS, `sb: no backend for darwin in v2.15.0`.** Keep graft at v2.14.0 on that machine's repositories

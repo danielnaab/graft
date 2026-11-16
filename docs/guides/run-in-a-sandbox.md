@@ -93,7 +93,9 @@ such as `flake.nix`.
 `inspect` diagnoses; the host repairs. `sudo`, `systemctl restart`, `docker run` and `home-manager switch` are
 host-only. To carry a diagnosis from a run to the host, as quoted data: `sb host --resume RUN claude`.
 
-In workmux, set the agent command to `sb claude`. The `status.relay` capability keeps the pane's status working.
+In workmux, set the agent command to `sb claude`, and turn off workmux's own Docker sandbox
+(`workmux.sandbox.enable = false`; the home-manager module asserts it). The `status.relay` capability keeps the
+pane's status working.
 
 ## When something is denied
 
@@ -216,9 +218,9 @@ If the repository's `ensure.sh` or `justfile` builds tools with `nix`, make it u
 | A minimal root of your own | You want a root without home-manager. | `sb init ~/src/sb-root`, then the steps that it prints |
 
 graft's default root and the root that `sb init` writes work without home-manager. Each has a
-`claude-code@personal` instance (the `claude` on your `PATH`), its
-token binding at `~/.config/graft/sb/claude-token-personal` (step 1), and the `nix` relay. graft's default root keeps
-its grants in `~/.config/graft/sb/grants.json`. `sb init DIR` writes `DIR/flake.nix`, with its grants file beside
+`claude-code@personal` instance (the `claude` on your `PATH`), its token binding at
+`~/.config/graft/sb/claude-token-personal` (step 1), and the `nix` relay. graft's default root keeps its grants in
+`~/.config/graft/sb/grants.json`. `sb init DIR` writes `DIR/flake.nix`, with its grants file beside
 it: track `DIR` in git. A home-manager root keeps its grants file in its own repository, where you review and
 commit it.
 
@@ -250,8 +252,10 @@ What the claude-code kit binds from your host into each run, read-only:
 - your skills folder: links into the store or into a checkout under `skillSources`, and the real folders that
   `skillDirs` names (default `[ "synced" ]`; `skillDirs = [ ]` binds none);
 - your plugins folder, whole (`plugins = false` leaves it out);
-- your project memory for the workspace. The run cannot change it; new memory files it writes are listed on the
-  exit line, with a copy in the run's directory, for you to read and copy by hand.
+- your project memory for the workspace. `MEMORY.md` is a writable copy; the other files are read-only. New
+  memory files, and a changed `MEMORY.md`, are listed on the exit line, with a copy in the run's directory, for
+  you to read and copy by hand. Nothing is written back to your host memory. Claude is told this when the session
+  starts.
 
 Claude's synced claude.ai skills do not load in a run, even though `skills/synced` is bound: Claude loads them
 only when it is signed in to claude.ai, and a run signs in with a token. Install the skills you need as ordinary
@@ -301,4 +305,7 @@ the host that allows only granted hosts. Nothing that the run writes can widen a
 - [Sandbox](../reference/sandbox.md): contexts, kits, requests, grants, flags, messages
 - [Move from v2.14.0's sandbox](move-from-the-v2-14-sandbox.md)
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit` in `perSystem`
-- [tests/run.sh](../../tests/run.sh)
+- [lib/sb/sb.py](../../lib/sb/sb.py): the grant prompt, the startup and exit lines
+- [lib/sb/kits/claude-code.nix](../../lib/sb/kits/claude-code.nix): the claude-code kit
+- [lib/sb/hm.nix](../../lib/sb/hm.nix): `programs.sb`
+- [tests/run.sh](../../tests/run.sh): the `sb` section

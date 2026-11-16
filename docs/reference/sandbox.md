@@ -388,15 +388,15 @@ item on its own.
 ### Capabilities
 
 A capability is a request named by its effect, and a root [binding](#bindings) carries it out. Every name is
-reserved now. v2.15.0 binds those marked 1a.
+reserved now. v2.15.0 binds the first five; the others come in a later release.
 
-| Capability | Phase, first binding | Class |
+| Capability | Binding in v2.15.0 | Class |
 |---|---|---|
-| `status.relay` | 1a: a relay and a `workmux` shim | ordinary |
-| `git.fetch { remote }` | 1a: an ssh shim and a host broker that allows only `git-upload-pack` | ordinary |
-| `credential { host; env }` | 1a: by `env` or `file`. Later: a proxy that replaces the auth header; `sigv4`. | powerful |
-| `mcp { server }` | 1a: a fixed MCP config, with a `credential` by `env` or `file`. Later: by proxy. | powerful |
-| `nix { build }` | 1a: a relay to an untrusted Nix daemon | powerful |
+| `status.relay` | a relay and a `workmux` shim | ordinary |
+| `git.fetch { remote }` | an ssh shim and a host broker that allows only `git-upload-pack` | ordinary |
+| `credential { host; env }` | by `env` or `file`. Later: a proxy that replaces the auth header; `sigv4`. | powerful |
+| `mcp { server }` | a fixed MCP config, with a `credential` by `env` or `file`. Later: by proxy. | powerful |
+| `nix { build }` | a relay to an untrusted Nix daemon | powerful |
 | `git.push { remote; refs }`, `git.sign`, `ops.read` | later | powerful |
 | `delegate { … }` | later | powerful |
 
@@ -452,7 +452,7 @@ programs.sb.bindings = {
 | `status.relay` | `workmux = true` |
 | `git.fetch` | `broker = "git"`; `key.agent = true` or `key.file = "~/…"` |
 | `nix` | `via = "daemon-untrusted"` |
-| `credential` | `via = "env"` or `"file"`; `from.file = "~/…"` or `from.envFile = "~/…"` (a [key file](#key-files)), or `from.env = "NAME"` (the host's variable); `refresh`, the host command that the startup line names when the variables are unset or expired. `via = "proxy"` is refused: `… 1a carries env and file (proxy comes in a later release)`. |
+| `credential` | `via = "env"` or `"file"`; `from.file = "~/…"` or `from.envFile = "~/…"` (a [key file](#key-files)), or `from.env = "NAME"` (the host's variable); `refresh`, the host command that the startup line names when the variables are unset or expired. `via = "proxy"` is refused: `… 1a carries env and file (proxy comes in a later release)` (the message's `1a` is this release). |
 | `mcp` | `url`; `via = "env"`; `env`, the variable that holds the key; `from.file` (a [key file](#key-files)) and the other `from` forms; `header` (default `"Authorization"`) and `scheme` (default `"Bearer"`; `""` sends the bare key) |
 
 #### Key files
