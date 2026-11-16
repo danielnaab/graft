@@ -710,6 +710,7 @@ def compose(inp):
         st["digest"] = digest(canons) if canons else None
         st["requests"] = sorted(set(canons))
         st["source"] = k.get("source")
+        st["powerful"] = sorted({r.canonical for r in k["requests"] if r.cls == "powerful"})
         status[k["id"]] = st
         report["kits"].append(st)
         if st["status"] in ("grown", "source", "never") and not st["applies"]:

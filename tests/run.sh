@@ -1201,6 +1201,12 @@ EOF
         };
         kits.fetcher.commands.fetchtest = { program = "\${nixpkgs.legacyPackages.\${s}.bashInteractive}/bin/bash";
           requests.capabilities = [ { name = "git.fetch"; remote = "ssh://git@fake.example/*"; } ]; };
+        kits.fixed.commands.fixedtest = { program = "\${nixpkgs.legacyPackages.\${s}.bashInteractive}/bin/bash";
+          fixedDirs = { "~/.claude/plugins" = "$work/cfg/plugins"; "~/.claude/skills" = "$work/cfg/skills"; };
+          realDirs = [ "~/.claude/plugins" ]; skillDirs = [ "synced" ];
+          requests.state = [ { name = "claude"; at = "~/.claude"; } ]; };
+        kits."pair@a".requests.read = [ "/tmp" ];
+        kits."pair@b".requests.read = [ "/var" ];
         kits.nixer.commands.nixcheck = { program = "\${nixpkgs.legacyPackages.\${s}.bashInteractive}/bin/bash"; requests.capabilities = [ { name = "nix"; } ]; };
         bindings = {
           "status.relay"."*" = { workmux = true; };
@@ -1430,11 +1436,19 @@ EOF
   ran "sb: sb why with an escape byte" sb_ why "$(printf 'x\033[2Jy')"
   refuse "prints it escaped" grep -q $'\033' <<<"$out"
 
-  # S: a repo kit with a powerful request: a changed source exits 125 with the changed paths
-  sed -i 's|kit = { protect|kit = { requests.capabilities = [ { name = "nix"; } ]; protect|' flake.nix && commit "nix"
+  # S: a repo kit with a powerful request, granted inline at a terminal: its ordinary items together,
+  # the powerful one alone, its source recorded; a changed source exits 125 with the changed paths
+  # (no terminal), and prompts inline at one
+  sed -i 's|kit = { protect|kit = { requests.capabilities = [ { name = "nix"; } ]; requests.network = [ "inline.example" ]; protect|' flake.nix && commit "nix"
   local objs && objs=$(git_ count-objects -v)
-  ran "sb: grant the repo kit's nix" tty_ $'y\n' "$work/sbr/bin/sb" grant sbc
+  ran "sb: the inline prompt, with a powerful item" tty_ $'y\ny\n' "$work/sbr/bin/sb" echo ran-after-inline
+  expect "ordinary items together" holds "+ network inline.example:443"
+  expect "the powerful item alone" holds "powerful: + capability nix"
+  expect "and the run goes on" holds "ran-after-inline"
+  ran "the grant" jq -c '[.grants, .machines[]] | map(to_entries[]) | map(select(.key | endswith("/sbc/.git") or endswith(":sbc"))) | .[0].value | [.requests, (.source.tree | length)]' "$work/sbgrants/grants.json"
+  expect "holds both items and its source" has '[["capability nix","network inline.example:443"],40]'
   expect "sb writes no git object into the workspace (its source tree goes to sb's state)" test "$(git_ count-objects -v)" = "$objs"
+  ran "sb: the next run proceeds" sb_ true
   echo more >> notes.md && commit "a tracked change"
   sb_ true >/dev/null 2>&1 && st=0 || st=$?
   expect "sb: a changed source exits 125" test "$st" = 125
@@ -1442,9 +1456,35 @@ EOF
   expect "with its source" holds "sbc (repo:"
   expect "changed source since its grant" holds "changed source since its grant:"
   expect "naming the changed paths" holds "notes.md"
-  ran "sb: a changed source asks again for each powerful item" tty_ $'y\n' "$work/sbr/bin/sb" grant sbc
-  expect "alone" holds "powerful: + capability nix"
-  sed -i 's|requests.capabilities = \[ { name = "nix"; } \]; ||' flake.nix && commit "no nix"
+  ran "sb: a changed source, at a terminal" tty_ $'y\n' "$work/sbr/bin/sb" echo ran-after-source
+  expect "prompts inline" holds "changed source"
+  expect "asks again for the powerful item, alone" holds "powerful: + capability nix"
+  expect "and the run goes on" holds "ran-after-source"
+  sed -i 's|requests.capabilities = \[ { name = "nix"; } \]; requests.network = \[ "inline.example" \]; ||' flake.nix && commit "no nix"
+
+  # a fixed directory's real entries (plugins' files, skills/synced) are bound into the view
+  mkdir -p "$work/cfg/plugins/cache" "$work/cfg/skills/synced/s1" && echo sweep > "$work/cfg/plugins/.last_inuse_sweep"
+  echo "# s1" > "$work/cfg/skills/synced/s1/SKILL.md" && ln -s "$work/sbk.git" "$work/cfg/skills/outside"
+  ran "sb: sb grant fixed" tty_ $'y\n' "$work/sbr/bin/sb" grant fixed
+  ran "sb: a fixed directory with real entries" sb_ fixedtest -c 'cat ~/.claude/plugins/.last_inuse_sweep; cat ~/.claude/skills/synced/s1/SKILL.md; ls -A ~/.claude/skills; touch ~/.claude/plugins/x 2>&1; true'
+  expect "a real file" holds "sweep"
+  expect "a real folder skillDirs names" holds "# s1"
+  refuse "a link outside the read requests is left out" holds "outside"
+  expect "read-only" holds "Read-only file system"
+
+  # one name for a kit everywhere; KIT names every instance
+  ran "sb: sb grant pair" tty_ $'y\ny\n' "$work/sbr/bin/sb" grant pair
+  expect "lists both instances" holds "pair@a"
+  expect "and both" holds "pair@b"
+  ran "sb: --revoke pair, at a terminal" tty_ $'y\n' "$work/sbr/bin/sb" grant --revoke pair
+  expect "confirms the list" holds "pair names 2 grants:"
+  expect "and revokes both" test "$(jq '[.grants | keys[] | select(startswith("root:pair"))] | length' "$work/sbgrants/grants.json")" = 0
+  git_ remote add origin https://example.com/o/sbname.git
+  ran "sb: a repo kit's name comes from its origin" sb_loud true
+  expect "on the startup line" holds "sb: work · sbname ·"
+  ran "sb: sb grant --diff" sb_ grant --diff
+  expect "uses it too" holds "sbname (repo:example.com/o/sbname)"
+  git_ remote remove origin
   refused "sb: sb grant --root" sb_ grant --root x --workspace .
   expect "comes later" holds "sb grant --root comes with deployment roots, in a later release"
 

@@ -773,7 +773,7 @@ def fixed_dirs(host, root, policy, report, ws=()):
             for name in sorted(os.listdir(d)):
                 p = os.path.join(d, name)
                 if at in real_dirs and not os.path.islink(p):
-                    links.append([name, p])     # a real folder the root binds whole (plugins)
+                    links.append([name, p, "bind"])     # a real entry of a folder the root binds whole (plugins)
                 elif os.path.islink(p):
                     t = os.path.realpath(p)
                     if t.startswith("/nix/store/") or any(C.under(t, r) for r in reads):
@@ -781,7 +781,7 @@ def fixed_dirs(host, root, policy, report, ws=()):
                     else:
                         skipped.append(name)
                 elif os.path.isdir(p) and name in (c.get("skillDirs") or []):
-                    links.append([name, os.path.realpath(p)])
+                    links.append([name, os.path.realpath(p), "bind"])
                 elif os.path.isdir(p):
                     skipped.append(name)
         policy["items"].append({"kind": "dir", "value": at, "class": "see", "effective": True, "mode": "fixed",
@@ -829,7 +829,7 @@ def startup_line(policy, report, ws, root):
     ctx = report["context"]
     parts = [ctx["name"]]
     if ws:
-        parts.append(" ".join(os.path.basename(w["top"]) for w in ws))
+        parts.append(" ".join(C.repo_short_name(w) for w in ws))
     parts += report["notes"]
     for e in dict.fromkeys(report["unsetEnv"]):
         parts.append(f"env {e} unset")
@@ -892,14 +892,15 @@ def run(host, root, context, flags, cmd):
             say(f"sb: unsandboxed: {report['unsandboxed']} holds a granted unsandboxed request")
             return host_run(host, root, ctx, flags, cmd, quiet_line=True)
         stale = report["stale"]
-        never = [s for s in stale if s["status"] == "never"]
-        if never and len(never) == len(stale) and sys.stdin.isatty() and sys.stderr.isatty() and not agent_marker():
+        if stale and sys.stdin.isatty() and sys.stderr.isatty() and not agent_marker():
+            # at a terminal: each stale kit's prompt (not granted, asks for more, changed source), from the
+            # same statuses and code path as sb grant, then the run goes on
+            ids = {s["kit"] for s in stale if s["status"] != "unverified"}
+            todo = [s for s in all_kit_status(host, root, context, flags) if s["kit"] in ids]
             grants, _ = load_grants(host)
-            ok = grant_flow(host, root, grants, never, inline=True)
-            if not ok:
-                return C.EXIT_GRANT
-            inp, policy, report, bprog, ws = gather(host, root, context, flags, cmd or [root.get("shell", "bash")], rundir, rid)
-            stale = report["stale"]
+            if todo and grant_flow(host, root, grants, todo, inline=True):
+                inp, policy, report, bprog, ws = gather(host, root, context, flags, cmd or [root.get("shell", "bash")], rundir, rid)
+                stale = report["stale"]
         if report.get("arrived"):
             say(report["arrived"])
         if stale:
@@ -1010,7 +1011,7 @@ def launch_facts(host, root, policy, ws, flags, argv):
              and any("kit" in s for s in i["sources"])]
     kitpk = [p.get("source", p) if isinstance(p, dict) else p for p in kitpk]
     files = [i["source"] for i in policy["items"] if i["kind"] == "file" and i["effective"]]
-    files += [t for i in policy["items"] if i["kind"] == "dir" for _, t in i.get("links") or []]
+    files += [e[1] for i in policy["items"] if i["kind"] == "dir" for e in i.get("links") or []]
     files += [a for a in argv if isinstance(a, str) and a.startswith("/nix/store/")]
     extra = [p for p in kitpk + files if p.startswith("/nix/store/") and not any(p.startswith(c) for c in closure)]
     closure |= set(closure_of(sorted(set(store_root(p) for p in extra)), host)) if extra else set()
@@ -1424,23 +1425,28 @@ def grant(host, root, flags, kits_named):
     if inside_run():
         raise C.Refusal("sb grant is for people, on the host: a run never writes its root's grants file")
     grants, text = load_grants(host)
-    for k in flags.get("revoke") or []:
-        ident = k
-        if ":" not in k or k.split(":", 1)[0] not in ("root", "repo", "git"):
-            if k in (root.get("kits") or {}):
-                ident = f"root:{k}"
-            else:
-                ids = [i for i in list(grants["grants"]) + [i for m in grants["machines"].values() for i in m]
-                       if i.rstrip("/").rsplit("/", 1)[-1] == k or i.split(":", 1)[-1] == k]
-                if len(set(ids)) == 1:
-                    ident = ids[0]
-                elif ids:
-                    raise C.Refusal(f"sb grant --revoke {k}: several grants match: {', '.join(sorted(set(ids)))}", 2)
-        where = C.revoke_grant(grants, ident, host.machine)
-        if where is None:
-            raise C.Refusal(f"sb grant --revoke {k}: no grant for {ident}")
+    if flags.get("revoke"):
+        granted = sorted(set(grants["grants"]) | {i for m in grants["machines"].values() for i in m})
+        for k in flags["revoke"]:
+            ids = match_kits(k, granted)
+            if not ids:
+                raise C.Refusal(f"sb grant --revoke {k}: no grant for {k} in {C.canon_path(host.grants_path, host.home)}")
+            if len(ids) > 1:
+                m = agent_marker()
+                if m:
+                    raise C.Refusal(f"sb grant is for people: {m} is set (an agent's environment). Run sb grant in your own terminal.")
+                t = tty()
+                if t is None:
+                    raise C.Refusal(f"sb grant --revoke {k}: names {len(ids)} grants ({', '.join(ids)}); confirm at a terminal, or name one")
+                t.write(visible(f"{k} names {len(ids)} grants:\n" + "".join(f"  - {i}\n" for i in ids)))
+                ok = ask(t, "revoke them all? [y/N] ")
+                t.close()
+                if not ok:
+                    return 1
+            for ident in ids:
+                while (where := C.revoke_grant(grants, ident, host.machine)) is not None:
+                    print(visible(f"revoked {ident} ({where}) in {C.canon_path(host.grants_path, host.home)}"))
         save_grants(host, grants)
-        print(visible(f"revoked {ident} ({where}) in {C.canon_path(host.grants_path, host.home)}"))
         return 0
     if flags.get("root"):
         raise C.Refusal("sb grant --root comes with deployment roots, in a later release", 2)
@@ -1456,7 +1462,8 @@ def grant(host, root, flags, kits_named):
     if kits_named:
         sel = []
         for n in kits_named:
-            hit = [s for s in sts if n in (s["name"], s["kit"], s["kit"].split(":", 1)[-1], s["name"].split("@")[0])]
+            ids = match_kits(n, [s["kit"] for s in sts])
+            hit = [s for s in sts if s["kit"] in ids]
             if not hit:
                 raise C.Refusal(f"sb grant: no kit {n!r} here ({', '.join(s['name'] for s in sts)})")
             sel += hit
@@ -1495,8 +1502,23 @@ def grant(host, root, flags, kits_named):
     return 0
 
 
+def short_names(ident):
+    """The names people type for a kit: root:claude-code@personal is claude-code@personal and
+    claude-code (every instance); repo:… and git:… are their last path part."""
+    if ident.startswith("root:"):
+        n = ident[5:]
+        return {n, n.split("@")[0]}
+    return {ident.rstrip("/").rsplit("/", 1)[-1], ident.split(":", 1)[-1]}
+
+
+def match_kits(name, idents):
+    """The kits NAME names, by full id or a short name (C.kit_display's and short_names')."""
+    return [i for i in idents if name == i or name in short_names(i)]
+
+
 def all_kit_status(host, root, context, flags):
-    """Every kit of this workspace and every root kit, with its grant status."""
+    """Every kit of this workspace (and --repo's) and every root kit, with its grant status: what
+    sb grant and the inline prompt both read."""
     cwd = os.path.realpath(os.getcwd())
     cache_f = os.path.join(host.state, "cache", "scions.json")
     try:
@@ -1505,14 +1527,15 @@ def all_kit_status(host, root, context, flags):
     except (OSError, ValueError):
         cache = {}
     ctx = C.resolve_context(root, context)
-    ws = workspace_facts(host, [cwd], ctx, cache) if repo_of(host, cwd) else []
+    paths = [p for p in [cwd] + [os.path.realpath(C.expand(r, host.home)) for r in flags.get("repo") or []] if repo_of(host, p)]
+    ws = workspace_facts(host, paths, ctx, cache) if paths else []
     grants, _ = load_grants(host)
     out = []
     kits = [(f"root:{n}", "root", m, None, True, n) for n, m in sorted((root.get("kits") or {}).items())]
     for w in ws:
         ms = ([(w["repoKit"]["manifest"], w["repoKit"]["file"])] if w.get("repoKit") else []) + list(w["rootRepoKits"])
         kits.append((w["id"], "repo", C.merge_manifests(ms) if ms else {}, {"tree": w["source"]} if w.get("source") else None,
-                     True, os.path.basename(w["top"])))
+                     True, C.repo_short_name(w)))
         for s in w["scions"]:
             if s.get("manifest"):
                 kits.append((s["identity"], "scion", s["manifest"], {"commit": s["commit"], "tag": s["tag"]} if s["tag"] else None,

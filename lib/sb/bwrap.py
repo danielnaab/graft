@@ -681,11 +681,21 @@ def prepare(cfg, rundir, print_cmd=False):
         # a fixed directory (skills, agents, …): links to targets the run sees at their own paths
         d = os.path.join(rundir, "fixed", str(n))
         os.makedirs(d, exist_ok=True)
-        for name, target in i.get("links") or []:
+        dest = home + i["value"][1:]
+        for entry in i.get("links") or []:
+            name, target = entry[0], entry[1]
+            if entry[2:] == ["bind"]:
+                # a real entry: a placeholder in the view, the host entry bound onto it (its host path may lie
+                # under this very mount point, which bwrap could not create a mount point in)
+                if os.path.isdir(target):
+                    os.mkdir(os.path.join(d, name))
+                else:
+                    open(os.path.join(d, name), "w").close()
+                mount(f"{dest}/{name}", 1, ["--ro-bind", target, f"{dest}/{name}"])
+                continue
             os.symlink(target, os.path.join(d, name))
             if not target.startswith("/nix/store/"):
                 mount(target, 1, ["--ro-bind", target, target])
-        dest = home + i["value"][1:]
         mount(dest, 1, ["--ro-bind", d, dest])
     # sb's own: shims, the not-found handler, the MCP configuration, the bindings' sockets
     write_own(cfg, rundir, policy, launch)
