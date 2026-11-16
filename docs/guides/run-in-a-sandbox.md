@@ -26,7 +26,8 @@ are in [Sandbox](../reference/sandbox.md#the-model).
    ```
 
    It prints a long-lived token. Save it in the file that your root's `credential` binding names, readable only by
-   you, such as `~/.config/graft/sb/claude-token-personal` (`chmod 600`). Do not paste it on a command line.
+   you, such as `~/.config/graft/sb/claude-token-personal` (`chmod 600`). The file holds the token alone, or a line
+   `CLAUDE_CODE_OAUTH_TOKEN=…`. Do not paste it on a command line. `sb` hides the file from every run.
 
 2. Start Claude in the repository:
 
@@ -41,10 +42,11 @@ are in [Sandbox](../reference/sandbox.md#the-model).
    ```
    claude-code@personal   root kit (root:claude-code@personal), for every run that uses it   not granted
      ordinary:
+       + capability status.relay  bound: *
        + network api.anthropic.com:443
+       + network claude.ai:443
        + read ~/.local/share/claude
        + state claude
-       + capability status.relay  bound: *
      grant these? [y/N]
    ```
 
@@ -66,8 +68,6 @@ are in [Sandbox](../reference/sandbox.md#the-model).
    ```
 
    From now on, `sb claude` starts with no prompt, until a kit asks for more.
-
-<!-- unverified: the claude-code kit's requests and the token file's binding: milestone 2. -->
 
 ## Check it worked
 
@@ -97,15 +97,18 @@ In workmux, set the agent command to `sb claude`. The `status.relay` capability 
 
 ## When something is denied
 
-A denial reaches you as a tmux message on the agent's pane, in the agent's own words (its hook reads the denials
-file), and on the exit line:
+A denial reaches you in three ways. Under tmux, a message shows on the agent's pane:
 
 ```
-graft sandbox (work): the run tried pypi.org:443 (not in this run): sb why pypi.org
+graft sandbox (work): refused pypi.org:443 · sb why pypi.org
 ```
 
-<!-- unverified: the tmux message and the agent's hook: milestone 2. In milestone 1, the denials file and the exit
-line carry it. -->
+The agent reads it from the denials file, through its hook, and tells you in its own words. When the run ends,
+the exit line lists it:
+
+```
+graft sandbox (work): the run tried pypi.org:443 (1x, not in this run): sb why pypi.org
+```
 
 1. Ask `sb` where the item would come from:
 
@@ -213,13 +216,14 @@ root keeps its grants file in its own repository, where you review and commit it
 A home-manager root:
 
 ```nix
-{ inputs, ... }:
+{ inputs, pkgs, ... }:
 {
   imports = [ inputs.graft.homeManagerModules.sb ];
   programs.sb = {
     enable = true;
     grantsFile = "~/.workstation/sandbox/grants.json";
-    kits."claude-code@personal" = inputs.graft.kits.claude-code { account = "personal"; };
+    rootRepos = [ "~/.workstation" ];
+    kits."claude-code@personal" = inputs.graft.kits.claude-code { inherit pkgs; account = "personal"; };
     kits.standing.requests.network = [ "pypi.org" "registry.npmjs.org" ];
     contexts.work.include = [ "standing" ];
     bindings = {
@@ -233,8 +237,6 @@ A home-manager root:
 
 Run `home-manager switch`. `sb` is then on `PATH`, and `~/.config/graft/sb/launcher` points at it. The options are
 in [Home-manager options](../reference/sandbox.md#home-manager-options).
-
-<!-- unverified: homeManagerModules.sb, the launcher link, and graft.kits.claude-code's call form: milestone 2. -->
 
 ## If something goes wrong
 
