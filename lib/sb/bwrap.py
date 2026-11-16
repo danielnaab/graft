@@ -319,6 +319,168 @@ def hm_links(home):
     return out
 
 
+def binding(policy, cap):
+    return [b for b in policy.get("bindings") or [] if b["capability"] == cap]
+
+
+def safe_dest(root, rel):
+    """ROOT/REL, refusing a link anywhere below ROOT: the run writes ROOT (its state), and the host
+    must never write through a link the run planted (P3)."""
+    p = root
+    for part in rel.split("/")[:-1]:
+        p = os.path.join(p, part)
+        if os.path.islink(p):
+            raise Stop(f"{p} is a symbolic link in the run's state: sb won't write through it")
+        os.makedirs(p, exist_ok=True)
+    return os.path.join(p, rel.split("/")[-1])
+
+
+def set_key(d, path, value, workspaces):
+    """d[path] = value, with "*" in path standing for each workspace path (projects.*.x)."""
+    head, rest = path[0], path[1:]
+    for k in (workspaces if head == "*" else [head]):
+        if not rest:
+            d[k] = value
+        else:
+            if not isinstance(d.get(k), dict):
+                d[k] = {}
+            sub = value
+            set_key(d[k], rest, sub, workspaces)
+
+
+def get_key(d, path):
+    for k in path:
+        if not isinstance(d, dict) or k not in d:
+            return None
+        d = d[k]
+    return d
+
+
+def into_state(policy, launch, i):
+    """files in mode seed (copied into state on first use) or reassert (listed keys rewritten from
+    the source at every start), written by the host into the run's state directory."""
+    home = launch["home"]
+    dest = home + i["value"][1:]
+    st = next((s for s in policy["mounts"]["state"] if dest.startswith(home + s["at"][1:] + "/")), None)
+    if st is None:
+        raise Stop(f"{i['value']} ({i['mode']}) is not inside a state request's directory")
+    rel = dest[len(home + st["at"][1:]) + 1:]
+    target = safe_dest(st["dir"], rel)
+    if os.path.islink(target):
+        os.unlink(target)
+    if i["mode"] == "seed":
+        if not os.path.lexists(target):
+            with open(i["source"], "rb") as f, open(target + ".sb-tmp", "wb") as g:
+                g.write(f.read())
+            os.replace(target + ".sb-tmp", target)
+        return
+    with open(i["source"]) as f:
+        src = json.load(f)
+    try:
+        with open(target) as f:
+            cur = json.load(f)
+        if not isinstance(cur, dict):
+            cur = {}
+    except (OSError, ValueError):
+        cur = {}
+    ws = [w["path"] for w in policy["workspace"]] or [launch["cwd"]]
+    for k in i.get("keys") or []:
+        path = k.split(".")
+        v = get_key(src, [p for p in path])
+        if v is None and "*" in path:
+            v = get_key(src, path)
+        set_key(cur, path, v, ws)
+    with open(target + ".sb-tmp", "w") as f:
+        json.dump(cur, f, indent=2)
+    os.replace(target + ".sb-tmp", target)
+
+
+# the not-found shims, last on PATH: advice for what a run often looks for (§8)
+NOTFOUND = {
+    "nix": "nix needs the nix capability: the repo kit's requests.capabilities = [ { name = \"nix\"; } ], then sb grant",
+    "nix-build": "nix-build needs the nix capability", "nix-shell": "nix-shell needs the nix capability",
+    "ssh": "ssh is not in this run: git fetch over ssh is the git.fetch capability; anything else, on the host",
+    "scp": "scp is not in this run: run it on the host",
+    "sudo": "sudo is host-only: sb host sudo …, or run it on the host",
+    "systemctl": "systemctl is host-only (sb inspect diagnoses; sb host repairs)",
+    "docker": "docker is host-only: its socket is root-equivalent",
+    "home-manager": "home-manager is host-only: run it on the host",
+    "darwin-rebuild": "darwin-rebuild is host-only: run it on the host",
+    "nixos-rebuild": "nixos-rebuild is host-only: run it on the host",
+}
+for n in ("node", "npm", "npx", "bun", "deno", "cargo", "rustc", "go", "make", "gcc", "cc", "pip", "uv",
+          "tmux", "vim", "nvim", "emacs", "rsync", "wget", "zip", "psql", "sqlite3", "terraform", "kubectl"):
+    NOTFOUND.setdefault(n, f"{n} is not in this run. one run: sb --package PKG …  permanent: programs.sb.tools (home-manager switch), or the repo kit's packages")
+
+
+def write_own(cfg, rundir, policy, launch):
+    ctx = policy["context"]
+    b = os.path.join(rundir, "bin")
+    nf = os.path.join(rundir, "notfound")
+    os.makedirs(b, exist_ok=True)
+    os.makedirs(nf, exist_ok=True)
+    shim = f"#!/bin/sh\nexec {cfg['python']} -I -S {cfg['shim']} %s \"$@\"\n"
+    own = {}
+    if binding(policy, "status.relay"):
+        own["workmux"] = shim % "workmux"
+    if binding(policy, "git.fetch"):
+        own["sb-ssh"] = shim % "ssh"
+    for n, text in own.items():
+        with open(os.path.join(b, n), "w") as f:
+            f.write(text)
+        os.chmod(os.path.join(b, n), 0o555)
+    for n, msg in NOTFOUND.items():
+        if n == "nix" and binding(policy, "nix"):
+            continue
+        with open(os.path.join(nf, n), "w") as f:
+            f.write(f"#!/bin/sh\necho {json.dumps(f'graft sandbox ({ctx}): ' + msg)} >&2\nexit 127\n")
+        os.chmod(os.path.join(nf, n), 0o555)
+    with open(os.path.join(rundir, "bash_env"), "w") as f:
+        f.write("# graft sb: what a run's bash says for a program that is not in the run\n"
+                "command_not_found_handle() {\n"
+                f"  printf 'graft sandbox ({ctx}): %s is not in this run. one run: sb --package PKG …  permanent: "
+                "programs.sb.tools (home-manager switch), or the repo kit'\\''s packages\\n' \"$1\" >&2\n"
+                "  return 127\n}\n")
+    servers = {}
+    for m in binding(policy, "mcp"):
+        env = (m.get("env") or [None])[0]
+        srv = {"type": "http", "url": m["url"]}
+        if env:
+            srv["headers"] = {m.get("header") or "Authorization": f"{m.get('scheme') or 'Bearer'} ${{{env}}}".strip()}
+        servers[m["server"]] = srv
+    with open(os.path.join(rundir, "mcp.json"), "w") as f:
+        json.dump({"mcpServers": servers}, f, indent=2)
+
+
+def credentials(policy):
+    """The values credential and mcp bindings pass by env (or file): read on the host at run time,
+    never written to policy.json, launch.json or a log. {NAME: value}."""
+    out = {}
+    for b in binding(policy, "credential") + binding(policy, "mcp"):
+        src = b.get("from") or {}
+        names = b.get("env") or []
+        if src.get("file"):
+            try:
+                with open(os.path.expanduser(src["file"])) as f:
+                    text = f.read()
+            except OSError as e:
+                raise Stop(f"the {b['capability']} binding {b['selector']} reads {src['file']}: {e.strerror}")
+            vals = {}
+            for line in text.splitlines():
+                k, eq, v = line.partition("=")
+                if eq and k.strip() in names:
+                    vals[k.strip()] = v.strip().strip('"')
+            if not vals and names:
+                vals[names[0]] = text.strip()
+            out.update(vals)
+        else:
+            for n in names:
+                v = os.environ.get(src.get("env") or n) if isinstance(src.get("env"), (str, type(None))) else os.environ.get(n)
+                if v is not None:
+                    out[n] = v
+    return out
+
+
 def readme(policy, launch):
     ctx = policy["context"]
     return f"""# graft sandbox: this run ({ctx})
@@ -407,15 +569,20 @@ def prepare(cfg, rundir, print_cmd=False):
                 mount(p, 1, ["--ro-bind", p, p])
     else:
         closure = launch.get("closure") or []
+        if binding(policy, "nix"):
+            # the nix capability: the whole store, read-only (new build outputs appear at once; §8)
+            closure = []
+            args.append(["--ro-bind", "/nix/store", "/nix/store"])
         with open(cfg["baseClosure"]) as f:
             closure = sorted(set(closure) | {l.strip() for l in f if l.strip()})
         if net:
             with open(cfg["netClosure"]) as f:
                 closure = sorted(set(closure) | {l.strip() for l in f if l.strip()})
-        launch["closureCount"] = len(closure)
+        launch["closureCount"] = len(closure) if closure else "the whole store"
         with open(os.path.join(rundir, "closure.args"), "wb") as f:
             for p in closure:
-                f.write(b"--ro-bind\0" + p.encode() + b"\0" + p.encode() + b"\0")
+                if not binding(policy, "nix"):
+                    f.write(b"--ro-bind\0" + p.encode() + b"\0" + p.encode() + b"\0")
         args += [["--proc", "/proc"], ["--dev", "/dev"], ["--tmpfs", "/tmp"], ["--tmpfs", "/run"],
                  ["--ro-bind", os.path.join(rundir, "passwd"), "/etc/passwd"],
                  ["--ro-bind", os.path.join(rundir, "group"), "/etc/group"],
@@ -472,13 +639,34 @@ def prepare(cfg, rundir, print_cmd=False):
         for s in sockets_in(cfg, [top]):
             mount(s, 2, ["--ro-bind", EMPTY, s])
     # files, state, the run's own
-    for i in eff(policy, "file"):
-        dest = i["value"] if not i["value"].startswith("~") else home + i["value"][1:]
-        mount(dest, 1, ["--ro-bind", i["source"], dest])
     for s in policy["mounts"]["state"]:
         os.makedirs(s["dir"], exist_ok=True)
         dest = home + s["at"][1:]
         mount(dest, 0, ["--bind", s["dir"], dest])
+    for i in eff(policy, "file"):
+        dest = i["value"] if not i["value"].startswith("~") else home + i["value"][1:]
+        if i.get("mode", "fixed") == "fixed":
+            mount(dest, 1, ["--ro-bind", i["source"], dest])
+        else:
+            into_state(policy, launch, i)
+    for n, i in enumerate(eff(policy, "dir")):
+        # a fixed directory (skills, agents, …): links to targets the run sees at their own paths
+        d = os.path.join(rundir, "fixed", str(n))
+        os.makedirs(d, exist_ok=True)
+        for name, target in i.get("links") or []:
+            os.symlink(target, os.path.join(d, name))
+            if not target.startswith("/nix/store/"):
+                mount(target, 1, ["--ro-bind", target, target])
+        dest = home + i["value"][1:]
+        mount(dest, 1, ["--ro-bind", d, dest])
+    # sb's own: shims, the not-found handler, the MCP configuration, the bindings' sockets
+    write_own(cfg, rundir, policy, launch)
+    for n in ("bin", "notfound", "bash_env", "mcp.json"):
+        mount(f"{run_mnt}/{n}", 1, ["--ro-bind", os.path.join(rundir, n), f"{run_mnt}/{n}"])
+    for b in {b["socket"]: b for b in policy.get("bindings") or [] if b.get("socket")}.values():
+        if b.get("socket"):
+            sock = os.path.basename(b["socket"])
+            mount(b["socket"], 1, ["--bind", os.path.join(rundir, sock), b["socket"]])
     with open(os.path.join(rundir, "hidden.txt"), "w") as f:
         f.write("".join(i["value"] + "\n" for i in eff(policy, "hidden")))
     mount(home + "/.graft-sandbox-hidden", 1, ["--ro-bind", os.path.join(rundir, "hidden.txt"), home + "/.graft-sandbox-hidden"])
@@ -543,6 +731,10 @@ def run_env(cfg, policy, launch):
             tools = b
     if launch.get("sbBin"):
         paths.append(launch["sbBin"])
+    run_mnt = policy["mounts"]["run"]
+    if binding(policy, "nix") and (launch.get("hostTools") or {}).get("nix"):
+        paths.append(os.path.dirname(launch["hostTools"]["nix"]))
+    paths = [f"{run_mnt}/bin"] + paths + [f"{run_mnt}/notfound"]
     env = {"HOME": home, "USER": launch["user"], "LOGNAME": launch["user"], "SHELL": cfg["shell"],
            "PATH": ":".join(paths), "LANG": "C.UTF-8", "TERMINFO_DIRS": cfg["terminfo"],
            "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt", "NIX_SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
@@ -555,7 +747,14 @@ def run_env(cfg, policy, launch):
             env[v] = os.environ[v]
     for i in eff(policy, "env.set"):
         n, _, v = i["value"].partition("=")
-        env[n] = v
+        env[n] = home + v[1:] if v == "~" or v.startswith("~/") else v
+    env["BASH_ENV"] = f"{run_mnt}/bash_env"
+    if binding(policy, "git.fetch"):
+        env["GIT_SSH_COMMAND"] = f"{run_mnt}/bin/sb-ssh"
+        env["GIT_SSH_VARIANT"] = "ssh"
+    if binding(policy, "nix"):
+        env["NIX_REMOTE"] = f"unix://{run_mnt}/nix.sock"
+        env["NIX_CONFIG"] = "experimental-features = nix-command flakes"
     for i in eff(policy, "env"):
         if i["value"] in os.environ:
             env[i["value"]] = os.environ[i["value"]]
@@ -569,6 +768,9 @@ def run_env(cfg, policy, launch):
 def print_command(cfg, rundir, policy, launch, args):
     import shlex
     env = run_env(cfg, policy, launch)
+    for b in binding(policy, "credential") + binding(policy, "mcp"):
+        for n in b.get("env") or []:
+            env[n] = "(the run holds it)"
     print("# the bubblewrap command for this run (sb explain --backend-command)")
     print(f"env -i {cfg['bwrap']} --args 3 \\")
     for a in args:
@@ -584,6 +786,59 @@ def print_command(cfg, rundir, policy, launch, args):
 
 # ---------------------------------------------------------------- run
 
+def wait_for(paths, procs, what):
+    for _ in range(500):
+        if all(os.path.exists(p) for p in paths) or any(p.poll() is not None for p in procs):
+            break
+        time.sleep(0.01)
+    if not all(os.path.exists(p) for p in paths):
+        raise Stop(f"{what} did not start")
+
+
+def start_bindings(cfg, rundir, policy, launch):
+    """The host side of the run's bindings: the broker (status.relay, git.fetch) and the nix relay.
+    Sockets are relative to the run directory (AF_UNIX allows 108 bytes; socat truncates silently)."""
+    tools = launch.get("hostTools") or {}
+    procs, socks = [], []
+    log = open(os.path.join(rundir, "bindings.log"), "w")
+    cmd = [cfg["python"], "-I", "-S", cfg["broker"], "--context", policy["context"],
+           "--denials", os.path.join(rundir, "denials")]
+    if binding(policy, "status.relay") and tools.get("workmux"):
+        cmd += ["--status", "relay.sock", "--workmux", tools["workmux"]] + (["--pane", launch["pane"]] if launch.get("pane") else [])
+        socks.append("relay.sock")
+    elif binding(policy, "status.relay"):
+        cmd += ["--status", "relay.sock", "--workmux", "/bin/false"]
+        socks.append("relay.sock")
+    gf = binding(policy, "git.fetch")
+    if gf:
+        if not tools.get("ssh"):
+            raise Stop("git.fetch's broker needs ssh on the host's PATH")
+        cmd += ["--git", "git.sock", "--ssh", tools["ssh"]]
+        for b in gf:
+            cmd += [x for r in b.get("remotes") or [] for x in ("--remote", r)]
+            kf = (b.get("key") or {}).get("file")
+            if kf:
+                cmd += ["--key-file", os.path.expanduser(kf)]
+        socks.append("git.sock")
+    if socks:
+        procs.append(subprocess.Popen(cmd, cwd=rundir, stdout=subprocess.DEVNULL, stderr=log))
+    if binding(policy, "nix"):
+        nix = tools.get("nix")
+        if not nix:
+            raise Stop("the nix capability's relay needs nix on the host's PATH")
+        relay = os.path.join(rundir, "nix-relay")
+        with open(relay, "w") as f:
+            # verified on Nix 2.34.6: both features, every time (first checks, item 10)
+            f.write(f"#!/bin/sh\nexec {nix} daemon --stdio --force-untrusted --process-ops "
+                    "--extra-experimental-features 'daemon-trust-override mounted-ssh-store'\n")
+        os.chmod(relay, 0o500)
+        procs.append(subprocess.Popen([cfg["socat"], "-lf", "/dev/null", "UNIX-LISTEN:nix.sock,fork,unlink-early,mode=600",
+                                       "EXEC:./nix-relay"], cwd=rundir, stdout=subprocess.DEVNULL, stderr=log))
+        socks.append("nix.sock")
+    wait_for([os.path.join(rundir, s) for s in socks], procs, "the run's bindings (" + ", ".join(socks) + ")")
+    return procs
+
+
 def run(cfg, rundir):
     policy, launch = load(rundir)
     net = [i for i in eff(policy, "network") if i["class"] == "reach"]
@@ -591,8 +846,10 @@ def run(cfg, rundir):
     if net:
         allow = [i["value"] for i in net]
         log = open(os.path.join(rundir, "proxy.log"), "w")
+        tmux = (launch.get("hostTools") or {}).get("tmux")
+        live = ["--tmux", tmux, "--pane", launch["pane"]] if tmux and launch.get("pane") else []
         proxy = subprocess.Popen([cfg["python"], "-I", "-S", cfg["proxy"], "proxy.sock",
-                                  "--denials", os.path.join(rundir, "denials"), "--context", policy["context"]] + allow,
+                                  "--denials", os.path.join(rundir, "denials"), "--context", policy["context"]] + live + allow,
                                  cwd=rundir, stdout=log, stderr=subprocess.STDOUT)
         for _ in range(300):
             if os.path.exists(os.path.join(rundir, "proxy.sock")) or proxy.poll() is not None:
@@ -602,7 +859,9 @@ def run(cfg, rundir):
             log.close()
             with open(os.path.join(rundir, "proxy.log")) as f:
                 raise Stop("the network proxy did not start: " + f.read())
+    helpers = start_bindings(cfg, rundir, policy, launch)
     env = run_env(cfg, policy, launch)
+    env.update(credentials(policy))
     with open(os.path.join(rundir, "bwrap.args"), "rb") as f:
         argbytes = f.read()
     for k, v in env.items():
@@ -633,12 +892,12 @@ def run(cfg, rundir):
         status = p.wait()
     finally:
         signal.signal(signal.SIGINT, old)
-        if proxy:
-            proxy.terminate()
+        for h in ([proxy] if proxy else []) + helpers:
+            h.terminate()
             try:
-                proxy.wait(2)
+                h.wait(2)
             except subprocess.TimeoutExpired:
-                proxy.kill()
+                h.kill()
     if status < 0:
         status = 128 - status
     with open(os.path.join(rundir, "status"), "w") as f:
@@ -696,7 +955,8 @@ def after(cfg, rundir):
 
 
 def cleanup(rundir):
-    for n in ("proxy.sock", "bwrap.args", "bwrap.args.all", "closure.args", "passwd", "group", "hosts"):
+    for n in ("proxy.sock", "relay.sock", "git.sock", "nix.sock", "nix-relay", "bwrap.args", "bwrap.args.all",
+              "closure.args", "passwd", "group", "hosts"):
         try:
             os.unlink(os.path.join(rundir, n))
         except OSError:

@@ -81,6 +81,9 @@ let
     bwrap = "${pkgs.bubblewrap}/bin/bwrap";
     python = "${python}/bin/python3";
     proxy = "${sbSrc}/proxy.py";
+    broker = "${sbSrc}/broker.py";
+    shim = "${sbSrc}/shim.py";
+    socat = "${pkgs.socat}/bin/socat";
     inherit bpf netwrap;
     sh = "${pkgs.bashInteractive}/bin/sh";
     shell = "${pkgs.bashInteractive}/bin/bash";

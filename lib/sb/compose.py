@@ -360,6 +360,12 @@ def validate_kit(kit, where, home):
         for k in c:
             if k not in COMMAND_FIELDS:
                 raise KitError(f"{where}: commands.{name}.{k} is not a command field")
+        fd = c.get("fixedDirs") or {}
+        if not isinstance(fd, dict) or not all(isinstance(v, (str, type(None))) for v in fd.values()):
+            raise KitError(f"{where}: commands.{name}.fixedDirs: {{ \"~/run/path\" = \"~/host/dir\" or null; }}")
+        for at in fd:
+            if not norm_path(at, f"{where}: commands.{name}.fixedDirs").startswith("~/"):
+                raise KitError(f"{where}: commands.{name}.fixedDirs: {at} must be in the run's HOME")
         if c.get("access", "write") not in ("read", "write"):
             raise KitError(f"{where}: commands.{name}.access: read or write")
         for r in parse_requests(c.get("requests"), f"{where}: commands.{name}", home):
@@ -780,6 +786,8 @@ def compose(inp):
     for h in (root.get("grantsFile"), root.get("stateDir")):
         if h:
             hidden.append((canon_path(expand(h, home), home), {"root": "sb"}))
+    for h in binding_files(root):
+        hidden.append((canon_path(expand(norm_path(h, "a binding's from.file"), home), home), {"root": "binding"}))
     resolve = inp["host"].get("resolve") or {}
     resolve_hidden = inp["host"].get("hidden") or {}
     hidden_paths = []
@@ -800,6 +808,8 @@ def compose(inp):
     for w in inp["workspace"]:
         if w.get("flakeDir"):
             protect_src.append((w["flakeDir"], {"root": "graft", "why": "the flake directory sb evaluates"}))
+        if w.get("scionsDir"):
+            protect_src.append((w["scionsDir"], {"root": "graft", "why": "the scions directory"}))
     protect = []
     for p, src in protect_src:
         if p not in protect:
@@ -810,6 +820,8 @@ def compose(inp):
         item("network", "none", "limits", [{"context": ctx["name"]}])
 
     # reach
+    for k in included:
+        item("include", k["name"], "reach", [{"context": ctx["name"]}])
     view = ctx.get("view")
     if view:
         item("view", "inspect", "reach", [{"context": ctx["name"]}],
@@ -817,6 +829,7 @@ def compose(inp):
                    for h in ((root.get("inspect") or {}).get("home") or ["~/src"])],
              homeManager=(root.get("inspect") or {}).get("homeManagerFiles", True))
     state_mounts = []
+    bound = []
     bindings = root.get("bindings") or {}
     for k, reqs in applies + [(k, []) for k in kits if k["id"] not in applying_ids]:
         st = status[k["id"]]
@@ -843,11 +856,15 @@ def compose(inp):
                 eff, why = False, "inspect has no MCP"
             if r.kind == "capability":
                 extra["data"] = r.data
-                if eff and not bindings.get(r.value):
+                b = find_binding(bindings, r, k["id"])
+                if eff and b is None:
                     eff, why = False, "no binding"
                     report["noBinding"].append((k["id"], r))
                 elif eff and CAPABILITIES[r.value]["phase"] != "1a":
                     eff, why = False, f"phase {CAPABILITIES[r.value]['phase']}"
+                elif eff:
+                    extra["binding"] = b[0]
+                    bound.append((k, r, b))
             if r.kind == "unsandboxed" and eff:
                 report["unsandboxed"] = k["id"]
             if r.kind in ("read", "write", "socket"):
@@ -897,10 +914,30 @@ def compose(inp):
             report["unsetEnv"].append(e)
         report["oneRun"].append(("--env", e))
 
+    # ---- bindings (§7.2): how each effective capability is carried out
+    pbind = [binding_entry(k, r, b, inp, ctx) for k, r, b in bound]
+    report["bindings"] = pbind
+
+    # ---- the command's argv: its program (a host path resolved at start, under a read request) and args
+    report["argv"] = argv
+    if cmdkit:
+        c = (cmdkit["manifest"].get("commands") or {}).get(cmdname, {})
+        prog = c.get("program")
+        if isinstance(prog, dict):
+            hp = canon_path(expand(norm_path(prog.get("host", ""), f"{cmdkit['file']}: commands.{cmdname}.program.host"), home), home)
+            real = resolve.get(hp) or expand(hp, home)
+            reads = [i["path"] for i in items if i["kind"] == "read" and i["effective"] and i.get("path")]
+            if not any(under(real, r) for r in reads):
+                raise Refusal(f"graft sandbox ({ctx['name']}): {cmdname}'s program {hp} resolves to {canon_path(real, home)}, "
+                              f"outside {kit_display(cmdkit)}'s granted read requests")
+            prog = real
+        if prog or c.get("args"):
+            report["argv"] = [prog or cmdname] + [str(a) for a in c.get("args") or []] + argv[1:]
+
     # ---- backend and guarantees
     proved = list(inp.get("probe") or [])
-    if view:
-        # inspect sees the whole store (§5)
+    if view or any(b["capability"] == "nix" for b in pbind):
+        # inspect sees the whole store (§5); so does a run with the nix capability (§8)
         proved = [g for g in proved if g != "closure-store"]
     requires = list(ctx.get("requires") or [])
     missing = [g for g in requires if g not in proved]
@@ -919,12 +956,89 @@ def compose(inp):
         "workspace": workspace,
         "items": items,
         "mounts": {"state": state_mounts, "run": "/run/graft-sandbox"},
-        "bindings": [],
+        "bindings": pbind,
         "children": {},
         "grants": [{"id": st["kit"], "digest": st["digest"], "match": st["status"] in ("match", "none")}
                    for st in report["kits"]],
     }
     return policy, report
+
+
+BINDING_SOCKETS = {"status.relay": "relay.sock", "git.fetch": "git.sock", "nix": "nix.sock"}
+
+
+def cap_key(r):
+    spec = CAPABILITIES[r.value]
+    return r.data.get(spec["key"]) if spec["key"] else None
+
+
+def find_binding(bindings, r, kit_id):
+    """bindings.<capability>."<selector>" (§7.2): the selector is the capability's key (a host, a URL
+    pattern, a server name) or "*", optionally narrowed to one kit: "api.anthropic.com kit=claude-code@x".
+    The narrowest match wins: kit-narrowed, then exact, then a pattern, then "*". (selector, config) or None."""
+    key = cap_key(r)
+    best = None
+    for sel, cfg in (bindings.get(r.value) or {}).items():
+        base, _, kitpart = sel.partition(" kit=")
+        if kitpart and kitpart not in (kit_id, kit_id.split(":", 1)[-1]):
+            continue
+        if base == "*":
+            rank = 3
+        elif key is None or base == key:
+            rank = 1
+        elif isinstance(key, str) and fnmatch.fnmatchcase(key, base):
+            rank = 2
+        else:
+            continue
+        rank -= 0.5 if kitpart else 0
+        if best is None or rank < best[0]:
+            best = (rank, sel, cfg)
+    return None if best is None else (best[1], best[2])
+
+
+def binding_files(root):
+    """Files a binding names (from.file, key.file): hidden automatically (§7.2)."""
+    out = []
+    for cap in (root.get("bindings") or {}).values():
+        for cfg in cap.values():
+            for k in ("from", "key"):
+                f = (cfg.get(k) or {}).get("file") if isinstance(cfg.get(k), dict) else None
+                if f:
+                    out.append(f)
+            if cfg.get("from", {}).get("envFile") if isinstance(cfg.get("from"), dict) else None:
+                out.append(cfg["from"]["envFile"])
+    return out
+
+
+def binding_entry(k, r, b, inp, ctx):
+    """policy.json's bindings entry: what the backend sets up. Never a secret value: references only."""
+    sel, cfg = b
+    e = {"capability": r.value, "selector": sel, "kit": k["id"], "request": r.canonical}
+    if r.value in BINDING_SOCKETS:
+        e["socket"] = f"/run/graft-sandbox/{BINDING_SOCKETS[r.value]}"
+    if r.value == "status.relay":
+        e.update(see=["workmux shim"], allow=["set-window-status", "register-agent"])
+    elif r.value == "git.fetch":
+        remote = r.data.get("remote", "*")
+        e.update(see=["ssh shim (GIT_SSH_COMMAND)"], remotes=[remote], key=cfg.get("key") or {"agent": True})
+    elif r.value == "nix":
+        e.update(see=["nix", "NIX_REMOTE"], via=cfg.get("via", "daemon-untrusted"),
+                 notes=["the whole store is visible (closure-store dropped)",
+                        "fixed-output derivations reach the network outside the proxy"])
+    elif r.value in ("credential", "mcp"):
+        env = r.data.get("env") if r.value == "credential" else cfg.get("env")
+        env = [env] if isinstance(env, str) else list(env or [])
+        via = cfg.get("via", "env")
+        if via not in ("env", "file"):
+            raise Refusal(f"graft sandbox ({ctx['name']}): bindings.{r.value}.\"{sel}\".via = {via!r}: 1a carries "
+                          "env and file (proxy lands in phase 2)")
+        e.update(via=via, env=env, **{"from": cfg.get("from") or {}}, holds="the run holds it")
+        if r.value == "mcp":
+            e.update(server=r.data.get("server"), url=cfg.get("url"), header=cfg.get("header", "Authorization"),
+                     scheme=cfg.get("scheme", "Bearer"), config="/run/graft-sandbox/mcp.json")
+            if not cfg.get("url"):
+                raise Refusal(f"graft sandbox ({ctx['name']}): bindings.mcp.\"{sel}\" needs a url")
+    return e
 
 
 def merge_manifests(ms):

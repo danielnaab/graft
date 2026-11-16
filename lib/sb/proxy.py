@@ -1,6 +1,6 @@
 """graft's sandbox proxy, on the host: a run's only way out to the network.
 
-Usage: proxy.py LISTEN [--denials FILE --context NAME] HOST:PORT...
+Usage: proxy.py LISTEN [--denials FILE --context NAME] [--tmux BIN --pane PANE] HOST:PORT...
 
 LISTEN is a unix socket path (bubblewrap: the launcher binds it into the run, where socat serves it
 as 127.0.0.1:3128), or tcp:ADDRESS:PORT (Seatbelt: 127.0.0.1, port 0 for a free one; the proxy
@@ -9,7 +9,9 @@ forwards CONNECT requests (HTTPS) and absolute-form HTTP requests to the HOST:PO
 policy's network.allow, each host with its ports), and refuses the rest. A host may use fnmatch
 patterns ("*.example.com"). Writes one line per request: ALLOW or DENY, then host:port. With
 --denials, it also appends each newly refused host:port to FILE, once, as the message the run reads
-(/run/graft-sandbox/denials; the claude-code kit's hook passes new lines to the model). It exits when
+(/run/graft-sandbox/denials; the claude-code kit's hook passes new lines to the model). With --tmux,
+it shows each new one on the launching pane with `tmux display-message` (never a write to the run's
+terminal: that corrupts a full-screen program). It exits when
 the launcher, its parent, is gone.
 """
 import asyncio
@@ -21,13 +23,11 @@ import urllib.parse
 
 
 ARGS = sys.argv[2:]
-DENIALS = CONTEXT = None
-while ARGS and ARGS[0] in ("--denials", "--context"):
-    if ARGS[0] == "--denials":
-        DENIALS = ARGS[1]
-    else:
-        CONTEXT = ARGS[1]
+OPT = {}
+while ARGS and ARGS[0] in ("--denials", "--context", "--tmux", "--pane"):
+    OPT[ARGS[0][2:]] = ARGS[1]
     ARGS = ARGS[2:]
+DENIALS, CONTEXT = OPT.get("denials"), OPT.get("context")
 LISTEN, RULES = sys.argv[1], [e.rpartition(":")[::2] for e in ARGS]
 DENIED = set()
 # a host name, an IPv4 literal, or an IPv6 literal in brackets: nothing else is looked up, or logged
@@ -42,6 +42,11 @@ def denied(what):
     host = what.rpartition(":")[0] if what != "(malformed)" else what
     with open(DENIALS, "a") as f:
         f.write(f"graft sandbox ({CONTEXT}): the run tried {what} (not in this run): sb why {host}\n")
+    if OPT.get("tmux") and OPT.get("pane"):
+        import subprocess
+        subprocess.Popen([OPT["tmux"], "display-message", "-t", OPT["pane"], "-d", "5000",
+                          f"graft sandbox ({CONTEXT}): refused {what} · sb why {host}".replace("#", "##")],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def allowed(host, port):

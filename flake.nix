@@ -39,6 +39,10 @@
     {
       lib.mkFlake = mkFlake;
       lib.mkRoot = mkRoot;
+      # agent kits, for a root to call: graft.kits.claude-code { pkgs; account; … } (lib/sb/kits)
+      kits.claude-code = import ./lib/sb/kits/claude-code.nix;
+      # a personal root in home-manager: programs.sb (lib/sb/hm.nix)
+      homeManagerModules.sb = import ./lib/sb/hm.nix { inherit mkRoot; };
 
       # Run against any checkout without evaluating its flake:
       #   nix run github:danielnaab/graft -- outdated -C path/to/repo
@@ -85,6 +89,30 @@
         '';
         # the default root builds (on Darwin: an sb that refuses, D21)
         sb-root = defaultRoot pkgs;
+        # a root with the claude-code kit (two accounts, MCP, Bedrock) builds: its manifests validate
+        sb-root-claude = mkRoot {
+          inherit pkgs;
+          name = "check";
+          kits."claude-code@personal" = self.kits.claude-code { inherit pkgs; account = "personal"; mcp = [ "metamcp" ]; };
+          kits."claude-code@work" = self.kits.claude-code { inherit pkgs; account = "work"; configDir = ".claude-accounts/work";
+            provider = "bedrock"; region = "us-east-1"; binary = pkgs.hello; };
+          defaultAccount = "personal";
+          bindings.mcp.metamcp = { url = "https://mcp.example/mcp"; via = "env"; env = "METAMCP_API_KEY"; from.file = "~/.config/x/key.env"; };
+        };
+        # homeManagerModules.sb evaluates (with home-manager's few options stubbed), and asserts
+        # workmux's sandbox off
+        sb-hm = let
+          ev = workmux: lib.evalModules { modules = [ self.homeManagerModules.sb ({ lib, ... }: {
+            options.home.packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ ]; };
+            options.home.file = lib.mkOption { type = lib.types.attrsOf lib.types.attrs; default = { }; };
+            options.assertions = lib.mkOption { type = lib.types.listOf lib.types.attrs; default = [ ]; };
+            options.workmux.sandbox.enable = lib.mkOption { type = lib.types.bool; default = false; };
+            config = { _module.args.pkgs = pkgs; programs.sb.enable = true; workmux.sandbox.enable = workmux; };
+          }) ]; };
+          ok = ev false; bad = ev true;
+        in assert lib.all (a: a.assertion) ok.config.assertions;
+          assert !(lib.all (a: a.assertion) bad.config.assertions);
+          pkgs.runCommand "graft-sb-hm" { } "test -x ${ok.config.programs.sb.package}/bin/sb && touch $out";
         # graft's docs against knowledge-base-kit's conventions: links and anchors, lifecycle status,
         # provenance (scopes in knowledge-base.yaml). The checker is knowledge-base-kit's src/.
         docs = pkgs.runCommand "graft-docs" { nativeBuildInputs = [ pkgs.python3 ]; } ''
