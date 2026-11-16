@@ -99,9 +99,9 @@ Its arguments are the options below. It checks every kit manifest when it builds
 build. A context named like a verb is an evaluation error:
 `graft: mkRoot: a context may not be named like an sb verb: …`.
 
-How a call finds its `sb`: `<home>/.config/graft/sb/launcher`, a link that the root writes. `<home>` comes from
-the password database, never from `$HOME`. If the link is missing, graft's default root runs. There is no
-host-wide `/etc` pointer.
+In v2.15.0 you run the `sb` on your `PATH`. The home-manager module also writes `<home>/.config/graft/sb/launcher`,
+a link to its `sb`, for the kit-command wrappers of a later release: they will find `<home>` from the password database, never
+from `$HOME`, and use graft's default root when the link is missing. There is no host-wide `/etc` pointer.
 
 ### Home-manager options
 
@@ -213,8 +213,8 @@ starts a new Claude conversation that reads the run's transcript as a report, ne
 `work` writes the repositories of its workspace in place. The workspace is the repository around the current
 directory, and each `--repo PATH`. The run can write its workspace, except [protected paths](#protected-paths).
 The rest of the host is absent, except what the run's grants reach. Outside a git repository, `work` refuses:
-`graft sandbox (work): ~/Downloads is not inside a git repository: sb inspect CMD, or sb host CMD`. A `--repo` outside one:
-`graft sandbox (work): --repo PATH is not inside a git repository`.
+`graft sandbox (work): ~/Downloads is not inside a git repository: sb inspect CMD, or sb host CMD`. A `--repo`
+outside one: `graft sandbox (work): --repo PATH is not inside a git repository`.
 
 ### Root repositories
 
@@ -287,8 +287,8 @@ kit = {
   protect, recipes, requests)`. `env` takes only `set`. A command's fields are `program`, `access` (`read` or
   `write`), `requests`, `args`, `fixedDirs`, `realDirs`, `skillDirs`, `memory`, `settings` and `description`.
 - **Paths are normalised.** `..` is refused. A path under your home is recorded as `~/…`.
-- A `program` written `{ host = "~/.local/bin/claude"; }` is resolved on the host at start. Its target must fall
-  under a `read` request.
+- A `program` written `{ host = "~/.local/bin/claude"; }` is resolved on the host at each start. Its target must
+  be in the store or fall under a granted `read` request.
 - In v2.15.0, `commands` are checked, and `sb NAME` finds a command's kit and applies its `access` and requests.
   But commands are not wrapped, and `recipes` are checked but not generated: a kit tool that `just`, a hook or a
   scheduler calls runs on the host, as before ([Not in v2.15.0](#not-in-v2150)).
@@ -321,8 +321,9 @@ How `sb NAME` finds its command kit:
 3. A program that no kit ships runs with no command kit.
 4. A workspace kit may not ship a command named like a root kit's command, a standard tool or `sb`.
 
-A kit with a stale grant stops only the runs its requests apply to. Other runs get a note on the startup line,
-such as `meeting-kit asks for more: sb grant`.
+A kit with a stale grant affects only the runs its requests apply to: they prompt or stop
+([What sb checks at start](#what-sb-checks-at-start)). Other runs get a note on the startup line, such as
+`meeting-kit asks for more: sb grant`.
 
 ### Merge rules
 
@@ -469,10 +470,10 @@ A file that lacks a variable it should hold: `… reads F, which has no NAME`.
 
 ## Grants
 
-A request does nothing until you run `sb grant` at a terminal. A grant records the kit's exact request set as a
-digest, and, for powerful items on code that the root does not pin itself, its source. If the kit later asks for
-more, or its source changes, its runs stop with the difference until you grant again. Asking for less needs no
-approval.
+A request does nothing until you grant it at a terminal: with `sb grant`, or at the prompt that a run shows
+inline. A grant records the kit's exact request set as a digest, and, for powerful items on code that the root
+does not pin itself, its source. If the kit later asks for more, or its source changes, its runs show the
+difference until you grant again. Asking for less needs no approval.
 
 ### The grants file
 
@@ -536,20 +537,19 @@ is `sha256-` and the base64 of the SHA-256 of the sorted, unique canonical lines
 | Case | Result |
 |---|---|
 | Nothing new | The run proceeds. |
-| More requested, or a changed source | Exit 125, with the difference and `sb grant KIT`. A changed repo-kit source shows `  source: tree A -> tree B` and up to 12 lines of `git diff --stat` between the two trees, with paths relative to the workspace (`nix/agent-tools/flake.nix`). |
-| A repo kit that is not granted, in `inspect` | The run proceeds: a repo kit's reach does not apply in `inspect`. The startup line notes `NAME not granted (its reach does not apply in inspect)`. |
-| Never granted, at a terminal, with no agent marker | The grant prompt appears inline, and the run continues after it. The agent markers are `CLAUDECODE`, `CODEX_SANDBOX` and `GRAFT_SANDBOX`. A workmux pane is not one. |
-| Never granted, otherwise | Exit 125, with `sb grant KIT`. |
+| A stale kit (not granted, asks for more, changed source), at a terminal with no agent marker | The grant prompt appears inline, with the difference, and the run continues after it. The agent markers are `CLAUDECODE`, `CODEX_SANDBOX` and `GRAFT_SANDBOX`. A workmux pane is not one. |
+| A stale kit, otherwise | Exit 125, with every kit's difference and `sb grant KIT`. |
+| A repo kit that is stale, in `inspect` | The run proceeds: a repo kit's reach does not apply in `inspect`. The startup line notes `NAME not granted (its reach does not apply in inspect)`. |
 | The file changed since this machine last read it | One line, `sb: the grants file changed since this machine last read it: sb grant --diff`, at each start until `sb grant --diff` or a grant acknowledges it. Nothing stops. A pull and a local edit read the same. |
 | The file does not parse, has another version, an unknown field, or an entry whose digest does not match its requests | Every run stops, with a message that says `every run stops until it is fixed`. A parse error names the file and suggests a merge conflict: `~/…/grants.json: the grants file does not parse (…): every run stops until it is fixed (a merge conflict? git diff on it shows the markers; resolve them, keep both machines' entries)`. A digest mismatch names its repair: `~/…/grants.json: the grants file's entry ID: its digest does not match its requests (an edit by hand?): every run stops until it is fixed: sb grant --revoke SHORT, then sb grant SHORT (a merge conflict? …)`. |
 
 The status words, in `sb grant`, the startup line and `sb explain`: `granted`, `not granted`, `asks for more`,
 `changed source` and `unverified`.
 
-At a terminal (stdin and stderr), with no agent marker, every stale kit is prompted inline, with its difference:
-not granted, asks for more, or changed source (with the same `git diff --stat` lines as the 125 message). The run
-goes on after the prompt. Elsewhere, the run stops with exit 125 and every kit's difference. The inline prompt is
-`sb grant`'s own: ordinary items together, each powerful item alone, recorded with its `source`.
+"At a terminal" means stdin and stderr are both terminals. The inline prompt is `sb grant`'s own: ordinary items
+together, each powerful item alone, recorded with its `source`. A changed repo-kit source shows
+`  source: tree A -> tree B` and up to 12 lines of `git diff --stat` between the two trees, with paths relative to
+the workspace (`nix/agent-tools/flake.nix`), both in the prompt and in the 125 message.
 
 ## policy.json
 
@@ -659,7 +659,7 @@ and the exit line names each one's permanent form. `--flag=value` works too.
 | `--from REF`, `--detach` | | Clone mode. Refused in v2.15.0, as `--clone` is. |
 | `--account NAME` | | Chooses an agent kit instance. |
 | `--backend NAME` | | Chooses a backend that the root defines. |
-| `--resume RUN`, `--resume last` | | Only with `host`: passes run `RUN`'s (or the newest run that left a transcript) transcript into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `sb: --resume RUN goes with sb host (sb host --resume RUN claude)`. |
+| `--resume RUN`, `--resume last` | | Only with `host`: passes the transcript of run `RUN` (`last`: the newest run that left one) into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `sb: --resume RUN goes with sb host (sb host --resume RUN claude)`. |
 
 A flag or `--repo` that names a hidden path, or a root repository in `work`, is refused at start.
 
@@ -673,9 +673,10 @@ Prints the run's policy without running it: every item with the kit, file or gra
 note that kit tools run as the run's own programs in v2.15.0. `--json` prints [policy.json](#policyjson).
 `--backend-command` prints bubblewrap's command line, with each secret variable shown as `(the run holds it)`;
 with `host`, it prints `argv       CMD` (and `(+ the transcript of run ID, as data)` with `--resume`).
-Inside a run, `sb explain` prints the run's policy.json.
+Inside a run, `sb explain` prints the same text as on the host; `--json` prints the run's policy.json.
 
-The rows: `run` (the command and its kit), `argv` (a kit command's program and arguments), `context`,
+The rows: `run` (the command and its kit), `argv` (a kit command's program and arguments), `hooks` (the
+claude-code kit's overlay hooks, which Claude's `/hooks` does not list), `context`,
 `workspace`, `scions`, `see` (packages, `env.set`, `files`, and each read-only `dir` with its entries), `limits`
 (protected paths and the number of hidden paths), `reach` with the kit or grant of each item and each
 capability's binding, `children`, `not in run` (kits whose grants do not apply), `backend` (proved and lacking
@@ -742,8 +743,8 @@ note       kit tools run as this run's own programs; sandboxing each kit command
 
 `daniel` here is the root kit that Daniel's `work` includes, and `flexion-assistant` is the repo kit's short
 name. The `nix` capability is why this run lacks `closure-store`. File modes are in words: `read-only` (`fixed`),
-`copied in once` (`seed`) and `keys copied in at each start` (`reassert`). Long rows wrap. The labels are `(graft)`, `(root)`, `(repo)`, `(<kit>)`, `(one run)` and `(<context>)`. A kit
-whose grant does not apply has no rows in `reach`; it is listed as `not in run NAME (ID): <status word>: …`. With
+`copied in once` (`seed`) and `keys copied in at each start` (`reassert`). Long rows wrap. The labels are
+`(graft)`, `(root)`, `(repo)`, `(<kit>)`, `(one run)` and `(<context>)`. A kit whose grant does not apply has no rows in `reach`; it is listed as `not in run NAME (ID): <status word>: …`. With
 host memory for the workspace, a `see` row says `host memory: N files, read-only …`.
 
 ### sb why
@@ -925,8 +926,10 @@ sb: --net pypi.org:443 was for this run; permanent: the repo kit's requests.netw
 
 - The prompt is `(sb:work) ~/src/team-kb $`.
 - `/run/graft-sandbox/` holds `policy.json`, `explain.txt`, `why.json`, `README.md` and `denials`, read-only, and
-  `proxy.sock` when the run has network reach. `README.md` explains the run; `denials` lists its denials
-  ([Denials](#denials)).
+  `proxy.sock` when the run has network reach. `README.md` explains the run, how to read a refusal, and, in a
+  claude-code run, how memory works: `Claude's host memory for this workspace is read-only here; MEMORY.md is a
+  writable copy. New memory files, and a changed MEMORY.md, are copied out for the person to review when the run
+  ends; nothing is written back to the host.` `denials` lists the run's denials ([Denials](#denials)).
 - `~/.graft-sandbox-hidden` lists the hidden paths, one per line, as the root wrote them.
 - `sb` inside a run answers `sb explain` (the same text as on the host; `--json` for policy.json) and `sb why`.
   Other verbs and runs are refused:
@@ -944,6 +947,7 @@ sb: --net pypi.org:443 was for this run; permanent: the repo kit's requests.netw
 | `GRAFT_SANDBOX_CLONE` | `1` in clone mode. Never set in v2.15.0. |
 | `PATH` | `/run/graft-sandbox/bin` (the capabilities' shims) first, then the standard set, the root's tools, the kits' packages and the workspace's tools, and `/run/graft-sandbox/notfound` last. |
 | `BASH_ENV` | `/run/graft-sandbox/bash_env`, which defines bash's `command_not_found_handle`. |
+| `BASH_FUNC_command_not_found_handle%%` | The same handler, exported as a function. |
 | `HOME`, `USER`, `LOGNAME` | Your home's path and your user name. Only what the run's items bind is in `HOME`. |
 | `SHELL` | The run's bash. |
 | `LANG` | `C.UTF-8`. |
@@ -964,8 +968,7 @@ A program that is not in the run fails with exit 127 and
 `graft sandbox (work): NAME is not in this run. one run: sb --package PKG …  permanent: programs.sb.tools (home-manager switch), or the repo kit's packages (perSystem.kit)`
 (the start check's fix, for this root and repository): from bash's handler, or from a not-found shim. The
 handler is also exported to the run as the function `BASH_FUNC_command_not_found_handle%%`, for a bash that skips
-`BASH_ENV`. Shims exist only for host-only programs: `nix` (without the
-capability: `nix needs the nix capability: the repo kit's requests.capabilities = [ { name = "nix"; } ], then sb grant`),
+`BASH_ENV`. Shims exist only for host-only programs: `nix` (without the capability: `nix needs the nix capability: the repo kit's requests.capabilities = [ { name = "nix"; } ], then sb grant`),
 `nix-build`, `nix-shell`, `ssh`, `scp`, `sudo`, `systemctl`, `docker`, `home-manager`, `darwin-rebuild` and
 `nixos-rebuild`. A shim for an ordinary name would defeat a program that looks for it on `PATH` and falls back
 when it is absent.
@@ -1013,7 +1016,8 @@ A hidden path is unmounted and unwritable in every run, `inspect` included. graf
 - each file that a binding's `from` names.
 
 A root adds to it with `hidden`. A run's agent gets its own home: the claude-code kit's `state` puts a private
-`~/.claude` in place of yours.
+`~/.claude` in place of yours, and binds into it, read-only, only what the kit names: fixed files, skills,
+plugins and project memory ([Claude Code](#claude-code)). Your credentials there stay hidden.
 
 ### Secret patterns
 
@@ -1229,10 +1233,13 @@ backend returns.
 
 - **Kit tools run on the host.** A kit's commands are not wrapped or sandboxed on their own: `just`, a hook or a
   scheduler runs them as before. Inside `sb claude`, they run under the run's policy. `sb explain` says so.
-- **No `dispatch`:** no clone mode, no `sb review`, no run log, no fetch-back.
+- **No `dispatch`:** no clone mode, no `sb review`, no fetch-back. Each run's log is in `sb`'s state
+  (`runs/<id>/log.jsonl`), but no verb reads it yet.
 - **No nesting:** the children table is empty. A command started inside a run gets that run's policy.
-- **No generated recipes or wrappers:** `recipes` and `commands` are not used yet.
+- **No generated recipes or wrappers:** `recipes` are checked but not generated, and `commands` are not wrapped.
 - **No macOS** ([On macOS](#on-macos)).
+- **No synced claude.ai skills inside a run** ([Claude Code](#claude-code)): install them as ordinary skill
+  folders.
 - No proxy credentials, `git.push`, `git.sign`, `ops.read`, `trust = "root"`, `delegate` or resource limits.
 
 ## Residual risks
