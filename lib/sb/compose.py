@@ -86,7 +86,7 @@ CAPABILITIES = {
 }
 REQUEST_KINDS = ("read", "write", "socket", "network", "env", "state", "capabilities", "unsandboxed")
 KIT_FIELDS = {"packages", "env", "files", "protect", "requests", "commands", "recipes", "file", "kind"}
-COMMAND_FIELDS = {"program", "access", "requests", "args", "fixedDirs", "skillsDir", "skillDirs", "settings",
+COMMAND_FIELDS = {"program", "access", "requests", "args", "fixedDirs", "skillDirs", "realDirs", "memory", "settings",
                   "description"}
 FILE_MODES = ("fixed", "seed", "reassert")
 
@@ -448,9 +448,9 @@ def grant_status(ident, kind, canons, powerful, source, grants, machine, verifie
 
 
 def write_grant(grants, ident, canons, source, machine, when, local):
-    """Record a grant: the shared section when there is no shared entry or the set equals it; this
-    machine's section otherwise (a superset here must not widen the grant on every other machine),
-    and always for a machine-bound identity (no remote). A machine entry overrides the shared one."""
+    """Record a grant: the shared section when there is no shared entry or the set is a superset of it;
+    this machine's section only when the sets diverge (each holds items the other lacks), and always for
+    a machine-bound identity (no remote). A machine entry overrides the shared one for its machine."""
     canons = sorted(set(canons))
     e = {"digest": digest(canons), "requests": canons}
     if source:
@@ -458,13 +458,21 @@ def write_grant(grants, ident, canons, source, machine, when, local):
     e["granted"] = when
     mach = grants.setdefault("machines", {})
     shared = grants.setdefault("grants", {})
-    if local or ident in mach.get(machine, {}):
+    if local:
         mach.setdefault(machine, {})[ident] = e
         return f"machines.{machine}"
     old = shared.get(ident)
-    if old is None or sorted(set(old["requests"])) == canons:
+    if old is None or set(canons) >= set(old["requests"]):
+        # a superset is safe in the shared entry: a run only gets what its own machine's kit asks for
         shared[ident] = e
+        mine = mach.get(machine, {})
+        if ident in mine:
+            del mine[ident]
+            if not mine:
+                del mach[machine]
         return "grants"
+    if set(canons) <= set(old["requests"]) and old.get("source") == e.get("source"):
+        return "grants"      # asking for less needs no approval: the shared entry covers it
     mach.setdefault(machine, {})[ident] = e
     return f"machines.{machine}"
 
@@ -628,7 +636,7 @@ def compose(inp):
             manifests.append((m, f))
         merged = merge_manifests(manifests)
         w["kit"] = add_kit(w["id"], "repo", merged, " + ".join(f for _, f in manifests) or "(none)",
-                           name=posixpath.basename(w["top"]), source={"tree": w["tree"]} if w.get("tree") else None,
+                           name=repo_short_name(w), source={"tree": w["source"]} if w.get("source") else None,
                            workspace=w)
         ws_kits.append(w["kit"])
         for s in w.get("scions") or []:
@@ -679,7 +687,7 @@ def compose(inp):
     if cmdkit:
         applies.append((cmdkit, [r for r in cmdkit["requests"] if r.command in (None, cmdname)]))
     for k in ws_kits:
-        if k["kind"] == "repo" and k is not cmdkit:
+        if k["kind"] == "repo" and k is not cmdkit and not ctx.get("view"):
             applies.append((k, [r for r in k["requests"] if r.command is None]))
     for k in included:
         if k is not cmdkit:
@@ -702,8 +710,10 @@ def compose(inp):
         status[k["id"]] = st
         report["kits"].append(st)
         if st["status"] in ("grown", "source", "never") and not st["applies"]:
-            if st["status"] != "never":
-                report["notes"].append(f"{st['name']} asks for more: sb grant")
+            if ctx.get("view") and k["kind"] == "repo":
+                report["notes"].append(f"{st['name']} {STATUS_WORDS[st['status']]} (its reach does not apply in inspect)")
+            elif st["status"] != "never":
+                report["notes"].append(f"{st['name']} {STATUS_WORDS[st['status']]}: sb grant")
     for k, _ in applies:
         st = status[k["id"]]
         if st["status"] in ("grown", "source", "never"):
@@ -917,6 +927,12 @@ def compose(inp):
     # ---- bindings (§7.2): how each effective capability is carried out
     pbind = [binding_entry(k, r, b, inp, ctx) for k, r, b in bound]
     report["bindings"] = pbind
+    for b in pbind:
+        if b["capability"] == "mcp" and network_ok:
+            u = urlsplit(b["url"])
+            hp = f"{(u.hostname or '').lower()}:{u.port or (80 if u.scheme == 'http' else 443)}"
+            item("network", hp, "reach", [{"kit": b["kit"], "file": "the root", "as": "request"},
+                                          {"binding": f"mcp.{b['selector']}"}], True, via="mcp")
 
     # ---- the command's argv: its program (a host path resolved at start, under a read request) and args
     report["argv"] = argv
@@ -924,10 +940,13 @@ def compose(inp):
         c = (cmdkit["manifest"].get("commands") or {}).get(cmdname, {})
         prog = c.get("program")
         if isinstance(prog, dict):
-            hp = canon_path(expand(norm_path(prog.get("host", ""), f"{cmdkit['file']}: commands.{cmdname}.program.host"), home), home)
-            real = resolve.get(hp) or expand(hp, home)
+            h = prog.get("host", "")
+            hp = h if "/" not in h else canon_path(expand(norm_path(h, f"{cmdkit['file']}: commands.{cmdname}.program.host"), home), home)
+            real = resolve.get(hp) or (expand(hp, home) if "/" in hp else hp)
             reads = [i["path"] for i in items if i["kind"] == "read" and i["effective"] and i.get("path")]
-            if not any(under(real, r) for r in reads):
+            # checked only once the kit's grant matches: a first run reaches the grant prompt (or 125) first
+            if status[cmdkit["id"]]["status"] == "match" and not real.startswith("/nix/store/") \
+                    and not any(under(real, r) for r in reads):
                 raise Refusal(f"graft sandbox ({ctx['name']}): {cmdname}'s program {hp} resolves to {canon_path(real, home)}, "
                               f"outside {kit_display(cmdkit)}'s granted read requests")
             prog = real
@@ -963,6 +982,10 @@ def compose(inp):
     }
     return policy, report
 
+
+# the words people see for a grant's status (never the internal keys)
+STATUS_WORDS = {"match": "granted", "none": "requests nothing", "never": "not granted", "grown": "asks for more",
+                "source": "changed source", "unverified": "unverified"}
 
 BINDING_SOCKETS = {"status.relay": "relay.sock", "git.fetch": "git.sock", "nix": "nix.sock"}
 
@@ -1032,13 +1055,19 @@ def binding_entry(k, r, b, inp, ctx):
         if via not in ("env", "file"):
             raise Refusal(f"graft sandbox ({ctx['name']}): bindings.{r.value}.\"{sel}\".via = {via!r}: 1a carries "
                           "env and file (proxy lands in phase 2)")
-        e.update(via=via, env=env, **{"from": cfg.get("from") or {}}, holds="the run holds it")
+        e.update(via=via, env=env, **{"from": cfg.get("from") or {}}, holds="the run holds it",
+                 **({"refresh": cfg["refresh"]} if cfg.get("refresh") else {}))
         if r.value == "mcp":
             e.update(server=r.data.get("server"), url=cfg.get("url"), header=cfg.get("header", "Authorization"),
                      scheme=cfg.get("scheme", "Bearer"), config="/run/graft-sandbox/mcp.json")
             if not cfg.get("url"):
                 raise Refusal(f"graft sandbox ({ctx['name']}): bindings.mcp.\"{sel}\" needs a url")
     return e
+
+
+def repo_short_name(w):
+    """A repo kit's short name: its normalised origin's last path part, else the checkout's folder."""
+    return w["originKey"].rstrip("/").rsplit("/", 1)[-1] if w.get("originKey") else posixpath.basename(w["top"])
 
 
 def merge_manifests(ms):
@@ -1129,6 +1158,8 @@ def stale_message(ctxname, st):
     else:
         lines.append(f"graft sandbox ({ctxname}): {st['name']} ({st['kit']}) changed source since its grant:")
         lines.append(f"  source: {fmt_source(st.get('was'))} -> {fmt_source(st.get('now'))}")
+        for d in st.get("diffstat") or []:
+            lines.append(f"    {d}")
     for a in st["added"]:
         lines.append(f"  + {a}")
     lines.append(f"  grant it: sb grant {st['name']}")
@@ -1141,7 +1172,7 @@ def fmt_source(s):
     if "tag" in s:
         return f"{s['tag']} ({s['commit'][:12]})"
     if "tree" in s:
-        return f"tree {s['tree'][:19]}"
+        return f"tree {s['tree'][:12]}"
     return json.dumps(s, sort_keys=True)
 
 

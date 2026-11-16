@@ -28,7 +28,7 @@ in
     hidden = opt (t.listOf t.str) [ ] "Paths hidden from every run, beyond graft's defaults.";
     tools = opt (t.listOf t.package) [ ] "Packages on every run's PATH, after the standard set.";
     bindings = opt (t.attrsOf (t.attrsOf (t.attrsOf t.anything))) { } "bindings.<capability>.\"<selector>\": how each capability is carried out.";
-    rootRepos = opt (t.listOf t.str) [ ] "This root's source repositories (~/.workstation): sb work refuses them (D13).";
+    rootRepos = opt (t.listOf t.str) [ "~/.workstation" ] "This root's source repositories: sb work refuses them. The module can't see which repository holds the home-manager flake, so the default is ~/.workstation.";
     repoKits = opt (t.attrsOf (t.attrsOf t.anything)) { } "Repo kits for repositories that are not graft consumers, by origin pattern.";
     inspect = opt (t.attrsOf t.anything) { } "inspect.home: what sb inspect reads in ~ (replaces [ \"~/src\" ]).";
     caBundle = opt (t.nullOr t.path) null "A CA bundle, at /etc/ssl/certs/ca-certificates.crt in every run.";

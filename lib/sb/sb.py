@@ -235,12 +235,36 @@ def tree_hash(host, top, rel):
     return "sha256-" + h.hexdigest()
 
 
+def source_tree(host, top, rel):
+    """§7.4, a repo kit's source: the tree of the flake directory's tracked content as the index holds
+    it (HEAD plus what is staged), from a copy of the index; never the working tree or scions' status."""
+    import tempfile
+    gd = run_git(host, top, "rev-parse", "--path-format=absolute", "--git-path", "index").stdout.strip()
+    with tempfile.NamedTemporaryFile(dir=host.state, prefix="index-") as tmp:
+        try:
+            with open(gd, "rb") as f:
+                tmp.write(f.read())
+            tmp.flush()
+        except OSError:
+            pass
+        r = subprocess.run([host.git, "-C", top, "write-tree"] + ([f"--prefix={rel}/"] if rel else []),
+                           capture_output=True, text=True, env={**os.environ, "GIT_INDEX_FILE": tmp.name})
+    return r.stdout.strip() or None
+
+
+def tree_diffstat(host, top, old, new):
+    r = run_git(host, top, "diff", "--stat=100", old, new)
+    return r.stdout.rstrip("\n").splitlines()[-12:] if r.returncode == 0 else []
+
+
 def repo_kit(host, w, rel):
     """The repo kit's manifest and tools: packages.<system>.graft-kits, always built with path:,
     cached in sb's state by the flake directory's contents and the scions' state."""
     fdir = os.path.join(w["top"], rel) if rel else w["top"]
     key = tree_hash(host, w["top"], rel)
     w["tree"] = key
+    os.makedirs(host.state, exist_ok=True)
+    w["source"] = source_tree(host, w["top"], rel)
     cdir = os.path.join(host.state, "cache", "kits")
     cfile = os.path.join(cdir, key.replace("/", "_") + ".json")
     try:
@@ -617,7 +641,12 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
         inst = {n.partition("@")[2] for n, k in (root.get("kits") or {}).items() if cmd[0] in (k.get("commands") or {})}
         if name in inst and d != os.path.join(host.home, ".claude"):
             fl["account"] = name
-    resolve = resolve_paths(host, collect_paths(root, ws, flags))
+    import shutil
+    want = collect_paths(root, ws, flags)
+    resolve = resolve_paths(host, want)
+    for p in want:
+        if "/" not in p and shutil.which(p):
+            resolve[p] = os.path.realpath(shutil.which(p))
     env_names = set(flags.get("env") or [])
     for m in list((root.get("kits") or {}).values()) + [w["repoKit"]["manifest"] for w in ws if w.get("repoKit")]:
         for rq in [m.get("requests") or {}] + [c.get("requests") or {} for c in (m.get("commands") or {}).values()]:
@@ -631,13 +660,42 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
            "host": {"home": host.home, "user": host.user, "env": {n: n in os.environ for n in env_names},
                     "resolve": resolve, "hidden": resolve_hidden(host, root), "tz": host.tz()}}
     policy, report = C.compose(inp)
-    fixed_dirs(host, root, policy, report)
+    fixed_dirs(host, root, policy, report, ws)
+    credential_notes(report)
     report["arrived"] = arrived_line(host, grants, text)
     report["grantsText"] = text
     return inp, policy, report, bprog, ws
 
 
-def fixed_dirs(host, root, policy, report):
+def credential_notes(report):
+    """§12.2: a credential carried from the host's environment that is unset or expired, with the
+    host command that refreshes it (the binding's `refresh`, or the AWS default)."""
+    for b in report.get("bindings") or []:
+        if b["capability"] not in ("credential", "mcp") or (b.get("from") or {}).get("file") or (b.get("from") or {}).get("envFile"):
+            continue
+        names = [n for n in b.get("env") or [] if n != "AWS_CREDENTIAL_EXPIRATION"]
+        aws = any(n.startswith("AWS_") for n in names)
+        fix = b.get("refresh") or ("aws sso login (or your AWS credential helper), then start again" if aws else "set it on the host, then start again")
+        unset = [n for n in names if not os.environ.get(n) and n != "AWS_SESSION_TOKEN"]
+        if unset:
+            report["notes"].append(f"{' '.join(unset)} unset on the host: {fix}")
+            continue
+        exp = os.environ.get("AWS_CREDENTIAL_EXPIRATION") if aws else None
+        if exp:
+            try:
+                when = datetime.datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                if when <= datetime.datetime.now(datetime.timezone.utc):
+                    report["notes"].append(f"AWS credentials expired at {exp}: {fix}")
+            except ValueError:
+                pass
+
+
+def project_key(path):
+    """Claude Code's project folder name for a working directory."""
+    return re.sub(r"[^A-Za-z0-9]", "-", path)
+
+
+def fixed_dirs(host, root, policy, report, ws=()):
     """§6.3: the command's fixedDirs ({run path: host dir or null}), bound read-only: each entry of the
     host dir that is a link, by its target (one level). A store target is see; a checkout target must
     fall under the run's read requests. A real directory is there only when skillDirs names it."""
@@ -646,13 +704,17 @@ def fixed_dirs(host, root, policy, report):
         return
     c = ((root["kits"][kid[5:]].get("commands") or {}).get(report["command"]["name"]) or {})
     reads = [i["path"] for i in policy["items"] if i["kind"] == "read" and i["effective"] and i.get("path")]
+    src = [{"kit": kid, "file": root["kits"][kid[5:]].get("file", "the root"), "as": "see"}]
+    real_dirs = set(c.get("realDirs") or [])
     for at, hostdir in sorted((c.get("fixedDirs") or {}).items()):
         links, skipped = [], []
         d = C.expand(hostdir, host.home) if hostdir else None
         if d and os.path.isdir(d):
             for name in sorted(os.listdir(d)):
                 p = os.path.join(d, name)
-                if os.path.islink(p):
+                if at in real_dirs and not os.path.islink(p):
+                    links.append([name, p])     # a real folder the root binds whole (plugins)
+                elif os.path.islink(p):
                     t = os.path.realpath(p)
                     if t.startswith("/nix/store/") or any(C.under(t, r) for r in reads):
                         links.append([name, t])
@@ -660,11 +722,30 @@ def fixed_dirs(host, root, policy, report):
                         skipped.append(name)
                 elif os.path.isdir(p) and name in (c.get("skillDirs") or []):
                     links.append([name, os.path.realpath(p)])
+                elif os.path.isdir(p):
+                    skipped.append(name)
         policy["items"].append({"kind": "dir", "value": at, "class": "see", "effective": True, "mode": "fixed",
                                 "sources": [{"kit": kid, "file": root["kits"][kid[5:]].get("file", "the root"), "as": "see"}],
                                 "links": links, **({"skipped": skipped} if skipped else {})})
         if skipped:
-            report["notes"].append(f"{at}: {len(skipped)} outside the read requests, left out")
+            report["notes"].append(f"{at}: {len(skipped)} left out ({', '.join(skipped[:3])}{' …' if len(skipped) > 3 else ''}): "
+                                   "a link outside the read requests, or a real folder skillDirs does not name")
+    # the host's project memory for each workspace, read-only, file by file: what the run writes there
+    # lands in its state, and the exit line names it
+    mem = c.get("memory")
+    if mem:
+        for w in ws:
+            for d in dict.fromkeys([os.path.realpath(os.getcwd()), w["top"]]):
+                hd = os.path.join(C.expand(mem["host"], host.home), project_key(d), "memory")
+                if not os.path.isdir(hd):
+                    continue
+                at = f"{mem['at']}/{project_key(d)}/memory"
+                for name in sorted(os.listdir(hd)):
+                    p = os.path.join(hd, name)
+                    if os.path.isfile(p) and not os.path.islink(p):
+                        policy["items"].append({"kind": "file", "value": f"{at}/{name}", "class": "see", "effective": True,
+                                                "mode": "fixed", "source": p, "sources": src, "memory": True})
+                report["memory"] = report.get("memory", []) + [at]
 
 
 def build_package(host, name):
@@ -755,6 +836,10 @@ def run(host, root, context, flags, cmd):
             say(report["arrived"])
         if stale:
             for s in stale:
+                if s["status"] == "source" and (s.get("was") or {}).get("tree") and (s.get("now") or {}).get("tree"):
+                    w = next((w for w in ws if w["id"] == s["kit"]), None)
+                    if w:
+                        s["diffstat"] = tree_diffstat(host, w["top"], s["was"]["tree"], s["now"]["tree"])
                 err(C.stale_message(ctx["name"], s))
             return C.EXIT_GRANT
         launch = launch_facts(host, root, policy, ws, flags, report["argv"])
@@ -785,7 +870,7 @@ def run(host, root, context, flags, cmd):
         log(rundir, ev)
         if run_git(host, launch["cwd"], "config", "--bool", "commit.gpgsign").stdout.strip() != "true":
             ev["unsigned"] = 0    # the host does not sign: nothing to say
-        for line in exit_lines(ev, policy, report, root):
+        for line in exit_lines(ev, policy, report, root) + memory_lines(host, policy, report):
             err(line)
         return status
     finally:
@@ -796,6 +881,26 @@ def run(host, root, context, flags, cmd):
             pass
         if prog and os.path.exists(os.path.join(rundir, "launch.json")):
             subprocess.run([prog, "cleanup", rundir])
+
+
+def memory_lines(host, policy, report):
+    """Memory the run wrote (files in its state's memory folders that the host did not bind): run
+    output, for the person to review and copy by hand."""
+    out = []
+    for at in report.get("memory") or []:
+        st = next((m for m in policy["mounts"]["state"] if at.startswith(m["at"] + "/")), None)
+        if not st:
+            continue
+        d = os.path.join(st["dir"], at[len(st["at"]) + 1:])
+        bound = {i["value"].rsplit("/", 1)[-1] for i in policy["items"] if i.get("memory") and i["value"].startswith(at + "/")}
+        try:
+            wrote = [n for n in os.listdir(d) if n not in bound and os.path.isfile(os.path.join(d, n))
+                     and not os.path.islink(os.path.join(d, n))]
+        except OSError:
+            continue
+        if wrote:
+            out.append(f"sb: the run wrote {len(wrote)} memory file{'s' if len(wrote) != 1 else ''}: {C.canon_path(d, host.home)}")
+    return out
 
 
 def launch_facts(host, root, policy, ws, flags, argv):
@@ -1144,10 +1249,14 @@ def grant_flow(host, root, grants, sts, inline=False):
             t.write(visible(f"{st['name']}   {kind} ({st['kit']}), for {scope}   {state}\n"))
             if st.get("uncommitted"):
                 t.write("  note: its defining file has uncommitted changes\n")
-            approved = set(have) & set(reqs)
             cls = {c: ("powerful" if c in st.get("powerful", []) else "ordinary") for c in reqs}
+            # a changed source asks again for each powerful item, alone (P2)
+            again = st["status"] == "source"
+            if again:
+                t.write(visible(f"  source: {C.fmt_source(st.get('was'))} -> {C.fmt_source(st.get('now') or st.get('source'))}\n"))
+            approved = {c for c in set(have) & set(reqs) if not (again and cls[c] == "powerful")}
             ordinary = [c for c in reqs if c not in have and cls[c] == "ordinary"]
-            powerful = [c for c in reqs if c not in have and cls[c] == "powerful"]
+            powerful = [c for c in reqs if (c not in have or again) and cls[c] == "powerful"]
             if ordinary:
                 t.write("  ordinary:\n")
                 for c in ordinary:
@@ -1158,10 +1267,6 @@ def grant_flow(host, root, grants, sts, inline=False):
                 t.write(visible(f"  powerful: + {c}{binding_note(root, c)}\n"))
                 if ask(t, "    grant? [y/N] "):
                     approved.add(c)
-            if st["status"] == "source" and not ordinary and not powerful:
-                t.write(visible(f"  source: {C.fmt_source(st.get('was'))} -> {C.fmt_source(st.get('now'))}\n"))
-                if not ask(t, "  grant the new source? [y/N] "):
-                    continue
             if not approved:
                 continue
             src = st.get("source") if any(cls.get(c) == "powerful" for c in approved) and st["kind"] != "root" else None
@@ -1251,7 +1356,7 @@ def all_kit_status(host, root, context, flags):
     kits = [(f"root:{n}", "root", m, None, True, n) for n, m in sorted((root.get("kits") or {}).items())]
     for w in ws:
         ms = ([(w["repoKit"]["manifest"], w["repoKit"]["file"])] if w.get("repoKit") else []) + list(w["rootRepoKits"])
-        kits.append((w["id"], "repo", C.merge_manifests(ms) if ms else {}, {"tree": w["tree"]} if w.get("tree") else None,
+        kits.append((w["id"], "repo", C.merge_manifests(ms) if ms else {}, {"tree": w["source"]} if w.get("source") else None,
                      True, os.path.basename(w["top"])))
         for s in w["scions"]:
             if s.get("manifest"):
@@ -1270,8 +1375,7 @@ def all_kit_status(host, root, context, flags):
 # ---------------------------------------------------------------- init
 
 INIT_FLAKE = """{
-  # A minimal graft sb root (graft.lib.mkRoot). Build it, then put sb on your PATH:
-  #   nix build path:$PWD#sb && ./result/bin/sb explain
+  # A minimal graft sb root (graft.lib.mkRoot): sb init wrote it; edit it, then build it again.
   inputs.graft.url = "GRAFT";
   inputs.nixpkgs.follows = "graft/nixpkgs";
   outputs = { graft, nixpkgs, ... }:
@@ -1280,17 +1384,24 @@ INIT_FLAKE = """{
       forAll = f: nixpkgs.lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
     in
     {
-      packages = forAll (pkgs: {
+      packages = forAll (pkgs: rec {
         sb = graft.lib.mkRoot {
           inherit pkgs;
           grantsFile = "GRANTS";
           stateDir = "~/.local/state/graft/sb";
           hidden = [ ];                       # beyond graft's defaults
           tools = [ ];                        # packages on every run's PATH
-          kits = { };                         # root kits: programs.sb.kits in home-manager
+          # Claude Code: the claude on your PATH, with a token file from `claude setup-token`
+          kits."claude-code@personal" = graft.kits.claude-code { inherit pkgs; account = "personal"; binary = "host"; };
+          defaultAccount = "personal";
           contexts.work.include = [ ];        # root kits whose requests reach every run here
+          bindings = {
+            "status.relay"."*" = { workmux = true; };
+            credential."api.anthropic.com kit=claude-code@personal" = { via = "file"; from.file = "~/.config/graft/sb/claude-token-personal"; };
+            nix."*" = { via = "daemon-untrusted"; };
+          };
         };
-        default = graft.lib.mkRoot { inherit pkgs; grantsFile = "GRANTS"; };
+        default = sb;
       });
     };
 }
@@ -1298,19 +1409,26 @@ INIT_FLAKE = """{
 
 
 def init(host, args, flags):
-    d = C.expand(args[0], host.home) if args else os.path.join(host.home, ".config", "graft", "sb", "root")
+    if not args:
+        raise C.Refusal("sb init DIR: name the folder for your root's flake (for example ~/src/sb-root); "
+                        "sb init writes nothing into ~/.config", 2)
+    d = os.path.realpath(C.expand(args[0], host.home) if args[0].startswith("~") else args[0])
+    if C.under(d, os.path.join(host.home, ".config")):
+        raise C.Refusal("sb init: choose a folder outside ~/.config (a root is a repository you edit and commit)", 2)
     f = os.path.join(d, "flake.nix")
     if os.path.exists(f):
-        raise C.Refusal(f"sb init: {f} exists; edit it, or choose another folder: sb init DIR")
+        raise C.Refusal(f"sb init: {C.canon_path(f, host.home)} exists; edit it, or choose another folder: sb init DIR")
     graft_url = os.environ.get("GRAFT_SB_INIT_GRAFT") or "github:danielnaab/graft/v2.15.0"
     os.makedirs(d, exist_ok=True)
     grants = os.path.join(C.canon_path(d, host.home), "grants.json")
     with open(f, "w") as fh:
         fh.write(INIT_FLAKE.replace("GRAFT", graft_url).replace("GRANTS", grants))
-    print(visible(f"wrote {C.canon_path(f, host.home)}: a minimal root. Next:\n"
-                  f"  nix build path:{d}#sb -o {d}/result\n"
-                  f"  ln -sfn {d}/result/bin/sb ~/.config/graft/sb/launcher   # the pointer wrappers read (1b)\n"
-                  f"  {d}/result/bin/sb explain"))
+    cd = C.canon_path(d, host.home)
+    print(visible(f"wrote {cd}/flake.nix: a minimal root. Next:\n"
+                  f"  nix profile install path:{d}#sb      # sb on your PATH (or: nix build path:{d}#sb, and add result/bin)\n"
+                  "  claude setup-token                    # once; save the token in ~/.config/graft/sb/claude-token-personal (mode 600)\n"
+                  "  sb explain claude                     # in a repository\n"
+                  f"After an edit: nix profile upgrade --all (or build again). Track {cd} in git: its grants.json is yours to commit."))
     return 0
 
 

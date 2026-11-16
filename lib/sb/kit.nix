@@ -12,9 +12,9 @@
 let
   str = x: if lib.isDerivation x || builtins.isPath x then "${x}" else x;
   program = p: if builtins.isAttrs p && !(lib.isDerivation p) then p else str p;
-  storeRoot = p: if lib.isDerivation p then p else
+  storeRoot = p: if lib.isDerivation p || builtins.isPath p then p else
     let s = toString p; m = builtins.match "(/nix/store/[^/]+).*" s; in
-    if m == null then p else builtins.appendContext (lib.head m) (builtins.getContext s);
+    if m == null || !(builtins.hasContext s) then null else builtins.appendContext (lib.head m) (builtins.getContext s);
 in
 {
   manifest = { kit, file }:
@@ -28,10 +28,11 @@ in
       };
 
   # what a run of this kit needs in its closure (store roots: a subpath, "${pkg}/bin/x", as its package)
-  roots = kit: map storeRoot ((kit.packages or [ ])
+  # (a plain store-path string, with no context, is left to sb, which adds its closure at start)
+  roots = kit: lib.filter (p: p != null) (map storeRoot ((kit.packages or [ ])
     ++ lib.concatMap (c: lib.filter (a: lib.isDerivation a || builtins.isPath a) (c.args or [ ])
       ++ lib.optional (c ? program && (lib.isDerivation c.program || builtins.isString c.program && lib.hasPrefix "/nix/store/" c.program)) c.program)
       (lib.attrValues (kit.commands or { }))
     ++ lib.concatMap (f: lib.optional (f ? source && (lib.isDerivation f.source || builtins.isPath f.source || lib.hasPrefix "/nix/store/" (toString f.source))) f.source)
-      (lib.attrValues (kit.files or { })));
+      (lib.attrValues (kit.files or { }))));
 }

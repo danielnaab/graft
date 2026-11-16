@@ -200,22 +200,22 @@ class Grants(unittest.TestCase):
     def test_machine_sections(self):
         g = C.parse_grants(None)
         self.assertEqual(C.write_grant(g, "root:c", ["network api.anthropic.com:443"], None, "m1", "t", False), "grants")
-        # the same set again: the shared entry
-        self.assertEqual(C.write_grant(g, "root:c", ["network api.anthropic.com:443"], None, "m1", "t", False), "grants")
-        # a superset on m1: m1's section; the shared entry is unchanged, so m2 is not widened
+        # a superset on m1: the shared entry (a run only gets what its own machine's kit asks for)
+        self.assertEqual(C.write_grant(g, "root:c", ["network api.anthropic.com:443", "env A"], None, "m1", "t", False), "grants")
+        self.assertEqual(g["grants"]["root:c"]["requests"], ["env A", "network api.anthropic.com:443"])
+        # asking for less needs no approval: m2's smaller set matches the shared entry
+        self.assertEqual(C.grant_status("root:c", "root", ["network api.anthropic.com:443"], False, None, g, "m2")["status"], "match")
+        # diverging sets (Bedrock on m2): m2's section, the shared entry unchanged
         shared = copy.deepcopy(g["grants"]["root:c"])
-        self.assertEqual(C.write_grant(g, "root:c", ["network api.anthropic.com:443", "env A"], None, "m1", "t", False), "machines.m1")
-        self.assertEqual(g["grants"]["root:c"], shared)
-        self.assertEqual(C.grant_status("root:c", "root", ["env A"], False, None, g, "m2")["status"], "grown")
-        self.assertEqual(C.grant_status("root:c", "root", ["env A"], False, None, g, "m1")["status"], "match")
-        del g["machines"]["m1"]
-        # a different set (Bedrock on m2): m2's section, and the shared entry stays
         self.assertEqual(C.write_grant(g, "root:c", ["network bedrock:443"], None, "m2", "t", False), "machines.m2")
+        self.assertEqual(g["grants"]["root:c"], shared)
         self.assertEqual(C.grant_status("root:c", "root", ["network bedrock:443"], False, None, g, "m2")["status"], "match")
         self.assertEqual(C.grant_status("root:c", "root", ["network bedrock:443"], False, None, g, "m1")["status"], "grown")
+        # m2 later asks for a superset of the shared entry: back to the shared section, m2's entry gone
+        self.assertEqual(C.write_grant(g, "root:c", ["network api.anthropic.com:443", "env A", "network bedrock:443"], None, "m2", "t", False), "grants")
+        self.assertNotIn("m2", g["machines"])
         # no remote: its machine's section
         self.assertEqual(C.write_grant(g, "repo:m1:/s/.git", ["read ~/x"], None, "m1", "t", True), "machines.m1")
-        self.assertEqual(C.revoke_grant(g, "root:c", "m2"), "machines.m2")
         self.assertEqual(C.revoke_grant(g, "root:c", "m2"), "grants")
         self.assertIsNone(C.revoke_grant(g, "root:c", "m2"))
 

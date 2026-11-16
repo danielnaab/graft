@@ -453,30 +453,57 @@ def write_own(cfg, rundir, policy, launch):
         json.dump({"mcpServers": servers}, f, indent=2)
 
 
+def key_file(path):
+    """A binding's key file: NAME=VALUE lines (`export NAME=VALUE` too; `#` comments and blank lines
+    skipped; quotes stripped), or None when it holds no such line."""
+    vals = {}
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export "):].lstrip()
+            k, eq, v = line.partition("=")
+            if eq and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k.strip()):
+                v = v.strip()
+                if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                    v = v[1:-1]
+                vals[k.strip()] = v
+    return vals or None
+
+
 def credentials(policy):
     """The values credential and mcp bindings pass by env (or file): read on the host at run time,
-    never written to policy.json, launch.json or a log. {NAME: value}."""
+    never written to policy.json, launch.json or a log. {NAME: value}.
+
+    from.file: NAME=VALUE lines naming the variables; a credential's file with no such line is one
+    value, the whole file (a token from `claude setup-token`). An mcp key file must name its variable.
+    from.env (or nothing): the host's variables of the same names."""
     out = {}
     for b in binding(policy, "credential") + binding(policy, "mcp"):
         src = b.get("from") or {}
         names = b.get("env") or []
-        if src.get("file"):
+        f = src.get("file") or src.get("envFile")
+        if f:
+            path = os.path.expanduser(f)
             try:
-                with open(os.path.expanduser(src["file"])) as f:
-                    text = f.read()
+                vals = key_file(path)
+                if vals is None:
+                    if b["capability"] == "mcp" or len(names) != 1 or src.get("envFile"):
+                        raise Stop(f"the {b['capability']} binding {b['selector']} reads {f}, which holds no "
+                                   f"NAME=VALUE line for {', '.join(names) or 'its variable'}: write {names[0] if names else 'NAME'}=… in it")
+                    with open(path) as fh:
+                        vals = {names[0]: fh.read().strip()}
             except OSError as e:
-                raise Stop(f"the {b['capability']} binding {b['selector']} reads {src['file']}: {e.strerror}")
-            vals = {}
-            for line in text.splitlines():
-                k, eq, v = line.partition("=")
-                if eq and k.strip() in names:
-                    vals[k.strip()] = v.strip().strip('"')
-            if not vals and names:
-                vals[names[0]] = text.strip()
-            out.update(vals)
+                raise Stop(f"the {b['capability']} binding {b['selector']} reads {f}: {e.strerror}")
+            missing = [n for n in names if n not in vals and n != "AWS_CREDENTIAL_EXPIRATION"]
+            if missing:
+                raise Stop(f"the {b['capability']} binding {b['selector']} reads {f}, which has no {', '.join(missing)}")
+            out.update({n: vals[n] for n in names if n in vals})
         else:
             for n in names:
-                v = os.environ.get(src.get("env") or n) if isinstance(src.get("env"), (str, type(None))) else os.environ.get(n)
+                v = os.environ.get(src["env"]) if isinstance(src.get("env"), str) and len(names) == 1 else os.environ.get(n)
                 if v is not None:
                     out[n] = v
     return out

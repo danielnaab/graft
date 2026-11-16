@@ -32,8 +32,18 @@
       sbSrc = builtins.path { path = ./lib/sb; name = "graft-sb"; filter = p: _: lib.hasSuffix ".py" p; };
       mkFlake = import ./lib/mk-flake.nix { inherit nixpkgs systems cli sbSrc; };
       mkRoot = import ./lib/sb/root.nix { inherit cli sbSrc; };
-      # graft's default root: for someone without one (sb init writes a minimal one to edit)
-      defaultRoot = pkgs: mkRoot { inherit pkgs; };
+      # graft's default root: for someone without one (sb init writes a minimal one to edit). It runs
+      # the host's claude as claude-code@personal, with its token file (claude setup-token) and nix
+      defaultRoot = pkgs: mkRoot {
+        inherit pkgs;
+        kits."claude-code@personal" = import ./lib/sb/kits/claude-code.nix { inherit pkgs; account = "personal"; binary = "host"; };
+        defaultAccount = "personal";
+        bindings = {
+          "status.relay"."*" = { workmux = true; };
+          credential."api.anthropic.com kit=claude-code@personal" = { via = "file"; from.file = "~/.config/graft/sb/claude-token-personal"; };
+          nix."*" = { via = "daemon-untrusted"; };
+        };
+      };
       kbKit = inputs.knowledge-base-kit;
     in
     {
