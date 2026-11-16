@@ -607,10 +607,14 @@ sb [VERB | CONTEXT] [FLAGS] [--] [CMD [ARGS...]]
 The verbs are `explain`, `why`, `grant`, `review` and `init`. `run` and `serve` are reserved. A first word that is
 not a verb is a context if it names one, and otherwise the command. `--` forces a command. Flags after `CMD`
 belong to the command; a known `sb` flag found there is warned about:
-`sb: --net after claude belongs to claude; sb's flags go before the command`. With no command, `bash`.
+`sb: --net after claude belongs to claude; sb's flags go before the command`. `--resume`, `--continue` and
+`--account` after the command are Claude's own, and are not warned about. With no command, `bash`.
 
-`sb run` and `sb serve` are refused with exit 2: `sb run is reserved (the wrappers’ entry, 1b)`,
-`sb serve is reserved (the supervisor, phase 3)`.
+A first word that is no context, no verb and no program on the host's `PATH`, and has no `/`, is refused with exit
+2: `sb: unknown context or command NAME; contexts: dispatch, host, inspect, work, …`.
+
+`sb run` and `sb serve` are refused with exit 2: `sb run is reserved (the wrappers’ entry)`,
+`sb serve is reserved (the supervisor)`.
 
 ```sh
 sb claude                        # work here
@@ -623,7 +627,8 @@ sb --repo ~/src/other claude     # a second repository in the workspace
 
 ### Flags
 
-Each flag mirrors a kit field, for one run. The exit line names its permanent form. `--flag=value` works too.
+Each flag mirrors a kit field, for one run. The startup line lists the one-run flags (`one run: --net x.org:443 …`),
+and the exit line names each one's permanent form. `--flag=value` works too.
 
 | Flag | Mirrors | Meaning |
 |---|---|---|
@@ -633,12 +638,12 @@ Each flag mirrors a kit field, for one run. The exit line names its permanent fo
 | `--net HOST[:PORT]` | `requests.network` | Reaches a host, on port 443 by default. |
 | `--env NAME` | `requests.env` | Passes a variable from the caller. |
 | `--access read\|write` | `access` | Narrows the workspace's access. A wider access is refused: `--access write would widen this context's access (read)`. |
-| `--mode clone`, `--clone` | `mode` | Not in v2.15.0: `graft sandbox (work): --clone is clone mode (dispatch), which lands in 1b`. |
+| `--mode clone`, `--clone` | `mode` | Not in v2.15.0: `graft sandbox (work): --clone is clone mode (dispatch), which comes in a later release`. |
 | `--repo PATH` | | Adds a repository to the workspace, with its repo kit and protections. |
 | `--from REF`, `--detach` | | Clone mode. Refused in v2.15.0, as `--clone` is. |
 | `--account NAME` | | Chooses an agent kit instance. |
 | `--backend NAME` | | Chooses a backend that the root defines. |
-| `--resume RUN` | | Only with `host`: passes run `RUN`'s transcript into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `sb: --resume RUN goes with sb host (sb host --resume RUN claude)`. |
+| `--resume RUN`, `--resume last` | | Only with `host`: passes run `RUN`'s (or the newest run's) transcript into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `sb: --resume RUN goes with sb host (sb host --resume RUN claude)`. |
 
 A flag or `--repo` that names a hidden path, or a root repository in `work`, is refused at start.
 
@@ -711,16 +716,24 @@ sb why PATH|HOST|CMD|VAR
 ```
 
 Answers for one item: whether the run has it, where it came from, and, if the run lacks it, the one-run flag and
-the fix. On the host it answers for the default context's policy; inside a run, from the run's policy.json. For
-a host, the fix names the context's included kit (`standing` below) for every repository; with no included kit,
-that part is left out:
+the permanent fix. On the host it answers for a run of the default context here, and says "would"; inside a run,
+it answers for that run (from `/run/graft-sandbox/why.json`). The permanent fix depends on the root and the
+repository ([Messages](#messages)); for a host, it also names the context's included kit (`standing` below) for
+every repository, and leaves that part out when the context includes none.
 
-```
-api.anthropic.com:443 is in this run: from root:claude-code@personal (…); granted in grants.json (sha256-3qL…)
-graft sandbox (work): the run tried example.com:443 (not in this run). one run: sb --net HOST …  permanent: the repo kit's requests.network, or programs.sb.kits.standing.requests.network for every repository
-graft sandbox (work): ~/.ssh is hidden by your root in every run (~/.ssh, the root (…))
-graft sandbox (work): justfile is protected (**/justfile, …): edit it on the host, or in a dispatch run
-```
+| Asked about | Answer |
+|---|---|
+| A granted host | `api.anthropic.com:443 is granted (claude-code@personal); reaches sb claude runs`; for a repo or included kit, `; reaches every run here`; inside a run, `; in this run` |
+| A host not granted, on the host | `graft sandbox (work): a run here would be refused example.com:443 (not in a run here). one run: sb --net example.com …  permanent: the repo kit's requests.network (perSystem.kit), or programs.sb.kits.standing.requests.network for every repository (home-manager switch)` |
+| A host not granted, inside a run | `graft sandbox (work): the run tried example.com:443 (not in this run). one run: sb --net example.com …  permanent: …` |
+| A kit command | `claude is claude-code@personal's command: sb claude`. A name that is also a workspace path gets both answers, command first. |
+| A variable that a binding carries | `CLAUDE_CODE_OAUTH_TOKEN is carried by the credential binding api.anthropic.com (claude-code@personal): the run holds it` |
+| A file `sb` generates | `/etc/passwd is readable: sb generates it for each run` |
+| A store path | `… is readable: in the store, which this run sees as its closure (another path is absent)`, or `… as a whole` |
+| A path a request reads | `~/src/agent-skills is readable: read ~/src/agent-skills (claude-code@personal)` |
+| A path not in the run | `graft sandbox (work): ~/src/other is not in this run: sb --read ~/src/other (one run), or sb --repo ~/src/other for a repository; permanent: …` |
+| A hidden path | `graft sandbox (work): ~/.ssh is hidden by your root in every run (~/.ssh, …)` |
+| A protected path | `graft sandbox (work): justfile is protected (**/justfile, graft): edit it on the host` |
 
 ### sb grant
 
@@ -731,10 +744,14 @@ sb grant [KIT...] [--revoke KIT] [--diff] [--workspace PATH]
 - With no `KIT`: every root kit, and every kit of this workspace, that is not granted, asks for more, changed
   source, or is unverified. With nothing to do: `sb grant: every kit here is granted`, or
   `sb grant: standing is granted` for a named kit.
-- `--revoke KIT` removes a kit's grant. `--diff` lists grants that arrived by git, then each kit's status and new
-  requests, and changes nothing.
+- `KIT` and `--revoke KIT` take the short names that `sb` prints: `daniel`, `flexion-assistant`, or `claude-code`
+  for every instance. A repo kit's short name is the last path part of its normalised origin, else its checkout's
+  folder. A name that matches several grants is refused: `sb grant --revoke X: several grants match: …`.
+- `--diff` lists each grant that arrived by git (`arrived by git: ID`, or `… (revoked)`), with its `  + request`
+  and `  - request` lines, then each kit as `NAME (ID): <status word>`. It changes nothing, and acknowledges the
+  arrival line.
 - `--workspace PATH` grants for another workspace. `--root ROOT` is refused with exit 2:
-  `sb grant --root lands with deployment roots (phase 2)`.
+  `sb grant --root comes with deployment roots, in a later release`.
 
 `sb grant` is for people:
 
@@ -746,36 +763,50 @@ sb grant [KIT...] [--revoke KIT] [--diff] [--workspace PATH]
 - It approves ordinary items together, and each powerful item on its own.
 - It notes a kit whose defining file has uncommitted changes.
 - It names the scope (every run that uses a root kit, every run in this repository, every workspace that grafts a
-  scion kit), and shows each capability's binding, or `(no binding yet)`.
+  scion kit), and the status word.
+- For each capability, it shows `bound:` and the binding that this kit instance gets, in `sb explain`'s words, or
+  `(no binding yet: nothing carries it out)`.
+- For a changed source, it shows `  source: tree A -> tree B`, and asks again for each powerful item, alone.
 
 ```
 team-kb   repo kit (repo:github.com/example/team-kb), for every run in this repository   not granted
   ordinary:
     + network registry.npmjs.org:443
   grant these? [y/N] y
-  powerful: + capability nix  bound: *
+  powerful: + capability nix  bound: untrusted daemon relay: exposes the whole store read-only, drops closure-store
     grant? [y/N] y
   recorded in grants
 wrote ~/.config/graft/sb/grants.json. Commit it with your root's next change.
 ```
+
+Other `bound:` descriptions: `workmux relay`, `ssh broker (fetch only), the host's ssh agent`,
+`file ~/.config/graft/sb/claude-token-personal (the run holds it)`,
+`env METAMCP_API_KEY from ~/.config/metamcp/key.env (the run holds it)`.
 
 It is a speed bump, not a guarantee: an unrestricted agent on the host can edit the file or script a terminal.
 
 ### sb init
 
 ```
-sb init [DIR]
+sb init DIR
 ```
 
-Writes `DIR/flake.nix` (default `~/.config/graft/sb/root`): a minimal root built with `graft.lib.mkRoot`, from
-`github:danielnaab/graft/v2.15.0`, with its grants file at `DIR/grants.json`. It refuses when the file exists:
-`sb init: FILE exists; edit it, or choose another folder: sb init DIR`. It prints the next steps:
+Writes `DIR/flake.nix`: a minimal root built with `graft.lib.mkRoot`, from `github:danielnaab/graft/v2.15.0`, with
+its grants file at `DIR/grants.json`. It has the default root's [claude-code instance, token binding and
+nix](#roots). A root is a repository you edit and commit, so `sb init` refuses:
+
+- with no `DIR`: `sb init DIR: name the folder for your root's flake (for example ~/src/sb-root); sb init writes nothing into ~/.config` (exit 2);
+- in `~/.config`: `sb init: choose a folder outside ~/.config (a root is a repository you edit and commit)` (exit 2);
+- when the file exists: `sb init: FILE exists; edit it, or choose another folder: sb init DIR`.
+
+It prints the next steps:
 
 ```
-wrote ~/.config/graft/sb/root/flake.nix: a minimal root. Next:
-  nix build path:/home/me/.config/graft/sb/root#sb -o /home/me/.config/graft/sb/root/result
-  ln -sfn /home/me/.config/graft/sb/root/result/bin/sb ~/.config/graft/sb/launcher   # the pointer wrappers read (1b)
-  /home/me/.config/graft/sb/root/result/bin/sb explain
+wrote ~/src/sb-root/flake.nix: a minimal root. Next:
+  nix profile install path:/home/me/src/sb-root#sb      # sb on your PATH (or: nix build path:/home/me/src/sb-root#sb, and add result/bin)
+  claude setup-token                    # once; save the token in ~/.config/graft/sb/claude-token-personal (mode 600)
+  sb explain claude                     # in a repository
+After an edit: nix profile upgrade --all (or build again). Track ~/src/sb-root in git: its grants.json is yours to commit.
 ```
 
 `GRAFT_SB_INIT_GRAFT` names another graft flake reference.
@@ -784,15 +815,23 @@ wrote ~/.config/graft/sb/root/flake.nix: a minimal root. Next:
 
 `sb review [RUN] [--fetch|--discard|--approve] [--since T] [--flags] [--root NAME] [--json]` lists past runs and
 acts on one. Not in v2.15.0. It is refused with exit 2:
-`sb review lands in 1b, with dispatch; this run's log is in sb's state (runs/ID/log.jsonl)`.
+`sb review comes in a later release, with dispatch; this run's log is in sb's state (runs/ID/log.jsonl)`.
 
 ## Signals
 
 ### The startup line
 
 Before the command starts, `sb` prints one line on stderr: `sb: <context> · <repositories> [· notes] · sb explain`.
-The notes are `account NAME`, `KIT asks for more: sb grant`, `env NAME unset`, `CAPABILITY: no binding`, and
-`access read` when a flag narrowed it.
+The notes:
+
+- `account NAME`; `access read` when a flag narrowed it; `one run: --net x.org:443 …`;
+- a kit's status word: `meeting-kit asks for more: sb grant`, `… changed source`;
+- `env NAME unset`; `CAPABILITY: no binding`;
+- unset or expired AWS credentials: `AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY unset on the host: aws sso login (or
+  your AWS credential helper), then start again` (or the binding's `refresh` command), and
+  `AWS credentials expired at T: …`;
+- folders left out of a fixed folder: `~/.claude/skills: N left out (a, b …): a link outside the read requests, or a real folder skillDirs does not name`;
+- hooks that will not run: `team-kb has .githooks but core.hooksPath is unset: commits run no hook (git config core.hooksPath .githooks, on the host)`.
 
 ```
 sb: work · team-kb · sb explain
@@ -806,29 +845,38 @@ sb: work · team-kb · meeting-kit asks for more: sb grant · env METAMCP_API_KE
 After the run, `sb` prints lines on stderr only when it has something to say:
 
 ```
-graft sandbox (work): the run tried pypi.org:443 (3x, not in this run): sb why pypi.org
+sb: run 7f3a · exit 1
+graft sandbox (work): the run tried pypi.org:443 (not in this run). one run: sb --net pypi.org …  permanent: the repo kit's requests.network (perSystem.kit), or programs.sb.kits.standing.requests.network for every repository (home-manager switch) (3x)
 sb: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from: evil/.git, …
 sb: the run changed host-run files (review before the host runs them): justfile, …
 sb: 2 unsigned commits: sign on the host with git rebase --exec 'git commit --amend --no-edit -S' <base>
+sb: the run wrote 2 memory files: ~/.local/state/graft/sb/state/…/memory
+sb: resume this session with: sb claude --resume 4c1e…
 sb: --net pypi.org:443 was for this run; permanent: the repo kit's requests.network (perSystem.kit), or programs.sb.kits.standing.requests.network for every repository (home-manager switch)
 ```
 
-- The denials: one line for each refused host and port, with a count.
+- The run's id first, and its exit status when it is not 0. `sb host --resume ID` takes it.
+- The denials: one line for each refused host and port, with its fix, and ` (Nx)` when repeated.
 - New git metadata and gitlinks, and changed host-run files.
-- Unsigned commits, only when your git config signs (`commit.gpgsign`).
-- For each one-run flag used, its one permanent fix. The fix names the command's kit when that is a workspace
-  kit. Otherwise (an agent kit, or a program that no kit ships) it names the repo kit, and the context's included
-  kit (`standing` here) for every repository. `--package` names `programs.sb.tools (home-manager switch), or the
-  repo kit's packages`.
+- Unsigned commits on local branches and `HEAD` (never `refs/remotes`), only when your git config signs
+  (`commit.gpgsign`). On a branch with no commit yet, the hint is
+  `git rebase --root --exec 'git commit --amend --no-edit -S'`.
+- [Memory](#claude-code) that the run wrote: files for you to read, and copy into the host's memory by hand if you
+  want them. Nothing applies them.
+- When Claude printed a resume hint, its `sb` form, with the context and `--account` when they are not the
+  defaults.
+- For each one-run flag used, its one permanent fix ([Messages](#messages)). Each line appears once.
 
 ### Inside a run
 
 - The prompt is `(sb:work) ~/src/team-kb $`.
-- `/run/graft-sandbox/` holds `policy.json`, `README.md` and `denials`, read-only, and `proxy.sock` when the run
-  has network reach. `README.md` explains the run; `denials` lists its denials ([Denials](#denials)).
+- `/run/graft-sandbox/` holds `policy.json`, `explain.txt`, `why.json`, `README.md` and `denials`, read-only, and
+  `proxy.sock` when the run has network reach. `README.md` explains the run; `denials` lists its denials
+  ([Denials](#denials)).
 - `~/.graft-sandbox-hidden` lists the hidden paths, one per line, as the root wrote them.
-- `sb` inside a run answers `sb explain` and `sb why`. Other verbs and runs are refused:
-  `graft sandbox (work): sb inside a run starts nested runs from 1b: run it on the host`.
+- `sb` inside a run answers `sb explain` (the same text as on the host; `--json` for policy.json) and `sb why`.
+  Other verbs and runs are refused:
+  `graft sandbox (work): sb inside a run starts nested runs in a later release: run it on the host`.
 
 ## Environment
 
