@@ -405,7 +405,8 @@ does not know is an error.
 
 - **`status.relay`:** a `workmux` shim, first on `PATH` (`/run/graft-sandbox/bin`), forwards only
   `set-window-status` and `register-agent` to the host's `workmux`, aimed at the launching tmux pane (`sb`'s own
-  `TMUX_PANE` at start, under tmux). It drops other subcommands, and cuts arguments to printable text.
+  `TMUX_PANE` at start, under tmux). It drops other subcommands, and cuts arguments to printable text. After the
+  run, the host runs `workmux set-window-status clear` for the pane.
 - **`git.fetch`:** the run gets `GIT_SSH_COMMAND=/run/graft-sandbox/bin/sb-ssh` and `GIT_SSH_VARIANT=ssh`. The
   host broker runs host `ssh` (in batch mode, with your agent or a key file) and allows only
   `git-upload-pack '<path>'` to URLs that match the request's `remote`. Push from the host. Refusals go to the
@@ -1083,6 +1084,7 @@ The message says why. `sb` never runs the command with a weaker policy, a weaker
 | `state/<hash>/<name>` | A `state` request's directory, one per kit, workspace (or `none`) and context; or per kit for `shared`. |
 | `cache/kits/` | The built `graft-kits`, by the flake directory's tree hash. |
 | `cache/scions.json` | Verified scion releases, by URL and commit. |
+| `cache/probe-<hash>` | The backend's probed guarantees, per backend build. |
 | `grants-seen.json` | The grants this machine last read, for the "arrived by git" line. |
 
 A state directory inside a workspace is refused.

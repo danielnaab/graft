@@ -35,7 +35,12 @@ graft: scions/notebook-kit/graft.nix gives `sandbox`: graft v2.15.0 replaced it 
 
 ## Move a consumer
 
-1. Take graft v2.15.0: `nix run .#graft upgrade graft`.
+The steps write `F` for your flake's reference, from the repository's top: `.` for a flake at the top, or
+`'path:nix/agent-tools'` for a [flake in a subdirectory](flake-in-a-subdirectory.md). A subdirectory flake is
+always a `path:` flake, never `.#` or `git+file:`, which would copy the whole repository into the store.
+
+1. Take graft v2.15.0: `nix run F#graft upgrade graft` (`nix run .#graft upgrade graft`, or
+   `nix run 'path:nix/agent-tools#graft' upgrade graft`).
 2. In `flake.nix`, rename `perSystem`'s `sandbox` to `kit`, and move each option to its new name:
 
    ```nix
@@ -66,10 +71,14 @@ graft: scions/notebook-kit/graft.nix gives `sandbox`: graft v2.15.0 replaced it 
    kit.requests.capabilities = [ { name = "nix"; } ];
    ```
 
+   The capability does nothing until your root binds it (`nix."*" = { via = "daemon-untrusted"; };`; graft's
+   default root and `sb init`'s root do) and you run `sb grant`.
+
 6. Make the repository's tools work inside ([below](#run-the-repositorys-tools-inside)).
 7. Replace `nix run .#sandbox -- CMD` in recipes and notes with `sb CMD`. Replace a test of
    `GRAFT_SANDBOX = 1` with `[ -n "${GRAFT_SANDBOX:-}" ]`.
-8. Run `nix flake check`, and commit.
+8. Run `nix flake check F` (`nix flake check` for a flake at the top), and commit. A commit under the flake
+   directory changes the repo kit's source, so a powerful grant asks again at the next run.
 9. On your machine, set up a root ([Set up a root](run-in-a-sandbox.md#set-up-a-root)), run `sb claude` in the
    repository, and grant the kits it asks for.
 
@@ -128,8 +137,9 @@ From the consumer's top, paste this. It prints `ok` only if the flake has a repo
 launcher, and a run sees the tools:
 
 ```sh
-nix eval --raw '.#packages.x86_64-linux.graft-kits.name' >/dev/null &&
-  ! nix eval '.#packages.x86_64-linux' --apply 'p: p ? sandbox' | grep -q true &&
+F=.   # or F='path:nix/agent-tools' for a flake in a subdirectory
+nix eval --raw "$F#packages.x86_64-linux.graft-kits.name" >/dev/null &&
+  ! nix eval "$F#packages.x86_64-linux" --apply 'p: p ? sandbox' | grep -q true &&
   sb bash -c 'test -n "$GRAFT_SANDBOX_TOOLS" && command -v graft >/dev/null' && echo ok
 ```
 

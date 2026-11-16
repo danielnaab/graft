@@ -42,7 +42,7 @@ are in [Sandbox](../reference/sandbox.md#the-model).
    ```
    claude-code@personal   root kit (root:claude-code@personal), for every run that uses it   not granted
      ordinary:
-       + capability status.relay  bound: *
+       + capability status.relay  bound: workmux relay
        + network api.anthropic.com:443
        + network claude.ai:443
        + read ~/.local/share/claude
@@ -100,14 +100,14 @@ In workmux, set the agent command to `sb claude`. The `status.relay` capability 
 A denial reaches you in three ways. Under tmux, a message shows on the agent's pane:
 
 ```
-graft sandbox (work): refused pypi.org:443 · sb why pypi.org
+graft sandbox (work): the run tried pypi.org:443 (not in this run) · sb why pypi.org
 ```
 
 The agent reads it from the denials file, through its hook, and tells you in its own words. When the run ends,
 the exit line lists it:
 
 ```
-graft sandbox (work): the run tried pypi.org:443 (1x, not in this run): sb why pypi.org
+graft sandbox (work): the run tried pypi.org:443 (not in this run). one run: sb --net pypi.org …  permanent: the repo kit's requests.network (perSystem.kit), or programs.sb.kits.standing.requests.network for every repository (home-manager switch)
 ```
 
 1. Ask `sb` where the item would come from:
@@ -186,11 +186,15 @@ A repository's own needs are its repo kit: the packages its work needs, paths to
    ```
 
    A repository that runs `graft check` inside a run needs the `nix` capability: `graft check` evaluates each
-   scion's `graft.nix`.
+   scion's `graft.nix`. The capability needs your root to bind it (`nix."*" = { via = "daemon-untrusted"; };`),
+   which graft's default root and `sb init`'s root do.
 
-2. Stage `flake.nix`, so that the flake sees it: `git add flake.nix`.
-3. Read what a run would get: `sb explain claude`. The repo kit's items are named `repo:…`.
-4. Run `sb grant`, and accept the repo kit's requests. Commit the grants file in your root.
+2. Read what a run would get: `sb explain claude`. The repo kit's items are labelled `(repo)`.
+3. Run `sb grant`, and accept the repo kit's requests. Commit the grants file in your root.
+
+A powerful grant of a repo kit is fixed to its flake directory as committed and staged. When a commit or a staged
+change under it moves that tree, the next run stops with exit 125, lists the changed paths, and `sb grant` asks
+again for each powerful item.
 
 For a repository that is not a graft consumer, the root declares its repo kit, keyed by its normalised origin:
 
@@ -207,11 +211,13 @@ If the repository's `ensure.sh` or `justfile` builds tools with `nix`, make it u
 |---|---|---|
 | A home-manager root | You manage your home with home-manager. | `programs.sb` (below) |
 | graft's default root | You have no root and want to try `sb`. | `nix run github:danielnaab/graft/v2.15.0#sb -- claude` |
-| A minimal root of your own | You want a root without home-manager. | `sb init`, then the `nix build` and `ln` lines that it prints |
+| A minimal root of your own | You want a root without home-manager. | `sb init ~/src/sb-root`, then the steps that it prints |
 
-graft's default root keeps its grants in `~/.config/graft/sb/grants.json`. `sb init` writes
-`~/.config/graft/sb/root/flake.nix`, whose grants file is beside it. Both work without home-manager. A home-manager
-root keeps its grants file in its own repository, where you review and commit it.
+Both work without home-manager. Each has a `claude-code@personal` instance (the `claude` on your `PATH`), its
+token binding at `~/.config/graft/sb/claude-token-personal` (step 1), and the `nix` relay. graft's default root keeps
+its grants in `~/.config/graft/sb/grants.json`. `sb init DIR` writes `DIR/flake.nix`, with its grants file beside
+it: track `DIR` in git. A home-manager root keeps its grants file in its own repository, where you review and
+commit it.
 
 A home-manager root:
 
