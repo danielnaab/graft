@@ -212,7 +212,7 @@ starts a new Claude conversation that reads the run's transcript as a report, ne
 `work` writes the repositories of its workspace in place. The workspace is the repository around the current
 directory, and each `--repo PATH`. The run can write its workspace, except [protected paths](#protected-paths).
 The rest of the host is absent, except what the run's grants reach. Outside a git repository, `work` refuses:
-`~/Downloads is not inside a git repository: sb inspect CMD, or sb host CMD`. A `--repo` outside one:
+`graft sandbox (work): ~/Downloads is not inside a git repository: sb inspect CMD, or sb host CMD`. A `--repo` outside one:
 `graft sandbox (work): --repo PATH is not inside a git repository`.
 
 ### Root repositories
@@ -221,8 +221,10 @@ A root's source repositories (`rootRepos`) decide what every run may do, so a ru
 v2.15.0, `work` refuses in a root repository, and so does `--repo` to one (exit 1):
 
 ```
-graft sandbox (work): ~/.workstation is a root: sb inspect, or claude (unsandboxed) until sb dispatch (1b)
+graft sandbox (work): ~/.workstation is a root: sb inspect, or claude (unsandboxed) until sb dispatch (a later release)
 ```
+
+For a command that is not an agent kit's, the alternative is `sb host CMD`.
 
 Change a root repository with plain `claude`, or by hand, and review the change before `home-manager switch`.
 `sb inspect` reads it. In a root repository's worktrees, set workmux's agent command to `claude` in the
@@ -446,7 +448,7 @@ programs.sb.bindings = {
 | `status.relay` | `workmux = true` |
 | `git.fetch` | `broker = "git"`; `key.agent = true` or `key.file = "~/…"` |
 | `nix` | `via = "daemon-untrusted"` |
-| `credential` | `via = "env"` or `"file"`; `from.file = "~/…"` (`KEY=VALUE` lines that name the variables, or else the whole file, trimmed, for the first one), `from.envFile = "~/…"`, or `from.env = "NAME"` (the host's variable). `via = "proxy"` is refused: `… 1a carries env and file (proxy lands in phase 2)`. |
+| `credential` | `via = "env"` or `"file"`; `from.file = "~/…"` (`KEY=VALUE` lines that name the variables, or else the whole file, trimmed, for the first one), `from.envFile = "~/…"`, or `from.env = "NAME"` (the host's variable). `via = "proxy"` is refused: `… 1a carries env and file (proxy comes in a later release)`. |
 | `mcp` | `url`; `via = "env"`; `env`, the variable that holds the key; `from.file` and the other `from` forms; `header` (default `"Authorization"`) and `scheme` (default `"Bearer"`) |
 
 - `from` is always a reference. Each file that `from.file`, `from.envFile` or `key.file` names is hidden from
@@ -665,49 +667,57 @@ capability's binding, `children`, `not in run` (kits whose grants do not apply),
 guarantees) and `note`. `sb explain --backend-command claude` prints the whole bubblewrap command and Claude's
 assembled arguments.
 
-For Daniel's flexion-assistant, in a scratch clone (long lines cut with `…`):
+For Daniel's flexion-assistant, in a scratch clone (long store paths cut with `…`):
 
 ```
 run        claude -> root:claude-code@personal
-argv       /home/daniel/.local/share/claude/versions/2.1.325 --settings /nix/store/…-sb-claude-overlay.json --mcp-config /run/graft-sandbox/mcp.json --strict-mcp-config
+argv       /home/daniel/.local/share/claude/versions/2.1.326 --settings /nix/store/…-sb-claude-overlay.json --mcp-config /run/graft-sandbox/mcp.json --strict-mcp-config
+hooks      PostToolUse Bash|WebFetch (sb's --settings overlay; /hooks does not list it)
+hooks      PreToolUse Bash|WebFetch (sb's --settings overlay; /hooks does not list it)
 context    work: in-place, access write, bubblewrap; includes root:daniel
-workspace  repo:platform-vm:2222/daniel/flexion-assistant (write) /home/daniel/…/fa
-           scions: knowledge-base-kit (git:https://github.com/danielnaab/knowledge-base-kit), meeting-kit (…), notebook-kit (…)
-see        27 packages: bash-interactive-5.2p37 (root standard) · … · glibc-2.40-66 (claude-code@personal) · graft-kits (repo:platform-vm:2222/daniel/flexion-assistant)
-           env.set CLAUDE_CONFIG_DIR=~/.claude  [claude-code@personal]
-           env.set DISABLE_AUTOUPDATER=1  [claude-code@personal]
-           env.set NIX_LD=/nix/store/…-glibc-2.40-66/lib/ld-linux-x86-64.so.2  [claude-code@personal]
-           env.set NIX_LD_LIBRARY_PATH=/nix/store/…-gcc-14.3.0-lib/lib  [claude-code@personal]
-           file /lib64/ld-linux-x86-64.so.2 (fixed)  [claude-code@personal]
-           file ~/.claude/.claude.json (reassert)  [claude-code@personal]
-           file ~/.claude/CLAUDE.md (fixed)  [claude-code@personal]
-           file ~/.claude/settings.json (fixed)  [claude-code@personal]
-           env.set TZ=America/Chicago  [root base]
-           dir ~/.claude/agents (read-only): 0 entries
-           …
-           dir ~/.claude/skills (read-only): 20 entries
-limits     protect: **/flake.nix (root graft) · … · AGENTS.md (repo:platform-vm:2222/daniel/flexion-assistant) · … · nix/agent-tools/.scions (root graft)
+workspace  repo:platform-vm:2222/daniel/flexion-assistant (write) /home/daniel/src/graft__worktrees/.sb-1a-team/implementer/m2/fa
+           scions: knowledge-base-kit, meeting-kit, notebook-kit
+see        standard tools (25) · glibc-2.40-66 (claude-code@personal) · graft-kits (repo)
+           env.set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 (claude-code@personal)
+           env.set CLAUDE_CONFIG_DIR=~/.claude (claude-code@personal)
+           env.set DISABLE_AUTOUPDATER=1 (claude-code@personal)
+           env.set NIX_LD=/nix/store/…-glibc-2.40-66/lib/ld-linux-x86-64.so.2 (claude-code@personal)
+           env.set NIX_LD_LIBRARY_PATH=/nix/store/…-gcc-14.3.0-lib/lib (claude-code@personal)
+           file /lib64/ld-linux-x86-64.so.2 (fixed) (claude-code@personal)
+           file ~/.claude/.claude.json (reassert) (claude-code@personal)
+           file ~/.claude/CLAUDE.md (fixed) (claude-code@personal)
+           file ~/.claude/settings.json (fixed) (claude-code@personal)
+           env.set TZ=America/Chicago (root)
+           dir ~/.claude/agents (read-only): 0 entries (claude-code@personal)
+           dir ~/.claude/commands (read-only): 0 entries (claude-code@personal)
+           dir ~/.claude/hooks (read-only): 0 entries (claude-code@personal)
+           dir ~/.claude/plugins (read-only): 10 entries (claude-code@personal)
+           dir ~/.claude/skills (read-only): 21 entries, 1 left out (claude-code@personal)
+limits     protect: **/flake.nix **/flake.lock **/graft.nix **/.gitmodules **/.envrc **/justfile **/.pre-commit-config.yaml .githooks **/.claude **/.mcp.json **/.pi **/.codex **/.vscode nix/agent-tools nix/agent-tools/.scions (graft) · nix/agent-tools/ensure.sh .local .githooks AGENTS.md docs/boundaries.md (repo) · **/.claude **/.mcp.json (claude-code@personal)
            hidden: 28 paths (sb explain --json lists them)
-reach                                                            granted
-  network  api.anthropic.com:443                                   claude-code@personal
-  network  claude.ai:443                                           claude-code@personal
-  network  pypi.org:443                                            daniel
-  read     ~/.local/share/claude                                   claude-code@personal
-  read     ~/src/agent-skills                                      claude-code@personal
-  read     ~/src/agent-skills-private                              claude-code@personal
-  state    claude -> ~/.claude                                     claude-code@personal
-  capabili status.relay: workmux shim                              claude-code@personal
-  capabili credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN: file (the run holds it) claude-code@personal
-  capabili mcp metamcp: env (the run holds it)                     claude-code@personal
-  capabili nix: daemon-untrusted; the whole store is visible (closure-store dropped); fixed-output derivations reach the network outside the proxy repo:platform-vm:2222/daniel/flexion-assistant
-  capabili git.fetch ssh://forgejo@platform-vm:2222/*: ssh shim (GIT_SSH_COMMAND) daniel
-children   none (nesting lands in 1b)
+reach                                                                                                                                  granted by
+  network    api.anthropic.com:443                                                                                                        claude-code@personal
+  network    claude.ai:443                                                                                                                claude-code@personal
+  network    pypi.org:443                                                                                                                 daniel
+  network    mcp.crushingpennies.com:443 (mcp)                                                                                            claude-code@personal, binding
+  read       ~/.local/share/claude                                                                                                        claude-code@personal
+  read       ~/src/agent-skills                                                                                                           claude-code@personal
+  read       ~/src/agent-skills-private                                                                                                   claude-code@personal
+  state      claude -> ~/.claude                                                                                                          claude-code@personal
+  capability status.relay: workmux relay                                                                                                  claude-code@personal
+  capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN: file ~/.config/graft/sb/claude-token-personal (the run holds it)   claude-code@personal
+  capability mcp metamcp: env METAMCP_API_KEY from ~/.config/metamcp/key.env (the run holds it)                                           claude-code@personal
+  capability nix: untrusted daemon relay: exposes the whole store read-only, drops closure-store                                          repo
+  capability git.fetch ssh://forgejo@platform-vm:2222/*: ssh broker (fetch only), the host's ssh agent                                    daniel
+children   none (nesting comes in a later release)
 backend    bubblewrap proves own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files; lacks closure-store resource-limits separate-kernel nest
-note       phase 1a: kit tools run as the run's own programs, not as sandboxed commands (D4 lands in 1b)
+note       kit tools run as this run's own programs; sandboxing each kit command comes in a later release
 ```
 
 `daniel` here is the root kit that Daniel's `work` includes. The `nix` capability is why this run lacks
-`closure-store`.
+`closure-store`. The labels are `(graft)`, `(root)`, `(repo)`, `(<kit>)`, `(one run)` and `(<context>)`. A kit
+whose grant does not apply has no rows in `reach`; it is listed as `not in run NAME (ID): <status word>: …`. With
+host memory for the workspace, a `see` row says `host memory: N files, read-only …`.
 
 ### sb why
 
@@ -981,11 +991,11 @@ path:
 | Audience | Channel |
 |---|---|
 | You, live | `sb` never writes to the run's terminal while it runs: a line there corrupts a full-screen program such as Claude Code. Under tmux, the host shows one `tmux display-message` on the launching pane for each new denial. Repeats are counted, not shown again. Outside tmux, nothing is live. |
-| The agent | The proxy appends each new denial to `/run/graft-sandbox/denials`, once for each host and port, which the run can read but not write. The claude-code kit's `PostToolUse` hook (matcher `Bash\|WebFetch`) gives the model each new denial line as context, after `The sandbox (graft sb) refused this during the command; read /run/graft-sandbox/README.md:`. It keeps its read offset in `$TMPDIR`. A missing program reaches the agent through bash's not-found handler or a not-found shim ([Environment](#environment)). |
-| Afterwards | The exit line lists the run's denials, with a count for each. |
+| The agent | The proxy appends each new denial to `/run/graft-sandbox/denials`, once for each host and port, which the run can read but not write. The claude-code kit's hooks (matcher `Bash\|WebFetch`) give the model what each tool call added to that file, as context, after `The sandbox (graft sb) refused this during the command; read /run/graft-sandbox/README.md:`. A `PreToolUse` hook records where the file ends, and a `PostToolUse` hook gives what came after. Denials before the first tool call (Claude's own startup traffic) reach only the exit line. A missing program reaches the agent through bash's not-found handler or a not-found shim ([Environment](#environment)). |
+| Afterwards | The exit line lists the run's denials, each with its fix. |
 
 Under tmux, the live message is `tmux display-message -t <pane> -d 5000`, once for each new host and port:
-`graft sandbox (work): refused HOST:PORT · sb why HOST`.
+`graft sandbox (work): the run tried HOST:PORT (not in this run) · sb why HOST`.
 
 The proxy answers a refused request with `HTTP/1.1 403 Forbidden (graft sandbox: not in this run)`.
 `/run/graft-sandbox/README.md` tells a reader inside that `CONNECT … 403`, `tunnel failed` or
@@ -994,33 +1004,51 @@ The proxy answers a refused request with `HTTP/1.1 403 Forbidden (graft sandbox:
 ### Messages
 
 Every denial starts `graft sandbox (<context>):`. When the run's own traffic was refused, the message says "the
-run tried", and gives the fix as a form, not as a command to paste.
+run tried"; on the host, `sb why` says "would". The fix is a form, not a command to paste.
 
-| Denial | Message, after `graft sandbox (<context>): ` |
+A network refusal has one phrasing, in the denials file, on the exit line and from `sb why` inside a run:
+
+```
+graft sandbox (work): the run tried HOST:PORT (not in this run). one run: sb --net HOST …  permanent: FIX
+```
+
+The exit line adds ` (Nx)` when it repeated. A request the proxy cannot read is
+`graft sandbox (work): the run sent the proxy a malformed request`.
+
+The permanent fix depends on the root and the repository:
+
+| Where | Fix |
 |---|---|
-| Network, live (tmux) | `refused example.com:443 · sb why example.com` |
-| Network, in the denials file | `the run tried example.com:443 (not in this run): sb why example.com` |
-| Network, on the exit line | `the run tried example.com:443 (3x, not in this run): sb why example.com` |
-| Network, from `sb why` | `the run tried example.com:443 (not in this run). one run: sb --net HOST …  permanent: the repo kit's requests.network, or programs.sb.kits.standing.requests.network for every repository` (the `, or …` part only when the context includes a kit) |
+| A graft consumer | `the repo kit's requests.network (perSystem.kit)` |
+| Another repository, home-manager root | `programs.sb.repoKits."<key>".requests.network (home-manager switch)` |
+| Another repository, mkRoot root | `repoKits."<key>".requests.network (rebuild the root)` |
+| The context includes a kit | then `, or programs.sb.kits.standing.requests.network for every repository (home-manager switch)` (no `programs.sb.` prefix and `(rebuild the root)` for an mkRoot root) |
+| The command is a scion kit's | `meeting-kit's requests.network (its graft.nix: a kit release)` |
+| `--package` | `programs.sb.tools (home-manager switch), or <the repo fix, for packages>` |
+
+The other messages, after `graft sandbox (<context>): `:
+
+| Denial | Message |
+|---|---|
+| A program (exit 127) | `rg is not in this run. one run: sb --package PKG …  permanent: programs.sb.tools (home-manager switch), or the repo kit's packages (perSystem.kit)` |
 | Requested, not granted (`sb why`) | `api.github.com:443 is requested by git:…/meeting-kit (…), not in this run (not granted): sb grant` |
-| A program (exit 127) | `rg is not in this run. one run: sb --package PKG …  permanent: programs.sb.tools (home-manager switch), or the repo kit's packages` |
-| A variable (`sb why`) | `NAME is not in this run. one run: sb --env NAME …  permanent: the repo kit's requests.env` |
-| Outside the workspace (`sb why`) | `~/src/other is not in this run: sb --read ~/src/other (one run), or sb --repo ~/src/other for a repository` |
+| Outside the workspace (`sb why`) | `~/src/other is not in this run: sb --read ~/src/other (one run), or sb --repo ~/src/other for a repository; permanent: …` |
 | Hidden (`sb why`) | `~/.ssh is hidden by your root in every run (~/.ssh, …)` |
-| Protected (`sb why`) | `justfile is protected (**/justfile, …): edit it on the host, or in a dispatch run` |
-| A root repository (1) | `~/.workstation is a root: sb inspect, or claude (unsandboxed) until sb dispatch (1b)` |
+| Hidden `--repo` | `--repo ~/.ssh/x: ~/.ssh/x is hidden by your root in every run` |
+| Protected (`sb why`) | `justfile is protected (**/justfile, graft): edit it on the host` |
+| A root repository, agent command (1) | `~/.workstation is a root: sb inspect, or claude (unsandboxed) until sb dispatch (a later release)` |
+| A root repository, other command (1) | `~/.workstation is a root: sb inspect, or sb host CMD until sb dispatch (a later release)` |
+| Not a repository (1) | `~/Downloads is not inside a git repository: sb inspect CMD, or sb host CMD` |
 | A `--repo` outside git (1) | `--repo PATH is not inside a git repository` |
-| Stale grant (125) | `meeting-kit (git:…) asks for more than its grant:`, then each new request as `  + network api.github.com:443`, then `  grant it: sb grant meeting-kit`. Also `… requests reach that is not granted:`, `… changed source since its grant:` with `  source: OLD -> NEW`, and `… is not a verified release, so its grant does not apply`. |
-| Clone mode (1) | `--clone is clone mode (dispatch), which lands in 1b`; `clone mode (dispatch) lands in 1b; in 1a, sb works in place` |
+| Stale grant (125) | `meeting-kit (git:…) asks for more than its grant:`, then each new request as `  + network api.github.com:443`, then `  grant it: sb grant meeting-kit`. Also `… requests reach that is not granted:`; `… changed source since its grant:` with `  source: tree A -> tree B` and up to 12 lines of `git diff --stat`; and `… is not a verified release, so its grant does not apply`. |
+| Clone mode (1) | `--clone is clone mode (dispatch), which comes in a later release`; `clone mode (dispatch) comes in a later release; this release works in place` |
 | Missing guarantee (125) | `requires separate-kernel; bubblewrap proves …` |
-| `sb` inside a run (1) | `sb inside a run starts nested runs from 1b: run it on the host` |
+| `sb` inside a run (1) | `sb inside a run starts nested runs in a later release: run it on the host` |
+| A missing lock | `graft sandbox: ~/…/nix/agent-tools/flake.lock is missing, and sb never writes one into a workspace: run nix flake lock there, on the host, and commit it` |
 
-Without the prefix: `~/Downloads is not inside a git repository: sb inspect CMD, or sb host CMD`, and on macOS
-`sb: no backend for darwin in v2.15.0; Seatbelt returns in 1b (v2.14.0 has v2's sandbox)`. On the startup line, a
-requested variable that the host lacks is `env NAME unset`, and a capability with no binding is
-`CAPABILITY: no binding`.
-
-The Protected message names a dispatch run, which v2.15.0 does not have: edit a protected file on the host.
+On macOS: `sb: no backend for darwin in v2.15.0; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)`.
+On the startup line, a requested variable that the host lacks is `env NAME unset`, and a capability with no binding
+is `CAPABILITY: no binding`.
 
 ## Exit status
 
@@ -1108,7 +1136,7 @@ attached as quoted data ([Resume on the host](#resume-on-the-host)).
 In v2.15.0, `sb` refuses to start on macOS:
 
 ```
-sb: no backend for darwin in v2.15.0; Seatbelt returns in 1b (v2.14.0 has v2's sandbox)
+sb: no backend for darwin in v2.15.0; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)
 ```
 
 v2.14.0 is the last release with a Seatbelt sandbox. On a Mac, stay on v2.14.0 for a sandbox until the Seatbelt
