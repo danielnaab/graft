@@ -447,7 +447,8 @@ def write_own(cfg, rundir, policy, launch):
         env = (m.get("env") or [None])[0]
         srv = {"type": "http", "url": m["url"]}
         if env:
-            srv["headers"] = {m.get("header") or "Authorization": f"{m.get('scheme') or 'Bearer'} ${{{env}}}".strip()}
+            scheme = m.get("scheme", "Bearer")
+            srv["headers"] = {m.get("header") or "Authorization": f"{scheme} ${{{env}}}" if scheme else f"${{{env}}}"}
         servers[m["server"]] = srv
     with open(os.path.join(rundir, "mcp.json"), "w") as f:
         json.dump({"mcpServers": servers}, f, indent=2)

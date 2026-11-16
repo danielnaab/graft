@@ -413,7 +413,9 @@ def parse_grants(text):
                     or not set(e) <= {"digest", "requests", "source", "granted", "delegate"}:
                 raise Refusal(f"the grants file's entry {ident} is malformed: every run stops until it is fixed")
             if e.get("digest") != digest(e["requests"]):
-                raise Refusal(f"the grants file's entry {ident}: its digest does not match its requests: every run stops until it is fixed")
+                short = ident.split(":", 1)[-1].rstrip("/").rsplit("/", 1)[-1]
+                raise Refusal(f"the grants file's entry {ident}: its digest does not match its requests (an edit by hand?): "
+                              f"every run stops until it is fixed: sb grant --revoke {short}, then sb grant {short}")
     g.setdefault("grants", {})
     g.setdefault("machines", {})
     return g
@@ -859,8 +861,7 @@ def compose(inp):
             if not applies_here:
                 why = "not in this run"
             elif not granted:
-                why = {"never": "not granted", "grown": "not granted", "source": "source changed",
-                       "unverified": "unverified"}[st["status"]]
+                why = STATUS_WORDS[st["status"]]
             extra = {}
             if r.kind == "network" and not network_ok:
                 eff, why = False, f"context {ctx['name']} has no network"
@@ -1222,8 +1223,9 @@ def kit_short(ident, report):
 
 def denial_text(ctxname, hostport, fix):
     """The one phrasing of a network refusal (exit line, denials file, sb why inside a run)."""
-    host = hostport.rpartition(":")[0] if ":" in hostport else hostport
-    return f"graft sandbox ({ctxname}): the run tried {hostport} (not in this run). one run: sb --net {host} …  permanent: {fix}"
+    host, _, port = hostport.rpartition(":") if ":" in hostport else (hostport, "", "443")
+    flag = host if port == "443" else f"{host}:{port}"
+    return f"graft sandbox ({ctxname}): the run tried {hostport} (not in this run). one run: sb --net {flag} …  permanent: {fix}"
 
 
 def binding_desc(cap, cfg, root_name=None):
@@ -1273,6 +1275,21 @@ def explain_text(policy, report, root):
     def src(i):
         return ", ".join(dict.fromkeys(l for l in (label(x, report) for x in i["sources"]) if l))
 
+    def by(i):
+        """The granted-by column: the kit's own name."""
+        return ", ".join(dict.fromkeys(kit_short(x["kit"], report) if "kit" in x else label(x, report)
+                                       for x in i["sources"] if "kit" in x or "flag" in x or "context" in x or "binding" in x))
+
+    def wrap(head, words, width=110):
+        lines, cur = [], head
+        for w in words:
+            if len(cur) + len(w) + 1 > width and cur.strip():
+                lines.append(cur)
+                cur = " " * len(head)
+            cur += ("" if cur.endswith(" ") or not cur.strip() else " ") + w
+        lines.append(cur)
+        return lines
+
     out.append(f"run        {cmd.get('name') or '(shell)'}" + (f" -> {cmd['kit']}" if cmd.get("kit") else " (no kit ships it)"))
     if report.get("argv") and report["argv"][:1] != [cmd.get("name")]:
         out.append("argv       " + " ".join(report["argv"]))
@@ -1297,12 +1314,15 @@ def explain_text(policy, report, root):
     out.append("see        " + " · ".join(see))
     for i in eff:
         if i["kind"] == "dir":
-            out.append(f"           dir {i['value']} (read-only): {len(i.get('links') or [])} entries"
-                       + (f", {len(i['skipped'])} left out" if i.get("skipped") else "") + f" ({src(i)})")
+            n = len(i.get("links") or [])
+            out.append(f"           dir {i['value']} (read-only): {n} {'entry' if n == 1 else 'entries'} ({src(i)})")
+            if i.get("skipped"):
+                out += wrap("             left out:", i["skipped"])
         elif i["kind"] == "file" and i.get("memory"):
             continue
         elif i["kind"] in ("env.set", "file"):
-            out.append(f"           {i['kind']} {i['value']}" + (f" ({i.get('mode')})" if i["kind"] == "file" else "") + f" ({src(i)})")
+            mode = {"fixed": "read-only", "seed": "copied in once", "reassert": "keys copied in at each start"}.get(i.get("mode"), "")
+            out.append(f"           {i['kind']} {i['value']}" + (f", {mode}" if i["kind"] == "file" else "") + f" ({src(i)})")
     mem = [i for i in eff if i.get("memory")]
     if mem:
         out.append(f"           host memory: {len(mem)} files, read-only (what the run writes stays in its state)")
@@ -1311,7 +1331,10 @@ def explain_text(policy, report, root):
         groups = {}
         for i in prot:
             groups.setdefault(src(i), []).append(i["value"])
-        out.append("limits     protect: " + " · ".join(f"{' '.join(v)} ({k})" for k, v in groups.items()))
+        first = True
+        for k, v in groups.items():
+            out += wrap("limits     protect:" if first else "                    ", v + [f"({k})"])
+            first = False
     else:
         out.append(f"limits     the workspace is read-only (access {policy['access']})")
     hid = [i for i in eff if i["kind"] == "hidden"]
@@ -1337,16 +1360,20 @@ def explain_text(policy, report, root):
                 if b:
                     cfg = ((root.get("bindings") or {}).get(b["capability"]) or {}).get(b["selector"])
                     v += f": {binding_desc(b['capability'], cfg)}"
-            status = src(i) if i["effective"] else f"{src(i)}: {i.get('why', 'not in this run')}"
+            status = by(i) if i["effective"] else f"{by(i)}: {i.get('why', 'not in this run')}"
             rows.append((kind, v, status))
-    w = max([len(v) for _, v, _ in rows] + [40]) + 2
+    w = min(max([len(v) for _, v, _ in rows] + [40]), 60) + 2
     out.append(f"reach{' ' * (w + 6)}granted by")
     for kind, v, status in rows:
-        out.append(f"  {kind:<10} {v:<{w}} {status}")
+        if len(v) > w:
+            out.append(f"  {kind:<10} {v}")
+            out.append(f"  {'':<10} {'':<{w}} {status}")
+        else:
+            out.append(f"  {kind:<10} {v:<{w}} {status}")
     out.append("children   none (nesting comes in a later release)")
     for k in [k for k in report["kits"] if k["status"] in ("never", "grown", "source", "unverified")]:
-        added = (": " + ", ".join(k["added"][:4]) + (" …" if len(k["added"]) > 4 else "")) if k["added"] else ""
-        out.append(f"not in run {k['name']} ({k['kit']}): {STATUS_WORDS[k['status']]}{added}")
+        out += wrap(f"not in run {k['name']} ({k['kit']}): {STATUS_WORDS[k['status']]}" + (":" if k["added"] else ""),
+                    [a + "," for a in k["added"][:-1]] + k["added"][-1:])
     b = policy["backend"]
     lacks = [g for g in GUARANTEES if g not in b["proved"]]
     out.append(f"backend    {b['name']} proves {' '.join(b['proved']) or 'nothing'}; lacks {' '.join(lacks)}")

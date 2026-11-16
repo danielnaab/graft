@@ -88,7 +88,8 @@ in
     program = if native then { host = "~/.local/bin/claude"; } else if binary == "host" then { host = "claude"; } else "${binary}/bin/claude";
     args = [ "--settings" overlay ]
       ++ lib.optionals (mcp != [ ]) [ "--mcp-config" "/run/graft-sandbox/mcp.json" "--strict-mcp-config" ];
-    fixedDirs = lib.genAttrs (map (d: "~/.claude/${d}") fixedDirNames) (d: "~/${configDir}/${baseNameOf d}");
+    fixedDirs = lib.genAttrs (map (d: "~/.claude/${d}") (lib.filter (d: plugins || d != "plugins") fixedDirNames))
+      (d: "~/${configDir}/${baseNameOf d}");
     realDirs = lib.optional plugins "~/.claude/plugins";
     memory = { at = "~/.claude/projects"; host = "~/${configDir}/projects"; };
     inherit skillDirs;

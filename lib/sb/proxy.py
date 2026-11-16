@@ -44,7 +44,8 @@ def denied(what):
         if what == "(malformed)":
             f.write(f"graft sandbox ({CONTEXT}): the run sent the proxy a malformed request\n")
         else:
-            f.write(f"graft sandbox ({CONTEXT}): the run tried {what} (not in this run). one run: sb --net {host} …  "
+            flag = host if what.endswith(":443") else what
+            f.write(f"graft sandbox ({CONTEXT}): the run tried {what} (not in this run). one run: sb --net {flag} …  "
                     f"permanent: {OPT.get('fix', 'the repo kit')}\n")
     if OPT.get("tmux") and OPT.get("pane"):
         import subprocess

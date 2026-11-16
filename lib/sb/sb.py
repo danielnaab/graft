@@ -268,7 +268,7 @@ def tree_diffstat(host, top, old, new):
     return r.stdout.rstrip("\n").splitlines()[-12:] if r.returncode == 0 else []
 
 
-def repo_kit(host, w, rel):
+def repo_kit(host, w, rel, ctxname="work"):
     """The repo kit's manifest and tools: packages.<system>.graft-kits, always built with path:,
     cached in sb's state by the flake directory's contents and the scions' state."""
     fdir = os.path.join(w["top"], rel) if rel else w["top"]
@@ -289,11 +289,11 @@ def repo_kit(host, w, rel):
     attr = f"path:{fdir}#packages.{host.root['system']}.graft-kits"
     say(f"sb: building the repo kit ({attr})")
     if not os.path.isfile(os.path.join(fdir, "flake.lock")):
-        raise C.Refusal(f"graft sandbox: {C.canon_path(fdir, host.home)}/flake.lock is missing, and sb never writes one into a "
+        raise C.Refusal(f"graft sandbox ({ctxname}): {C.canon_path(fdir, host.home)}/flake.lock is missing, and sb never writes one into a "
                         "workspace: run nix flake lock there, on the host, and commit it")
     r = subprocess.run([nix, "build", "--no-link", "--no-write-lock-file", "--print-out-paths", attr], stdout=subprocess.PIPE, text=True)
     if r.returncode != 0:
-        raise C.Refusal(f"graft sandbox: the repo kit did not build (nix build {attr}, above): it needs graft "
+        raise C.Refusal(f"graft sandbox ({ctxname}): the repo kit did not build (nix build {attr}, above): it needs graft "
                         "v2.15.0 or later (packages.<system>.graft-kits), and a path: flake directory holds no "
                         "sockets or other special files; fix it, or run sb host CMD")
     out = r.stdout.strip().splitlines()[-1]
@@ -317,7 +317,7 @@ def workspace_facts(host, paths, ctx, cache):
         r["repoKit"] = None
         kitjson = {}
         if rel is not None:
-            out = repo_kit(host, r, rel)
+            out = repo_kit(host, r, rel, ctx["name"])
             with open(os.path.join(out, "kit.json")) as f:
                 kitjson = json.load(f)
             r["repoKit"] = {"manifest": kitjson.get("self") or {}, "file": kitjson.get("file", "flake.nix (perSystem)")}
@@ -425,12 +425,34 @@ def read_lines(p):
 
 # ---------------------------------------------------------------- grants file I/O
 
-def load_grants(host):
+SET_ASIDE = []
+
+
+def load_grants(host, lenient=False, quiet=False):
     try:
         with open(host.grants_path) as f:
             text = f.read()
     except FileNotFoundError:
         text = None
+    if lenient and text is not None:
+        # sb grant: entries whose digest doesn't match are set aside (reported), so --revoke and a new
+        # grant repair the file; anything else that doesn't parse still stops
+        try:
+            raw = json.loads(text)
+            bad = []
+            for sec in [raw.get("grants", {})] + list(raw.get("machines", {}).values()):
+                for ident, e in list(sec.items()):
+                    if isinstance(e, dict) and isinstance(e.get("requests"), list) and e.get("digest") != C.digest(e["requests"]):
+                        bad.append(ident)
+                        del sec[ident]
+            if bad:
+                SET_ASIDE[:] = bad
+                if not quiet:
+                    err(visible(f"sb grant: set aside {len(bad)} entr{'y' if len(bad) == 1 else 'ies'} whose digest does not match: "
+                            f"{', '.join(bad)} (grant again to replace)"))
+                return C.parse_grants(json.dumps(raw)), text
+        except ValueError:
+            pass
     try:
         return C.parse_grants(text), text
     except C.Refusal as e:
@@ -463,7 +485,7 @@ def arrived_line(host, grants, text):
     except ValueError:
         return None
     # repeated until `sb grant --diff` (or a grant) acknowledges it
-    return f"sb: {n} grant{'s' if n != 1 else ''} arrived by git: sb grant --diff" if n else None
+    return "sb: the grants file changed since this machine last read it: sb grant --diff" if n else None
 
 
 def save_grants(host, grants):
@@ -788,8 +810,8 @@ def fixed_dirs(host, root, policy, report, ws=()):
                                 "sources": [{"kit": kid, "file": root["kits"][kid[5:]].get("file", "the root"), "as": "see"}],
                                 "links": links, **({"skipped": skipped} if skipped else {})})
         if skipped:
-            report["notes"].append(f"{at}: {len(skipped)} left out ({', '.join(skipped[:3])}{' …' if len(skipped) > 3 else ''}): "
-                                   "a link outside the read requests, or a real folder skillDirs does not name")
+            n = len(skipped)
+            report["notes"].append(f"{kid[5:].split('@')[0]}: {n} {'entry' if n == 1 else 'entries'} left out of {at} (sb explain)")
     # the host's project memory for each workspace, read-only, file by file: what the run writes there
     # lands in its state, and the exit line names it
     mem = c.get("memory")
@@ -947,7 +969,7 @@ def run(host, root, context, flags, cmd):
         log(rundir, ev)
         if run_git(host, launch["cwd"], "config", "--bool", "commit.gpgsign").stdout.strip() != "true":
             ev["unsigned"] = 0    # the host does not sign: nothing to say
-        lines = exit_lines(ev, policy, report, root) + memory_lines(host, policy, report) \
+        lines = exit_lines(ev, policy, report, root) + memory_lines(host, policy, report, rundir) \
             + resume_lines(policy, report, flags, started)
         say(f"sb: run {rid}" + (f" · exit {status}" if status else ""))
         for line in lines:
@@ -980,9 +1002,11 @@ def resume_lines(policy, report, flags, started):
     return [f"sb: resume this session with: sb{ctx}{acct} {cmd['name']} --resume {sid}"]
 
 
-def memory_lines(host, policy, report):
-    """Memory the run wrote (files in its state's memory folders that the host did not bind): run
-    output, for the person to review and copy by hand."""
+def memory_lines(host, policy, report, rundir):
+    """Memory the run wrote (files in its state's memory folders that the host did not bind; the bound
+    host files are read-only, so the run cannot change them): run output, copied to <run dir>/memory-out
+    for the person to review and copy by hand. Never the folder with the read-only placeholders."""
+    import shutil
     out = []
     for at in report.get("memory") or []:
         st = next((m for m in policy["mounts"]["state"] if at.startswith(m["at"] + "/")), None)
@@ -996,7 +1020,12 @@ def memory_lines(host, policy, report):
         except OSError:
             continue
         if wrote:
-            out.append(f"sb: the run wrote {len(wrote)} memory file{'s' if len(wrote) != 1 else ''}: {C.canon_path(d, host.home)}")
+            dest = os.path.join(rundir, "memory-out", os.path.basename(os.path.dirname(d)))
+            os.makedirs(dest, exist_ok=True)
+            for n in wrote:
+                shutil.copyfile(os.path.join(d, n), os.path.join(dest, n), follow_symlinks=False)
+            out.append(f"sb: the run wrote {len(wrote)} memory file{'s' if len(wrote) != 1 else ''} ({', '.join(sorted(wrote)[:4])}"
+                       f"{' …' if len(wrote) > 4 else ''}): copies in {C.canon_path(dest, host.home)}")
     return out
 
 
@@ -1085,15 +1114,35 @@ def host_run(host, root, ctx, flags, cmd, quiet_line=False):
     return status
 
 
+def transcripts(rundir, since=False):
+    """The Claude transcripts in a run's state (since: only those written during or after that run)."""
+    try:
+        with open(os.path.join(rundir, "policy.json")) as f:
+            policy = json.load(f)
+        start = os.path.getmtime(os.path.join(rundir, "policy.json"))
+    except (OSError, ValueError):
+        return []
+    found = []
+    for s in policy["mounts"]["state"]:
+        for d, _, fs in os.walk(os.path.join(s["dir"], "projects")):
+            found += [os.path.join(d, f) for f in fs if f.endswith(".jsonl")
+                      and (not since or os.path.getmtime(os.path.join(d, f)) >= start)]
+    return found
+
+
 def resume_prompt(host, rid):
     """D15: a sandboxed run's newest Claude transcript, as quoted data for a new host conversation."""
     import re
     if rid == "last":
         runs = os.path.join(host.state, "runs")
         cands = [d for d in os.listdir(runs) if re.fullmatch(r"[0-9a-f]{4}", d) and os.path.isfile(os.path.join(runs, d, "policy.json"))]
-        if not cands:
-            raise C.Refusal("sb host --resume last: no sandboxed run yet")
-        rid = max(cands, key=lambda d: os.path.getmtime(os.path.join(runs, d, "policy.json")))
+        rid = None
+        for d in sorted(cands, key=lambda d: os.path.getmtime(os.path.join(runs, d, "policy.json")), reverse=True):
+            if transcripts(os.path.join(runs, d), since=True):
+                rid = d
+                break
+        if rid is None:
+            raise C.Refusal("sb host --resume last: no sandboxed run has left a transcript yet")
     if not re.fullmatch(r"[0-9a-f]{4}", rid):
         raise C.Refusal(f"sb host --resume {rid}: a run id (4 hex digits; sb's state runs/ID)", 2)
     try:
@@ -1152,6 +1201,9 @@ def explain(host, root, context, flags, cmd):
     ctx = C.resolve_context(root, context)
     if ctx["mode"] == "none":
         print(f"context    {context}: no sandbox; the command runs on the host, logged")
+        if flags.get("backend-command"):
+            argv = cmd or [os.environ.get("SHELL") or "bash"]
+            print("argv       " + shlex.join(argv) + ("  (+ the transcript of run " + flags["resume"] + ", as data)" if flags.get("resume") else ""))
         return 0
     tmp = os.path.join(host.state, "runs", "explain-" + secrets.token_hex(3))
     os.makedirs(tmp, exist_ok=True)
@@ -1181,9 +1233,21 @@ def why_facts(policy, report, root):
     for n, k in (root.get("kits") or {}).items():
         for c in (k.get("commands") or {}):
             cmds.setdefault(c, []).append(n)
+    carried = {}
+    for n, k in (root.get("kits") or {}).items():
+        for cname, c in (k.get("commands") or {}).items():
+            for cap in (c.get("requests") or {}).get("capabilities") or []:
+                if cap.get("name") not in ("credential", "mcp"):
+                    continue
+                r = C.Request("capability", cap["name"], "", "powerful", cap)
+                b = C.find_binding(root.get("bindings") or {}, r, f"root:{n}")
+                env = cap.get("env") if cap["name"] == "credential" else (b[1].get("env") if b else None)
+                for e in ([env] if isinstance(env, str) else env or []):
+                    how = C.binding_desc(cap["name"], b[1]) if b else "no binding yet"
+                    carried[e] = f"{e} is carried by {n}'s {cap['name']} ({how}), in sb {cname} runs"
     return {"netFix": C.permanent_fix("--net", "", report, root), "envFix": C.permanent_fix("--env", "", report, root),
             "pkgFix": C.permanent_fix("--package", "", report, root), "readFix": C.permanent_fix("--read", "", report, root),
-            "commands": cmds}
+            "commands": cmds, "carried": carried}
 
 
 def why(host, root, flags, args):
@@ -1224,9 +1288,11 @@ def answer_why(policy, x, home, facts, on_host=False):
     if not answers and C.ENV_RE.fullmatch(x) and x.upper() == x:
         if x in C.OWNED_ENV or x.startswith("GRAFT_SANDBOX"):
             return f"{x} is set by sb itself (a name sb owns)"
+        if x in (facts.get("carried") or {}):
+            return facts["carried"][x]
         for b in policy.get("bindings") or []:
             if x in (b.get("env") or []):
-                return f"{x} is carried by the {b['capability']} binding {b['selector']} ({b['kit'].replace('root:', '', 1)}): the run holds it"
+                return f"{x} is carried by {b['kit'].replace('root:', '', 1)}'s {b['capability']} ({b['selector']}): the run holds it"
         hits = [i for i in items if (i["kind"] == "env" and i["value"] == x) or (i["kind"] == "env.set" and i["value"].startswith(x + "="))]
         for i in hits:
             if i["effective"]:
@@ -1238,6 +1304,8 @@ def answer_why(policy, x, home, facts, on_host=False):
     if x.startswith(("/", "~", ".")) or "/" in x or os.path.lexists(x):
         p = os.path.realpath(C.expand(x, home)) if x.startswith("~") or x.startswith("/") else os.path.realpath(x)
         cp = C.canon_path(p, home)
+        if not answers and not x.startswith(("/", "~", ".")) and "/" not in x:
+            answers.append(command_answer(policy, x, pre, facts, srcs, on_host))   # the command first
         answers.append(path_answer(policy, p, cp, pre, home, facts, srcs))
         return "\n".join(answers)
     # a host
@@ -1262,10 +1330,15 @@ def answer_why(policy, x, home, facts, on_host=False):
         if on_host:
             return f"{pre} a run here would be refused {hp} (not in a run here). one run: sb --net {h} …  permanent: {facts.get('netFix')}"
         return C.denial_text(ctx, hp, facts.get("netFix"))
-    # a command
-    for i in items:
+    return command_answer(policy, x, pre, facts, srcs, on_host)
+
+
+def command_answer(policy, x, pre, facts, srcs, on_host):
+    for i in policy["items"]:
         if i["kind"] == "package" and i["effective"] and os.access(os.path.join(i["value"], "bin", x), os.X_OK):
             return f"{x} is in {'a run here' if on_host else 'this run'}: {i['value']}/bin/{x} ({srcs(i)})"
+    if x == "nix" and any(b["capability"] == "nix" for b in policy.get("bindings") or []):
+        return "nix is in this run: the host's nix, through the nix capability's relay"
     return (f"{pre} {x} is not in {'a run here' if on_host else 'this run'}. one run: sb --package PKG …  "
             f"permanent: {facts.get('pkgFix')}")
 
@@ -1296,7 +1369,7 @@ def path_answer(policy, p, cp, pre, home, facts, srcs):
     view = next((i for i in items if i["kind"] == "view" and i["effective"]), None)
     if p in GENERATED and not view:
         return f"{cp} is readable: sb generates it for each run"
-    if p.startswith("/nix/store/"):
+    if C.under(p, "/nix/store"):
         whole = "closure-store" not in policy["backend"]["proved"]
         return f"{cp} is readable: in the store, which this run sees {'whole' if whole else 'as its closure (another path is absent)'}"
     if p == "/run/current-system" or p.startswith("/run/graft-sandbox"):
@@ -1390,7 +1463,11 @@ def grant_flow(host, root, grants, sts, inline=False):
             # a changed source asks again for each powerful item, alone (P2)
             again = st["status"] == "source"
             if again:
-                t.write(visible(f"  source: {C.fmt_source(st.get('was'))} -> {C.fmt_source(st.get('now') or st.get('source'))}\n"))
+                was, now = st.get("was") or {}, st.get("now") or st.get("source") or {}
+                t.write(visible(f"  source: {C.fmt_source(was)} -> {C.fmt_source(now)}\n"))
+                if st.get("top") and was.get("tree") and now.get("tree"):
+                    for d in tree_diffstat(host, st["top"], was["tree"], now["tree"]):
+                        t.write(visible(f"    {d}\n"))
             approved = {c for c in set(have) & set(reqs) if not (again and cls[c] == "powerful")}
             ordinary = [c for c in reqs if c not in have and cls[c] == "ordinary"]
             powerful = [c for c in reqs if (c not in have or again) and cls[c] == "powerful"]
@@ -1424,11 +1501,14 @@ def grant_flow(host, root, grants, sts, inline=False):
 def grant(host, root, flags, kits_named):
     if inside_run():
         raise C.Refusal("sb grant is for people, on the host: a run never writes its root's grants file")
-    grants, text = load_grants(host)
+    grants, text = load_grants(host, lenient=True)
     if flags.get("revoke"):
         granted = sorted(set(grants["grants"]) | {i for m in grants["machines"].values() for i in m})
         for k in flags["revoke"]:
             ids = match_kits(k, granted)
+            if not ids and match_kits(k, SET_ASIDE):
+                print(visible(f"revoked {', '.join(match_kits(k, SET_ASIDE))} (its digest did not match)"))
+                continue
             if not ids:
                 raise C.Refusal(f"sb grant --revoke {k}: no grant for {k} in {C.canon_path(host.grants_path, host.home)}")
             if len(ids) > 1:
@@ -1481,7 +1561,7 @@ def grant(host, root, flags, kits_named):
                 for m in set(old.get("machines", {})) | set(grants["machines"]):
                     was |= set((old.get("machines", {}).get(m, {}).get(ident) or {}).get("requests", []))
                     now |= set((grants["machines"].get(m, {}).get(ident) or {}).get("requests", []))
-                print(visible(f"arrived by git: {ident}" + ("" if now else " (revoked)")))
+                print(visible(f"changed since this machine last read it: {ident}" + ("" if now else " (revoked)")))
                 for c in sorted(now - was):
                     print(visible(f"  + {c}"))
                 for c in sorted(was - now):
@@ -1529,7 +1609,7 @@ def all_kit_status(host, root, context, flags):
     ctx = C.resolve_context(root, context)
     paths = [p for p in [cwd] + [os.path.realpath(C.expand(r, host.home)) for r in flags.get("repo") or []] if repo_of(host, p)]
     ws = workspace_facts(host, paths, ctx, cache) if paths else []
-    grants, _ = load_grants(host)
+    grants, _ = load_grants(host, lenient=True, quiet=True)
     out = []
     kits = [(f"root:{n}", "root", m, None, True, n) for n, m in sorted((root.get("kits") or {}).items())]
     for w in ws:
@@ -1545,7 +1625,8 @@ def all_kit_status(host, root, context, flags):
         canons = [r.canonical for r in reqs]
         powerful = [r.canonical for r in reqs if r.cls == "powerful"]
         st = C.grant_status(ident, kind, canons, bool(powerful), source, grants, host.machine, verified)
-        st.update(kit=ident, kind=kind, name=name, requests=sorted(set(canons)), powerful=powerful, source=source)
+        st.update(kit=ident, kind=kind, name=name, requests=sorted(set(canons)), powerful=powerful, source=source,
+                  top=next((w["top"] for w in ws if w["id"] == ident), None))
         out.append(st)
     return out
 

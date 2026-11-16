@@ -33,7 +33,7 @@ git_() { git "$@"; }
 np="github:NixOS/nixpkgs/$(jq -r '.nodes.nixpkgs.locked.rev' "$graft/flake.lock")"
 sys=$(nix eval --impure --raw --expr builtins.currentSystem)
 pass() { echo "ok   $*"; }
-fail() { echo "FAIL $*" >&2; exit 1; }
+fail() { echo "FAIL $*" >&2; [ -z "${out:-}" ] || { echo "(last output:)" >&2; tail -8 <<<"$out" >&2; }; exit 1; }
 # expect <description> <command...>: the command must succeed
 expect() { local d=$1; shift; if "$@"; then pass "$d"; else fail "$d"; fi; }
 # refuse <description> <command...>: the command must fail
@@ -1204,6 +1204,7 @@ EOF
         kits.fixed.commands.fixedtest = { program = "\${nixpkgs.legacyPackages.\${s}.bashInteractive}/bin/bash";
           fixedDirs = { "~/.claude/plugins" = "$work/cfg/plugins"; "~/.claude/skills" = "$work/cfg/skills"; };
           realDirs = [ "~/.claude/plugins" ]; skillDirs = [ "synced" ];
+          memory = { at = "~/.claude/projects"; host = "$work/cfg/projects"; };
           requests.state = [ { name = "claude"; at = "~/.claude"; } ]; };
         kits."pair@a".requests.read = [ "/tmp" ];
         kits."pair@b".requests.read = [ "/var" ];
@@ -1368,6 +1369,8 @@ EOF
   ran "sb: the nix capability" sb_ nixcheck -c 'nix store info 2>&1; echo "remote=$NIX_REMOTE"'
   expect "through the untrusted relay" holds "Trusted: 0"
   expect "at sb's socket" holds "remote=unix:///run/graft-sandbox/nix.sock"
+  ran "sb: why /nix/store, with nix" sb_ nixcheck -c 'sb why /nix/store'
+  expect "the whole store" holds "in the store, which this run sees whole"
   ran "sb: explain nixcheck" sb_ explain nixcheck
   expect "says closure-store is dropped" holds "untrusted daemon relay: exposes the whole store read-only, drops closure-store"
   # shellcheck disable=SC2016 # the run's shell expands them
@@ -1459,6 +1462,7 @@ EOF
   ran "sb: a changed source, at a terminal" tty_ $'y\n' "$work/sbr/bin/sb" echo ran-after-source
   expect "prompts inline" holds "changed source"
   expect "asks again for the powerful item, alone" holds "powerful: + capability nix"
+  expect "with the changed paths" holds "notes.md"
   expect "and the run goes on" holds "ran-after-source"
   sed -i 's|requests.capabilities = \[ { name = "nix"; } \]; requests.network = \[ "inline.example" \]; ||' flake.nix && commit "no nix"
 
@@ -1471,6 +1475,20 @@ EOF
   expect "a real folder skillDirs names" holds "# s1"
   refuse "a link outside the read requests is left out" holds "outside"
   expect "read-only" holds "Read-only file system"
+  ran "sb: what is left out" sb_loud fixedtest -c true
+  expect "is one short note" holds "fixed: 1 entry left out of ~/.claude/skills (sb explain)"
+  ran "sb: explain lists it" sb_ explain fixedtest
+  expect "by name" holds "left out: outside"
+  # host memory: read-only, file by file; what the run writes is copied out for review
+  local key && key=$(pwd -P | sed 's/[^A-Za-z0-9]/-/g')
+  mkdir -p "$work/cfg/projects/$key/memory" && echo host-memory > "$work/cfg/projects/$key/memory/m.md"
+  ran "sb: host memory" sb_loud fixedtest -c "cat ~/.claude/projects/$key/memory/m.md; echo x >> ~/.claude/projects/$key/memory/m.md 2>&1; echo new > ~/.claude/projects/$key/memory/new.md"
+  expect "is read" holds "host-memory"
+  expect "read-only" holds "Read-only file system"
+  expect "the exit line names only what the run wrote" holds "sb: the run wrote 1 memory file (new.md): copies in "
+  expect "copied out" test -n "$(ls "$work"/sbstate/runs/*/memory-out/*/new.md)"
+  refuse "and never the placeholders" test -n "$(ls "$work"/sbstate/runs/*/memory-out/*/m.md 2>/dev/null)"
+  expect "the host's memory is unchanged" test "$(cat "$work/cfg/projects/$key/memory/m.md")" = host-memory
 
   # one name for a kit everywhere; KIT names every instance
   ran "sb: sb grant pair" tty_ $'y\ny\n' "$work/sbr/bin/sb" grant pair
@@ -1498,6 +1516,12 @@ EOF
   expect "is policy.json v1" test "$(jq -c '[.version, .context, .mode, (.children|length)]' <<<"$out")" = '[1,"work","in-place",0]'
   ran "sb: explain --backend-command" sb_ explain --backend-command true
   expect "prints bwrap's" holds "--disable-userns"
+  ran "sb: why a credential's variable" sb_ why TESTTOK
+  expect "names its kit and binding" has "TESTTOK is carried by relay's credential (file $work/sbtok (the run holds it)), in sb relaytest runs"
+  ran "sb: explain --backend-command host" sb_ explain --backend-command host echo hi
+  expect "prints its argv" holds "argv       echo hi"
+  ran "sb: a port-80 denial" sb_ bash -c "$ask; cat /run/graft-sandbox/denials" _ denied.example:80
+  expect "suggests HOST:80" holds "one run: sb --net denied.example:80 …"
   ran "sb: why HOST" sb_ why other.example
   expect "says would, and names the included kit" has "graft sandbox (work): a run here would be refused other.example:443 (not in a run here). one run: sb --net other.example …  permanent: the repo kit's requests.network (perSystem.kit), or kits.daniel.requests.network for every repository (rebuild the root)"
   ran "sb: why, on the host" sb_ why justfile
@@ -1522,8 +1546,14 @@ EOF
   sed -i 's|requests.network = \[ "more.example" \]; ||' flake.nix && commit "less"
   cp "$work/sbgrants/grants.json" "$work/sbgrants.bak"
   jq '.grants["root:other"] = {"digest": "sha256-c8s4WKaHqElMozIwUwFigvPa051Cz2LKTnndoqrH2aw=", "requests": ["x"]}' "$work/sbgrants.bak" > "$work/sbgrants/grants.json"
-  ran "sb: grants that arrived by git" sb_loud true
-  expect "one line" holds "sb: 1 grant arrived by git: sb grant --diff"
+  ran "sb: a grants file changed elsewhere" sb_loud true
+  expect "one line" holds "sb: the grants file changed since this machine last read it: sb grant --diff"
+  refuse "never says git" holds "arrived by git"
+  jq '.grants["root:daniel"].digest = "sha256-AAAA"' "$work/sbgrants.bak" > "$work/sbgrants/grants.json"
+  refused "sb: a digest that does not match" sb_ true
+  expect "names the repair" holds "sb grant --revoke daniel, then sb grant daniel"
+  ran "sb: sb grant --revoke repairs it" sb_ grant --revoke daniel
+  ran "sb: and the grants file parses again" jq -e '.grants | has("root:daniel") | not' "$work/sbgrants/grants.json"
   echo '{' > "$work/sbgrants/grants.json"
   refused "sb: a grants file that does not parse" sb_ true
   expect "stops every run" holds "the grants file does not parse"
