@@ -152,7 +152,7 @@ Your root's own repository (`~/.workstation` here) decides what every run may do
 place. In v2.15.0, `sb claude` refuses there:
 
 ```
-graft sandbox (work): ~/.workstation is a root: sb inspect, or claude (unsandboxed) until sb dispatch (1b)
+graft sandbox (work): ~/.workstation is a root: sb inspect, or claude (unsandboxed) until sb dispatch (a later release)
 ```
 
 - To read it, use `sb inspect claude`.
