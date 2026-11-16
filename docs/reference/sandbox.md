@@ -425,7 +425,8 @@ does not know is an error.
   `NIX_REMOTE=unix:///run/graft-sandbox/nix.sock`, `NIX_CONFIG=experimental-features = nix-command flakes`, and
   the host nix's `bin/` on `PATH`. The daemon treats the run as untrusted; builds and offline evaluation of
   locked inputs work. The run sees the whole store read-only, so it loses the `closure-store` guarantee.
-  Fixed-output derivations reach the network outside the proxy. `sb explain` says both.
+  Fixed-output derivations reach the network outside the proxy. `sb explain` says both. With the capability, `nix`
+  is also a command the run can start: `sb work nix flake check` runs the host's nix through the relay.
 
 ### Bindings
 
@@ -535,7 +536,7 @@ is `sha256-` and the base64 of the SHA-256 of the sorted, unique canonical lines
 | Case | Result |
 |---|---|
 | Nothing new | The run proceeds. |
-| More requested, or a changed source | Exit 125, with the difference and `sb grant KIT`. A changed repo-kit source shows `  source: tree A -> tree B` and up to 12 lines of `git diff --stat` between the two trees. |
+| More requested, or a changed source | Exit 125, with the difference and `sb grant KIT`. A changed repo-kit source shows `  source: tree A -> tree B` and up to 12 lines of `git diff --stat` between the two trees, with paths relative to the workspace (`nix/agent-tools/flake.nix`). |
 | A repo kit that is not granted, in `inspect` | The run proceeds: a repo kit's reach does not apply in `inspect`. The startup line notes `NAME not granted (its reach does not apply in inspect)`. |
 | Never granted, at a terminal, with no agent marker | The grant prompt appears inline, and the run continues after it. The agent markers are `CLAUDECODE`, `CODEX_SANDBOX` and `GRAFT_SANDBOX`. A workmux pane is not one. |
 | Never granted, otherwise | Exit 125, with `sb grant KIT`. |
@@ -687,7 +688,9 @@ For Daniel's flexion-assistant (store hashes cut to `…`):
 run        claude -> root:claude-code@personal
 argv       /home/daniel/.local/share/claude/versions/2.1.326 --settings /nix/store/…-sb-claude-overlay.json --mcp-config /run/graft-sandbox/mcp.json --strict-mcp-config
 hooks      PostToolUse Bash|WebFetch (sb's --settings overlay; /hooks does not list it)
+hooks      PostToolUseFailure Bash|WebFetch (sb's --settings overlay; /hooks does not list it)
 hooks      PreToolUse Bash|WebFetch (sb's --settings overlay; /hooks does not list it)
+hooks      SessionStart * (sb's --settings overlay; /hooks does not list it)
 context    work: in-place, access write, bubblewrap; includes root:daniel
 workspace  repo:platform-vm:2222/daniel/flexion-assistant (write) ~/src/flexion-assistant
            scions: knowledge-base-kit, meeting-kit, notebook-kit
@@ -709,8 +712,8 @@ see        standard tools (25) · glibc-2.40-66 (claude-code@personal) · graft-
            dir ~/.claude/skills (read-only): 21 entries (claude-code@personal)
              left out: address-pr-comments
 limits     protect: **/flake.nix **/flake.lock **/graft.nix **/.gitmodules **/.envrc **/justfile
-                   **/.pre-commit-config.yaml .githooks **/.claude **/.mcp.json **/.pi **/.codex **/.vscode
-                   nix/agent-tools nix/agent-tools/.scions (graft)
+                    **/.pre-commit-config.yaml .githooks **/.claude **/.mcp.json **/.pi **/.codex **/.vscode
+                    nix/agent-tools nix/agent-tools/.scions (graft)
                     nix/agent-tools/ensure.sh .local .githooks AGENTS.md docs/boundaries.md (repo)
                     **/.claude **/.mcp.json (claude-code@personal)
            hidden: 28 paths (sb explain --json lists them)
@@ -958,8 +961,10 @@ sb: --net pypi.org:443 was for this run; permanent: the repo kit's requests.netw
 | An `mcp` binding's `env` | The MCP key, such as `METAMCP_API_KEY`. |
 
 A program that is not in the run fails with exit 127 and
-`graft sandbox (work): NAME is not in this run. one run: sb --package PKG …  permanent: programs.sb.tools (home-manager switch), or the repo kit's packages`:
-from bash's handler, or from a not-found shim. Shims exist only for host-only programs: `nix` (without the
+`graft sandbox (work): NAME is not in this run. one run: sb --package PKG …  permanent: programs.sb.tools (home-manager switch), or the repo kit's packages (perSystem.kit)`
+(the start check's fix, for this root and repository): from bash's handler, or from a not-found shim. The
+handler is also exported to the run as the function `BASH_FUNC_command_not_found_handle%%`, for a bash that skips
+`BASH_ENV`. Shims exist only for host-only programs: `nix` (without the
 capability: `nix needs the nix capability: the repo kit's requests.capabilities = [ { name = "nix"; } ], then sb grant`),
 `nix-build`, `nix-shell`, `ssh`, `scp`, `sudo`, `systemctl`, `docker`, `home-manager`, `darwin-rebuild` and
 `nixos-rebuild`. A shim for an ordinary name would defeat a program that looks for it on `PATH` and falls back
@@ -1032,7 +1037,7 @@ path:
 | Audience | Channel |
 |---|---|
 | You, live | `sb` never writes to the run's terminal while it runs: a line there corrupts a full-screen program such as Claude Code. Under tmux, the host shows one `tmux display-message` on the launching pane for each new denial. Repeats are counted, not shown again. Outside tmux, nothing is live. |
-| The agent | The proxy appends each new denial to `/run/graft-sandbox/denials`, once for each host and port, which the run can read but not write. The claude-code kit's hooks (matcher `Bash\|WebFetch`) give the model what each tool call added to that file, as context, after `The sandbox (graft sb) refused this during the command; read /run/graft-sandbox/README.md:`. A `PreToolUse` hook records where the file ends, and a `PostToolUse` hook gives what came after. Denials before the first tool call (Claude's own startup traffic) reach only the exit line. A missing program reaches the agent through bash's not-found handler or a not-found shim ([Environment](#environment)). |
+| The agent | The proxy appends each new denial to `/run/graft-sandbox/denials`, once for each host and port, which the run can read but not write. The claude-code kit's hooks (matcher `Bash\|WebFetch`) give the model what each tool call added to that file, as context, after `The sandbox (graft sb) refused this during the command; read /run/graft-sandbox/README.md:`. A `PreToolUse` hook records where the file ends, and the same denial hook runs as `PostToolUse` and as `PostToolUseFailure`, so a failed call (a refused `curl`, say) reports its denial too. Denials before the first tool call (Claude's own startup traffic) reach only the exit line. A missing program reaches the agent through bash's not-found handler or a not-found shim ([Environment](#environment)). |
 | Afterwards | The exit line lists the run's denials, each with its fix. |
 
 Under tmux, the live message is `tmux display-message -t <pane> -d 5000`, once for each new host and port:
@@ -1144,7 +1149,8 @@ The run gets its own agent home, configured by the root:
 
 - **Settings and instructions:** every `files` entry whose target is under `configDir/` (except the folders
   below) becomes a `fixed` file at `~/.claude/<rest>`. A `--settings` overlay sets `sandbox.enabled = false`,
-  which Claude treats as managed (`/sandbox` cannot turn it on again), and adds the denial hook. Overlay hooks are
+  which Claude treats as managed (`/sandbox` cannot turn it on again), and adds four hooks: `PreToolUse`,
+  `PostToolUse` and `PostToolUseFailure` for denials, and `SessionStart` for the memory note. Overlay hooks are
   added to your own hooks, which still run; Claude's `/hooks` does not list them.
 - **Skills, agents, commands, hooks:** `~/.claude/{skills,agents,commands,hooks}` are read-only, from
   `~/<configDir>/<folder>` on the host. Each link's target is bound, one level deep: a store target, or a checkout
@@ -1162,11 +1168,16 @@ The run gets its own agent home, configured by the root:
 - **Host memory, read-only:** each file of the host's project memory for this workspace,
   `~/<configDir>/projects/<key>/memory` (the key is the directory path with every character that is not a letter
   or digit as `-`), for the current directory and the workspace's top, is bound read-only at the path Claude reads
-  it from. The run cannot change those files. New files that the run writes stay in its state. The exit line lists
-  only them, and copies them to the run's directory:
+  it from. `MEMORY.md` is the exception: a writable copy in the run's state, copied in from the host at each
+  start. New files that the run writes, and a changed `MEMORY.md`, stay in its state. The exit line lists only
+  them, and copies them to the run's directory:
   `sb: the run wrote N memory files (a.md, b.md …): copies in ~/…/runs/ID/memory-out/<project key>`. They are run
-  output: read them, and copy what you want into the host's memory by hand. Nothing applies them. Prompt history
-  stays per state scope.
+  output: read them, and copy what you want into the host's memory by hand. Nothing is written back to the host.
+  Prompt history stays per state scope.
+- **How Claude learns this:** a `SessionStart` hook tells it: `In this graft sandbox run, the host memory files are
+  read-only and MEMORY.md is a writable copy: write new memory as new files in the usual memory folder; sb copies
+  new files and a changed MEMORY.md out for the person to review when the run ends.` `/run/graft-sandbox/README.md`
+  says the same.
 - **The program:** `binary = "native"` runs `~/.local/bin/claude`; `binary = "host"` runs the `claude` on the
   host's `PATH`. Both are resolved on the host at each start, not at grant time. The target must be in the store
   or fall under a granted `read` request; otherwise the run is refused:
