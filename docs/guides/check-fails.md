@@ -206,7 +206,9 @@ If the scion's commit was never pushed to the provider, `nix run .#graft` cannot
 `nix run github:danielnaab/graft/v2.14.0 -- check -C .`.
 
 If a line before it says `(upstream unreadable: checked local tags)`, graft could not reach the provider, and
-compared with the scion's local tags. Fix the access, and run the check again.
+compared with the scion's local tags. Fix the access, and run the check again. Inside an `sb` run, the line is
+`graft: upstream tags are not reachable from this sandbox run: checked each scion's local tags`: run
+`graft check` on the host to compare with upstream ([Commands](../reference/commands.md#check)).
 
 ### graft: scions/NAME: tag vX.Y.Z exists locally but not at URL: push it …
 
