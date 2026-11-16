@@ -107,7 +107,7 @@ A function, called once per system by the consumer's mkFlake:
 }
 ```
 
-**Arguments.** Always passed. Take `...`, so that a later graft version can add one.
+**Arguments.** Always passed, except `kitArgs`. Take `...`, so that a later graft version can add one.
 
 | Argument | Value |
 |---|---|
@@ -115,7 +115,7 @@ A function, called once per system by the consumer's mkFlake:
 | `scion` | This scion, copied alone into the store, without its `.git` file. Relative paths (`./bin/tool`) resolve in it too. |
 | `scions` | Every scion of the consumer. `scions.NAME` is the scion's store path (`"${scions.NAME}/src"` works) merged with its `graft.nix` result (`scions.NAME.tools.TOOL`). |
 | `consumer` | The consumer flake's source: the repository for a top-level flake, only the flake's directory for a `path:` flake. Checks read the consumer's settings from it, such as `${consumer}/knowledge-base.yaml`, and skip, not fail, when the file is absent. |
-| `kitArgs` | The consumer's `perSystem.kitArgs.<name>` for this scion, or `{ }`. A kit computes its requests from it, never from a file in the workspace. <!-- unverified: kitArgs as a graft.nix argument --> |
+| `kitArgs` | The consumer's `perSystem.kitArgs.<scion>` for this scion, or `{ }`. A kit computes its requests from it, never from a file in the workspace. Passed only when the function names `kitArgs`. |
 
 **Returned attributes.** All optional.
 

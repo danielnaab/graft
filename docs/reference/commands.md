@@ -41,7 +41,7 @@ For `x86_64-linux`, `aarch64-linux`, `x86_64-darwin` and `aarch64-darwin`:
 | `packages.<system>.<name>` | Each scion's `packages`. |
 | `apps.<system>.<name>` | Each scion's `apps`. |
 | `apps.<system>.graft` | The `graft` command for this repository. |
-| `packages.<system>.graft-kits` | The workspace's kits as manifests, with the tools, `graft` included, that [`sb`](sandbox.md) builds with `path:` and passes to a run as `GRAFT_SANDBOX_TOOLS`. A provider, `perSystem` or `outputs` cannot define `graft-kits`, `sandbox` or `sb`. Since v2.15.0 there is no `packages.<system>.sandbox`. |
+| `packages.<system>.graft-kits` | The workspace's kits for [`sb`](sandbox.md), which builds it with `path:`: `kit.json` (the manifests), `bin/` (the tools, `graft` for this repository, and the repo kit's `packages`; a run gets it as `GRAFT_SANDBOX_TOOLS`), and `closure` (their store paths). A provider, `perSystem` or `outputs` cannot define `graft-kits`, `sandbox` or `sb`. Since v2.15.0 there is no `packages.<system>.sandbox`. |
 | `checks.<system>.<scion>-<name>` | Each scion's `checks`, prefixed with the scion's folder name. |
 | `devShells.<system>.<name>` | `perSystem`'s `devShells`. If none defines `default`, `devShells.<system>.default` is a shell with `tools` on `PATH`. Providers ship no dev shells. |
 
@@ -82,11 +82,12 @@ value, so other outputs still evaluate. The fix for each is in
 - `graft: apps graft (from NAME): that name is graft's; the provider must rename it`, and the same for
   `packages tools` and the reserved names `sandbox`, `sb` and `graft-kits`; for `perSystem`, `…; rename the repo's
   own`.
-- A provider's `kit` that is not valid fails `packages.<system>.graft-kits` only.
-- `graft: mkFlake's outputs has apps.<system>.graft: that name is graft's; rename the repo's own`, and the same for
-  the reserved names.
-
-<!-- unverified: the evaluation errors for kit, the reserved names, and a leftover sandbox attribute. -->
+- `graft: scions/NAME/graft.nix gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\` (graft sb; see graft's CHANGELOG)`,
+  and the same with `the consumer's perSystem`.
+- `graft: mkFlake's outputs has apps.<system>.graft: that name is graft's; rename the repo's own`. For the
+  reserved names: `graft: mkFlake's outputs has packages.<system>.sandbox: that name is reserved (graft sb); rename the repo's own`.
+- A kit with a field it should not have fails when `sb` reads it: `graft: FILE: FIELD is not a kit field (commands,
+  env, files, packages, protect, recipes, requests)`.
 
 An empty scion is not an error by itself. `packages.<system>.tools` builds without it, and Nix prints a
 warning:
@@ -411,7 +412,7 @@ prints a brief, also when checks fail.
 ## Sources
 
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): arguments, discovery, outputs, and the evaluation errors
-<!-- unverified: the source of packages.<system>.graft-kits (lib/mk-flake.nix?). -->
+- [lib/sb/kit.nix](../../lib/sb/kit.nix): kit manifests in `packages.<system>.graft-kits`
 - [lib/graft.sh](../../lib/graft.sh): commands and usage
 - [lib/scions.sh](../../lib/scions.sh): `add`, `sync`, `check`, `try`
 - [lib/tools.sh](../../lib/tools.sh): `outdated`, `changelog`, `upgrade`

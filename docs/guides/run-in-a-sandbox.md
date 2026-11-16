@@ -39,15 +39,18 @@ are in [Sandbox](../reference/sandbox.md#the-model).
    ordinary items together and each powerful item on its own:
 
    ```
-   claude-code@personal   root kit                                       not granted
-     ordinary:  + network api.anthropic.com · claude.ai
-                + read    ~/.local/share/claude
-                + state   claude (per workspace and context)
-                + capability status.relay        bound: workmux relay
+   claude-code@personal   root kit (root:claude-code@personal), for every run that uses it   not granted
+     ordinary:
+       + network api.anthropic.com:443
+       + read ~/.local/share/claude
+       + state claude
+       + capability status.relay  bound: *
      grant these? [y/N]
    ```
 
-   Type `y` for each set that you accept. The repo kit and any scion kits that ask for something come next.
+   Type `y` for each set that you accept. Each powerful item, such as the login `credential`, asks on its own:
+   `grant? [y/N]`. The repo kit and any scion kits that were never granted come next, in the same prompt. The
+   prompt appears only at a terminal; elsewhere the run stops with exit 125 and `sb grant KIT`.
 
 4. Claude starts. The startup line names what differs from the usual shape, and `sb explain`:
 
@@ -55,7 +58,7 @@ are in [Sandbox](../reference/sandbox.md#the-model).
    sb: work · team-kb · sb explain
    ```
 
-5. Commit the grants file with your root's next change:
+5. `sb` prints `wrote ~/.workstation/sandbox/grants.json. Commit it with your root's next change.` Commit it:
 
    ```
    git -C ~/.workstation add sandbox/grants.json
@@ -64,8 +67,7 @@ are in [Sandbox](../reference/sandbox.md#the-model).
 
    From now on, `sb claude` starts with no prompt, until a kit asks for more.
 
-<!-- unverified: where the token file goes and how the binding names it; the inline prompt's exact text; whether
-sb asks for the repo kit's and scion kits' grants in the same prompt. -->
+<!-- unverified: the claude-code kit's requests and the token file's binding: milestone 2. -->
 
 ## Check it worked
 
@@ -99,8 +101,11 @@ A denial reaches you as a tmux message on the agent's pane, in the agent's own w
 file), and on the exit line:
 
 ```
-graft sandbox (work): refused pypi.org:443 · sb why pypi.org
+graft sandbox (work): the run tried pypi.org:443 (not in this run): sb why pypi.org
 ```
+
+<!-- unverified: the tmux message and the agent's hook: milestone 2. In milestone 1, the denials file and the exit
+line carry it. -->
 
 1. Ask `sb` where the item would come from:
 
@@ -122,8 +127,8 @@ graft sandbox (work): refused pypi.org:443 · sb why pypi.org
    kit.requests.network = [ "pypi.org" ];
    ```
 
-   To allow it in every repository, add it to your root's standing kit, the root kit that `work` includes, then
-   `home-manager switch`.
+   To allow it in every repository, add it to `standing`, the context's included kit
+   (`programs.sb.kits.standing`, below), then `home-manager switch`.
 
 4. Run `sb grant`, and accept the new item. Commit the grants file.
 
@@ -199,7 +204,11 @@ If the repository's `ensure.sh` or `justfile` builds tools with `nix`, make it u
 |---|---|---|
 | A home-manager root | You manage your home with home-manager. | `programs.sb` (below) |
 | graft's default root | You have no root and want to try `sb`. | `nix run github:danielnaab/graft/v2.15.0#sb -- claude` |
-| A minimal root of your own | You want a root without home-manager. | `sb init` |
+| A minimal root of your own | You want a root without home-manager. | `sb init`, then the `nix build` and `ln` lines that it prints |
+
+graft's default root keeps its grants in `~/.config/graft/sb/grants.json`. `sb init` writes
+`~/.config/graft/sb/root/flake.nix`, whose grants file is beside it. Both work without home-manager. A home-manager
+root keeps its grants file in its own repository, where you review and commit it.
 
 A home-manager root:
 
@@ -225,8 +234,7 @@ A home-manager root:
 Run `home-manager switch`. `sb` is then on `PATH`, and `~/.config/graft/sb/launcher` points at it. The options are
 in [Home-manager options](../reference/sandbox.md#home-manager-options).
 
-<!-- unverified: homeManagerModules.sb, graft.kits.claude-code's call form, the default root's flake attribute,
-and what sb init writes. -->
+<!-- unverified: homeManagerModules.sb, the launcher link, and graft.kits.claude-code's call form: milestone 2. -->
 
 ## If something goes wrong
 
@@ -239,6 +247,8 @@ and what sb init writes. -->
 - **A tool prints `CONNECT tunnel failed, response 403`, `tunnel error` or `Could not resolve host`.** The
   sandbox refused the host. Read `/run/graft-sandbox/denials` inside, or run `sb why HOST`
   ([When something is denied](#when-something-is-denied)).
+- **A test fails because `/run/current-system/sw/bin/…` is missing.** In `work`, `/run/current-system` is a
+  link whose target the run does not see: a run sees only its closure. Make the test use the `PATH` it was given.
 - **`sb: no backend for darwin in v2.15.0`.** You are on macOS. Use graft v2.14.0's sandbox there.
 
 ## How it works

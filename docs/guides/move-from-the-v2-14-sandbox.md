@@ -24,10 +24,14 @@ consumer, a provider and a person's habits. The new model is in [Sandbox](../ref
 | Seatbelt on macOS | None in v2.15.0: `sb` refuses on macOS. Stay on v2.14.0 there. |
 
 The names `sandbox`, `sb` and `graft-kits` are graft's: a provider, `perSystem` or mkFlake's `outputs` cannot
-define them as packages or apps.
+define them as packages or apps. There is no `packages.<system>.sandbox` or `apps.<system>.sandbox` any more.
 
-<!-- unverified: what v2.15.0 does with a leftover perSystem.sandbox or a provider's sandbox (an evaluation
-error, and its text); whether apps.<system>.sandbox is kept as a stub that names sb. -->
+A `sandbox` left in `perSystem` or a provider's `graft.nix` fails the tools and `graft-kits` with:
+
+```
+graft: the consumer's perSystem gives `sandbox`: graft v2.15.0 replaced it with `kit` (graft sb; see graft's CHANGELOG)
+graft: scions/notebook-kit/graft.nix gives `sandbox`: graft v2.15.0 replaced it with `kit` (graft sb; see graft's CHANGELOG)
+```
 
 ## Move a consumer
 
@@ -107,8 +111,6 @@ run needs the `nix` capability (step 5).
 3. Release it. A new request is a change that every consumer must grant: say so in your CHANGELOG. A consumer's
    `sb` stops the runs that the request applies to until the consumer runs `sb grant`.
 
-<!-- unverified: the argument through which a provider's graft.nix receives kitArgs. -->
-
 ## Move your own habits
 
 | You ran | Run |
@@ -133,13 +135,12 @@ nix eval --raw '.#packages.x86_64-linux.graft-kits.name' >/dev/null &&
 
 Use your machine's system for `x86_64-linux`.
 
-<!-- unverified: that graft-kits is a derivation with a name, and that a flake has no packages.<system>.sandbox
-in v2.15.0. -->
-
 ## If something goes wrong
 
-- **Evaluation fails and names `sandbox`.** A `perSystem` or a provider still declares `sandbox`. Rename it to
-  `kit` (step 2), or take the provider's release that does.
+- **`… gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\``.** A `perSystem` or a provider still declares
+  `sandbox`. Rename it to `kit` (step 2), or take the provider's release that does.
+- **A test fails because `/run/current-system/sw/bin/…` is missing.** In `work`, the run sees only its closure, so
+  that link does not resolve. Make the test use the `PATH` it was given.
 - **`just check` inside a run fails with `nix: command not found`.** The repo kit lacks the `nix` capability, or
   `graft_run` still calls `nix run`. Add both changes, then `sb grant`.
 - **`ensure.sh: … nix: command not found` inside a run.** `ensure.sh` lacks the `GRAFT_SANDBOX_TOOLS` branch, or
