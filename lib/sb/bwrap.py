@@ -18,6 +18,7 @@ protected path, or a protected file with a second hard link, stops the run.
 import json
 import os
 import re
+import shlex
 import signal
 import stat
 import subprocess
@@ -408,9 +409,9 @@ NOTFOUND = {
     "darwin-rebuild": "darwin-rebuild is host-only: run it on the host",
     "nixos-rebuild": "nixos-rebuild is host-only: run it on the host",
 }
-for n in ("node", "npm", "npx", "bun", "deno", "cargo", "rustc", "go", "make", "gcc", "cc", "pip", "uv",
-          "tmux", "vim", "nvim", "emacs", "rsync", "wget", "zip", "psql", "sqlite3", "terraform", "kubectl"):
-    NOTFOUND.setdefault(n, f"{n} is not in this run. one run: sb --package PKG …  permanent: programs.sb.tools (home-manager switch), or the repo kit's packages")
+# Only programs a run must not have get a shim: a shim for an ordinary name (node, say) would be found
+# by programs that look for one on PATH and fall back without it (bun's node). Every other name gets
+# bash's command_not_found_handle (BASH_ENV), and the startup check of the command itself.
 
 
 def write_own(cfg, rundir, policy, launch):
@@ -433,7 +434,7 @@ def write_own(cfg, rundir, policy, launch):
         if n == "nix" and binding(policy, "nix"):
             continue
         with open(os.path.join(nf, n), "w") as f:
-            f.write(f"#!/bin/sh\necho {json.dumps(f'graft sandbox ({ctx}): ' + msg)} >&2\nexit 127\n")
+            f.write(f"#!/bin/sh\necho {shlex.quote(f'graft sandbox ({ctx}): ' + msg)} >&2\nexit 127\n")
         os.chmod(os.path.join(nf, n), 0o555)
     with open(os.path.join(rundir, "bash_env"), "w") as f:
         f.write("# graft sb: what a run's bash says for a program that is not in the run\n"
