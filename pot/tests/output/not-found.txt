@@ -1,0 +1,9 @@
+pot (work): rg is not in this run.
+  one run:   pot --package PKG …
+  permanent: programs.pot.tools (home-manager switch)
+             or tools in the repo kit (nix/agent-tools/flake.nix, perSystem)
+pot (work): tsc is not in this run, nor on the host's PATH.
+  install it (for a repository's own tools, its package manager), then:
+  one run:   pot --package PKG …
+  permanent: programs.pot.tools (home-manager switch)
+             or tools in the repo kit (nix/agent-tools/flake.nix, perSystem)

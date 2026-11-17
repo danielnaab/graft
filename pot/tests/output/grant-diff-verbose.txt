@@ -1,0 +1,24 @@
+3 kits granted · 2 not granted
+no claude-code@flexion          not granted (9 requests) · pot grant claude-code@flexion (root:claude-code@flexion)
+     + capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN
+     + capability mcp sessions
+     + capability status.relay
+     + network api.anthropic.com:443
+     + network claude.ai:443
+     + read ~/.local/share/claude
+     + read ~/src/agent-skills
+     + read ~/src/agent-skills-private
+     + state claude
+ok claude-code@flexion-bedrock  granted (root:claude-code@flexion-bedrock)
+no claude-code@personal         not granted (9 requests) · pot grant claude-code@personal (root:claude-code@personal)
+     + capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN
+     + capability mcp sessions
+     + capability status.relay
+     + network api.anthropic.com:443
+     + network claude.ai:443
+     + read ~/.local/share/claude
+     + read ~/src/agent-skills
+     + read ~/src/agent-skills-private
+     + state claude
+ok daniel                       granted (root:daniel)
+ok flexion-assistant            granted (repo:platform-vm:2222/daniel/flexion-assistant)

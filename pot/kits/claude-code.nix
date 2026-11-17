@@ -124,8 +124,13 @@ noAccount {
     markers = [ "CLAUDECODE" ];
     select.env = { CLAUDE_CONFIG_DIR = "~/${configDir}"; } // lib.optionalAttrs bedrock { CLAUDE_CODE_USE_BEDROCK = "1"; };
     resume = { transcripts = "~/.claude/projects/**/*.jsonl"; args = [ "--resume" "{id}" ]; render = "${render}"; };
-    hooks = lib.concatLists (lib.mapAttrsToList (ev: rules:
-      map (r: "${ev} ${r.matcher or "*"} (pot's --settings overlay; /hooks does not list it)") rules) overlayHooks);
+    # explain's rows: the events by matcher, in the order Claude runs them, then where they come from
+    hooks = let
+      order = lib.filter (e: overlayHooks ? ${e}) [ "PreToolUse" "PostToolUse" "PostToolUseFailure" "SessionStart" ];
+      matcherOf = e: (lib.head overlayHooks.${e}).matcher or null;
+      matchers = lib.unique (map matcherOf order);
+      group = m: lib.concatStringsSep ", " (lib.filter (e: matcherOf e == m) order) + lib.optionalString (m != null) " (${m})";
+    in [ (lib.concatStringsSep "; " (map group matchers)) "(pot's --settings overlay; /hooks does not list them)" ];
   };
   commands.claude = {
     program = if native then { host = "~/.local/bin/claude"; } else if binary == "host" then { host = "claude"; } else "${binary}/bin/claude";

@@ -41,7 +41,7 @@ USAGE = """usage: pot [VERB | CONTEXT] [FLAGS] [--] [CMD [ARGS...]]
   pot explain [CONTEXT] [FLAGS] [CMD] [--json] [--backend-command]
   pot why PATH|HOST|CMD|VAR     why one item is or is not in the run (works inside a run)
   pot why HOST|URL --json       whether a run here (inside: this run) reaches it; exit 0 yes, 1 no
-  pot grant [KIT...] [--revoke KIT] [--diff] [--workspace PATH]
+  pot grant [KIT...] [--revoke KIT] [--diff [--verbose]] [--workspace PATH]
   pot host --resume RUN CMD     a new host conversation, with run RUN's transcript as data
   pot init [DIR]                write a minimal root (graft.lib.mkRoot), for someone without one
 
@@ -594,8 +594,8 @@ def parse(argv, root):
             flags[a[2:]] = True
             j += 1
             continue
-        if verb == "grant" and a in ("--diff",):
-            flags["diff"] = True
+        if verb == "grant" and a in ("--diff", "--verbose"):
+            flags[a[2:]] = True
             j += 1
             continue
         if verb == "grant" and a in ("--revoke", "--root", "--workspace"):
@@ -973,7 +973,7 @@ def exit_lines(ev, policy, report, root):
         if d["host"] == "(malformed)":
             out.append(f"pot ({ctxn}): the run sent the proxy a malformed request ({d['count']}x)")
             continue
-        out.append(C.denial_text(ctxn, d["host"], fix) + (f" ({d['count']}x)" if d["count"] > 1 else ""))
+        out.append(C.denial_text(ctxn, d["host"], fix, d["count"]))
     if ev.get("new_git_metadata"):
         out.append(f"pot: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from: "
                    + ", ".join(ev["new_git_metadata"][:8]) + (" …" if len(ev["new_git_metadata"]) > 8 else ""))
@@ -985,8 +985,21 @@ def exit_lines(ev, policy, report, root):
             "git rebase --root --exec 'git commit --amend --no-edit -S'"
         out.append(f"pot: {ev['unsigned']} unsigned commit{'s' if ev['unsigned'] != 1 else ''}: sign on the host with {how}")
     for flag, value in report["oneRun"]:
-        out.append(f"pot: {flag} {value} was for this run; permanent: {C.permanent_fix(flag, value, report, root)}")
-    return list(dict.fromkeys(out))
+        out.append("\n".join([f"pot: {flag} {value} was for this run."] + C.fix_block(None, C.permanent_fix(flag, value, report, root))))
+    # a long line wrapped, its continuations indented (a fix block is already laid out)
+    return ["\n".join(C.wrap_line(l, width_of()) if "\n" not in l else [l]) for l in dict.fromkeys(out)]
+
+
+def width_of(stream=None):
+    """The terminal's width for wrapped text, 100 when it is not one."""
+    import shutil
+    stream = stream or sys.stderr
+    try:
+        if stream.isatty():
+            return max(60, shutil.get_terminal_size((100, 24)).columns)
+    except (AttributeError, ValueError):
+        pass
+    return 100
 
 
 def run(host, root, context, flags, cmd):
@@ -1215,8 +1228,8 @@ def check_command(policy, launch, ctx, given=True):
     if given and not shutil.which(name):
         raise C.Refusal(f"pot: unknown context or command {name}; contexts: {', '.join(C.context_names(launch.get('root') or {}))}; "
                         f"a program every run here should have goes in {launch.get('toolsFix') or "the root's tools"}", 2)
-    raise C.Refusal(f"pot ({ctx['name']}): {name} is not in this run. one run: pot --package PKG …  "
-                    f"permanent: {launch.get('pkgFix') or 'programs.pot.tools, or the repo kit tools'}", 127)
+    raise C.Refusal(C.not_found_text(ctx["name"], name, launch.get("pkgFix") or "programs.pot.tools\nor the repo kit's tools",
+                                     on_host=bool(shutil.which(name))), 127)
 
 
 def host_run(host, root, ctx, flags, cmd, quiet_line=False):
@@ -1359,7 +1372,7 @@ def explain(host, root, context, flags, cmd):
             r = subprocess.run([bprog, "prepare", tmp, "--print"])
             return r.returncode
         else:
-            sys.stdout.write(C.explain_text(policy, report, root))
+            sys.stdout.write(C.explain_text(policy, report, root, width_of(sys.stdout)))
         return 0
     finally:
         scratch_done(host, tmp)
@@ -1416,9 +1429,24 @@ def classify(x, commands=()):
         return "var"
     if x.startswith(("/", "~", ".")) or "/" in x or os.path.lexists(x):
         return "path"
+    if file_like(x):
+        return "file-like"
     if "." in x or ":" in x:
         return "host"
     return "program"
+
+
+FILE_EXTENSIONS = {"nix", "md", "json", "yaml", "yml", "toml", "txt", "lock", "sh", "py", "ts", "js"}
+
+
+def file_like(x):
+    """A bare word that reads as a file name (its last label is an extension pot knows), not a host."""
+    return ":" not in x and "." in x and x.rsplit(".", 1)[1].lower() in FILE_EXTENSIONS
+
+
+def no_such_path(x):
+    host = "" if "/" in x else f"; for a host, pot why {x}:443"
+    return f"{x}: no such path here (pot why PATH answers paths{host})"
 
 
 def reach_of(policy, target):
@@ -1478,6 +1506,10 @@ def why_json(policy, target, text, home, facts=None):
     elif kind == "path":
         p = os.path.realpath(C.expand(target, home)) if target.startswith(("~", "/")) else os.path.realpath(target)
         r = ("file", p, None)
+    elif kind == "file-like":
+        print(json.dumps({"version": 1, "target": target, "kind": "file", "reach": target, "reached": False,
+                          "context": policy["context"], "text": no_such_path(target)}, indent=1))
+        return 1
     if r is None:
         raise Usage(f"pot why --json answers a host, HOST:PORT, a git URL or a path; {target} is none (pot why {target} explains it)")
     kind, reach, reached = r
@@ -1561,9 +1593,14 @@ def answer_why(policy, x, home, facts, on_host=False):
                 return f"{x} is {'set' if i['kind'] == 'env.set' else 'passed'} in {'a run here' if on_host else 'this run'} ({srcs(i)})"
         for i in hits:
             return f"{pre} {x} is requested by {srcs(i)}, not in {'a run here' if on_host else 'this run'} ({i.get('why', 'not granted')})"
-        return f"{pre} {x} is not in {'a run here' if on_host else 'this run'}. one run: pot --env {x} …  permanent: {facts.get('envFix')}"
+        return "\n".join([f"{pre} {x} is not in {'a run here' if on_host else 'this run'}."]
+                         + C.fix_block(f"pot --env {x} …", facts.get("envFix")))
+    if kind == "file-like":
+        return no_such_path(x)
     # a path (an existing bare name too: flake.nix, nix/)
     if kind == "path":
+        if not x.startswith(("/", "~")) and not os.path.lexists(x):
+            return no_such_path(x)
         p = os.path.realpath(C.expand(x, home)) if x.startswith("~") or x.startswith("/") else os.path.realpath(x)
         return path_answer(policy, p, C.canon_path(p, home), pre, home, facts, srcs)[0]
     # a host
@@ -1586,7 +1623,7 @@ def answer_why(policy, x, home, facts, on_host=False):
             return f"{pre} this context has no network"
         hp = f"{h}:{port or 443}"
         if on_host:
-            return f"{pre} pot would refuse {hp} in a run here. one run: pot --net {h} …  permanent: {facts.get('netFix')}"
+            return "\n".join([f"{pre} pot would refuse {hp} in a run here."] + C.fix_block(f"pot --net {h} …", facts.get("netFix")))
         return C.denial_text(ctx, hp, facts.get("netFix"))
     return command_answer(policy, x, pre, facts, srcs, on_host)
 
@@ -1597,8 +1634,11 @@ def command_answer(policy, x, pre, facts, srcs, on_host):
             return f"{x} is in {'a run here' if on_host else 'this run'}: {i['value']}/bin/{x} ({srcs(i)})"
     if x == "nix" and any(b["capability"] == "nix" for b in policy.get("bindings") or []):
         return "nix is in this run: the host's nix, through the nix capability's relay"
-    return (f"{pre} {x} is not in {'a run here' if on_host else 'this run'}. one run: pot --package PKG …  "
-            f"permanent: {facts.get('pkgFix')}")
+    import shutil
+    if on_host and not shutil.which(x):
+        return C.not_found_text(policy["context"], x, facts.get("pkgFix"), on_host=False).replace(" in this run,", " in a run here,", 1)
+    return "\n".join([f"{pre} {x} is not in {'a run here' if on_host else 'this run'}."]
+                     + C.fix_block("pot --package PKG …", facts.get("pkgFix")))
 
 
 def path_answer(policy, p, cp, pre, home, facts, srcs):
@@ -1642,7 +1682,8 @@ def path_answer(policy, p, cp, pre, home, facts, srcs):
             return f"{cp} is readable in inspect (outside ~, read-only; secrets and sockets masked)", True
         if any(C.under(p, C.expand(h, home)) for h in view["home"]):
             return f"{cp} is readable in inspect (inspect.home), unless it matches a secret pattern", True
-    return f"{pre} {cp} is not in this run: pot --read {cp} (one run), or pot --repo {cp} for a repository; permanent: {facts.get('readFix')}", False
+    return "\n".join([f"{pre} {cp} is not in this run."] + C.fix_block(f"pot --read {cp} …, or pot --repo {cp} for a repository",
+                                                                       facts.get("readFix"))), False
 
 
 # ---------------------------------------------------------------- grant
@@ -1822,6 +1863,7 @@ def grant(host, root, flags, kits_named):
             sel += hit
         sts = sel
     if flags.get("diff"):
+        arrived = []
         if text is not None:
             try:
                 with open(seen_path(host)) as f:
@@ -1834,17 +1876,15 @@ def grant(host, root, flags, kits_named):
                 for m in set(old.get("machines", {})) | set(grants["machines"]):
                     was |= set((old.get("machines", {}).get(m, {}).get(ident) or {}).get("requests", []))
                     now |= set((grants["machines"].get(m, {}).get(ident) or {}).get("requests", []))
-                print(visible(f"changed since this machine last read it: {ident}" + ("" if now else " (revoked)")))
-                for c in sorted(now - was):
-                    print(visible(f"  + {c}"))
-                for c in sorted(was - now):
-                    print(visible(f"  - {c}"))
+                arrived.append(f"changed since this machine last read it: {ident}" + ("" if now else " (revoked)"))
+                arrived += [f"  + {c}" for c in sorted(now - was)] + [f"  - {c}" for c in sorted(was - now)]
             with open(seen_path(host), "w") as f:
                 f.write(text)
-        for s in sts:
-            print(visible(f"{s['name']} ({s['kit']}): {C.STATUS_WORDS[s['status']]}"))
-            for a in s["added"]:
-                print(visible(f"  + {a}"))
+        for st in sts:
+            if st["status"] == "source" and st.get("top") and (st.get("was") or {}).get("tree") and (st.get("now") or {}).get("tree"):
+                st["diffstat"] = tree_diffstat(host, st["top"], st["was"]["tree"], st["now"]["tree"], flake_dir(host, st["top"]))
+        for line in C.grant_diff_lines(sts, utf8=C.utf8_output(), verbose=flags.get("verbose")) + arrived:
+            print(visible(line))
         return 0
     todo = [s for s in sts if s["status"] in ("never", "grown", "source", "unverified")]
     if not todo:

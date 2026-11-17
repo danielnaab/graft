@@ -45,6 +45,8 @@ refused() { local d=$1; shift; if out=$("$@" 2>&1); then echo "$out" >&2; fail "
 # has TEXT: $out holds TEXT as a whole line; holds TEXT: anywhere
 has() { grep -qxF -- "$1" <<<"$out"; }
 holds() { grep -qF -- "$1" <<<"$out"; }
+# holdsj TEXT: TEXT in $out with wrapped lines (continuations indented 4) joined again (pot's long exit lines)
+holdsj() { grep -qF -- "$1" <<<"$(awk 'NR > 1 && /^    [^ ]/ { sub(/^    /, " "); printf "%s", $0; next } { if (NR > 1) print ""; printf "%s", $0 } END { print "" }' <<<"$out")"; }
 # rest_first TEXT: the first quoted line of upstream notes' "The rest of its CHANGELOG.md" part
 rest_first() { awk '/^The rest of its CHANGELOG.md/ { getline; getline; print; exit }' <<<"$1"; }
 # graft ci as CI runs it: the nixos/nix image has little beyond nix, so every tool graft ci needs
@@ -1446,7 +1448,7 @@ STUB
   ran "pot: a commit inside" sb_ bash -c 'git add notes.md && git commit -qm inside && git log -1 --format=%s'
   expect "is made" has "inside"
   ran "pot: a nested repository, made inside" sb_loud bash -c 'mkdir evil && git -C evil init -q'
-  expect "is reported after the run" holds "pot: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from: evil/.git"
+  expect "is reported after the run" holdsj "pot: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from: evil/.git"
   rm -rf -- "$c/evil"
   ln AGENTS.md "$work/pot-agents-link"
   refused "pot: a protected file with another hard link" sb_ true
@@ -1465,7 +1467,9 @@ STUB
   mkdir -p "$work/sbextra" && echo extra > "$work/sbextra/f"
   ran "pot: --read" sb_loud --read "$work/sbextra" cat "$work/sbextra/f"
   expect "reads it" has "extra"
-  expect "and the exit line names the permanent fix" holds "pot: --read $work/sbextra was for this run; permanent: the repo kit's requests.read (flake.nix (fixture)), or kits.daniel.requests.read for every repository (rebuild the root)"
+  expect "and the exit line names the permanent fix" holds "pot: --read $work/sbextra was for this run."
+  expect "on its own line" holds "  permanent: requests.read in the repo kit (flake.nix, fixture)"
+  expect "and the other" holds "             or kits.daniel.requests.read, for every repository (rebuild the root)"
   refuse "pot: without --read, it is not there" sb_ cat "$work/sbextra/f" 2>/dev/null
 
   # network: through the proxy, to granted hosts alone; denials reach the run and the exit line
@@ -1473,8 +1477,11 @@ STUB
   local ask='exec 3<>/dev/tcp/127.0.0.1/3128 && printf "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n" "$1" "$1" >&3 && head -1 <&3'
   ran "pot: a host not granted" sb_loud bash -c "$ask; cat /run/pot/denials" _ denied.example:443
   expect "the proxy refuses it" holds "HTTP/1.1 403 Forbidden (pot: not in this run)"
-  expect "the run reads the denial, with its fix" holds "pot (work): the run tried denied.example:443 (not in this run). one run: pot --net denied.example …  permanent: the repo kit's requests.network (flake.nix (fixture)), or kits.daniel.requests.network for every repository (rebuild the root)"
-  expect "and the exit line says so" has "pot (work): the run tried denied.example:443 (not in this run). one run: pot --net denied.example …  permanent: the repo kit's requests.network (flake.nix (fixture)), or kits.daniel.requests.network for every repository (rebuild the root)"
+  expect "the run reads the denial, with its fix" holds "pot (work): the run tried denied.example:443 (not in this run)."
+  expect "one run" holds "  one run:   pot --net denied.example …"
+  expect "permanent" holds "  permanent: requests.network in the repo kit (flake.nix, fixture)"
+  expect "and the other" holds "             or kits.daniel.requests.network, for every repository (rebuild the root)"
+  expect "and the exit line says so, line by line" test "$(grep -c -e '^pot (work): the run tried denied.example:443 (not in this run).$' -e '^  one run:   pot --net denied.example …$' <<<"$out")" -ge 4
   expect "with the run id" holds "pot: run "
   ran "pot: a granted host (nothing listens: Bad Gateway)" sb_ bash -c "$ask" _ 127.0.0.1:1
   expect "passes the proxy" holds "HTTP/1.1 502 Bad Gateway"
@@ -1504,7 +1511,7 @@ STUB
      mkdir -p ~/.st/projects/p && echo "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hello from the run\"}}" > ~/.st/projects/p/t.jsonl;
      exec 3<>/dev/tcp/127.0.0.1/3128 && printf "CONNECT live.example:443 HTTP/1.1\r\n\r\n" >&3 && head -1 <&3' 2>&1
   expect "the credential, by file" holds "tok=tok-value"
-  expect "the exit line says how to resume (agent.resume)" holds "pot: resume this session with: pot relaytest --resume t"
+  expect "the exit line says how to resume (agent.resume)" holdsj "pot: resume this session with: pot relaytest --resume t"
   # shellcheck disable=SC2016 # literal text
   expect "the MCP configuration names the key's variable, not its value" holds '{"mcpServers":{"s":{"type":"http","url":"https://mcp.example/mcp","headers":{"Authorization":"Bearer ${MCPKEY}"}}}}'
   expect "the reasserted keys, per workspace" holds "{\"a\":1,\"projects\":{\"$c\":{\"t\":true}}}"
@@ -1531,7 +1538,9 @@ STUB
     # shellcheck disable=SC2016 # the run's shell expands them
     echo "diagnostics: $(sb_ bash -c 'echo "BASH_ENV=$BASH_ENV"; ls -la "$BASH_ENV"; declare -F command_not_found_handle; set -o | grep -E "posix|privileged"; env | grep -c BASH_FUNC; echo "$BASHOPTS"' 2>&1 | tr '\n' ';')" >&2
   fi
-  expect "bash's handler for any other" holds "pot (work): nosuchprogram is not in this run. one run: pot --package PKG …  permanent: tools (rebuild the root), or the repo kit's tools (flake.nix (fixture))"
+  expect "bash's handler for any other" holds "pot (work): nosuchprogram is not in this run."
+  expect "with the fix" holds "  permanent: tools (rebuild the root)"
+  expect "and the repo kit's" holds "             or tools in the repo kit (flake.nix, fixture)"
   expect "nix without the capability" holds "pot (work): nix needs the nix capability"
   ran "pot: the handler, exported as a function too" sb_ env -u BASH_ENV bash -c 'nosuchprogram2; true'
   expect "a bash that skips BASH_ENV still has it" holds "pot (work): nosuchprogram2 is not in this run"
@@ -1645,7 +1654,7 @@ STUB
   ran "pot: host memory" sb_loud fixedtest -c "cat ~/.claude/projects/$key/memory/m.md; echo x >> ~/.claude/projects/$key/memory/m.md 2>&1; echo new > ~/.claude/projects/$key/memory/new.md; echo '- [new](new.md)' >> ~/.claude/projects/$key/memory/MEMORY.md"
   expect "is read" holds "host-memory"
   expect "read-only" holds "Read-only file system"
-  expect "the exit line names only what the run wrote" holds "pot: the run wrote 2 memory files (MEMORY.md, new.md): copies in "
+  expect "the exit line names only what the run wrote" holdsj "pot: the run wrote 2 memory files (MEMORY.md, new.md): copies in "
   expect "MEMORY.md, a writable copy, is copied out changed" grep -q "new.md" "$(find "$work/sbstate/runs" -path '*/memory-out/*/MEMORY.md' | head -1)"
   expect "and never written back" test "$(cat "$work/cfg/projects/$key/memory/MEMORY.md")" = "- [m](m.md)"
   expect "copied out" test -n "$(ls "$work"/sbstate/runs/*/memory-out/*/new.md)"
@@ -1670,7 +1679,7 @@ STUB
   ran "pot: a repo kit's name comes from its origin" sb_loud true
   expect "on the startup line" holds "pot: work · sbname ·"
   ran "pot: pot grant --diff" sb_ grant --diff
-  expect "uses it too" holds "sbname (repo:example.com/o/sbname)"
+  expect "uses it too (the identity its name implies is not repeated)" grep -qE "^ok +sbname +requests nothing$" <<<"$out"
   git_ remote remove origin
   refused "pot: pot grant --root" sb_ grant --root x --workspace .
   expect "comes later" holds "pot grant --root comes with deployment roots, in a later release"
@@ -1690,9 +1699,12 @@ STUB
   ran "pot: explain --backend-command host" sb_ explain --backend-command host echo hi
   expect "prints its argv" holds "argv       echo hi"
   ran "pot: a port-80 denial" sb_ bash -c "$ask; cat /run/pot/denials" _ denied.example:80
-  expect "suggests HOST:80" holds "one run: pot --net denied.example:80 …"
+  expect "suggests HOST:80" holds "one run:   pot --net denied.example:80 …"
   ran "pot: why HOST" sb_ why other.example
-  expect "says would, and names the included kit" has "pot (work): pot would refuse other.example:443 in a run here. one run: pot --net other.example …  permanent: the repo kit's requests.network (flake.nix (fixture)), or kits.daniel.requests.network for every repository (rebuild the root)"
+  expect "says would" has "pot (work): pot would refuse other.example:443 in a run here."
+  expect "one run" has "  one run:   pot --net other.example …"
+  expect "permanent" has "  permanent: requests.network in the repo kit (flake.nix, fixture)"
+  expect "and names the included kit" has "             or kits.daniel.requests.network, for every repository (rebuild the root)"
   ran "pot: why, on the host" sb_ why justfile
   expect "protected" has "pot (work): justfile is protected (**/justfile, pot): edit it on the host"
   ran "pot: why, inside a run" sb_ bash -c 'pot why denied.example; pot why 127.0.0.1:1; pot why ~/.ssh'
@@ -1813,6 +1825,12 @@ EOF
   expect "with the item" holds "  + network more.example:443"
   ran "pot: pot grant --diff" sb_ grant --diff
   expect "names it" holds "  + network more.example:443"
+  expect "after a summary line" grep -qE '^[0-9]+ kits? (granted|asks for more)' <<<"$out"
+  expect "and its kit's line, with what to run (ASCII: not a terminal)" grep -qE '^~ +sbc +asks for more \(1 more\) · pot grant sbc$' <<<"$out"
+  # a word that reads as a file name, but names no path, is not a host (v2.16.1)
+  ran "pot: why a file-like word" sb_ why no-such-file.nix
+  expect "says no such path" holds "no-such-file.nix: no such path here (pot why PATH answers paths; for a host, pot why no-such-file.nix:443)"
+  refuse "never offers --net" holds "--net"
   sed -i 's|requests.network = \[ "more.example" \]; ||' flake.nix && commit "less"
   cp "$work/sbgrants/grants.json" "$work/sbgrants.bak"
   jq '.grants["root:other"] = {"digest": "sha256-c8s4WKaHqElMozIwUwFigvPa051Cz2LKTnndoqrH2aw=", "requests": ["x"]}' "$work/sbgrants.bak" > "$work/sbgrants/grants.json"
@@ -1846,7 +1864,8 @@ EOF
   refused "pot: an unknown first word" sb_ nosuch
   expect "may be a context" holds "pot: unknown context or command nosuch; contexts: "
   refused "pot: a host program not in the run" sb_ nix --version
-  expect "says how to add it" holds "pot (work): nix is not in this run. one run: pot --package PKG"
+  expect "says how to add it" holds "pot (work): nix is not in this run."
+  expect "one run" holds "  one run:   pot --package PKG …"
 
   # inspect (D20): its own pid namespace, the workspace read-only, secrets and sockets masked. In the
   # root repository (no flake: a path: flake directory can't hold a socket)

@@ -102,7 +102,7 @@
         '';
         # pot's unit tests: composition, identity, normalisation, digests, merge rules, grants
         pot-unit = pkgs.runCommand "graft-pot-unit" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          cp -r ${potSrc} pot && chmod -R u+w pot && cp ${./pot/tests}/test_*.py pot/
+          cp -r ${potSrc} pot && chmod -R u+w pot && cp ${./pot/tests}/test_*.py pot/ && cp -r ${./pot/tests/output} pot/output
           cd pot && python3 -I -m unittest discover -s . -p 'test_*.py' -v
           touch $out
         '';

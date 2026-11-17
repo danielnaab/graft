@@ -424,9 +424,11 @@ NOTFOUND = {
 
 def not_found_body(ctx, launch):
     """The not-found handler's body: the startup check's words and permanent fix."""
-    fix = (launch.get("pkgFix") or "programs.pot.tools, or the repo kit's tools").replace("'", "'\\''")
-    return ("{ printf 'pot (%s): %s is not in this run. one run: pot --package PKG …  permanent: %s\\n' "
-            f"'{ctx}' \"$1\" '{fix}' >&2; return 127; }}")
+    alts = [a for a in (launch.get("pkgFix") or "programs.pot.tools\nor the repo kit's tools").split("\n") if a]
+    body = "  one run:   pot --package PKG …\\n  permanent: " + alts[0] + "\\n" + "".join(f"             {a}\\n" for a in alts[1:])
+    body = body.replace("%", "%%").replace("'", "'\\''")
+    return ("{ printf 'pot (%s): %s is not in this run.\\n" + body + "' "
+            f"'{ctx}' \"$1\" >&2; return 127; }}")
 
 
 def write_own(cfg, rundir, policy, launch):

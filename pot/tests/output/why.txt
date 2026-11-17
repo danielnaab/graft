@@ -1,0 +1,47 @@
+$ pot why files.example.org
+pot (work): pot would refuse files.example.org:443 in a run here.
+  one run:   pot --net files.example.org …
+  permanent: requests.network in the repo kit (nix/agent-tools/flake.nix, perSystem)
+             or programs.pot.kits.daniel.requests.network, for every repository (home-manager switch)
+$ pot why files.example.org   (in a run)
+pot (work): the run tried files.example.org:443 (not in this run).
+  one run:   pot --net files.example.org …
+  permanent: requests.network in the repo kit (nix/agent-tools/flake.nix, perSystem)
+             or programs.pot.kits.daniel.requests.network, for every repository (home-manager switch)
+$ pot why pypi.org
+pypi.org:443 is granted (daniel); reaches every run here
+$ pot why pypi.org   (in a run)
+pypi.org:443 is granted (daniel); in this run
+$ pot why flake.nix
+flake.nix: no such path here (pot why PATH answers paths; for a host, pot why flake.nix:443)
+$ pot why flake.nix   (in a run)
+flake.nix: no such path here (pot why PATH answers paths; for a host, pot why flake.nix:443)
+$ pot why nix/agent-tools/flake.nix
+nix/agent-tools/flake.nix: no such path here (pot why PATH answers paths)
+$ pot why nix/agent-tools/flake.nix   (in a run)
+nix/agent-tools/flake.nix: no such path here (pot why PATH answers paths)
+$ pot why /home/u/.ssh/id
+pot (work): ~/.ssh/id is hidden by your root in every run (~/.ssh, pot)
+$ pot why /home/u/.ssh/id   (in a run)
+pot (work): ~/.ssh/id is hidden by your root in every run (~/.ssh, pot)
+$ pot why no-such-tool-x
+pot (work): no-such-tool-x is not in a run here, nor on the host's PATH.
+  install it (for a repository's own tools, its package manager), then:
+  one run:   pot --package PKG …
+  permanent: programs.pot.tools (home-manager switch)
+             or tools in the repo kit (nix/agent-tools/flake.nix, perSystem)
+$ pot why no-such-tool-x   (in a run)
+pot (work): no-such-tool-x is not in this run.
+  one run:   pot --package PKG …
+  permanent: programs.pot.tools (home-manager switch)
+             or tools in the repo kit (nix/agent-tools/flake.nix, perSystem)
+$ pot why flake.nix --json
+{
+ "version": 1,
+ "target": "flake.nix",
+ "kind": "file",
+ "reach": "flake.nix",
+ "reached": false,
+ "context": "work",
+ "text": "flake.nix: no such path here (pot why PATH answers paths; for a host, pot why flake.nix:443)"
+}

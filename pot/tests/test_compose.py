@@ -511,21 +511,24 @@ class Compose(unittest.TestCase):
         r = root(name="home-manager", kits={"daniel": {}}, contexts={"work": {"include": ["daniel"]}})
         _, rep = C.compose(inp(r=r, flags={"net": ["x.org"]}, workspace=[ws(kit={})]))
         self.assertEqual(C.permanent_fix("--net", "x.org:443", rep, r),
-                         "the repo kit's requests.network (flake.nix (perSystem)), or programs.pot.kits.daniel.requests.network "
+                         "requests.network in the repo kit (flake.nix, perSystem)\nor programs.pot.kits.daniel.requests.network, "
                          "for every repository (home-manager switch)")
         # the kit's home is named only as its bundle reports it
         w = ws(kit={})
         w["repoKit"]["file"] = "kits.nix (somewhere)"
         _, rep = C.compose(inp(r=root(), flags={"net": ["x.org"]}, workspace=[w]))
         self.assertEqual(C.permanent_fix("--net", "x.org:443", rep, root()),
-                         "the repo kit's requests.network (kits.nix (somewhere))")
+                         "requests.network in the repo kit (kits.nix, somewhere)")
         # an mkRoot root, a repository that is not a consumer, no included kit
         r = root()
         _, rep = C.compose(inp(r=r, flags={"net": ["x.org"]}))
         self.assertEqual(C.permanent_fix("--net", "x.org:443", rep, r),
                          'repoKits."example.com/o/r".requests.network (rebuild the root)')
         self.assertEqual(C.denial_text("work", "x.org:443", "F"),
-                         "pot (work): the run tried x.org:443 (not in this run). one run: pot --net x.org …  permanent: F")
+                         "pot (work): the run tried x.org:443 (not in this run).\n  one run:   pot --net x.org …\n  permanent: F")
+        self.assertEqual(C.denial_text("work", "x.org:80", "F\nor G", 3),
+                         "pot (work): the run tried x.org:80 (not in this run, 3x).\n  one run:   pot --net x.org:80 …\n"
+                         "  permanent: F\n             or G")
 
 class Bundle(unittest.TestCase):
     """pot-kits/1's kit.json, as pot.lib.kitsFor writes it and pot reads it."""
@@ -580,7 +583,7 @@ class Kit11(unittest.TestCase):
         r = root()
         w = ws(kit={})
         _, rep = C.compose(inp(r=r, workspace=[w]))
-        self.assertEqual(C.permanent_fix("--package", "", rep, r), "tools (rebuild the root), or the repo kit's tools (flake.nix (perSystem))")
+        self.assertEqual(C.permanent_fix("--package", "", rep, r), "tools (rebuild the root)\nor tools in the repo kit (flake.nix, perSystem)")
         # a bundle with self: null names no file, only the flake pot evaluated (F8)
         w = ws(kit={})
         w["repoKit"]["file"] = None

@@ -1,0 +1,6 @@
+3 kits granted · 2 not granted
+✗ claude-code@flexion          not granted (9 requests) · pot grant claude-code@flexion
+✓ claude-code@flexion-bedrock  granted
+✗ claude-code@personal         not granted (9 requests) · pot grant claude-code@personal
+✓ daniel                       granted
+✓ flexion-assistant            granted

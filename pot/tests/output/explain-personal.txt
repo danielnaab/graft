@@ -1,0 +1,62 @@
+run        claude -> root:claude-code@personal
+context    work: in-place, access write, bubblewrap; includes root:daniel
+workspace  repo:platform-vm:2222/daniel/flexion-assistant (write) /home/u/src/flexion-assistant
+next       pot grant claude-code@personal (9 requests)
+argv       /home/u/.local/share/claude/versions/2.1.326 --settings /nix/store/x-overlay.json
+hooks      PreToolUse, PostToolUse, PostToolUseFailure (Bash|WebFetch); SessionStart
+           (pot's --settings overlay; /hooks does not list them)
+
+see        standard tools (1) · glibc-2.44-57 (claude-code@personal)
+           claude-code@personal:
+             env.set CLAUDE_CONFIG_DIR=~/.claude
+             env.set DISABLE_AUTOUPDATER=1
+             env.set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+             file ~/.claude/.claude.json, keys copied in at each start
+             file ~/.claude/CLAUDE.md, read-only
+             dir ~/.claude/agents (read-only): 0 entries
+             dir ~/.claude/plugins (read-only): 7 entries
+             dir ~/.claude/skills (read-only): 15 entries
+               left out until claude-code@personal is granted: address-pr-comments grill-me
+           root:
+             env.set TZ=America/Chicago
+
+limits     protect: **/flake.nix **/flake.lock **/.gitmodules **/.envrc **/justfile
+                    **/.pre-commit-config.yaml **/.vscode **/.pi **/.codex nix/agent-tools (pot)
+                    .githooks (pot, repo)
+                    **/.mcp.json **/.claude (pot, claude-code@personal)
+                    nix/agent-tools/ensure.sh .local AGENTS.md **/graft.nix
+                    nix/agent-tools/.scions (repo)
+           hidden: 23 paths (pot explain --json lists them)
+
+reach                                                                granted by
+  network    api.anthropic.com:443                                      claude-code@personal: not granted
+  network    claude.ai:443                                              claude-code@personal: not granted
+  network    pypi.org:443                                               daniel
+  network    files.pythonhosted.org:443                                 daniel
+  network    registry.npmjs.org:443                                     daniel
+  read       ~/.local/share/claude                                      claude-code@personal: not granted
+  read       ~/src/agent-skills                                         claude-code@personal: not granted
+  read       ~/src/agent-skills-private                                 claude-code@personal: not granted
+  state      claude -> ~/.claude                                        claude-code@personal: not granted
+  capability status.relay                                               claude-code@personal: not granted
+  capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN   claude-code@personal: not granted
+  capability mcp sessions                                               claude-code@personal: not granted
+  capability nix                                                        flexion-assistant: no binding
+  capability git.fetch ssh://forgejo@platform-vm:2222/*                 daniel: no binding
+children   none (nesting comes in a later release)
+
+not in run claude-code@flexion (root:claude-code@flexion): not granted:
+             capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN,
+             capability mcp sessions, capability status.relay, network api.anthropic.com:443,
+             network claude.ai:443, read ~/.local/share/claude, read ~/src/agent-skills,
+             read ~/src/agent-skills-private, state claude
+not in run claude-code@personal (root:claude-code@personal): not granted:
+             capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN,
+             capability mcp sessions, capability status.relay, network api.anthropic.com:443,
+             network claude.ai:443, read ~/.local/share/claude, read ~/src/agent-skills,
+             read ~/src/agent-skills-private, state claude
+
+backend    bubblewrap proves own-netns own-pidns no-tiocsti protected-as-mounts in-place root-files;
+           lacks closure-store local-listen resource-limits separate-kernel same-path-clone nest
+           private-proxy
+note       kit tools run as this run's own programs; sandboxing each kit command comes in a later release

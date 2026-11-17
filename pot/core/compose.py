@@ -1375,20 +1375,32 @@ def root_paths(root):
     return "", "rebuild the root"
 
 
+def kit_home(file, flake_dir):
+    """Where a kit is written, as people find it: the bundle's file under the flake directory pot
+    evaluated, its note after a comma ("flake.nix (perSystem)" in nix/agent-tools →
+    "nix/agent-tools/flake.nix, perSystem")."""
+    m = re.fullmatch(r"(.*?) \((.*)\)", file or "")
+    path, note = (m.group(1), m.group(2)) if m else (file, None)
+    if flake_dir and path and not path.startswith(flake_dir + "/"):
+        path = f"{flake_dir}/{path}"
+    return f"{path}, {note}" if note else path
+
+
 def repo_fix(report, root, kind):
-    """The repo kit's KIND: in the file its bundle names (flake.nix (perSystem)), else the root's repoKits."""
+    """The repo kit's KIND: in the file its bundle names, under the flake directory, else the root's repoKits."""
     pre, apply = root_paths(root)
     ws = (report.get("workspaces") or [{}])[0]
     if ws.get("consumer"):
         if not ws.get("file"):
             return f"{kind} in a repo kit for {ws.get('flakeDir') or 'this repository'} (the flake pot evaluated)"
-        return f"the repo kit's {kind} ({ws['file']})"
+        return f"{kind} in the repo kit ({kit_home(ws['file'], ws.get('flakeDir'))})"
     return f"{pre}repoKits.\"{ws.get('key') or '<origin>'}\".{kind} ({apply})"
 
 
 def permanent_fix(flag, value, report, root):
-    """§12.2: the one permanent fix for a one-run flag: the command's kit when it is a workspace kit;
-    otherwise the repo kit, with the context's included kit as the every-repository alternative."""
+    """§12.2: the permanent fixes for a one-run flag, one per line ("\n" between them; fix_block lays
+    them out): the command's kit when it is a workspace kit; otherwise the repo kit, with the context's
+    included kit as the every-repository alternative."""
     kind = {"--net": "requests.network", "--read": "requests.read", "--write": "requests.write",
             "--env": "requests.env", "--package": "tools", "--access": "access"}[flag]
     pre, apply = root_paths(root)
@@ -1397,23 +1409,156 @@ def permanent_fix(flag, value, report, root):
     if flag == "--access":
         return f"a context with access = \"{value}\" ({pre}contexts; {apply})"
     if flag == "--package":
-        return f"{pre}tools ({apply}), or {repo_fix(report, root, 'tools')}"
+        return f"{pre}tools ({apply})\nor {repo_fix(report, root, 'tools')}"
     if cmd.get("kit") and cmd["kit"].startswith("git:"):
         f = next((k.get("file") for k in report.get("kits") or [] if k["kit"] == cmd["kit"]), None)
-        return f"{kit_short(cmd['kit'], report)}'s {kind} ({f + ': ' if f else ''}a kit release)"
-    alt = f", or {pre}kits.{inc[0]}.{kind} for every repository ({apply})" if inc else ""
+        ws = (report.get("workspaces") or [{}])[0]
+        home = kit_home(f, ws.get("flakeDir")) if f else None
+        return f"{kind} in {kit_short(cmd['kit'], report)}'s kit ({home + ': ' if home else ''}a kit release)"
+    alt = f"\nor {pre}kits.{inc[0]}.{kind}, for every repository ({apply})" if inc else ""
     return repo_fix(report, root, kind) + alt
+
+
+def fix_block(one_run, fix, indent="  "):
+    """The two lines of a fix, under the line that says what is missing:
+         one run:   pot --net HOST …
+         permanent: FIX
+                    or OTHER FIX"""
+    lines = [f"{indent}one run:   {one_run}"] if one_run else []
+    alts = [a for a in (fix or "").split("\n") if a]
+    if alts:
+        lines.append(f"{indent}permanent: {alts[0]}")
+        lines += [f"{indent}           {a}" for a in alts[1:]]
+    return lines
+
+
+def one_line(fix):
+    """A fix in running text (a startup or exit line, wrapped by the caller)."""
+    return " ".join((fix or "").split("\n"))
+
+
+def wrap_words(head, words, width=100, indent=None, sep=" "):
+    """HEAD then WORDS, filled to WIDTH; continuation lines start at INDENT (default: under HEAD's text)."""
+    ind = " " * (indent if indent is not None else len(head) + 1)
+    lines, cur = [], head
+    for w in words:
+        if cur.strip() and len(cur) + len(sep) + len(w) > width:
+            lines.append(cur)
+            cur = ind + w
+        elif not cur.strip() or cur == ind:
+            cur = cur + w
+        else:
+            cur += (sep if not cur.endswith(" ") else "") + w
+    lines.append(cur)
+    return lines
+
+
+def wrap_line(line, width=100, indent=4):
+    """A long startup or exit line, wrapped at spaces, continuations indented."""
+    if len(line) <= width:
+        return [line]
+    return wrap_words(line.split(" ")[0], line.split(" ")[1:], width, indent)
 
 
 def kit_short(ident, report):
     return next((k["name"] for k in report.get("kits") or [] if k["kit"] == ident), ident)
 
 
-def denial_text(ctxname, hostport, fix):
-    """The one phrasing of a network refusal (exit line, denials file, pot why inside a run)."""
+def denial_text(ctxname, hostport, fix, count=1):
+    """The one phrasing of a network refusal (exit line, denials file, pot why inside a run): what was
+    refused, then fix_block's two lines."""
     host, _, port = hostport.rpartition(":") if ":" in hostport else (hostport, "", "443")
     flag = host if port == "443" else f"{host}:{port}"
-    return f"pot ({ctxname}): the run tried {hostport} (not in this run). one run: pot --net {flag} …  permanent: {fix}"
+    times = f", {count}x" if count > 1 else ""
+    return "\n".join([f"pot ({ctxname}): the run tried {hostport} (not in this run{times})."]
+                     + fix_block(f"pot --net {flag} …", fix))
+
+
+def not_found_text(ctxname, name, fix, on_host=True):
+    """A program that is not in the run (exit 127): with how to get it, when the host has it; else first
+    that the host lacks it too."""
+    if on_host:
+        return "\n".join([f"pot ({ctxname}): {name} is not in this run."] + fix_block("pot --package PKG …", fix))
+    return "\n".join([f"pot ({ctxname}): {name} is not in this run, nor on the host's PATH.",
+                      "  install it (for a repository's own tools, its package manager), then:"]
+                     + fix_block("pot --package PKG …", fix))
+
+
+def grant_count(n, what="request"):
+    return f"{n} {what}{'' if n == 1 else 's'}"
+
+
+def next_action(st):
+    """What to run for a kit that is not granted as it is, and why, short (explain's next row, grant --diff)."""
+    n = len(st.get("added") or [])
+    if st["status"] == "never":
+        return f"pot grant {st['name']} ({grant_count(n)})"
+    if st["status"] == "grown":
+        return f"pot grant {st['name']} ({n} more)"
+    if st["status"] == "source":
+        return f"pot grant {st['name']} (changed source)"
+    if st["status"] == "unverified":
+        return f"{st['name']} is not a release tag at its URL: its grant does not apply"
+    return None
+
+
+def utf8_output(stream=None, env=None):
+    """Whether marks like ✓ can be written: a terminal whose locale says UTF-8."""
+    import os as _os
+    import sys as _sys
+    stream = stream or _sys.stdout
+    env = env if env is not None else _os.environ
+    loc = env.get("LC_ALL") or env.get("LC_CTYPE") or env.get("LANG") or ""
+    return bool(getattr(stream, "isatty", lambda: False)()) and ("UTF-8" in loc.upper() or "UTF8" in loc.upper())
+
+
+GRANT_MARKS = {True: {"ok": "✓", "no": "✗", "chg": "~"}, False: {"ok": "ok", "no": "no", "chg": "~"}}
+SUMMARY_ORDER = ("match", "none", "never", "grown", "source", "unverified")
+
+
+def implied_identity(st):
+    """Whether a kit's identity is what its short name implies (root:NAME; a URL or origin ending in NAME)."""
+    ident, name = st["kit"], st["name"]
+    if ident == f"root:{name}":
+        return True
+    last = ident.rstrip("/").removesuffix("/.git").rsplit("/", 1)[-1].removesuffix(".git")
+    return last == name
+
+
+def grant_diff_lines(sts, utf8=False, verbose=False):
+    """pot grant --diff: a one-line summary, then one line per kit (mark, name, status, the command to
+    run), and the items of each kit whose grant changed (asks for more, changed source); a never-granted
+    kit's items with verbose only."""
+    marks = GRANT_MARKS[utf8]
+    count = {}
+    for st in sts:
+        count[st["status"]] = count.get(st["status"], 0) + 1
+    keys = [k for k in SUMMARY_ORDER if count.get(k)]
+    parts = [f"{count[k]} {STATUS_WORDS[k]}" for k in keys]
+    if parts:
+        parts[0] = f"{count[keys[0]]} kit{'' if count[keys[0]] == 1 else 's'} {STATUS_WORDS[keys[0]]}"
+    lines = [" · ".join(parts) if parts else "no kits here"]
+    w = max([len(st["name"]) for st in sts] + [0])
+    mw = max(len(m) for m in marks.values())
+    for st in sts:
+        mark = marks["ok"] if st["status"] in ("match", "none") else marks["no"] if st["status"] in ("never", "unverified") else marks["chg"]
+        words = STATUS_WORDS[st["status"]]
+        if st["status"] == "never":
+            words += f" ({grant_count(len(st.get('added') or []))})"
+        elif st["status"] == "grown":
+            words += f" ({len(st.get('added') or [])} more)"
+        tail = f" · pot grant {st['name']}" if st["status"] in ("never", "grown", "source") else ""
+        ident = "" if implied_identity(st) and not verbose else f" ({st['kit']})"
+        lines.append(f"{mark:<{mw}} {st['name']:<{w}}  {words}{tail}{ident}".rstrip())
+        if st["status"] == "source":
+            lines.append(f"{'':<{mw}}   source: {fmt_source(st.get('was'))} -> {fmt_source(st.get('now'))}")
+            lines += [f"{'':<{mw}}     {d}" for d in st.get("diffstat") or []]
+        if st["status"] == "grown" or (verbose and st["status"] in ("never", "unverified")):
+            lines += [f"{'':<{mw}}   + {a}" for a in st.get("added") or []]
+    return lines
+
+
+
 
 
 def binding_desc(cap, cfg, root_name=None):
@@ -1453,12 +1598,15 @@ def label(x, report=None):
     return ""
 
 
-def explain_text(policy, report, root):
-    """pot explain: every item with the file or grant it came from (Appendix C's shape)."""
+def explain_text(policy, report, root, width=100):
+    """pot explain: every item with the file or grant it came from (Appendix C's shape), in sections
+    separated by a blank line: the run (a summary: what runs, where, and what to do next), see, limits,
+    reach, not in run, backend. WIDTH is the terminal's (100 when it is not one)."""
     out = []
     ctx = report["context"]
     cmd = report.get("command") or {}
     eff = [i for i in policy["items"] if i["effective"]]
+    status_of = {k["kit"]: k for k in report.get("kits") or []}
 
     def src(i):
         return ", ".join(dict.fromkeys(l for l in (label(x, report) for x in i["sources"]) if l))
@@ -1468,21 +1616,8 @@ def explain_text(policy, report, root):
         return ", ".join(dict.fromkeys(kit_short(x["kit"], report) if "kit" in x else label(x, report)
                                        for x in i["sources"] if "kit" in x or "flag" in x or "context" in x or "binding" in x))
 
-    def wrap(head, words, width=110):
-        lines, cur = [], head
-        for w in words:
-            if len(cur) + len(w) + 1 > width and cur.strip():
-                lines.append(cur)
-                cur = " " * (len(head) + (0 if head.endswith(" ") else 1))
-            cur += ("" if cur.endswith(" ") or not cur.strip() else " ") + w
-        lines.append(cur)
-        return lines
-
+    # ---- the run: a summary first
     out.append(f"run        {cmd.get('name') or '(shell)'}" + (f" -> {cmd['kit']}" if cmd.get("kit") else " (no kit ships it)"))
-    if report.get("argv") and report["argv"][:1] != [cmd.get("name")]:
-        out.append("argv       " + " ".join(report["argv"]))
-    for h in report.get("agentHooks") or []:
-        out.append(f"hooks      {h}")
     inc = ctx.get("include") or []
     out.append(f"context    {ctx['name']}: {policy['mode']}, access {policy['access']}, {policy['backend']['name']}"
                + (f"; includes {', '.join('root:' + n for n in inc)}" if inc else ""))
@@ -1490,38 +1625,71 @@ def explain_text(policy, report, root):
         out.append(f"workspace  {w['id']} ({policy['access']}) {w['path']}")
     scions = [k for k in report["kits"] if k["kind"] == "scion"]
     if scions:
-        out.append("           scions: " + ", ".join(f"{k['name']} {(k.get('source') or {}).get('tag', '')}".rstrip()
-                                                  + (" (unverified)" if k["status"] == "unverified" else "") for k in scions))
+        out += wrap_words("           scions:", [f"{k['name']} {(k.get('source') or {}).get('tag', '')}".rstrip()
+                                                 + (" (unverified)" if k["status"] == "unverified" else "") + ","
+                                                 for k in scions], width, 19)
+        out[-1] = out[-1].rstrip(",")
+    todo = [next_action(k) for k in report["kits"] if k.get("applies") and k["status"] in ("never", "grown", "source", "unverified")]
+    out += wrap_words("next       ", [t + ";" for t in todo[:-1]] + todo[-1:], width, 11) if todo else ["next       ready"]
+    if report.get("argv") and report["argv"][:1] != [cmd.get("name")]:
+        out += wrap_words("argv       ", report["argv"], width, 11)
+    hooks = report.get("agentHooks") or []
+    if hooks:
+        out.append(f"hooks      {hooks[0]}")
+        out += [f"           {h}" for h in hooks[1:]]
+
+    # ---- see
+    out.append("")
     pk = [i for i in eff if i["kind"] == "package"]
     std = [i for i in pk if any(x.get("root") == "standard" for x in i["sources"])]
     rest = [i for i in pk if i not in std]
+
     def pname(i):
         v = i.get("attr") or i["value"]
         return posixpath.basename(v)[33:] if v.startswith("/nix/store/") else v
     see = [f"standard tools ({len(std)})"] + [f"{pname(i)} ({src(i)})" for i in rest]
-    out.append("see        " + " · ".join(see))
+    out += wrap_words("see        ", [x + " ·" for x in see[:-1]] + see[-1:], width, 11)
+    # env.set, file and dir rows, grouped by the kit (or source) that gives them
+    groups = {}
     for i in eff:
-        if i["kind"] == "dir":
-            n = len(i.get("links") or [])
-            out.append(f"           dir {i['value']} (read-only): {n} {'entry' if n == 1 else 'entries'} ({src(i)})")
-            if i.get("skipped"):
-                out += wrap("             left out:", i["skipped"])
-        elif i["kind"] == "file" and i.get("mirror"):
-            continue
-        elif i["kind"] in ("env.set", "file"):
-            mode = {"fixed": "read-only", "seed": "copied in once", "reassert": "keys copied in at each start"}.get(i.get("mode"), "")
-            out.append(f"           {i['kind']} {i['value']}" + (f", {mode}" if i["kind"] == "file" else "") + f" ({src(i)})")
+        if i["kind"] in ("env.set", "file", "dir") and not i.get("mirror"):
+            groups.setdefault(src(i), []).append(i)
+    for g, items in groups.items():
+        out.append(f"           {g}:")
+        for i in items:
+            if i["kind"] == "dir":
+                n = len(i.get("links") or [])
+                out.append(f"             dir {i['value']} (read-only): {n} {'entry' if n == 1 else 'entries'}")
+                if i.get("skipped"):
+                    kid = next((x["kit"] for x in i["sources"] if "kit" in x), None)
+                    st = status_of.get(kid) or {}
+                    head = f"               left out until {st['name']} is granted:" if st.get("status") in ("never", "grown") \
+                        else "               left out:"
+                    out += wrap_words(head, i["skipped"], width, 17)
+            elif i["kind"] == "file":
+                mode = {"fixed": "read-only", "seed": "copied in once", "reassert": "keys copied in at each start"}.get(i.get("mode"), "")
+                out.append(f"             file {i['value']}" + (f", {mode}" if mode else ""))
+            else:
+                out.append(f"             env.set {i['value']}")
     for lab in dict.fromkeys(i["mirror"] for i in eff if i.get("mirror")):
         n = len([i for i in eff if i.get("mirror") == lab])
         out.append(f"           host {lab}: {n} files, read-only (what the run writes stays in its state)")
+
+    # ---- limits: each protected path once, with every source's label
+    out.append("")
     prot = [i for i in eff if i["kind"] == "protect"]
     if policy["access"] == "write":
-        groups = {}
+        labels = {}
         for i in prot:
-            groups.setdefault(src(i), []).append(i["value"])
+            for l in src(i).split(", "):
+                if l and l not in labels.setdefault(i["value"], []):
+                    labels[i["value"]].append(l)
+        groups = {}
+        for v, ls in labels.items():
+            groups.setdefault(", ".join(ls), []).append(v)
         first = True
         for k, v in groups.items():
-            out += wrap("limits     protect:" if first else " " * len("limits     protect: "), v + [f"({k})"])
+            out += wrap_words("limits     protect:" if first else " " * 20, v[:-1] + [f"{v[-1]} ({k})"], width, 20)
             first = False
     else:
         out.append(f"limits     the workspace is read-only (access {policy['access']})")
@@ -1529,6 +1697,9 @@ def explain_text(policy, report, root):
     out.append(f"           hidden: {len(hid)} paths (pot explain --json lists them)")
     if any(i["kind"] == "network" and i["value"] == "none" for i in policy["items"]):
         out.append(f"           network: none (context {ctx['name']})")
+
+    # ---- reach
+    out.append("")
     rows = []
     for v in [i for i in eff if i["kind"] == "view"]:
         rows.append(("view", f"inspect: the machine read-only, minus secrets; in ~: {' '.join(v['home'])}", ctx["name"]))
@@ -1554,17 +1725,27 @@ def explain_text(policy, report, root):
     out.append(f"reach{' ' * (w + 6)}granted by")
     for kind, v, status in rows:
         if len(v) > w:
-            out.append(f"  {kind:<10} {v}")
+            out += wrap_words(f"  {kind:<10} ", v.split(" "), width, 13)
             out.append(f"  {'':<10} {'':<{w}} {status}")
         else:
             out.append(f"  {kind:<10} {v:<{w}} {status}")
     out.append("children   none (nesting comes in a later release)")
-    for k in [k for k in report["kits"] if k["status"] in ("never", "grown", "source", "unverified")]:
-        out += wrap(f"not in run {k['name']} ({k['kit']}): {STATUS_WORDS[k['status']]}" + (":" if k["added"] else ""),
-                    [a + "," for a in k["added"][:-1]] + k["added"][-1:])
+
+    # ---- not in run: each kit's items under its row, filled to the width
+    nir = [k for k in report["kits"] if k["status"] in ("never", "grown", "source", "unverified")]
+    if nir:
+        out.append("")
+    for k in nir:
+        out.append(f"not in run {k['name']} ({k['kit']}): {STATUS_WORDS[k['status']]}" + (":" if k["added"] else ""))
+        if k["added"]:
+            out += wrap_words(" " * 13, [a + "," for a in k["added"][:-1]] + k["added"][-1:], width, 13)
+
+    # ---- backend
+    out.append("")
     b = policy["backend"]
     lacks = [g for g in GUARANTEES if g not in b["proved"]]
-    out.append(f"backend    {b['name']} proves {' '.join(b['proved']) or 'nothing'}; lacks {' '.join(lacks)}")
+    out += wrap_words("backend    ", f"{b['name']} proves {' '.join(b['proved']) or 'nothing'}; lacks {' '.join(lacks)}".split(" "),
+                      width, 11)
     out.append("note       kit tools run as this run's own programs; sandboxing each kit command comes in a later release")
     return "\n".join(out) + "\n"
 

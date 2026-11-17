@@ -45,8 +45,10 @@ def denied(what):
             f.write(f"pot ({CONTEXT}): the run sent the proxy a malformed request\n")
         else:
             flag = host if what.endswith(":443") else what
-            f.write(f"pot ({CONTEXT}): the run tried {what} (not in this run). one run: pot --net {flag} …  "
-                    f"permanent: {OPT.get('fix', 'the repo kit')}\n")
+            # compose.denial_text's form: what was refused, then the one-run and permanent fixes
+            alts = [a for a in OPT.get("fix", "the repo kit").split("\n") if a]
+            f.write(f"pot ({CONTEXT}): the run tried {what} (not in this run).\n  one run:   pot --net {flag} …\n"
+                    f"  permanent: {alts[0]}\n" + "".join(f"             {a}\n" for a in alts[1:]))
     if OPT.get("tmux") and OPT.get("pane"):
         import subprocess
         subprocess.Popen([OPT["tmux"], "display-message", "-t", OPT["pane"], "-d", "5000",
