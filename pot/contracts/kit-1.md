@@ -210,8 +210,8 @@ identity.
   minor's fields. So are unknown request kinds, capability names and fields, command fields, `dirs` fields and
   `agent` fields. A provider learns of a mistake when its consumer builds, not when a run starts.
 - **Values are added, not fields,** within a minor. A new field is a new minor.
-- **`packages`** is read as `tools`, in 1.0 and 1.1, with a warning when kitsFor evaluates it:
-  `FILE: packages is tools' old name; packages goes in v2.17.0`. Giving both is an error:
+- **`packages`** is read as `tools`, in 1.0 and 1.1. kitsFor warns when it evaluates a consumer's own kit with it:
+  `flake.nix (perSystem): packages is tools' old name; packages goes in v2.17.0`. A scion's `graft.nix` gets no warning: providers keep `packages` until v2.17.0. Giving both is an error:
   `pot: FILE: tools and packages are one field (packages is its old name): give tools`. Deprecated in v2.16.0,
   removed in v2.17.0.
 

@@ -17,9 +17,10 @@ and a provider.
 - Or you have a root (`homeManagerModules.pot` or `graft.lib.mkRoot`) on graft v2.15.0.
 
 You can move the consumer and the root in either order: each side reads the other's v2.15.0 form until v2.17.0.
-That holds while providers keep their kits in v2.15.0's form: a v2.16.0 consumer's `graft-kits` translates its
-own kit for a v2.15.0 root, but a v2.15.0 consumer cannot build a provider's kit that uses `tools`
-([Move a provider](#move-a-provider)).
+That holds while providers keep their kits in v2.15.0's form, and while the consumer's own kit uses no kit 1.1
+field (`dirs`, `agent`): a v2.16.0 consumer's `graft-kits` translates its own kit for a v2.15.0 root, but leaves
+out a kit that uses a 1.1-only field, so under a v2.15.0 root that repository has no repo kit. And a v2.15.0
+consumer cannot build a provider's kit that uses `tools` ([Move a provider](#move-a-provider)).
 
 ## What still works until v2.17.0
 
@@ -28,7 +29,7 @@ These are deprecated in v2.16.0 and removed in v2.17.0:
 | v2.15.0 | v2.16.0 | Until v2.17.0 |
 |---|---|---|
 | `packages.<system>.graft-kits` | `packages.<system>.pot-kits` | mkFlake writes both, so a v2.15.0 root reads a v2.16.0 consumer: `graft-kits` gives each kit as v2.15.0 reads it, and leaves out one that uses kit 1.1 (`graft: graft-kits: FILE uses kit 1.1 (dirs or agent), which a v2.15.0 pot cannot read: left out (pot-kits has it)`). A v2.16.0 pot reads `graft-kits` when a flake has no `pot-kits`, so it reads a v2.15.0 consumer, and says so at start: `~/DIR has graft-kits only: its graft predates v2.16.0 (pot reads graft-kits until v2.17.0)`. |
-| `kit.packages` | `kit.tools` | Read as `tools`, with the evaluation warning `FILE: packages is tools' old name; packages goes in v2.17.0`. Both together are an error: `pot: FILE: tools and packages are one field (packages is its old name): give tools`. A provider keeps `packages` until v2.17.0, warning and all ([Move a provider](#move-a-provider)). |
+| `kit.packages` | `kit.tools` | Read as `tools`. A consumer's own `perSystem.kit` gets the evaluation warning `flake.nix (perSystem): packages is tools' old name; packages goes in v2.17.0`; a provider's `graft.nix` gets none. Both together are an error: `pot: FILE: tools and packages are one field (packages is its old name): give tools`. A provider keeps `packages` until v2.17.0, with no warning ([Move a provider](#move-a-provider)). |
 | the claude-code kit's `account = "flexion";` | (nothing: the root's `kits` key names the instance) | Ignored, with the warning `graft.kits.claude-code: account is not used: the instance is the root's kits key; account goes in v2.17.0`. |
 | `pot --account NAME CMD` | `pot CMD@NAME`, or `pot --instance NAME CMD` | Works as `--instance`, after one line: `pot: --account is --instance; --account goes in v2.17.0`. |
 | `defaultAccount = "personal";` | `defaultInstance.claude-code = "personal";` | Applied to every kit with instances, with the evaluation warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` (from the module: `programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0`). Both together are an error. |
@@ -177,7 +178,8 @@ The old forms and the new give the same canonical requests, so no grant asks aga
 
 **Keep `packages`, and give no `version`, until v2.17.0.** Each consumer's own graft builds your `graft.nix`. A
 consumer still on graft v2.15.0 refuses `tools` and `version` in your kit, and its whole bundle with it, so every
-run in that consumer stops. Rename `packages` to `tools` in the release you make for graft v2.17.0, and say in its
+run in that consumer stops. graft v2.16.0 gives no deprecation warning for a provider's `packages`, for that reason.
+Rename `packages` to `tools` in the release you make for graft v2.17.0, and say in its
 CHANGELOG that it needs graft v2.16.0 or later. A scion kit may not declare `agent`, which is a root's.
 
 ## Check it worked
