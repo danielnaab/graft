@@ -1554,7 +1554,7 @@ STUB
   ran "pot: a port-80 denial" sb_ bash -c "$ask; cat /run/pot/denials" _ denied.example:80
   expect "suggests HOST:80" holds "one run: pot --net denied.example:80 …"
   ran "pot: why HOST" sb_ why other.example
-  expect "says would, and names the included kit" has "pot (work): a run here would be refused other.example:443 (not in a run here). one run: pot --net other.example …  permanent: the repo kit's requests.network (perSystem.kit), or kits.daniel.requests.network for every repository (rebuild the root)"
+  expect "says would, and names the included kit" has "pot (work): pot would refuse other.example:443 in a run here. one run: pot --net other.example …  permanent: the repo kit's requests.network (perSystem.kit), or kits.daniel.requests.network for every repository (rebuild the root)"
   ran "pot: why, on the host" sb_ why justfile
   expect "protected" has "pot (work): justfile is protected (**/justfile, graft): edit it on the host"
   ran "pot: why, inside a run" sb_ bash -c 'pot why denied.example; pot why 127.0.0.1:1; pot why ~/.ssh'

@@ -1351,7 +1351,7 @@ def answer_why(policy, x, home, facts, on_host=False):
             return f"{pre} this context has no network"
         hp = f"{h}:{port or 443}"
         if on_host:
-            return f"{pre} a run here would be refused {hp} (not in a run here). one run: pot --net {h} …  permanent: {facts.get('netFix')}"
+            return f"{pre} pot would refuse {hp} in a run here. one run: pot --net {h} …  permanent: {facts.get('netFix')}"
         return C.denial_text(ctx, hp, facts.get("netFix"))
     return command_answer(policy, x, pre, facts, srcs, on_host)
 
