@@ -1,5 +1,166 @@
 # Changelog
 
+## v2.16.0 - 2026-11-17
+
+A one-way boundary between graft and pot, graft's sandbox (experimental): graft calls one function of pot's,
+`graft.lib.pot.kitsFor`, and pot finds a repository's kits from git facts alone, never from graft's files. graft's
+command is built from graft's sources only, so a change to pot no longer changes it. The formats the two share are
+written down as versioned contracts ([pot's contracts](pot/contracts/README.md), and graft's
+[provider/2](docs/reference/provider.md)). pot's core loses its knowledge of any one agent: an agent kit says, in
+kit 1.1, how pot recognises it and its instances; a run names an instance with `CMD@NAME`; and the claude-code kit
+takes an `api` value. Most repositories and roots need no edit: the old forms work, with a warning, until v2.17.0,
+and each side reads the other's v2.15.0 form, so you can move them in either order, as long as providers keep
+their kits in v2.15.0's form until v2.17.0 and a consumer's own kit uses no kit 1.1 field (`dirs`, `agent`) ([Move to v2.16.0](docs/guides/move-to-v2-16.md)).
+
+### Upgrading
+- **A repo kit with powerful requests asks for one new grant.** Taking v2.16.0 changes the flake's `flake.lock`,
+  so the tree its grant is fixed to changes: the next run stops with exit 125 (or prompts, at a terminal) with
+  `changed source` and the same requests. Run `pot grant NAME` once. No canonical request item and no digest
+  changes (a new flake check, `pot-golden`, holds them). The source is the committed and staged tree, so the prompt
+  follows the commit of the new `flake.lock`: commit first, then grant.
+- **Providers: keep `packages`, and give no `version`, until v2.17.0.** Each consumer's own graft builds a provider's
+  `graft.nix`, and graft v2.15.0 refuses `tools` and `version`, stopping every run in that consumer. A consumer may
+  rename its own `perSystem.kit`'s `packages` to `tools` once it is on v2.16.0: its `graft-kits` gives `tools` as
+  `packages` and drops `version` for a v2.15.0 root, and leaves out a kit that uses `agent` or `dirs`, with a build
+  evaluation warning, `graft-kits: FILE uses kit 1.1 (dirs or agent): a v2.15.0 pot cannot read it, so graft-kits leaves it out (pot-kits has it)`. Otherwise its `kit.json` is byte-identical to v2.15.0's.
+- **pot finds a repository's flake from `.gitmodules` at `HEAD` only:** the nearest `flake.nix` at or above the
+  folder that holds the submodules (the deepest, when they differ). **A repository with no submodules has no repo
+  kit from its flake,** and pot never evaluates it or copies it into the store. Move such a repository's
+  `perSystem.kit` into the root's `repoKits."<origin>"`, or graft a scion. graft's marker README and the
+  `mkFlake {` text no longer decide anything for pot.
+- **graft's command left a run's standard tools** (now 24). A run in a graft consumer still has the repository's
+  own `graft`, from its bundle (`POT_TOOLS`). For other repositories, add graft to the root's `tools`:
+  `programs.pot.tools = [ inputs.graft.packages.${pkgs.stdenv.hostPlatform.system}.default ];`.
+- **`pot-kits` is a reserved name** in `apps` and `packages`, beside `sandbox`, `pot` and `graft-kits`: a
+  repository's own `outputs`, `perSystem` or a provider that defines it fails with `… that name is graft's; …`.
+- **Kit errors from the build start `pot:`,** not `graft:`: `pot: <file>: <field> is not a kit field (…)`, and
+  `pot: mkRoot: a context may not be named like a pot verb: …`.
+- **Messages name a kit's file as its bundle reports it:** `the repo kit's requests.network (flake.nix (perSystem))`
+  (was `(perSystem.kit)`); a scion command kit's fix names `(<its file>: a kit release)`; an unverified scion's
+  command names only `pot host CMD`; the grant prompt says `every workspace that pins X` (was `grafts`).
+- **`policy.json` values:** pot's own defaults are `{ "root": "default" }` (was `{ "root": "graft" }`). The bundle's
+  protected paths are `{ "root": "bundle", "why": "the repository's pot-kits" }`; the scions-directory item is
+  gone. `pot explain` labels pot's defaults `(pot)` (was `(graft)`) and the bundle's protected paths `(repo)`.
+  A reader that matched on `"graft"` must match `"default"` ([run-env/1](pot/contracts/run-env-1.md)).
+- **graft's flake has no `knowledge-base-kit` input:** it leaves consumers' locks at their next update. graft's
+  own docs check is `nix flake check ./dev`.
+- **The instance follows the caller's variables, most specific first.** v2.15.0 picked the claude-code instance
+  named like the caller's `CLAUDE_CONFIG_DIR` folder. v2.16.0 picks the instance whose `agent.select.env` the
+  caller matches with the most variables (claude-code: `CLAUDE_CONFIG_DIR = "~/<configDir>"`, and
+  `CLAUDE_CODE_USE_BEDROCK = "1"` for Bedrock), so a Bedrock shell now picks the Bedrock instance. A tie goes to the
+  default; otherwise pot stops: `pot: claude: the caller's variables match claude-code@a and claude-code@b equally:
+  choose one with claude@NAME or --instance NAME`. `CMD@NAME` and `--instance` still decide first. Values other
+  than paths compare as exact strings: `CLAUDE_CODE_USE_BEDROCK=true` does not match `"1"`.
+- **`runs` and `doctor` are reserved:** `pot: runs comes in a later release` (and `doctor`; exit 2), and a root may not name a
+  context so.
+- **`defaultInstance` is checked when the root evaluates:** `graft.lib.mkRoot: defaultInstance.KIT = "X": the root
+  declares KIT@a, KIT@b`, or `graft.lib.mkRoot: defaultInstance.KIT: the root has no kit KIT@NAME (kits: …)`; the
+  home-manager module names its options (`programs.pot.defaultInstance.KIT = "X": programs.pot.kits declares …`).
+- **`pot host --resume` does not resume runs from before v2.16.0:** they have no `resume.json`, which now records
+  where the agent's transcripts are and how to read them. Read such a run's transcript in its state folder.
+- **Messages say instance, not account:** the startup note `instance NAME`; the resume line
+  `pot: resume this session with: pot [CONTEXT] claude@NAME --resume ID`; and the usage errors
+  `pot: claude@NAME: this root declares claude-code@a, claude-code@b`,
+  `pot: claude-code has the instances a, b: choose one with claude@NAME or --instance NAME`,
+  `pot: --instance names an instance, and KIT has none`. `--resume` outside `pot host` names
+  `(pot host --resume RUN CMD)`.
+- **`pot explain` lists pot's agent-configuration protections in a new order:**
+  `… .githooks **/.mcp.json **/.vscode **/.claude **/.pi **/.codex (pot)`.
+- `nix flake init -t github:danielnaab/graft/v2.16.0` and the docs pin v2.16.0.
+
+### Deprecated (removed in v2.17.0)
+- **`packages.<system>.graft-kits`.** mkFlake still writes it in v2.15.0's exact shape, so a v2.15.0 root reads a
+  v2.16.0 consumer; pot reads it when a flake has no `pot-kits`, so a v2.16.0 root reads a v2.15.0 consumer,
+  protecting what v2.15.0 protected for it (`**/graft.nix` and its scions folder).
+- **`--account NAME`** works as `--instance NAME`, after one line: `pot: --account is --instance; --account goes in
+  v2.17.0`.
+- **`defaultAccount`** (mkRoot and `programs.pot`) works as `defaultInstance.<kit>` for every kit with instances,
+  with the evaluation warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in
+  v2.17.0` (`programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0`).
+  Giving both is an error.
+- **The claude-code kit's `account`** is not used, and warns: `graft.kits.claude-code: account is not used: the
+  instance is the root's kits key; account goes in v2.17.0`.
+- **The claude-code kit's `provider` and `region`** work as `api`, with the warning `graft.kits.claude-code: provider
+  and region are api = graft.apis.bedrock { region = …; } (or graft.apis.anthropic); they go in v2.17.0`. Giving
+  both is an error.
+- **`kit.packages`** is read as `tools` in kit 1.0 and 1.1. A consumer's own `perSystem.kit` gets the evaluation
+  warning `flake.nix (perSystem): packages is tools' old name; packages goes in v2.17.0`; a provider's `graft.nix` gets none, since providers keep `packages` until v2.17.0. Giving both is an error: `pot: FILE: tools and packages
+  are one field (packages is its old name): give tools`.
+
+The old and new forms give byte-identical canonical requests (the checks `pot-golden` and `pot-aliases`), so no
+grant asks again.
+
+### Added
+- **`graft.lib.pot.kitsFor { pkgs; self; scions; tools; files; }`** (contract [pot-lib/1](pot/contracts/pot-lib-1.md)):
+  pot's library, the one Nix edge between graft and pot. It validates each kit and writes
+  **`packages.<system>.pot-kits`** (contract [pot-kits/1](pot/contracts/pot-kits-1.md)): `kit.json`
+  (`{ version = 1; self; scions; protect; }`, each kit with its `file`), `bin/` and `closure`. mkFlake calls it and
+  reads no kit field.
+- **`pot why HOST|HOST:PORT|URL|PATH --json`** (contract [run-env/1](pot/contracts/run-env-1.md)), on the host and inside
+  a run: `{ version, target, kind, reach, reached, context, text }`, exit 0 when reached and 1 when not. `kind` is
+  `network`, `git.fetch` (an ssh URL, reached when a `git.fetch` binding covers it) or `file` (a `file://` URL or a
+  path, reached when the run sees it). On the host it answers from the policy a run of the default context would
+  have. pot classifies the target once, so its text and `--json` agree, and a git URL never gets a path's answer.
+- **pot's contracts**, one page each, versioned: `kit/1`, `pot-lib/1`, `pot-kits/1`, `grants/1`, `run-env/1` (with
+  the frozen `policy.json` v1) and `runs/1` (reserved), plus graft's `provider/2`.
+- **A bundle check at start:** a `pot-kits` whose `version` or fields this pot does not know is refused:
+  `pot (work): ~/DIR#pot-kits: kit.json is version 2, and this pot reads version 1: take a pot that reads it, or
+  run pot host CMD`. A flake that does not evaluate: `pot (work): the flake at ~/DIR did not evaluate (nix eval,
+  above): fix it, or run pot host CMD`.
+- **A negative cache:** a flake with neither `pot-kits` nor `graft-kits` is remembered as "no repo kit" by its
+  tree, so pot evaluates it again only when it changes. Start time is unchanged (cold about 2 s, warm 0.12 s, for
+  flexion-assistant).
+- **The flake check `pot-golden`:** the canonical grant items and digests of the claude-code instances, a standing
+  kit and a repo kit, as v2.15.0 wrote them.
+- **Instances:** `pot CMD@NAME` and `--instance NAME` choose an instance of an agent kit; mkRoot's and
+  `programs.pot`'s `defaultInstance.<kit>` gives each kit's default. With none of them, the caller's variables
+  choose ([kit/1: Instances](pot/contracts/kit-1.md#instances)).
+- **Kit 1.1** ([kit/1](pot/contracts/kit-1.md)): `version` (`"1.0"` when missing; a newer minor gets one refusal,
+  `pot: FILE: kit version 1.2 is newer than this pot reads (1.0, 1.1): take a newer pot`); `tools`; `agent` (a
+  root's kit only: `markers`, `select.env`, `resume` and `hooks`); and the command field `dirs`, with the modes
+  `links` and `mirror`, in place of 1.0's `fixedDirs`, `realDirs`, `skillDirs` and `memory`. A mirror shows a host
+  folder read-only, with writable copies of the files it names, and copies what the run adds out to
+  `<label>-out/` for review. The claude-code kit writes 1.1; 1.0 kits are read as before.
+- **`graft.apis.anthropic` and `graft.apis.bedrock { region; }`,** for the claude-code kit's new `api` argument.
+- **`agentMarkers`** (mkRoot and `programs.pot`, default `[ ]`): variables that mean an agent is the caller. They add to a floor that
+  no root removes, `CODEX_SANDBOX` and `CLAUDECODE`, and to each root kit's `agent.markers` and `POT`, so `pot grant`
+  refuses under an agent whatever kits the root has.
+- **`policy.json`:** a file that a mirror puts in the run has `"mirror": "<label>"`, beside v2.15.0's
+  `"memory": true`, which stays ([run-env/1](pot/contracts/run-env-1.md)).
+- **The flake check `pot-aliases`:** the deprecated forms give the same canonical requests as the new.
+
+- **`pot host CMD`** runs the workspace bundle's command when `CMD` is not on the host's `PATH`, so the
+  unverified-scion refusal's `pot host CMD` works. That refusal still exits 1.
+- **The graft-kits fallback is noted at start:** `~/DIR has graft-kits only: its graft predates v2.16.0 (pot reads
+  graft-kits until v2.17.0)`.
+
+### Changed
+- **`graft check` inside a pot run asks `pot why URL --json`** whether the run reaches a provider's URL, instead of
+  reading `POT_POLICY`. With no usable answer (an older pot), it tries the fetch. Its messages are unchanged.
+- **Layout:** pot moved from `lib/pot/` to `pot/` (`pot/core/`, `pot/nix/`, `pot/lib/`, `pot/kits/`, `pot/tests/`,
+  `pot/contracts/`). graft's command is built from `lib/*.sh`, `lib/*.jq`, the scions README and `template/` only.
+  No flake output changed its name.
+- **pot's core names no agent.** The agents' hidden and protected defaults (`~/.claude`, `**/.codex`, …) are root
+  data in pot's Nix (`baseHidden`, `baseProtect`), a floor that a root's `hidden` adds to and cannot remove. Claude's
+  markers, config-folder rule, transcripts, resume arguments and memory wording are the claude-code kit's data.
+- **The base protected list loses `**/graft.nix` and the scions folder:** graft's mkFlake names them in its
+  bundle's `protect` instead, so they stay read-only in every run of a graft consumer.
+
+### Fixed
+- A scion's protected folder is read-only throughout a run, not only its `graft.nix` (a scion's other files were
+  writable).
+- A scion whose URL ends in `.git` has the short name without it (`pot grant qk10`).
+- `pot grant NAME` and `--revoke NAME` take the name pot displays, so the name a 125 line offers works for a
+  repository with a local origin (its folder) and a scion named unlike its URL.
+- An unknown first word adds where a missing program goes: `pot: unknown context or command NAME; contexts: …; a
+  program every run here should have goes in programs.pot.tools (home-manager switch)` (an mkRoot root:
+  `goes in tools (rebuild the root)`).
+
+### Removed
+- **v2.14.0's Seatbelt files** (`lib/sandbox/`, unwired since v2.15.0), `tests/macos-smoke.sh` and
+  `tests/run.sh seatbelt`.
+- pot's guesses at graft's layout: the marker README check and the `mkFlake {` regex.
+
 ## v2.15.0 - 2026-11-16
 
 pot, graft's sandbox for agents and other commands (experimental), replaces v2.14.0's `sandbox` launcher. pot is

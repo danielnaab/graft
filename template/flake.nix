@@ -1,5 +1,5 @@
 {
   inputs.self.submodules = true;
-  inputs.graft.url = "github:danielnaab/graft/v2.15.0";
+  inputs.graft.url = "github:danielnaab/graft/v2.16.0";
   outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
 }
