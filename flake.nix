@@ -78,7 +78,7 @@
         description = "A repo that grafts other repositories, with graft's Forgejo workflows";
         welcomeText = ''
           Graft a first repository (a git submodule at its newest release tag), then commit:
-            nix run github:danielnaab/graft/v2.14.0 -- add -C . URL
+            nix run github:danielnaab/graft/v2.15.0 -- add -C . URL
           See https://github.com/danielnaab/graft.
         '';
       };

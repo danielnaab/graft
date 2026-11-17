@@ -1,5 +1,5 @@
 ---
-status: draft
+status: working
 ---
 # Run commands in pot
 

@@ -18,9 +18,9 @@ works when they are empty, fill them where it matters, and set up your machine s
 
 | Use | Empty scions |
 |---|---|
-| A top-level git flake: `nix build .#tools`, `nix flake check`, `nix run .#graft …`, with no tracked file modified | Works, if every scion's commit is on its provider's remote: Nix fetches each scion at its gitlink from the URL in `.gitmodules`, before graft runs. Otherwise `nix run github:danielnaab/graft/v2.14.0 -- check -C .` still runs. |
+| A top-level git flake: `nix build .#tools`, `nix flake check`, `nix run .#graft …`, with no tracked file modified | Works, if every scion's commit is on its provider's remote: Nix fetches each scion at its gitlink from the URL in `.gitmodules`, before graft runs. Otherwise `nix run github:danielnaab/graft/v2.15.0 -- check -C .` still runs. |
 | The same, after any tracked file is modified (an agent's first edit, a CI step that writes a file) | Fails inside Nix: `error: Failed to fetch git repository '…/scions/NAME'`. Nix reads the working tree, and the scion is empty. `nix run .#graft sync` cannot run either, because the flake does not evaluate: run `git submodule update --init --recursive` first. |
-| `nix run github:danielnaab/graft/v2.14.0 -- outdated -C .` and the other `-C` commands | Works: graft reads `.gitmodules` and the gitlinks. |
+| `nix run github:danielnaab/graft/v2.15.0 -- outdated -C .` and the other `-C` commands | Works: graft reads `.gitmodules` and the gitlinks. |
 | A `path:` flake in a subdirectory | `tools` builds without the empty scions, with a warning; a provider that needs one fails. Fill the scions first. |
 | Reading a scion's files, agents following them, `PYTHONPATH=scions/…` | Nothing to read. Fill the scions first. |
 | `just` with `import? "scions/…"` | Lists your own recipes, without the provider's. With `import` (no `?`), `just` fails to parse. |

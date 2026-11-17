@@ -59,7 +59,7 @@ is a one-time change, by hand or by an agent following these steps.
    - Delete every `flake = false` provider input, and its wiring in `outputs` (`import "${inputs.X}/…"`,
      `callPackage "${inputs.X}/package.nix"`).
    - Delete `mkFlake`'s `scions` and `flakeDir` arguments. In a subdirectory flake, set `dir = ".scions";`.
-   - Set `graft.url` to `github:danielnaab/graft/v2.14.0`.
+   - Set `graft.url` to `github:danielnaab/graft/v2.15.0`.
    - For a flake at the repository's top, add `self.submodules = true;` to the inputs.
    - Tools of your own that were in `tools` go in `mkFlake`'s `perSystem`; other outputs stay in `outputs`
      ([Commands](../reference/commands.md#mkflake)). Consumer settings that were Nix arguments move to the
@@ -73,7 +73,7 @@ is a one-time change, by hand or by an agent following these steps.
      inputs = {
        self.submodules = true;
        nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
-       graft = { url = "github:danielnaab/graft/v2.14.0"; inputs.nixpkgs.follows = "nixpkgs"; };
+       graft = { url = "github:danielnaab/graft/v2.15.0"; inputs.nixpkgs.follows = "nixpkgs"; };
      };
      outputs = { self, nixpkgs, graft, ... }@inputs: graft.lib.mkFlake {
        inherit inputs;
@@ -90,7 +90,7 @@ is a one-time change, by hand or by an agent following these steps.
 
    ```
    git add flake.nix
-   nix run github:danielnaab/graft/v2.14.0 -- add -C . https://github.com/danielnaab/knowledge-base-kit@v2.2.0
+   nix run github:danielnaab/graft/v2.15.0 -- add -C . https://github.com/danielnaab/knowledge-base-kit@v2.2.0
    ```
 
    In a subdirectory flake, add `--scions nix/agent-tools/.scions` to the first `add`. A provider that grafts
@@ -147,7 +147,7 @@ pass:
 
 On a clean tree, `nix run .#graft` makes Nix fetch every scion before graft runs, so an unpushed or
 unreachable pin fails here with `Cannot find Git revision …` or `Failed to fetch …`. graft's own flake does
-not evaluate yours: `nix run github:danielnaab/graft/v2.14.0 -- check -C .` names the scion.
+not evaluate yours: `nix run github:danielnaab/graft/v2.15.0 -- check -C .` names the scion.
 
 ## If something goes wrong
 

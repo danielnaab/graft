@@ -1,5 +1,109 @@
 # Changelog
 
+## v2.15.0 - 2026-11-16
+
+pot, graft's sandbox for agents and other commands (experimental), replaces v2.14.0's `sandbox` launcher. pot is
+the sandbox of the grove tools (grove, graft and pot), and ships in graft's flake for now. A repository
+or a provider declares what its work needs as a **kit**; only a person grants reach, with `pot grant`, into a
+grants file in their own **root**. Linux only: on macOS, `pot` refuses until a later release, and v2.14.0 is the
+last release with a Seatbelt sandbox. **This minor version breaks v2.14.0's sandbox:** read Upgrading.
+
+### Upgrading
+- **`perSystem.sandbox` becomes `perSystem.kit`, and a provider's `sandbox` in `graft.nix` becomes `kit`.**
+  `paths.readOnly`, `paths.writable`, `network.allow` and `env.pass` move to `requests.read`, `requests.write`,
+  `requests.network` and `requests.env`. Delete `grant` and `repository.readOnly`: grants live in your root
+  (`pot grant`), and a read-only run is `pot inspect`. A leftover `sandbox` fails with
+  `graft: scions/NAME/graft.nix gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\` (pot; see graft's CHANGELOG)`.
+- **`"host"` in `requests.network` means port 443 only** (v2.14.0: 443 and 80). Write `"host:80"` for plain HTTP.
+- **`nix run .#sandbox -- CMD` is gone,** with `packages.<system>.sandbox`, `apps.<system>.sandbox` and the dev
+  shell's `sandbox`. Run `pot CMD` from your root, or graft's default root
+  (`nix run github:danielnaab/graft/v2.15.0#pot -- CMD`). The names `sandbox`, `pot` and `graft-kits` are reserved.
+- **`--with`, `--allow`, `--explain` and `--dry-run`** are `--package`, `--net`, `pot explain` and
+  `pot explain --backend-command`.
+- **`GRAFT_SANDBOX=1` becomes `POT=<context>`,** such as `POT=work`. Test it with `[ -n "${POT:-}" ]`. The other
+  variables are `POT_TOOLS`, `POT_POLICY` and `POT_QUIET`; paths inside a run are under `/run/pot`.
+- **User paths:** `~/.config/pot/` (grants file, token files, launcher link) and `~/.local/state/pot` (state).
+- **Names:** the command is `pot`; `packages.<system>.pot` and `apps.<system>.pot`; `homeManagerModules.pot` and
+  `programs.pot`. The reserved output names are `sandbox`, `pot` and `graft-kits`. nixpkgs has an unrelated
+  `pot` package; the two collide only on a `PATH` that has both.
+- A repository whose `just check` runs `graft check` inside a run needs the `nix` capability in its kit, a
+  `POT_TOOLS` branch in its `ensure.sh`, and a `graft_run` that uses `graft` from `PATH`
+  ([Move from v2.14.0's sandbox](docs/guides/move-from-the-v2-14-sandbox.md)). **A `nix` request does nothing
+  until your root binds it** (`nix."*" = { via = "daemon-untrusted"; };`) and you run `pot grant`.
+- **A powerful repo-kit grant is fixed to the flake directory as committed and staged.** Each commit or staged
+  change under it changes the source: the next run stops with exit 125, lists the changed paths, and `pot grant`
+  asks again for each powerful item.
+- **The home-manager module asserts `workmux.sandbox.enable = false`** while `programs.pot.enable` is on: `pot`
+  replaces workmux's Docker sandbox for agent panes. Turn workmux's off, or evaluation fails.
+- **A repository used on both macOS and Linux loses its Mac sandbox in v2.15.0:** `pot` refuses on Darwin. To keep
+  the Seatbelt sandbox on a Mac, keep that repository on v2.14.0; the choice is per repository, because each
+  pins graft in its own `flake.lock`.
+- `nix flake init -t github:danielnaab/graft/v2.15.0` and the docs pin v2.15.0.
+- The weekly upgrade job takes this version like any minor version. If your repository declares a `sandbox`,
+  move it before you merge that pull request.
+
+### Added
+- **`pot [VERB | CONTEXT] [FLAGS] [--] [CMD [ARGS...]]`:** runs a command as a run, under a policy composed at
+  each start from the run's kits (the command's, the repository's, its scions', and the root kits its context
+  includes) and the person's grants. Contexts: `work` (the default: write the repository in place), `inspect`
+  (read the machine except secrets, change nothing), `host` (no sandbox, said out loud). bubblewrap, on Linux
+  ([pot](docs/reference/pot.md), [Run commands in pot](docs/guides/run-in-a-sandbox.md)).
+- **Kits:** `kit = { packages; env.set; files; protect; requests; commands; recipes; }` in `graft.nix` and
+  mkFlake's `perSystem`, with `perSystem.kitArgs`. mkFlake exports them, with the workspace's tools and `graft`,
+  as `packages.<system>.graft-kits`.
+- **Requests and capabilities:** `read`, `write`, `socket`, `network`, `env`, `state`, `unsandboxed`, and the
+  capabilities `status.relay`, `git.fetch`, `credential`, `mcp` and `nix` (bound in this version), with the
+  later ones reserved. Each is ordinary or powerful.
+- **Grants:** `pot grant [KIT...] [--revoke KIT] [--diff]` records a kit's request set by digest (and, for
+  powerful items, its source) in one tracked grants file with a section per machine. A kit that asks for more
+  stops with exit 125 until it is granted again. At a terminal, every stale kit (not granted, asks for more,
+  changed source) is prompted inline, and the run goes on. `pot grant` refuses agents and reads from `/dev/tty`;
+  ordinary items are approved together, each powerful item alone. Kits go by short names (`flexion-assistant`,
+  `claude-code` for every instance). A changed grants file is noted at start; an entry whose digest does not match
+  stops runs and names its repair (`pot grant --revoke KIT`, then `pot grant KIT`).
+- **`pot explain`** shows every item with the kit, file or grant that it came from; `pot why PATH|HOST|CMD|VAR`
+  answers for one, inside a run too.
+- **Roots:** `graft.lib.mkRoot`, graft's default root (`packages.<system>.pot`, `apps.<system>.pot`; grants in
+  `~/.config/pot/grants.json`), `pot init DIR`, and a home-manager module (`programs.pot`). The default root and
+  `pot init`'s root ship a `claude-code@personal` instance, its token binding
+  (`~/.config/pot/claude-token-personal`, from `claude setup-token`) and the `nix` relay, so `pot claude`
+  works without writing a root.
+- **The claude-code kit:** `graft.kits.claude-code { pkgs; account; … }`: accounts, skills and plugins read-only
+  (opt out with `skillDirs = [ ]` and `plugins = false`), the host's project memory read-only, with `MEMORY.md` as a
+  writable copy (new memory files and a changed `MEMORY.md` are listed on the exit line and copied out of the run;
+  nothing is written back; a `SessionStart` note tells Claude),
+  MCP config, Bedrock (its credentials named on the startup line when unset or expired), a `claude setup-token`
+  login file, and its own agent home per account, workspace and context.
+- **Denials** reach the person through `tmux display-message` on the launching pane, the agent through
+  `/run/pot/denials` and `PostToolUse` and `PostToolUseFailure` hooks, and both through the exit line. Every denial starts
+  `pot (<context>):`, names its source, and gives a one-run flag and one permanent fix.
+- **Bindings** carry out `status.relay` (a `workmux` shim aimed at the launching pane), `git.fetch` (an ssh shim and
+  a host broker that allows only `git-upload-pack`), `nix` (a relay to an untrusted daemon), and `credential` and
+  `mcp` (by env or file, read on the host at start). A file a binding names is hidden.
+- **Not-found handling:** bash's handler (also exported as a function), and shims for host-only programs (`nix`, `ssh`, `sudo`, `systemctl`,
+  `docker`, `home-manager`, …), each with a one-run flag and a permanent fix. Exit 127.
+- **`pot host --resume RUN|last CMD`** passes a run's transcript to a host command as quoted, untrusted data. The
+  exit line names the run's id.
+- **`nix` inside a run** with the `nix` capability: `pot work nix flake check` runs the host's nix through the
+  relay.
+- **`graft check` inside an `pot` run** tries only the provider URLs that the run reaches, and prints one note
+  instead of leaving a denial.
+- **Root repositories:** `work` refuses in a root's own repository, and names `pot inspect` or plain `claude`.
+- **The decision** behind it: [Roots grant reach; kits only ask](docs/decisions.md#roots-grant-reach-kits-only-ask).
+
+### Not yet
+- Synced claude.ai skills do not load inside a run: Claude loads them only when signed in to claude.ai, and a run
+  signs in with a token. Install the skills you need as ordinary skill folders (`skillSources` or `skillDirs`).
+- Kit tools still run on the host: kit commands are not wrapped or sandboxed on their own.
+- `graft add` and `graft upgrade` do not print each kit's request diff yet.
+- `pot review`, and `pot` on Darwin.
+- In `work`, `/run/current-system` is a link whose target the run does not see: a test that hard-codes
+  `/run/current-system/sw/bin` fails there.
+- No `dispatch` (clone mode), `pot review`, nesting, generated `kits.just`, or Seatbelt backend.
+
+### Removed
+- v2.14.0's `sandbox` launcher and its options, and the Seatbelt backend.
+
 ## v2.14.0 - 2026-11-15
 
 A sandbox for agents and other commands. Every repository gets a launcher, `packages.<system>.sandbox`,
