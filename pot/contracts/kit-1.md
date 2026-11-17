@@ -211,7 +211,9 @@ identity.
 - **Unknown fields within a known minor are errors:** `pot: FILE: FIELD is not a kit field (…)`, listing that
   minor's fields. So are unknown request kinds, capability names and fields, command fields, `dirs` fields and
   `agent` fields. A provider learns of a mistake when its consumer builds, not when a run starts.
-- **Values are added, not fields,** within a minor. A new field is a new minor.
+- **Values are added, not fields,** within a minor. A new field is a new minor. One exception: v2.16.0 widened what a 1.0 reader accepts (`tools`, `version`), which a v2.15.0 reader refuses;
+  that is why `graft-kits` translates each kit for v2.15.0 readers. From v2.16.0 on, the rule holds without
+  exception.
 - **`packages`** is read as `tools`, in 1.0 and 1.1. kitsFor warns when it evaluates a consumer's own kit with it:
   `flake.nix (perSystem): packages is tools' old name; packages goes in v2.17.0`. A scion's `graft.nix` gets no warning: providers keep `packages` until v2.17.0. Giving both is an error:
   `pot: FILE: tools and packages are one field (packages is its old name): give tools`. Deprecated in v2.16.0,
