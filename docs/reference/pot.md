@@ -97,7 +97,7 @@ graft.lib.mkRoot {
 
 Its arguments are the options below. It checks every kit manifest when it builds, so a bad kit fails the root's
 build. A context named like a verb is an evaluation error:
-`graft: mkRoot: a context may not be named like an pot verb: …`.
+`graft: mkRoot: a context may not be named like a pot verb: …`.
 
 In v2.15.0 you run the `pot` on your `PATH`. The home-manager module also writes `<home>/.config/pot/launcher`,
 a link to its `pot`, for the kit-command wrappers of a later release: they will find `<home>` from the password database, never
@@ -924,7 +924,7 @@ pot: --net pypi.org:443 was for this run; permanent: the repo kit's requests.net
 
 ### Inside a run
 
-- The prompt is `(pot:work) ~/src/team-kb $`.
+- The prompt is `(pot:work) ~/src/team-kb $`, and the run's hostname is `pot`.
 - `/run/pot/` holds `policy.json`, `explain.txt`, `why.json`, `README.md` and `denials`, read-only, and
   `proxy.sock` when the run has network reach. `README.md` explains the run, how to read a refusal, and, in a
   claude-code run, how memory works: `Claude's host memory for this workspace is read-only here; MEMORY.md is a

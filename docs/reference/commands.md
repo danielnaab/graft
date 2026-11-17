@@ -232,13 +232,13 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 - If `git ls-remote` cannot read a provider, it says
   `graft: scions/pa: can't list tags at URL: … (upstream unreadable: checked local tags)`, and the scion's
   local tags decide.
-- Inside an [`pot` run](pot.md) (`POT` set), graft tries a provider's tags only when the run's
+- Inside a [pot](pot.md) run (`POT` set; its policy from `POT_POLICY`), graft tries a provider's tags only when the run's
   policy reaches its URL: a `file://` URL or a path; an `https` or `http` host and port among the run's network
   reach; `ssh` when the run has a `git.fetch` binding. Otherwise it does not try, so the run leaves no denial
   behind, and the scion's local tags decide. `check` then prints one line for the whole check, not one per scion:
-  `graft: upstream tags are not reachable from this sandbox run: checked each scion's local tags`. Other commands
+  `graft: upstream tags are not reachable from this pot run: checked each scion's local tags`. Other commands
   that list tags (`add`, `outdated`, `changelog`, `upgrade`) fail for that URL with
-  `graft: URL is not reachable from this sandbox run`: run them on the host.
+  `graft: URL is not reachable from this pot run`: run them on the host.
 - A scion with submodules of its own prints `graft: note: scions/nest has its own submodules (scions/docs) …`
   on stdout: a git flake on a clean tree fetches them from their URLs too.
 - Success: `graft: N scions clean and at release tags` (`1 scion`); with `--committed`,
