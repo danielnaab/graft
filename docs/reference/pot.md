@@ -762,7 +762,7 @@ every repository, and leaves that part out when the context includes none.
 | Asked about | Answer |
 |---|---|
 | A granted host | `api.anthropic.com:443 is granted (claude-code@personal); reaches pot claude runs`; for a repo or included kit, `; reaches every run here`; inside a run, `; in this run` |
-| A host not granted, on the host | `pot (work): a run here would be refused example.com:443 (not in a run here). one run: pot --net example.com …  permanent: the repo kit's requests.network (perSystem.kit), or programs.pot.kits.standing.requests.network for every repository (home-manager switch)` |
+| A host not granted, on the host | `pot (work): pot would refuse example.com:443 in a run here. one run: pot --net example.com …  permanent: the repo kit's requests.network (perSystem.kit), or programs.pot.kits.standing.requests.network for every repository (home-manager switch)` |
 | A host not granted, inside a run | `pot (work): the run tried example.com:443 (not in this run). one run: pot --net example.com …  permanent: …` |
 | A kit command | `claude is claude-code@personal's command: pot claude`. A name that is also a workspace path (`nix`) gets both answers, command first. |
 | A variable that a binding carries | `CLAUDE_CODE_OAUTH_TOKEN is carried by claude-code@personal's credential (file ~/.config/pot/claude-token-personal (the run holds it)), in pot claude runs`. It never suggests `--env`. |
