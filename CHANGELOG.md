@@ -1,5 +1,58 @@
 # Changelog
 
+## v2.16.1 - 2026-11-17
+
+pot's output, made readable. **Text and layout only:** nothing changes in what a run can reach, in grants, in the
+canonical grant items or their digests (`pot-golden` holds them), or in any `--json` shape (`policy.json` v1 and
+`pot why --json` under run-env/1). A script that reads pot's `--json` needs no change; one that parses pot's text
+output, or `/run/pot/denials`, may.
+
+### Changed: pot's output
+- **`pot grant --diff`** starts with a summary, `3 kits granted · 2 not granted` (zero counts left out), then one
+  line per kit, the names aligned: a mark, the short name, the status and the command to run, such as
+  `✗ claude-code@flexion          not granted (9 requests) · pot grant claude-code@flexion`. The marks are `✓`, `✗`
+  and `~`; `ok`, `no` and `~` when the output is not a terminal or the locale lacks UTF-8. A kit's identity is shown
+  only when its name does not imply it. The requests are listed only for a kit that asks for more (`     + …`) or
+  changed source (`   source: A -> B` and the diffstat). The new `--verbose` adds every identity and a
+  never-granted kit's requests.
+- **`pot explain`** has six sections with a blank line between them (the run, see, limits, reach, not in run,
+  backend), and wraps to the terminal's width (100 columns otherwise):
+  - the run section adds `next`: `ready`, or the grant to make, such as
+    `next       pot grant claude-code@personal (9 requests)`;
+  - the overlay's hooks are one row, `hooks      PreToolUse, PostToolUse, PostToolUseFailure (Bash|WebFetch); SessionStart`,
+    then `(pot's --settings overlay; /hooks does not list them)`;
+  - `env.set`, `file` and `dir` rows are grouped under their kit's short name, and a `dir` row's left-out entries say
+    `left out until KIT is granted:` when the kit is the cause;
+  - each protected path appears once, with its labels joined: `.githooks (pot, repo)`;
+  - the `not in run` items are filled under their row, not at column 72, one per line.
+- **`pot why`, the denials file, the exit line's denials and the 127 line** say what is missing, then `one run:` and
+  `permanent:` lines, and name a kit's home by the flake directory pot evaluated:
+
+  ```
+  pot (work): pot would refuse files.example.org:443 in a run here.
+    one run:   pot --net files.example.org …
+    permanent: requests.network in the repo kit (nix/agent-tools/flake.nix, perSystem)
+               or programs.pot.kits.daniel.requests.network, for every repository (home-manager switch)
+  ```
+
+  A repeated denial says `(not in this run, 3x).`. The exit line's `pot: --net X was for this run.` gives its
+  `permanent:` lines below.
+- **A word that reads as a file name** and names no path gets
+  `flake.nix: no such path here (pot why PATH answers paths; for a host, pot why flake.nix:443)`, never a `--net`
+  fix. In `--json` it is `"kind": "file"` with `"reached": false`: values, not a new field.
+- **A program the host lacks too** gets, from the start check and `pot why` on the host,
+  `pot (work): tsc is not in this run, nor on the host's PATH.` and
+  `  install it (for a repository's own tools, its package manager), then:` before the two lines.
+- **An unknown first word that the host lacks too** (`pot tsc`, `pot work tsc`, `pot -- tsc`) gets the not-found
+  form, then `  (tsc is not a context either: dispatch, host, inspect, work)`, in place of
+  `pot: unknown context or command NAME; contexts: …`. Exit 2, as before.
+- **Long startup and exit lines** wrap at the terminal's width (100 columns otherwise), with their continuations
+  indented.
+
+### Fixed
+- `pot why PATH --json` for a path that does not exist (`nope/x.nix`, `./x`) says `"reached": false` and exits 1;
+  v2.16.0 said `true` and exited 0. The text answer, `… no such path here …`, is unchanged.
+
 ## v2.16.0 - 2026-11-17
 
 A one-way boundary between graft and pot, graft's sandbox (experimental): graft calls one function of pot's,
