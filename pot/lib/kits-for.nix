@@ -24,9 +24,12 @@ let
   unit = where: u:
     if !(builtins.isAttrs u && u ? kit && u ? file && builtins.isString u.file)
     then throw "pot: kitsFor: ${where} is { kit; file; } (file: a string naming where the kit is written)"
-    else if u.kit ? packages then lib.warn "${u.file}: packages is tools' old name; packages goes in v2.17.0" u
     else u;
-  selfU = if self == null then null else unit "self" self;
+  # packages warns for the consumer's own kit only: a provider keeps packages until v2.17.0 (a v2.15.0
+  # consumer's graft refuses tools), and its consumers could not act on the warning
+  selfU = if self == null then null else
+    let u = unit "self" self; in
+    if u.kit ? packages then lib.warn "${u.file}: packages is tools' old name; packages goes in v2.17.0" u else u;
   scionUs = lib.mapAttrs (n: unit "scions.${n}") scions;
   units = lib.optional (selfU != null) selfU ++ lib.attrValues scionUs;
   manifest = u: kitLib.manifest { inherit (u) kit file; };

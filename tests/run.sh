@@ -1229,9 +1229,14 @@ EOF
   expect "the kit 1.1 one is not in it" test "$(jq -c '.scions | has("kknew")' "$work/kgk2/kit.json")" = false
   ran "kits: pot-kits has both" jq -c '.scions | keys' "$(nix build --no-link --print-out-paths .#pot-kits)/kit.json"
   expect "them" holds '"kknew","kktools"'
-  # perSystem's kit still names packages: kitsFor says it is tools' old name (F3)
+  # perSystem's kit still names packages: kitsFor says it is tools' old name (F3); a provider's packages
+  # does not warn (providers keep it until v2.17.0)
+  prov kkpkg
+  printf '{ pkgs, ... }: { kit.packages = [ pkgs.hello ]; }\n' > "$work/src/kkpkg/graft.nix" && release kkpkg v1.0.0
+  by_hand kkpkg && commit kkpkg
   ran "kits: packages warns" nix eval --no-eval-cache --raw ".#packages.$sys.pot-kits.drvPath"
-  expect "naming the file" holds "flake.nix (perSystem): packages is tools' old name; packages goes in v2.17.0"
+  expect "for the consumer's own kit" holds "flake.nix (perSystem): packages is tools' old name; packages goes in v2.17.0"
+  refuse "never for a provider's" holds "scions/kkpkg/graft.nix: packages"
   cd "$work"
 }
 
