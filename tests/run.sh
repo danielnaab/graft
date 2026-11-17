@@ -1783,6 +1783,9 @@ EOF
   (cd "$work/sbold15" && ran "pot: graft-kits only, at start" sb_loud true \
     && expect "names the flake and why" holds "has graft-kits only: its graft predates v2.16.0 (pot reads graft-kits until v2.17.0)")
   cd "$c"
+  # pot grant takes the name pot displays: this repository's (its folder, a local origin) (R4)
+  sb_ grant sbc </dev/null >/dev/null 2>"$work/r4.err" || true
+  refuse "pot: pot grant NAME, the displayed name" grep -q "no kit 'sbc' here" "$work/r4.err"
   # pot host CMD finds a command of the workspace's bundle that the host's PATH lacks (F7)
   ran "pot: pot host, a bundle kit's command" sb_ host sbk-tool
   expect "runs it" holds "sbk-tool hi"
