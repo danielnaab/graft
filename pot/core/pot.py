@@ -1406,7 +1406,8 @@ SCP_RE = re.compile(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^/].*")
 def classify(x, commands=()):
     """What pot why TARGET is about, decided once for its text and its --json: url (a git or web URL,
     scp-style user@host:path too), path (absolute, ~, relative with a /, or an existing name here),
-    var (an upper-case variable name), host (a name with a dot or a port), else command."""
+    command (a root kit's), var (an upper-case variable name), host (a name with a dot or a port), else
+    program (one on PATH, or not)."""
     if URL_RE.fullmatch(x) or SCP_RE.fullmatch(x):
         return "url"
     if x in commands:
@@ -1417,7 +1418,7 @@ def classify(x, commands=()):
         return "path"
     if "." in x or ":" in x:
         return "host"
-    return "command"
+    return "program"
 
 
 def reach_of(policy, target):
@@ -1526,7 +1527,8 @@ def answer_why(policy, x, home, facts, on_host=False):
         return any("grant" in s for s in i["sources"])
 
     answers = []
-    kind = classify(x)
+    # one decision, shared with --json (why_json): url, command (a root kit's), var, path, host, else a program
+    kind = classify(x, facts.get("commands") or {})
     if kind == "url":
         r = reach_of(policy, x)
         if r and r[0] == "network":
@@ -1537,13 +1539,15 @@ def answer_why(policy, x, home, facts, on_host=False):
         if r and r[0] == "file":
             p = os.path.realpath(r[1])
             return path_answer(policy, p, C.canon_path(p, home), pre, home, facts, srcs)[0]
-    # a kit command (and, below, a path of the same name)
-    if x in (facts.get("commands") or {}):
-        answers.append(f"{x} is {' and '.join(facts['commands'][x])}'s command: pot {x}")
+    # a root kit's command (and a path of the same name, after it)
+    if kind == "command":
+        ans = f"{x} is {' and '.join(facts['commands'][x])}'s command: pot {x}"
         if not os.path.lexists(x):
-            return answers[0]
+            return ans
+        p = os.path.realpath(x)
+        return ans + "\n" + path_answer(policy, p, C.canon_path(p, home), pre, home, facts, srcs)[0]
     # a variable
-    if not answers and C.ENV_RE.fullmatch(x) and x.upper() == x:
+    if kind == "var":
         if C.owned(x):
             return f"{x} is set by pot itself (a name pot owns)"
         if x in (facts.get("carried") or {}):
@@ -1558,16 +1562,12 @@ def answer_why(policy, x, home, facts, on_host=False):
         for i in hits:
             return f"{pre} {x} is requested by {srcs(i)}, not in {'a run here' if on_host else 'this run'} ({i.get('why', 'not granted')})"
         return f"{pre} {x} is not in {'a run here' if on_host else 'this run'}. one run: pot --env {x} …  permanent: {facts.get('envFix')}"
-    # a path
-    if x.startswith(("/", "~", ".")) or "/" in x or os.path.lexists(x):
+    # a path (an existing bare name too: flake.nix, nix/)
+    if kind == "path":
         p = os.path.realpath(C.expand(x, home)) if x.startswith("~") or x.startswith("/") else os.path.realpath(x)
-        cp = C.canon_path(p, home)
-        if not answers and not x.startswith(("/", "~", ".")) and "/" not in x:
-            answers.append(command_answer(policy, x, pre, facts, srcs, on_host))   # the command first
-        answers.append(path_answer(policy, p, cp, pre, home, facts, srcs)[0])
-        return "\n".join(answers)
+        return path_answer(policy, p, C.canon_path(p, home), pre, home, facts, srcs)[0]
     # a host
-    if "." in x or ":" in x:
+    if kind == "host":
         import fnmatch
         h, port = (x.lower().rpartition(":")[0], x.rpartition(":")[2]) if ":" in x else (x.lower(), None)
         for i in items:

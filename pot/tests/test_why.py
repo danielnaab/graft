@@ -38,7 +38,7 @@ class Classify(unittest.TestCase):
     def test_kinds(self):
         for t, k in [("ssh://git@h/x.git", "url"), ("git@github.com:o/r.git", "url"), ("https://h/x", "url"),
                      ("file:///tmp", "url"), ("/etc/passwd", "path"), ("~/.ssh", "path"), ("a/b", "path"),
-                     ("HOME", "var"), ("pypi.org", "host"), ("h:22", "host"), ("bash", "command")]:
+                     ("HOME", "var"), ("pypi.org", "host"), ("h:22", "host"), ("bash", "program")]:
             self.assertEqual(pot.classify(t), k, t)
 
     def test_command_first(self):
@@ -74,6 +74,42 @@ class Classify(unittest.TestCase):
         j = json.loads(out.getvalue())
         self.assertEqual((rc, j["kind"], j["reach"], j["reached"]), (1, "file", "/home/u/.ssh/id", False))   # reach: the path as given (N-a)
         self.assertIn("is hidden by your root", j["text"])
+
+
+class Agree(unittest.TestCase):
+    """R3-1: pot why's text and its --json come from one classification: an existing bare name (flake.nix, a
+    folder), a root kit command, a host and an ssh URL, on the host and in a run."""
+
+    def test_text_and_json_agree(self):
+        import io, contextlib, json, os, tempfile
+        d = tempfile.mkdtemp()
+        cwd = os.getcwd()
+        try:
+            os.chdir(d)
+            open("flake.nix", "w").close()
+            os.mkdir("nix")
+            pol = dict(POLICY, workspace=[{"id": "repo:x", "path": os.path.realpath(d)}], access="write",
+                       backend={"proved": []}, items=[dict(i, sources=[{"kit": "root:daniel", "grant": "g"}]) for i in POLICY["items"]])
+            facts = {"commands": {"claude": ["claude-code@personal"]}}
+            for on_host in (True, False):
+                text = lambda x: pot.answer_why(pol, x, "/home/u", facts, on_host=on_host)
+                for target, kind in [("flake.nix", "file"), ("nix", "file"), ("github.com", "network"),
+                                     ("ssh://forgejo@platform-vm:2222/daniel/graft.git", "git.fetch")]:
+                    out = io.StringIO()
+                    with contextlib.redirect_stdout(out):
+                        pot.why_json(pol, target, text, "/home/u", facts)
+                    j = json.loads(out.getvalue())
+                    self.assertEqual(j["kind"], kind, target)
+                    self.assertEqual(j["text"], text(target), target)
+                    self.assertNotIn("one run: pot --package", j["text"], target)
+                    if kind == "file":
+                        self.assertIn("is in the workspace", j["text"], target)
+                # a root kit command: a command in the text, and not a --json target
+                self.assertTrue(text("claude").startswith("claude is claude-code@personal's command"))
+                with self.assertRaises(pot.Usage):
+                    pot.why_json(pol, "claude", text, "/home/u", facts)
+        finally:
+            os.chdir(cwd)
 
 
 if __name__ == "__main__":
