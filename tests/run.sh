@@ -1628,7 +1628,7 @@ STUB
 
   # pot init
   local i=$work/sbinit
-  ran "pot: init" env GRAFT_SB_INIT_GRAFT="path:$graft" "$work/sbr/bin/pot" init "$i"
+  ran "pot: init" env POT_INIT_GRAFT="path:$graft" "$work/sbr/bin/pot" init "$i"
   expect "writes a flake" test -f "$i/flake.nix"
   expect "names mkRoot" grep -q "graft.lib.mkRoot" "$i/flake.nix"
   expect "with claude-code, its token file and nix" grep -q 'claude-token-personal' "$i/flake.nix"
