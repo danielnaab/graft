@@ -811,9 +811,10 @@ when an effective network item matches), `git.fetch` (an `ssh://` URL or the scp
 binding covers its remote) or `file` (a `file://` URL or a path, reached when the run sees it: in a workspace,
 granted, generated, in the store or under `/run/pot`; not when hidden, not in the run, or requested but not
 granted). pot classifies the target once, for the text answer and for `--json`, so a git URL never gets a path's
-answer. A bare word that names an existing path is a path (`pot why flake.nix`); one that does not, with a dot, is a
-host. A root kit's command is a command, for both (so `pot why --json nix` is a usage error where `nix` is a kit
-command). `reach` is a path as given. `--json` may come before or after the target. A command or a variable is a
+answer. A bare word that names an existing path (`flake.nix`, a folder `nix`) is answered as a path only, in text
+and `--json`; one that does not, with a dot, is a host. A root kit's command is answered in text as the command,
+then as the path when one of that name exists; `--json` refuses it (so `pot why --json nix` is a usage error where
+`nix` is a kit command). `reach` is a path as given. `--json` may come before or after the target. A command or a variable is a
 usage error (exit 2):
 `pot why --json answers a host, HOST:PORT, a git URL or a path; X is none (pot why X explains it)`. The git.fetch answers
 in `text`: `KEY is a bound git.fetch remote: a fetch goes through the ssh broker`, and
