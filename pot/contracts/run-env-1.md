@@ -29,7 +29,7 @@ The rest of a run's environment is described in pot's reference
 | Path | Contents |
 |---|---|
 | `/run/pot/policy.json` | The run's policy ([below](#policyjson-version-1)), read-only. |
-| `/run/pot/denials` | One line for each refused host and port, appended as they happen, read-only to the run: `pot (<context>): the run tried HOST:PORT (not in this run). one run: pot --net HOST …  permanent: <fix>` |
+| `/run/pot/denials` | One entry for each refused host and port, appended as it happens, read-only to the run: a line `pot (<context>): the run tried HOST:PORT (not in this run).`, then indented lines `  one run:   pot --net HOST …` and `  permanent: <fix>` (one more `             or <fix>` line for each other fix). Since v2.16.1; v2.16.0 wrote one line per entry. Read it as text: its layout is not part of this contract's shape. |
 
 ### policy.json, version 1
 
@@ -109,7 +109,7 @@ pot why TARGET --json      # TARGET: HOST, HOST:PORT, a git URL, or a path
 | `reach` | string | what was asked: `host:port`, a normalised remote key (`platform-vm:2222/daniel/graft`), or a path |
 | `reached` | boolean | whether the run reaches it |
 | `context` | string | the context answered for |
-| `text` | string | `pot why`'s answer in words |
+| `text` | string | `pot why`'s answer in words, as it prints it: a refusal has several lines, joined with `\n` (`pot (work): pot would refuse example.com:443 in a run here.\n  one run:   pot --net example.com …\n  permanent: …`); a file-like word that names no path, `flake.nix: no such path here (pot why PATH answers paths; for a host, pot why flake.nix:443)`, with `kind` `file` and `reached` false |
 
 | Target | `kind` | Reached when |
 |---|---|---|

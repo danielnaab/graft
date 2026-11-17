@@ -26,7 +26,8 @@ status: working
 | `protect` | list of strings | paths that every run here sees read-only: relative to the flake directory, or `**/NAME` anywhere in the repository |
 
 Each kit is a [kit/1](kit-1.md) value, with store paths as strings, plus `file`: a string naming where the kit
-is written, which pot's messages show (`the repo kit's requests.network (flake.nix (perSystem))`). pot never
+is written, which pot's messages show, after the flake directory pot evaluated (`requests.network in the repo kit
+(nix/agent-tools/flake.nix, perSystem)`). pot never
 builds that name from a convention of its own.
 
 The bundle says nothing about identity. pot establishes each scion kit's identity from `.gitmodules` and the

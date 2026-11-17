@@ -704,75 +704,110 @@ note that kit tools run as the run's own programs in v2.16.0. `--json` prints [p
 with `host`, it prints `argv       CMD` (and `(+ the transcript of run ID, as data)` with `--resume`).
 Inside a run, `pot explain` prints the same text as on the host; `--json` prints the run's policy.json.
 
-The rows: `run` (the command and its kit), `argv` (a kit command's program and arguments), `hooks` (the
-claude-code kit's overlay hooks, which Claude's `/hooks` does not list), `context`,
-`workspace`, `scions`, `see` (packages, `env.set`, `files`, and each read-only `dir` with its entries), `limits`
-(protected paths and the number of hidden paths), `reach` with the kit or grant of each item and each
-capability's binding, `children`, `not in run` (kits whose grants do not apply), `backend` (proved and lacking
-guarantees) and `note`. `pot explain --backend-command claude` prints the whole bubblewrap command and Claude's
-assembled arguments.
+The text has six sections, with a blank line between them: the run, `see`, `limits`, `reach`, `not in run` and
+`backend`. The run section is the summary: `run` (the command and its kit), `context`, `workspace` (and its
+`scions`), `next` (`ready`, or the grant to make: `pot grant KIT (N requests)`, `(N more)` or `(changed source)`,
+or `KIT is not a release tag at its URL: its grant does not apply`, one for each kit that applies here and is not
+granted as it is, joined with `;`), `argv` (a kit command's program and arguments) and `hooks` (the claude-code
+kit's overlay hooks on one row, which Claude's `/hooks` does not list). `see` lists the tools, then the `env.set`,
+`file` and `dir` rows grouped under their kit's short name (or `root`); under a `dir` row, `left out:` names the
+entries left out, and says `left out until KIT is granted:` when the kit is not granted. `limits` lists each
+protected path once, with every label that protects it (`.githooks (pot, repo)`), and the number of hidden paths.
+`reach` lists each item with the kit or grant that gives it and each capability's binding; then `children`. `not
+in run` lists, for each kit whose grant does not apply, its requests, filled under the row. `backend` gives the
+proved and lacking guarantees, and `note`. Rows wrap to the terminal's width, or 100 columns when the output is
+not a terminal (and in the run's `explain.txt`). `pot explain --backend-command claude` prints the whole bubblewrap
+command and Claude's assembled arguments.
 
-For Daniel's flexion-assistant (store hashes cut to `…`):
+For Daniel's flexion-assistant, before `claude-code@personal` is granted (store hashes cut to `…`):
 
 ```
 run        claude -> root:claude-code@personal
-argv       /home/daniel/.local/share/claude/versions/2.1.326 --settings /nix/store/…-pot-claude-overlay.json --mcp-config /run/pot/mcp.json --strict-mcp-config
-hooks      PostToolUse Bash|WebFetch (pot's --settings overlay; /hooks does not list it)
-hooks      PostToolUseFailure Bash|WebFetch (pot's --settings overlay; /hooks does not list it)
-hooks      PreToolUse Bash|WebFetch (pot's --settings overlay; /hooks does not list it)
-hooks      SessionStart * (pot's --settings overlay; /hooks does not list it)
 context    work: in-place, access write, bubblewrap; includes root:daniel
-workspace  repo:platform-vm:2222/daniel/flexion-assistant (write) ~/src/flexion-assistant
+workspace  repo:platform-vm:2222/daniel/flexion-assistant (write) /home/daniel/src/flexion-assistant
            scions: knowledge-base-kit, meeting-kit, notebook-kit
-see        standard tools (24) · glibc-2.40-66 (claude-code@personal) · graft-kits (repo)
-           env.set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 (claude-code@personal)
-           env.set CLAUDE_CONFIG_DIR=~/.claude (claude-code@personal)
-           env.set DISABLE_AUTOUPDATER=1 (claude-code@personal)
-           env.set NIX_LD=/nix/store/…-glibc-2.40-66/lib/ld-linux-x86-64.so.2 (claude-code@personal)
-           env.set NIX_LD_LIBRARY_PATH=/nix/store/…-gcc-14.3.0-lib/lib (claude-code@personal)
-           file /lib64/ld-linux-x86-64.so.2, read-only (claude-code@personal)
-           file ~/.claude/.claude.json, keys copied in at each start (claude-code@personal)
-           file ~/.claude/CLAUDE.md, read-only (claude-code@personal)
-           file ~/.claude/settings.json, read-only (claude-code@personal)
-           env.set TZ=America/Chicago (root)
-           dir ~/.claude/agents (read-only): 0 entries (claude-code@personal)
-           dir ~/.claude/commands (read-only): 0 entries (claude-code@personal)
-           dir ~/.claude/hooks (read-only): 0 entries (claude-code@personal)
-           dir ~/.claude/plugins (read-only): 10 entries (claude-code@personal)
-           dir ~/.claude/skills (read-only): 21 entries (claude-code@personal)
-             left out: address-pr-comments
-limits     protect: **/flake.nix **/flake.lock **/.gitmodules **/.envrc **/justfile **/.pre-commit-config.yaml
-                    .githooks **/.claude **/.mcp.json **/.pi **/.codex **/.vscode nix/agent-tools (pot)
-                    nix/agent-tools/ensure.sh .local .githooks AGENTS.md docs/boundaries.md **/graft.nix
+next       pot grant claude-code@personal (9 requests)
+argv       /home/daniel/.local/share/claude/versions/2.1.326 --settings
+           /nix/store/…-pot-claude-overlay.json --mcp-config
+           /run/pot/mcp.json --strict-mcp-config
+hooks      PreToolUse, PostToolUse, PostToolUseFailure (Bash|WebFetch); SessionStart
+           (pot's --settings overlay; /hooks does not list them)
+
+see        standard tools (24) · uv-0.13.4 (root) · bun-1.4.2 (root) · nodejs-22.23.4 (root) ·
+           graft (root) · glibc-2.44-57 (claude-code@personal) · pot-kits (repo)
+           claude-code@personal:
+             env.set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+             env.set CLAUDE_CONFIG_DIR=~/.claude
+             env.set DISABLE_AUTOUPDATER=1
+             env.set NIX_LD=/nix/store/…-glibc-2.44-57/lib/ld-linux-x86-64.so.2
+             env.set NIX_LD_LIBRARY_PATH=/nix/store/…-gcc-16.2.0-lib/lib
+             file /lib64/ld-linux-x86-64.so.2, read-only
+             file ~/.claude/.claude.json, keys copied in at each start
+             file ~/.claude/AGENTS.md, read-only
+             file ~/.claude/CLAUDE.md, read-only
+             file ~/.claude/settings.json, read-only
+             file ~/.claude/statusline-command.sh, read-only
+             dir ~/.claude/agents (read-only): 0 entries
+             dir ~/.claude/commands (read-only): 0 entries
+             dir ~/.claude/hooks (read-only): 0 entries
+             dir ~/.claude/plugins (read-only): 10 entries
+             dir ~/.claude/skills (read-only): 8 entries
+               left out until claude-code@personal is granted: cowork-context daily-note
+                 digital-strategy-decision grill-me homelab-ops meeting meeting-integrate
+                 meeting-prep meeting-summary meeting-synthesize session-retro vault-structured-doc
+                 workstation-edit wt-dispatch
+           root:
+             env.set TZ=America/Chicago
+           host memory: 3 files, read-only (what the run writes stays in its state)
+
+limits     protect: **/flake.nix **/flake.lock **/.gitmodules **/.envrc **/justfile
+                    **/.pre-commit-config.yaml **/.vscode **/.pi **/.codex nix/agent-tools (pot)
+                    .githooks (pot, repo)
+                    **/.mcp.json **/.claude (pot, claude-code@personal)
+                    nix/agent-tools/ensure.sh .local AGENTS.md docs/boundaries.md **/graft.nix
                     nix/agent-tools/.scions (repo)
-                    **/.claude **/.mcp.json (claude-code@personal)
-           hidden: 28 paths (pot explain --json lists them)
+           hidden: 31 paths (pot explain --json lists them)
+
 reach                                                                    granted by
-  network    api.anthropic.com:443                                          claude-code@personal
-  network    claude.ai:443                                                  claude-code@personal
+  network    api.anthropic.com:443                                          claude-code@personal: not granted
+  network    claude.ai:443                                                  claude-code@personal: not granted
   network    pypi.org:443                                                   daniel
-  network    mcp.crushingpennies.com:443 (mcp)                              claude-code@personal, binding
-  read       ~/.local/share/claude                                          claude-code@personal
-  read       ~/src/agent-skills                                             claude-code@personal
-  read       ~/src/agent-skills-private                                     claude-code@personal
-  state      claude -> ~/.claude                                            claude-code@personal
-  capability status.relay: workmux relay                                    claude-code@personal
-  capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN: file ~/.config/pot/claude-token-personal (the run holds it)
-                                                                            claude-code@personal
-  capability mcp metamcp: env METAMCP_API_KEY from ~/.config/metamcp/key.env (the run holds it)
-                                                                            claude-code@personal
+  network    files.pythonhosted.org:443                                     daniel
+  network    registry.npmjs.org:443                                         daniel
+  read       ~/.local/share/claude                                          claude-code@personal: not granted
+  read       ~/src/agent-skills-private                                     claude-code@personal: not granted
+  read       ~/src/agent-skills                                             claude-code@personal: not granted
+  state      claude -> ~/.claude                                            claude-code@personal: not granted
+  capability status.relay                                                   claude-code@personal: not granted
+  capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN       claude-code@personal: not granted
+  capability mcp sessions                                                   claude-code@personal: not granted
   capability nix: untrusted daemon relay: exposes the whole store read-only, drops closure-store
                                                                             flexion-assistant
-  capability git.fetch ssh://forgejo@platform-vm:2222/*: ssh broker (fetch only), the host's ssh agent
+  capability git.fetch ssh://forgejo@platform-vm:2222/*: ssh broker (fetch only), the host's ssh
+             agent
                                                                             daniel
 children   none (nesting comes in a later release)
-backend    bubblewrap proves own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files; lacks closure-store resource-limits separate-kernel nest
+
+not in run claude-code@flexion (root:claude-code@flexion): not granted:
+             capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN,
+             capability mcp sessions, capability status.relay, network api.anthropic.com:443,
+             network claude.ai:443, read ~/.local/share/claude, read ~/src/agent-skills,
+             read ~/src/agent-skills-private, state claude
+not in run claude-code@personal (root:claude-code@personal): not granted:
+             capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN,
+             capability mcp sessions, capability status.relay, network api.anthropic.com:443,
+             network claude.ai:443, read ~/.local/share/claude, read ~/src/agent-skills,
+             read ~/src/agent-skills-private, state claude
+
+backend    bubblewrap proves own-netns own-pidns no-tiocsti protected-as-mounts local-listen
+           in-place same-path-clone private-proxy root-files; lacks closure-store resource-limits
+           separate-kernel nest
 note       kit tools run as this run's own programs; sandboxing each kit command comes in a later release
 ```
 
 `daniel` here is the root kit that Daniel's `work` includes, and `flexion-assistant` is the repo kit's short
 name. The `nix` capability is why this run lacks `closure-store`. File modes are in words: `read-only` (`fixed`),
-`copied in once` (`seed`) and `keys copied in at each start` (`reassert`). Long rows wrap. The labels are
+`copied in once` (`seed`) and `keys copied in at each start` (`reassert`). The labels are
 `(pot)`, `(root)`, `(repo)` (the repo kit's, and its bundle's `protect`), `(<kit>)`, `(one run)` and `(<context>)`. A kit whose grant does not apply has no rows in `reach`; it is listed as `not in run NAME (ID): <status word>: …`. With
 host memory for the workspace, a `see` row says `host memory: N files, read-only …`.
 
@@ -792,15 +827,17 @@ every repository, and leaves that part out when the context includes none.
 | Asked about | Answer |
 |---|---|
 | A granted host | `api.anthropic.com:443 is granted (claude-code@personal); reaches pot claude runs`; for a repo or included kit, `; reaches every run here`; inside a run, `; in this run` |
-| A host not granted, on the host | `pot (work): pot would refuse example.com:443 in a run here. one run: pot --net example.com …  permanent: the repo kit's requests.network (flake.nix (perSystem)), or programs.pot.kits.standing.requests.network for every repository (home-manager switch)` |
-| A host not granted, inside a run | `pot (work): the run tried example.com:443 (not in this run). one run: pot --net example.com …  permanent: …` |
+| A host not granted, on the host | three lines: `pot (work): pot would refuse example.com:443 in a run here.`, `  one run:   pot --net example.com …`, `  permanent: requests.network in the repo kit (nix/agent-tools/flake.nix, perSystem)`, and, when the context includes a kit, a fourth: `             or programs.pot.kits.standing.requests.network, for every repository (home-manager switch)` ([below](#pot-why-answers)) |
+| A host not granted, inside a run | the same lines, starting `pot (work): the run tried example.com:443 (not in this run).` |
+| A word that reads as a file name and names no path | `flake.nix: no such path here (pot why PATH answers paths; for a host, pot why flake.nix:443)`; for a relative path with `/`, `nix/agent-tools/flake.nix: no such path here (pot why PATH answers paths)`. Never a `--net` fix. A word reads as a file name when its last label is `.nix`, `.md`, `.json`, `.yaml`, `.yml`, `.toml`, `.txt`, `.lock`, `.sh`, `.py`, `.ts` or `.js`, with no `:`. |
+| A program not in the run | `pot (work): no-such-tool-x is not in this run.` (on the host, `… is not in a run here, nor on the host's PATH.` when the host lacks it too, then `  install it (for a repository's own tools, its package manager), then:`), then the `one run:` and `permanent:` lines ([below](#pot-why-answers)) |
 | A kit command | `claude is claude-code@personal's command: pot claude`. A name that is also a workspace path (`nix`) gets both answers, command first. |
 | A variable that a binding carries | `CLAUDE_CODE_OAUTH_TOKEN is carried by claude-code@personal's credential (file ~/.config/pot/claude-token-personal (the run holds it)), in pot claude runs`. It never suggests `--env`. |
 | `nix`, in a run with the `nix` capability | `nix is in this run: the host's nix, through the nix capability's relay` |
 | A file `pot` generates | `/etc/passwd is readable: pot generates it for each run` |
 | A store path | `… is readable: in the store, which this run sees as its closure (another path is absent)`; in a run with `nix`, `… which this run sees whole` |
 | A path a request reads | `~/src/agent-skills is readable: read ~/src/agent-skills (claude-code@personal)` |
-| A path not in the run | `pot (work): ~/src/other is not in this run: pot --read ~/src/other (one run), or pot --repo ~/src/other for a repository; permanent: …` |
+| A path not in the run | `pot (work): ~/src/other is not in this run.`, then `  one run:   pot --read ~/src/other …, or pot --repo ~/src/other for a repository` and the `permanent:` lines |
 | A hidden path | `pot (work): ~/.ssh is hidden by your root in every run (~/.ssh, …)` |
 | A protected path | `pot (work): justfile is protected (**/justfile, graft): edit it on the host` |
 
@@ -820,6 +857,32 @@ usage error (exit 2):
 in `text`: `KEY is a bound git.fetch remote: a fetch goes through the ssh broker`, and
 `pot (work): KEY is not a bound git.fetch remote, so a fetch from it is refused`. This is the contract
 [run-env/1](../../pot/contracts/run-env-1.md#pot-why-target---json); `graft check` asks it inside a run.
+
+#### pot why answers
+
+A refusal is three short lines, or more when there are several permanent fixes:
+
+```
+pot (work): pot would refuse files.example.org:443 in a run here.
+  one run:   pot --net files.example.org …
+  permanent: requests.network in the repo kit (nix/agent-tools/flake.nix, perSystem)
+             or programs.pot.kits.daniel.requests.network, for every repository (home-manager switch)
+```
+
+The kit's home is the flake directory pot evaluated and the bundle's `file`: `nix/agent-tools/flake.nix,
+perSystem`. A program:
+
+```
+pot (work): no-such-tool-x is not in a run here, nor on the host's PATH.
+  install it (for a repository's own tools, its package manager), then:
+  one run:   pot --package PKG …
+  permanent: programs.pot.tools (home-manager switch)
+             or tools in the repo kit (nix/agent-tools/flake.nix, perSystem)
+```
+
+A variable: `pot (work): X is not in a run here.` (`… this run.` inside), then `  one run:   pot --env X …`. A path
+outside the run: `pot (work): P is not in this run.`, then `  one run:   pot --read P …, or pot --repo P for a
+repository`.
 
 ### pot grant
 
@@ -845,9 +908,32 @@ pot grant [KIT...] [--revoke KIT] [--diff] [--workspace PATH]
   ```
 
   It is refused under an agent marker, and without a terminal: `… confirm at a terminal, or name one`.
-- `--diff` lists each grant that changed since this machine last read the file (`changed since this machine last
-  read it: ID`, or `… (revoked)`), with its `  + request` and `  - request` lines, then each kit as
-  `NAME (ID): <status word>`. It changes nothing, and acknowledges the changed-file line.
+- `--diff [--verbose]` changes nothing, and acknowledges the changed-file line. It starts with a summary, then
+  one line per kit, the names aligned:
+
+  ```
+  3 kits granted · 2 not granted
+  ✗ claude-code@flexion          not granted (9 requests) · pot grant claude-code@flexion
+  ✓ claude-code@flexion-bedrock  granted
+  ✗ claude-code@personal         not granted (9 requests) · pot grant claude-code@personal
+  ✓ daniel                       granted
+  ✓ flexion-assistant            granted
+  ```
+
+  - The summary counts `granted`, `not granted`, `asks for more`, `changed source`, `unverified` and `requests
+    nothing`, leaving out zero counts.
+  - The mark is `✓` (granted, requests nothing), `✗` (not granted, unverified) or `~` (asks for more, changed
+    source). When the output is not a terminal, or `LC_ALL`, `LC_CTYPE` or `LANG` lacks UTF-8, the marks are `ok`,
+    `no` and `~`.
+  - After the status: `(N requests)` for a kit not granted, `(N more)` for one that asks for more, and
+    `· pot grant NAME` for each kit to grant.
+  - The identity follows in parentheses only when the short name does not imply it, or with `--verbose`:
+    `ok daniel                       granted (root:daniel)`.
+  - A kit that asks for more lists its new requests below it (`     + network api.github.com:443`); a changed
+    source shows `   source: tree A -> tree B` and the diffstat. A never-granted kit's requests appear only with
+    `--verbose`.
+  - Then each grant that changed since this machine last read the file: `changed since this machine last read it:
+    ID` (or `… (revoked)`), with its `  + request` and `  - request` lines.
 - An entry whose digest does not match stops every run, but not `pot grant`: it sets such entries aside
   (`pot grant: set aside N entries whose digest does not match: IDs (grant again to replace)`), so `--revoke` and
   a new grant repair the file.
@@ -949,17 +1035,23 @@ After the run, `pot` prints lines on stderr only when it has something to say:
 
 ```
 pot: run 7f3a · exit 1
-pot (work): the run tried pypi.org:443 (not in this run). one run: pot --net pypi.org …  permanent: the repo kit's requests.network (flake.nix (perSystem)), or programs.pot.kits.standing.requests.network for every repository (home-manager switch) (3x)
+pot (work): the run tried pypi.org:443 (not in this run, 3x).
+  one run:   pot --net pypi.org …
+  permanent: requests.network in the repo kit (nix/agent-tools/flake.nix, perSystem)
+             or programs.pot.kits.standing.requests.network, for every repository (home-manager switch)
 pot: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from: evil/.git, …
 pot: the run changed host-run files (review before the host runs them): justfile, …
 pot: 2 unsigned commits: sign on the host with git rebase --exec 'git commit --amend --no-edit -S' <base>
 pot: the run wrote 2 memory files (notes.md, todo.md): copies in ~/.local/state/pot/runs/7f3a/memory-out/-home-me-src-team-kb
 pot: resume this session with: pot claude --resume 4c1e…
-pot: --net pypi.org:443 was for this run; permanent: the repo kit's requests.network (flake.nix (perSystem)), or programs.pot.kits.standing.requests.network for every repository (home-manager switch)
+pot: --net pypi.org:443 was for this run.
+  permanent: requests.network in the repo kit (nix/agent-tools/flake.nix, perSystem)
+             or programs.pot.kits.standing.requests.network, for every repository (home-manager switch)
 ```
 
 - The run's id first, and its exit status when it is not 0. `pot host --resume ID` takes it.
-- The denials: one line for each refused host and port, with its fix, and ` (Nx)` when repeated.
+- The denials: one for each refused host and port, with its fixes, and `, Nx` in the parentheses when repeated.
+  A long line wraps at the terminal's width (else 100 columns), its continuations indented four spaces.
 - New git metadata and gitlinks, and changed host-run files.
 - Unsigned commits on local branches and `HEAD` (never `refs/remotes`), only when your git config signs
   (`commit.gpgsign`). On a branch with no commit yet, the hint is
@@ -1012,9 +1104,19 @@ pot: --net pypi.org:443 was for this run; permanent: the repo kit's requests.net
 | A `credential`'s variables | The bound value, such as `CLAUDE_CODE_OAUTH_TOKEN`, read on the host at start. |
 | An `mcp` binding's `env` | The MCP key, such as `METAMCP_API_KEY`. |
 
-A program that is not in the run fails with exit 127 and
-`pot (work): NAME is not in this run. one run: pot --package PKG …  permanent: programs.pot.tools (home-manager switch), or the repo kit's tools (flake.nix (perSystem))`
-(the start check's fix, for this root and repository): from bash's handler, or from a not-found shim. The
+A program that is not in the run fails with exit 127 and (the start check's fix, for this root and repository):
+
+```
+pot (work): rg is not in this run.
+  one run:   pot --package PKG …
+  permanent: programs.pot.tools (home-manager switch)
+             or tools in the repo kit (nix/agent-tools/flake.nix, perSystem)
+```
+
+When the host lacks the program too, the start check says so, before the same two lines:
+`pot (work): tsc is not in this run, nor on the host's PATH.` and
+`  install it (for a repository's own tools, its package manager), then:`. bash's handler inside a run cannot see
+the host's `PATH`, so it keeps the first form. The message comes from bash's handler, or from a not-found shim. The
 handler is also exported to the run as the function `BASH_FUNC_command_not_found_handle%%`, for a bash that skips
 `BASH_ENV`. Shims exist only for host-only programs: `nix` (without the capability: `nix needs the nix capability: the repo kit's requests.capabilities = [ { name = "nix"; } ], then pot grant`),
 `nix-build`, `nix-shell`, `ssh`, `scp`, `sudo`, `systemctl`, `docker`, `home-manager`, `darwin-rebuild` and
@@ -1114,32 +1216,35 @@ run tried"; on the host, `pot why` says "would". The fix is a form, not a comman
 A network refusal has one phrasing, in the denials file, on the exit line and from `pot why` inside a run:
 
 ```
-pot (work): the run tried HOST:PORT (not in this run). one run: pot --net HOST …  permanent: FIX
+pot (work): the run tried HOST:PORT (not in this run).
+  one run:   pot --net HOST …
+  permanent: FIX
+             or FIX
 ```
 
 For a port other than 443, the one-run flag names it: `pot --net HOST:80 …`.
 
-The exit line adds ` (Nx)` when it repeated. A request the proxy cannot read is
+The exit line adds a count when it repeated: `(not in this run, 3x).` A request the proxy cannot read is
 `pot (work): the run sent the proxy a malformed request`.
 
 The permanent fix depends on the root and the repository:
 
 | Where | Fix |
 |---|---|
-| A graft consumer | `the repo kit's requests.network (perSystem.kit)` |
+| A graft consumer | `requests.network in the repo kit (nix/agent-tools/flake.nix, perSystem)`; with no repo kit in the bundle, `requests.network in a repo kit for nix/agent-tools (the flake pot evaluated)` |
 | Another repository, home-manager root | `programs.pot.repoKits."<key>".requests.network (home-manager switch)` |
 | Another repository, mkRoot root | `repoKits."<key>".requests.network (rebuild the root)` |
-| The context includes a kit | then `, or programs.pot.kits.standing.requests.network for every repository (home-manager switch)` (no `programs.pot.` prefix and `(rebuild the root)` for an mkRoot root) |
-| The command is a scion kit's | `meeting-kit's requests.network (its graft.nix: a kit release)` |
-| `--package` | `programs.pot.tools (home-manager switch), or <the repo fix, for packages>` |
+| The context includes a kit | then a line `or programs.pot.kits.standing.requests.network, for every repository (home-manager switch)` (no `programs.pot.` prefix and `(rebuild the root)` for an mkRoot root) |
+| The command is a scion kit's | `requests.network in meeting-kit's kit (nix/agent-tools/.scions/meeting-kit/graft.nix: a kit release)` |
+| `--package` | `programs.pot.tools (home-manager switch)`, then a line `or tools in the repo kit (…)` |
 
 The other messages, after `pot (<context>): `:
 
 | Denial | Message |
 |---|---|
-| A program (exit 127) | `rg is not in this run. one run: pot --package PKG …  permanent: programs.pot.tools (home-manager switch), or the repo kit's tools (flake.nix (perSystem))` |
+| A program (exit 127) | `rg is not in this run.`, then the `one run:` and `permanent:` lines ([above](#environment)) |
 | Requested, not granted (`pot why`) | `api.github.com:443 is requested by git:…/meeting-kit (…), not in this run (not granted): pot grant` |
-| Outside the workspace (`pot why`) | `~/src/other is not in this run: pot --read ~/src/other (one run), or pot --repo ~/src/other for a repository; permanent: …` |
+| Outside the workspace (`pot why`) | `~/src/other is not in this run.`, then `  one run:   pot --read ~/src/other …, or pot --repo ~/src/other for a repository` and the `permanent:` lines |
 | Hidden (`pot why`) | `~/.ssh is hidden by your root in every run (~/.ssh, …)` |
 | Hidden `--repo` | `--repo ~/.ssh/x: ~/.ssh/x is hidden by your root in every run` |
 | Protected (`pot why`) | `justfile is protected (**/justfile, graft): edit it on the host` |

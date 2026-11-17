@@ -109,7 +109,10 @@ The agent reads it from the denials file, through its hook, and tells you in its
 the exit line lists it:
 
 ```
-pot (work): the run tried pypi.org:443 (not in this run). one run: pot --net pypi.org …  permanent: the repo kit's requests.network (perSystem.kit), or programs.pot.kits.standing.requests.network for every repository (home-manager switch)
+pot (work): the run tried pypi.org:443 (not in this run).
+  one run:   pot --net pypi.org …
+  permanent: requests.network in the repo kit (flake.nix, perSystem)
+             or programs.pot.kits.standing.requests.network, for every repository (home-manager switch)
 ```
 
 1. Ask `pot` where the item would come from:
