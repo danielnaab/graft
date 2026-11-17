@@ -142,7 +142,13 @@ def repo_of(host, path):
 def submodule_paths(host, top):
     """The submodule paths .gitmodules names at HEAD (never the working tree), in its order."""
     r = run_git(host, top, "config", "--blob", "HEAD:.gitmodules", "--get-regexp", r"^submodule\..*\.path$")
-    return [line.partition(" ")[2] for line in r.stdout.splitlines() if line.partition(" ")[2]]
+    paths = [line.partition(" ")[2] for line in r.stdout.splitlines() if line.partition(" ")[2]]
+    if not paths:
+        return []
+    # only those whose gitlink is a commit at HEAD (as scions_of): a stale .gitmodules entry is no fact
+    ls = run_git(host, top, "ls-tree", "HEAD", "--", *paths).stdout.splitlines()
+    linked = {l.split("\t", 1)[1] for l in ls if "\t" in l and l.split()[1] == "commit"}
+    return [p for p in paths if p.rstrip("/") in linked]
 
 
 def flake_dir(host, top):
@@ -345,7 +351,8 @@ def read_bundle(host, out, bundle, fdir, ctxname):
     try:
         C.validate_bundle(k, f"{C.canon_path(fdir, host.home)}#{bundle}")
     except C.KitError as e:
-        raise C.Refusal(f"pot ({ctxname}): {e.message}: take a pot that reads it, or run pot host CMD") from None
+        fix = ", or run pot host CMD" if e.message.endswith("take a newer pot") else ": take a pot that reads it, or run pot host CMD"
+        raise C.Refusal(f"pot ({ctxname}): {e.message}{fix}") from None
     return k
 
 
@@ -368,8 +375,10 @@ def workspace_facts(host, paths, ctx, cache):
         if out is not None:
             fdir = os.path.join(r["top"], rel) if rel else r["top"]
             kitjson = read_bundle(host, out, bundle, fdir, ctx["name"])
+            r["bundle"], r["flakePath"] = bundle, fdir
             selfk = kitjson.get("self")
-            r["repoKit"] = {"manifest": selfk or {}, "file": (selfk or {}).get("file") or "flake.nix"}
+            # a bundle with no repo kit (self: null) names no file: messages name the flake pot evaluated
+            r["repoKit"] = {"manifest": selfk or {}, "file": (selfk or {}).get("file")}
             # §9: what the bundle has pot protect, relative to the flake directory ("**/NAME" anywhere)
             r["bundleProtect"] = [p if p.startswith("**/") or not rel else f"{rel}/{p}"
                                   for p in kitjson.get("protect") or []]
@@ -566,6 +575,8 @@ def parse(argv, root):
         verb, i = argv[0], 1
     elif argv and argv[0] in ctxs:
         context, i = argv[0], 1
+    if verb in ("runs", "doctor"):
+        raise Usage(f"pot {verb} comes in a later release")
     flags = {"package": [], "read": [], "write": [], "net": [], "env": [], "repo": []}
     rest = argv[i:]
     cmd = []
@@ -605,6 +616,9 @@ def parse(argv, root):
             if key == "account":
                 err("pot: --account is --instance; --account goes in v2.17.0")
                 key = "instance"
+                flags["instanceForm"] = "--account"
+            elif key == "instance":
+                flags["instanceForm"] = "--instance"
             if key in flags and isinstance(flags[key], list):
                 flags[key].append(val)
             else:
@@ -627,8 +641,9 @@ def parse(argv, root):
         base, _, inst = cmd[0].partition("@")
         if inst and any(base in (k.get("commands") or {}) for k in (root.get("kits") or {}).values()):
             if flags.get("instance") and flags["instance"] != inst:
-                raise Usage(f"{cmd[0]} and --instance {flags['instance']} name two instances")
+                raise Usage(f"{cmd[0]} and {flags.get('instanceForm', '--instance')} {flags['instance']} name two instances")
             flags["instance"] = inst
+            flags["instanceForm"] = "@"
             cmd = [base] + cmd[1:]
     for a in cmd[1:]:
         if a.partition("=")[0] in (FLAG_ARGS | FLAG_BOOL) - {"--resume", "--continue", "--account", "--instance"}:
@@ -785,6 +800,10 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
         if os.path.isdir(os.path.join(w["top"], ".githooks")) and not run_git(host, w["top"], "config", "core.hooksPath").stdout.strip():
             report["notes"].append(f"{os.path.basename(w['top'])} has .githooks but core.hooksPath is unset: commits run no hook "
                                    "(git config core.hooksPath .githooks, on the host)")
+    for w in ws:
+        if w.get("bundle") == "graft-kits":
+            report["notes"].append(f"{C.canon_path(w['flakePath'], host.home)} has graft-kits only: its graft predates "
+                                   "v2.16.0 (pot reads graft-kits until v2.17.0)")
     fixed_dirs(host, root, policy, report, ws)
     credential_notes(report)
     agent = command_agent(root, report)
@@ -1012,6 +1031,7 @@ def run(host, root, context, flags, cmd):
         launch = launch_facts(host, root, policy, ws, flags, report["argv"])
         launch["netFix"] = C.permanent_fix("--net", "", report, root)
         launch["pkgFix"] = C.permanent_fix("--package", "", report, root)
+        launch["toolsFix"] = "".join(C.root_paths(root)[0]) + "tools"
         launch["root"] = {"contexts": root.get("contexts") or {}}
         with open(os.path.join(rundir, "policy.json"), "w") as f:
             json.dump(policy, f, indent=1)
@@ -1048,7 +1068,8 @@ def run(host, root, context, flags, cmd):
         if run_git(host, launch["cwd"], "config", "--bool", "commit.gpgsign").stdout.strip() != "true":
             ev["unsigned"] = 0    # the host does not sign: nothing to say
         lines = exit_lines(ev, policy, report, root) + mirror_lines(host, policy, report, rundir) \
-            + resume_lines(policy, report, flags, started)
+            + resume_lines(policy, report, started, report["command"].get("instance"),
+                           report["command"].get("defaultInstance"))
         say(f"pot: run {rid}" + (f" · exit {status}" if status else ""))
         for line in lines:
             err(line)
@@ -1063,9 +1084,10 @@ def run(host, root, context, flags, cmd):
             subprocess.run([prog, "cleanup", rundir])
 
 
-def resume_lines(policy, report, flags, started):
+def resume_lines(policy, report, started, instance, default):
     """The command kit's agent.resume: its newest transcript written in this run, as the pot command
-    that resumes it in the same scope (pot [CONTEXT] CMD[@INSTANCE] ARGS)."""
+    that resumes it in the same scope (pot [CONTEXT] CMD[@INSTANCE] ARGS; @INSTANCE when the chosen
+    instance is not the kit's default)."""
     cmd = report.get("command") or {}
     spec = report.get("resume")
     if not cmd.get("kit") or not spec:
@@ -1075,9 +1097,7 @@ def resume_lines(policy, report, flags, started):
         return []
     name = os.path.basename(max(found, key=os.path.getmtime))
     sid = name[:-len(spec["suffix"])] if spec["suffix"] and name.endswith(spec["suffix"]) else name
-    # @INSTANCE when it is not the kit's default (the startup line's "instance X" note says so)
-    inst = cmd["kit"].partition("@")[2] if cmd["kit"].startswith("root:") else ""
-    at = f"@{inst}" if inst and f"instance {inst}" in (report.get("notes") or []) else ""
+    at = f"@{instance}" if instance and instance != default else ""
     ctx = "" if policy["context"] == "work" else f" {policy['context']}"
     args = " ".join(a.replace("{id}", sid) for a in spec["args"])
     return [f"pot: resume this session with: pot{ctx} {cmd['name']}{at} {args}"]
@@ -1193,9 +1213,10 @@ def check_command(policy, launch, ctx, given=True):
     if name == "nix" and nix and any(b["capability"] == "nix" for b in policy.get("bindings") or []):
         return       # the host's nix, on the run's PATH through the nix capability (bwrap.run_env)
     if given and not shutil.which(name):
-        raise C.Refusal(f"pot: unknown context or command {name}; contexts: {', '.join(C.context_names(launch.get('root') or {}))}", 2)
+        raise C.Refusal(f"pot: unknown context or command {name}; contexts: {', '.join(C.context_names(launch.get('root') or {}))}; "
+                        f"a program every run here should have goes in the root's tools ({launch.get('toolsFix') or 'tools'})", 2)
     raise C.Refusal(f"pot ({ctx['name']}): {name} is not in this run. one run: pot --package PKG …  "
-                    f"permanent: {launch.get('pkgFix') or 'programs.pot.tools, or the repo kit packages'}", 127)
+                    f"permanent: {launch.get('pkgFix') or 'programs.pot.tools, or the repo kit tools'}", 127)
 
 
 def host_run(host, root, ctx, flags, cmd, quiet_line=False):
@@ -1204,6 +1225,7 @@ def host_run(host, root, ctx, flags, cmd, quiet_line=False):
         cmd = [os.environ.get("SHELL") or "bash"]
     if flags.get("resume"):
         cmd = cmd + [resume_prompt(host, flags["resume"])]
+    cmd = [bundle_command(host, ctx, cmd[0]) or cmd[0]] + cmd[1:]
     rid, rundir = new_run_id(host)
     by = "person" if sys.stdin.isatty() else "script"
     if not quiet_line:
@@ -1217,6 +1239,29 @@ def host_run(host, root, ctx, flags, cmd, quiet_line=False):
         status = 127
     log(rundir, {"ev": "exit", "by": "host", "status": status})
     return status
+
+
+def bundle_command(host, ctx, name):
+    """pot host NAME, when NAME is not on the host's PATH: a command of a kit in this workspace's bundle
+    (pot-kits: a kit command's program, else its bin/), so the fix pot offers for an unverified scion's
+    command (pot host NAME) runs it. None when there is none."""
+    import shutil
+    if "/" in name or shutil.which(name):
+        return None
+    r = repo_of(host, os.getcwd())
+    rel = flake_dir(host, r["top"]) if r else None
+    if rel is None:
+        return None
+    out, bundle = repo_kit(host, r, rel, ctx["name"])
+    if out is None:
+        return None
+    k = read_bundle(host, out, bundle, os.path.join(r["top"], rel) if rel else r["top"], ctx["name"])
+    for kit in [k.get("self") or {}] + list((k.get("scions") or {}).values()):
+        prog = ((kit.get("commands") or {}).get(name) or {}).get("program")
+        if isinstance(prog, str) and prog.startswith("/nix/store/") and os.access(prog, os.X_OK):
+            return prog
+    b = os.path.join(out, "bin", name)
+    return b if os.access(b, os.X_OK) else None
 
 
 def transcripts(rundir, since=False):
@@ -1354,6 +1399,25 @@ def why_args(flags, args):
     return args
 
 
+URL_RE = re.compile(r"(https?|git|ssh|git\+ssh|file)://.*")
+SCP_RE = re.compile(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^/].*")
+
+
+def classify(x):
+    """What pot why TARGET is about, decided once for its text and its --json: url (a git or web URL,
+    scp-style user@host:path too), path (absolute, ~, relative with a /, or an existing name here),
+    var (an upper-case variable name), host (a name with a dot or a port), else command."""
+    if URL_RE.fullmatch(x) or SCP_RE.fullmatch(x):
+        return "url"
+    if C.ENV_RE.fullmatch(x) and x.upper() == x:
+        return "var"
+    if x.startswith(("/", "~", ".")) or "/" in x or os.path.lexists(x):
+        return "path"
+    if "." in x or ":" in x:
+        return "host"
+    return "command"
+
+
 def reach_of(policy, target):
     """What TARGET reaches (contract run-env/1, pot why --json): a host, host:port or git URL, as
     (kind, reach, reached); None for anything else. https/http: the network reach of the run;
@@ -1378,9 +1442,9 @@ def reach_of(policy, target):
             return None
         return h, int(p) if p else port
 
-    if t.startswith("file://") or t.startswith("/"):
-        path = t[len("file://"):] if t.startswith("file://") else t
-        return "file", path, os.path.exists(path)
+    if t.startswith("file://"):
+        path = t[len("file://"):]
+        return "file", path, None
     m = re.fullmatch(r"(https?|git|ssh|git\+ssh)://([^/?#]+)(.*)", t)
     if m and m.group(1) in ("https", "http", "git"):
         hp = hostport(m.group(2), {"https": 443, "http": 80, "git": 9418}[m.group(1)])
@@ -1401,12 +1465,25 @@ def reach_of(policy, target):
     return None
 
 
-def why_json(policy, target, text):
-    r = reach_of(policy, target)
+def why_json(policy, target, text, home):
+    """pot why TARGET --json (run-env/1): a host, HOST:PORT, URL or path, answered from the policy (on the
+    host, a run of the default context here; inside, this run), as the text answer is."""
+    kind = classify(target)
+    r = None
+    if kind in ("url", "host"):
+        r = reach_of(policy, target)
+    elif kind == "path":
+        p = os.path.realpath(C.expand(target, home)) if target.startswith(("~", "/")) else os.path.realpath(target)
+        r = ("file", p, None)
     if r is None:
-        raise Usage(f"pot why --json answers a host, HOST:PORT or a git URL; {target} is none (pot why {target} explains it)")
+        raise Usage(f"pot why --json answers a host, HOST:PORT, a git URL or a path; {target} is none (pot why {target} explains it)")
     kind, reach, reached = r
-    if kind == "git.fetch":
+    if kind == "file":
+        msg, reached = path_answer(policy, reach, C.canon_path(reach, home), f"pot ({policy['context']}):", home,
+                                   {}, lambda i: ", ".join(dict.fromkeys(l for l in (C.label(s) for s in i["sources"]) if l)) or "pot")
+        reach = C.canon_path(reach, home)
+        msg = text(target)
+    elif kind == "git.fetch":
         msg = (f"{reach} is a bound git.fetch remote: a fetch goes through the ssh broker" if reached else
                f"pot ({policy['context']}): {reach} is not a bound git.fetch remote, so a fetch from it is refused")
     else:
@@ -1426,7 +1503,7 @@ def why(host, root, flags, args):
         scratch_done(host, tmp)
     facts = why_facts(policy, report, root)
     if flags.get("json"):
-        return why_json(policy, args[0], lambda x: answer_why(policy, x, host.home, facts, on_host=True))
+        return why_json(policy, args[0], lambda x: answer_why(policy, x, host.home, facts, on_host=True), host.home)
     print(visible(answer_why(policy, args[0], host.home, facts, on_host=True)))
     return 0
 
@@ -1447,6 +1524,17 @@ def answer_why(policy, x, home, facts, on_host=False):
         return any("grant" in s for s in i["sources"])
 
     answers = []
+    kind = classify(x)
+    if kind == "url":
+        r = reach_of(policy, x)
+        if r and r[0] == "network":
+            return answer_why(policy, r[1], home, facts, on_host)
+        if r and r[0] == "git.fetch":
+            return (f"{r[1]} is a bound git.fetch remote: a fetch goes through the ssh broker" if r[2] else
+                    f"{pre} {r[1]} is not a bound git.fetch remote, so a fetch from it is refused")
+        if r and r[0] == "file":
+            p = os.path.realpath(r[1])
+            return path_answer(policy, p, C.canon_path(p, home), pre, home, facts, srcs)[0]
     # a kit command (and, below, a path of the same name)
     if x in (facts.get("commands") or {}):
         answers.append(f"{x} is {' and '.join(facts['commands'][x])}'s command: pot {x}")
@@ -1474,7 +1562,7 @@ def answer_why(policy, x, home, facts, on_host=False):
         cp = C.canon_path(p, home)
         if not answers and not x.startswith(("/", "~", ".")) and "/" not in x:
             answers.append(command_answer(policy, x, pre, facts, srcs, on_host))   # the command first
-        answers.append(path_answer(policy, p, cp, pre, home, facts, srcs))
+        answers.append(path_answer(policy, p, cp, pre, home, facts, srcs)[0])
         return "\n".join(answers)
     # a host
     if "." in x or ":" in x:
@@ -1512,10 +1600,11 @@ def command_answer(policy, x, pre, facts, srcs, on_host):
 
 
 def path_answer(policy, p, cp, pre, home, facts, srcs):
+    """(text, reached): whether a run here (inside: this run) reads P, and why."""
     items = policy["items"]
     for i in items:
         if i["kind"] == "hidden" and any(C.under(p, h) for h in i.get("paths", [])):
-            return f"{pre} {cp} is hidden by your root in every run ({i['value']}, {srcs(i)})"
+            return f"{pre} {cp} is hidden by your root in every run ({i['value']}, {srcs(i)})", False
     for w in policy["workspace"]:
         if C.under(p, w["path"]):
             rel = p[len(w["path"]) + 1:]
@@ -1523,8 +1612,8 @@ def path_answer(policy, p, cp, pre, home, facts, srcs):
                 if i["kind"] == "protect" and policy["access"] == "write" and rel and (
                         (i["value"].startswith("**/") and i["value"][3:] in rel.split("/"))
                         or rel == i["value"] or rel.startswith(i["value"].rstrip("/") + "/")):
-                    return f"{pre} {rel} is protected ({i['value']}, {srcs(i)}): edit it on the host"
-            return f"{cp} is in the workspace {w['id']} ({policy['access']})"
+                    return f"{pre} {rel} is protected ({i['value']}, {srcs(i)}): edit it on the host", True
+            return f"{cp} is in the workspace {w['id']} ({policy['access']})", True
     best = None
     for i in items:
         if i["kind"] in ("read", "write", "socket") and i.get("path") and C.under(p, i["path"]):
@@ -1532,22 +1621,22 @@ def path_answer(policy, p, cp, pre, home, facts, srcs):
                 best = i
     if best:
         if best["effective"]:
-            return f"{cp} is readable{' and writable' if best['kind'] == 'write' else ''}: {best['kind']} {best['value']} ({srcs(best)})"
-        return f"{pre} {cp} is requested ({best['kind']}) by {srcs(best)}, not in this run ({best.get('why')})"
+            return f"{cp} is readable{' and writable' if best['kind'] == 'write' else ''}: {best['kind']} {best['value']} ({srcs(best)})", True
+        return f"{pre} {cp} is requested ({best['kind']}) by {srcs(best)}, not in this run ({best.get('why')})", False
     view = next((i for i in items if i["kind"] == "view" and i["effective"]), None)
     if p in GENERATED and not view:
-        return f"{cp} is readable: pot generates it for each run"
+        return f"{cp} is readable: pot generates it for each run", True
     if C.under(p, "/nix/store"):
         whole = "closure-store" not in policy["backend"]["proved"]
-        return f"{cp} is readable: in the store, which this run sees {'whole' if whole else 'as its closure (another path is absent)'}"
+        return f"{cp} is readable: in the store, which this run sees {'whole' if whole else 'as its closure (another path is absent)'}", True
     if p == "/run/current-system" or p.startswith("/run/pot"):
-        return f"{cp} is readable: pot binds it read-only"
+        return f"{cp} is readable: pot binds it read-only", True
     if view:
         if not C.under(p, home) and not any(C.under(p, d) for d in ("/run", "/tmp")):
-            return f"{cp} is readable in inspect (outside ~, read-only; secrets and sockets masked)"
+            return f"{cp} is readable in inspect (outside ~, read-only; secrets and sockets masked)", True
         if any(C.under(p, C.expand(h, home)) for h in view["home"]):
-            return f"{cp} is readable in inspect (inspect.home), unless it matches a secret pattern"
-    return f"{pre} {cp} is not in this run: pot --read {cp} (one run), or pot --repo {cp} for a repository; permanent: {facts.get('readFix')}"
+            return f"{cp} is readable in inspect (inspect.home), unless it matches a secret pattern", True
+    return f"{pre} {cp} is not in this run: pot --read {cp} (one run), or pot --repo {cp} for a repository; permanent: {facts.get('readFix')}", False
 
 
 # ---------------------------------------------------------------- grant
@@ -1756,7 +1845,8 @@ def short_names(ident):
     if ident.startswith("root:"):
         n = ident[5:]
         return {n, n.split("@")[0]}
-    return {ident.rstrip("/").rsplit("/", 1)[-1], ident.split(":", 1)[-1]}
+    last = ident.rstrip("/").rsplit("/", 1)[-1]
+    return {last, last.removesuffix(".git"), ident.split(":", 1)[-1]}
 
 
 def match_kits(name, idents):
@@ -1819,7 +1909,7 @@ INIT_FLAKE = """{
           hidden = [ ];                       # beyond pot's defaults
           tools = [ ];                        # packages on every run's PATH
           # Claude Code: the claude on your PATH, with a token file from `claude setup-token`
-          kits."claude-code@personal" = graft.kits.claude-code { inherit pkgs; account = "personal"; binary = "host"; };
+          kits."claude-code@personal" = graft.kits.claude-code { inherit pkgs; binary = "host"; };
           defaultInstance.claude-code = "personal";
           contexts.work.include = [ ];        # root kits whose requests reach every run here
           bindings = {
@@ -1879,7 +1969,7 @@ def inner(root, verb, flags, cmd):
             pass
         home = pwd.getpwuid(os.getuid()).pw_dir
         if flags.get("json"):
-            return why_json(policy, cmd[0], lambda x: answer_why(policy, x, home, facts))
+            return why_json(policy, cmd[0], lambda x: answer_why(policy, x, home, facts), home)
         print(visible(answer_why(policy, cmd[0], home, facts)))
         return 0
     if verb == "explain":

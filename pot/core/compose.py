@@ -21,7 +21,7 @@ GRANTS_VERSION = 1
 CANONICAL = 1
 EXIT_GRANT = 125
 
-VERBS = ("explain", "why", "grant", "review", "init", "run", "serve")
+VERBS = ("explain", "why", "grant", "review", "init", "run", "serve", "runs", "doctor")
 CONTEXT_FIELDS = {"extends", "mode", "access", "backend", "requires", "trust", "include", "commands",
                   "network", "nest"}
 MODES = ("in-place", "clone", "none")
@@ -342,6 +342,8 @@ def kit_version(kit, where):
     v = kit.get("version", "1.0")
     if v in KIT_VERSIONS:
         return v
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        raise KitError(f"{where}: version is a string: \"{v}\"")
     m = re.fullmatch(r"1\.([0-9]+)", v) if isinstance(v, str) else None
     if m and int(m.group(1)) > 1:
         raise KitError(f"{where}: kit version {v} is newer than this pot reads ({', '.join(KIT_VERSIONS)}): take a newer pot")
@@ -685,7 +687,7 @@ def find_command(root_kits, ws_kits, name):
         if len(hits) > 1:
             bases = {k.get("base") or k["id"] for k in hits}
             if len(bases) == 1 and all(k.get("instance") for k in hits):
-                return hits, name   # account instances: the caller chooses
+                return hits, name   # instances of one kit: the caller chooses
             raise Refusal(f"pot: {' and '.join(kit_display(k) for k in hits)} both ship {name}: pot KIT:{name}", 2)
         if hits:
             return hits[0], name
@@ -694,7 +696,12 @@ def find_command(root_kits, ws_kits, name):
     return None, name
 
 
-def choose_instance(hits, instance, defaults, env_match=None):
+def instance_form(cmd, instance, form):
+    """The instance as the person typed it: CMD@NAME, --instance NAME or --account NAME."""
+    return f"{cmd}@{instance}" if form == "@" else f"{form or '--instance'} {instance}"
+
+
+def choose_instance(hits, instance, defaults, env_match=None, form=None):
     """§4.4, the instance of a command whose kit the root applies under several names: @NAME or
     --instance NAME; else the caller's variables (env_match: [(name, number of variables)] of the
     instances whose agent.select.env all match); else the kit's default."""
@@ -703,7 +710,7 @@ def choose_instance(hits, instance, defaults, env_match=None):
     names = ", ".join(f"{base}@{n}" for n in sorted(by))
     if instance:
         if instance not in by:
-            raise Refusal(f"pot: {cmd}@{instance}: this root declares {names}", 2)
+            raise Refusal(f"pot: {instance_form(cmd, instance, form)}: this root declares {names}", 2)
         return by[instance]
     default = (defaults or {}).get(base)
     match = [(n, c) for n, c in env_match or [] if n in by]
@@ -747,7 +754,8 @@ def agent_markers(root):
     ms = []
     for k in (root.get("kits") or {}).values():
         ms += (k.get("agent") or {}).get("markers") or []
-    return list(dict.fromkeys(ms + list(root.get("agentMarkers") or []) + ["POT"]))
+    return list(dict.fromkeys(list(root.get("baseAgentMarkers") or []) + ms + list(root.get("agentMarkers") or [])
+                              + ["POT"]))
 
 
 def compose(inp):
@@ -797,7 +805,7 @@ def compose(inp):
         rk = w.get("repoKit") or {}
         manifests = []
         if rk.get("manifest") is not None:
-            manifests.append((rk["manifest"], rk.get("file", "flake.nix (perSystem)")))
+            manifests.append((rk["manifest"], rk.get("file") or f"{w.get('flakeDir') or '.'} (its pot-kits)"))
         for m, f in w.get("rootRepoKits") or []:
             manifests.append((m, f))
         for m, f in manifests:
@@ -832,17 +840,23 @@ def compose(inp):
         if isinstance(hit, list):
             for k in hit:
                 k["cmd"] = cmdname
-            hit = choose_instance(hit, flags.get("instance"), root.get("defaultInstance"), flags.get("envMatch"))
+            hit = choose_instance(hit, flags.get("instance"), root.get("defaultInstance"), flags.get("envMatch"),
+                                  flags.get("instanceForm"))
         elif hit is not None and flags.get("instance") and hit.get("instance") and hit["instance"] != flags["instance"]:
-            raise Refusal(f"pot: {cmdname}@{flags['instance']}: this root declares {kit_display(hit)}", 2)
+            raise Refusal(f"pot: {instance_form(cmdname, flags['instance'], flags.get('instanceForm'))}: "
+                          f"this root declares {kit_display(hit)}", 2)
         cmdkit = hit
+    typed = instance_form(cmdname, flags.get("instance"), flags.get("instanceForm")) if flags.get("instance") else ""
     if cmdkit is not None and flags.get("instance") and cmdkit.get("instance") is None:
-        raise Refusal(f"pot: --instance names an instance, and {kit_display(cmdkit)} has none", 2)
+        raise Refusal(f"pot: {typed} names an instance, and {kit_display(cmdkit)} has none", 2)
     if cmdkit is None and flags.get("instance"):
-        raise Refusal("pot: --instance chooses an instance of an agent kit; this command has no kit", 2)
-    report["command"] = {"kit": cmdkit["id"] if cmdkit else None, "name": cmdname}
+        raise Refusal(f"pot: {typed} chooses an instance of an agent kit; this command has no kit", 2)
+    report["command"] = {"kit": cmdkit["id"] if cmdkit else None, "name": cmdname,
+                         "instance": (cmdkit or {}).get("instance"),
+                         "defaultInstance": (root.get("defaultInstance") or {}).get((cmdkit or {}).get("base"))}
     report["workspaces"] = [{"consumer": w.get("repoKit") is not None, "key": w.get("originKey") or w["id"][len("repo:"):],
-                             "file": (w.get("repoKit") or {}).get("file")} for w in inp["workspace"]]
+                             "file": (w.get("repoKit") or {}).get("file"),
+                             "flakeDir": w.get("flakeDir")} for w in inp["workspace"]]
     if cmdkit and cmdkit.get("instance") and cmdkit["instance"] != (root.get("defaultInstance") or {}).get(cmdkit.get("base")):
         report["notes"].append(f"instance {cmdkit['instance']}")
     if cmdkit and cmdkit["kind"] == "scion" and not cmdkit.get("verified"):
@@ -1366,7 +1380,9 @@ def repo_fix(report, root, kind):
     pre, apply = root_paths(root)
     ws = (report.get("workspaces") or [{}])[0]
     if ws.get("consumer"):
-        return f"the repo kit's {kind} ({ws.get('file') or 'its pot-kits'})"
+        if not ws.get("file"):
+            return f"{kind} in a repo kit for {ws.get('flakeDir') or 'this repository'} (the flake pot evaluated)"
+        return f"the repo kit's {kind} ({ws['file']})"
     return f"{pre}repoKits.\"{ws.get('key') or '<origin>'}\".{kind} ({apply})"
 
 
@@ -1381,7 +1397,7 @@ def permanent_fix(flag, value, report, root):
     if flag == "--access":
         return f"a context with access = \"{value}\" ({pre}contexts; {apply})"
     if flag == "--package":
-        return f"{pre}tools ({apply}), or {repo_fix(report, root, 'packages')}"
+        return f"{pre}tools ({apply}), or {repo_fix(report, root, 'tools')}"
     if cmd.get("kit") and cmd["kit"].startswith("git:"):
         f = next((k.get("file") for k in report.get("kits") or [] if k["kit"] == cmd["kit"]), None)
         return f"{kit_short(cmd['kit'], report)}'s {kind} ({f + ': ' if f else ''}a kit release)"
@@ -1583,7 +1599,7 @@ def validate_root(root):
     """The root's manifest, checked when it builds: its kits, repo kits and contexts."""
     for n, k in (root.get("kits") or {}).items():
         if not NAME_RE.fullmatch(n) or n.count("@") > 1:
-            raise KitError(f"the root's kits: {n!r} is not a kit name (NAME or NAME@ACCOUNT)")
+            raise KitError(f"the root's kits: {n!r} is not a kit name (NAME or NAME@INSTANCE)")
         validate_kit(k, k.get("file", f"programs.pot.kits.{n}"), "/home/user")
     for n, k in (root.get("repoKits") or {}).items():
         validate_kit(k, k.get("file", f"programs.pot.repoKits.{n}"), "/home/user", root=False)

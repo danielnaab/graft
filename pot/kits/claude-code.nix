@@ -1,9 +1,8 @@
 # graft.kits.claude-code: Claude Code as an agent kit (design §6.3, §13.2). A root calls it once per
-# account, as the root kit claude-code@<account>:
+# instance, as the root kit claude-code@<instance> (the instance's name is the root's kits key):
 #
 #   graft.kits.claude-code {
 #     pkgs;                        # the root's nixpkgs
-#     account ? "default";         # ai-profiles slot (the instance name is the root's kits key)
 #     binary ? "native";           # "native": ~/.local/bin/claude; "host": the claude on the host's PATH;
 #                                  # either resolved on the host at start; or a package
 #     files ? { };                 # home-manager's config.home.file: fixed files come from it
@@ -24,12 +23,15 @@
 # `--settings` overlay turns Claude's own sandbox off (Claude treats it as managed) and adds the
 # denial hook (PostToolUse on Bash and WebFetch): new lines of /run/pot/denials reach the
 # model as additionalContext. Overlay hooks are added to the user's own; `pot explain` lists them.
-{ pkgs, account ? "default", binary ? "native", files ? { }, configDir ? ".claude", skillDirs ? [ "synced" ]
+{ pkgs, account ? null, binary ? "native", files ? { }, configDir ? ".claude", skillDirs ? [ "synced" ]
 , plugins ? true, skillSources ? [ ], api ? null, provider ? null, region ? null, mcp ? [ ] }:
 
 let
   lib = pkgs.lib;
   apis = import ./apis.nix;
+  # account (v2.15.0's examples set it) was never used: deprecated in v2.16.0, removed in v2.17.0
+  noAccount = x: if account == null then x
+    else lib.warn "graft.kits.claude-code: account is not used: the instance is the root's kits key; account goes in v2.17.0" x;
   # api, or v2.15.0's provider and region (deprecated in v2.16.0, removed in v2.17.0)
   old = provider != null || region != null;
   api' =
@@ -103,7 +105,7 @@ let
   '';
   fixedDirs = lib.filter (d: plugins || d != "plugins") fixedDirNames;
 in
-{
+noAccount {
   version = "1.1";
   tools = lib.optional (lib.isDerivation binary) binary ++ lib.optionals fhs [ pkgs.glibc ];
   files = lib.mapAttrs' (t: f: lib.nameValuePair "~/.claude/${lib.removePrefix prefix t}" { source = f.source; mode = "fixed"; }) hmFiles

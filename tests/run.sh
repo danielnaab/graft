@@ -1160,6 +1160,13 @@ EOF
   expect "dir" holds '"dir":"scions"'
   expect "the same kits as pot-kits" test "$(jq -cS '{self, scions}' "$work/kgk/kit.json")" = "$(jq -cS '{self, scions}' "$work/kpk/kit.json")"
   expect "the same tools" test "$(readlink -f "$work/kgk/bin")" = "$(readlink -f "$work/kpk/bin")"
+  # graft-kits, byte for byte as v2.15.0's mkFlake writes it for the same kits (C8)
+  local g15=$work/graft15 kc15=$work/kc15
+  mkdir -p "$g15" && git_ -C "$src" archive 2d6fece | tar -x -C "$g15"
+  consumer "$kc15" "$(sed "s|path:$graft|path:$g15|" flake.nix | sed '1d;$d')"
+  (cd "$kc15" && echo "# agents" > AGENTS.md && echo "a: 1" > kk.yaml && by_hand kk && commit init && quiet nix flake lock && commit lock \
+    && ran "kits: v2.15.0's graft-kits, for the same kits" nix build -o "$work/kgk15" ".#graft-kits")
+  expect "kits: graft-kits is byte-identical to v2.15.0's" cmp "$work/kgk/kit.json" "$work/kgk15/kit.json"
   ran "kits: the default devShell" nix eval --json ".#devShells.$sys.default.nativeBuildInputs" --apply 'map (p: p.name)'
   refuse "holds no sandbox launcher" holds '"sandbox"'
   refused "kits: v2.14.0's packages.sandbox is gone" nix eval --raw ".#packages.$sys.sandbox.drvPath"
@@ -1206,6 +1213,23 @@ EOF
   printf '#!/bin/sh\necho "usage: pot why PATH" >&2\nexit 2\n' > "$stub/pot"
   expect "an older pot (no usable answer): the fetch is tried" env PATH="$stub:$PATH" POT=work bash -c "$reach" _ "$graft" https://other.example/x
   refuse "kits: graft reads no POT_POLICY" grep -q POT_POLICY "$graft/lib/common.sh"
+  # a provider that renamed packages to tools, and one that uses kit 1.1: graft-kits stays readable by a
+  # v2.15.0 pot (tools written packages, no version, the 1.1 kit left out with a warning) (F1, C1)
+  prov kktools
+  printf '{ pkgs, ... }: { kit = { version = "1.1"; tools = [ pkgs.hello ]; requests.network = [ "t.example" ]; }; }\n' > "$work/src/kktools/graft.nix" && release kktools v1.0.0
+  prov kknew
+  # shellcheck disable=SC2016 # a Nix string, written as it is
+  printf '{ pkgs, ... }: { kit = { version = "1.1"; commands.kn = { program = "${pkgs.hello}/bin/hello"; dirs."~/.kn" = { from = "~/.kn"; }; }; }; }\n' > "$work/src/kknew/graft.nix" && release kknew v1.0.0
+  cd "$c" && by_hand kktools && by_hand kknew && commit "kktools kknew"
+  ran "kits: graft-kits with a renamed and a kit 1.1 provider" nix build -L -o "$work/kgk2" ".#graft-kits"
+  expect "warns that the kit 1.1 one is left out" holds "graft: graft-kits: scions/kknew/graft.nix uses kit 1.1 (dirs or agent), which a v2.15.0 pot cannot read: left out (pot-kits has it)"
+  expect "tools is written packages" test "$(jq -c '.scions.kktools | [has("packages"), has("tools"), has("version")]' "$work/kgk2/kit.json")" = '[true,false,false]'
+  expect "the kit 1.1 one is not in it" test "$(jq -c '.scions | has("kknew")' "$work/kgk2/kit.json")" = false
+  ran "kits: pot-kits has both" jq -c '.scions | keys' "$(nix build --no-link --print-out-paths .#pot-kits)/kit.json"
+  expect "them" holds '"kknew","kktools"'
+  # perSystem's kit still names packages: kitsFor says it is tools' old name (F3)
+  ran "kits: packages warns" nix eval --no-eval-cache --raw ".#packages.$sys.pot-kits.drvPath"
+  expect "naming the file" holds "flake.nix (perSystem): packages is tools' old name; packages goes in v2.17.0"
   cd "$work"
 }
 
@@ -1275,7 +1299,7 @@ EOF
           realDirs = [ "~/.claude/plugins" ]; skillDirs = [ "synced" ];
           memory = { at = "~/.claude/projects"; host = "$work/cfg/projects"; };
           requests.state = [ { name = "claude"; at = "~/.claude"; } ]; };
-        kits."claude-code@t" = graft.kits.claude-code { pkgs = nixpkgs.legacyPackages.\${s}; account = "t";
+        kits."claude-code@t" = graft.kits.claude-code { pkgs = nixpkgs.legacyPackages.\${s};
           configDir = ".pot-test-no-such-config"; plugins = false;
           binary = nixpkgs.legacyPackages.\${s}.writeShellScriptBin "claude" (builtins.readFile ./stub-claude.sh); };
         kits."pair@a".requests.read = [ "/tmp" ];
@@ -1490,7 +1514,7 @@ STUB
     # shellcheck disable=SC2016 # the run's shell expands them
     echo "diagnostics: $(sb_ bash -c 'echo "BASH_ENV=$BASH_ENV"; ls -la "$BASH_ENV"; declare -F command_not_found_handle; set -o | grep -E "posix|privileged"; env | grep -c BASH_FUNC; echo "$BASHOPTS"' 2>&1 | tr '\n' ';')" >&2
   fi
-  expect "bash's handler for any other" holds "pot (work): nosuchprogram is not in this run. one run: pot --package PKG …  permanent: tools (rebuild the root), or the repo kit's packages (flake.nix (fixture))"
+  expect "bash's handler for any other" holds "pot (work): nosuchprogram is not in this run. one run: pot --package PKG …  permanent: tools (rebuild the root), or the repo kit's tools (flake.nix (fixture))"
   expect "nix without the capability" holds "pot (work): nix needs the nix capability"
   ran "pot: the handler, exported as a function too" sb_ env -u BASH_ENV bash -c 'nosuchprogram2; true'
   expect "a bash that skips BASH_ENV still has it" holds "pot (work): nosuchprogram2 is not in this run"
@@ -1677,8 +1701,8 @@ STUB
   expect "says not reached, exit 1" test "$(jq -c '[.kind, .reach, .reached]' <<<"$out")" = '["network","other.example:443",false]'
   refused "pot: why --json, an ssh URL without a git.fetch binding in this run" sb_ why ssh://git@fake.example/x.git --json
   expect "is git.fetch, not reached" test "$(jq -c '[.kind, .reached]' <<<"$out")" = '["git.fetch",false]'
-  refused "pot: why --json, something else" sb_ why justfile --json
-  expect "is usage" holds "pot why --json answers a host, HOST:PORT or a git URL"
+  refused "pot: why --json, something else" sb_ why bash --json
+  expect "is usage" holds "pot why --json answers a host, HOST:PORT, a git URL or a path"
   # shellcheck disable=SC2016 # the run's bash expands them
   ran "pot: why --json, inside a run" sb_ bash -c 'pot why 127.0.0.1:1 --json; echo "exit $?"; pot why https://other.example/x --json; echo "exit $?"'
   expect "reached, exit 0" has "exit 0"
@@ -1730,7 +1754,35 @@ EOF
   (cd "$d" && by_hand sbk && commit init && quiet nix flake lock && commit lock \
     && refused "pot: a newer bundle" sb_ true \
     && expect "is refused, naming its version" holds "kit.json is version 2, and this pot reads version 1: take a pot that reads it, or run pot host CMD")
+  # .gitmodules names a path with no gitlink at HEAD: no fact, so its flake is never evaluated (C2)
+  d=$work/sbstale && mkdir -p "$d/nix" && git_ -C "$d" init -q
+  printf '[submodule "nix/gone"]\n\tpath = nix/gone\n\turl = file:///nowhere\n' > "$d/.gitmodules"
+  printf 'throw "this flake must not be evaluated"\n' > "$d/nix/flake.nix"
+  (cd "$d" && commit init && ran "pot: a stale .gitmodules entry" sb_loud true \
+    && refuse "evaluates nothing" holds "must not be evaluated" && refuse "builds nothing" holds "building the repo kit")
+  # a v2.15.0 consumer says so at start (F3)
+  (cd "$work/sbold15" && ran "pot: graft-kits only, at start" sb_loud true \
+    && expect "names the flake and why" holds "has graft-kits only: its graft predates v2.16.0 (pot reads graft-kits until v2.17.0)")
   cd "$c"
+  # pot host CMD finds a command of the workspace's bundle that the host's PATH lacks (F7)
+  ran "pot: pot host, a bundle kit's command" sb_ host sbk-tool
+  expect "runs it" holds "sbk-tool hi"
+  # a protected folder is read-only throughout: a file inside a scion, not only its graft.nix (B)
+  refuse "pot: a scion's file is read-only" sb_ bash -c 'echo x >> scions/sbk/README.md' 2>/dev/null
+  # runs and doctor are reserved (C7); an unknown command says where a program for every run goes (C9)
+  refused "pot: pot runs" sb_ runs
+  expect "comes later" holds "pot runs comes in a later release"
+  refused "pot: pot doctor" sb_ doctor
+  expect "comes later" holds "pot doctor comes in a later release"
+  refused "pot: an unknown command" sb_ no-such-program-x
+  expect "points at the root's tools" holds "a program every run here should have goes in the root's tools (tools)"
+  # pot why --json on the host answers paths from the default context's policy (C4), and git URLs as git (F10)
+  refused "pot: why --json, a hidden path" sb_ why "$work/sbhidden/x" --json
+  expect "not reached, from the policy" test "$(jq -c '[.kind, .reached]' <<<"$out")" = '["file",false]'
+  ran "pot: why --json, a workspace file" sb_ why notes.md --json
+  expect "reached" test "$(jq -c '[.kind, .reached]' <<<"$out")" = '["file",true]'
+  ran "pot: why, an ssh URL as text" sb_ why ssh://git@fake.example/x.git
+  expect "is about git.fetch, not a path" holds "is not a bound git.fetch remote"
 
   # grants: grown sets, arrival by git, a file that does not parse
   sed -i 's|kit = { protect|kit = { requests.network = [ "more.example" ]; protect|' flake.nix && commit "more"

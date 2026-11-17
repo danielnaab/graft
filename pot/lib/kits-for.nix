@@ -24,6 +24,7 @@ let
   unit = where: u:
     if !(builtins.isAttrs u && u ? kit && u ? file && builtins.isString u.file)
     then throw "pot: kitsFor: ${where} is { kit; file; } (file: a string naming where the kit is written)"
+    else if u.kit ? packages then lib.warn "${u.file}: packages is tools' old name; packages goes in v2.17.0" u
     else u;
   selfU = if self == null then null else unit "self" self;
   scionUs = lib.mapAttrs (n: unit "scions.${n}") scions;

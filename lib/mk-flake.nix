@@ -205,10 +205,18 @@ let
         # graft's own files: every provider's graft.nix and the scions directory are read-only in a run
         files = [ "**/graft.nix" dir ];
       });
-      # v2.15.0's bundle, for a v2.15.0 pot (goes in v2.17.0): the same kits, tools and closure
+      # v2.15.0's bundle, for a v2.15.0 pot (goes in v2.17.0): the same kits, tools and closure, as a
+      # v2.15.0 reader takes them: `tools` written `packages`, no `version`, and a kit that uses kit 1.1
+      # (dirs, agent) left out, with a build warning naming it. Compact, as v2.15.0 wrote it.
       graftKits = pkgs.runCommand "graft-kits" { nativeBuildInputs = [ pkgs.jq ]; } ''
         mkdir -p $out
-        jq -S --arg dir ${lib.escapeShellArg dir} '{version: 1, dir: $dir, self, file: "flake.nix (perSystem)", scions}' \
+        defs='def new: (.agent != null) or ([(.commands // {})[] | .dirs] | any(. != null));
+              def old: del(.version) | if has("tools") then (.packages = .tools | del(.tools)) else . end;'
+        jq -r "$defs"' [(.self // empty | select(new) | .file), (.scions[] | select(new) | .file)][]' ${potKits}/kit.json \
+          | while read -r f; do echo "graft: graft-kits: $f uses kit 1.1 (dirs or agent), which a v2.15.0 pot cannot read: left out (pot-kits has it)" >&2; done
+        jq -jcS --arg dir ${lib.escapeShellArg dir} "$defs"' {version: 1, dir: $dir, file: "flake.nix (perSystem)",
+          self: (if .self == null or (.self | new) then null else (.self | old) end),
+          scions: (.scions | with_entries(select(.value | new | not) | .value |= old))}' \
           ${potKits}/kit.json > $out/kit.json
         ln -s ${potKits}/bin $out/bin
         cp ${potKits}/closure $out/closure

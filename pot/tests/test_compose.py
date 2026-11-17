@@ -318,7 +318,7 @@ class Compose(unittest.TestCase):
                  contexts={"work": {"include": ["daniel"]}})
         g = granted(("root:cc", ["network api.anthropic.com:443"]), ("root:daniel", ["network pypi.org:443"]))
         p, rep = C.compose(inp(r=r, argv=["claude"], grants=g))
-        self.assertEqual(rep["command"], {"kit": "root:cc", "name": "claude"})
+        self.assertEqual(rep["command"], {"kit": "root:cc", "name": "claude", "instance": None, "defaultInstance": None})
         eff = sorted(i["value"] for i in p["items"] if i["kind"] == "network" and i["effective"])
         self.assertEqual(eff, ["api.anthropic.com:443", "pypi.org:443"])
         self.assertIn("DISABLE_AUTOUPDATER=1", [i["value"] for i in p["items"] if i["kind"] == "env.set"])
@@ -335,8 +335,14 @@ class Compose(unittest.TestCase):
         _, rep = C.compose(inp(r=r, argv=["claude"], flags={"instance": "flexion"}))
         self.assertEqual(rep["command"]["kit"], "root:cc@flexion")
         self.assertIn("instance flexion", rep["notes"])
-        with self.assertRaisesRegex(C.Refusal, "claude@nope: this root declares cc@flexion, cc@personal"):
-            C.compose(inp(r=r, argv=["claude"], flags={"instance": "nope"}))
+        # the form the person typed is the one echoed (F9, C10)
+        with self.assertRaisesRegex(C.Refusal, "pot: --instance nope: this root declares cc@flexion, cc@personal"):
+            C.compose(inp(r=r, argv=["claude"], flags={"instance": "nope", "instanceForm": "--instance"}))
+        with self.assertRaisesRegex(C.Refusal, "pot: claude@nope: this root declares cc@flexion, cc@personal"):
+            C.compose(inp(r=r, argv=["claude"], flags={"instance": "nope", "instanceForm": "@"}))
+        r1 = root(kits={"one": {"commands": {"x": {}}}})
+        with self.assertRaisesRegex(C.Refusal, "pot: x@a names an instance, and one has none"):
+            C.compose(inp(r=r1, argv=["x"], flags={"instance": "a", "instanceForm": "@"}))
         r["defaultInstance"] = {}
         with self.assertRaisesRegex(C.Refusal, "cc has the instances flexion, personal: choose one with claude@NAME"):
             C.compose(inp(r=r, argv=["claude"]))
@@ -560,6 +566,28 @@ class Kit11(unittest.TestCase):
             C.validate_kit({"agent": {}}, "k", HOME)
         with self.assertRaisesRegex(C.KitError, r"commands.c.fixedDirs is not a command field \(kit 1.1: dirs\)"):
             C.validate_kit({"version": "1.1", "commands": {"c": {"fixedDirs": {}}}}, "k", HOME)
+
+    def test_version_number(self):
+        with self.assertRaisesRegex(C.KitError, 'k: version is a string: "1.1"'):
+            C.validate_kit({"version": 1.1}, "k", HOME)
+
+    def test_marker_floor(self):
+        # the floor is the root's (pot/nix data), whatever kits it has
+        self.assertEqual(C.agent_markers({"baseAgentMarkers": ["CODEX_SANDBOX", "CLAUDECODE"], "kits": {}}),
+                         ["CODEX_SANDBOX", "CLAUDECODE", "POT"])
+
+    def test_fixes_name_tools_and_only_known_files(self):
+        r = root()
+        w = ws(kit={})
+        _, rep = C.compose(inp(r=r, workspace=[w]))
+        self.assertEqual(C.permanent_fix("--package", "", rep, r), "tools (rebuild the root), or the repo kit's tools (flake.nix (perSystem))")
+        # a bundle with self: null names no file, only the flake pot evaluated (F8)
+        w = ws(kit={})
+        w["repoKit"]["file"] = None
+        w["flakeDir"] = "nix/agent-tools"
+        _, rep = C.compose(inp(r=r, workspace=[w]))
+        self.assertEqual(C.permanent_fix("--net", "x:443", rep, r),
+                         "requests.network in a repo kit for nix/agent-tools (the flake pot evaluated)")
 
     def test_tools(self):
         C.validate_kit({"tools": ["/nix/store/x"]}, "k", HOME)

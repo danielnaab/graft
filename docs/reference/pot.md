@@ -92,7 +92,7 @@ graft.lib.mkRoot {
   grantsFile ? "~/.config/pot/grants.json";
   stateDir ? "~/.local/state/pot";
   contexts ? { }; defaultContext ? "work";
-  kits ? { }; defaultInstance ? { }; agentMarkers ? [ "CODEX_SANDBOX" ];
+  kits ? { }; defaultInstance ? { }; agentMarkers ? [ ];
   hidden ? [ ]; tools ? [ ]; bindings ? { };
   rootRepos ? [ ]; repoKits ? { };
   inspect ? { }; caBundle ? null;
@@ -119,7 +119,7 @@ from `$HOME`, and use graft's default root when the link is missing. There is no
 | `stateDir` | `pot`'s state: agent homes, caches, run directories ([State](#state)). Default `"~/.local/state/pot"`. Hidden from every run, and refused inside a workspace. |
 | `defaultContext` | The context when none is typed. Default `"work"`. |
 | `defaultInstance` | Per kit, the instance (`KIT@NAME`) used with no `CMD@NAME`, `--instance` or matching caller variables: `{ claude-code = "personal"; }`. `defaultAccount` (a string, for every kit) is its old form: deprecated in v2.16.0, removed in v2.17.0, with the warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` (from the module: `programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0`). Both together are an error. |
-| `agentMarkers` | Variables that mean an agent is the caller, beyond each root kit's `agent.markers` (default `[ "CODEX_SANDBOX" ]`; `POT` always is one). |
+| `agentMarkers` | Variables that mean an agent is the caller, beyond the floor (`CODEX_SANDBOX`, `CLAUDECODE` and `POT`, whatever kits the root has) and each root kit's `agent.markers`. Default `[ ]`. |
 | `rootRepos` | The root's source repositories: checkout paths (`~/…`, `/…`) or origin patterns. mkRoot's default is `[ ]`; the home-manager module's is `[ "~/.workstation" ]`. See [Root repositories](#root-repositories). |
 | `hidden` | Paths hidden from every run, added to [pot's default list](#hidden-paths), which a root cannot shorten. |
 | `inspect.home` | The paths under `~` that `inspect` can read. Default `[ "~/src" ]`; a list replaces it. |
@@ -560,7 +560,7 @@ is `sha256-` and the base64 of the SHA-256 of the sorted, unique canonical lines
 | Case | Result |
 |---|---|
 | Nothing new | The run proceeds. |
-| A stale kit (not granted, asks for more, changed source), at a terminal with no agent marker | The grant prompt appears inline, with the difference, and the run continues after it. The agent markers are the root kits' `agent.markers` (the claude-code kit's `CLAUDECODE`), the root's `agentMarkers` (`CODEX_SANDBOX` by default) and `POT`. A workmux pane is not one. |
+| A stale kit (not granted, asks for more, changed source), at a terminal with no agent marker | The grant prompt appears inline, with the difference, and the run continues after it. The agent markers are the floor `CODEX_SANDBOX`, `CLAUDECODE` and `POT`, the root kits' `agent.markers`, and the root's `agentMarkers`. A workmux pane is not one. |
 | A stale kit, otherwise | Exit 125, with every kit's difference and `pot grant KIT`. |
 | A repo kit that is stale, in `inspect` | The run proceeds: a repo kit's reach does not apply in `inspect`. The startup line notes `NAME not granted (its reach does not apply in inspect)`. |
 | The file changed since this machine last read it | One line, `pot: the grants file changed since this machine last read it: pot grant --diff`, at each start until `pot grant --diff` or a grant acknowledges it. Nothing stops. A pull and a local edit read the same. |
@@ -652,7 +652,7 @@ belong to the command; a known `pot` flag found there is warned about:
 `--account` and `--instance` after the command are the command's own, and are not warned about. With no command, `bash`.
 
 A first word that is no context, no verb and no program on the host's `PATH`, and has no `/`, is refused with exit
-2: `pot: unknown context or command NAME; contexts: dispatch, host, inspect, work, …`.
+2: `pot: unknown context or command NAME; contexts: dispatch, host, inspect, work, …; a program every run here should have goes in the root's tools (programs.pot.tools)`. `runs` and `doctor` are reserved: `pot runs comes in a later release`.
 
 `pot run` and `pot serve` are refused with exit 2: `pot run is reserved (the wrappers’ entry)`,
 `pot serve is reserved (the supervisor)`.
@@ -1002,7 +1002,7 @@ pot: --net pypi.org:443 was for this run; permanent: the repo kit's requests.net
 | An `mcp` binding's `env` | The MCP key, such as `METAMCP_API_KEY`. |
 
 A program that is not in the run fails with exit 127 and
-`pot (work): NAME is not in this run. one run: pot --package PKG …  permanent: programs.pot.tools (home-manager switch), or the repo kit's packages (perSystem.kit)`
+`pot (work): NAME is not in this run. one run: pot --package PKG …  permanent: programs.pot.tools (home-manager switch), or the repo kit's tools (flake.nix (perSystem))`
 (the start check's fix, for this root and repository): from bash's handler, or from a not-found shim. The
 handler is also exported to the run as the function `BASH_FUNC_command_not_found_handle%%`, for a bash that skips
 `BASH_ENV`. Shims exist only for host-only programs: `nix` (without the capability: `nix needs the nix capability: the repo kit's requests.capabilities = [ { name = "nix"; } ], then pot grant`),
@@ -1126,7 +1126,7 @@ The other messages, after `pot (<context>): `:
 
 | Denial | Message |
 |---|---|
-| A program (exit 127) | `rg is not in this run. one run: pot --package PKG …  permanent: programs.pot.tools (home-manager switch), or the repo kit's packages (perSystem.kit)` |
+| A program (exit 127) | `rg is not in this run. one run: pot --package PKG …  permanent: programs.pot.tools (home-manager switch), or the repo kit's tools (flake.nix (perSystem))` |
 | Requested, not granted (`pot why`) | `api.github.com:443 is requested by git:…/meeting-kit (…), not in this run (not granted): pot grant` |
 | Outside the workspace (`pot why`) | `~/src/other is not in this run: pot --read ~/src/other (one run), or pot --repo ~/src/other for a repository; permanent: …` |
 | Hidden (`pot why`) | `~/.ssh is hidden by your root in every run (~/.ssh, …)` |

@@ -180,6 +180,14 @@ class Pins:
         if hooks and (hooks.startswith(self.top + "/") or hooks.startswith(self.common + "/")):
             os.makedirs(hooks, exist_ok=True)
             self.pin("ro", hooks)
+        # a protected folder is read-only throughout: a mount point pinned below it (a scion's folder,
+        # the parent of its .git file) is bound read-only too, or its deeper bind would make it writable
+        rod = [p for p in self.ro if os.path.isdir(p) and not os.path.islink(p)]
+        for d in [d for d in self.dirs if any(d.startswith(r + "/") for r in rod)]:
+            self.dirs.remove(d)
+            if ("ro:" + d) not in self.seen:
+                self.seen.add("ro:" + d)
+                self.ro.append(d)
         for f in self.ro:
             st = os.lstat(f)
             if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
@@ -416,7 +424,7 @@ NOTFOUND = {
 
 def not_found_body(ctx, launch):
     """The not-found handler's body: the startup check's words and permanent fix."""
-    fix = (launch.get("pkgFix") or "programs.pot.tools, or the repo kit's packages").replace("'", "'\\''")
+    fix = (launch.get("pkgFix") or "programs.pot.tools, or the repo kit's tools").replace("'", "'\\''")
     return ("{ printf 'pot (%s): %s is not in this run. one run: pot --package PKG …  permanent: %s\\n' "
             f"'{ctx}' \"$1\" '{fix}' >&2; return 127; }}")
 

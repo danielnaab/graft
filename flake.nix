@@ -42,7 +42,7 @@
       # the host's claude as claude-code@personal, with its token file (claude setup-token) and nix
       defaultRoot = pkgs: mkRoot {
         inherit pkgs;
-        kits."claude-code@personal" = import ./pot/kits/claude-code.nix { inherit pkgs; account = "personal"; binary = "host"; };
+        kits."claude-code@personal" = import ./pot/kits/claude-code.nix { inherit pkgs; binary = "host"; };
         defaultInstance.claude-code = "personal";
         bindings = {
           "status.relay"."*" = { workmux = true; };
@@ -56,7 +56,7 @@
       lib.mkRoot = mkRoot;
       # pot's library for a producer of kits (contract pot-lib/1): kitsFor { pkgs; self; scions; tools; files; }
       lib.pot.kitsFor = kitsFor;
-      # agent kits, for a root to call: graft.kits.claude-code { pkgs; account; … } (pot/kits)
+      # agent kits, for a root to call: graft.kits.claude-code { pkgs; configDir; api; … } (pot/kits)
       kits.claude-code = import ./pot/kits/claude-code.nix;
       # the APIs an agent kit can use: graft.apis.anthropic, graft.apis.bedrock { region; } (pot/kits/apis.nix)
       apis = import ./pot/kits/apis.nix;
@@ -122,12 +122,12 @@
         '';
         # the default root builds (on Darwin: a pot that refuses, D21)
         pot-root = defaultRoot pkgs;
-        # a root with the claude-code kit (two accounts, MCP, Bedrock) builds: its manifests validate
+        # a root with the claude-code kit (two instances, MCP, Bedrock) builds: its manifests validate
         pot-root-claude = mkRoot {
           inherit pkgs;
           name = "check";
-          kits."claude-code@personal" = self.kits.claude-code { inherit pkgs; account = "personal"; mcp = [ "metamcp" ]; };
-          kits."claude-code@work" = self.kits.claude-code { inherit pkgs; account = "work"; configDir = ".claude-accounts/work";
+          kits."claude-code@personal" = self.kits.claude-code { inherit pkgs; mcp = [ "metamcp" ]; };
+          kits."claude-code@work" = self.kits.claude-code { inherit pkgs; configDir = ".claude-accounts/work";
             api = self.apis.bedrock { region = "us-east-1"; }; binary = pkgs.hello; };
           defaultInstance.claude-code = "personal";
           bindings.mcp.metamcp = { url = "https://mcp.example/mcp"; via = "env"; env = "METAMCP_API_KEY"; from.file = "~/.config/x/key.env"; };
@@ -135,10 +135,16 @@
         # v2.15.0's forms, deprecated in v2.16.0 (they go in v2.17.0), give the same root: provider and region
         # (the claude-code kit), and defaultAccount (mkRoot)
         pot-aliases = let
-          ck = args: builtins.unsafeDiscardStringContext (builtins.toJSON (self.kits.claude-code ({ inherit pkgs; account = "w"; } // args)));
+          ck = args: builtins.unsafeDiscardStringContext (builtins.toJSON (self.kits.claude-code ({ inherit pkgs; } // args)));
           rootOf = args: (mkRoot ({ inherit pkgs; kits."claude-code@w" = self.kits.claude-code { inherit pkgs; }; } // args)).passthru.root.defaultInstance;
         in assert ck { provider = "bedrock"; region = "us-east-1"; } == ck { api = self.apis.bedrock { region = "us-east-1"; }; };
           assert ck { provider = "anthropic"; } == ck { };
+          assert ck { account = "w"; } == ck { };
+          # defaultInstance is checked at build (F4): an unknown kit or instance is an error naming the declared ones
+          assert !(builtins.tryEval (builtins.deepSeq (mkRoot { inherit pkgs; kits."claude-code@w" = self.kits.claude-code { inherit pkgs; };
+            defaultInstance.claude-code = "nope"; }).drvPath true)).success;
+          assert !(builtins.tryEval (builtins.deepSeq (mkRoot { inherit pkgs; kits."claude-code@w" = self.kits.claude-code { inherit pkgs; };
+            defaultInstance.claud-code = "w"; }).drvPath true)).success;
           assert rootOf { defaultAccount = "w"; } == rootOf { defaultInstance.claude-code = "w"; };
           pkgs.runCommand "graft-pot-aliases" { } "touch $out";
         # homeManagerModules.pot evaluates (with home-manager's few options stubbed), and asserts

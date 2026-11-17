@@ -9,7 +9,8 @@
 #     kits ? { };                   # root kits, by name ("claude-code@personal", "daniel")
 #     defaultInstance ? { };        # per kit, the instance chosen with no @NAME, --instance or caller match
 #                                   # ({ claude-code = "personal"; }); defaultAccount: its old form, until v2.17.0
-#     agentMarkers ? [ "CODEX_SANDBOX" ];  # variables that mean an agent is the caller, beyond the kits' own
+#     agentMarkers ? [ ];           # variables that mean an agent is the caller, beyond the floor
+#                                   # (CODEX_SANDBOX, CLAUDECODE) and the kits' own agent.markers
 #     hidden ? [ ];                 # beyond pot's defaults (Appendix B)
 #     tools ? [ ];                  # packages on every run's PATH, after the standard set
 #     bindings ? { };               # bindings.<capability>."<selector>" (§7.2; carried out from milestone 2)
@@ -33,7 +34,7 @@
 , kits ? { }
 , defaultInstance ? { }
 , defaultAccount ? null
-, agentMarkers ? [ "CODEX_SANDBOX" ]
+, agentMarkers ? [ ]
 , hidden ? [ ]
 , tools ? [ ]
 , bindings ? { }
@@ -59,7 +60,17 @@ let
   # credential stores, and their configuration in a workspace
   baseHidden = [ "~/.claude" "~/.claude.json" "~/.pi/agent/auth.json" "~/.codex/auth.json" "~/.local/share/opencode/auth.json" ];
   baseProtect = [ "**/.claude" "**/.pi" "**/.codex" ];
-  reservedContexts = [ "explain" "why" "grant" "review" "init" "run" "serve" ];
+  # pot grant refuses under an agent whatever kits the root has: the floor of agent markers
+  baseAgentMarkers = [ "CODEX_SANDBOX" "CLAUDECODE" ];
+  # every defaultInstance.<kit> names a kit the root applies under instances, and one of them
+  instancesOf = base: map (n: lib.removePrefix "${base}@" n) (lib.filter (lib.hasPrefix "${base}@") (lib.attrNames kits));
+  badDefaults = lib.concatLists (lib.mapAttrsToList (base: inst:
+    let have = instancesOf base; in
+    lib.optional (!(lib.elem inst have))
+      (if have == [ ] then "defaultInstance.${base}: the root has no kit ${base}@NAME (kits: ${lib.concatStringsSep ", " (lib.attrNames kits)})"
+       else "defaultInstance.${base} = \"${inst}\": the root declares ${lib.concatMapStringsSep ", " (i: "${base}@${i}") have}"))
+    defaultInstance');
+  reservedContexts = [ "explain" "why" "grant" "review" "init" "run" "serve" "runs" "doctor" ];
   badContexts = lib.filter (n: lib.elem n reservedContexts) (lib.attrNames contexts);
 
   # §8: the standard set, first on every run's PATH (a root adds graft, or any other command, to `tools`;
@@ -122,7 +133,7 @@ let
 
   manifest = {
     version = 1;
-    inherit name grantsFile stateDir defaultContext rootRepos bindings darwin agentMarkers baseHidden baseProtect;
+    inherit name grantsFile stateDir defaultContext rootRepos bindings darwin agentMarkers baseHidden baseProtect baseAgentMarkers;
     defaultInstance = defaultInstance';
     contexts = contexts;
     kits = kitManifests;
@@ -153,6 +164,7 @@ let
   '';
 in
 if badContexts != [ ] then throw "pot: mkRoot: a context may not be named like a pot verb: ${lib.concatStringsSep ", " badContexts}"
+else if badDefaults != [ ] then throw "graft.lib.mkRoot: ${lib.concatStringsSep "; " badDefaults}"
 else pkgs.writeShellApplication {
   name = "pot";
   text = ''exec ${python}/bin/python3 -I ${potSrc}/pot.py ${rootJson} "$@"'';

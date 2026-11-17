@@ -21,13 +21,13 @@ mkRoot {
   inherit pkgs;
   name = "golden";
   kits."claude-code@personal" = claudeCode (common // {
-    account = "personal"; configDir = ".claude"; skillDirs = [ "synced" "address-pr-comments" ];
+    configDir = ".claude"; skillDirs = [ "synced" "address-pr-comments" ];
   });
   kits."claude-code@flexion" = claudeCode (common // {
-    account = "flexion"; configDir = ".claude-accounts/flexion"; skillDirs = [ "synced" ];
+    configDir = ".claude-accounts/flexion"; skillDirs = [ "synced" ];
   });
   kits."claude-code@flexion-bedrock" = claudeCode (common // {
-    account = "flexion-bedrock"; configDir = ".claude-accounts/flexion"; api = apis.bedrock { region = "us-east-2"; };
+    configDir = ".claude-accounts/flexion"; api = apis.bedrock { region = "us-east-2"; };
     skillDirs = [ "synced" ];
   });
   kits.daniel.requests = {
