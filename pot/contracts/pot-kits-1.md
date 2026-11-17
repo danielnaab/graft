@@ -41,7 +41,8 @@ or run pot host CMD`. Every bundle check ends `: take a pot that reads it, or ru
 
 pot finds the flake that holds a repository's kits from git facts alone:
 
-1. It reads the submodule paths in `.gitmodules` at `HEAD`, keeping those whose gitlink exists at `HEAD`.
+1. It reads the submodule paths in `.gitmodules` at `HEAD`, keeping only those whose path is a gitlink (a commit)
+   in `HEAD`'s tree, as for scion kits. A stale `.gitmodules` entry, with no gitlink, decides nothing.
 2. For each, it walks up from the submodule's parent folder to the repository's top, and takes the nearest folder
    holding `flake.nix`. So `nix/agent-tools/.scions/meeting-kit` gives `nix/agent-tools`, and
    `scions/knowledge-base-kit` gives the top.

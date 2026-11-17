@@ -373,7 +373,7 @@ repository, the caller's environment or a wrapper's arguments says about these i
 | Whether the caller is inside a run | `/run/pot/policy.json` on a read-only mount. Inside a run, `pot explain` and `pot why` read it; every other verb is refused. |
 | The context | The first word typed, or the root's default. Never the environment. |
 | State and cache paths | Fixed by the root, and refused inside any workspace. `XDG_*` is ignored at run time. |
-| The instance | `CMD@NAME`, then `--instance NAME`, then the caller's variables (an instance matches when every variable its kit's `agent.select.env` names equals the caller's; paths by their real path; the most specific match wins, a tie goes to the default or stops), then `defaultInstance`. It chooses only among the instances that the root declares, each granted on its own. A non-default instance is named on the startup line (`instance NAME`). |
+| The instance | `CMD@NAME`, then `--instance NAME`, then the caller's variables (an instance matches when every variable its kit's `agent.select.env` names equals the caller's; paths by their real path; values other than paths as exact strings; the most specific match wins, a tie goes to the default or stops), then the kit's default: `defaultInstance.<kit>`, or, when the kit has one instance, that one; with several and no default, pot stops and names them. It chooses only among the instances that the root declares, each granted on its own. A non-default instance is named on the startup line (`instance NAME`). |
 
 How an origin is normalised:
 
@@ -1137,6 +1137,7 @@ The other messages, after `pot (<context>): `:
 | Not a repository (1) | `~/Downloads is not inside a git repository: pot inspect CMD, or pot host CMD` |
 | A `--repo` outside git (1) | `--repo PATH is not inside a git repository` |
 | Stale grant (125) | `meeting-kit (git:…) asks for more than its grant:`, then each new request as `  + network api.github.com:443`, then `  grant it: pot grant meeting-kit`. Also `… requests reach that is not granted:`; `… changed source since its grant:` with `  source: tree A -> tree B` and up to 12 lines of `git diff --stat`; and `… is not a verified release, so its grant does not apply`. |
+| An unverified scion's command (1) | `pot (work): meeting-kit is not a verified release (git:…), so its command runs with no grant: pot host meeting-kit`. Exit 1, not 125: no grant can fix it. <!-- TBD (F7): pot host runs a bundle kit's command, from facts.md --> |
 | Clone mode (1) | `--clone is clone mode (dispatch), which comes in a later release`; `clone mode (dispatch) comes in a later release; this release works in place` |
 | Missing guarantee (125) | `requires separate-kernel; bubblewrap proves …` |
 | `pot` inside a run (1) | `pot inside a run starts nested runs in a later release: run it on the host` |
@@ -1155,7 +1156,8 @@ is `CAPABILITY: no binding`.
 - `2` for a usage error, such as an unknown context, an instance that the root does not declare, two kits that
   ship the same command, `pot review`, `pot run` or `pot serve`.
 - `1` when `pot` refuses to start the run for another reason: a root repository, a hidden path in a flag, a
-  conflict between kits, clone mode, a grants file that does not parse, or macOS.
+  conflict between kits, clone mode, a grants file that does not parse, a command of a scion kit that is not a
+  verified release, or macOS.
 
 The message says why. `pot` never runs the command with a weaker policy, a weaker backend or no sandbox.
 
@@ -1181,7 +1183,6 @@ A state directory inside a workspace is refused.
 ```nix
 programs.pot.kits."claude-code@personal" = inputs.graft.kits.claude-code {
   inherit pkgs;
-  account = "personal";                 # default "default"
   binary = "native";                    # "native", "host" (the claude on the host's PATH), or a package
   files = config.home.file;             # home-manager's files
   configDir = ".claude";                # this account's folder under ~, such as ".claude-accounts/work"

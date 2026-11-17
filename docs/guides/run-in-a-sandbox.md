@@ -238,9 +238,9 @@ A home-manager root:
     enable = true;
     grantsFile = "~/.workstation/pot/grants.json";
     rootRepos = [ "~/.workstation" ];
-    kits."claude-code@personal" = inputs.graft.kits.claude-code { inherit pkgs; account = "personal"; };
+    kits."claude-code@personal" = inputs.graft.kits.claude-code { inherit pkgs; };
     kits.standing.requests.network = [ "pypi.org" "registry.npmjs.org" ];
-    tools = [ inputs.graft.packages.${pkgs.system}.default ];   # graft in runs of any repository
+    tools = [ inputs.graft.packages.${pkgs.stdenv.hostPlatform.system}.default ];   # graft in runs of any repository
     contexts.work.include = [ "standing" ];
     bindings = {
       "status.relay"."*" = { workmux = true; };
@@ -256,7 +256,7 @@ For a second Claude account, or Bedrock, add an instance. Each instance is grant
 
 ```nix
 kits."claude-code@work" = inputs.graft.kits.claude-code {
-  inherit pkgs; account = "work"; configDir = ".claude-accounts/work";
+  inherit pkgs; configDir = ".claude-accounts/work";
   api = inputs.graft.apis.bedrock { region = "us-east-1"; };
 };
 defaultInstance.claude-code = "personal";
@@ -283,7 +283,7 @@ skill folders: a link into a checkout under `skillSources`, or a real folder tha
 
 ```nix
 kits."claude-code@personal" = inputs.graft.kits.claude-code {
-  inherit pkgs; account = "personal";
+  inherit pkgs;
   skillSources = [ "~/src/agent-skills" ];   # your checked-out skills
   skillDirs = [ ];                           # no synced or hand-placed real folders
   plugins = false;                           # no plugins folder in the run

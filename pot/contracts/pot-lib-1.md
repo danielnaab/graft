@@ -60,6 +60,9 @@ is written)`.
   default, so a producer written for an earlier pot keeps evaluating.
 - graft's lock pins this library, and a root pins its own pot, so the two pots meet only through
   [pot-kits/1](pot-kits-1.md).
+- **One exception, deprecated:** mkFlake builds v2.15.0's `graft-kits` from the `kit.json` that kitsFor wrote, so
+  graft reads pot-kits' shape there. That is the only place graft reads a pot format. It goes with `graft-kits`, in
+  v2.17.0.
 
 ## Sources
 

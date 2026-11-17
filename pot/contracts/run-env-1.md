@@ -88,7 +88,9 @@ bundle (`{ "root": "bundle", … }`).
 ### pot why TARGET --json
 
 The supported question, so that a program need not read `policy.json`'s items. Inside a run it answers for that
-run; on the host, for a run of the default context there. `--json` may come before or after the target.
+run. On the host it answers from the policy a run of the default context would have there, never from the host's
+own view: a path the host has but such a run would not see (hidden, or outside the workspace and its reach) is not
+reached. `--json` may come before or after the target.
 
 ```
 pot why TARGET --json      # TARGET: HOST, HOST:PORT, or a git URL
@@ -113,7 +115,7 @@ pot why TARGET --json      # TARGET: HOST, HOST:PORT, or a git URL
 |---|---|---|
 | `HOST` (port 443), `HOST:PORT`; an `https://` (443), `http://` (80) or `git://` (9418) URL | `network` | an effective network reach item matches it, wildcards included |
 | an `ssh://` or `git+ssh://` URL, or the scp form `user@host:path` | `git.fetch` | a `git.fetch` binding in the policy has a remote pattern that covers it |
-| a `file://` URL, or `/path` | `file` | the path exists |
+| a `file://` URL, or `/path` | `file` | the run sees the path: it is in the workspace or a granted reach, and not hidden <!-- TBD: confirm the exact rule against facts.md (C4) --> |
 
 | Exit | Meaning |
 |---|---|

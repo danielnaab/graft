@@ -17,6 +17,9 @@ and a provider.
 - Or you have a root (`homeManagerModules.pot` or `graft.lib.mkRoot`) on graft v2.15.0.
 
 You can move the consumer and the root in either order: each side reads the other's v2.15.0 form until v2.17.0.
+That holds while providers keep their kits in v2.15.0's form: a v2.16.0 consumer's `graft-kits` translates its
+own kit for a v2.15.0 root, but a v2.15.0 consumer cannot build a provider's kit that uses `tools`
+([Move a provider](#move-a-provider)).
 
 ## What still works until v2.17.0
 
@@ -25,7 +28,7 @@ These are deprecated in v2.16.0 and removed in v2.17.0:
 | v2.15.0 | v2.16.0 | Until v2.17.0 |
 |---|---|---|
 | `packages.<system>.graft-kits` | `packages.<system>.pot-kits` | mkFlake writes both, so a v2.15.0 root reads a v2.16.0 consumer. A v2.16.0 pot reads `graft-kits` when a flake has no `pot-kits`, so it reads a v2.15.0 consumer. |
-| `kit.packages` | `kit.tools` | Read as `tools`. Both together are an error: `pot: FILE: tools and packages are one field (packages is its old name): give tools`. |
+| `kit.packages` | `kit.tools` | Read as `tools`. Both together are an error: `pot: FILE: tools and packages are one field (packages is its old name): give tools`. A provider keeps `packages` until v2.17.0 ([Move a provider](#move-a-provider)). <!-- TBD (F3): the build warning's text, from facts.md --> |
 | `pot --account NAME CMD` | `pot CMD@NAME`, or `pot --instance NAME CMD` | Works as `--instance`, after one line: `pot: --account is --instance; --account goes in v2.17.0`. |
 | `defaultAccount = "personal";` | `defaultInstance.claude-code = "personal";` | Applied to every kit with instances, with the evaluation warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` (from the module: `programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0`). Both together are an error. |
 | the claude-code kit's `provider = "bedrock"; region = "us-east-1";` | `api = graft.apis.bedrock { region = "us-east-1"; };` | With the warning `graft.kits.claude-code: provider and region are api = graft.apis.bedrock { region = …; } (or graft.apis.anthropic); they go in v2.17.0`. Both together are an error. |
@@ -42,6 +45,9 @@ The old forms and the new give the same canonical requests, so no grant asks aga
   ```
   pot grant flexion-assistant
   ```
+
+  The source is the flake directory as committed and staged, so the prompt comes after you commit (or stage) the
+  new `flake.lock`, not before: commit first, then grant.
 
   Use your repository's short name. No canonical request changes in v2.16.0, so no other grant asks again.
 - **graft's command left a run's standard tools.** In a graft consumer, a run still has the repository's own
@@ -92,7 +98,9 @@ The old forms and the new give the same canonical requests, so no grant asks aga
    ```
 
    It exits 0 when the run reaches the URL, and 1 when it does not ([run-env/1](../../pot/contracts/run-env-1.md)).
-5. In `perSystem.kit`, rename `packages` to `tools`:
+5. In `perSystem.kit`, rename `packages` to `tools`. Your own kit only: your graft, now v2.16.0, builds both
+   bundles, and its `graft-kits` gives `tools` as `packages` to a v2.15.0 root. A scion's kit is the provider's to
+   rename:
 
    ```nix
    # v2.15.0
@@ -102,7 +110,8 @@ The old forms and the new give the same canonical requests, so no grant asks aga
    ```
 
 6. Run `nix run .#graft check` and `nix flake check`, and commit.
-7. Run `pot claude` (or any run) at a terminal, and grant the repo kit's changed source when it asks.
+7. Run `pot claude` (or any run) at a terminal, and grant the repo kit's changed source when it asks. The prompt
+   follows the commit of step 6.
 
 ## Move a root
 
@@ -119,7 +128,7 @@ The old forms and the new give the same canonical requests, so no grant asks aga
 2. If your runs need `graft` outside graft consumers, add it to the root's tools:
 
    ```nix
-   programs.pot.tools = [ inputs.graft.packages.${pkgs.system}.default ];
+   programs.pot.tools = [ inputs.graft.packages.${pkgs.stdenv.hostPlatform.system}.default ];
    ```
 
    With mkRoot, pass the same list as `tools`.
@@ -128,7 +137,7 @@ The old forms and the new give the same canonical requests, so no grant asks aga
    ```nix
    programs.pot = {
      kits."claude-code@flexion-bedrock" = inputs.graft.kits.claude-code {
-       inherit pkgs; account = "flexion"; configDir = ".claude-accounts/flexion";
+       inherit pkgs; configDir = ".claude-accounts/flexion";
        provider = "bedrock"; region = "us-east-2";
      };
      defaultAccount = "personal";
@@ -140,7 +149,7 @@ The old forms and the new give the same canonical requests, so no grant asks aga
    ```nix
    programs.pot = {
      kits."claude-code@flexion-bedrock" = inputs.graft.kits.claude-code {
-       inherit pkgs; account = "flexion"; configDir = ".claude-accounts/flexion";
+       inherit pkgs; configDir = ".claude-accounts/flexion";
        api = inputs.graft.apis.bedrock { region = "us-east-2"; };
      };
      defaultInstance.claude-code = "personal";
@@ -151,9 +160,9 @@ The old forms and the new give the same canonical requests, so no grant asks aga
    `graft.apis.anthropic`.
 4. If you named an instance with `--account` in scripts or a workmux agent command, use `CMD@NAME`:
    `pot --account flexion claude` becomes `pot claude@flexion`.
-5. If a tool besides Claude Code should count as an agent (so that `pot grant` refuses under it), add its
-   variable to `agentMarkers`. The default, `[ "CODEX_SANDBOX" ]`, keeps v2.15.0's markers with `CLAUDECODE` (the
-   claude-code kit's) and `POT`.
+5. If a tool besides Claude Code or Codex should count as an agent (so that `pot grant` refuses under it), add its
+   variable to `agentMarkers`. pot's floor, `CODEX_SANDBOX` and `CLAUDECODE`, and `POT` always apply, whatever
+   kits the root has: `agentMarkers` adds to them, and never removes one.
 6. Build the root (`home-manager switch`, or rebuild your mkRoot flake). Build it with no evaluation warning from
    graft, and the deprecated forms are gone. The grants file needs no edit.
 
@@ -162,9 +171,10 @@ The old forms and the new give the same canonical requests, so no grant asks aga
 `graft.nix` is still [provider/2](../reference/provider.md). A `kit` with an unknown field now fails the consumer's
 `pot-kits` build with pot's message, `pot: <dir>/<name>/graft.nix: <field> is not a kit field (…)`.
 
-Rename the kit's `packages` to `tools` in your next release. Keep the kit at 1.0 (no `version`) unless you need a
-1.1 field: a kit that says `version = "1.1"` needs every consumer's root on graft v2.16.0 or later, and an older
-pot refuses it. A scion kit may not declare `agent`, which is a root's.
+**Keep `packages`, and give no `version`, until v2.17.0.** Each consumer's own graft builds your `graft.nix`. A
+consumer still on graft v2.15.0 refuses `tools` and `version` in your kit, and its whole bundle with it, so every
+run in that consumer stops. Rename `packages` to `tools` in the release you make for graft v2.17.0, and say in its
+CHANGELOG that it needs graft v2.16.0 or later. A scion kit may not declare `agent`, which is a root's.
 
 ## Check it worked
 

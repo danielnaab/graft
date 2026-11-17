@@ -41,8 +41,8 @@ kit = {
 
 | Field | Since | Type | Meaning |
 |---|---|---|---|
-| `version` | 1.0 | string | the minor the kit is written against |
-| `tools` | 1.0 | list of packages | On `PATH`. A repo kit's tools reach every run in its workspace; a scion kit's do not. |
+| `version` | 1.0 (v2.16.0 readers) | string | the minor the kit is written against |
+| `tools` | 1.0 (v2.16.0 readers) | list of packages | On `PATH`. A repo kit's tools reach every run in its workspace; a scion kit's do not. |
 | `packages` | 1.0 | list of packages | `tools`' old name, still read in 1.0 and 1.1. Deprecated in v2.16.0, removed in v2.17.0. |
 | `env.set` | 1.0 | attrs of strings | Fixed values, for the kit's own commands. Names that pot owns are refused. |
 | `files."<path>"` | 1.0 | `{ source; mode; keys; }` | A file in the run, at `~/…` or `/…`; `/…` needs the `root-files` guarantee. |
@@ -137,7 +137,7 @@ Every field is optional. Only a root's kit may declare `agent`; anywhere else it
 
 | Field | Type | Meaning |
 |---|---|---|
-| `markers` | list of variable names | A caller with any of these set is an agent: `pot grant` refuses, and a stale grant exits 125 instead of prompting. pot's markers are the union of the root kits' `markers`, the root's `agentMarkers` (default `[ "CODEX_SANDBOX" ]`) and `POT`. |
+| `markers` | list of variable names | A caller with any of these set is an agent: `pot grant` refuses, and a stale grant exits 125 instead of prompting. pot's markers are a floor, `CODEX_SANDBOX` and `CLAUDECODE` (root data in pot's Nix, which no root removes), plus `POT`, the root kits' `markers` and the root's `agentMarkers`, which add to the floor. So `pot grant` refuses under Claude Code even in a root with no claude-code kit. |
 | `select.env` | attrs of strings | How the caller's environment names this instance ([Instances](#instances)). |
 | `resume.transcripts` | a glob in the run's `HOME` | where the agent writes its transcripts, under one of its `state` requests |
 | `resume.args` | list of strings | the arguments that resume a session; `{id}` is the newest transcript's name without its suffix |
@@ -153,7 +153,8 @@ A root names each instance of an agent kit: `kits."claude-code@flexion" = …`, 
 2. `--instance NAME`;
 3. the caller's variables: an instance matches when its `agent.select.env` is not empty and every variable in it
    equals the caller's. A value that starts with `~` or `/` is a path, and both sides are compared after `~`
-   expansion and `realpath`; other values are compared as strings. An unset variable never matches. **The most
+   expansion and `realpath`; other values are compared as exact strings, so `CLAUDE_CODE_USE_BEDROCK=true` does
+   not match `"1"`. An unset variable never matches. **The most
    specific match wins:** the instance whose `select.env` names the most variables. A tie goes to the default
    when it is among the matches; otherwise pot stops and names them;
 4. the kit's default: the root's `defaultInstance.<kit>`, or the only instance.
@@ -189,6 +190,15 @@ identity.
 
 - **Reader first.** pot reads a minor before any producer writes it. A kit that writes 1.1 needs the roots that
   read it on graft v2.16.0 or later. The claude-code kit writes 1.1.
+- **What a v2.15.0 reader accepts.** v2.15.0's pot reads kit 1.0 as it was then: `packages`, `env`, `files`,
+  `protect`, `requests`, `commands` and `recipes`, and the command fields `fixedDirs`, `realDirs`, `skillDirs` and
+  `memory`. It refuses `tools`, `version`, `agent` and `dirs` as unknown fields, and it refuses the whole bundle
+  that holds one. So v2.16.0's mkFlake translates for it: the `graft-kits` it still writes gives `tools` as
+  `packages` and drops `version`, and leaves out a kit that uses a 1.1-only field (`agent`, `dirs`), with a build
+  warning that names it. <!-- TBD: the warning's text, from facts.md -->
+- **Who may rename `packages` now.** A consumer may write `tools` in its own `perSystem.kit` once it is on graft
+  v2.16.0: its own graft builds both bundles. A provider keeps `packages` until v2.17.0: each consumer's graft
+  builds the provider's `graft.nix`, and a consumer still on v2.15.0 refuses `tools`.
 - **A newer minor gets one refusal, checked before any other field:**
   `pot: FILE: kit version 1.2 is newer than this pot reads (1.0, 1.1): take a newer pot`. Another major, or a
   `version` that is not a string: `pot: FILE: kit version X: this pot reads kit 1.0 and 1.1`.
