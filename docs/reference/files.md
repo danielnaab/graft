@@ -19,8 +19,9 @@ The files graft reads and writes, and the lines in them that graft recognizes.
 | `.forgejo/workflows/graft-*.yaml` | Restored by `sync`, replaced by `upgrade`, compared by `check`. | graft's workflows, if they carry the marker. |
 | Settings files, such as `knowledge-base.yaml` | Read by providers' tools and checks, never by graft. | What a provider lets you configure. Each provider's README names its file. |
 
-Inside an [`pot` run](pot.md#protected-paths), the flake directory, `.gitmodules`, each `graft.nix`,
-`.envrc`, `justfile` and `.pre-commit-config.yaml` (at any depth), and the git metadata, are read-only.
+Inside a [pot run](pot.md#protected-paths), the flake directory, `.gitmodules`, `.envrc`, `justfile` and
+`.pre-commit-config.yaml` (at any depth), and the git metadata, are read-only. So are each `graft.nix` and the
+scions directory, which mkFlake names in the bundle's `protect` ([pot-lib/1](../../pot/contracts/pot-lib-1.md)).
 
 ## The marker README
 
@@ -93,7 +94,8 @@ reads the files that its own `AGENTS.md` points at, not the scion's.
 
 ### graft.nix
 
-A function, called once per system by the consumer's mkFlake:
+A function, called once per system by the consumer's mkFlake. Its versioned contract is
+[provider/2](provider.md).
 
 ```nix
 { pkgs, lib, system, scion, scions, consumer, ... }:
@@ -122,10 +124,10 @@ A function, called once per system by the consumer's mkFlake:
 | Attribute | Becomes | Collision |
 |---|---|---|
 | `tools` | Part of `packages.<system>.tools`, on the consumer's `PATH` | An error, unless both are the same store path. |
-| `apps` | `apps.<system>.<name>` | An error; `graft`, `sandbox` and `pot` are reserved. |
-| `packages` | `packages.<system>.<name>` | An error; `tools`, `sandbox`, `pot` and `graft-kits` are reserved. |
+| `apps` | `apps.<system>.<name>` | An error; `graft`, `sandbox`, `pot`, `pot-kits` and `graft-kits` are reserved. |
+| `packages` | `packages.<system>.<name>` | An error; `tools`, `sandbox`, `pot`, `pot-kits` and `graft-kits` are reserved. |
 | `checks` | `checks.<system>.<scion>-<name>` | None: prefixed. |
-| `kit` | The provider's [scion kit](pot.md#schema), in `packages.<system>.graft-kits`. Its `requests` apply only when a person grants them, in their root, with `pot grant`. | None: each kit keeps its own identity. |
+| `kit` | The provider's [scion kit](pot.md#schema), in `packages.<system>.pot-kits` (and v2.15.0's `graft-kits`, until v2.17.0). Its `requests` apply only when a person grants them, in their root, with `pot grant`. | None: each kit keeps its own identity. |
 | `requires` | Nothing. Checked first: each named scion must exist, or evaluation fails with `graft add URL`. | |
 | Anything else | Visible to other providers as `scions.NAME.ATTR`, not a flake output. | |
 
@@ -263,6 +265,7 @@ image with no ssh client, it takes `openssh` from Nix.
 
 - [lib/common.sh](../../lib/common.sh): finding the marker README; semver tags
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): the `graft.nix` arguments, merging and collisions, `kit`
+- [provider/2](provider.md): the `graft.nix` contract
 - [lib/workflows.sh](../../lib/workflows.sh): workflow ownership, the branches, paths-ignore and ssh lines
 - [lib/tools.sh](../../lib/tools.sh): `add`, `upgrade` and `.gitmodules`
 - [lib/common.sh](../../lib/common.sh) `upstream_range`, `changelog_between`: `CHANGELOG.md` read from the

@@ -64,7 +64,9 @@ pot, graft's sandbox, runs one command as a **run**, under one policy. Its terms
 
 - **Kit:** what a run needs, declared as `kit = { … };`: packages and fixed values that it sees, paths that it
   protects, and requests. A provider's kit is in its `graft.nix` (a **scion kit**); a consumer's own is in mkFlake's
-  `perSystem` (its **repo kit**). mkFlake exports them as `packages.<system>.graft-kits`.
+  `perSystem` (its **repo kit**). mkFlake hands them, unread, to pot's library, which writes them as
+  `packages.<system>.pot-kits` ([pot's contracts](../pot/contracts/README.md)). pot finds that flake from
+  `.gitmodules`: a repository with no submodules has no repo kit from its flake.
 - **Request:** a kit's ask for reach: a host path, a network host, a variable from the caller, persistent state,
   or a **capability** such as `nix` or `git.fetch`. A request does nothing on its own.
 - **Root and grant:** a person's **root**, such as a home-manager configuration, holds their **grants**. `pot grant`
@@ -90,7 +92,7 @@ graft has no command of its own for it, and never starts a run by itself: a pers
 | Provider outputs | Each scion's `graft.nix`, called once per system. Its `tools` become `packages.<system>.tools`, one environment; its checks become `checks.<system>.<scion>-<name>`. |
 | Scions directory | `<dir>/`, where `dir` is a `mkFlake` argument, default `scions`, beside `flake.nix`. |
 | graft's pin | The flake input named `graft`. |
-| Kit | A provider's `graft.nix` and `perSystem` can return `kit`. mkFlake exports the workspace's kits and tools as `packages.<system>.graft-kits`, which `pot` builds with `path:`. |
+| Kit | A provider's `graft.nix` and `perSystem` can return `kit`. mkFlake passes them to `graft.lib.pot.kitsFor`, which writes the workspace's kits and tools as `packages.<system>.pot-kits`; `pot` builds it with `path:`. |
 
 Nix and git see a scion differently, and one difference matters every day: a git flake's build reads a scion
 at its **committed** gitlink while the rest of your tree is clean, and from your working tree once any tracked

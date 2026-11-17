@@ -188,6 +188,29 @@ Not yet: clone mode (`dispatch`) and `pot review`; nesting and wrapped kit comma
 Seatbelt backend; brokers for `git.push` and proxy credentials; widening delegation through a supervisor; a VM
 backend for code that no one has reviewed.
 
+## One repository, one-way arrows between graft and pot
+
+Since v2.16.0, graft and pot ship in one repository and one flake, but neither reads the other's internals. graft
+calls one function of pot's, `graft.lib.pot.kitsFor`, and hands it each kit unread. pot finds a repository's kits
+from git facts alone (`.gitmodules` and the gitlinks at `HEAD`, and the flake's `pot-kits` output), and never from
+graft's files or conventions. `graft check` asks pot a public question, `pot why URL --json`, instead of reading
+the run's policy. Where they meet, a versioned contract says what passes: [pot's contracts](../pot/contracts/README.md),
+and graft's [provider/2](reference/provider.md). graft's command is built from graft's sources alone, so a change
+to pot does not change it.
+
+- **Why not two repositories now:** the seam between them, how a repository presents its kits, still changes in
+  most releases. Split now, and each change to it would be two releases in order, and a lock update in every
+  consumer. The boundary already removes the coupling in code.
+- **When to split:** when `kit/1` and `pot-kits/1` have held unchanged for a release or two. A consumer then pins
+  graft, a root pins pot, and the two meet only through `pot-kits/1`. No user path changes.
+- **Cost:** one tag line serves two audiences. `graft outdated` reports pot's releases to consumers who use only
+  graft, and the CHANGELOG mixes both.
+- **A repository with no submodules has no repo kit from its flake.** pot never evaluates it, so a repository
+  that is not a graft consumer costs nothing at start, and its flake is never copied into the store. The root's
+  `repoKits` covers such a repository.
+
+Reopen when the split's condition holds, or when a third party writes kits or bundles that pot reads.
+
 ## Where graft v1's features went
 
 graft v1 is on the read-only `v1` branch (2025-12 to 2026-10). Earlier experiments are on `v0.2` and

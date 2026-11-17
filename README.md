@@ -171,6 +171,8 @@ and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 | Look up a file graft reads or writes, or the `graft.nix` contract | [Files](docs/reference/files.md) |
 | Look up a context, a kit field, a request, a grant, a `pot` flag or message | [pot](docs/reference/pot.md) |
 | Anyone on v2.14.0's sandbox: move to `pot` | [Move from v2.14.0's sandbox](docs/guides/move-from-the-v2-14-sandbox.md) |
+| Anyone on v2.15.0: move to v2.16.0 (`pot-kits`, the boundary between graft and pot) | [Move to v2.16.0](docs/guides/move-to-v2-16.md) |
+| Look up a format that pot shares with graft and other programs | [pot's contracts](pot/contracts/README.md), [provider/2](docs/reference/provider.md) |
 | Know how Nix sees a scion | [Nix behaviours](docs/reference/nix-behaviours.md) |
 | Know why graft is this small, and where graft v1 went | [Decisions](docs/decisions.md) |
 | Change graft itself | [Development](docs/development.md) |

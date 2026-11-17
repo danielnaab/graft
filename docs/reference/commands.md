@@ -8,7 +8,9 @@ Every `mkFlake` argument, flake output, command and flag.
 ## mkFlake
 
 `graft.lib.mkFlake { inputs; dir ? "scions"; perSystem ? null; outputs ? { }; }` returns the repository's
-flake outputs.
+flake outputs. It calls each provider's `graft.nix` under the contract [provider/2](provider.md), and hands the kits
+to pot's library under [pot-lib/1](../../pot/contracts/pot-lib-1.md), which writes them as
+[pot-kits/1](../../pot/contracts/pot-kits-1.md).
 
 | Argument | Default | Meaning |
 |---|---|---|
@@ -234,7 +236,7 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
   `graft: scions/pa: can't list tags at URL: … (upstream unreadable: checked local tags)`, and the scion's
   local tags decide.
 - Inside a [pot](pot.md) run (`POT` set), graft tries a provider's tags only when pot says the run reaches its URL
-  (`pot why URL --json`, `"reached": true`): for pot, a `file://` URL or a path; an `https` or `http` host and port
+  (`pot why URL --json`, `"reached": true`: the contract [run-env/1](../../pot/contracts/run-env-1.md#pot-why-target---json)): for pot, a `file://` URL or a path; an `https` or `http` host and port
   among the run's network reach; `ssh` when a `git.fetch` binding covers it. When pot gives no usable answer (an
   older pot), graft tries the fetch. When pot says no, it does not try, so the run leaves no denial
   behind, and the scion's local tags decide. `check` then prints one line for the whole check, not one per scion:

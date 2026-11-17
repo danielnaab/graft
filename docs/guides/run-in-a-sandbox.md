@@ -192,7 +192,12 @@ A repository's own needs are its repo kit: the packages its work needs, paths to
    scion's `graft.nix`. The capability needs your root to bind it (`nix."*" = { via = "daemon-untrusted"; };`),
    which graft's default root and `pot init`'s root do.
 
-2. Read what a run would get: `pot explain claude`. The repo kit's items are labelled `(repo)`.
+   pot finds this flake from `.gitmodules`: the nearest `flake.nix` at or above the folder that holds the scions.
+   A repository with no submodules has no repo kit from its flake, and pot never evaluates it: give it one with
+   the root's `repoKits` (below), or graft a scion first.
+
+2. Read what a run would get: `pot explain claude`. The repo kit's items are labelled `(repo)`, and so are the
+   paths that the bundle protects (each `graft.nix` and the scions folder).
 3. Run `pot grant`, and accept the repo kit's requests. Commit the grants file in your root.
 
 A powerful grant of a repo kit is fixed to its flake directory as committed and staged. When a commit or a staged
@@ -235,6 +240,7 @@ A home-manager root:
     rootRepos = [ "~/.workstation" ];
     kits."claude-code@personal" = inputs.graft.kits.claude-code { inherit pkgs; account = "personal"; };
     kits.standing.requests.network = [ "pypi.org" "registry.npmjs.org" ];
+    tools = [ inputs.graft.packages.${pkgs.system}.default ];   # graft in runs of any repository
     contexts.work.include = [ "standing" ];
     bindings = {
       "status.relay"."*" = { workmux = true; };
@@ -268,6 +274,9 @@ kits."claude-code@personal" = inputs.graft.kits.claude-code {
   plugins = false;                           # no plugins folder in the run
 };
 ```
+
+graft's command is not in a run's standard tools. A run in a graft consumer has that repository's own `graft`
+(from its `pot-kits` bundle); `tools` gives every other run one too.
 
 Run `home-manager switch`. `pot` is then on `PATH`, and `~/.config/pot/launcher` points at it. The options are
 in [Home-manager options](../reference/pot.md#home-manager-options).
@@ -304,6 +313,7 @@ the host that allows only granted hosts. Nothing that the run writes can widen a
 - [pot](../reference/pot.md): contexts, kits, requests, grants, flags, messages
 - [Move from v2.14.0's sandbox](move-from-the-v2-14-sandbox.md)
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit` in `perSystem`
+- [pot-kits/1](../../pot/contracts/pot-kits-1.md): how pot finds a repository's flake
 - [pot/core/pot.py](../../pot/core/pot.py): the grant prompt, the startup and exit lines
 - [pot/kits/claude-code.nix](../../pot/kits/claude-code.nix): the claude-code kit
 - [pot/nix/hm.nix](../../pot/nix/hm.nix): `programs.pot`

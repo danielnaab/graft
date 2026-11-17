@@ -5,7 +5,8 @@ status: working
 
 graft v2.15.0 replaces v2.14.0's `sandbox` launcher with `pot`. A repository no longer builds its own launcher:
 your root runs `pot`, and grants come from your root's grants file, not from `flake.nix`. This page moves a
-consumer, a provider and a person's habits. The new model is in [pot](../reference/pot.md#the-model).
+consumer, a provider and a person's habits. The new model is in [pot](../reference/pot.md#the-model). It names
+v2.16.0's bundle, `pot-kits`; from v2.15.0, see [Move to v2.16.0](move-to-v2-16.md).
 
 ## What changed
 
@@ -16,17 +17,17 @@ consumer, a provider and a person's habits. The new model is in [pot](../referen
 | `grant = [ "notebook-kit" ];` in `flake.nix` | `pot grant`, into the root's grants file, by the kit's identity |
 | `repository.readOnly = true` | `pot inspect`, or a context with `access = "read"` |
 | `"host"` means ports 443 and 80 | `"host"` means port 443 only; write `"host:80"` for plain HTTP |
-| `nix run .#sandbox -- CMD`, `packages`/`apps.<system>.sandbox`, the dev shell's `sandbox` | the root's `pot CMD`; graft's default root; repositories export `packages.<system>.graft-kits` |
+| `nix run .#sandbox -- CMD`, `packages`/`apps.<system>.sandbox`, the dev shell's `sandbox` | the root's `pot CMD`; graft's default root; repositories export `packages.<system>.pot-kits` (`graft-kits` in v2.15.0) |
 | `--with PKG`, `--allow HOST` | `--package PKG`, `--net HOST` |
 | `--explain`, `--dry-run` | `pot explain`, `pot explain --backend-command` |
 | `GRAFT_SANDBOX=1` | `POT=<context>`. Test it with `[ -n "${POT:-}" ]` only. |
 | A policy built with the launcher | Kit manifests, composed at each start with your grants |
 | Seatbelt on macOS | None in v2.15.0: `pot` refuses on macOS. A repository used on a Mac keeps its sandbox only on v2.14.0; the choice is per repository, by its graft pin. |
 
-The names `sandbox`, `pot` and `graft-kits` are graft's: a provider, `perSystem` or mkFlake's `outputs` cannot
+The names `sandbox`, `pot`, `pot-kits` and `graft-kits` are graft's: a provider, `perSystem` or mkFlake's `outputs` cannot
 define them as packages or apps. There is no `packages.<system>.sandbox` or `apps.<system>.sandbox` any more.
 
-A `sandbox` left in `perSystem` or a provider's `graft.nix` fails the tools and `graft-kits` with:
+A `sandbox` left in `perSystem` or a provider's `graft.nix` fails the tools and `pot-kits` with:
 
 ```
 graft: the consumer's perSystem gives `sandbox`: graft v2.15.0 replaced it with `kit` (pot; see graft's CHANGELOG)
@@ -84,7 +85,7 @@ always a `path:` flake, never `.#` or `git+file:`, which would copy the whole re
 
 ## Run the repository's tools inside
 
-`pot` builds the workspace's tools on the host, from `packages.<system>.graft-kits`, caches them, and passes their
+`pot` builds the workspace's tools on the host, from `packages.<system>.pot-kits`, caches them, and passes their
 `bin/` to the run as `POT_TOOLS`. Those tools include `graft`. A script or recipe that builds tools with
 `nix` should use them instead, so that it works without `nix` and without the network.
 
@@ -138,7 +139,7 @@ launcher, and a run sees the tools:
 
 ```sh
 F=.   # or F='path:nix/agent-tools' for a flake in a subdirectory
-nix eval --raw "$F#packages.x86_64-linux.graft-kits.name" >/dev/null &&
+nix eval --raw "$F#packages.x86_64-linux.pot-kits.name" >/dev/null &&
   ! nix eval "$F#packages.x86_64-linux" --apply 'p: p ? sandbox' | grep -q true &&
   pot bash -c 'test -n "$POT_TOOLS" && command -v graft >/dev/null' && echo ok
 ```
@@ -162,5 +163,5 @@ Use your machine's system for `x86_64-linux`.
 ## Sources
 
 - [pot](../reference/pot.md)
-- [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit`, `kitArgs` and `packages.<system>.graft-kits`
+- [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit`, `kitArgs`, `packages.<system>.pot-kits` and `graft-kits`
 - [CHANGELOG](../../CHANGELOG.md)

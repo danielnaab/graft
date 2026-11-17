@@ -6,7 +6,11 @@ status: working
 pot, graft's sandbox: its model, contexts, kits, requests, grants, command line, messages and limits. For the
 steps, see [Run commands in pot](../guides/run-in-a-sandbox.md). For a move from v2.14.0's
 `sandbox` launcher, see [Move from v2.14.0's sandbox](../guides/move-from-the-v2-14-sandbox.md). For why, see
-[Decisions](../decisions.md#roots-grant-reach-kits-only-ask).
+[Decisions](../decisions.md#roots-grant-reach-kits-only-ask). The formats that pot shares with other programs and
+with graft are [pot's contracts](../../pot/contracts/README.md): [kit](../../pot/contracts/kit-1.md),
+[pot-lib](../../pot/contracts/pot-lib-1.md), [pot-kits](../../pot/contracts/pot-kits-1.md),
+[grants](../../pot/contracts/grants-1.md), [run-env](../../pot/contracts/run-env-1.md) and
+[runs](../../pot/contracts/runs-1.md) (reserved).
 
 `pot` is experimental in v2.15.0. It runs on Linux, with bubblewrap. On macOS it refuses to start until a later
 release ([On macOS](#on-macos)).
@@ -562,7 +566,9 @@ the workspace (`nix/agent-tools/flake.nix`), both in the prompt and in the 125 m
 
 At start, `pot` composes the run's policy from manifests, grants, flags and host facts, and writes it as
 `policy.json`, version 1. Inside the run it is `/run/pot/policy.json`, read-only, and
-`POT_POLICY` names it.
+`POT_POLICY` names it. It is part of the contract [run-env/1](../../pot/contracts/run-env-1.md), which lists every
+value of an item's `sources`. pot's own defaults are `{ "root": "default" }` (v2.15.0 wrote `{ "root": "graft" }`).
+To ask whether a run reaches a host or URL, use `pot why TARGET --json` rather than reading the items.
 
 ```json
 {
@@ -702,7 +708,7 @@ hooks      SessionStart * (pot's --settings overlay; /hooks does not list it)
 context    work: in-place, access write, bubblewrap; includes root:daniel
 workspace  repo:platform-vm:2222/daniel/flexion-assistant (write) ~/src/flexion-assistant
            scions: knowledge-base-kit, meeting-kit, notebook-kit
-see        standard tools (25) · glibc-2.40-66 (claude-code@personal) · graft-kits (repo)
+see        standard tools (24) · glibc-2.40-66 (claude-code@personal) · graft-kits (repo)
            env.set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 (claude-code@personal)
            env.set CLAUDE_CONFIG_DIR=~/.claude (claude-code@personal)
            env.set DISABLE_AUTOUPDATER=1 (claude-code@personal)
@@ -781,6 +787,17 @@ every repository, and leaves that part out when the context includes none.
 | A path not in the run | `pot (work): ~/src/other is not in this run: pot --read ~/src/other (one run), or pot --repo ~/src/other for a repository; permanent: …` |
 | A hidden path | `pot (work): ~/.ssh is hidden by your root in every run (~/.ssh, …)` |
 | A protected path | `pot (work): justfile is protected (**/justfile, graft): edit it on the host` |
+
+`pot why TARGET --json` answers only whether the run reaches a host, `HOST:PORT` or git URL, as one JSON object:
+`{ "version": 1, "target", "kind", "reach", "reached", "context", "text" }`. It exits 0 when the target is reached,
+1 when it is not. `kind` is `network` (a host, `HOST:PORT`, or an `https://`, `http://` or `git://` URL, reached
+when an effective network item matches), `git.fetch` (an `ssh://` URL or the scp form, reached when a `git.fetch`
+binding covers its remote) or `file` (a `file://` URL or `/path`, reached when it exists). `--json` may come before
+or after the target. Anything else is a usage error (exit 2):
+`pot why --json answers a host, HOST:PORT or a git URL; X is none (pot why X explains it)`. The git.fetch answers
+in `text`: `KEY is a bound git.fetch remote: a fetch goes through the ssh broker`, and
+`pot (work): KEY is not a bound git.fetch remote, so a fetch from it is refused`. This is the contract
+[run-env/1](../../pot/contracts/run-env-1.md#pot-why-target---json); `graft check` asks it inside a run.
 
 ### pot grant
 
@@ -990,19 +1007,23 @@ alone, so `/run/current-system/sw/bin` is absent: a test that hard-codes that pa
 it was started with instead.
 
 The standard set: bash, coreutils, findutils, grep, sed, gawk, diffutils, less, git, which, file, tree, ripgrep,
-fd, jq, curl, gnutar, gzip, unzip, xz, patch, python3, just, gh, and graft's command.
+fd, jq, curl, gnutar, gzip, unzip, xz, patch, python3, just and gh. graft's command is not in it: in a workspace
+whose flake is a graft consumer, its `pot-kits` bundle's `bin/` carries the workspace's own `graft`; for any other
+repository, a root that wants graft adds it to `tools`.
 
 ## Protected paths
 
 In place, a run can write its workspace except these, which are read-only mount points. They are defence in
 depth: the tree after a run is untrusted output.
 
-- What decides the sandbox: `**/flake.nix`, `**/flake.lock`, `**/graft.nix`, `**/.gitmodules`, and the flake
-  directory that `pot` evaluates when it is a subdirectory.
+- What decides the sandbox: `**/flake.nix`, `**/flake.lock`, `**/.gitmodules`, and the flake directory that `pot`
+  evaluates when it is a subdirectory.
 - What the host runs: `**/.envrc`, `**/justfile`, `**/.pre-commit-config.yaml`, `.githooks`, and the
   `core.hooksPath` folder.
 - Agent configuration: `**/.claude`, `**/.mcp.json`, `**/.pi`, `**/.codex`, `**/.vscode`.
-- Each workspace's scions directory, such as `scions` or `nix/agent-tools/.scions`.
+- What the repository's bundle protects (its `protect`, labelled `(repo)`). A graft consumer's bundle protects
+  `**/graft.nix` and its scions directory, such as `scions` or `nix/agent-tools/.scions`; so does a v2.15.0
+  `graft-kits` bundle, which pot reads until v2.17.0.
 - Each kit's `protect`.
 - In every git directory (the top `.git`, each scion's, each worktree's): `config`, `config.worktree`, `hooks/`,
   `info/`, `commondir` and `gitdir`; and every `.git` file. The rest is writable, so a run can commit. It can also
@@ -1301,7 +1322,8 @@ first on `PATH` wins; `command -v pot` says which.
 - [pot/kits/claude-code.nix](../../pot/kits/claude-code.nix): the claude-code kit, its overlay and denial hook
 - [pot/core/broker.py](../../pot/core/broker.py) and [pot/core/shim.py](../../pot/core/shim.py): the `git.fetch` broker,
   the `workmux` and ssh shims
-- [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit` and `kitArgs` from each `graft.nix` and `perSystem`, and
-  `packages.<system>.graft-kits`
+- [pot/lib/kits-for.nix](../../pot/lib/kits-for.nix): `graft.lib.pot.kitsFor` and `packages.<system>.pot-kits`
+- [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit` and `kitArgs` from each `graft.nix` and `perSystem`, the call to
+  kitsFor, and `packages.<system>.graft-kits`
 - [tests/run.sh](../../tests/run.sh): the `pot` section; [pot/tests/test_compose.py](../../pot/tests/test_compose.py)
 
