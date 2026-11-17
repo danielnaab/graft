@@ -106,7 +106,7 @@ whatever the agent read.
 How graft does it changed in v2.15.0: [Roots grant reach; kits only ask](#roots-grant-reach-kits-only-ask)
 replaces v2.14.0's launcher. These parts of v2.14.0's decision still hold there:
 
-- **The sandbox never writes what decides the sandbox, or what the host runs.** `flake.nix`, each `graft.nix`,
+- **A run never writes what decides the sandbox, or what the host runs.** `flake.nix`, each `graft.nix`,
   `.gitmodules`, `.envrc`, `justfile`, `.pre-commit-config.yaml`, the git metadata and agent configuration are
   read-only inside, at any depth.
 - **The terminal stays the caller's.** A command that shares a terminal could push input into it (`TIOCSTI`).

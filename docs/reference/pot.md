@@ -111,7 +111,7 @@ from `$HOME`, and use graft's default root when the link is missing. There is no
 |---|---|
 | `enable` | Installs `pot` in `home.packages`, and links `~/.config/pot/launcher` to its `bin/pot`. |
 | `package` | Read-only: the root's `pot`. |
-| `grantsFile` | The [grants file](#the-grants-file). Default `"~/.config/pot/grants.json"`; a home-manager root keeps it in its repository, such as `"~/.workstation/sandbox/grants.json"`. Hidden from every run. |
+| `grantsFile` | The [grants file](#the-grants-file). Default `"~/.config/pot/grants.json"`; a home-manager root keeps it in its repository, such as `"~/.workstation/pot/grants.json"`. Hidden from every run. |
 | `stateDir` | `pot`'s state: agent homes, caches, run directories ([State](#state)). Default `"~/.local/state/pot"`. Hidden from every run, and refused inside a workspace. |
 | `defaultContext` | The context when none is typed. Default `"work"`. |
 | `defaultAccount` | The agent kit instance (`NAME@ACCOUNT`) used with no `--account`. |
@@ -273,7 +273,7 @@ kit = {
 | Field | Kind | Meaning |
 |---|---|---|
 | `packages` | see | On `PATH`. A repo kit's packages reach every run in its workspace; a scion kit's do not. |
-| `env.set` | see | Fixed values, for the kit's own commands. Names that `pot` owns are refused: `BASH_ENV`, `PATH`, `HOME`, `POT*`, the proxy variables, `NIX_REMOTE`, `SSL_CERT_FILE`, `TZ`. |
+| `env.set` | see | Fixed values, for the kit's own commands. Names that `pot` owns are refused: `BASH_ENV`, `PATH`, `HOME`, `POT*` and v2.14.0's `GRAFT_SANDBOX*`, the proxy variables, `NIX_REMOTE`, `SSL_CERT_FILE`, `TZ`. |
 | `files."<path>"` | see | A file in the run. A key starts with `~/` (in the run's `HOME`) or `/` (needs the `root-files` guarantee). `mode`: `fixed`, bound read-only; `seed`, copied in once, into state on first use, then the run's own; `reassert`, the listed `keys` copied in from `source` at each start. |
 | `protect` | limits | Workspace paths, read-only inside. A path relative to the repository's top, or `**/NAME`. |
 | `requests.*` | reach | Requests, inert until [granted](#grants). |
@@ -478,7 +478,7 @@ difference until you grant again. Asking for less needs no approval.
 ### The grants file
 
 The root's `grantsFile`, default `~/.config/pot/grants.json`. A home-manager root tracks it in its repository,
-such as `~/.workstation/sandbox/grants.json`. `pot` reads it at start, with no rebuild, and writes it sorted, with a
+such as `~/.workstation/pot/grants.json`. `pot` reads it at start, with no rebuild, and writes it sorted, with a
 2-space indent. Commit it with the root's next change.
 
 ```json

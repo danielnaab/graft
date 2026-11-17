@@ -60,10 +60,10 @@ are in [pot](../reference/pot.md#the-model).
    pot: work · team-kb · pot explain
    ```
 
-5. `pot` prints `wrote ~/.workstation/sandbox/grants.json. Commit it with your root's next change.` Commit it:
+5. `pot` prints `wrote ~/.workstation/pot/grants.json. Commit it with your root's next change.` Commit it:
 
    ```
-   git -C ~/.workstation add sandbox/grants.json
+   git -C ~/.workstation add pot/grants.json
    git -C ~/.workstation commit -m "pot: grant claude-code@personal"
    ```
 
@@ -231,7 +231,7 @@ A home-manager root:
   imports = [ inputs.graft.homeManagerModules.pot ];
   programs.pot = {
     enable = true;
-    grantsFile = "~/.workstation/sandbox/grants.json";
+    grantsFile = "~/.workstation/pot/grants.json";
     rootRepos = [ "~/.workstation" ];
     kits."claude-code@personal" = inputs.graft.kits.claude-code { inherit pkgs; account = "personal"; };
     kits.standing.requests.network = [ "pypi.org" "registry.npmjs.org" ];

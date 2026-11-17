@@ -87,7 +87,7 @@ git submodules give you a pinned clone. graft adds what makes them a dependency 
   post-checkout hook that the guide gives fills them in new clones and worktrees, and `graft sync` fills them
   ([Clones, worktrees, sandboxes and CI](docs/guides/clones-and-worktrees.md)).
 - **An agent rule** for working with scions, ready to paste into `AGENTS.md`.
-- **A sandbox for agents (experimental): pot.** `pot claude` runs an agent, or any command, so that it writes the
+- **A sandbox for agents (experimental).** pot, graft's sandbox: `pot claude` runs an agent, or any command, so that it writes the
   repository but reaches only what you granted from your own root, and cannot change the files that decide the
   sandbox. Repositories and providers declare what they need as kits; only you grant it (Linux;
   [Run commands in pot](docs/guides/run-in-a-sandbox.md)).
