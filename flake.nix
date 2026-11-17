@@ -97,6 +97,20 @@
           cd pot && python3 -I -m unittest discover -s . -p 'test_*.py' -v
           touch $out
         '';
+        # the golden grant test: the canonical grant items and digests of the default root's
+        # claude-code@personal, and of tests/pot/golden.nix's root (a real root's instances, its
+        # standing kit and a repo kit), equal tests/pot/golden.json byte for byte
+        pot-golden = let
+          kitsOf = r: { inherit (r.passthru.root) kits repoKits; };
+          kitsJson = builtins.unsafeDiscardStringContext (builtins.toJSON {
+            default = kitsOf (defaultRoot pkgs);
+            golden = kitsOf (import ./tests/pot/golden.nix { inherit pkgs mkRoot; claudeCode = self.kits.claude-code; });
+          });
+        in pkgs.runCommand "graft-pot-golden" { nativeBuildInputs = [ pkgs.python3 ]; inherit kitsJson; passAsFile = [ "kitsJson" ];
+          passthru = { inherit kitsJson; }; } ''
+          python3 -I ${./tests/pot/golden.py} ${potSrc} "$kitsJsonPath" ${./tests/pot/golden.json}
+          touch $out
+        '';
         # the default root builds (on Darwin: a pot that refuses, D21)
         pot-root = defaultRoot pkgs;
         # a root with the claude-code kit (two accounts, MCP, Bedrock) builds: its manifests validate

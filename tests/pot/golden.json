@@ -1,0 +1,78 @@
+{
+  "default": {
+    "root:claude-code@personal": {
+      "digest": "sha256-DEyXvZMvpjaZIm1/PKyH4h8asvfPzSy43XaRJiigSog=",
+      "requests": [
+        "capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN",
+        "capability status.relay",
+        "network api.anthropic.com:443",
+        "network claude.ai:443",
+        "read ~/.local/share/claude",
+        "state claude"
+      ]
+    }
+  },
+  "golden": {
+    "repo:platform-vm:2222/daniel/flexion-assistant": {
+      "digest": "sha256-u22p3EjvTUbTiPIf0lfMVx3YLF+He2kKzOyj6MpupY4=",
+      "requests": [
+        "capability nix"
+      ]
+    },
+    "root:claude-code@flexion": {
+      "digest": "sha256-OAe0PljYLE/GGpa57a3N0r69aoCSRzNyUh7ko79hPpw=",
+      "requests": [
+        "capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN",
+        "capability mcp sessions",
+        "capability status.relay",
+        "network api.anthropic.com:443",
+        "network claude.ai:443",
+        "read ~/.local/share/claude",
+        "read ~/src/agent-skills",
+        "read ~/src/agent-skills-private",
+        "state claude"
+      ]
+    },
+    "root:claude-code@flexion-bedrock": {
+      "digest": "sha256-YuZgIgn9Za6VM+OvcDYtfHWsBA61p6QslvzJb1WCzoY=",
+      "requests": [
+        "capability credential bedrock-runtime.us-east-2.amazonaws.com env=AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_SESSION_TOKEN,AWS_CREDENTIAL_EXPIRATION",
+        "capability mcp sessions",
+        "capability status.relay",
+        "env ANTHROPIC_MODEL",
+        "env AWS_REGION",
+        "env CLAUDE_CODE_USE_BEDROCK",
+        "network bedrock-runtime.us-east-2.amazonaws.com:443",
+        "network bedrock.us-east-2.amazonaws.com:443",
+        "network sts.us-east-2.amazonaws.com:443",
+        "read ~/.local/share/claude",
+        "read ~/src/agent-skills",
+        "read ~/src/agent-skills-private",
+        "state claude"
+      ]
+    },
+    "root:claude-code@personal": {
+      "digest": "sha256-OAe0PljYLE/GGpa57a3N0r69aoCSRzNyUh7ko79hPpw=",
+      "requests": [
+        "capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN",
+        "capability mcp sessions",
+        "capability status.relay",
+        "network api.anthropic.com:443",
+        "network claude.ai:443",
+        "read ~/.local/share/claude",
+        "read ~/src/agent-skills",
+        "read ~/src/agent-skills-private",
+        "state claude"
+      ]
+    },
+    "root:daniel": {
+      "digest": "sha256-DLuTspncA+hr9Bm0TyWv8UXqe9sH6FbH9UksGvfbxT0=",
+      "requests": [
+        "capability git.fetch ssh://forgejo@platform-vm:2222/*",
+        "network files.pythonhosted.org:443",
+        "network pypi.org:443",
+        "network registry.npmjs.org:443"
+      ]
+    }
+  }
+}
