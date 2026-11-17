@@ -15,7 +15,7 @@ library, which graft's mkFlake calls.
 | Contract | Version | Producer | Reader | Owner |
 |---|---|---|---|---|
 | [`provider`](../../docs/reference/provider.md) | 2 (graft's major) | a provider's `graft.nix` | graft's mkFlake | graft |
-| [`kit`](kit-1.md) | 1 | providers, a consumer's `perSystem.kit`, root kits | pot | pot |
+| [`kit`](kit-1.md) | 1.x (1.0 and 1.1) | providers, a consumer's `perSystem.kit`, root kits | pot | pot |
 | [`pot-lib`](pot-lib-1.md) | 1 | pot | graft's mkFlake | pot |
 | [`pot-kits`](pot-kits-1.md) | 1 | `graft.lib.pot.kitsFor` | pot, at run start | pot |
 | [`grants`](grants-1.md) | 1, canonical 1 (frozen) | `pot grant` | pot, on each machine | pot |
@@ -43,6 +43,10 @@ pot ──▶ git facts: .gitmodules and gitlinks at HEAD, the tags at a scion's
   | Shim | Contract | Replaced by |
   |---|---|---|
   | `packages.<system>.graft-kits`: mkFlake still writes it, and pot reads it when a flake has no `pot-kits` | `pot-kits/1` | `packages.<system>.pot-kits` |
+  | `kit.packages` | `kit/1` | `kit.tools` |
+  | `--account NAME`: `pot: --account is --instance; --account goes in v2.17.0` | pot's command line | `--instance NAME`, `CMD@NAME` |
+  | `defaultAccount`: `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` | mkRoot, `programs.pot` | `defaultInstance.<kit>` |
+  | the claude-code kit's `provider` and `region`: `graft.kits.claude-code: provider and region are api = graft.apis.bedrock { region = …; } (or graft.apis.anthropic); they go in v2.17.0` | the kit's arguments | `api = graft.apis.<name>` |
 
 ## Sources
 

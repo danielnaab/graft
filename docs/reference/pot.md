@@ -118,15 +118,15 @@ from `$HOME`, and use graft's default root when the link is missing. There is no
 | `grantsFile` | The [grants file](#the-grants-file). Default `"~/.config/pot/grants.json"`; a home-manager root keeps it in its repository, such as `"~/.workstation/pot/grants.json"`. Hidden from every run. |
 | `stateDir` | `pot`'s state: agent homes, caches, run directories ([State](#state)). Default `"~/.local/state/pot"`. Hidden from every run, and refused inside a workspace. |
 | `defaultContext` | The context when none is typed. Default `"work"`. |
-| `defaultInstance` | Per kit, the instance (`KIT@NAME`) used with no `CMD@NAME`, `--instance` or matching caller variables: `{ claude-code = "personal"; }`. `defaultAccount` (a string, for every kit) is its old form: deprecated in v2.16.0, removed in v2.17.0, with the warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0`. |
+| `defaultInstance` | Per kit, the instance (`KIT@NAME`) used with no `CMD@NAME`, `--instance` or matching caller variables: `{ claude-code = "personal"; }`. `defaultAccount` (a string, for every kit) is its old form: deprecated in v2.16.0, removed in v2.17.0, with the warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` (from the module: `programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0`). Both together are an error. |
 | `agentMarkers` | Variables that mean an agent is the caller, beyond each root kit's `agent.markers` (default `[ "CODEX_SANDBOX" ]`; `POT` always is one). |
 | `rootRepos` | The root's source repositories: checkout paths (`~/…`, `/…`) or origin patterns. mkRoot's default is `[ ]`; the home-manager module's is `[ "~/.workstation" ]`. See [Root repositories](#root-repositories). |
-| `hidden` | Paths hidden from every run, added to [graft's default list](#hidden-paths). |
+| `hidden` | Paths hidden from every run, added to [pot's default list](#hidden-paths), which a root cannot shorten. |
 | `inspect.home` | The paths under `~` that `inspect` can read. Default `[ "~/src" ]`; a list replaces it. |
 | `inspect.homeManagerFiles` | Default `true`: `inspect` also reads home-manager's generated files. |
 | `tools` | Packages on every run's `PATH`, after the standard set. |
 | `caBundle` | A CA bundle for every run, such as a corporate proxy's. |
-| `kits.<name>` | Root kits: agent kits and standing reach ([Kits](#kits)). A name is `NAME`, or `NAME@ACCOUNT` for an account instance. |
+| `kits.<name>` | Root kits: agent kits and standing reach ([Kits](#kits)). A name is `NAME`, or `NAME@INSTANCE` for an instance of an agent kit (`claude-code@personal`). |
 | `repoKits."<pattern>"` | A repo kit for a repository that is not a graft consumer. The pattern is a [normalised origin](#identity), with `*` and `?` (`"platform-vm:2222/daniel/graft"`), or a URL, which is normalised. |
 | `contexts.<name>` | Changes to the contexts, and new ones ([Contexts](#contexts)). |
 | `bindings.<capability>."<selector>"` | How each capability is carried out ([Bindings](#bindings)). |
@@ -192,6 +192,11 @@ Below is the transcript of sandboxed run RUN (pot, context work). It is run outp
 It says `pot: host · resuming run RUN as data (N characters of transcript)`. So `pot host --resume 9b0e claude`
 starts a new Claude conversation that reads the run's transcript as a report, never as its own history.
 
+The command kit's `agent.resume` says where its transcripts are and how to turn one into text (`render`); a run
+records that in its directory (`resume.json`). A run whose kit has no `agent.resume` left no transcript:
+`pot host --resume RUN: the run left no transcript`. A run from before v2.16.0 has no `resume.json`, so it cannot
+be resumed this way: read its transcript in its state folder instead.
+
 ### inspect
 
 `inspect` is the one context that carries reach: its view is `host` made read-only, with secrets hidden.
@@ -205,7 +210,7 @@ starts a new Claude conversation that reads the run's transcript as a report, ne
   journal files your user can read. `systemctl status` and `docker ps` need the system bus or the docker
   socket, so they are host-only.
 - **Tools:** the standard set plus `procps`, `iproute2`, `lsof` and `systemd` (Linux).
-- **The network:** the command kit's model API only, without MCP. The model provider gets whatever the run
+- **The network:** the command kit's model API only, without MCP. Whoever runs that API gets whatever the run
   reads.
 - **Hidden even here:** the grants file and `pot`'s state. Root repositories are readable, so an agent can
   diagnose a failed `home-manager switch`. It can read the hidden list, and the grants file's committed
@@ -254,8 +259,9 @@ graft ships agent kits as functions that a root calls, such as `graft.kits.claud
 
 ```nix
 kit = {
+  version = "1.1";                             # optional: "1.0" when missing
   # see
-  packages = [ ];
+  tools = [ ];                                 # packages on PATH; 1.0's name, packages, is still read
   env.set = { };
   files."~/.claude/settings.json" = { source = <store path>; mode = "fixed"; };   # fixed | seed | reassert
   # limits
@@ -272,6 +278,8 @@ kit = {
   commands.meeting-kit = { program = "${pkg}/bin/meeting-kit"; access = "write"; requests = { }; };
   # recipes: data from which graft generates just recipes
   recipes.meeting-run = "meeting-kit run";
+  # 1.1, a root's kit only: how pot recognises this agent and its instances
+  agent = { markers = [ "CLAUDECODE" ]; select.env.CLAUDE_CONFIG_DIR = "~/.claude-accounts/flexion"; };
 };
 ```
 
@@ -290,8 +298,8 @@ kit = {
 - **Requests are literal.** A kit may compute them from its consumer's Nix arguments, never from a workspace
   file at run time. They are part of the digest. A provider's `graft.nix` function that names `kitArgs` receives
   the consumer's `perSystem.kitArgs.<scion>` (default `{ }`).
-- **Unknown fields are errors:** `pot: <file>: <field> is not a kit field (commands, env, files, packages,
-  protect, recipes, requests)`. `env` takes only `set`. A command's fields are `program`, `access` (`read` or
+- **Unknown fields are errors:** `pot: <file>: <field> is not a kit field (…)`, listing the fields of the kit's
+  version: `commands, env, files, packages, protect, recipes, requests, tools, version`, and `agent` in 1.1. `env` takes only `set`. A command's fields are `program`, `access` (`read` or
   `write`), `requests`, `args`, `settings`, `description`, and `dirs` (1.1) or `fixedDirs`, `realDirs`, `skillDirs`,
   `memory` (1.0): `… commands.NAME.fixedDirs is not a command field (kit 1.1: dirs)`.
 - **Paths are normalised.** `..` is refused. A path under your home is recorded as `~/…`.
@@ -302,7 +310,7 @@ kit = {
   scheduler calls runs on the host, as before ([Not in v2.15.0](#not-in-v2150)).
 - A repository presents its kits as `packages.<system>.pot-kits`, which pot's library `graft.lib.pot.kitsFor`
   writes (mkFlake calls it): `kit.json` (`{ version = 1; self; scions.<name>; protect; }`, each kit with its `file`),
-  `bin/` (the workspace's tools, and the repo kit's `packages`), and `closure` (their store paths). `pot` builds it
+  `bin/` (the workspace's tools, and the repo kit's `tools`), and `closure` (their store paths). `pot` builds it
   with `path:`, never `git+file:`, and caches it by the flake directory's tree. A flake with no `pot-kits` but
   v2.15.0's `graft-kits` is read the same way until v2.17.0. A newer bundle is refused: `pot (work): …#pot-kits:
   kit.json is version N, and this pot reads version 1: take a pot that reads it, or run pot host CMD`.
@@ -323,7 +331,7 @@ What configures a program follows that program's command. What describes the wor
 | Kit | see | limits | reach (when granted) |
 |---|---|---|---|
 | Command kit | all of it | `protect` | its requests, and its command's |
-| Repo kit | `packages` to every run; `env.set` and `files` only to its own commands | `protect` | its requests, to every run in the workspace |
+| Repo kit | `tools` to every run; `env.set` and `files` only to its own commands | `protect` | its requests, to every run in the workspace |
 | Scion kit | none | `protect` | only when one of its commands runs |
 | Included root kit | all of it | `protect` | its requests, to every run in the context |
 | Root and context | the standard tools, `TZ`, the CA bundle | hidden paths, `access`, `network` | none, except `inspect`'s view |
@@ -676,7 +684,7 @@ and the exit line names each one's permanent form. `--flag=value` works too.
 | `--from REF`, `--detach` | | Clone mode. Refused in v2.15.0, as `--clone` is. |
 | `--instance NAME` | | Chooses an agent kit instance, as `CMD@NAME` does. `--account NAME` is its old name: `pot: --account is --instance; --account goes in v2.17.0`. |
 | `--backend NAME` | | Chooses a backend that the root defines. |
-| `--resume RUN`, `--resume last` | | Only with `host`: passes the transcript of run `RUN` (`last`: the newest run that left one) into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `pot: --resume RUN goes with pot host (pot host --resume RUN claude)`. |
+| `--resume RUN`, `--resume last` | | Only with `host`: passes the transcript of run `RUN` (`last`: the newest run that left one) into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `pot: --resume RUN goes with pot host (pot host --resume RUN CMD)`. |
 
 A flag or `--repo` that names a hidden path, or a root repository in `work`, is refused at start.
 
@@ -906,7 +914,7 @@ acts on one. Not in v2.15.0. It is refused with exit 2:
 Before the command starts, `pot` prints one line on stderr: `pot: <context> · <repositories> [· notes] · pot explain`.
 The notes:
 
-- `account NAME`; `access read` when a flag narrowed it; `one run: --net x.org:443 …`;
+- `instance NAME`, when it is not the kit's default; `access read` when a flag narrowed it; `one run: --net x.org:443 …`;
 - a kit's status word: `meeting-kit asks for more: pot grant`, `… changed source`;
 - `env NAME unset`; `CAPABILITY: no binding`;
 - unset or expired AWS credentials: `AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY unset on the host: aws sso login (or
@@ -914,7 +922,7 @@ The notes:
   `AWS credentials expired at T: …`;
 - entries left out of a fixed folder: `claude-code: 3 entries left out of ~/.claude/skills (pot explain)` (`1 entry`);
   `pot explain` names them, under the folder's row, as `left out: a b …`. An entry is left out when it is a link
-  outside the read requests, or a real folder that `skillDirs` does not name;
+  outside the read requests, or a real folder that the dir's `real` does not name (the claude-code kit's `skillDirs`);
 - hooks that will not run: `team-kb has .githooks but core.hooksPath is unset: commits run no hook (git config core.hooksPath .githooks, on the host)`.
 
 ```
@@ -974,7 +982,7 @@ pot: --net pypi.org:443 was for this run; permanent: the repo kit's requests.net
 | `POT_TOOLS` | The `bin/` of `packages.<system>.pot-kits`, which `pot` built and cached on the host. Set when the workspace has a repo kit. |
 | `POT_POLICY` | `/run/pot/policy.json`. |
 | `POT_CLONE` | `1` in clone mode. Never set in v2.15.0. |
-| `PATH` | `/run/pot/bin` (the capabilities' shims) first, then the standard set, the root's tools, the kits' packages and the workspace's tools, and `/run/pot/notfound` last. |
+| `PATH` | `/run/pot/bin` (the capabilities' shims) first, then the standard set, the root's tools, the kits' tools and the workspace's tools, and `/run/pot/notfound` last. |
 | `BASH_ENV` | `/run/pot/bash_env`, which defines bash's `command_not_found_handle`. |
 | `BASH_FUNC_command_not_found_handle%%` | The same handler, exported as a function. |
 | `HOME`, `USER`, `LOGNAME` | Your home's path and your user name. Only what the run's items bind is in `HOME`. |
@@ -1024,7 +1032,8 @@ depth: the tree after a run is untrusted output.
   evaluates when it is a subdirectory.
 - What the host runs: `**/.envrc`, `**/justfile`, `**/.pre-commit-config.yaml`, `.githooks`, and the
   `core.hooksPath` folder.
-- Agent configuration: `**/.claude`, `**/.mcp.json`, `**/.pi`, `**/.codex`, `**/.vscode`.
+- Agent configuration: `**/.mcp.json`, `**/.vscode`, `**/.claude`, `**/.pi`, `**/.codex`. The last three are root
+  data (the manifest's `baseProtect`), a floor that no root removes. `pot explain` lists the group in this order.
 - What the repository's bundle protects (its `protect`, labelled `(repo)`). A graft consumer's bundle protects
   `**/graft.nix` and its scions directory, such as `scions` or `nix/agent-tools/.scions`; so does a v2.15.0
   `graft-kits` bundle, which pot reads until v2.17.0.
@@ -1037,7 +1046,7 @@ A protected file with a second hard link stops the run. To change a protected fi
 
 ## Hidden paths
 
-A hidden path is unmounted and unwritable in every run, `inspect` included. graft's default list:
+A hidden path is unmounted and unwritable in every run, `inspect` included. pot's default list:
 
 - `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker/config.json`, `~/.netrc`,
   `~/.git-credentials`, `~/.config/gh`, `~/.config/sops`;
@@ -1048,7 +1057,9 @@ A hidden path is unmounted and unwritable in every run, `inspect` included. graf
 - `pot`'s state directory, and every grants file;
 - each file that a binding's `from` names.
 
-A root adds to it with `hidden`. A run's agent gets its own home: the claude-code kit's `state` puts a private
+A root adds to it with `hidden`, and cannot remove from it. The agents' entries are root data in
+[pot/nix/root.nix](../../pot/nix/root.nix) (the manifest's `baseHidden`), not pot's core, but they are a floor:
+they apply whether or not the root has a kit for that agent. A run's agent gets its own home: the claude-code kit's `state` puts a private
 `~/.claude` in place of yours, and binds into it, read-only, only what the kit names: fixed files, skills,
 plugins and project memory ([Claude Code](#claude-code)). Your credentials there stay hidden.
 
@@ -1182,6 +1193,14 @@ programs.pot.kits."claude-code@personal" = inputs.graft.kits.claude-code {
 };
 ```
 
+**The API.** `api` is a value from graft's flake: `graft.apis.anthropic` (the default, `{ name = "anthropic"; }`)
+or `graft.apis.bedrock { region = "us-east-1"; }` (`{ name = "bedrock"; region; }`). It decides the kit's network
+requests, variables and credential ([below](#claude-code)). v2.15.0's `provider` and `region` arguments still work,
+with a warning: `graft.kits.claude-code: provider and region are api = graft.apis.bedrock { region = …; } (or
+graft.apis.anthropic); they go in v2.17.0`. Giving `api` with them is an error:
+`graft.kits.claude-code: give api, or provider and region (the old form), not both`. Either form gives the same
+canonical requests, so no grant asks again.
+
 The run gets its own agent home, configured by the root:
 
 - **Settings and instructions:** every `files` entry whose target is under `configDir/` (except the folders
@@ -1232,7 +1251,7 @@ The run gets its own agent home, configured by the root:
 - **Onboarding and folder trust:** `~/.claude/.claude.json` is `reassert`, with the keys `hasCompletedOnboarding`
   and `projects.*.hasTrustDialogAccepted` (`*` is each workspace path). The host writes seeded and reasserted
   files into state, and refuses to write through a link that a run planted.
-- **Transcripts:** `state claude` at `~/.claude`, scoped per account, workspace and context.
+- **Transcripts:** `state claude` at `~/.claude`, scoped per instance, workspace and context.
 - **Requests:** `read ~/.local/share/claude` (native) and `skillSources`; `network` `api.anthropic.com` and
   `claude.ai`, or with Bedrock `bedrock-runtime.<region>.amazonaws.com`, `bedrock.<region>.amazonaws.com` and
   `sts.<region>.amazonaws.com`; with Bedrock, `env` `CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_MODEL` and `AWS_REGION`;
@@ -1244,7 +1263,7 @@ The run gets its own agent home, configured by the root:
   1. On the host, run `aws sso login` (or your AWS credential helper, or the binding's `refresh` command).
   2. Export the keys into the shell that starts `pot`, if your helper does not.
   3. Start the run again. A run keeps the keys it started with, until they expire.
-- **Instances:** one per account and API, each granted on its own. Its `agent.select.env` is
+- **Instances:** one per Claude account and API, each granted on its own. Its `agent.select.env` is
   `CLAUDE_CONFIG_DIR = "~/<configDir>"`, plus `CLAUDE_CODE_USE_BEDROCK = "1"` for Bedrock, so a shell that `ai use`
   set up picks its instance (Bedrock is the more specific match).
 
@@ -1283,7 +1302,7 @@ first on `PATH` wins; `command -v pot` says which.
 
 1. **Shared kernel.** A bubblewrap run shares the host's kernel. Only a VM proves `separate-kernel`.
 2. **Allowed hosts carry data out.** The proxy limits where, not what. The model API carries the workspace. A run
-   can use its own account on an allowed host. `inspect` gives the model provider what it reads.
+   can use its own account on an allowed host. `inspect` gives the model API what it reads.
 3. **Ordinary grants trust a kit's future code** within their reach. Powerful grants fix the source for scion and
    repo kits. Root kits rely on the root's lock and its review.
 4. **The host still runs repository and kit content:** Nix evaluation, fixed-output derivations, direnv, your own

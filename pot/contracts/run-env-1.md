@@ -33,7 +33,8 @@ The rest of a run's environment is described in pot's reference
 
 ### policy.json, version 1
 
-The shape is frozen: a later release adds values, not fields.
+The shape is frozen. Its top-level fields never change. Within version 1, a release adds values, and may add an
+optional key to an item, never remove or rename one.
 
 ```json
 {
@@ -75,6 +76,10 @@ An item's `sources` say where it came from. Each is one of these objects:
 | `{ "root": "default" }` | pot's own defaults: hidden paths, protected paths; with `"why": "the flake directory pot evaluates"` for that folder |
 | `{ "root": "bundle", "why": "the repository's pot-kits" }` | a path the bundle's `protect` names |
 | `{ "root": R }`, R one of `standard`, `tools`, `inspect`, `base`, `caBundle`, `hidden`, `pot`, `binding` | the root: its standard set, its tools, `inspect`'s tools, `TZ`, its CA bundle, its hidden paths, pot's own state and grants file, a binding's key file |
+
+An item may carry keys for its kind, such as `mode`, `source`, `paths`, `via` or `why`. v2.16.0 adds one: a file
+that a [`dirs` mirror](kit-1.md#dirs) puts in the run has `"mirror": "<label>"`, such as `"mirror": "memory"`. It
+keeps v2.15.0's `"memory": true` on the same items, so a v2.15.0 reader still finds them.
 
 v2.16.0 changes one value: pot's defaults were `{ "root": "graft" }` in v2.15.0, and are `{ "root": "default" }`.
 The source `{ "root": "graft", "why": "the scions directory" }` is gone: the scions folder now comes from the
@@ -122,8 +127,8 @@ fetch.
 
 ## Compatibility
 
-- **Readers ignore values they do not know, and refuse fields they do not know.** That is what "values, not
-  fields" means for a reader: a new guarantee, item kind, source or capability name is a value.
+- **Readers ignore what they do not know:** a new guarantee, item kind, source or capability name, and an item
+  key that a later release adds. They may rely on the top-level fields, which never change in version 1.
 - **Variables are added, never renamed,** within version 1. v2.14.0's `GRAFT_SANDBOX*` names are not set, and no
   kit may set them.
 - A program that wants to know whether it is in a run tests `POT`. One that wants to know whether something is

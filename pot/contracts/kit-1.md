@@ -5,7 +5,7 @@ status: working
 
 | | |
 |---|---|
-| Version | 1 |
+| Version | 1.x: the field `version`, `"1.0"` or `"1.1"`. A missing `version` means `"1.0"`. |
 | Producer | a provider's `graft.nix` (`kit`), a consumer's mkFlake `perSystem.kit`, a root's `programs.pot.kits.<name>` and `repoKits."<origin>"` |
 | Reader | pot: [kitsFor](pot-lib-1.md) when it writes a bundle, mkRoot when it builds a root, and pot at run start |
 | Owner | pot |
@@ -17,8 +17,9 @@ part of it: pot establishes that from host facts ([Identity](#identity)).
 
 ```nix
 kit = {
+  version = "1.1";                       # optional; "1.0" when missing
   # see
-  packages = [ ];
+  tools = [ ];                           # packages on PATH (packages is its old name)
   env.set = { };
   files."~/.claude/settings.json" = { source = <store path>; mode = "fixed"; };   # fixed | seed | reassert
   # limits
@@ -32,20 +33,24 @@ kit = {
     capabilities = [ { name = "git.fetch"; remote = "origin"; } ];
     unsandboxed = false;
   };
-  commands.<name> = { program; args; access; requests; description; settings; … };
+  commands.<name> = { program; args; access; requests; description; settings; dirs; };
   recipes.<name> = "<command> <args>";
+  agent = { markers; select; resume; hooks; };   # 1.1, a root's kit only
 };
 ```
 
-| Field | Type | Meaning |
-|---|---|---|
-| `packages` | list of packages | On `PATH`. A repo kit's packages reach every run in its workspace; a scion kit's do not. |
-| `env.set` | attrs of strings | Fixed values, for the kit's own commands. Names that pot owns are refused. |
-| `files."<path>"` | `{ source; mode; keys; }` | A file in the run, at `~/…` or `/…`; `/…` needs the `root-files` guarantee. |
-| `protect` | list of strings | Workspace paths, read-only inside: relative to the repository's top, or `**/NAME`. |
-| `requests.<kind>` | per kind | Requests, inert until granted ([Requests](#requests)). |
-| `commands.<name>` | attrs | A program the kit ships ([Commands](#commands)). |
-| `recipes.<name>` | string | A just recipe body. Checked; not yet generated. |
+| Field | Since | Type | Meaning |
+|---|---|---|---|
+| `version` | 1.0 | string | the minor the kit is written against |
+| `tools` | 1.0 | list of packages | On `PATH`. A repo kit's tools reach every run in its workspace; a scion kit's do not. |
+| `packages` | 1.0 | list of packages | `tools`' old name, still read in 1.0 and 1.1. Deprecated in v2.16.0, removed in v2.17.0. |
+| `env.set` | 1.0 | attrs of strings | Fixed values, for the kit's own commands. Names that pot owns are refused. |
+| `files."<path>"` | 1.0 | `{ source; mode; keys; }` | A file in the run, at `~/…` or `/…`; `/…` needs the `root-files` guarantee. |
+| `protect` | 1.0 | list of strings | Workspace paths, read-only inside: relative to the repository's top, or `**/NAME`. |
+| `requests.<kind>` | 1.0 | per kind | Requests, inert until granted ([Requests](#requests)). |
+| `commands.<name>` | 1.0 | attrs | A program the kit ships ([Commands](#commands)). |
+| `recipes.<name>` | 1.0 | string | A just recipe body. Checked; not yet generated. |
+| `agent` | 1.1 | attrs | How pot recognises an agent and its instances ([Agent kits](#agent-kits)). Only a root's kit may declare it. |
 
 The `files` modes: `fixed`, bound read-only; `seed`, copied into state on first use, then the run's own; and
 `reassert`, the listed `keys` copied in from `source` at each start.
@@ -66,17 +71,94 @@ the workspace at run time.
 | `capabilities` | `{ name; … }` | `status.relay` and `git.fetch` ordinary; `credential`, `mcp`, `nix`, `git.push`, `git.sign`, `ops.read` and `delegate` powerful |
 
 Each request has one canonical string, which the [grants file](grants-1.md#canonical-requests) stores and digests.
+`version`, `tools`, `agent` and `dirs` are not requests: they change no canonical item and no digest.
 
 ### Commands
 
+| Field | Since | Type | Meaning |
+|---|---|---|---|
+| `program` | 1.0 | a store path, or `{ host = "~/…"; }` | resolved on the host at each start |
+| `args` | 1.0 | list of strings or store paths | put before the caller's arguments |
+| `access` | 1.0 | `"read"` or `"write"` | can only narrow the context's |
+| `requests` | 1.0 | as the kit's | the command's own reach |
+| `description`, `settings` | 1.0 | string, attrs | shown by `pot explain` |
+| `fixedDirs`, `realDirs`, `skillDirs`, `memory` | 1.0 only | | host folders the command sees; pot reads them as `dirs`. A 1.1 kit that gives one is refused: `… commands.NAME.fixedDirs is not a command field (kit 1.1: dirs)`. |
+| `dirs` | 1.1 | attrs | host folders the command sees, read-only ([below](#dirs)) |
+
+### dirs
+
+```nix
+commands.claude.dirs = {
+  "~/.claude/skills"  = { from = "~/.claude-accounts/flexion/skills"; real = [ "synced" ]; };
+  "~/.claude/plugins" = { from = "~/.claude-accounts/flexion/plugins"; real = true; };
+  "~/.claude/projects/{workspace}/memory" = {
+    mode = "mirror"; from = "~/.claude-accounts/flexion/projects/{workspace}/memory";
+    copy = [ "MEMORY.md" ]; label = "memory";
+  };
+};
+```
+
+The key is a path in the run's `HOME` (`~/…`). Each entry is `{ from; mode; real; copy; label; }`:
+
+| Field | Mode | Meaning |
+|---|---|---|
+| `from` | both | the host folder: `~/…`, `/…`, or `null` for an empty read-only folder. A folder the host lacks is an empty read-only one too. |
+| `mode` | | `links` (the default) or `mirror` |
+| `real` | `links` | the real entries of `from` to bind (a list of names), or `true` for all |
+| `copy` | `mirror` | the files that are writable copies |
+| `label` | `mirror` | one lowercase word, default `mirror`, that names the mirror in messages and its out folder |
+
+- **`links`:** the run path is a read-only folder that pot builds in the run directory. Each host entry that is a
+  link is there by its target, one level deep: a store path, or a path under the run's granted `read` requests. A
+  real entry is there only when `real` names it. Others are left out: the startup line counts them, and
+  `pot explain` names them.
+- **`mirror`:** the host folder's files, read-only, file by file. Each file that `copy` names is a writable copy
+  instead, copied in at each start. When the run ends, new files and changed copies are copied out to
+  `<run dir>/<label>-out/<key>/`, for a person to review. Nothing is written back to the host. `{workspace}`, in
+  the key and in `from`, stands for each workspace (the working directory and the repository's top), written as
+  its absolute path with every character outside `[A-Za-z0-9]` as `-`. Only a mirror may use it.
+
+The architecture named `mirror` a files mode. v2.16.0 makes it a `dirs` mode instead: a kit's `files` come from
+the store, while a mirror is a host folder, as `links` is.
+
+### Agent kits
+
+```nix
+agent = {
+  markers = [ "CLAUDECODE" ];
+  select.env = { CLAUDE_CONFIG_DIR = "~/.claude-accounts/flexion"; CLAUDE_CODE_USE_BEDROCK = "1"; };
+  resume = { transcripts = "~/.claude/projects/**/*.jsonl"; args = [ "--resume" "{id}" ]; render = <program>; };
+  hooks = [ "PreToolUse Bash|WebFetch (pot's --settings overlay; /hooks does not list it)" ];
+};
+```
+
+Every field is optional. Only a root's kit may declare `agent`; anywhere else it is refused:
+`pot: FILE: agent: only a root's kit may declare it (an agent kit is the root's)`.
+
 | Field | Type | Meaning |
 |---|---|---|
-| `program` | a store path, or `{ host = "~/…"; }` | resolved on the host at each start |
-| `args` | list of strings or store paths | put before the caller's arguments |
-| `access` | `"read"` or `"write"` | can only narrow the context's |
-| `requests` | as the kit's | the command's own reach |
-| `description`, `settings` | string, attrs | shown by `pot explain` |
-| `fixedDirs`, `realDirs`, `skillDirs`, `memory` | attrs, list, list, attrs | host folders the command sees ([pot's reference](../../docs/reference/pot.md#schema)) |
+| `markers` | list of variable names | A caller with any of these set is an agent: `pot grant` refuses, and a stale grant exits 125 instead of prompting. pot's markers are the union of the root kits' `markers`, the root's `agentMarkers` (default `[ "CODEX_SANDBOX" ]`) and `POT`. |
+| `select.env` | attrs of strings | How the caller's environment names this instance ([Instances](#instances)). |
+| `resume.transcripts` | a glob in the run's `HOME` | where the agent writes its transcripts, under one of its `state` requests |
+| `resume.args` | list of strings | the arguments that resume a session; `{id}` is the newest transcript's name without its suffix |
+| `resume.render` | a program | prints a transcript file's text, for `pot host --resume` |
+| `hooks` | list of strings | rows that `pot explain` shows as `hooks` |
+
+### Instances
+
+A root names each instance of an agent kit: `kits."claude-code@flexion" = …`, with the identity
+`root:claude-code@flexion`. A run's instance is the first of:
+
+1. `CMD@NAME` on the command line;
+2. `--instance NAME`;
+3. the caller's variables: an instance matches when its `agent.select.env` is not empty and every variable in it
+   equals the caller's. A value that starts with `~` or `/` is a path, and both sides are compared after `~`
+   expansion and `realpath`; other values are compared as strings. An unset variable never matches. **The most
+   specific match wins:** the instance whose `select.env` names the most variables. A tie goes to the default
+   when it is among the matches; otherwise pot stops and names them;
+4. the kit's default: the root's `defaultInstance.<kit>`, or the only instance.
+
+Each instance is granted on its own.
 
 ## Identity
 
@@ -105,18 +187,23 @@ identity.
 
 ## Compatibility
 
-- **Unknown fields are errors:** `pot: <file>: <field> is not a kit field (commands, env, files, packages, protect,
-  recipes, requests)`. So are unknown request kinds, capability names, capability fields and command fields. A
-  provider learns of a mistake when its consumer builds, not when a run starts.
-- **Values are added, not fields.** A release may add a capability name or a files mode. A new field is a new
-  version of this contract, which pot reads before any producer writes it.
-
-<!-- Milestone 2 (not built yet): the field `version` (missing means 1.0), kit 1.1 (`tools`, `agent`, `dirs`, the
-     files mode `mirror`), the refusal of a newer minor, and `packages` as a deprecated alias. -->
+- **Reader first.** pot reads a minor before any producer writes it. A kit that writes 1.1 needs the roots that
+  read it on graft v2.16.0 or later. The claude-code kit writes 1.1.
+- **A newer minor gets one refusal, checked before any other field:**
+  `pot: FILE: kit version 1.2 is newer than this pot reads (1.0, 1.1): take a newer pot`. Another major, or a
+  `version` that is not a string: `pot: FILE: kit version X: this pot reads kit 1.0 and 1.1`.
+- **Unknown fields within a known minor are errors:** `pot: FILE: FIELD is not a kit field (…)`, listing that
+  minor's fields. So are unknown request kinds, capability names and fields, command fields, `dirs` fields and
+  `agent` fields. A provider learns of a mistake when its consumer builds, not when a run starts.
+- **Values are added, not fields,** within a minor. A new field is a new minor.
+- **`packages`** is read as `tools`, in 1.0 and 1.1. Giving both is an error:
+  `pot: FILE: tools and packages are one field (packages is its old name): give tools`. Deprecated in v2.16.0,
+  removed in v2.17.0.
 
 ## Sources
 
-- [pot/core/compose.py](../core/compose.py): `validate_kit`, `parse_requests`, `normalise_origin`,
-  `repo_identity`, `scion_identity`
-- [pot/lib/kit.nix](../lib/kit.nix): a kit as a manifest
+- [pot/core/compose.py](../core/compose.py): `kit_version`, `validate_kit`, `check_dirs`, `check_agent`,
+  `normalise_kit`, `normalise_origin`, `repo_identity`, `scion_identity`
+- [pot/core/pot.py](../core/pot.py): choosing the instance, mirrors, resume
+- [pot/kits/claude-code.nix](../kits/claude-code.nix): a 1.1 kit
 - [pot's reference: Kits](../../docs/reference/pot.md#kits)
