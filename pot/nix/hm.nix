@@ -16,8 +16,20 @@ let
     else lib.warn "programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0"
       (lib.listToAttrs (map (n: lib.nameValuePair (lib.head (lib.splitString "@" n)) cfg.defaultAccount)
         (lib.filter (lib.hasInfix "@") (lib.attrNames cfg.kits))));
+  # every default names a declared instance (mkRoot checks too; here the messages name what was typed)
+  instancesOf = base: map (n: lib.removePrefix "${base}@" n) (lib.filter (lib.hasPrefix "${base}@") (lib.attrNames cfg.kits));
+  typed = base: if cfg.defaultAccount != null then "programs.pot.defaultAccount = \"${cfg.defaultAccount}\" (for ${base})"
+    else "programs.pot.defaultInstance.${base} = \"${cfg.defaultInstance.${base}}\"";
+  badDefaults = lib.concatLists (lib.mapAttrsToList (base: inst:
+    let have = instancesOf base; in
+    lib.optional (!(lib.elem inst have))
+      (if have == [ ] then "programs.pot.defaultInstance.${base}: programs.pot.kits has no ${base}@NAME"
+       else "${typed base}: programs.pot.kits declares ${lib.concatMapStringsSep ", " (i: "${base}@${i}") have}"))
+    defaultInstance);
+  checked = if badDefaults == [ ] then defaultInstance else throw (lib.concatStringsSep "; " badDefaults);
   pot = mkRoot {
-    inherit pkgs defaultInstance;
+    inherit pkgs;
+    defaultInstance = checked;
     name = "home-manager";
     inherit (cfg) grantsFile stateDir contexts defaultContext kits hidden tools bindings rootRepos agentMarkers
       repoKits inspect caBundle;

@@ -41,6 +41,18 @@ class Classify(unittest.TestCase):
                      ("HOME", "var"), ("pypi.org", "host"), ("h:22", "host"), ("bash", "command")]:
             self.assertEqual(pot.classify(t), k, t)
 
+    def test_command_first(self):
+        # a root kit command is a command for text and --json alike, even when a path of that name exists (R5)
+        self.assertEqual(pot.classify("nix", {"nix": ["k"]}), "command")
+        self.assertEqual(pot.classify("compose.py"), "path")    # an existing name with a dot is a path, not a host
+
+    def test_requested_not_in_run(self):
+        pol = dict(POLICY, workspace=[], access="write", backend={"proved": []},
+                   items=[{"kind": "read", "value": "~/src/s", "class": "reach", "effective": False, "path": "/home/u/src/s",
+                           "why": "not in this run", "sources": [{"kit": "root:cc@flexion", "as": "request"}]}])
+        t, reached = pot.path_answer(pol, "/home/u/src/s", "~/src/s", "pot (work):", "/home/u", {}, lambda i: "cc@flexion")
+        self.assertEqual((t, reached), ("pot (work): ~/src/s is requested (read) by an instance of cc, not in this run", False))
+
     def test_text_and_json_agree(self):
         import io, contextlib, json
         out = io.StringIO()
@@ -60,7 +72,7 @@ class Classify(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             rc = pot.why_json(pol, "/home/u/.ssh/id", lambda x: pot.answer_why(pol, x, "/home/u", {}), "/home/u")
         j = json.loads(out.getvalue())
-        self.assertEqual((rc, j["kind"], j["reach"], j["reached"]), (1, "file", "~/.ssh/id", False))
+        self.assertEqual((rc, j["kind"], j["reach"], j["reached"]), (1, "file", "/home/u/.ssh/id", False))   # reach: the path as given (N-a)
         self.assertIn("is hidden by your root", j["text"])
 
 

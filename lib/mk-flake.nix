@@ -208,7 +208,11 @@ let
       # v2.15.0's bundle, for a v2.15.0 pot (goes in v2.17.0): the same kits, tools and closure, as a
       # v2.15.0 reader takes them: `tools` written `packages`, no `version`, and a kit that uses kit 1.1
       # (dirs, agent) left out, with a build warning naming it. Compact, as v2.15.0 wrote it.
-      graftKits = pkgs.runCommand "graft-kits" { nativeBuildInputs = [ pkgs.jq ]; } ''
+      # graft-kits shim (goes in v2.17.0): the one place mkFlake looks inside a kit, to warn at evaluation
+      newKit = u: u.kit ? agent || lib.any (c: c ? dirs) (lib.attrValues (u.kit.commands or { }));  # graft-kits shim
+      leftOut = lib.filter (u: newKit u) (lib.attrValues kitUnits);  # graft-kits shim
+      warnLeftOut = x: lib.foldl' (acc: u: lib.warn "graft-kits: ${u.file} uses kit 1.1 (dirs or agent): a v2.15.0 pot cannot read it, so graft-kits leaves it out (pot-kits has it)" acc) x leftOut;  # graft-kits shim
+      graftKits = warnLeftOut (pkgs.runCommand "graft-kits" { nativeBuildInputs = [ pkgs.jq ]; } ''
         mkdir -p $out
         defs='def new: (.agent != null) or ([(.commands // {})[] | .dirs] | any(. != null));
               def old: del(.version) | if has("tools") then (.packages = .tools | del(.tools)) else . end;'
@@ -220,7 +224,7 @@ let
           ${potKits}/kit.json > $out/kit.json
         ln -s ${potKits}/bin $out/bin
         cp ${potKits}/closure $out/closure
-      '';
+      '');
       devShells = lib.mapAttrs (_: ok) (results.self.devShells or { });
       ownDefault = devShells ? default || outputs ? devShells.${system}.default;
     in

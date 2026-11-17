@@ -147,6 +147,11 @@
             defaultInstance.claud-code = "w"; }).drvPath true)).success;
           assert rootOf { defaultAccount = "w"; } == rootOf { defaultInstance.claude-code = "w"; };
           pkgs.runCommand "graft-pot-aliases" { } "touch $out";
+        # the agent-marker floor is root data (C3): a root with no agent kit still knows CLAUDECODE and CODEX_SANDBOX
+        pot-markers = let r = (mkRoot { inherit pkgs; }).passthru.root; in
+          assert lib.all (m: lib.elem m r.baseAgentMarkers) [ "CODEX_SANDBOX" "CLAUDECODE" ];
+          assert r.agentMarkers == [ ];
+          pkgs.runCommand "graft-pot-markers" { } "touch $out";
         # homeManagerModules.pot evaluates (with home-manager's few options stubbed), and asserts
         # workmux's sandbox off
         pot-hm = let

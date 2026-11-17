@@ -576,7 +576,7 @@ def parse(argv, root):
     elif argv and argv[0] in ctxs:
         context, i = argv[0], 1
     if verb in ("runs", "doctor"):
-        raise Usage(f"pot {verb} comes in a later release")
+        raise Usage(f"{verb} comes in a later release")
     flags = {"package": [], "read": [], "write": [], "net": [], "env": [], "repo": []}
     rest = argv[i:]
     cmd = []
@@ -1031,7 +1031,7 @@ def run(host, root, context, flags, cmd):
         launch = launch_facts(host, root, policy, ws, flags, report["argv"])
         launch["netFix"] = C.permanent_fix("--net", "", report, root)
         launch["pkgFix"] = C.permanent_fix("--package", "", report, root)
-        launch["toolsFix"] = "".join(C.root_paths(root)[0]) + "tools"
+        launch["toolsFix"] = "{}tools ({})".format(*C.root_paths(root))
         launch["root"] = {"contexts": root.get("contexts") or {}}
         with open(os.path.join(rundir, "policy.json"), "w") as f:
             json.dump(policy, f, indent=1)
@@ -1214,7 +1214,7 @@ def check_command(policy, launch, ctx, given=True):
         return       # the host's nix, on the run's PATH through the nix capability (bwrap.run_env)
     if given and not shutil.which(name):
         raise C.Refusal(f"pot: unknown context or command {name}; contexts: {', '.join(C.context_names(launch.get('root') or {}))}; "
-                        f"a program every run here should have goes in the root's tools ({launch.get('toolsFix') or 'tools'})", 2)
+                        f"a program every run here should have goes in {launch.get('toolsFix') or "the root's tools"}", 2)
     raise C.Refusal(f"pot ({ctx['name']}): {name} is not in this run. one run: pot --package PKG …  "
                     f"permanent: {launch.get('pkgFix') or 'programs.pot.tools, or the repo kit tools'}", 127)
 
@@ -1403,12 +1403,14 @@ URL_RE = re.compile(r"(https?|git|ssh|git\+ssh|file)://.*")
 SCP_RE = re.compile(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^/].*")
 
 
-def classify(x):
+def classify(x, commands=()):
     """What pot why TARGET is about, decided once for its text and its --json: url (a git or web URL,
     scp-style user@host:path too), path (absolute, ~, relative with a /, or an existing name here),
     var (an upper-case variable name), host (a name with a dot or a port), else command."""
     if URL_RE.fullmatch(x) or SCP_RE.fullmatch(x):
         return "url"
+    if x in commands:
+        return "command"
     if C.ENV_RE.fullmatch(x) and x.upper() == x:
         return "var"
     if x.startswith(("/", "~", ".")) or "/" in x or os.path.lexists(x):
@@ -1465,10 +1467,10 @@ def reach_of(policy, target):
     return None
 
 
-def why_json(policy, target, text, home):
+def why_json(policy, target, text, home, facts=None):
     """pot why TARGET --json (run-env/1): a host, HOST:PORT, URL or path, answered from the policy (on the
     host, a run of the default context here; inside, this run), as the text answer is."""
-    kind = classify(target)
+    kind = classify(target, (facts or {}).get("commands") or {})
     r = None
     if kind in ("url", "host"):
         r = reach_of(policy, target)
@@ -1481,7 +1483,7 @@ def why_json(policy, target, text, home):
     if kind == "file":
         msg, reached = path_answer(policy, reach, C.canon_path(reach, home), f"pot ({policy['context']}):", home,
                                    {}, lambda i: ", ".join(dict.fromkeys(l for l in (C.label(s) for s in i["sources"]) if l)) or "pot")
-        reach = C.canon_path(reach, home)
+        reach = target
         msg = text(target)
     elif kind == "git.fetch":
         msg = (f"{reach} is a bound git.fetch remote: a fetch goes through the ssh broker" if reached else
@@ -1503,7 +1505,7 @@ def why(host, root, flags, args):
         scratch_done(host, tmp)
     facts = why_facts(policy, report, root)
     if flags.get("json"):
-        return why_json(policy, args[0], lambda x: answer_why(policy, x, host.home, facts, on_host=True), host.home)
+        return why_json(policy, args[0], lambda x: answer_why(policy, x, host.home, facts, on_host=True), host.home, facts)
     print(visible(answer_why(policy, args[0], host.home, facts, on_host=True)))
     return 0
 
@@ -1622,7 +1624,11 @@ def path_answer(policy, p, cp, pre, home, facts, srcs):
     if best:
         if best["effective"]:
             return f"{cp} is readable{' and writable' if best['kind'] == 'write' else ''}: {best['kind']} {best['value']} ({srcs(best)})", True
-        return f"{pre} {cp} is requested ({best['kind']}) by {srcs(best)}, not in this run ({best.get('why')})", False
+        by = srcs(best)
+        if "@" in by and "," not in by:
+            by = f"an instance of {by.split('@')[0]}"
+        why = best.get("why")
+        return f"{pre} {cp} is requested ({best['kind']}) by {by}, not in this run" + (f" ({why})" if why and why != "not in this run" else ""), False
     view = next((i for i in items if i["kind"] == "view" and i["effective"]), None)
     if p in GENERATED and not view:
         return f"{cp} is readable: pot generates it for each run", True
@@ -1761,8 +1767,17 @@ def grant(host, root, flags, kits_named):
     grants, text = load_grants(host, lenient=True)
     if flags.get("revoke"):
         granted = sorted(set(grants["grants"]) | {i for m in grants["machines"].values() for i in m})
+        shown = None
         for k in flags["revoke"]:
             ids = match_kits(k, granted)
+            if not ids:
+                # the name pot shows for a kit here (a scion named unlike its URL, a repo with a local origin)
+                if shown is None:
+                    try:
+                        shown = all_kit_status(host, root, root.get("defaultContext") or "work", flags)
+                    except C.Refusal:
+                        shown = []
+                ids = [s["kit"] for s in shown if s.get("name") == k and s["kit"] in granted]
             if not ids and match_kits(k, SET_ASIDE):
                 print(visible(f"revoked {', '.join(match_kits(k, SET_ASIDE))} (its digest did not match)"))
                 continue
@@ -1799,7 +1814,8 @@ def grant(host, root, flags, kits_named):
     if kits_named:
         sel = []
         for n in kits_named:
-            ids = match_kits(n, [s["kit"] for s in sts])
+            # the name pot shows (the 125 line's, the prompt's) or a short name of the identity
+            ids = match_kits(n, [s["kit"] for s in sts]) or [s["kit"] for s in sts if s.get("name") == n]
             hit = [s for s in sts if s["kit"] in ids]
             if not hit:
                 raise C.Refusal(f"pot grant: no kit {n!r} here ({', '.join(s['name'] for s in sts)})")
@@ -1969,7 +1985,7 @@ def inner(root, verb, flags, cmd):
             pass
         home = pwd.getpwuid(os.getuid()).pw_dir
         if flags.get("json"):
-            return why_json(policy, cmd[0], lambda x: answer_why(policy, x, home, facts), home)
+            return why_json(policy, cmd[0], lambda x: answer_why(policy, x, home, facts), home, facts)
         print(visible(answer_why(policy, cmd[0], home, facts)))
         return 0
     if verb == "explain":

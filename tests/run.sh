@@ -1194,7 +1194,8 @@ EOF
   (cd "$c3" && commit init && refused "kits: outputs' packages.pot-kits" nix eval --raw ".#packages.$sys.pot-kits.outPath" \
     && expect "is graft's" holds "graft: mkFlake's outputs has packages.$sys.pot-kits: that name is graft's; rename the repo's own")
   # mkFlake reads no kit field: each kit goes to pot.lib.kitsFor as it is
-  refuse "kits: mkFlake reads no kit field" grep -qE 'kit\.(packages|requests|commands|protect|files|env)|selfKit' "$graft/lib/mk-flake.nix"
+  # (but the graft-kits shim, which warns at evaluation for a kit it leaves out; it goes in v2.17.0)
+  refuse "kits: mkFlake reads no kit field" bash -c "grep -v 'graft-kits shim' '$graft/lib/mk-flake.nix' | grep -qE 'kit\.(packages|requests|commands|protect|files|env)|selfKit'"
   # graft check in a pot run asks pot (pot why URL --json, contract run-env/1), never pot's files
   local stub=$work/kstub && mkdir -p "$stub"
   cat > "$stub/pot" <<'EOF'
@@ -1227,6 +1228,8 @@ EOF
   expect "warns that the kit 1.1 one is left out" holds "graft: graft-kits: scions/kknew/graft.nix uses kit 1.1 (dirs or agent), which a v2.15.0 pot cannot read: left out (pot-kits has it)"
   expect "tools is written packages" test "$(jq -c '.scions.kktools | [has("packages"), has("tools"), has("version")]' "$work/kgk2/kit.json")" = '[true,false,false]'
   expect "the kit 1.1 one is not in it" test "$(jq -c '.scions | has("kknew")' "$work/kgk2/kit.json")" = false
+  ran "kits: and evaluation warns too (DX R1)" nix eval --no-eval-cache --raw ".#packages.$sys.graft-kits.drvPath"
+  expect "naming the file" holds "graft-kits: scions/kknew/graft.nix uses kit 1.1 (dirs or agent): a v2.15.0 pot cannot read it, so graft-kits leaves it out (pot-kits has it)"
   ran "kits: pot-kits has both" jq -c '.scions | keys' "$(nix build --no-link --print-out-paths .#pot-kits)/kit.json"
   expect "them" holds '"kknew","kktools"'
   # perSystem's kit still names packages: kitsFor says it is tools' old name (F3); a provider's packages
@@ -1278,6 +1281,9 @@ EOF
   inputs.nixpkgs.follows = "graft/nixpkgs";
   outputs = { graft, nixpkgs, ... }: {
     packages = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (s: {
+      # a root with no agent kit: the marker floor still applies (R2-2)
+      pot0 = graft.lib.mkRoot { pkgs = nixpkgs.legacyPackages.\${s}; name = "plain";
+        grantsFile = "$work/sbgrants0/grants.json"; stateDir = "$work/sbstate0"; };
       pot = graft.lib.mkRoot {
         pkgs = nixpkgs.legacyPackages.\${s};
         name = "test";
@@ -1345,6 +1351,7 @@ echo '{"hook_event_name":"PostToolUseFailure"}' | "$(hook PostToolUseFailure)"
 STUB
   (cd "$r" && quiet nix flake lock)
   ran "pot: mkRoot builds a root" nix build -o "$work/sbr" "path:$r#packages.$sys.pot"
+  ran "pot: and a root with no agent kit" nix build -o "$work/sbr0" "path:$r#packages.$sys.pot0"
   ran "pot: on aarch64-darwin, the root evaluates" nix eval --raw "path:$r#packages.aarch64-darwin.pot.drvPath"
   ran "and it is darwin's" nix eval --json "path:$r#packages.aarch64-darwin.pot.passthru.root.darwin"
   expect "(it refuses at start, D21)" has "true"
@@ -1375,6 +1382,9 @@ STUB
   expect "exit 125" test "$st" = 125
   refused "pot: pot grant under an agent marker" env CLAUDECODE=1 "$work/sbr/bin/pot" grant
   expect "is refused (the claude-code kit's agent.markers)" holds "pot grant is for people: CLAUDECODE is set"
+  # the marker floor holds on a root with no agent kit (R2-2)
+  refused "pot: pot grant under CLAUDECODE, a root with no agent kit" env CLAUDECODE=1 "$work/sbr0/bin/pot" grant
+  expect "is refused (the floor)" holds "pot grant is for people: CLAUDECODE is set"
   refused "pot: pot grant under the root's agentMarkers" env -u CLAUDECODE CODEX_SANDBOX=1 "$work/sbr/bin/pot" grant
   expect "is refused (CODEX_SANDBOX, the default)" holds "pot grant is for people: CODEX_SANDBOX is set"
 
@@ -1765,6 +1775,8 @@ EOF
   d=$work/sbstale && mkdir -p "$d/nix" && git_ -C "$d" init -q
   printf '[submodule "nix/gone"]\n\tpath = nix/gone\n\turl = file:///nowhere\n' > "$d/.gitmodules"
   printf 'throw "this flake must not be evaluated"\n' > "$d/nix/flake.nix"
+  # a lock, so that only the gitlink rule (not a missing flake.lock) keeps pot from evaluating it (R2-1)
+  printf '{"nodes":{"root":{}},"root":"root","version":7}\n' > "$d/nix/flake.lock"
   (cd "$d" && commit init && ran "pot: a stale .gitmodules entry" sb_loud true \
     && refuse "evaluates nothing" holds "must not be evaluated" && refuse "builds nothing" holds "building the repo kit")
   # a v2.15.0 consumer says so at start (F3)
@@ -1778,11 +1790,11 @@ EOF
   refuse "pot: a scion's file is read-only" sb_ bash -c 'echo x >> scions/sbk/README.md' 2>/dev/null
   # runs and doctor are reserved (C7); an unknown command says where a program for every run goes (C9)
   refused "pot: pot runs" sb_ runs
-  expect "comes later" holds "pot runs comes in a later release"
+  expect "comes later" holds "pot: runs comes in a later release"
   refused "pot: pot doctor" sb_ doctor
-  expect "comes later" holds "pot doctor comes in a later release"
+  expect "comes later" holds "pot: doctor comes in a later release"
   refused "pot: an unknown command" sb_ no-such-program-x
-  expect "points at the root's tools" holds "a program every run here should have goes in the root's tools (tools)"
+  expect "points at the root's tools" holds "a program every run here should have goes in tools (rebuild the root)"
   # pot why --json on the host answers paths from the default context's policy (C4), and git URLs as git (F10)
   refused "pot: why --json, a hidden path" sb_ why "$work/sbhidden/x" --json
   expect "not reached, from the policy" test "$(jq -c '[.kind, .reached]' <<<"$out")" = '["file",false]'

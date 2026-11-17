@@ -656,7 +656,7 @@ belong to the command; a known `pot` flag found there is warned about:
 `--account` and `--instance` after the command are the command's own, and are not warned about. With no command, `bash`.
 
 A first word that is no context, no verb and no program on the host's `PATH`, and has no `/`, is refused with exit
-2: `pot: unknown context or command NAME; contexts: dispatch, host, inspect, work, …; a program every run here should have goes in the root's tools (programs.pot.tools)`. `runs` and `doctor` are reserved: `pot runs comes in a later release`.
+2: `pot: unknown context or command NAME; contexts: dispatch, host, inspect, work, …; a program every run here should have goes in programs.pot.tools (home-manager switch)`. `runs` and `doctor` are reserved: `pot: runs comes in a later release`.
 
 `pot run` and `pot serve` are refused with exit 2: `pot run is reserved (the wrappers’ entry)`,
 `pot serve is reserved (the supervisor)`.
