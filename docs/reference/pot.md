@@ -118,7 +118,7 @@ from `$HOME`, and use graft's default root when the link is missing. There is no
 | `grantsFile` | The [grants file](#the-grants-file). Default `"~/.config/pot/grants.json"`; a home-manager root keeps it in its repository, such as `"~/.workstation/pot/grants.json"`. Hidden from every run. |
 | `stateDir` | `pot`'s state: agent homes, caches, run directories ([State](#state)). Default `"~/.local/state/pot"`. Hidden from every run, and refused inside a workspace. |
 | `defaultContext` | The context when none is typed. Default `"work"`. |
-| `defaultInstance` | Per kit, the instance (`KIT@NAME`) used with no `CMD@NAME`, `--instance` or matching caller variables: `{ claude-code = "personal"; }`. Checked when the root evaluates: `graft.lib.mkRoot: defaultInstance.KIT = "X": the root declares KIT@a, KIT@b`, or `graft.lib.mkRoot: defaultInstance.KIT: the root has no kit KIT@NAME (kits: …)`. `defaultAccount` (a string, for every kit) is its old form: deprecated in v2.16.0, removed in v2.17.0, with the warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` (from the module: `programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0`). Both together are an error. |
+| `defaultInstance` | Per kit, the instance (`KIT@NAME`) used with no `CMD@NAME`, `--instance` or matching caller variables: `{ claude-code = "personal"; }`. Checked when the root evaluates: `graft.lib.mkRoot: defaultInstance.KIT = "X": the root declares KIT@a, KIT@b`, or `graft.lib.mkRoot: defaultInstance.KIT: the root has no kit KIT@NAME (kits: …)`; from the module, `programs.pot.defaultInstance.KIT = "X": programs.pot.kits declares KIT@a, …`, `programs.pot.defaultAccount = "X" (for KIT): programs.pot.kits declares …` and `programs.pot.defaultInstance.KIT: programs.pot.kits has no KIT@NAME`. `defaultAccount` (a string, for every kit) is its old form: deprecated in v2.16.0, removed in v2.17.0, with the warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` (from the module: `programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0`). Both together are an error. |
 | `agentMarkers` | Variables that mean an agent is the caller, beyond the floor (`CODEX_SANDBOX`, `CLAUDECODE` and `POT`, whatever kits the root has) and each root kit's `agent.markers`. Default `[ ]`. |
 | `rootRepos` | The root's source repositories: checkout paths (`~/…`, `/…`) or origin patterns. mkRoot's default is `[ ]`; the home-manager module's is `[ "~/.workstation" ]`. See [Root repositories](#root-repositories). |
 | `hidden` | Paths hidden from every run, added to [pot's default list](#hidden-paths), which a root cannot shorten. |
@@ -811,7 +811,10 @@ when an effective network item matches), `git.fetch` (an `ssh://` URL or the scp
 binding covers its remote) or `file` (a `file://` URL or a path, reached when the run sees it: in a workspace,
 granted, generated, in the store or under `/run/pot`; not when hidden, not in the run, or requested but not
 granted). pot classifies the target once, for the text answer and for `--json`, so a git URL never gets a path's
-answer. `--json` may come before or after the target. A command or a variable is a usage error (exit 2):
+answer. A bare word that names an existing path is a path (`pot why flake.nix`); one that does not, with a dot, is a
+host. A root kit's command is a command, for both (so `pot why --json nix` is a usage error where `nix` is a kit
+command). `reach` is a path as given. `--json` may come before or after the target. A command or a variable is a
+usage error (exit 2):
 `pot why --json answers a host, HOST:PORT, a git URL or a path; X is none (pot why X explains it)`. The git.fetch answers
 in `text`: `KEY is a bound git.fetch remote: a fetch goes through the ssh broker`, and
 `pot (work): KEY is not a bound git.fetch remote, so a fetch from it is refused`. This is the contract
@@ -827,7 +830,8 @@ pot grant [KIT...] [--revoke KIT] [--diff] [--workspace PATH]
   source, or is unverified. With nothing to do: `pot grant: every kit here is granted`, or
   `pot grant: standing is granted` for a named kit.
 - `KIT` and `--revoke KIT` take the short names that `pot` prints everywhere (startup line, grant list, `--diff`,
-  `pot explain`, the 125 message): `daniel`, `flexion-assistant`, or `claude-code` for every instance
+  `pot explain`, the 125 message), so the name a 125 line offers always works, also for a repository with a local
+  origin (its folder) and a scion named unlike its URL: `daniel`, `flexion-assistant`, or `claude-code` for every instance
   (`claude-code@*`). A repo kit's short name is the last path part of its normalised origin, else its checkout's
   folder. `pot grant claude-code` lists every instance, and prompts each stale one.
 - `--revoke KIT` that names several grants asks at the terminal:

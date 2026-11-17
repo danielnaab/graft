@@ -159,7 +159,8 @@ A root names each instance of an agent kit: `kits."claude-code@flexion" = …`, 
    when it is among the matches; otherwise pot stops and names them;
 4. the kit's default: the root's `defaultInstance.<kit>`, or the only instance. mkRoot checks each
    `defaultInstance.<kit>` when it evaluates: `graft.lib.mkRoot: defaultInstance.KIT = "X": the root declares
-   KIT@a, KIT@b`, or `graft.lib.mkRoot: defaultInstance.KIT: the root has no kit KIT@NAME (kits: …)`.
+   KIT@a, KIT@b`, or `graft.lib.mkRoot: defaultInstance.KIT: the root has no kit KIT@NAME (kits: …)`. The home-manager
+   module names its own options: `programs.pot.defaultInstance.KIT = "X": programs.pot.kits declares KIT@a, …`, `programs.pot.defaultAccount = "X" (for KIT): programs.pot.kits declares …` and `programs.pot.defaultInstance.KIT: programs.pot.kits has no KIT@NAME`.
 
 Each instance is granted on its own.
 
@@ -197,8 +198,9 @@ identity.
   `memory`. It refuses `tools`, `version`, `agent` and `dirs` as unknown fields, and it refuses the whole bundle
   that holds one. So v2.16.0's mkFlake translates for it: the `graft-kits` it still writes gives `tools` as
   `packages` and drops `version`, and leaves out a kit that uses a 1.1-only field (`agent`, `dirs`), with a build
-  line in the build log: `graft: graft-kits: FILE uses kit 1.1 (dirs or agent), which a v2.15.0 pot cannot read:
-  left out (pot-kits has it)`. The `graft-kits` `kit.json` is otherwise byte-identical to v2.15.0's.
+  warning at evaluation, `graft-kits: FILE uses kit 1.1 (dirs or agent): a v2.15.0 pot cannot read it, so graft-kits leaves it out (pot-kits has it)` (shown as `evaluation warning: …`), and a line in the build log,
+  `graft: graft-kits: FILE uses kit 1.1 (dirs or agent), which a v2.15.0 pot cannot read: left out (pot-kits has
+  it)`. The `graft-kits` `kit.json` is otherwise byte-identical to v2.15.0's.
 - **Who may rename `packages` now.** A consumer may write `tools` in its own `perSystem.kit` once it is on graft
   v2.16.0: its own graft builds both bundles. A provider keeps `packages` until v2.17.0: each consumer's graft
   builds the provider's `graft.nix`, and a consumer still on v2.15.0 refuses `tools`.
