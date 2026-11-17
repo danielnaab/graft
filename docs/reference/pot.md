@@ -1242,6 +1242,10 @@ backend returns.
   folders.
 - No proxy credentials, `git.push`, `git.sign`, `ops.read`, `trust = "root"`, `delegate` or resource limits.
 
+A note on the name: nixpkgs has an unrelated package `pot` (a translation app whose program is also `pot`). graft's
+pot is `packages.<system>.pot` in graft's flake, so the two collide only on a `PATH` where both are installed. The
+first on `PATH` wins; `command -v pot` says which.
+
 ## Residual risks
 
 1. **Shared kernel.** A bubblewrap run shares the host's kernel. Only a VM proves `separate-kernel`.
