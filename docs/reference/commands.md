@@ -57,7 +57,7 @@ under `… while evaluating scions/NAME/graft.nix (graft calls it for the scion 
 
 One failure Nix cannot contain: a `graft.nix` that does not **parse** breaks every output of the flake,
 `apps.<system>.graft` too. Run graft from outside to see it and move the scion back:
-`nix run github:danielnaab/graft/v2.15.0 -- check -C .` names it
+`nix run github:danielnaab/graft/v2.16.0 -- check -C .` names it
 ([`graft check` fails](../guides/check-fails.md)).
 
 ### Evaluation errors
@@ -111,14 +111,14 @@ Run it as `nix run .#graft COMMAND`. A flag needs `--` before it, because Nix ot
 the repository's top.
 
 Every command except `sync` also runs from graft's own flake, against any checkout:
-`nix run github:danielnaab/graft/v2.15.0 -- COMMAND -C REPO`. graft then reads the repository as data, and
+`nix run github:danielnaab/graft/v2.16.0 -- COMMAND -C REPO`. graft then reads the repository as data, and
 never evaluates its flake outputs.
 
 `nix run .#graft` evaluates the repository's flake first, and for a git flake with
 `inputs.self.submodules = true` Nix fetches **every** submodule of the repository (not only the scions) at
 its gitlink, from its URL, while the tree is clean. A gitlink at a commit the provider's remote lacks (an
 unpushed fix) then stops `nix run .#graft` before graft runs (`Cannot find Git revision …`). Use
-`nix run github:danielnaab/graft/v2.15.0 -- COMMAND -C .` in that state.
+`nix run github:danielnaab/graft/v2.16.0 -- COMMAND -C .` in that state.
 
 In zsh with `extendedglob` set, `#` is a glob character, so a flake reference that holds one fails with
 `zsh: no matches found`. Quote it: `'.#graft'`, `'path:DIR#graft'`. The docs quote every `path:` form, and
@@ -223,7 +223,7 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 | Every scion is clean: no modified or staged tracked file (untracked files do not count) | `graft: uncommitted edits in scions/pa: docs/status.md (Nix builds ignore them while the rest of the tree is clean)`; the end is `(graft try is on: Nix builds use them)` while try is on, and `(a path: flake's builds use them)` for a flake in a subdirectory |
 | Every scion is checked out at its gitlink | `graft: scions/pa is checked out at e3f04b8 but the repository records 9147b3c: git add scions/pa to record it, or git submodule update --recursive -- scions/pa to go back` |
 | Every scion's own submodules are filled | `graft: scions/nest's own submodules are empty (scions/docs): git -C scions/nest submodule update --init --recursive (or graft sync); Nix fails on them while the repo's tree has a modified file` |
-| Every `graft.nix` parses | `graft: scions/x/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/x), or from outside: nix run github:danielnaab/graft/v2.15.0 -- upgrade -C . x@TAG` |
+| Every `graft.nix` parses | `graft: scions/x/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/x), or from outside: nix run github:danielnaab/graft/v2.16.0 -- upgrade -C . x@TAG` |
 | Every gitlink is a version tag's commit | `graft: scions/pa at ec99ed1 is not a release tag of URL (nearest: v1.0.0-1-gec99ed1): release it, then graft upgrade pa@TAG (or graft upgrade pa, the newest release of its major)` (`nearest` only for a filled scion) |
 | … and that tag is upstream | `graft: scions/pa: tag v1.0.1 exists locally but not at URL: push it (git -C scions/pa push origin v1.0.1)` |
 | The tools and checks evaluate (from `nix run .#graft` only, after every other rule passed) | `graft: the flake's tools or checks don't evaluate (above): a provider's graft.nix fails` |
@@ -323,7 +323,7 @@ While the marker exists, `check` (and `check --committed`, so `ci check`) fails 
 and `sync` adds a note. `git stash` in the repository fails while `.graft-try` is marked
 (`error: Entry '.graft-try' not uptodate. Cannot merge.`), and so do `git pull --autostash` and
 `git rebase --autostash`: run `graft try --stop` first. `try` reads no flake output, so
-`nix run github:danielnaab/graft/v2.15.0 -- try -C .` works while the repository's flake cannot evaluate, or
+`nix run github:danielnaab/graft/v2.16.0 -- try -C .` works while the repository's flake cannot evaluate, or
 Nix cannot fetch a scion's gitlink (an unpushed commit).
 
 ### outdated

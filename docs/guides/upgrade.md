@@ -169,7 +169,7 @@ It needs `jq`. A newer major version does not make it fail: that pin's status st
 - **All or nothing.** `upgrade` reads every provider's tags first, and changes nothing if one cannot be read
   or a named tag does not exist.
 - **graft's own pin.** Its pin moves first, then the rest of the upgrade runs the new version. Pin graft to a
-  tag (`github:danielnaab/graft/v2.15.0`): a pin to the `v2` branch is never moved.
+  tag (`github:danielnaab/graft/v2.16.0`): a pin to the `v2` branch is never moved.
 - **Without `upgrade`.** To move a scion yourself:
   `git -C scions/NAME fetch --tags && git -C scions/NAME checkout --detach v1.1.0 && git add scions/NAME`.
 - **From outside the repository.** `outdated`, `changelog`, `upgrade` and `migrate` also run from graft's
