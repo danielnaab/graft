@@ -57,8 +57,6 @@ def owned(name):
 DEFAULT_HIDDEN = [
     "~/.ssh", "~/.gnupg", "~/.aws", "~/.azure", "~/.config/gcloud", "~/.kube", "~/.docker/config.json",
     "~/.netrc", "~/.git-credentials", "~/.config/gh", "~/.config/sops",
-    "~/.claude", "~/.claude.json", "~/.pi/agent/auth.json", "~/.codex/auth.json",
-    "~/.local/share/opencode/auth.json",
     "~/.local/share/keyrings", "~/.mozilla", "~/.config/google-chrome", "~/.config/chromium",
     "~/.config/BraveSoftware", "~/.config/vivaldi", "~/snap/firefox",
     "/etc/ssh/*_key",
@@ -66,9 +64,10 @@ DEFAULT_HIDDEN = [
 
 # §9: the base protect list, in the workspace (the flake directory is added when pot evaluates one, and
 # its pot-kits bundle adds the producer's own: graft's mkFlake, every graft.nix and its scions directory)
+# (agents' own folders, credential stores and markers are the root's floor: root.nix's baseHidden,
+# baseProtect and agentMarkers, which reach pot in the root's manifest)
 BASE_PROTECT = ["**/flake.nix", "**/flake.lock", "**/.gitmodules", "**/.envrc", "**/justfile",
-                "**/.pre-commit-config.yaml", ".githooks", "**/.claude", "**/.mcp.json", "**/.pi", "**/.codex",
-                "**/.vscode"]
+                "**/.pre-commit-config.yaml", ".githooks", "**/.mcp.json", "**/.vscode"]
 
 # §5: inspect's secret patterns (revision 4), as file-name patterns; *.pem and *.key only outside
 # package payload directories
@@ -92,9 +91,18 @@ CAPABILITIES = {
                  "key": None, "class": "powerful", "phase": "3"},
 }
 REQUEST_KINDS = ("read", "write", "socket", "network", "env", "state", "capabilities", "unsandboxed")
-KIT_FIELDS = {"packages", "env", "files", "protect", "requests", "commands", "recipes", "file", "kind"}
-COMMAND_FIELDS = {"program", "access", "requests", "args", "fixedDirs", "skillDirs", "realDirs", "memory", "settings",
-                  "description"}
+# kit/1 (missing version: 1.0). 1.1 adds version, agent and a command's dirs, and drops the command
+# fields dirs replaces. tools is packages' new name in both (packages stays as its alias).
+KIT_VERSIONS = ("1.0", "1.1")
+KIT_FIELDS = {"1.0": {"packages", "tools", "env", "files", "protect", "requests", "commands", "recipes", "file", "kind",
+                      "version"},
+              "1.1": {"packages", "tools", "env", "files", "protect", "requests", "commands", "recipes", "file", "kind",
+                      "version", "agent"}}
+COMMAND_FIELDS = {"1.0": {"program", "access", "requests", "args", "fixedDirs", "skillDirs", "realDirs", "memory",
+                          "settings", "description"},
+                  "1.1": {"program", "access", "requests", "args", "dirs", "settings", "description"}}
+DIR_FIELDS = {"from", "mode", "real", "copy", "label"}
+AGENT_FIELDS = {"markers", "select", "resume", "hooks"}
 FILE_MODES = ("fixed", "seed", "reassert")
 
 CASE_INSENSITIVE_FORGES = {"github.com", "gitlab.com", "codeberg.org", "bitbucket.org"}
@@ -329,14 +337,33 @@ def parse_requests(reqs, where, home):
     return out
 
 
-def validate_kit(kit, where, home):
-    """A kit manifest, checked: unknown fields are errors. Returns its requests (kit and commands)."""
+def kit_version(kit, where):
+    """A kit's version ("1.0" when missing), refused when this pot does not read it."""
+    v = kit.get("version", "1.0")
+    if v in KIT_VERSIONS:
+        return v
+    m = re.fullmatch(r"1\.([0-9]+)", v) if isinstance(v, str) else None
+    if m and int(m.group(1)) > 1:
+        raise KitError(f"{where}: kit version {v} is newer than this pot reads ({', '.join(KIT_VERSIONS)}): take a newer pot")
+    raise KitError(f"{where}: kit version {v!r}: this pot reads kit {' and '.join(KIT_VERSIONS)}")
+
+
+def validate_kit(kit, where, home, root=True):
+    """A kit manifest, checked: unknown fields are errors. Returns its requests (kit and commands).
+    root: a root's kit, the only one that may declare `agent`."""
     if not isinstance(kit, dict):
         raise KitError(f"{where}: a kit is an attribute set")
+    ver = kit_version(kit, where)
     for k in kit:
-        if k not in KIT_FIELDS:
-            raise KitError(f"{where}: {k} is not a kit field ({', '.join(sorted(KIT_FIELDS - {'file', 'kind'}))})")
-    _list(kit.get("packages"), f"{where}: packages")
+        if k not in KIT_FIELDS[ver]:
+            raise KitError(f"{where}: {k} is not a kit field ({', '.join(sorted(KIT_FIELDS[ver] - {'file', 'kind'}))})")
+    if "tools" in kit and "packages" in kit:
+        raise KitError(f"{where}: tools and packages are one field (packages is its old name): give tools")
+    _list(kit.get("tools", kit.get("packages")), f"{where}: tools")
+    if "agent" in kit:
+        if not root:
+            raise KitError(f"{where}: agent: only a root's kit may declare it (an agent kit is the root's)")
+        check_agent(kit["agent"], where)
     env = kit.get("env") or {}
     if not isinstance(env, dict) or not set(env) <= {"set"}:
         raise KitError(f"{where}: env takes only env.set (a requested variable is requests.env)")
@@ -365,14 +392,16 @@ def validate_kit(kit, where, home):
         if not isinstance(c, dict):
             raise KitError(f"{where}: commands.{name} is an attribute set")
         for k in c:
-            if k not in COMMAND_FIELDS:
-                raise KitError(f"{where}: commands.{name}.{k} is not a command field")
+            if k not in COMMAND_FIELDS[ver]:
+                raise KitError(f"{where}: commands.{name}.{k} is not a command field"
+                               + (" (kit 1.1: dirs)" if k in COMMAND_FIELDS["1.0"] else ""))
         fd = c.get("fixedDirs") or {}
         if not isinstance(fd, dict) or not all(isinstance(v, (str, type(None))) for v in fd.values()):
             raise KitError(f"{where}: commands.{name}.fixedDirs: {{ \"~/run/path\" = \"~/host/dir\" or null; }}")
         for at in fd:
             if not norm_path(at, f"{where}: commands.{name}.fixedDirs").startswith("~/"):
                 raise KitError(f"{where}: commands.{name}.fixedDirs: {at} must be in the run's HOME")
+        check_dirs(c.get("dirs"), f"{where}: commands.{name}.dirs")
         if c.get("access", "write") not in ("read", "write"):
             raise KitError(f"{where}: commands.{name}.access: read or write")
         for r in parse_requests(c.get("requests"), f"{where}: commands.{name}", home):
@@ -382,6 +411,88 @@ def validate_kit(kit, where, home):
         if not isinstance(body, str) or "\n" in body:
             raise KitError(f"{where}: recipes.{n}: one line")
     return reqs
+
+
+def check_dirs(dirs, where):
+    """kit 1.1's dirs: { "~/run/path" = { from; mode = links|mirror; real; copy; label; }; }."""
+    if dirs is None:
+        return
+    if not isinstance(dirs, dict):
+        raise KitError(f"{where}: {{ \"~/run/path\" = {{ from; mode; … }}; }}")
+    for at, d in dirs.items():
+        if not norm_path(at, where).startswith("~/"):
+            raise KitError(f"{where}: {at} must be in the run's HOME")
+        if not isinstance(d, dict) or not set(d) <= DIR_FIELDS:
+            raise KitError(f"{where}.\"{at}\": {{ {'; '.join(sorted(DIR_FIELDS))}; }}")
+        mode = d.get("mode", "links")
+        if mode not in ("links", "mirror"):
+            raise KitError(f"{where}.\"{at}\".mode: links or mirror")
+        if d.get("from") is not None:
+            norm_path(d["from"].replace("{workspace}", "w"), f"{where}.\"{at}\".from")
+        if "{workspace}" in at + (d.get("from") or "") and mode != "mirror":
+            raise KitError(f"{where}.\"{at}\": {{workspace}} is a mirror's")
+        real = d.get("real", [])
+        if mode == "links" and not (real is True or (isinstance(real, list) and all(isinstance(x, str) for x in real))):
+            raise KitError(f"{where}.\"{at}\".real: a list of names, or true")
+        if mode == "mirror":
+            if "real" in d:
+                raise KitError(f"{where}.\"{at}\".real: a links dir's")
+            _list(d.get("copy"), f"{where}.\"{at}\".copy")
+            if not re.fullmatch(r"[a-z][a-z0-9-]*", d.get("label", "mirror")):
+                raise KitError(f"{where}.\"{at}\".label: one lowercase word")
+        elif "copy" in d or "label" in d:
+            raise KitError(f"{where}.\"{at}\": copy and label are a mirror's")
+
+
+def check_agent(a, where):
+    """kit 1.1's agent: { markers; select.env; resume = { transcripts; args; render; }; hooks; }."""
+    if not isinstance(a, dict) or not set(a) <= AGENT_FIELDS:
+        raise KitError(f"{where}: agent: {{ {'; '.join(sorted(AGENT_FIELDS))}; }}")
+    for m in _list(a.get("markers"), f"{where}: agent.markers"):
+        if not ENV_RE.fullmatch(m):
+            raise KitError(f"{where}: agent.markers: {m!r} is not a variable name")
+    sel = a.get("select") or {}
+    if not isinstance(sel, dict) or not set(sel) <= {"env"} or not isinstance(sel.get("env") or {}, dict) \
+            or not all(ENV_RE.fullmatch(k) and isinstance(v, str) for k, v in (sel.get("env") or {}).items()):
+        raise KitError(f"{where}: agent.select: {{ env.NAME = \"value\"; }}")
+    res = a.get("resume") or {}
+    if not isinstance(res, dict) or not set(res) <= {"transcripts", "args", "render"}:
+        raise KitError(f"{where}: agent.resume: {{ transcripts; args; render; }}")
+    if "transcripts" in res and not norm_path(res["transcripts"].replace("**/", "").replace("*", "x"),
+                                             f"{where}: agent.resume.transcripts").startswith("~/"):
+        raise KitError(f"{where}: agent.resume.transcripts must be in the run's HOME")
+    _list(res.get("args"), f"{where}: agent.resume.args")
+    _list(a.get("hooks"), f"{where}: agent.hooks")
+
+
+def normalise_kit(kit):
+    """A checked kit in pot's one internal form: `tools` (not packages), and each command's `dirs` (a 1.0
+    command's fixedDirs, skillDirs, realDirs and memory as dirs). Requests are untouched."""
+    k = dict(kit)
+    if "packages" in k:
+        k["tools"] = k.pop("packages")
+    cmds = {}
+    for n, c in (k.get("commands") or {}).items():
+        c = dict(c)
+        fd, sd, rd, mem = (c.pop("fixedDirs", None) or {}), c.pop("skillDirs", None) or [], \
+            set(c.pop("realDirs", None) or []), c.pop("memory", None)
+        dirs = dict(c.get("dirs") or {})
+        for at, hostdir in fd.items():
+            dirs[at] = {"from": hostdir, "mode": "links", "real": True if at in rd else list(sd)}
+        if mem:
+            # v2.15.0's memory: a project memory folder per workspace, MEMORY.md a writable copy
+            dirs[f"{mem['at']}/{{workspace}}/memory"] = {"from": f"{mem['host']}/{{workspace}}/memory", "mode": "mirror",
+                                                         "copy": ["MEMORY.md"], "label": "memory"}
+        if dirs:
+            c["dirs"] = dirs
+        cmds[n] = c
+    if cmds:
+        k["commands"] = cmds
+    return k
+
+
+def kit_tools(m):
+    return m.get("tools", m.get("packages")) or []
 
 
 def check_protect(p, where):
@@ -583,15 +694,60 @@ def find_command(root_kits, ws_kits, name):
     return None, name
 
 
-def choose_instance(hits, account, default_account):
+def choose_instance(hits, instance, defaults, env_match=None):
+    """§4.4, the instance of a command whose kit the root applies under several names: @NAME or
+    --instance NAME; else the caller's variables (env_match: [(name, number of variables)] of the
+    instances whose agent.select.env all match); else the kit's default."""
     by = {k["instance"]: k for k in hits}
-    if account:
-        if account not in by:
-            raise Refusal(f"pot: --account {account}: this root declares {', '.join(sorted(by))}", 2)
-        return by[account]
-    if default_account in by:
-        return by[default_account]
-    raise Refusal(f"pot: {hits[0].get('base')} has the accounts {', '.join(sorted(by))}: choose one with --account", 2)
+    base, cmd = hits[0].get("base"), hits[0].get("cmd")
+    names = ", ".join(f"{base}@{n}" for n in sorted(by))
+    if instance:
+        if instance not in by:
+            raise Refusal(f"pot: {cmd}@{instance}: this root declares {names}", 2)
+        return by[instance]
+    default = (defaults or {}).get(base)
+    match = [(n, c) for n, c in env_match or [] if n in by]
+    if match:
+        top = max(c for _, c in match)
+        best = sorted(n for n, c in match if c == top)
+        if len(best) == 1:
+            return by[best[0]]
+        if default in best:
+            return by[default]
+        raise Refusal(f"pot: {cmd}: the caller's variables match {' and '.join(f'{base}@{n}' for n in best)} equally: "
+                      f"choose one with {cmd}@NAME or --instance NAME", 2)
+    if default in by:
+        return by[default]
+    raise Refusal(f"pot: {base} has the instances {', '.join(sorted(by))}: choose one with {cmd}@NAME or --instance NAME", 2)
+
+
+def select_matches(root, cmd, env, same_path):
+    """The instances of CMD's root kit whose agent.select.env every variable equals the caller's:
+    [(instance, number of variables)]. A value starting ~ or / is a path (same_path compares)."""
+    out = []
+    for n, k in sorted((root.get("kits") or {}).items()):
+        base, _, inst = n.partition("@")
+        sel = ((k.get("agent") or {}).get("select") or {}).get("env") or {}
+        if not inst or cmd not in (k.get("commands") or {}) or not sel:
+            continue
+        ok = True
+        for var, want in sel.items():
+            have = env.get(var)
+            if have is None or not (same_path(want, have) if want.startswith(("~", "/")) else have == want):
+                ok = False
+                break
+        if ok:
+            out.append((inst, len(sel)))
+    return out
+
+
+def agent_markers(root):
+    """The variables that mean an agent is the caller: every root kit's agent.markers, the root's
+    agentMarkers, and POT (a run)."""
+    ms = []
+    for k in (root.get("kits") or {}).values():
+        ms += (k.get("agent") or {}).get("markers") or []
+    return list(dict.fromkeys(ms + list(root.get("agentMarkers") or []) + ["POT"]))
 
 
 def compose(inp):
@@ -623,7 +779,8 @@ def compose(inp):
     kits = []
 
     def add_kit(ident, kind, manifest, file, name=None, **extra):
-        reqs = validate_kit(manifest, f"{file} ({ident})", home)
+        reqs = validate_kit(manifest, f"{file} ({ident})", home, root=kind == "root")
+        manifest = normalise_kit(manifest)
         for r in reqs:
             r.kit, r.file = ident, file
         k = {"id": ident, "kind": kind, "manifest": manifest, "file": file, "requests": reqs, "name": name, **extra}
@@ -643,7 +800,9 @@ def compose(inp):
             manifests.append((rk["manifest"], rk.get("file", "flake.nix (perSystem)")))
         for m, f in w.get("rootRepoKits") or []:
             manifests.append((m, f))
-        merged = merge_manifests(manifests)
+        for m, f in manifests:
+            validate_kit(m, f"{f} ({w['id']})", home, root=False)
+        merged = merge_manifests([(normalise_kit(m), f) for m, f in manifests])
         w["kit"] = add_kit(w["id"], "repo", merged, " + ".join(f for _, f in manifests) or "(none)",
                            name=repo_short_name(w), source={"tree": w["source"]} if w.get("source") else None,
                            workspace=w)
@@ -671,17 +830,21 @@ def compose(inp):
     if argv and "/" not in argv[0]:
         hit, cmdname = find_command(root_kits, ws_kits, argv[0])
         if isinstance(hit, list):
-            hit = choose_instance(hit, flags.get("account"), root.get("defaultAccount"))
+            for k in hit:
+                k["cmd"] = cmdname
+            hit = choose_instance(hit, flags.get("instance"), root.get("defaultInstance"), flags.get("envMatch"))
+        elif hit is not None and flags.get("instance") and hit.get("instance") and hit["instance"] != flags["instance"]:
+            raise Refusal(f"pot: {cmdname}@{flags['instance']}: this root declares {kit_display(hit)}", 2)
         cmdkit = hit
-    if cmdkit is not None and flags.get("account") and cmdkit.get("instance") is None:
-        raise Refusal(f"pot: --account names an account instance, and {kit_display(cmdkit)} has none", 2)
-    if cmdkit is None and flags.get("account"):
-        raise Refusal("pot: --account chooses an agent kit's account; this command has no kit", 2)
+    if cmdkit is not None and flags.get("instance") and cmdkit.get("instance") is None:
+        raise Refusal(f"pot: --instance names an instance, and {kit_display(cmdkit)} has none", 2)
+    if cmdkit is None and flags.get("instance"):
+        raise Refusal("pot: --instance chooses an instance of an agent kit; this command has no kit", 2)
     report["command"] = {"kit": cmdkit["id"] if cmdkit else None, "name": cmdname}
     report["workspaces"] = [{"consumer": w.get("repoKit") is not None, "key": w.get("originKey") or w["id"][len("repo:"):],
                              "file": (w.get("repoKit") or {}).get("file")} for w in inp["workspace"]]
-    if cmdkit and cmdkit.get("instance") and cmdkit["instance"] != root.get("defaultAccount"):
-        report["notes"].append(f"account {cmdkit['instance']}")
+    if cmdkit and cmdkit.get("instance") and cmdkit["instance"] != (root.get("defaultInstance") or {}).get(cmdkit.get("base")):
+        report["notes"].append(f"instance {cmdkit['instance']}")
     if cmdkit and cmdkit["kind"] == "scion" and not cmdkit.get("verified"):
         raise Refusal(f"pot ({ctx['name']}): {kit_display(cmdkit)} is not a verified release "
                       f"({cmdkit['id']}), so its command runs with no grant: pot host {cmdname}")
@@ -757,7 +920,7 @@ def compose(inp):
     see_kits = ([cmdkit] if cmdkit else []) + [k for k in included if k is not cmdkit]
     env_set, files = {}, {}
     for k in see_kits:
-        for p in k["manifest"].get("packages") or []:
+        for p in kit_tools(k["manifest"]):
             item("package", p, "see", [ksrc(k, "see")])
         for n, v in ((k["manifest"].get("env") or {}).get("set") or {}).items():
             if n in env_set and env_set[n][0] != v:
@@ -776,7 +939,7 @@ def compose(inp):
     # repo kits' packages reach every run; their env.set and files only their own commands (§4.2)
     for k in ws_kits:
         if k["kind"] == "repo" and k is not cmdkit:
-            for p in k["manifest"].get("packages") or []:
+            for p in kit_tools(k["manifest"]):
                 item("package", p, "see", [ksrc(k, "see")])
     for w in inp["workspace"]:
         if w.get("tools"):
@@ -805,7 +968,7 @@ def compose(inp):
             access = ca
     item("access", access, "limits", [{"context": ctx["name"]}])
     hidden = []
-    for h in DEFAULT_HIDDEN:
+    for h in DEFAULT_HIDDEN + list(root.get("baseHidden") or []):
         hidden.append((h, {"root": "default"}))
     for h in root.get("hidden") or []:
         hidden.append((norm_path(h, "the root's hidden"), {"root": "hidden"}))
@@ -824,7 +987,7 @@ def compose(inp):
         hidden_paths.extend(reals)
         item("hidden", h, "limits", [src], paths=reals)
     protect_src = []
-    for p in BASE_PROTECT:
+    for p in BASE_PROTECT + list(root.get("baseProtect") or []):
         protect_src.append((p, {"root": "default"}))
     pkits = [k for k in kits if k["kind"] in ("repo", "scion")] + ([cmdkit] if cmdkit and cmdkit["kind"] == "root" else []) \
         + [k for k in included if k is not cmdkit]
@@ -1012,7 +1175,7 @@ def cap_key(r):
 
 def find_binding(bindings, r, kit_id):
     """bindings.<capability>."<selector>" (§7.2): the selector is the capability's key (a host, a URL
-    pattern, a server name) or "*", optionally narrowed to one kit: "api.anthropic.com kit=claude-code@x".
+    pattern, a server name) or "*", optionally narrowed to one kit: "HOST kit=KIT@NAME".
     The narrowest match wins: kit-narrowed, then exact, then a pattern, then "*". (selector, config) or None."""
     key = cap_key(r)
     best = None
@@ -1093,7 +1256,7 @@ def merge_manifests(ms):
     out = {}
     for m, f in ms:
         for k, v in m.items():
-            if k == "file":
+            if k in ("file", "version"):
                 continue
             if isinstance(v, list):
                 out[k] = out.get(k, []) + [x for x in v if x not in out.get(k, [])]
@@ -1211,7 +1374,7 @@ def permanent_fix(flag, value, report, root):
     """§12.2: the one permanent fix for a one-run flag: the command's kit when it is a workspace kit;
     otherwise the repo kit, with the context's included kit as the every-repository alternative."""
     kind = {"--net": "requests.network", "--read": "requests.read", "--write": "requests.write",
-            "--env": "requests.env", "--package": "packages", "--access": "access"}[flag]
+            "--env": "requests.env", "--package": "tools", "--access": "access"}[flag]
     pre, apply = root_paths(root)
     cmd = report.get("command") or {}
     inc = [n for n in (report["context"].get("include") or [])]
@@ -1302,8 +1465,8 @@ def explain_text(policy, report, root):
     out.append(f"run        {cmd.get('name') or '(shell)'}" + (f" -> {cmd['kit']}" if cmd.get("kit") else " (no kit ships it)"))
     if report.get("argv") and report["argv"][:1] != [cmd.get("name")]:
         out.append("argv       " + " ".join(report["argv"]))
-    for h in report.get("overlayHooks") or []:
-        out.append(f"hooks      {h} (pot's --settings overlay; /hooks does not list it)")
+    for h in report.get("agentHooks") or []:
+        out.append(f"hooks      {h}")
     inc = ctx.get("include") or []
     out.append(f"context    {ctx['name']}: {policy['mode']}, access {policy['access']}, {policy['backend']['name']}"
                + (f"; includes {', '.join('root:' + n for n in inc)}" if inc else ""))
@@ -1327,14 +1490,14 @@ def explain_text(policy, report, root):
             out.append(f"           dir {i['value']} (read-only): {n} {'entry' if n == 1 else 'entries'} ({src(i)})")
             if i.get("skipped"):
                 out += wrap("             left out:", i["skipped"])
-        elif i["kind"] == "file" and i.get("memory"):
+        elif i["kind"] == "file" and i.get("mirror"):
             continue
         elif i["kind"] in ("env.set", "file"):
             mode = {"fixed": "read-only", "seed": "copied in once", "reassert": "keys copied in at each start"}.get(i.get("mode"), "")
             out.append(f"           {i['kind']} {i['value']}" + (f", {mode}" if i["kind"] == "file" else "") + f" ({src(i)})")
-    mem = [i for i in eff if i.get("memory")]
-    if mem:
-        out.append(f"           host memory: {len(mem)} files, read-only (what the run writes stays in its state)")
+    for lab in dict.fromkeys(i["mirror"] for i in eff if i.get("mirror")):
+        n = len([i for i in eff if i.get("mirror") == lab])
+        out.append(f"           host {lab}: {n} files, read-only (what the run writes stays in its state)")
     prot = [i for i in eff if i["kind"] == "protect"]
     if policy["access"] == "write":
         groups = {}
@@ -1411,7 +1574,7 @@ def validate_bundle(b, where="pot-kits"):
     for n, k in kits:
         if not isinstance(k, dict) or not isinstance(k.get("file"), str):
             raise KitError(f"{where}: kit.json: {n} is not a kit with its file")
-        validate_kit(k, k["file"], "/home/user")
+        validate_kit(k, k["file"], "/home/user", root=False)
     for p in _list(b.get("protect"), f"{where}: protect"):
         check_protect(p, f"{where}: protect")
 
@@ -1423,7 +1586,7 @@ def validate_root(root):
             raise KitError(f"the root's kits: {n!r} is not a kit name (NAME or NAME@ACCOUNT)")
         validate_kit(k, k.get("file", f"programs.pot.kits.{n}"), "/home/user")
     for n, k in (root.get("repoKits") or {}).items():
-        validate_kit(k, k.get("file", f"programs.pot.repoKits.{n}"), "/home/user")
+        validate_kit(k, k.get("file", f"programs.pot.repoKits.{n}"), "/home/user", root=False)
     for n in (root.get("contexts") or {}):
         if n in VERBS:
             raise KitError(f"the root's contexts: {n} is a pot verb")

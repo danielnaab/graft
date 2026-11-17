@@ -483,7 +483,7 @@ def credentials(policy):
     never written to policy.json, launch.json or a log. {NAME: value}.
 
     from.file: NAME=VALUE lines naming the variables; a credential's file with no such line is one
-    value, the whole file (a token from `claude setup-token`). An mcp key file must name its variable.
+    value, the whole file (a token file). An mcp key file must name its variable.
     from.env (or nothing): the host's variables of the same names."""
     out = {}
     for b in binding(policy, "credential") + binding(policy, "mcp"):
@@ -514,6 +514,18 @@ def credentials(policy):
     return out
 
 
+def mirrors_text(policy):
+    """The README's lines for each mirror dir (kit 1.1's dirs mode mirror), by its label."""
+    out = ""
+    for lab in dict.fromkeys(i["mirror"] for i in policy["items"] if i.get("mirror")):
+        cps = sorted({i["value"].rsplit("/", 1)[-1] for i in policy["items"] if i.get("mirror") == lab and i.get("refresh")})
+        cp = " and ".join(cps)
+        out += (f"- The host's {lab} for this workspace is read-only here" + (f"; {cp} {'is a writable copy' if len(cps) == 1 else 'are writable copies'}" if cps else "")
+                + f". New {lab} files" + (f", and a changed {cp}," if cps else "") + " are copied out for the person to review when the run ends; "
+                "nothing is written back to the host.\n")
+    return out
+
+
 def readme(policy, launch):
     ctx = policy["context"]
     return f"""# pot: this run ({ctx})
@@ -530,10 +542,7 @@ The policy is /run/pot/policy.json; `pot why PATH|HOST|CMD|VAR` explains one ite
 - Protected files (what decides the sandbox, what the host runs, agent configuration) are
   read-only, and their folders cannot be renamed or removed. Edit them on the host.
 - Commits made here are unsigned; the host signs them afterwards.
-- Claude's host memory for this workspace is read-only here; MEMORY.md is a writable copy. New memory
-  files, and a changed MEMORY.md, are copied out for the person to review when the run ends; nothing is
-  written back to the host.
-- Every denial message starts `pot ({ctx}):`.
+{mirrors_text(policy)}- Every denial message starts `pot ({ctx}):`.
 """
 
 

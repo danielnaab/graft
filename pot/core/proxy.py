@@ -9,7 +9,7 @@ forwards CONNECT requests (HTTPS) and absolute-form HTTP requests to the HOST:PO
 policy's network.allow, each host with its ports), and refuses the rest. A host may use fnmatch
 patterns ("*.example.com"). Writes one line per request: ALLOW or DENY, then host:port. With
 --denials, it also appends each newly refused host:port to FILE, once, as the message the run reads
-(/run/pot/denials; the claude-code kit's hook passes new lines to the model). With --tmux,
+(/run/pot/denials; an agent kit's hook passes new lines to the model). With --tmux,
 it shows each new one on the launching pane with `tmux display-message` (never a write to the run's
 terminal: that corrupts a full-screen program). It exits when
 the launcher, its parent, is gone.

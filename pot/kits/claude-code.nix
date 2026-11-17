@@ -11,8 +11,8 @@
 #     skillDirs ? [ "synced" ];    # real directories in the skills folder that are bound (by name; [ ] opts out)
 #     plugins ? true;              # bind the account's plugins folder read-only (false opts out)
 #     skillSources ? [ ];          # checkouts the skill links point into (read requests)
-#     provider ? "anthropic";      # or "bedrock", with region
-#     region ? null;
+#     api ? graft.apis.anthropic;  # or graft.apis.bedrock { region = "us-east-1"; }
+#                                  # (provider and region: the old form, until v2.17.0)
 #     mcp ? [ ];                   # MCP server names, each a `mcp` request
 #   }
 #
@@ -25,16 +25,27 @@
 # denial hook (PostToolUse on Bash and WebFetch): new lines of /run/pot/denials reach the
 # model as additionalContext. Overlay hooks are added to the user's own; `pot explain` lists them.
 { pkgs, account ? "default", binary ? "native", files ? { }, configDir ? ".claude", skillDirs ? [ "synced" ]
-, plugins ? true, skillSources ? [ ], provider ? "anthropic", region ? null, mcp ? [ ] }:
+, plugins ? true, skillSources ? [ ], api ? null, provider ? null, region ? null, mcp ? [ ] }:
 
 let
   lib = pkgs.lib;
+  apis = import ./apis.nix;
+  # api, or v2.15.0's provider and region (deprecated in v2.16.0, removed in v2.17.0)
+  old = provider != null || region != null;
+  api' =
+    if api != null && old then throw "graft.kits.claude-code: give api, or provider and region (the old form), not both"
+    else if api != null then api
+    else if !old then apis.anthropic
+    else lib.warn "graft.kits.claude-code: provider and region are api = graft.apis.bedrock { region = …; } (or graft.apis.anthropic); they go in v2.17.0"
+      (if provider == "bedrock" then apis.bedrock { inherit region; } else apis.anthropic);
+  provider' = api'.name;
+  region' = api'.region or null;
   native = binary == "native";
   hostBinary = binary == "native" || binary == "host";
   # a host binary built for an FHS system gets nix-ld at the FHS loader's path (Linux)
   fhs = hostBinary && pkgs.stdenv.hostPlatform.isLinux;
-  bedrock = provider == "bedrock";
-  host = if bedrock then "bedrock-runtime.${region}.amazonaws.com" else "api.anthropic.com";
+  bedrock = provider' == "bedrock";
+  host = if bedrock then "bedrock-runtime.${region'}.amazonaws.com" else "api.anthropic.com";
   # the loader a foreign binary names (FHS), and glibc's own, which nix-ld hands it to (NIX_LD)
   fhsLinker = if pkgs.stdenv.hostPlatform.isAarch64 then "/lib/ld-linux-aarch64.so.1" else "/lib64/ld-linux-x86-64.so.2";
   linker = pkgs.stdenv.cc.bintools.dynamicLinker;
@@ -67,10 +78,11 @@ let
     echo '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"In this pot run, the host memory files are read-only and MEMORY.md is a writable copy: write new memory as new files in the usual memory folder; pot copies new files and a changed MEMORY.md out for the person to review when the run ends."}}'
   '';
   hookFor = c: [ { matcher = "Bash|WebFetch"; hooks = [ { type = "command"; command = "${c}"; } ]; } ];
+  overlayHooks = { PreToolUse = hookFor mark; PostToolUse = hookFor denialHook; PostToolUseFailure = hookFor denialHook;
+                   SessionStart = [ { hooks = [ { type = "command"; command = "${sessionHook}"; } ]; } ]; };
   overlay = pkgs.writeText "pot-claude-overlay.json" (builtins.toJSON ({
     sandbox.enabled = false;
-    hooks = { PreToolUse = hookFor mark; PostToolUse = hookFor denialHook; PostToolUseFailure = hookFor denialHook;
-              SessionStart = [ { hooks = [ { type = "command"; command = "${sessionHook}"; } ]; } ]; };
+    hooks = overlayHooks;
   } // lib.optionalAttrs bedrock {
     # nothing inside can refresh AWS credentials (no aws CLI, no SSO): the host refreshes them
     awsAuthRefresh = "";
@@ -79,9 +91,21 @@ let
     hasCompletedOnboarding = true;
     projects."*".hasTrustDialogAccepted = true;
   });
+  # pot host --resume: a transcript (Claude's JSONL) as text: each user and assistant message's text
+  render = pkgs.writeShellScript "pot-claude-transcript" ''
+    exec ${pkgs.jq}/bin/jq -R -s -r '
+      split("\n") | map(fromjson? // empty | objects
+        | ((.message | objects) // {}) as $m | ($m.role // .type) as $role
+        | ($m.content | if type == "array" then map(objects | select(.type == "text") | (.text // "") | strings) | join("\n") else . end) as $c
+        | select(($role == "user" or $role == "assistant") and ($c | type) == "string")
+        | ($c | gsub("^\\s+|\\s+$"; "")) as $t | select($t != "") | "[\($role)] \($t)")
+      | join("\n\n")' "$1"
+  '';
+  fixedDirs = lib.filter (d: plugins || d != "plugins") fixedDirNames;
 in
 {
-  packages = lib.optional (lib.isDerivation binary) binary ++ lib.optionals fhs [ pkgs.glibc ];
+  version = "1.1";
+  tools = lib.optional (lib.isDerivation binary) binary ++ lib.optionals fhs [ pkgs.glibc ];
   files = lib.mapAttrs' (t: f: lib.nameValuePair "~/.claude/${lib.removePrefix prefix t}" { source = f.source; mode = "fixed"; }) hmFiles
     // { "~/.claude/.claude.json" = { source = onboarding; mode = "reassert"; keys = [ "hasCompletedOnboarding" "projects.*.hasTrustDialogAccepted" ]; }; }
     // lib.optionalAttrs fhs { ${fhsLinker} = { source = "${pkgs.nix-ld}/libexec/nix-ld"; mode = "fixed"; }; };
@@ -91,19 +115,30 @@ in
       NIX_LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ];
     };
   protect = [ "**/.claude" "**/.mcp.json" ];
+  # what pot's core knows of Claude Code, as data (kit 1.1): how a caller in Claude is recognised, which
+  # caller variables select this instance (Bedrock's add CLAUDE_CODE_USE_BEDROCK, so they are the more
+  # specific match), where its transcripts are and how a session resumes, and the overlay's hooks
+  agent = {
+    markers = [ "CLAUDECODE" ];
+    select.env = { CLAUDE_CONFIG_DIR = "~/${configDir}"; } // lib.optionalAttrs bedrock { CLAUDE_CODE_USE_BEDROCK = "1"; };
+    resume = { transcripts = "~/.claude/projects/**/*.jsonl"; args = [ "--resume" "{id}" ]; render = "${render}"; };
+    hooks = lib.concatLists (lib.mapAttrsToList (ev: rules:
+      map (r: "${ev} ${r.matcher or "*"} (pot's --settings overlay; /hooks does not list it)") rules) overlayHooks);
+  };
   commands.claude = {
     program = if native then { host = "~/.local/bin/claude"; } else if binary == "host" then { host = "claude"; } else "${binary}/bin/claude";
     args = [ "--settings" overlay ]
       ++ lib.optionals (mcp != [ ]) [ "--mcp-config" "/run/pot/mcp.json" "--strict-mcp-config" ];
-    fixedDirs = lib.genAttrs (map (d: "~/.claude/${d}") (lib.filter (d: plugins || d != "plugins") fixedDirNames))
-      (d: "~/${configDir}/${baseNameOf d}");
-    realDirs = lib.optional plugins "~/.claude/plugins";
-    memory = { at = "~/.claude/projects"; host = "~/${configDir}/projects"; };
-    inherit skillDirs;
+    # the account's skills, agents, commands, hooks and plugins, read-only; the host's project memory for
+    # each workspace mirrored (MEMORY.md a writable copy; new files copied out at exit)
+    dirs = lib.listToAttrs (map (d: lib.nameValuePair "~/.claude/${d}" {
+        from = "~/${configDir}/${d}"; real = if d == "plugins" then true else skillDirs; }) fixedDirs)
+      // { "~/.claude/projects/{workspace}/memory" = { mode = "mirror"; from = "~/${configDir}/projects/{workspace}/memory";
+             copy = [ "MEMORY.md" ]; label = "memory"; }; };
     requests = {
       read = lib.optional hostBinary "~/.local/share/claude" ++ skillSources;
-      network = [ host ] ++ lib.optional (provider == "anthropic") "claude.ai"
-        ++ lib.optionals bedrock [ "bedrock.${region}.amazonaws.com" "sts.${region}.amazonaws.com" ];
+      network = [ host ] ++ lib.optional (provider' == "anthropic") "claude.ai"
+        ++ lib.optionals bedrock [ "bedrock.${region'}.amazonaws.com" "sts.${region'}.amazonaws.com" ];
       env = lib.optionals bedrock [ "CLAUDE_CODE_USE_BEDROCK" "ANTHROPIC_MODEL" "AWS_REGION" ];
       state = [ { name = "claude"; at = "~/.claude"; } ];
       capabilities = [ { name = "status.relay"; }

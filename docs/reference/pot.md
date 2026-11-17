@@ -78,7 +78,7 @@ graft's default root and the root that `pot init` writes have graft's contexts, 
 and:
 
 - a `claude-code@personal` instance with `binary = "host"` (the `claude` on the host's `PATH`, resolved at each
-  start), and `defaultAccount = "personal"`;
+  start), and `defaultInstance.claude-code = "personal"`;
 - a `credential` binding for it, by file: `~/.config/pot/claude-token-personal`, which you make with
   `claude setup-token`;
 - `status.relay."*"`, and `nix."*"` bound to the relay.
@@ -92,7 +92,7 @@ graft.lib.mkRoot {
   grantsFile ? "~/.config/pot/grants.json";
   stateDir ? "~/.local/state/pot";
   contexts ? { }; defaultContext ? "work";
-  kits ? { }; defaultAccount ? null;
+  kits ? { }; defaultInstance ? { }; agentMarkers ? [ "CODEX_SANDBOX" ];
   hidden ? [ ]; tools ? [ ]; bindings ? { };
   rootRepos ? [ ]; repoKits ? { };
   inspect ? { }; caBundle ? null;
@@ -118,7 +118,8 @@ from `$HOME`, and use graft's default root when the link is missing. There is no
 | `grantsFile` | The [grants file](#the-grants-file). Default `"~/.config/pot/grants.json"`; a home-manager root keeps it in its repository, such as `"~/.workstation/pot/grants.json"`. Hidden from every run. |
 | `stateDir` | `pot`'s state: agent homes, caches, run directories ([State](#state)). Default `"~/.local/state/pot"`. Hidden from every run, and refused inside a workspace. |
 | `defaultContext` | The context when none is typed. Default `"work"`. |
-| `defaultAccount` | The agent kit instance (`NAME@ACCOUNT`) used with no `--account`. |
+| `defaultInstance` | Per kit, the instance (`KIT@NAME`) used with no `CMD@NAME`, `--instance` or matching caller variables: `{ claude-code = "personal"; }`. `defaultAccount` (a string, for every kit) is its old form: deprecated in v2.16.0, removed in v2.17.0, with the warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0`. |
+| `agentMarkers` | Variables that mean an agent is the caller, beyond each root kit's `agent.markers` (default `[ "CODEX_SANDBOX" ]`; `POT` always is one). |
 | `rootRepos` | The root's source repositories: checkout paths (`~/…`, `/…`) or origin patterns. mkRoot's default is `[ ]`; the home-manager module's is `[ "~/.workstation" ]`. See [Root repositories](#root-repositories). |
 | `hidden` | Paths hidden from every run, added to [graft's default list](#hidden-paths). |
 | `inspect.home` | The paths under `~` that `inspect` can read. Default `[ "~/src" ]`; a list replaces it. |
@@ -276,12 +277,14 @@ kit = {
 
 | Field | Kind | Meaning |
 |---|---|---|
-| `packages` | see | On `PATH`. A repo kit's packages reach every run in its workspace; a scion kit's do not. |
+| `version` | | `"1.0"` (when missing) or `"1.1"`. A newer minor is refused: `pot: FILE: kit version 1.2 is newer than this pot reads (1.0, 1.1): take a newer pot`. |
+| `tools` | see | On `PATH`. A repo kit's tools reach every run in its workspace; a scion kit's do not. `packages` is its old name, still read; both together are an error. |
+| `agent` | | Kit 1.1, a root's kit only (elsewhere: `agent: only a root's kit may declare it`): `markers` (variables that mean the caller is this agent), `select.env` (the caller's variables that choose this instance), `resume` (`transcripts`, a `~/…/**/*.SUFFIX` glob in the run; `args`, with `{id}`; `render`, a program that prints a transcript's text) and `hooks` (explain's rows). |
 | `env.set` | see | Fixed values, for the kit's own commands. Names that `pot` owns are refused: `BASH_ENV`, `PATH`, `HOME`, `POT*` and v2.14.0's `GRAFT_SANDBOX*`, the proxy variables, `NIX_REMOTE`, `SSL_CERT_FILE`, `TZ`. |
 | `files."<path>"` | see | A file in the run. A key starts with `~/` (in the run's `HOME`) or `/` (needs the `root-files` guarantee). `mode`: `fixed`, bound read-only; `seed`, copied in once, into state on first use, then the run's own; `reassert`, the listed `keys` copied in from `source` at each start. |
 | `protect` | limits | Workspace paths, read-only inside. A path relative to the repository's top, or `**/NAME`. |
 | `requests.*` | reach | Requests, inert until [granted](#grants). |
-| `commands.<name>` | | A program the kit ships: `program` (a store path, or `{ host = "~/…"; }`), `args` (strings or store paths), `access`, `requests`, `fixedDirs` (`{ "~/run/path" = "~/host/dir"; }`, or `null` for an empty one, bound read-only, links one level deep), `realDirs` (run paths whose host folder is bound whole, read-only), `skillDirs` (names of real directories in a fixed folder to bind) and `memory` (`{ at; host; }`: host files bound read-only, new files kept in state). |
+| `commands.<name>` | | A program the kit ships: `program` (a store path, or `{ host = "~/…"; }`), `args` (strings or store paths), `access`, `requests`, and in kit 1.1 `dirs`: `{ "~/run/path" = { from; mode; real; copy; label; }; }`. Mode `links` (the default): a read-only folder of the host folder's links (one level deep), plus the real entries `real` names (`true`: all). Mode `mirror`: the host folder's files read-only, `copy` ones writable copies, what the run adds copied out at exit to `<label>-out/`; `{workspace}` is each workspace as a key. Kit 1.0's `fixedDirs`, `realDirs`, `skillDirs` and `memory` are read as `dirs`. |
 | `recipes.<name>` | | A just recipe body: `"<command> <args>"`. |
 
 - **Requests are literal.** A kit may compute them from its consumer's Nix arguments, never from a workspace
@@ -289,7 +292,8 @@ kit = {
   the consumer's `perSystem.kitArgs.<scion>` (default `{ }`).
 - **Unknown fields are errors:** `pot: <file>: <field> is not a kit field (commands, env, files, packages,
   protect, recipes, requests)`. `env` takes only `set`. A command's fields are `program`, `access` (`read` or
-  `write`), `requests`, `args`, `fixedDirs`, `realDirs`, `skillDirs`, `memory`, `settings` and `description`.
+  `write`), `requests`, `args`, `settings`, `description`, and `dirs` (1.1) or `fixedDirs`, `realDirs`, `skillDirs`,
+  `memory` (1.0): `… commands.NAME.fixedDirs is not a command field (kit 1.1: dirs)`.
 - **Paths are normalised.** `..` is refused. A path under your home is recorded as `~/…`.
 - A `program` written `{ host = "~/.local/bin/claude"; }` is resolved on the host at each start. Its target must
   be in the store or fall under a granted `read` request.
@@ -361,7 +365,7 @@ repository, the caller's environment or a wrapper's arguments says about these i
 | Whether the caller is inside a run | `/run/pot/policy.json` on a read-only mount. Inside a run, `pot explain` and `pot why` read it; every other verb is refused. |
 | The context | The first word typed, or the root's default. Never the environment. |
 | State and cache paths | Fixed by the root, and refused inside any workspace. `XDG_*` is ignored at run time. |
-| The account | `--account NAME`, or the caller's `CLAUDE_CONFIG_DIR`: the one input from the environment. It chooses only among the instances that the root declares, each granted on its own. A non-default account is named on the startup line. |
+| The instance | `CMD@NAME`, then `--instance NAME`, then the caller's variables (an instance matches when every variable its kit's `agent.select.env` names equals the caller's; paths by their real path; the most specific match wins, a tie goes to the default or stops), then `defaultInstance`. It chooses only among the instances that the root declares, each granted on its own. A non-default instance is named on the startup line (`instance NAME`). |
 
 How an origin is normalised:
 
@@ -548,7 +552,7 @@ is `sha256-` and the base64 of the SHA-256 of the sorted, unique canonical lines
 | Case | Result |
 |---|---|
 | Nothing new | The run proceeds. |
-| A stale kit (not granted, asks for more, changed source), at a terminal with no agent marker | The grant prompt appears inline, with the difference, and the run continues after it. The agent markers are `CLAUDECODE`, `CODEX_SANDBOX` and `POT`. A workmux pane is not one. |
+| A stale kit (not granted, asks for more, changed source), at a terminal with no agent marker | The grant prompt appears inline, with the difference, and the run continues after it. The agent markers are the root kits' `agent.markers` (the claude-code kit's `CLAUDECODE`), the root's `agentMarkers` (`CODEX_SANDBOX` by default) and `POT`. A workmux pane is not one. |
 | A stale kit, otherwise | Exit 125, with every kit's difference and `pot grant KIT`. |
 | A repo kit that is stale, in `inspect` | The run proceeds: a repo kit's reach does not apply in `inspect`. The startup line notes `NAME not granted (its reach does not apply in inspect)`. |
 | The file changed since this machine last read it | One line, `pot: the grants file changed since this machine last read it: pot grant --diff`, at each start until `pot grant --diff` or a grant acknowledges it. Nothing stops. A pull and a local edit read the same. |
@@ -637,7 +641,7 @@ The verbs are `explain`, `why`, `grant`, `review` and `init`. `run` and `serve` 
 not a verb is a context if it names one, and otherwise the command. `--` forces a command. Flags after `CMD`
 belong to the command; a known `pot` flag found there is warned about:
 `pot: --net after claude belongs to claude; pot's flags go before the command`. `--resume`, `--continue` and
-`--account` after the command are Claude's own, and are not warned about. With no command, `bash`.
+`--account` and `--instance` after the command are the command's own, and are not warned about. With no command, `bash`.
 
 A first word that is no context, no verb and no program on the host's `PATH`, and has no `/`, is refused with exit
 2: `pot: unknown context or command NAME; contexts: dispatch, host, inspect, work, …`.
@@ -670,7 +674,7 @@ and the exit line names each one's permanent form. `--flag=value` works too.
 | `--mode clone`, `--clone` | `mode` | Not in v2.15.0: `pot (work): --clone is clone mode (dispatch), which comes in a later release`. |
 | `--repo PATH` | | Adds a repository to the workspace, with its repo kit and protections. |
 | `--from REF`, `--detach` | | Clone mode. Refused in v2.15.0, as `--clone` is. |
-| `--account NAME` | | Chooses an agent kit instance. |
+| `--instance NAME` | | Chooses an agent kit instance, as `CMD@NAME` does. `--account NAME` is its old name: `pot: --account is --instance; --account goes in v2.17.0`. |
 | `--backend NAME` | | Chooses a backend that the root defines. |
 | `--resume RUN`, `--resume last` | | Only with `host`: passes the transcript of run `RUN` (`last`: the newest run that left one) into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `pot: --resume RUN goes with pot host (pot host --resume RUN claude)`. |
 
@@ -943,8 +947,8 @@ pot: --net pypi.org:443 was for this run; permanent: the repo kit's requests.net
   `git rebase --root --exec 'git commit --amend --no-edit -S'`.
 - [Memory](#claude-code) that the run wrote: files for you to read, and copy into the host's memory by hand if you
   want them. Nothing applies them.
-- When Claude printed a resume hint, its `pot` form, with the context and `--account` when they are not the
-  defaults.
+- When the command kit's `agent.resume` finds a transcript the run wrote, its `pot` form, with the context and
+  `@INSTANCE` when they are not the defaults: `pot: resume this session with: pot claude@flexion --resume ID`.
 - For each one-run flag used, its one permanent fix ([Messages](#messages)). Each line appears once.
 
 ### Inside a run
@@ -1137,7 +1141,7 @@ is `CAPABILITY: no binding`.
 - `125` when `pot` refuses to start the run because of a grant (never granted, stale, changed source, or
   unverified) or a missing guarantee.
 - `127` when the program is not in the run.
-- `2` for a usage error, such as an unknown context, an `--account` that the root does not declare, two kits that
+- `2` for a usage error, such as an unknown context, an instance that the root does not declare, two kits that
   ship the same command, `pot review`, `pot run` or `pot serve`.
 - `1` when `pot` refuses to start the run for another reason: a root repository, a hidden path in a flag, a
   conflict between kits, clone mode, a grants file that does not parse, or macOS.
@@ -1173,7 +1177,7 @@ programs.pot.kits."claude-code@personal" = inputs.graft.kits.claude-code {
   skillDirs = [ "synced" ];             # the default: real directories in the skills folder to bind; [ ] opts out
   plugins = true;                       # the default: the plugins folder, read-only; false opts out
   skillSources = [ "~/src/agent-skills" ];   # checkouts that skill links point into
-  provider = "anthropic";               # or "bedrock", with region
+  api = graft.apis.anthropic;           # or graft.apis.bedrock { region = "us-east-1"; } (provider and region: deprecated)
   mcp = [ "metamcp" ];
 };
 ```
@@ -1240,9 +1244,9 @@ The run gets its own agent home, configured by the root:
   1. On the host, run `aws sso login` (or your AWS credential helper, or the binding's `refresh` command).
   2. Export the keys into the shell that starts `pot`, if your helper does not.
   3. Start the run again. A run keeps the keys it started with, until they expire.
-- **Accounts:** one instance per account, each granted on its own. With no `--account`, the caller's
-  `CLAUDE_CONFIG_DIR` picks the instance named like its folder (`~/.claude-accounts/flexion` is
-  `claude-code@flexion`) when the root declares it; `~/.claude` is the default.
+- **Instances:** one per account and API, each granted on its own. Its `agent.select.env` is
+  `CLAUDE_CONFIG_DIR = "~/<configDir>"`, plus `CLAUDE_CODE_USE_BEDROCK = "1"` for Bedrock, so a shell that `ai use`
+  set up picks its instance (Bedrock is the more specific match).
 
 A sandboxed transcript is run output. `pot host --resume RUN claude` starts a new host conversation with it
 attached as quoted data ([Resume on the host](#resume-on-the-host)).

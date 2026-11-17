@@ -9,10 +9,17 @@ let
   cfg = config.programs.pot;
   t = lib.types;
   opt = type: default: description: lib.mkOption { inherit type default description; };
+  # defaultAccount (v2.15.0's): every kit's default instance; deprecated in v2.16.0, removed in v2.17.0
+  defaultInstance =
+    if cfg.defaultAccount == null then cfg.defaultInstance
+    else if cfg.defaultInstance != { } then throw "programs.pot: give defaultInstance, or defaultAccount (its old form), not both"
+    else lib.warn "programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0"
+      (lib.listToAttrs (map (n: lib.nameValuePair (lib.head (lib.splitString "@" n)) cfg.defaultAccount)
+        (lib.filter (lib.hasInfix "@") (lib.attrNames cfg.kits))));
   pot = mkRoot {
-    inherit pkgs;
+    inherit pkgs defaultInstance;
     name = "home-manager";
-    inherit (cfg) grantsFile stateDir contexts defaultContext kits defaultAccount hidden tools bindings rootRepos
+    inherit (cfg) grantsFile stateDir contexts defaultContext kits hidden tools bindings rootRepos agentMarkers
       repoKits inspect caBundle;
   };
 in
@@ -24,7 +31,9 @@ in
     contexts = opt (t.attrsOf (t.attrsOf t.anything)) { } "Contexts added to, or changing, host inspect work dispatch.";
     defaultContext = opt t.str "work" "The context of `pot CMD`.";
     kits = opt (t.attrsOf (t.attrsOf t.anything)) { } "Root kits, by name (NAME or NAME@ACCOUNT): graft.kits.claude-code { … }, or a kit's data.";
-    defaultAccount = opt (t.nullOr t.str) null "The account instance a command with several gets with no --account.";
+    defaultInstance = opt (t.attrsOf t.str) { } "Per kit, the instance a command with several gets with no @NAME, --instance or matching caller variables: { claude-code = \"personal\"; }.";
+    defaultAccount = opt (t.nullOr t.str) null "Deprecated (goes in v2.17.0): defaultInstance.<kit>.";
+    agentMarkers = opt (t.listOf t.str) [ "CODEX_SANDBOX" ] "Variables that mean an agent is the caller (pot grant refuses; no inline prompt), beyond each kit's agent.markers. POT always is one.";
     hidden = opt (t.listOf t.str) [ ] "Paths hidden from every run, beyond pot's defaults.";
     tools = opt (t.listOf t.package) [ ] "Packages on every run's PATH, after the standard set.";
     bindings = opt (t.attrsOf (t.attrsOf (t.attrsOf t.anything))) { } "bindings.<capability>.\"<selector>\": how each capability is carried out.";

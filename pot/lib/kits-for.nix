@@ -31,7 +31,7 @@ let
   manifest = u: kitLib.manifest { inherit (u) kit file; };
   env = pkgs.buildEnv {
     name = "pot-kits-tools";
-    paths = tools ++ (if selfU == null then [ ] else selfU.kit.packages or [ ]);
+    paths = tools ++ (if selfU == null then [ ] else selfU.kit.tools or selfU.kit.packages or [ ]);
   };
 in
 pkgs.runCommand "pot-kits" {

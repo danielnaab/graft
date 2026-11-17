@@ -13,7 +13,11 @@ HOME = "/home/u"
 def root(**kw):
     r = {"version": 1, "name": "t", "grantsFile": "/state/grants.json", "stateDir": "/state/pot", "kits": {},
          "contexts": {}, "hidden": [], "standard": ["/nix/store/aaa-bash"], "tools": [], "rootRepos": [],
-         "repoKits": {}, "bindings": {}, "defaultContext": "work"}
+         "repoKits": {}, "bindings": {}, "defaultContext": "work",
+         # root.nix's floor (pot/nix/root.nix): agents' folders and credential stores
+         "baseHidden": ["~/.claude", "~/.claude.json", "~/.pi/agent/auth.json", "~/.codex/auth.json",
+                        "~/.local/share/opencode/auth.json"],
+         "baseProtect": ["**/.claude", "**/.pi", "**/.codex"], "agentMarkers": ["CODEX_SANDBOX"]}
     r.update(kw)
     return r
 
@@ -323,16 +327,42 @@ class Compose(unittest.TestCase):
         eff = sorted(i["value"] for i in p["items"] if i["kind"] == "network" and i["effective"])
         self.assertEqual(eff, ["pypi.org:443"])
 
-    def test_accounts(self):
+    def test_instances(self):
         r = root(kits={"cc@personal": {"commands": {"claude": {}}}, "cc@flexion": {"commands": {"claude": {}}}},
-                 defaultAccount="personal")
+                 defaultInstance={"cc": "personal"})
         _, rep = C.compose(inp(r=r, argv=["claude"]))
         self.assertEqual(rep["command"]["kit"], "root:cc@personal")
-        _, rep = C.compose(inp(r=r, argv=["claude"], flags={"account": "flexion"}))
+        _, rep = C.compose(inp(r=r, argv=["claude"], flags={"instance": "flexion"}))
         self.assertEqual(rep["command"]["kit"], "root:cc@flexion")
-        self.assertIn("account flexion", rep["notes"])
-        with self.assertRaises(C.Refusal):
-            C.compose(inp(r=r, argv=["claude"], flags={"account": "nope"}))
+        self.assertIn("instance flexion", rep["notes"])
+        with self.assertRaisesRegex(C.Refusal, "claude@nope: this root declares cc@flexion, cc@personal"):
+            C.compose(inp(r=r, argv=["claude"], flags={"instance": "nope"}))
+        r["defaultInstance"] = {}
+        with self.assertRaisesRegex(C.Refusal, "cc has the instances flexion, personal: choose one with claude@NAME"):
+            C.compose(inp(r=r, argv=["claude"]))
+
+    def test_selection_by_variables(self):
+        sel = lambda **e: {"commands": {"claude": {}}, "version": "1.1", "agent": {"select": {"env": e}}}
+        r = root(kits={"cc@personal": sel(CFG="~/.claude"), "cc@flexion": sel(CFG="~/.ca/flexion"),
+                       "cc@bedrock": sel(CFG="~/.ca/flexion", BEDROCK="1"), "cc@other": sel(CFG="~/.ca/flexion")},
+                 defaultInstance={"cc": "personal"})
+        same = lambda a, b: C.expand(a, HOME) == C.expand(b, HOME)
+        m = lambda env: C.select_matches(r, "claude", env, same)
+        pick = lambda env: C.compose(inp(r=r, argv=["claude"], flags={"envMatch": m(env)}))[1]["command"]["kit"]
+        self.assertEqual(pick({}), "root:cc@personal")
+        self.assertEqual(pick({"CFG": "/home/u/.claude"}), "root:cc@personal")
+        self.assertEqual(pick({"CFG": "/home/u/.ca/flexion", "BEDROCK": "1"}), "root:cc@bedrock")   # most specific
+        with self.assertRaisesRegex(C.Refusal, "the caller's variables match cc@flexion and cc@other equally"):
+            pick({"CFG": "~/.ca/flexion"})
+        r["defaultInstance"] = {"cc": "other"}
+        self.assertEqual(pick({"CFG": "~/.ca/flexion"}), "root:cc@other")   # a tie goes to the default
+        # @NAME and --instance come first
+        self.assertEqual(C.compose(inp(r=r, argv=["claude"], flags={"instance": "flexion", "envMatch": m({"CFG": "~/.claude"})}))[1]
+                         ["command"]["kit"], "root:cc@flexion")
+
+    def test_agent_markers(self):
+        r = root(kits={"cc": {"version": "1.1", "agent": {"markers": ["CLAUDECODE"]}}})
+        self.assertEqual(C.agent_markers(r), ["CLAUDECODE", "CODEX_SANDBOX", "POT"])
 
     def test_two_kits_one_name(self):
         r = root(kits={"a": {"commands": {"x": {}}}, "b": {"commands": {"x": {}}}})
@@ -513,6 +543,58 @@ class Bundle(unittest.TestCase):
             with self.assertRaises(C.KitError) as e:
                 C.validate_bundle(b)
             self.assertIn(msg, e.exception.message)
+
+
+class Kit11(unittest.TestCase):
+    """kit 1.1: versions, tools, dirs, agent (only in root kits), and 1.0's command fields as dirs."""
+
+    def test_versions(self):
+        C.validate_kit({}, "k", HOME)
+        C.validate_kit({"version": "1.0"}, "k", HOME)
+        C.validate_kit({"version": "1.1", "agent": {}}, "k", HOME)
+        with self.assertRaisesRegex(C.KitError, r"k: kit version 1.2 is newer than this pot reads \(1.0, 1.1\): take a newer pot"):
+            C.validate_kit({"version": "1.2", "anything": 1}, "k", HOME)
+        with self.assertRaisesRegex(C.KitError, "kit version '2.0': this pot reads kit 1.0 and 1.1"):
+            C.validate_kit({"version": "2.0"}, "k", HOME)
+        with self.assertRaisesRegex(C.KitError, "agent is not a kit field"):
+            C.validate_kit({"agent": {}}, "k", HOME)
+        with self.assertRaisesRegex(C.KitError, r"commands.c.fixedDirs is not a command field \(kit 1.1: dirs\)"):
+            C.validate_kit({"version": "1.1", "commands": {"c": {"fixedDirs": {}}}}, "k", HOME)
+
+    def test_tools(self):
+        C.validate_kit({"tools": ["/nix/store/x"]}, "k", HOME)
+        with self.assertRaisesRegex(C.KitError, "tools and packages are one field"):
+            C.validate_kit({"tools": [], "packages": []}, "k", HOME)
+        self.assertEqual(C.normalise_kit({"packages": ["/p"]}), {"tools": ["/p"]})
+
+    def test_agent_only_in_root_kits(self):
+        with self.assertRaisesRegex(C.KitError, "agent: only a root's kit may declare it"):
+            C.validate_kit({"version": "1.1", "agent": {}}, "flake.nix", HOME, root=False)
+        p, _ = C.compose(inp())
+        with self.assertRaisesRegex(C.Refusal, "only a root's kit may declare it"):
+            C.compose(inp(workspace=[ws(kit={"version": "1.1", "agent": {"markers": ["X"]}})]))
+
+    def test_dirs(self):
+        ok = {"~/.c/skills": {"from": "~/.cfg/skills", "real": ["synced"]}, "~/.c/plugins": {"from": None, "real": True},
+              "~/.c/projects/{workspace}/memory": {"mode": "mirror", "from": "~/.cfg/projects/{workspace}/memory",
+                                                   "copy": ["MEMORY.md"], "label": "memory"}}
+        C.validate_kit({"version": "1.1", "commands": {"c": {"dirs": ok}}}, "k", HOME)
+        for bad, msg in [({"/abs": {}}, "must be in the run's HOME"), ({"~/x": {"mode": "bind"}}, "links or mirror"),
+                         ({"~/x/{workspace}": {}}, "is a mirror's"), ({"~/x": {"copy": []}}, "are a mirror's"),
+                         ({"~/x": {"mode": "mirror", "label": "Two Words"}}, "one lowercase word")]:
+            with self.assertRaisesRegex(C.KitError, msg):
+                C.validate_kit({"version": "1.1", "commands": {"c": {"dirs": bad}}}, "k", HOME)
+
+    def test_one_point_oh_as_dirs(self):
+        k = C.normalise_kit({"commands": {"c": {"fixedDirs": {"~/.c/skills": "~/.cfg/skills", "~/.c/plugins": "~/.cfg/plugins"},
+                                                "skillDirs": ["synced"], "realDirs": ["~/.c/plugins"],
+                                                "memory": {"at": "~/.c/projects", "host": "~/.cfg/projects"}}}})
+        self.assertEqual(k["commands"]["c"]["dirs"], {
+            "~/.c/skills": {"from": "~/.cfg/skills", "mode": "links", "real": ["synced"]},
+            "~/.c/plugins": {"from": "~/.cfg/plugins", "mode": "links", "real": True},
+            "~/.c/projects/{workspace}/memory": {"from": "~/.cfg/projects/{workspace}/memory", "mode": "mirror",
+                                                 "copy": ["MEMORY.md"], "label": "memory"}})
+        C.validate_kit({**k, "version": "1.1"}, "k", HOME)
 
 
 if __name__ == "__main__":

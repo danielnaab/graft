@@ -7,7 +7,9 @@
 #     contexts ? { };               # added to, or changing, host inspect work dispatch (§5)
 #     defaultContext ? "work";
 #     kits ? { };                   # root kits, by name ("claude-code@personal", "daniel")
-#     defaultAccount ? null;        # the account instance chosen with no --account
+#     defaultInstance ? { };        # per kit, the instance chosen with no @NAME, --instance or caller match
+#                                   # ({ claude-code = "personal"; }); defaultAccount: its old form, until v2.17.0
+#     agentMarkers ? [ "CODEX_SANDBOX" ];  # variables that mean an agent is the caller, beyond the kits' own
 #     hidden ? [ ];                 # beyond pot's defaults (Appendix B)
 #     tools ? [ ];                  # packages on every run's PATH, after the standard set
 #     bindings ? { };               # bindings.<capability>."<selector>" (§7.2; carried out from milestone 2)
@@ -29,7 +31,9 @@
 , contexts ? { }
 , defaultContext ? "work"
 , kits ? { }
+, defaultInstance ? { }
 , defaultAccount ? null
+, agentMarkers ? [ "CODEX_SANDBOX" ]
 , hidden ? [ ]
 , tools ? [ ]
 , bindings ? { }
@@ -44,6 +48,17 @@ let
   kitLib = import ../lib/kit.nix { inherit lib; };
   darwin = pkgs.stdenv.hostPlatform.isDarwin;
   python = pkgs.python3;
+  # defaultAccount (v2.15.0's): every kit's default instance; deprecated in v2.16.0, removed in v2.17.0
+  defaultInstance' =
+    if defaultAccount == null then defaultInstance
+    else if defaultInstance != { } then throw "graft.lib.mkRoot: give defaultInstance, or defaultAccount (its old form), not both"
+    else lib.warn "graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0"
+      (lib.listToAttrs (map (n: lib.nameValuePair (lib.head (lib.splitString "@" n)) defaultAccount)
+        (lib.filter (lib.hasInfix "@") (lib.attrNames kits))));
+  # the floor every run gets, which a root's hidden adds to and cannot remove: agents' folders and
+  # credential stores, and their configuration in a workspace
+  baseHidden = [ "~/.claude" "~/.claude.json" "~/.pi/agent/auth.json" "~/.codex/auth.json" "~/.local/share/opencode/auth.json" ];
+  baseProtect = [ "**/.claude" "**/.pi" "**/.codex" ];
   reservedContexts = [ "explain" "why" "grant" "review" "init" "run" "serve" ];
   badContexts = lib.filter (n: lib.elem n reservedContexts) (lib.attrNames contexts);
 
@@ -107,7 +122,8 @@ let
 
   manifest = {
     version = 1;
-    inherit name grantsFile stateDir defaultContext defaultAccount rootRepos bindings darwin;
+    inherit name grantsFile stateDir defaultContext rootRepos bindings darwin agentMarkers baseHidden baseProtect;
+    defaultInstance = defaultInstance';
     contexts = contexts;
     kits = kitManifests;
     repoKits = repoKitManifests;

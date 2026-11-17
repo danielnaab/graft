@@ -43,7 +43,7 @@
       defaultRoot = pkgs: mkRoot {
         inherit pkgs;
         kits."claude-code@personal" = import ./pot/kits/claude-code.nix { inherit pkgs; account = "personal"; binary = "host"; };
-        defaultAccount = "personal";
+        defaultInstance.claude-code = "personal";
         bindings = {
           "status.relay"."*" = { workmux = true; };
           credential."api.anthropic.com kit=claude-code@personal" = { via = "file"; from.file = "~/.config/pot/claude-token-personal"; };
@@ -58,6 +58,8 @@
       lib.pot.kitsFor = kitsFor;
       # agent kits, for a root to call: graft.kits.claude-code { pkgs; account; … } (pot/kits)
       kits.claude-code = import ./pot/kits/claude-code.nix;
+      # the APIs an agent kit can use: graft.apis.anthropic, graft.apis.bedrock { region; } (pot/kits/apis.nix)
+      apis = import ./pot/kits/apis.nix;
       # a personal root in home-manager: programs.pot (pot/nix/hm.nix)
       homeManagerModules.pot = import ./pot/nix/hm.nix { inherit mkRoot; };
 
@@ -111,7 +113,7 @@
           kitsOf = r: { inherit (r.passthru.root) kits repoKits; };
           kitsJson = builtins.unsafeDiscardStringContext (builtins.toJSON {
             default = kitsOf (defaultRoot pkgs);
-            golden = kitsOf (import ./pot/tests/golden.nix { inherit pkgs mkRoot; claudeCode = self.kits.claude-code; });
+            golden = kitsOf (import ./pot/tests/golden.nix { inherit pkgs mkRoot; claudeCode = self.kits.claude-code; inherit (self) apis; });
           });
         in pkgs.runCommand "graft-pot-golden" { nativeBuildInputs = [ pkgs.python3 ]; inherit kitsJson; passAsFile = [ "kitsJson" ];
           passthru = { inherit kitsJson; }; } ''
@@ -126,10 +128,19 @@
           name = "check";
           kits."claude-code@personal" = self.kits.claude-code { inherit pkgs; account = "personal"; mcp = [ "metamcp" ]; };
           kits."claude-code@work" = self.kits.claude-code { inherit pkgs; account = "work"; configDir = ".claude-accounts/work";
-            provider = "bedrock"; region = "us-east-1"; binary = pkgs.hello; };
-          defaultAccount = "personal";
+            api = self.apis.bedrock { region = "us-east-1"; }; binary = pkgs.hello; };
+          defaultInstance.claude-code = "personal";
           bindings.mcp.metamcp = { url = "https://mcp.example/mcp"; via = "env"; env = "METAMCP_API_KEY"; from.file = "~/.config/x/key.env"; };
         };
+        # v2.15.0's forms, deprecated in v2.16.0 (they go in v2.17.0), give the same root: provider and region
+        # (the claude-code kit), and defaultAccount (mkRoot)
+        pot-aliases = let
+          ck = args: builtins.unsafeDiscardStringContext (builtins.toJSON (self.kits.claude-code ({ inherit pkgs; account = "w"; } // args)));
+          rootOf = args: (mkRoot ({ inherit pkgs; kits."claude-code@w" = self.kits.claude-code { inherit pkgs; }; } // args)).passthru.root.defaultInstance;
+        in assert ck { provider = "bedrock"; region = "us-east-1"; } == ck { api = self.apis.bedrock { region = "us-east-1"; }; };
+          assert ck { provider = "anthropic"; } == ck { };
+          assert rootOf { defaultAccount = "w"; } == rootOf { defaultInstance.claude-code = "w"; };
+          pkgs.runCommand "graft-pot-aliases" { } "touch $out";
         # homeManagerModules.pot evaluates (with home-manager's few options stubbed), and asserts
         # workmux's sandbox off
         pot-hm = let

@@ -21,6 +21,10 @@ in
     if !builtins.isAttrs kit then throw "pot: ${file}: a kit is an attribute set"
     else kit // { inherit file; }
       // lib.optionalAttrs (kit ? packages) { packages = map str kit.packages; }
+      // lib.optionalAttrs (kit ? tools) { tools = map str kit.tools; }
+      // lib.optionalAttrs (kit ? agent && kit.agent ? resume && kit.agent.resume ? render) {
+        agent = kit.agent // { resume = kit.agent.resume // { render = str kit.agent.resume.render; }; };
+      }
       // lib.optionalAttrs (kit ? files) { files = lib.mapAttrs (_: f: f // lib.optionalAttrs (f ? source) { source = str f.source; }) kit.files; }
       // lib.optionalAttrs (kit ? commands) {
         commands = lib.mapAttrs (_: c: c // lib.optionalAttrs (c ? program) { program = program c.program; }
@@ -29,7 +33,8 @@ in
 
   # what a run of this kit needs in its closure (store roots: a subpath, "${pkg}/bin/x", as its package)
   # (a plain store-path string, with no context, is left to pot, which adds its closure at start)
-  roots = kit: lib.filter (p: p != null) (map storeRoot ((kit.packages or [ ])
+  roots = kit: lib.filter (p: p != null) (map storeRoot ((kit.packages or [ ]) ++ (kit.tools or [ ])
+    ++ lib.optional (kit ? agent && kit.agent ? resume && kit.agent.resume ? render) kit.agent.resume.render
     ++ lib.concatMap (c: lib.filter (a: lib.isDerivation a || builtins.isPath a) (c.args or [ ])
       ++ lib.optional (c ? program && (lib.isDerivation c.program || builtins.isString c.program && lib.hasPrefix "/nix/store/" c.program)) c.program)
       (lib.attrValues (kit.commands or { }))
