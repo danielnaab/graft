@@ -1226,8 +1226,10 @@ def check_command(policy, launch, ctx, given=True):
     if name == "nix" and nix and any(b["capability"] == "nix" for b in policy.get("bindings") or []):
         return       # the host's nix, on the run's PATH through the nix capability (bwrap.run_env)
     if given and not shutil.which(name):
-        raise C.Refusal(f"pot: unknown context or command {name}; contexts: {', '.join(C.context_names(launch.get('root') or {}))}; "
-                        f"a program every run here should have goes in {launch.get('toolsFix') or "the root's tools"}", 2)
+        # neither a context nor a program, here or on the host: the not-found form, with the contexts
+        raise C.Refusal(C.not_found_text(ctx["name"], name, launch.get("pkgFix") or "programs.pot.tools\nor the repo kit's tools",
+                                         on_host=False)
+                        + f"\n  ({name} is not a context either: {', '.join(C.context_names(launch.get('root') or {}))})", 2)
     raise C.Refusal(C.not_found_text(ctx["name"], name, launch.get("pkgFix") or "programs.pot.tools\nor the repo kit's tools",
                                      on_host=bool(shutil.which(name))), 127)
 
@@ -1516,6 +1518,8 @@ def why_json(policy, target, text, home, facts=None):
     if kind == "file":
         msg, reached = path_answer(policy, reach, C.canon_path(reach, home), f"pot ({policy['context']}):", home,
                                    {}, lambda i: ", ".join(dict.fromkeys(l for l in (C.label(s) for s in i["sources"]) if l)) or "pot")
+        if not os.path.lexists(reach):
+            reached = False      # a path that does not exist is not reached (the text says no such path)
         reach = target
         msg = text(target)
     elif kind == "git.fetch":

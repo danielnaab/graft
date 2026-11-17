@@ -1809,7 +1809,21 @@ EOF
   refused "pot: pot doctor" sb_ doctor
   expect "comes later" holds "pot: doctor comes in a later release"
   refused "pot: an unknown command" sb_ no-such-program-x
-  expect "points at the root's tools" holds "a program every run here should have goes in tools (rebuild the root)"
+  local rc=0 && { sb_ no-such-program-x >/dev/null 2>&1 || rc=$?; }
+  expect "exits 2" test "$rc" = 2
+  expect "says the host lacks it too (v2.16.1)" holds "pot (work): no-such-program-x is not in this run, nor on the host's PATH."
+  expect "how to get it" holds "  install it (for a repository's own tools, its package manager), then:"
+  expect "points at the root's tools" holds "  permanent: tools (rebuild the root)"
+  # the same through a context and after --
+  for a in "work no-such-program-x" "work -- no-such-program-x" "-- no-such-program-x"; do
+    # shellcheck disable=SC2086 # the words are the test
+    refused "pot: $a" sb_ $a
+    expect "the same message" holds "pot (work): no-such-program-x is not in this run, nor on the host's PATH."
+  done
+  # a missing path with / is not reached (--json), as its text says
+  refused "pot: why --json, a missing path" sb_ why nope/x.nix --json
+  expect "reached false" test "$(jq -c '[.kind, .reached]' <<<"$out")" = '["file",false]'
+  expect "text: no such path" holds "nope/x.nix: no such path here"
   # pot why --json on the host answers paths from the default context's policy (C4), and git URLs as git (F10)
   refused "pot: why --json, a hidden path" sb_ why "$work/sbhidden/x" --json
   expect "not reached, from the policy" test "$(jq -c '[.kind, .reached]' <<<"$out")" = '["file",false]'
@@ -1862,7 +1876,7 @@ EOF
   ran "pot: host" sb_loud host true
   expect "says no sandbox" holds "pot: host · no sandbox · logged as "
   refused "pot: an unknown first word" sb_ nosuch
-  expect "may be a context" holds "pot: unknown context or command nosuch; contexts: "
+  expect "may be a context" holds "(nosuch is not a context either: "
   refused "pot: a host program not in the run" sb_ nix --version
   expect "says how to add it" holds "pot (work): nix is not in this run."
   expect "one run" holds "  one run:   pot --package PKG …"

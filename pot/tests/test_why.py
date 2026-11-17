@@ -76,6 +76,20 @@ class Classify(unittest.TestCase):
         self.assertIn("is hidden by your root", j["text"])
 
 
+class MissingPath(unittest.TestCase):
+    def test_not_reached(self):
+        import io, contextlib, json
+        for t in ("nope/x.nix", "./flake.nix-not-here"):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = pot.why_json(dict(POLICY, workspace=[], access="write", backend={"proved": []}), t,
+                                  lambda x: pot.answer_why(dict(POLICY, workspace=[], access="write", backend={"proved": []}), x, "/home/u", {}),
+                                  "/home/u", {})
+            j = json.loads(out.getvalue())
+            self.assertEqual((rc, j["kind"], j["reached"]), (1, "file", False), t)
+            self.assertIn("no such path here", j["text"], t)
+
+
 class Agree(unittest.TestCase):
     """R3-1: pot why's text and its --json come from one classification: an existing bare name (flake.nix, a
     folder), a root kit command, a host and an ssh URL, on the host and in a run."""
