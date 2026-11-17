@@ -105,7 +105,7 @@ A function, called once per system by the consumer's mkFlake. Its versioned cont
   apps     = { check-kb = { type = "app"; program = "…"; }; };
   checks   = { tasks = pkgs.runCommand "tasks" { } "…"; };
   packages = { obsidian-plugins = …; };
-  kit      = { packages = [ pkgs.ripgrep ]; requests.network = [ "api.example.com" ]; };
+  kit      = { tools = [ pkgs.ripgrep ]; requests.network = [ "api.example.com" ]; };
 }
 ```
 

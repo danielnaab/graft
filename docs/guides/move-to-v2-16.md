@@ -5,9 +5,11 @@ status: working
 
 graft v2.16.0 puts a one-way boundary between graft and pot, graft's sandbox
 ([Decisions](../decisions.md#one-repository-one-way-arrows-between-graft-and-pot)). A repository now presents its
-kits to pot as `packages.<system>.pot-kits`, and pot finds that flake from `.gitmodules` alone. Most repositories
-and roots need no edit. This page says what changes for a consumer, a root and a provider, and what still works
-for one release.
+kits to pot as `packages.<system>.pot-kits`, and pot finds that flake from `.gitmodules` alone. pot's core no
+longer knows any one agent: an agent kit says how pot recognises it and its instances (kit 1.1), a root chooses an
+instance with `CMD@NAME`, and the claude-code kit takes an `api` value. Most repositories and roots need no edit
+now: the old forms still work, with a warning, until v2.17.0. This page says what changes for a consumer, a root
+and a provider.
 
 ## When to use this
 
@@ -23,6 +25,13 @@ These are deprecated in v2.16.0 and removed in v2.17.0:
 | v2.15.0 | v2.16.0 | Until v2.17.0 |
 |---|---|---|
 | `packages.<system>.graft-kits` | `packages.<system>.pot-kits` | mkFlake writes both, so a v2.15.0 root reads a v2.16.0 consumer. A v2.16.0 pot reads `graft-kits` when a flake has no `pot-kits`, so it reads a v2.15.0 consumer. |
+| `kit.packages` | `kit.tools` | Read as `tools`. Both together are an error: `pot: FILE: tools and packages are one field (packages is its old name): give tools`. |
+| `pot --account NAME CMD` | `pot CMD@NAME`, or `pot --instance NAME CMD` | Works as `--instance`, after one line: `pot: --account is --instance; --account goes in v2.17.0`. |
+| `defaultAccount = "personal";` | `defaultInstance.claude-code = "personal";` | Applied to every kit with instances, with the evaluation warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` (from the module: `programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0`). Both together are an error. |
+| the claude-code kit's `provider = "bedrock"; region = "us-east-1";` | `api = graft.apis.bedrock { region = "us-east-1"; };` | With the warning `graft.kits.claude-code: provider and region are api = graft.apis.bedrock { region = …; } (or graft.apis.anthropic); they go in v2.17.0`. Both together are an error. |
+| a 1.0 command's `fixedDirs`, `realDirs`, `skillDirs`, `memory` | kit 1.1's `dirs` | Kit 1.0 is still read, and its fields with it: only a kit that declares `version = "1.1"` must use `dirs`. |
+
+The old forms and the new give the same canonical requests, so no grant asks again for them.
 
 ## What changes without an edit
 
@@ -44,6 +53,15 @@ These are deprecated in v2.16.0 and removed in v2.17.0:
 - **Messages name a kit's file as the bundle reports it:** `the repo kit's requests.network (flake.nix (perSystem))`,
   not `(perSystem.kit)`. Kit errors from the build start `pot:`, not `graft:`:
   `pot: <file>: <field> is not a kit field (…)`.
+- **The instance follows the caller's variables, most specific first.** v2.15.0 picked the instance named like the
+  caller's `CLAUDE_CONFIG_DIR` folder. v2.16.0 compares the caller's variables with each instance's
+  `agent.select.env`: for the claude-code kit, `CLAUDE_CONFIG_DIR = "~/<configDir>"`, and for Bedrock also
+  `CLAUDE_CODE_USE_BEDROCK = "1"`. The instance that matches the most variables wins. So a shell set up for
+  Bedrock now picks the Bedrock instance, not the plain one that shares its config folder. `CMD@NAME` always wins.
+- **The startup line says `instance NAME`,** not `account NAME`, and the resume line names the instance:
+  `pot: resume this session with: pot claude@flexion --resume ID`.
+- **`pot host --resume` does not resume a run from before v2.16.0.** Such a run has no `resume.json`, which now
+  says where its transcripts are. Read its transcript in its state folder instead.
 - **Your consumer's lock gets shorter.** graft's flake no longer has a `knowledge-base-kit` input, so it leaves
   your `flake.lock` at the next update.
 
@@ -74,8 +92,17 @@ These are deprecated in v2.16.0 and removed in v2.17.0:
    ```
 
    It exits 0 when the run reaches the URL, and 1 when it does not ([run-env/1](../../pot/contracts/run-env-1.md)).
-5. Run `nix run .#graft check` and `nix flake check`, and commit.
-6. Run `pot claude` (or any run) at a terminal, and grant the repo kit's changed source when it asks.
+5. In `perSystem.kit`, rename `packages` to `tools`:
+
+   ```nix
+   # v2.15.0
+   kit = { packages = [ pkgs.nodejs_22 ]; requests.network = [ "registry.npmjs.org" ]; };
+   # v2.16.0
+   kit = { tools = [ pkgs.nodejs_22 ]; requests.network = [ "registry.npmjs.org" ]; };
+   ```
+
+6. Run `nix run .#graft check` and `nix flake check`, and commit.
+7. Run `pot claude` (or any run) at a terminal, and grant the repo kit's changed source when it asks.
 
 ## Move a root
 
@@ -96,13 +123,48 @@ These are deprecated in v2.16.0 and removed in v2.17.0:
    ```
 
    With mkRoot, pass the same list as `tools`.
-3. Build the root (`home-manager switch`, or rebuild your mkRoot flake). The grants file needs no edit.
+3. Replace the deprecated forms, before v2.17.0 removes them. Before:
+
+   ```nix
+   programs.pot = {
+     kits."claude-code@flexion-bedrock" = inputs.graft.kits.claude-code {
+       inherit pkgs; account = "flexion"; configDir = ".claude-accounts/flexion";
+       provider = "bedrock"; region = "us-east-2";
+     };
+     defaultAccount = "personal";
+   };
+   ```
+
+   After:
+
+   ```nix
+   programs.pot = {
+     kits."claude-code@flexion-bedrock" = inputs.graft.kits.claude-code {
+       inherit pkgs; account = "flexion"; configDir = ".claude-accounts/flexion";
+       api = inputs.graft.apis.bedrock { region = "us-east-2"; };
+     };
+     defaultInstance.claude-code = "personal";
+   };
+   ```
+
+   With mkRoot, the same arguments go to `graft.lib.mkRoot`. An Anthropic instance needs no `api`: the default is
+   `graft.apis.anthropic`.
+4. If you named an instance with `--account` in scripts or a workmux agent command, use `CMD@NAME`:
+   `pot --account flexion claude` becomes `pot claude@flexion`.
+5. If a tool besides Claude Code should count as an agent (so that `pot grant` refuses under it), add its
+   variable to `agentMarkers`. The default, `[ "CODEX_SANDBOX" ]`, keeps v2.15.0's markers with `CLAUDECODE` (the
+   claude-code kit's) and `POT`.
+6. Build the root (`home-manager switch`, or rebuild your mkRoot flake). Build it with no evaluation warning from
+   graft, and the deprecated forms are gone. The grants file needs no edit.
 
 ## Move a provider
 
-Nothing to change. `graft.nix` is still [provider/2](../reference/provider.md). A `kit` with an unknown field now
-fails the consumer's `pot-kits` build with pot's message, `pot: <dir>/<name>/graft.nix: <field> is not a kit field
-(…)`.
+`graft.nix` is still [provider/2](../reference/provider.md). A `kit` with an unknown field now fails the consumer's
+`pot-kits` build with pot's message, `pot: <dir>/<name>/graft.nix: <field> is not a kit field (…)`.
+
+Rename the kit's `packages` to `tools` in your next release. Keep the kit at 1.0 (no `version`) unless you need a
+1.1 field: a kit that says `version = "1.1"` needs every consumer's root on graft v2.16.0 or later, and an older
+pot refuses it. A scion kit may not declare `agent`, which is a root's.
 
 ## Check it worked
 
@@ -126,6 +188,11 @@ Use your machine's system for `x86_64-linux`.
   submodules, so pot found no flake. Use the root's `repoKits` (step 3).
 - **`graft: command not found` inside a run, in a repository that is not a graft consumer.** Add graft to the
   root's `tools` (root step 2).
+- **`pot: claude: the caller's variables match claude-code@a and claude-code@b equally: choose one with
+  claude@NAME or --instance NAME`.** Two instances have the same `select.env` (the same `configDir` and API).
+  Name one with `CMD@NAME`, or set `defaultInstance` to one of them.
+- **A run picks a different instance than in v2.15.0.** The Bedrock instance now wins in a Bedrock shell. Name the
+  instance with `CMD@NAME` when you want the other.
 - **`pot (work): ~/DIR#pot-kits: kit.json is version 2, and this pot reads version 1: …`.** The consumer's graft
   is newer than your root's pot. Move the root first.
 
@@ -135,4 +202,6 @@ Use your machine's system for `x86_64-linux`.
 - [pot/lib/kits-for.nix](../../pot/lib/kits-for.nix): the bundle
 - [pot/core/pot.py](../../pot/core/pot.py): finding the flake, the `graft-kits` fallback, `pot why --json`
 - [pot's contracts](../../pot/contracts/README.md)
+- [pot/core/compose.py](../../pot/core/compose.py): kit versions and the deprecated forms
+- [pot/kits/claude-code.nix](../../pot/kits/claude-code.nix): `api`, `provider` and `region`
 - [CHANGELOG](../../CHANGELOG.md)

@@ -54,9 +54,9 @@ always a `path:` flake, never `.#` or `git+file:`, which would copy the whole re
      grant = [ "notebook-kit" ];
    };
 
-   # v2.15.0
+   # v2.16.0 (v2.15.0 wrote packages, which is still read until v2.17.0)
    kit = {
-     packages = [ pkgs.ripgrep ];
+     tools = [ pkgs.ripgrep ];
      protect = [ "AGENTS.md" ];
      requests.network = [ "registry.npmjs.org" ];
      requests.env = [ "NPM_TOKEN" ];

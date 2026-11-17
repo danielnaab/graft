@@ -179,7 +179,7 @@ A repository's own needs are its repo kit: the packages its work needs, paths to
      inherit inputs;
      perSystem = { pkgs, ... }: {
        kit = {
-         packages = [ pkgs.nodejs_22 ];
+         tools = [ pkgs.nodejs_22 ];
          protect = [ "AGENTS.md" ];
          requests.network = [ "registry.npmjs.org" ];
          requests.capabilities = [ { name = "nix"; } ];   # graft check evaluates graft.nix
@@ -251,6 +251,21 @@ A home-manager root:
   };
 }
 ```
+
+For a second Claude account, or Bedrock, add an instance. Each instance is granted on its own:
+
+```nix
+kits."claude-code@work" = inputs.graft.kits.claude-code {
+  inherit pkgs; account = "work"; configDir = ".claude-accounts/work";
+  api = inputs.graft.apis.bedrock { region = "us-east-1"; };
+};
+defaultInstance.claude-code = "personal";
+```
+
+`pot claude@work` runs that instance, and so does `pot --instance work claude`. With neither, pot picks the
+instance whose variables the shell matches (`CLAUDE_CONFIG_DIR=~/.claude-accounts/work` and
+`CLAUDE_CODE_USE_BEDROCK=1` pick `@work`), and otherwise the default. The startup line names an instance that is
+not the default: `pot: work · team-kb · instance work · pot explain`.
 
 What the claude-code kit binds from your host into each run, read-only:
 
