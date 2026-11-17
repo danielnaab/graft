@@ -86,7 +86,7 @@ release tag.
    try off first (step 4).
 
    When `nix run .#graft` itself fails (the fix broke `graft.nix`, or Nix cannot fetch a scion's gitlink),
-   run graft from its own flake: `nix run github:danielnaab/graft/v2.16.0 -- try -C .`.
+   run graft from its own flake: `nix run github:danielnaab/graft/v2.16.1 -- try -C .`.
 
    For a flake in a subdirectory, `try` changes nothing and prints `nix shell 'path:DIR#tools' -c TOOL`: a
    `path:` flake reads its working tree, new files included, on every build. Never build `path:.` at a
@@ -184,7 +184,7 @@ Nix fetches a commit that is on any branch of the provider, so builds work. `gra
 pull request cannot pass graft-check until the scion is at a release: step 8's
 `nix run .#graft upgrade knowledge-base-kit@v2.2.1` moves it there. Until the commit is pushed, Nix cannot
 fetch it, so `nix run .#graft` itself cannot evaluate on a clean tree; run
-`nix run github:danielnaab/graft/v2.16.0 -- check -C .` instead. With
+`nix run github:danielnaab/graft/v2.16.1 -- check -C .` instead. With
 `push.recurseSubmodules=check` ([Clones, worktrees, sandboxes and CI](clones-and-worktrees.md)), git refuses
 to push the consumer while the scion's commit is on no remote.
 
@@ -203,7 +203,7 @@ to push the consumer while the scion's commit is on no remote.
 - **`Cannot find Git revision '<sha>' in ref 'refs/heads/main' of repository '<url>'`.** The consumer records
   a scion commit that the provider does not have: you committed the gitlink before pushing the scion's
   branch. `nix run .#graft` fails the same way, before graft runs; use graft's own flake meanwhile
-  (`nix run github:danielnaab/graft/v2.16.0 -- try -C .`, or `-- check -C .`). Push the branch (step 5), or
+  (`nix run github:danielnaab/graft/v2.16.1 -- try -C .`, or `-- check -C .`). Push the branch (step 5), or
   record the release again: `git -C scions/NAME checkout --detach v2.2.0` (the tag it was at), then
   `git add scions/NAME` and commit. Step 7 does not help here: it checks out the recorded commit.
 - **`graft upgrade` refuses: the scion has uncommitted edits, or try is on.** Do step 7 first. Commit or stash

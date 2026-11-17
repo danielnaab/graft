@@ -157,7 +157,7 @@ Use your machine's system for `x86_64-linux`.
   `pot grant`.
 - **`ensure.sh: … nix: command not found` inside a run.** `ensure.sh` lacks the `POT_TOOLS` branch, or
   it is not the first step.
-- **On macOS, `pot: no backend for darwin in v2.16.0`.** Keep graft at v2.14.0 on that machine's repositories
+- **On macOS, `pot: no backend for darwin in v2.16.1`.** Keep graft at v2.14.0 on that machine's repositories
   until the Seatbelt backend returns.
 
 ## Sources
