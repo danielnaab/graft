@@ -15,7 +15,7 @@ submodules, a tag comparison, and the sandbox policy their operations run under 
 
 Why: graft v1 grew into a workflow runner as well as a dependency manager, and became hard to change.
 
-Since v2.15.0, the sandbox policy is composed at each start by `sb`, from the kits that providers and
+Since v2.15.0, the sandbox policy is composed at each start by pot, graft's sandbox, from the kits that providers and
 consumers declare and the grants that a person's root holds
 ([Roots grant reach; kits only ask](#roots-grant-reach-kits-only-ask)). graft ships the shape of a kit, the
 composition, the bubblewrap backend, agent kits, and a home-manager module for a root. It holds no grants, and its
@@ -84,9 +84,9 @@ person.
 `graft migrate` prints a brief, and the upgrade pull request carries the provider's notes. Any agent, or
 a person, can take them, and graft does not change when agent tools change.
 
-Since v2.14.0, graft's sandbox runs the command that a person names, an agent or any other. Since v2.15.0,
+Since v2.14.0, graft's sandbox (pot, since v2.15.0) runs the command that a person names, an agent or any other. Since v2.15.0,
 graft also ships agent kits, such as `graft.kits.claude-code`: data that says what an agent needs inside a run. A
-root chooses to install one, and `sb` runs it only when a person, a recipe or a scheduler names it. graft still
+root chooses to install one, and `pot` runs it only when a person, a recipe or a scheduler names it. graft still
 never chooses to run an agent.
 
 ## Declarations live in the files they describe
@@ -111,16 +111,16 @@ replaces v2.14.0's launcher. These parts of v2.14.0's decision still hold there:
   read-only inside, at any depth.
 - **The terminal stays the caller's.** A command that shares a terminal could push input into it (`TIOCSTI`).
   A seccomp filter refuses it, whatever the kernel's `dev.tty.legacy_tiocsti` says.
-- **Every value names its source.** v2.14.0's `--explain` became `sb explain` and `sb why`.
-- **Never fall back unsandboxed.** `sb host` and a granted `unsandboxed` request are the only ways out, and both
+- **Every value names its source.** v2.14.0's `--explain` became `pot explain` and `pot why`.
+- **Never fall back unsandboxed.** `pot host` and a granted `unsandboxed` request are the only ways out, and both
   are explicit.
 
 ## Roots grant reach; kits only ask
 
-Since v2.15.0, `sb CMD` runs a command as a run, under a policy that it composes at each start from **kits** and
-the **grants** in the person's **root** ([Sandbox](reference/sandbox.md#the-model)). A repository, a provider and
+Since v2.15.0, `pot CMD` runs a command as a run, under a policy that it composes at each start from **kits** and
+the **grants** in the person's **root** ([pot](reference/pot.md#the-model)). A repository, a provider and
 an agent each ship a kit: what a run sees, its limits, and the reach it requests. A request does nothing until the
-person grants it with `sb grant`, at a terminal, into a grants file that no run can see. A **context** (`work`,
+person grants it with `pot grant`, at a terminal, into a grants file that no run can see. A **context** (`work`,
 `inspect`, `host`) is where a run starts from.
 
 The design's principles:
@@ -132,7 +132,7 @@ The design's principles:
    items on code that the root does not pin, its source. Any change stops that kit's runs until it is granted
    again. Asking for less needs no approval.
 3. **Nothing a run writes widens a later run, or is taken by the host as fact.** A run never writes a root, its
-   grants file or `sb`'s state. `sb` decides who a kit is from host facts (the root's store, a verified release
+   grants file or `pot`'s state. `pot` decides who a kit is from host facts (the root's store, a verified release
    tag, the repository's origin), never from what a repository says about itself.
 4. **Output is untrusted until it crosses as data.** In place, protected paths are defence in depth: the tree
    after a run is like a stranger's pull request.
@@ -156,7 +156,7 @@ Why:
   Code's paths, hosts and token, and made `~/.claude` writable, with every project's transcripts. Now the root
   defines the agent kit once, and each run gets its own agent home, with state scoped per account, workspace and
   context.
-- **Agents could not see a denial.** Most clients print only `CONNECT tunnel failed, response 403`. `sb` writes
+- **Agents could not see a denial.** Most clients print only `CONNECT tunnel failed, response 403`. `pot` writes
   each denial to a file that the run can read, gives it to Claude through a hook, and shows it on the person's
   tmux pane. Writing it to the run's terminal corrupts a full-screen program.
 - **Diagnosis needed a host shell.** `inspect` reads the machine except secrets and changes nothing, so an agent
@@ -164,15 +164,15 @@ Why:
 
 Costs accepted:
 
-- **Experimental, and Linux only, in v2.15.0.** On macOS, `sb` refuses with a message. v2.14.0 is the last
+- **Experimental, and Linux only, in v2.15.0.** On macOS, `pot` refuses with a message. v2.14.0 is the last
   release with a Seatbelt sandbox. v2.15.0, a minor version, breaks v2.14.0's sandbox, and its CHANGELOG says
   so.
 - **Kit tools run on the host in v2.15.0.** A kit's commands are not wrapped and sandboxed on their own until a
-  later release. Inside `sb claude`, they run under the run's policy.
-- **A person needs a root:** a home-manager module, graft's default root, or one that `sb init` writes.
+  later release. Inside `pot claude`, they run under the run's policy.
+- **A person needs a root:** a home-manager module, graft's default root, or one that `pot init` writes.
 - **Grants are readable.** Hidden means unmounted and unwritable. A grants file is readable through the root's git
   history wherever that `.git` is readable, `inspect` included. Grants hold no secrets.
-- **`sb grant` is a speed bump.** It refuses agents and reads from `/dev/tty`, but an unrestricted host agent can
+- **`pot grant` is a speed bump.** It refuses agents and reads from `/dev/tty`, but an unrestricted host agent can
   edit the grants file or script a terminal. Plain `claude` stays unrestricted by choice.
 - **The repository's history is not protected.** In place, a run can commit, and can delete refs. Push what you
   need to keep. New git metadata, gitlinks and changed host-run files are reported after the run, not prevented.
@@ -184,7 +184,7 @@ Costs accepted:
 Reopen when unprivileged user namespaces are no longer available on the machines that run graft, or when a kit's
 real needs cannot be expressed as requests that a root grants.
 
-Not yet: clone mode (`dispatch`) and `sb review`; nesting and wrapped kit commands; generated `kits.just`; the
+Not yet: clone mode (`dispatch`) and `pot review`; nesting and wrapped kit commands; generated `kits.just`; the
 Seatbelt backend; brokers for `git.push` and proxy credentials; widening delegation through a supervisor; a VM
 backend for code that no one has reviewed.
 

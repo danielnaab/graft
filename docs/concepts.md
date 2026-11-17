@@ -59,15 +59,15 @@ works this way, see [Decisions](decisions.md).
 
 ## What runs in a sandbox
 
-`sb`, graft's sandbox, runs one command as a **run**, under one policy. Its terms are defined in
-[Sandbox](reference/sandbox.md#the-model); these are the ones that touch a consumer's or a provider's files:
+pot, graft's sandbox, runs one command as a **run**, under one policy. Its terms are defined in
+[pot](reference/pot.md#the-model); these are the ones that touch a consumer's or a provider's files:
 
 - **Kit:** what a run needs, declared as `kit = { … };`: packages and fixed values that it sees, paths that it
   protects, and requests. A provider's kit is in its `graft.nix` (a **scion kit**); a consumer's own is in mkFlake's
   `perSystem` (its **repo kit**). mkFlake exports them as `packages.<system>.graft-kits`.
 - **Request:** a kit's ask for reach: a host path, a network host, a variable from the caller, persistent state,
   or a **capability** such as `nix` or `git.fetch`. A request does nothing on its own.
-- **Root and grant:** a person's **root**, such as a home-manager configuration, holds their **grants**. `sb grant`
+- **Root and grant:** a person's **root**, such as a home-manager configuration, holds their **grants**. `pot grant`
   approves a kit's request set, by the kit's identity, in the root's grants file. A repository cannot grant its
   own requests.
 - **Context:** where a run starts from: `work` writes the repository in place, `inspect` reads the machine and
@@ -76,7 +76,7 @@ works this way, see [Decisions](decisions.md).
   and the git metadata: what decides the sandbox, or what the host runs.
 
 graft has no command of its own for it, and never starts a run by itself: a person, a recipe or a scheduler runs
-`sb`.
+`pot`.
 
 ## The git and Nix binding
 
@@ -90,7 +90,7 @@ graft has no command of its own for it, and never starts a run by itself: a pers
 | Provider outputs | Each scion's `graft.nix`, called once per system. Its `tools` become `packages.<system>.tools`, one environment; its checks become `checks.<system>.<scion>-<name>`. |
 | Scions directory | `<dir>/`, where `dir` is a `mkFlake` argument, default `scions`, beside `flake.nix`. |
 | graft's pin | The flake input named `graft`. |
-| Kit | A provider's `graft.nix` and `perSystem` can return `kit`. mkFlake exports the workspace's kits and tools as `packages.<system>.graft-kits`, which `sb` builds with `path:`. |
+| Kit | A provider's `graft.nix` and `perSystem` can return `kit`. mkFlake exports the workspace's kits and tools as `packages.<system>.graft-kits`, which `pot` builds with `path:`. |
 
 Nix and git see a scion differently, and one difference matters every day: a git flake's build reads a scion
 at its **committed** gitlink while the rest of your tree is clean, and from your working tree once any tracked

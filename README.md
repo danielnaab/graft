@@ -87,10 +87,10 @@ git submodules give you a pinned clone. graft adds what makes them a dependency 
   post-checkout hook that the guide gives fills them in new clones and worktrees, and `graft sync` fills them
   ([Clones, worktrees, sandboxes and CI](docs/guides/clones-and-worktrees.md)).
 - **An agent rule** for working with scions, ready to paste into `AGENTS.md`.
-- **A sandbox for agents (experimental).** `sb claude` runs an agent, or any command, so that it writes the
+- **A sandbox for agents (experimental): pot.** `pot claude` runs an agent, or any command, so that it writes the
   repository but reaches only what you granted from your own root, and cannot change the files that decide the
   sandbox. Repositories and providers declare what they need as kits; only you grant it (Linux;
-  [Run an agent or a command in a sandbox](docs/guides/run-in-a-sandbox.md)).
+  [Run commands in pot](docs/guides/run-in-a-sandbox.md)).
 
 Compared with the other ways:
 
@@ -163,14 +163,14 @@ and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 | Both: release or take an incompatible change (a new major version) | [Ship and take an incompatible change](docs/guides/incompatible-change.md) |
 | Consumer: keep private files out of the Nix store | [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md) |
 | Consumer: graft a provider that only an ssh key can read | [Graft a private repository](docs/guides/private-providers.md) |
-| Anyone: run an agent or a command in a sandbox | [Run an agent or a command in a sandbox](docs/guides/run-in-a-sandbox.md) |
+| Anyone: run an agent or a command in a sandbox | [Run commands in pot](docs/guides/run-in-a-sandbox.md) |
 | Provider: release a version | [Publish a pattern](docs/guides/publish.md) |
 | Provider: ship tools, apps and checks | [Write a provider's graft.nix](docs/guides/write-graft-nix.md) |
 | Consumer on v2.12 or earlier: move to submodules | [Move from copy mode](docs/guides/move-from-copy-mode.md) |
 | Look up a command, flag, `mkFlake` argument or error | [Commands](docs/reference/commands.md) |
 | Look up a file graft reads or writes, or the `graft.nix` contract | [Files](docs/reference/files.md) |
-| Look up a context, a kit field, a request, a grant, an `sb` flag or message | [Sandbox](docs/reference/sandbox.md) |
-| Anyone on v2.14.0's sandbox: move to `sb` | [Move from v2.14.0's sandbox](docs/guides/move-from-the-v2-14-sandbox.md) |
+| Look up a context, a kit field, a request, a grant, a `pot` flag or message | [pot](docs/reference/pot.md) |
+| Anyone on v2.14.0's sandbox: move to `pot` | [Move from v2.14.0's sandbox](docs/guides/move-from-the-v2-14-sandbox.md) |
 | Know how Nix sees a scion | [Nix behaviours](docs/reference/nix-behaviours.md) |
 | Know why graft is this small, and where graft v1 went | [Decisions](docs/decisions.md) |
 | Change graft itself | [Development](docs/development.md) |

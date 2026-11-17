@@ -121,9 +121,9 @@ Add the fill to the environment's setup script, after the checkout:
 git submodule update --init --recursive --depth 1
 ```
 
-Without it, agents see empty `scions/` folders, and the rules in them are missing. graft's sandbox
-(`sb`) runs in your checkout, with the scions that it has: fill them before the run
-([Run an agent or a command in a sandbox](run-in-a-sandbox.md)). An environment with no network
+Without it, agents see empty `scions/` folders, and the rules in them are missing. pot, graft's sandbox,
+runs in your checkout, with the scions that it has: fill them before the run
+([Run commands in pot](run-in-a-sandbox.md)). An environment with no network
 after setup must fill the scions during setup.
 
 ## CI

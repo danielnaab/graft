@@ -14,8 +14,8 @@ flake outputs.
 |---|---|---|
 | `inputs` | (required) | The flake's inputs. `inputs.self` is the repository. If there is an `inputs.nixpkgs`, it is the `pkgs` that every `graft.nix` gets; otherwise graft's own pinned nixpkgs. |
 | `dir` | `"scions"` | The scions directory: one folder name (`[A-Za-z0-9._-]+`, not `.`, `..` or `.git`), in the flake's directory. For a [flake in a subdirectory](../guides/flake-in-a-subdirectory.md), `".scions"` by convention. |
-| `perSystem` | none | The repository's own tools, apps, packages, checks, dev shells and repo kit: a function `{ pkgs, lib, system, scions, ... }: { tools ? { }; apps; packages; checks; devShells; kit; kitArgs; }`, called once per system and merged like a provider's `graft.nix`, under the name `self` (a collision says `from scion A and the consumer's perSystem`). Its checks are not prefixed: `checks.<system>.NAME`. Its `devShells` are output as they are. Use it to put a tool of your own, such as `bun`, into `tools`. Its `kit` is the repository's [repo kit](sandbox.md#schema), and its `kitArgs.<kit>` are the arguments that a provider's kit reads. |
-| `outputs` | `{ }` | Plain extra outputs, merged last with `recursiveUpdate`, so they add to and override graft's, except `apps.<system>.graft` and graft's reserved names `sandbox`, `sb` and `graft-kits`. |
+| `perSystem` | none | The repository's own tools, apps, packages, checks, dev shells and repo kit: a function `{ pkgs, lib, system, scions, ... }: { tools ? { }; apps; packages; checks; devShells; kit; kitArgs; }`, called once per system and merged like a provider's `graft.nix`, under the name `self` (a collision says `from scion A and the consumer's perSystem`). Its checks are not prefixed: `checks.<system>.NAME`. Its `devShells` are output as they are. Use it to put a tool of your own, such as `bun`, into `tools`. Its `kit` is the repository's [repo kit](pot.md#schema), and its `kitArgs.<kit>` are the arguments that a provider's kit reads. |
+| `outputs` | `{ }` | Plain extra outputs, merged last with `recursiveUpdate`, so they add to and override graft's, except `apps.<system>.graft` and graft's reserved names `sandbox`, `pot` and `graft-kits`. |
 
 Removed in v2.13.0: `scions` (there is no input list) and `flakeDir` (graft finds the flake as the parent of
 the scions directory).
@@ -41,7 +41,7 @@ For `x86_64-linux`, `aarch64-linux`, `x86_64-darwin` and `aarch64-darwin`:
 | `packages.<system>.<name>` | Each scion's `packages`. |
 | `apps.<system>.<name>` | Each scion's `apps`. |
 | `apps.<system>.graft` | The `graft` command for this repository. |
-| `packages.<system>.graft-kits` | The workspace's kits for [`sb`](sandbox.md), which builds it with `path:`: `kit.json` (the manifests), `bin/` (the tools, `graft` for this repository, and the repo kit's `packages`; a run gets it as `GRAFT_SANDBOX_TOOLS`), and `closure` (their store paths). A provider, `perSystem` or `outputs` cannot define `graft-kits`, `sandbox` or `sb`. Since v2.15.0 there is no `packages.<system>.sandbox`. |
+| `packages.<system>.graft-kits` | The workspace's kits for [`pot`](pot.md), which builds it with `path:`: `kit.json` (the manifests), `bin/` (the tools, `graft` for this repository, and the repo kit's `packages`; a run gets it as `POT_TOOLS`), and `closure` (their store paths). A provider, `perSystem` or `outputs` cannot define `graft-kits`, `sandbox` or `pot`. Since v2.15.0 there is no `packages.<system>.sandbox`. |
 | `checks.<system>.<scion>-<name>` | Each scion's `checks`, prefixed with the scion's folder name. |
 | `devShells.<system>.<name>` | `perSystem`'s `devShells`. If none defines `default`, `devShells.<system>.default` is a shell with `tools` on `PATH`. Providers ship no dev shells. |
 
@@ -80,13 +80,13 @@ value, so other outputs still evaluate. The fix for each is in
 - `graft: scions/NAME is empty in the flake's source: run git submodule update --init --recursive (or graft sync)`, when a
   provider uses an empty sibling (`scions.NAME`).
 - `graft: apps graft (from NAME): that name is graft's; the provider must rename it`, and the same for
-  `packages tools` and the reserved names `sandbox`, `sb` and `graft-kits`; for `perSystem`, `…; rename the repo's
+  `packages tools` and the reserved names `sandbox`, `pot` and `graft-kits`; for `perSystem`, `…; rename the repo's
   own`.
-- `graft: scions/NAME/graft.nix gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\` (graft sb; see graft's CHANGELOG)`,
+- `graft: scions/NAME/graft.nix gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\` (graft pot; see graft's CHANGELOG)`,
   and the same with `the consumer's perSystem`.
 - `graft: mkFlake's outputs has apps.<system>.graft: that name is graft's; rename the repo's own`. For the
-  reserved names: `graft: mkFlake's outputs has packages.<system>.sandbox: that name is reserved (graft sb); rename the repo's own`.
-- A kit with a field it should not have fails when `sb` reads it: `graft: FILE: FIELD is not a kit field (commands,
+  reserved names: `graft: mkFlake's outputs has packages.<system>.sandbox: that name is reserved (graft pot); rename the repo's own`.
+- A kit with a field it should not have fails when `pot` reads it: `graft: FILE: FIELD is not a kit field (commands,
   env, files, packages, protect, recipes, requests)`.
 
 An empty scion is not an error by itself. `packages.<system>.tools` builds without it, and Nix prints a
@@ -146,7 +146,7 @@ Every command first refuses a copy-mode scions README (one with a `| Scion | Com
 | `help` | Prints the usage, one line per command. |
 
 There is no `remove`: `git rm scions/NAME` removes a scion, and git edits `.gitmodules`. There is no
-`graft sandbox`: run [`sb`](sandbox.md#the-command-line), your root's command.
+`graft sandbox`: run [pot](pot.md#the-command-line), graft's sandbox.
 
 ### add
 
@@ -232,7 +232,7 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 - If `git ls-remote` cannot read a provider, it says
   `graft: scions/pa: can't list tags at URL: … (upstream unreadable: checked local tags)`, and the scion's
   local tags decide.
-- Inside an [`sb` run](sandbox.md) (`GRAFT_SANDBOX` set), graft tries a provider's tags only when the run's
+- Inside an [`pot` run](pot.md) (`POT` set), graft tries a provider's tags only when the run's
   policy reaches its URL: a `file://` URL or a path; an `https` or `http` host and port among the run's network
   reach; `ssh` when the run has a `git.fetch` binding. Otherwise it does not try, so the run leaves no denial
   behind, and the scion's local tags decide. `check` then prints one line for the whole check, not one per scion:
@@ -419,7 +419,7 @@ prints a brief, also when checks fail.
 ## Sources
 
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): arguments, discovery, outputs, and the evaluation errors
-- [lib/sb/kit.nix](../../lib/sb/kit.nix): kit manifests in `packages.<system>.graft-kits`
+- [lib/pot/kit.nix](../../lib/pot/kit.nix): kit manifests in `packages.<system>.graft-kits`
 - [lib/graft.sh](../../lib/graft.sh): commands and usage
 - [lib/scions.sh](../../lib/scions.sh): `add`, `sync`, `check`, `try`
 - [lib/tools.sh](../../lib/tools.sh): `outdated`, `changelog`, `upgrade`

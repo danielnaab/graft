@@ -19,7 +19,7 @@ The files graft reads and writes, and the lines in them that graft recognizes.
 | `.forgejo/workflows/graft-*.yaml` | Restored by `sync`, replaced by `upgrade`, compared by `check`. | graft's workflows, if they carry the marker. |
 | Settings files, such as `knowledge-base.yaml` | Read by providers' tools and checks, never by graft. | What a provider lets you configure. Each provider's README names its file. |
 
-Inside an [`sb` run](sandbox.md#protected-paths), the flake directory, `.gitmodules`, each `graft.nix`,
+Inside an [`pot` run](pot.md#protected-paths), the flake directory, `.gitmodules`, each `graft.nix`,
 `.envrc`, `justfile` and `.pre-commit-config.yaml` (at any depth), and the git metadata, are read-only.
 
 ## The marker README
@@ -122,10 +122,10 @@ A function, called once per system by the consumer's mkFlake:
 | Attribute | Becomes | Collision |
 |---|---|---|
 | `tools` | Part of `packages.<system>.tools`, on the consumer's `PATH` | An error, unless both are the same store path. |
-| `apps` | `apps.<system>.<name>` | An error; `graft`, `sandbox` and `sb` are reserved. |
-| `packages` | `packages.<system>.<name>` | An error; `tools`, `sandbox`, `sb` and `graft-kits` are reserved. |
+| `apps` | `apps.<system>.<name>` | An error; `graft`, `sandbox` and `pot` are reserved. |
+| `packages` | `packages.<system>.<name>` | An error; `tools`, `sandbox`, `pot` and `graft-kits` are reserved. |
 | `checks` | `checks.<system>.<scion>-<name>` | None: prefixed. |
-| `kit` | The provider's [scion kit](sandbox.md#schema), in `packages.<system>.graft-kits`. Its `requests` apply only when a person grants them, in their root, with `sb grant`. | None: each kit keeps its own identity. |
+| `kit` | The provider's [scion kit](pot.md#schema), in `packages.<system>.graft-kits`. Its `requests` apply only when a person grants them, in their root, with `pot grant`. | None: each kit keeps its own identity. |
 | `requires` | Nothing. Checked first: each named scion must exist, or evaluation fails with `graft add URL`. | |
 | Anything else | Visible to other providers as `scions.NAME.ATTR`, not a flake output. | |
 
