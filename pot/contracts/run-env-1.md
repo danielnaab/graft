@@ -57,7 +57,7 @@ The shape is frozen: a later release adds values, not fields.
 | `context`, `mode`, `access` | strings | the context; `in-place`; `read` or `write` |
 | `backend` | object | its `name`, the guarantees the context `requires`, and those it `proved` |
 | `workspace` | list | each repository: `id` (a [kit identity](kit-1.md#identity)), `path`, `common`, `protected`, `clone` (`null` in place) |
-| `items` | list | every see, limits and reach item: `kind`, `value`, `class` (`see`, `limits` or `reach`), `sources`, `effective` |
+| `items` | list | every see, limits and reach item: `kind`, `value`, `class` (`see`, `limits` or `reach`), `sources`, `effective`; a file a mirror dir binds also has `memory: true` (as in v2.15.0) and, from v2.16.0, `mirror` (the dir's label, such as `"memory"`) |
 | `mounts` | object | the state directories, each with its scope `key`, and the run directory |
 | `bindings` | list | each bound capability, its socket, and the see items it adds |
 | `children` | object | the policies of the commands the run may start: empty, until nesting |

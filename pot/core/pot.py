@@ -901,7 +901,7 @@ def fixed_dirs(host, root, policy, report, ws=()):
                     if os.path.isfile(p) and not os.path.islink(p):
                         cp = name in copies
                         policy["items"].append({"kind": "file", "value": f"{at}/{name}", "class": "see", "effective": True,
-                                                "mode": "seed" if cp else "fixed", "source": p, "sources": src, "mirror": label,
+                                                "mode": "seed" if cp else "fixed", "source": p, "sources": src, "memory": True, "mirror": label,
                                                 **({"refresh": True} if cp else {})})
                 report.setdefault("mirrors", []).append([at, label])
 
@@ -1253,7 +1253,11 @@ def resume_prompt(host, rid):
             policy = json.load(f)
     except OSError:
         raise C.Refusal(f"pot host --resume {rid}: no such run in {C.canon_path(host.state, host.home)}/runs")
-    found, spec = transcripts(os.path.join(host.state, "runs", rid))
+    rundir = os.path.join(host.state, "runs", rid)
+    if not os.path.exists(os.path.join(rundir, "resume.json")):
+        raise C.Refusal(f"pot host --resume {rid}: this run predates v2.16.0's resume.json (where its kit's transcripts "
+                        "are), so pot cannot find its transcript")
+    found, spec = transcripts(rundir)
     if not found or not (spec or {}).get("render"):
         raise C.Refusal(f"pot host --resume {rid}: the run left no transcript")
     # the kit's own reader turns its transcript into text (pot keeps the end, and quotes it as data)
