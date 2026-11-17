@@ -287,9 +287,9 @@ cmd_check() {
       if list=$(tags_of "$url" 2>"$GRAFT_TMP/ls.err"); then
         v=$(awk -v c="$link" '$1 == c { print $2 }' <<<"$list" | sort -V | tail -1)
       else
-        if [ -n "${GRAFT_SANDBOX:-}" ]; then
+        if [ -n "${POT:-}" ]; then
           # one note for the whole check, not one per scion
-          [ -f "$GRAFT_TMP/sandbox-note" ] || { touch "$GRAFT_TMP/sandbox-note"; echo "graft: upstream tags are not reachable from this sandbox run: checked each scion's local tags" >&2; }
+          [ -f "$GRAFT_TMP/sandbox-note" ] || { touch "$GRAFT_TMP/sandbox-note"; echo "graft: upstream tags are not reachable from this pot run: checked each scion's local tags" >&2; }
         else
           echo "graft: $path: $(sed 's/^graft: //' "$GRAFT_TMP/ls.err") (upstream unreadable: checked local tags)" >&2
         fi

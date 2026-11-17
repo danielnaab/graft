@@ -1,6 +1,6 @@
-"""Unit tests for graft sb's composition (lib/sb/compose.py): identity, normalisation, digests,
-grants, merge rules, contexts, and policy.json v1's shape. Run from `nix flake check` (sb-unit), or
-here: cd lib/sb && python3 -m unittest discover -s ../../tests/sb -t ."""
+"""Unit tests for pot's composition (lib/pot/compose.py): identity, normalisation, digests,
+grants, merge rules, contexts, and policy.json v1's shape. Run from `nix flake check` (pot-unit), or
+here: cd lib/pot && python3 -m unittest discover -s ../../tests/pot -t ."""
 import copy
 import json
 import unittest
@@ -11,7 +11,7 @@ HOME = "/home/u"
 
 
 def root(**kw):
-    r = {"version": 1, "name": "t", "grantsFile": "/state/grants.json", "stateDir": "/state/sb", "kits": {},
+    r = {"version": 1, "name": "t", "grantsFile": "/state/grants.json", "stateDir": "/state/pot", "kits": {},
          "contexts": {}, "hidden": [], "standard": ["/nix/store/aaa-bash"], "tools": [], "rootRepos": [],
          "repoKits": {}, "bindings": {}, "defaultContext": "work"}
     r.update(kw)
@@ -30,7 +30,7 @@ def inp(r=None, context="work", argv=(), flags=None, workspace=None, grants=None
             "grants": grants or C.parse_grants(None), "machine": "m1", "run": "abcd",
             "probe": probe if probe is not None else ["closure-store", "own-netns", "own-pidns", "no-tiocsti",
                                                       "protected-as-mounts", "in-place", "root-files"],
-            "backendName": "bubblewrap", "stateDir": "/state/sb",
+            "backendName": "bubblewrap", "stateDir": "/state/pot",
             "host": {"home": HOME, "user": "u", "env": env or {}, "resolve": {}, "hidden": {}, "tz": "UTC"}}
 
 
@@ -139,8 +139,8 @@ class Kits(unittest.TestCase):
             C.validate_kit({"sandbox": {}}, "f", HOME)
 
     def test_owned_env(self):
-        for n in ("PATH", "HOME", "TZ", "GRAFT_SANDBOX_X", "HTTPS_PROXY", "NIX_REMOTE", "BASH_ENV", "SSL_CERT_FILE"):
-            with self.assertRaisesRegex(C.KitError, "sb's own", msg=n):
+        for n in ("PATH", "HOME", "TZ", "GRAFT_SANDBOX_X", "POT", "POT_X", "HTTPS_PROXY", "NIX_REMOTE", "BASH_ENV", "SSL_CERT_FILE"):
+            with self.assertRaisesRegex(C.KitError, "pot's own", msg=n):
                 C.validate_kit({"env": {"set": {n: "x"}}}, "f", HOME)
 
     def test_protect_forms(self):
@@ -255,7 +255,7 @@ class Compose(unittest.TestCase):
         self.assertEqual(set(p["backend"]), {"name", "requires", "proved"})
         self.assertEqual(set(p["workspace"][0]), {"id", "path", "common", "protected", "clone"})
         self.assertEqual(set(p["mounts"]), {"state", "run"})
-        self.assertEqual(p["mounts"]["run"], "/run/graft-sandbox")
+        self.assertEqual(p["mounts"]["run"], "/run/pot")
         self.assertEqual(p["children"], {})
         for i in p["items"]:
             self.assertTrue({"kind", "value", "class", "sources", "effective"} <= set(i), i)
@@ -268,7 +268,7 @@ class Compose(unittest.TestCase):
         for x in ("**/flake.nix", "**/graft.nix", "**/.gitmodules", "**/.envrc", "**/justfile", "**/.claude", ".githooks"):
             self.assertIn(x, prot)
         hid = [i["value"] for i in p["items"] if i["kind"] == "hidden"]
-        for x in ("~/.ssh", "~/.claude", "/state/grants.json", "/state/sb"):
+        for x in ("~/.ssh", "~/.claude", "/state/grants.json", "/state/pot"):
             self.assertIn(x, hid)
 
     def test_repo_kit_reach_needs_grant(self):
@@ -295,7 +295,7 @@ class Compose(unittest.TestCase):
                                                               "protect": ["sk.yaml"]}}
         p, r = C.compose(inp(workspace=[ws(scions=[sc])], grants=g))
         self.assertEqual(r["stale"], [])                       # a scion's reach applies only when its command runs
-        self.assertIn("sk asks for more: sb grant", r["notes"])
+        self.assertIn("sk asks for more: pot grant", r["notes"])
         self.assertIn("sk.yaml", p["workspace"][0]["protected"])   # its limits apply
 
     def test_command_kit_and_include(self):
@@ -327,14 +327,14 @@ class Compose(unittest.TestCase):
 
     def test_two_kits_one_name(self):
         r = root(kits={"a": {"commands": {"x": {}}}, "b": {"commands": {"x": {}}}})
-        with self.assertRaisesRegex(C.Refusal, "sb KIT:x"):
+        with self.assertRaisesRegex(C.Refusal, "pot KIT:x"):
             C.compose(inp(r=r, argv=["x"]))
         _, rep = C.compose(inp(r=r, argv=["b:x"]))
         self.assertEqual(rep["command"]["kit"], "root:b")
 
     def test_workspace_may_not_shadow(self):
         r = root(kits={"a": {"commands": {"x": {}}}}, standardNames=["git"])
-        for name in ("x", "git", "sb"):
+        for name in ("x", "git", "pot"):
             with self.assertRaisesRegex(C.Refusal, "a workspace kit may not"):
                 C.compose(inp(r=r, workspace=[ws(kit={"commands": {name: {}}})]))
 
@@ -363,9 +363,9 @@ class Compose(unittest.TestCase):
         i["host"]["resolve"] = {"~/innocent": "/home/u/.ssh"}
         with self.assertRaisesRegex(C.Refusal, "hidden path"):
             C.compose(i)
-        # the state directory is sb's alone (M4)
-        with self.assertRaisesRegex(C.Refusal, "sb's own state"):
-            C.compose(inp(flags={"read": ["/state/sb/runs"]}))
+        # the state directory is pot's alone (M4)
+        with self.assertRaisesRegex(C.Refusal, "pot's own state"):
+            C.compose(inp(flags={"read": ["/state/pot/runs"]}))
 
     def test_flags(self):
         p, rep = C.compose(inp(flags={"net": ["x.org"], "read": ["~/r"], "env": ["V"]}, env={"V": True}))
@@ -418,7 +418,7 @@ class Compose(unittest.TestCase):
         p, _ = C.compose(inp(r=r, argv=["claude"], grants=g))
         s = p["mounts"]["state"][0]
         self.assertEqual(s["key"], ["root:cc", "repo:example.com/o/r", "work"])
-        self.assertTrue(s["dir"].startswith("/state/sb/state/"))
+        self.assertTrue(s["dir"].startswith("/state/pot/state/"))
         p2, _ = C.compose(inp(r=r, argv=["claude"], grants=g, context="inspect"))
         self.assertNotEqual(p2["mounts"]["state"][0]["dir"], s["dir"])
         p3, _ = C.compose(inp(r=r, argv=["claude"], grants=g, workspace=[]))
@@ -466,7 +466,7 @@ class Compose(unittest.TestCase):
         r = root(name="home-manager", kits={"daniel": {}}, contexts={"work": {"include": ["daniel"]}})
         _, rep = C.compose(inp(r=r, flags={"net": ["x.org"]}, workspace=[ws(kit={})]))
         self.assertEqual(C.permanent_fix("--net", "x.org:443", rep, r),
-                         "the repo kit's requests.network (perSystem.kit), or programs.sb.kits.daniel.requests.network "
+                         "the repo kit's requests.network (perSystem.kit), or programs.pot.kits.daniel.requests.network "
                          "for every repository (home-manager switch)")
         # an mkRoot root, a repository that is not a consumer, no included kit
         r = root()
@@ -474,7 +474,7 @@ class Compose(unittest.TestCase):
         self.assertEqual(C.permanent_fix("--net", "x.org:443", rep, r),
                          'repoKits."example.com/o/r".requests.network (rebuild the root)')
         self.assertEqual(C.denial_text("work", "x.org:443", "F"),
-                         "graft sandbox (work): the run tried x.org:443 (not in this run). one run: sb --net x.org …  permanent: F")
+                         "pot (work): the run tried x.org:443 (not in this run). one run: pot --net x.org …  permanent: F")
 
 if __name__ == "__main__":
     unittest.main()

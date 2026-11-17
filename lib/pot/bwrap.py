@@ -1,4 +1,4 @@
-"""graft sb: the bubblewrap backend (design §11).
+"""pot: the bubblewrap backend (design §11).
 
     backend probe|prepare|run|after|cleanup <run dir>
 
@@ -331,7 +331,7 @@ def safe_dest(root, rel):
     for part in rel.split("/")[:-1]:
         p = os.path.join(p, part)
         if os.path.islink(p):
-            raise Stop(f"{p} is a symbolic link in the run's state: sb won't write through it")
+            raise Stop(f"{p} is a symbolic link in the run's state: pot won't write through it")
         os.makedirs(p, exist_ok=True)
     return os.path.join(p, rel.split("/")[-1])
 
@@ -371,9 +371,9 @@ def into_state(policy, launch, i):
         os.unlink(target)
     if i["mode"] == "seed":
         if i.get("refresh") or not os.path.lexists(target):
-            with open(i["source"], "rb") as f, open(target + ".sb-tmp", "wb") as g:
+            with open(i["source"], "rb") as f, open(target + ".pot-tmp", "wb") as g:
                 g.write(f.read())
-            os.replace(target + ".sb-tmp", target)
+            os.replace(target + ".pot-tmp", target)
         return
     with open(i["source"]) as f:
         src = json.load(f)
@@ -391,19 +391,19 @@ def into_state(policy, launch, i):
         if v is None and "*" in path:
             v = get_key(src, path)
         set_key(cur, path, v, ws)
-    with open(target + ".sb-tmp", "w") as f:
+    with open(target + ".pot-tmp", "w") as f:
         json.dump(cur, f, indent=2)
-    os.replace(target + ".sb-tmp", target)
+    os.replace(target + ".pot-tmp", target)
 
 
 # the not-found shims, last on PATH: advice for what a run often looks for (§8)
 NOTFOUND = {
-    "nix": "nix needs the nix capability: the repo kit's requests.capabilities = [ { name = \"nix\"; } ], then sb grant",
+    "nix": "nix needs the nix capability: the repo kit's requests.capabilities = [ { name = \"nix\"; } ], then pot grant",
     "nix-build": "nix-build needs the nix capability", "nix-shell": "nix-shell needs the nix capability",
     "ssh": "ssh is not in this run: git fetch over ssh is the git.fetch capability; anything else, on the host",
     "scp": "scp is not in this run: run it on the host",
-    "sudo": "sudo is host-only: sb host sudo …, or run it on the host",
-    "systemctl": "systemctl is host-only (sb inspect diagnoses; sb host repairs)",
+    "sudo": "sudo is host-only: pot host sudo …, or run it on the host",
+    "systemctl": "systemctl is host-only (pot inspect diagnoses; pot host repairs)",
     "docker": "docker is host-only: its socket is root-equivalent",
     "home-manager": "home-manager is host-only: run it on the host",
     "darwin-rebuild": "darwin-rebuild is host-only: run it on the host",
@@ -416,8 +416,8 @@ NOTFOUND = {
 
 def not_found_body(ctx, launch):
     """The not-found handler's body: the startup check's words and permanent fix."""
-    fix = (launch.get("pkgFix") or "programs.sb.tools, or the repo kit's packages").replace("'", "'\\''")
-    return ("{ printf 'graft sandbox (%s): %s is not in this run. one run: sb --package PKG …  permanent: %s\\n' "
+    fix = (launch.get("pkgFix") or "programs.pot.tools, or the repo kit's packages").replace("'", "'\\''")
+    return ("{ printf 'pot (%s): %s is not in this run. one run: pot --package PKG …  permanent: %s\\n' "
             f"'{ctx}' \"$1\" '{fix}' >&2; return 127; }}")
 
 
@@ -432,7 +432,7 @@ def write_own(cfg, rundir, policy, launch):
     if binding(policy, "status.relay"):
         own["workmux"] = shim % "workmux"
     if binding(policy, "git.fetch"):
-        own["sb-ssh"] = shim % "ssh"
+        own["pot-ssh"] = shim % "ssh"
     for n, text in own.items():
         with open(os.path.join(b, n), "w") as f:
             f.write(text)
@@ -441,10 +441,10 @@ def write_own(cfg, rundir, policy, launch):
         if n == "nix" and binding(policy, "nix"):
             continue
         with open(os.path.join(nf, n), "w") as f:
-            f.write(f"#!/bin/sh\necho {shlex.quote(f'graft sandbox ({ctx}): ' + msg)} >&2\nexit 127\n")
+            f.write(f"#!/bin/sh\necho {shlex.quote(f'pot ({ctx}): ' + msg)} >&2\nexit 127\n")
         os.chmod(os.path.join(nf, n), 0o555)
     with open(os.path.join(rundir, "bash_env"), "w") as f:
-        f.write("# graft sb: what a run's bash says for a program that is not in the run\n"
+        f.write("# pot: what a run's bash says for a program that is not in the run\n"
                 f"command_not_found_handle() {not_found_body(ctx, launch)}\n")
     servers = {}
     for m in binding(policy, "mcp"):
@@ -516,24 +516,24 @@ def credentials(policy):
 
 def readme(policy, launch):
     ctx = policy["context"]
-    return f"""# graft sandbox: this run ({ctx})
+    return f"""# pot: this run ({ctx})
 
-You are inside a graft sandbox run (`sb`), context `{ctx}`, access `{policy['access']}`.
-The policy is /run/graft-sandbox/policy.json; `sb why PATH|HOST|CMD|VAR` explains one item.
+You are inside a pot run (pot, graft's sandbox), context `{ctx}`, access `{policy['access']}`.
+The policy is /run/pot/policy.json; `pot why PATH|HOST|CMD|VAR` explains one item.
 
-- HOME is empty but for what the policy places there. ~/.graft-sandbox-hidden lists the paths
+- HOME is empty but for what the policy places there. ~/.pot-hidden lists the paths
   hidden from every run: they are not mounted here, and cannot be written.
 - The network goes only through the run's proxy, to the hosts the policy grants. When a client
   prints `CONNECT tunnel failed, response 403`, `tunnel error`, a 403, or `Could not resolve host`,
-  the sandbox refused it: read /run/graft-sandbox/denials, or run `sb why HOST`.
-- A program that is not here is not in this run: `sb why NAME` says how to add it.
+  the sandbox refused it: read /run/pot/denials, or run `pot why HOST`.
+- A program that is not here is not in this run: `pot why NAME` says how to add it.
 - Protected files (what decides the sandbox, what the host runs, agent configuration) are
   read-only, and their folders cannot be renamed or removed. Edit them on the host.
 - Commits made here are unsigned; the host signs them afterwards.
 - Claude's host memory for this workspace is read-only here; MEMORY.md is a writable copy. New memory
   files, and a changed MEMORY.md, are copied out for the person to review when the run ends; nothing is
   written back to the host.
-- Every denial message starts `graft sandbox ({ctx}):`.
+- Every denial message starts `pot ({ctx}):`.
 """
 
 
@@ -545,7 +545,7 @@ def prepare(cfg, rundir, print_cmd=False):
     os.chmod(EMPTY, 0o444)
     home, ctx = launch["home"], policy["context"]
     view = next((i for i in eff(policy, "view")), None)
-    args = [["--unshare-all"], ["--unshare-user"], ["--disable-userns"], ["--die-with-parent"], ["--hostname", "sb"]]
+    args = [["--unshare-all"], ["--unshare-user"], ["--disable-userns"], ["--die-with-parent"], ["--hostname", "pot"]]
     mounts = []          # (dest, priority, args): sorted by depth, then priority (write 0, read 1, hidden 2)
 
     def mount(dest, prio, a):
@@ -705,7 +705,7 @@ def prepare(cfg, rundir, print_cmd=False):
             if not target.startswith("/nix/store/"):
                 mount(target, 1, ["--ro-bind", target, target])
         mount(dest, 1, ["--ro-bind", d, dest])
-    # sb's own: shims, the not-found handler, the MCP configuration, the bindings' sockets
+    # pot's own: shims, the not-found handler, the MCP configuration, the bindings' sockets
     write_own(cfg, rundir, policy, launch)
     for n in ("explain.txt", "why.json"):
         if not os.path.exists(os.path.join(rundir, n)):
@@ -719,7 +719,7 @@ def prepare(cfg, rundir, print_cmd=False):
             mount(b["socket"], 1, ["--bind", os.path.join(rundir, sock), b["socket"]])
     with open(os.path.join(rundir, "hidden.txt"), "w") as f:
         f.write("".join(i["value"] + "\n" for i in eff(policy, "hidden")))
-    mount(home + "/.graft-sandbox-hidden", 1, ["--ro-bind", os.path.join(rundir, "hidden.txt"), home + "/.graft-sandbox-hidden"])
+    mount(home + "/.pot-hidden", 1, ["--ro-bind", os.path.join(rundir, "hidden.txt"), home + "/.pot-hidden"])
     if not view:
         mount(home + "/.gitconfig", 1, ["--ro-bind", os.path.join(rundir, "gitconfig"), home + "/.gitconfig"])
     for n in ("policy.json", "README.md", "denials"):
@@ -738,10 +738,10 @@ def prepare(cfg, rundir, print_cmd=False):
     with open(os.path.join(rundir, "group"), "w") as f:
         f.write(f"{launch['group']}:x:{launch['gid']}:\n")
     with open(os.path.join(rundir, "hosts"), "w") as f:
-        f.write("127.0.0.1 localhost sb\n::1 localhost sb\n")
+        f.write("127.0.0.1 localhost pot\n::1 localhost pot\n")
     g = launch.get("git") or {}
     with open(os.path.join(rundir, "gitconfig"), "w") as f:
-        f.write("# generated by sb: user.* from the host, no signing, no includes or helpers\n[user]\n")
+        f.write("# generated by pot: user.* from the host, no signing, no includes or helpers\n[user]\n")
         for k in ("name", "email"):
             if g.get(k):
                 f.write(f"\t{k} = {json.dumps(g[k])}\n")
@@ -768,7 +768,7 @@ def prepare(cfg, rundir, print_cmd=False):
 
 
 def run_env(cfg, policy, launch):
-    """The run's environment, whole: what sb sets, and of the caller's only TERM, COLORTERM and the
+    """The run's environment, whole: what pot sets, and of the caller's only TERM, COLORTERM and the
     granted variables."""
     home, ctx = launch["home"], policy["context"]
     paths = []
@@ -779,8 +779,8 @@ def run_env(cfg, policy, launch):
             paths.append(b)
         if i.get("tools"):
             tools = b
-    if launch.get("sbBin"):
-        paths.append(launch["sbBin"])
+    if launch.get("potBin"):
+        paths.append(launch["potBin"])
     run_mnt = policy["mounts"]["run"]
     if binding(policy, "nix") and (launch.get("hostTools") or {}).get("nix"):
         paths.append(os.path.dirname(launch["hostTools"]["nix"]))
@@ -788,10 +788,10 @@ def run_env(cfg, policy, launch):
     env = {"HOME": home, "USER": launch["user"], "LOGNAME": launch["user"], "SHELL": cfg["shell"],
            "PATH": ":".join(paths), "LANG": "C.UTF-8", "TERMINFO_DIRS": cfg["terminfo"],
            "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt", "NIX_SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
-           "TZDIR": cfg["tzdir"], "GRAFT_SANDBOX": ctx, "GRAFT_SANDBOX_POLICY": f"{policy['mounts']['run']}/policy.json",
-           "PS1": f"(sb:{ctx}) \\w \\$ "}
+           "TZDIR": cfg["tzdir"], "POT": ctx, "POT_POLICY": f"{policy['mounts']['run']}/policy.json",
+           "PS1": f"(pot:{ctx}) \\w \\$ "}
     if tools:
-        env["GRAFT_SANDBOX_TOOLS"] = tools
+        env["POT_TOOLS"] = tools
     for v in ("TERM", "COLORTERM"):
         if v in os.environ:
             env[v] = os.environ[v]
@@ -802,7 +802,7 @@ def run_env(cfg, policy, launch):
     # and exported, a backstop for a bash that skips BASH_ENV
     env["BASH_FUNC_command_not_found_handle%%"] = "() " + not_found_body(ctx, launch)
     if binding(policy, "git.fetch"):
-        env["GIT_SSH_COMMAND"] = f"{run_mnt}/bin/sb-ssh"
+        env["GIT_SSH_COMMAND"] = f"{run_mnt}/bin/pot-ssh"
         env["GIT_SSH_VARIANT"] = "ssh"
     if binding(policy, "nix"):
         env["NIX_REMOTE"] = f"unix://{run_mnt}/nix.sock"
@@ -823,7 +823,7 @@ def print_command(cfg, rundir, policy, launch, args):
     for b in binding(policy, "credential") + binding(policy, "mcp"):
         for n in b.get("env") or []:
             env[n] = "(the run holds it)"
-    print("# the bubblewrap command for this run (sb explain --backend-command)")
+    print("# the bubblewrap command for this run (pot explain --backend-command)")
     print(f"env -i {cfg['bwrap']} --args 3 \\")
     for a in args:
         print("  " + " ".join(shlex.quote(x) for x in a) + " \\")
@@ -937,7 +937,7 @@ def run(cfg, rundir):
     if net:
         cmd.append(cfg["netwrap"])
     cmd += launch["argv"]
-    # sb and the backend ignore INT while the run goes; the command's is the default again (env
+    # pot and the backend ignore INT while the run goes; the command's is the default again (env
     # --default-signal), so ^C reaches the command alone, and the after event survives it
     old = signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
@@ -1053,7 +1053,7 @@ def main(argv):
             policy, _ = load(rundir)
         except Exception:
             pass
-        print(visible(f"graft sandbox ({policy.get('context', 'run')}): {e}"), file=sys.stderr)
+        print(visible(f"pot ({policy.get('context', 'run')}): {e}"), file=sys.stderr)
         return 1
     return 0
 

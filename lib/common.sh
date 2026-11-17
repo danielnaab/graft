@@ -151,9 +151,9 @@ newer() { [ "$(printf '%s\n%s\n' "$(semver_key "$1")" "$(semver_key "$2")" | sor
 tags_of() {
   local url=$1 key out
   key=$GRAFT_TMP/tags.$(printf '%s' "$url" | cksum | cut -d' ' -f1)
-  # inside a graft sb run, only what the run's policy reaches is tried: no refusal left behind
-  if [ ! -f "$key" ] && [ -n "${GRAFT_SANDBOX:-}" ] && ! sandbox_reaches "$url"; then
-    echo "graft: $url is not reachable from this sandbox run" >&2
+  # inside a pot run, only what the run's policy reaches is tried: no refusal left behind
+  if [ ! -f "$key" ] && [ -n "${POT:-}" ] && ! sandbox_reaches "$url"; then
+    echo "graft: $url is not reachable from this pot run" >&2
     return 1
   fi
   if [ ! -f "$key" ]; then
@@ -168,10 +168,10 @@ tags_of() {
   cat "$key"
 }
 
-# sandbox_reaches URL: inside a graft sb run (GRAFT_SANDBOX set), whether its policy lets the run reach
+# sandbox_reaches URL: inside a pot run (POT set), whether its policy lets the run reach
 # URL: a file URL or path; an https/http host:port among the run's network reach; ssh with git.fetch
 sandbox_reaches() {
-  local url=$1 policy=${GRAFT_SANDBOX_POLICY:-/run/graft-sandbox/policy.json} hp
+  local url=$1 policy=${POT_POLICY:-/run/pot/policy.json} hp
   case $url in
     file://* | /*) return 0 ;;
     https://* | http://*)

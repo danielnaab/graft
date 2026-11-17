@@ -9,7 +9,7 @@ forwards CONNECT requests (HTTPS) and absolute-form HTTP requests to the HOST:PO
 policy's network.allow, each host with its ports), and refuses the rest. A host may use fnmatch
 patterns ("*.example.com"). Writes one line per request: ALLOW or DENY, then host:port. With
 --denials, it also appends each newly refused host:port to FILE, once, as the message the run reads
-(/run/graft-sandbox/denials; the claude-code kit's hook passes new lines to the model). With --tmux,
+(/run/pot/denials; the claude-code kit's hook passes new lines to the model). With --tmux,
 it shows each new one on the launching pane with `tmux display-message` (never a write to the run's
 terminal: that corrupts a full-screen program). It exits when
 the launcher, its parent, is gone.
@@ -42,15 +42,15 @@ def denied(what):
     host = what.rpartition(":")[0] if what != "(malformed)" else what
     with open(DENIALS, "a") as f:
         if what == "(malformed)":
-            f.write(f"graft sandbox ({CONTEXT}): the run sent the proxy a malformed request\n")
+            f.write(f"pot ({CONTEXT}): the run sent the proxy a malformed request\n")
         else:
             flag = host if what.endswith(":443") else what
-            f.write(f"graft sandbox ({CONTEXT}): the run tried {what} (not in this run). one run: sb --net {flag} …  "
+            f.write(f"pot ({CONTEXT}): the run tried {what} (not in this run). one run: pot --net {flag} …  "
                     f"permanent: {OPT.get('fix', 'the repo kit')}\n")
     if OPT.get("tmux") and OPT.get("pane"):
         import subprocess
         subprocess.Popen([OPT["tmux"], "display-message", "-t", OPT["pane"], "-d", "5000",
-                          f"graft sandbox ({CONTEXT}): the run tried {what} (not in this run) · sb why {host}".replace("#", "##")],
+                          f"pot ({CONTEXT}): the run tried {what} (not in this run) · pot why {host}".replace("#", "##")],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -108,7 +108,7 @@ async def handle(r, w):
     print(f"{'ALLOW' if ok else 'DENY'} {host}:{port}", flush=True)
     if not ok:
         denied(f"{host}:{port}")
-        await refuse(w, "403 Forbidden (graft sandbox: not in this run)")
+        await refuse(w, "403 Forbidden (pot: not in this run)")
         return
     try:
         ur, uw = await asyncio.open_connection(host.strip("[]"), port)

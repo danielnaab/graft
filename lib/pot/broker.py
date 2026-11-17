@@ -1,16 +1,16 @@
-"""graft sb's host-side broker for one run: the status.relay and git.fetch bindings (design §6.3, §8).
+"""pot's host-side broker for one run: the status.relay and git.fetch bindings (design §6.3, §8).
 
 Usage: broker.py --context NAME --denials FILE [--status SOCK --workmux BIN [--pane PANE]]
                  [--git SOCK --ssh BIN [--key-file F] --remote PATTERN...]
 
 status.relay: the run's `workmux` shim sends one JSON line, its argv. Only `set-window-status` and
   `register-agent` are forwarded, to host workmux, aimed at the pane that launched the run (its
-  TMUX_PANE, read by sb at start, never from the run). Each argument is cut to printable text.
+  TMUX_PANE, read by pot at start, never from the run). Each argument is cut to printable text.
 git.fetch: the run's ssh shim (GIT_SSH_COMMAND) sends one JSON line, {argv, protocol}; the broker
   parses ssh's arguments itself, allows only `git-upload-pack '<path>'` to a URL matching a bound
   remote pattern, answers "OK" or "ERR <why>", then runs host ssh (the agent's keys, or the
   binding's key file) and relays the stream. Push is from the host until phase 2.
-It exits when sb's backend, its parent, is gone. Sockets are relative paths in the run directory
+It exits when pot's backend, its parent, is gone. Sockets are relative paths in the run directory
 (AF_UNIX allows 108 bytes).
 """
 import asyncio
@@ -48,7 +48,7 @@ def denied(what):
     note(f"refused: {what}")
     if A.get("denials"):
         with open(A["denials"], "a") as f:
-            f.write(clean(f"graft sandbox ({A.get('context')}): {what}", 500) + "\n")
+            f.write(clean(f"pot ({A.get('context')}): {what}", 500) + "\n")
 
 
 async def status(r, w):
@@ -117,7 +117,7 @@ async def git(r, w):
         url = f"ssh://{dest}{':' + port if port else ''}{path}"
         key = normalise_origin(url)
         if not any(fnmatch.fnmatchcase(key, pattern_key(p)) for p in A["remote"]):
-            raise PermissionError(f"the run tried git fetch {clean(url)} (not a bound git.fetch remote): sb why {clean(dest.split('@')[-1])}")
+            raise PermissionError(f"the run tried git fetch {clean(url)} (not a bound git.fetch remote): pot why {clean(dest.split('@')[-1])}")
         proto = head.get("protocol") or ""
         env = dict(os.environ)
         if re.fullmatch(r"version=[0-9]", proto):

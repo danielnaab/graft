@@ -1,8 +1,8 @@
-"""graft sb: composition, a pure program (design §4, §7, §11).
+"""pot: composition, a pure program (design §4, §7, §11).
 
 compose(inputs) reads the root's manifest, the kits of a run, the grants file, the flags and host
 facts, and returns policy.json v1 (Appendix A) with a report: refusals, notes, and each kit's grant
-status. Nothing here touches the file system, the network or the environment: sb.py gathers the
+status. Nothing here touches the file system, the network or the environment: pot.py gathers the
 host facts, and a Nix derivation can call compose() at build time with a store grants file.
 
 Vocabulary is the design's: run, root, context, kit, request, capability, grant, binding, backend;
@@ -43,9 +43,15 @@ GUARANTEES = ("closure-store", "own-netns", "own-pidns", "no-tiocsti", "protecte
               "resource-limits", "separate-kernel", "in-place", "same-path-clone", "nest", "private-proxy",
               "root-files")
 
-# M2: names sb owns, refused from kits' env.set
+# M2: names pot owns, refused from kits' env.set
 OWNED_ENV = {"BASH_ENV", "PATH", "HOME", "NIX_REMOTE", "SSL_CERT_FILE", "TZ", "HTTP_PROXY", "HTTPS_PROXY",
              "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"}
+
+def owned(name):
+    """A variable name pot owns: refused from kits' env.set and --env. POT* is pot's; GRAFT_SANDBOX* was
+    v2.14.0's sandbox's, and is refused too, so that no kit can fake one."""
+    return name in OWNED_ENV or name.startswith("POT") or name.startswith("GRAFT_SANDBOX")
+
 
 # graft's default hidden list (Appendix B); the root adds its own. Globs are expanded at start.
 DEFAULT_HIDDEN = [
@@ -58,7 +64,7 @@ DEFAULT_HIDDEN = [
     "/etc/ssh/*_key",
 ]
 
-# §9: the base protect list, in the workspace (the flake directory is added when sb evaluates one)
+# §9: the base protect list, in the workspace (the flake directory is added when pot evaluates one)
 BASE_PROTECT = ["**/flake.nix", "**/flake.lock", "**/graft.nix", "**/.gitmodules", "**/.envrc", "**/justfile",
                 "**/.pre-commit-config.yaml", ".githooks", "**/.claude", "**/.mcp.json", "**/.pi", "**/.codex",
                 "**/.vscode"]
@@ -336,8 +342,8 @@ def validate_kit(kit, where, home):
     for n, v in (env.get("set") or {}).items():
         if not ENV_RE.fullmatch(n) or not isinstance(v, str):
             raise KitError(f"{where}: env.set.{n}: a variable name with a string value")
-        if n in OWNED_ENV or n.startswith("GRAFT_SANDBOX"):
-            raise KitError(f"{where}: env.set.{n}: that name is sb's own")
+        if owned(n):
+            raise KitError(f"{where}: env.set.{n}: that name is pot's own")
     for path, f in (kit.get("files") or {}).items():
         norm_path(path, f"{where}: files")
         if not isinstance(f, dict) or "source" not in f or not set(f) <= {"source", "mode", "keys"}:
@@ -415,7 +421,7 @@ def parse_grants(text):
             if e.get("digest") != digest(e["requests"]):
                 short = ident.split(":", 1)[-1].rstrip("/").rsplit("/", 1)[-1]
                 raise Refusal(f"the grants file's entry {ident}: its digest does not match its requests (an edit by hand?): "
-                              f"every run stops until it is fixed: sb grant --revoke {short}, then sb grant {short}")
+                              f"every run stops until it is fixed: pot grant --revoke {short}, then pot grant {short}")
     g.setdefault("grants", {})
     g.setdefault("machines", {})
     return g
@@ -515,29 +521,29 @@ def resolve_context(root, name):
     for n, c in (root.get("contexts") or {}).items():
         ctxs[n] = {**ctxs.get(n, {}), **c}
     if name not in ctxs:
-        raise Refusal(f"sb: no context {name!r} in this root (contexts: {', '.join(sorted(ctxs))})", 2)
+        raise Refusal(f"pot: no context {name!r} in this root (contexts: {', '.join(sorted(ctxs))})", 2)
     seen, chain, c = set(), [], ctxs[name]
     out = {}
     cur = name
     while True:
         if cur in seen:
-            raise Refusal(f"sb: context {name}: extends forms a loop", 2)
+            raise Refusal(f"pot: context {name}: extends forms a loop", 2)
         seen.add(cur)
         chain.append(ctxs[cur])
         nxt = ctxs[cur].get("extends")
         if not nxt:
             break
         if nxt not in ctxs:
-            raise Refusal(f"sb: context {cur} extends {nxt!r}, which this root does not define", 2)
+            raise Refusal(f"pot: context {cur} extends {nxt!r}, which this root does not define", 2)
         cur = nxt
     for c in reversed(chain):
         out.update({k: v for k, v in c.items() if k != "extends"})
     for k in out:
         if k not in CONTEXT_FIELDS:
-            raise Refusal(f"sb: context {name}: {k} is not a context field", 2)
+            raise Refusal(f"pot: context {name}: {k} is not a context field", 2)
     res = {**CONTEXT_DEFAULTS, **out, "name": name}
     if res["mode"] not in MODES or res["access"] not in ACCESS or res["network"] not in ("granted", "none"):
-        raise Refusal(f"sb: context {name}: mode, access or network has an unknown value", 2)
+        raise Refusal(f"pot: context {name}: mode, access or network has an unknown value", 2)
     # inspect's view is the one context that carries reach (§5): only `inspect` itself, or one extending it
     res["view"] = "inspect" if (name == "inspect" or "inspect" in seen) else None
     return res
@@ -568,11 +574,11 @@ def find_command(root_kits, ws_kits, name):
             bases = {k.get("base") or k["id"] for k in hits}
             if len(bases) == 1 and all(k.get("instance") for k in hits):
                 return hits, name   # account instances: the caller chooses
-            raise Refusal(f"sb: {' and '.join(kit_display(k) for k in hits)} both ship {name}: sb KIT:{name}", 2)
+            raise Refusal(f"pot: {' and '.join(kit_display(k) for k in hits)} both ship {name}: pot KIT:{name}", 2)
         if hits:
             return hits[0], name
     if kitname is not None:
-        raise Refusal(f"sb: no kit {kitname!r} ships a command {name!r}", 2)
+        raise Refusal(f"pot: no kit {kitname!r} ships a command {name!r}", 2)
     return None, name
 
 
@@ -580,11 +586,11 @@ def choose_instance(hits, account, default_account):
     by = {k["instance"]: k for k in hits}
     if account:
         if account not in by:
-            raise Refusal(f"sb: --account {account}: this root declares {', '.join(sorted(by))}", 2)
+            raise Refusal(f"pot: --account {account}: this root declares {', '.join(sorted(by))}", 2)
         return by[account]
     if default_account in by:
         return by[default_account]
-    raise Refusal(f"sb: {hits[0].get('base')} has the accounts {', '.join(sorted(by))}: choose one with --account", 2)
+    raise Refusal(f"pot: {hits[0].get('base')} has the accounts {', '.join(sorted(by))}: choose one with --account", 2)
 
 
 def compose(inp):
@@ -605,12 +611,12 @@ def compose(inp):
     grants = inp["grants"]
 
     if ctx["mode"] == "clone" or flags.get("mode") == "clone":
-        raise Refusal(f"graft sandbox ({ctx['name']}): clone mode (dispatch) comes in a later release; this release works in place")
+        raise Refusal(f"pot ({ctx['name']}): clone mode (dispatch) comes in a later release; this release works in place")
     if ctx["mode"] == "none":
-        raise Refusal("sb: host runs no sandbox and composes no policy")
+        raise Refusal("pot: host runs no sandbox and composes no policy")
     trust = ctx.get("trust", "workspace")
     if trust == "root":
-        raise Refusal(f"graft sandbox ({ctx['name']}): trust = \"root\" comes in a later release")
+        raise Refusal(f"pot ({ctx['name']}): trust = \"root\" comes in a later release")
 
     # ---- the kits of the run (§4.1)
     kits = []
@@ -649,14 +655,14 @@ def compose(inp):
                         source={"commit": s["commit"], "tag": s["tag"]} if s.get("tag") else None, scion=s)
             ws_kits.append(k)
 
-    # workspace kits may not ship names of root kits' commands, standard tools or sb (§4.2)
+    # workspace kits may not ship names of root kits' commands, standard tools or pot (§4.2)
     root_cmds = {c for k in root_kits for c in (k["manifest"].get("commands") or {})}
-    standard = set(root.get("standardNames") or []) | {"sb"}
+    standard = set(root.get("standardNames") or []) | {"pot"}
     for k in ws_kits:
         for c in k["manifest"].get("commands") or {}:
             if c in root_cmds or c in standard:
-                raise Refusal(f"graft sandbox ({ctx['name']}): {kit_display(k)} ships a command named {c}, "
-                              f"which is {'sb' if c == 'sb' else 'a root kit command' if c in root_cmds else 'a standard tool'}: a workspace kit may not")
+                raise Refusal(f"pot ({ctx['name']}): {kit_display(k)} ships a command named {c}, "
+                              f"which is {'pot' if c == 'pot' else 'a root kit command' if c in root_cmds else 'a standard tool'}: a workspace kit may not")
 
     # ---- the command kit
     argv = list(inp.get("argv") or [])
@@ -667,23 +673,23 @@ def compose(inp):
             hit = choose_instance(hit, flags.get("account"), root.get("defaultAccount"))
         cmdkit = hit
     if cmdkit is not None and flags.get("account") and cmdkit.get("instance") is None:
-        raise Refusal(f"sb: --account names an account instance, and {kit_display(cmdkit)} has none", 2)
+        raise Refusal(f"pot: --account names an account instance, and {kit_display(cmdkit)} has none", 2)
     if cmdkit is None and flags.get("account"):
-        raise Refusal("sb: --account chooses an agent kit's account; this command has no kit", 2)
+        raise Refusal("pot: --account chooses an agent kit's account; this command has no kit", 2)
     report["command"] = {"kit": cmdkit["id"] if cmdkit else None, "name": cmdname}
     report["workspaces"] = [{"consumer": w.get("repoKit") is not None, "key": w.get("originKey") or w["id"][len("repo:"):]}
                             for w in inp["workspace"]]
     if cmdkit and cmdkit.get("instance") and cmdkit["instance"] != root.get("defaultAccount"):
         report["notes"].append(f"account {cmdkit['instance']}")
     if cmdkit and cmdkit["kind"] == "scion" and not cmdkit.get("verified"):
-        raise Refusal(f"graft sandbox ({ctx['name']}): {kit_display(cmdkit)} is not a verified release "
-                      f"({cmdkit['id']}), so its command runs with no grant: sb host {cmdname}, or graft upgrade")
+        raise Refusal(f"pot ({ctx['name']}): {kit_display(cmdkit)} is not a verified release "
+                      f"({cmdkit['id']}), so its command runs with no grant: pot host {cmdname}, or graft upgrade")
 
     included = []
     for n in ctx.get("include") or []:
         k = next((k for k in root_kits if k["name"] == n), None)
         if k is None:
-            raise Refusal(f"sb: context {ctx['name']} includes {n!r}, which is not a root kit", 2)
+            raise Refusal(f"pot: context {ctx['name']} includes {n!r}, which is not a root kit", 2)
         included.append(k)
 
     # which kits' requests apply to this run, and which kit's see items it gets
@@ -719,7 +725,7 @@ def compose(inp):
             if ctx.get("view") and k["kind"] == "repo":
                 report["notes"].append(f"{st['name']} {STATUS_WORDS[st['status']]} (its reach does not apply in inspect)")
             elif st["status"] != "never":
-                report["notes"].append(f"{st['name']} {STATUS_WORDS[st['status']]}: sb grant")
+                report["notes"].append(f"{st['name']} {STATUS_WORDS[st['status']]}: pot grant")
     for k, _ in applies:
         st = status[k["id"]]
         if st["status"] in ("grown", "source", "never"):
@@ -753,15 +759,15 @@ def compose(inp):
             item("package", p, "see", [ksrc(k, "see")])
         for n, v in ((k["manifest"].get("env") or {}).get("set") or {}).items():
             if n in env_set and env_set[n][0] != v:
-                raise Refusal(f"graft sandbox ({ctx['name']}): env.set {n} has two values, from {env_set[n][1]} and {k['id']}")
+                raise Refusal(f"pot ({ctx['name']}): env.set {n} has two values, from {env_set[n][1]} and {k['id']}")
             env_set[n] = (v, k["id"])
             item("env.set", f"{n}={v}", "see", [ksrc(k, "see")])
         for path, f in (k["manifest"].get("files") or {}).items():
             pth = norm_path(path, k["file"])
             if pth in files and files[pth][0] != f["source"]:
-                raise Refusal(f"graft sandbox ({ctx['name']}): two different files at {pth}, from {files[pth][1]} and {k['id']}")
+                raise Refusal(f"pot ({ctx['name']}): two different files at {pth}, from {files[pth][1]} and {k['id']}")
             if pth.startswith("/") and "root-files" not in (inp.get("probe") or []):
-                raise Refusal(f"graft sandbox ({ctx['name']}): {k['id']} places a file at {pth}, which needs the root-files guarantee")
+                raise Refusal(f"pot ({ctx['name']}): {k['id']} places a file at {pth}, which needs the root-files guarantee")
             files[pth] = (f["source"], k["id"])
             item("file", pth, "see", [ksrc(k, "see")], source=f["source"], mode=f.get("mode", "fixed"),
                  **({"keys": f["keys"]} if f.get("keys") else {}))
@@ -788,7 +794,7 @@ def compose(inp):
     access = ctx["access"]
     if flags.get("access"):
         if ACCESS_RANK[flags["access"]] > ACCESS_RANK[access]:
-            raise Refusal(f"graft sandbox ({ctx['name']}): --access {flags['access']} would widen this context's access ({access})")
+            raise Refusal(f"pot ({ctx['name']}): --access {flags['access']} would widen this context's access ({access})")
         access = flags["access"]
         report["oneRun"].append(("--access", flags["access"]))
     if cmdkit:
@@ -803,7 +809,7 @@ def compose(inp):
         hidden.append((norm_path(h, "the root's hidden"), {"root": "hidden"}))
     for h in (root.get("grantsFile"), root.get("stateDir")):
         if h:
-            hidden.append((canon_path(expand(h, home), home), {"root": "sb"}))
+            hidden.append((canon_path(expand(h, home), home), {"root": "pot"}))
     for h in binding_files(root):
         hidden.append((canon_path(expand(norm_path(h, "a binding's from.file"), home), home), {"root": "binding"}))
     resolve = inp["host"].get("resolve") or {}
@@ -825,7 +831,7 @@ def compose(inp):
             protect_src.append((p, ksrc(k, "limit")))
     for w in inp["workspace"]:
         if w.get("flakeDir"):
-            protect_src.append((w["flakeDir"], {"root": "graft", "why": "the flake directory sb evaluates"}))
+            protect_src.append((w["flakeDir"], {"root": "graft", "why": "the flake directory pot evaluates"}))
         if w.get("scionsDir"):
             protect_src.append((w["scionsDir"], {"root": "graft", "why": "the scions directory"}))
     protect = []
@@ -890,7 +896,7 @@ def compose(inp):
                 if eff:
                     bad = path_refusal(r.value, extra["path"], hidden_paths, inp)
                     if bad:
-                        raise Refusal(f"graft sandbox ({ctx['name']}): {k['id']} requests {r.kind} {r.value}, {bad}")
+                        raise Refusal(f"pot ({ctx['name']}): {k['id']} requests {r.kind} {r.value}, {bad}")
             if r.kind == "env":
                 extra["secret"] = r.data.get("secret", False)
                 if eff and not inp["host"].get("env", {}).get(r.value):
@@ -914,7 +920,7 @@ def compose(inp):
             real = real if isinstance(real, str) else expand(n, home)
             bad = path_refusal(n, real, hidden_paths, inp)
             if bad:
-                raise Refusal(f"graft sandbox ({ctx['name']}): --{fl} {p}: {bad}")
+                raise Refusal(f"pot ({ctx['name']}): --{fl} {p}: {bad}")
             eff = not (view and kind == "write")
             item(kind, n, "reach", [{"flag": f"--{fl}"}], eff, path=real, **({} if eff else {"why": "inspect changes nothing"}))
             report["oneRun"].append((f"--{fl}", n))
@@ -924,8 +930,8 @@ def compose(inp):
              **({} if network_ok else {"why": f"context {ctx['name']} has no network"}))
         report["oneRun"].append(("--net", v))
     for e in flags.get("env") or []:
-        if not ENV_RE.fullmatch(e) or e in OWNED_ENV or e.startswith("GRAFT_SANDBOX"):
-            raise Refusal(f"sb: --env {e}: a variable name that is not sb's own", 2)
+        if not ENV_RE.fullmatch(e) or owned(e):
+            raise Refusal(f"pot: --env {e}: a variable name that is not pot's own", 2)
         item("env", e, "reach", [{"flag": "--env"}], True)
         if not inp["host"].get("env", {}).get(e):
             report["unsetEnv"].append(e)
@@ -954,7 +960,7 @@ def compose(inp):
             # checked only once the kit's grant matches: a first run reaches the grant prompt (or 125) first
             if status[cmdkit["id"]]["status"] == "match" and not real.startswith("/nix/store/") \
                     and not any(under(real, r) for r in reads):
-                raise Refusal(f"graft sandbox ({ctx['name']}): {cmdname}'s program {hp} resolves to {canon_path(real, home)}, "
+                raise Refusal(f"pot ({ctx['name']}): {cmdname}'s program {hp} resolves to {canon_path(real, home)}, "
                               f"outside {kit_display(cmdkit)}'s granted read requests")
             prog = real
         if prog or c.get("args"):
@@ -968,7 +974,7 @@ def compose(inp):
     requires = list(ctx.get("requires") or [])
     missing = [g for g in requires if g not in proved]
     if missing:
-        raise Refusal(f"graft sandbox ({ctx['name']}): requires {' '.join(missing)}; {inp.get('backendName', 'the backend')} proves {' '.join(proved) or 'nothing'}", EXIT_GRANT)
+        raise Refusal(f"pot ({ctx['name']}): requires {' '.join(missing)}; {inp.get('backendName', 'the backend')} proves {' '.join(proved) or 'nothing'}", EXIT_GRANT)
 
     workspace = [{"id": w["id"], "path": w["top"], "common": w["common"], "protected": protect if access == "write" else [],
                   "clone": None} for w in inp["workspace"]]
@@ -981,7 +987,7 @@ def compose(inp):
         "backend": {"name": inp.get("backendName", "bubblewrap"), "requires": requires, "proved": proved},
         "workspace": workspace,
         "items": items,
-        "mounts": {"state": state_mounts, "run": "/run/graft-sandbox"},
+        "mounts": {"state": state_mounts, "run": "/run/pot"},
         "bindings": pbind,
         "children": {},
         "grants": [{"id": st["kit"], "digest": st["digest"], "match": st["status"] in ("match", "none")}
@@ -1045,7 +1051,7 @@ def binding_entry(k, r, b, inp, ctx):
     sel, cfg = b
     e = {"capability": r.value, "selector": sel, "kit": k["id"], "request": r.canonical}
     if r.value in BINDING_SOCKETS:
-        e["socket"] = f"/run/graft-sandbox/{BINDING_SOCKETS[r.value]}"
+        e["socket"] = f"/run/pot/{BINDING_SOCKETS[r.value]}"
     if r.value == "status.relay":
         e.update(see=["workmux shim"], allow=["set-window-status", "register-agent"])
     elif r.value == "git.fetch":
@@ -1060,15 +1066,15 @@ def binding_entry(k, r, b, inp, ctx):
         env = [env] if isinstance(env, str) else list(env or [])
         via = cfg.get("via", "env")
         if via not in ("env", "file"):
-            raise Refusal(f"graft sandbox ({ctx['name']}): bindings.{r.value}.\"{sel}\".via = {via!r}: 1a carries "
+            raise Refusal(f"pot ({ctx['name']}): bindings.{r.value}.\"{sel}\".via = {via!r}: 1a carries "
                           "env and file (proxy comes in a later release)")
         e.update(via=via, env=env, **{"from": cfg.get("from") or {}}, holds="the run holds it",
                  **({"refresh": cfg["refresh"]} if cfg.get("refresh") else {}))
         if r.value == "mcp":
             e.update(server=r.data.get("server"), url=cfg.get("url"), header=cfg.get("header", "Authorization"),
-                     scheme=cfg.get("scheme", "Bearer"), config="/run/graft-sandbox/mcp.json")
+                     scheme=cfg.get("scheme", "Bearer"), config="/run/pot/mcp.json")
             if not cfg.get("url"):
-                raise Refusal(f"graft sandbox ({ctx['name']}): bindings.mcp.\"{sel}\" needs a url")
+                raise Refusal(f"pot ({ctx['name']}): bindings.mcp.\"{sel}\" needs a url")
     return e
 
 
@@ -1112,7 +1118,7 @@ def path_refusal(canon, real, hidden_paths, inp):
     """M3/M4: why a reach path is refused, or None."""
     sd = inp.get("stateDir")
     if sd and (under(real, sd) or under(sd, real)):
-        return "which is sb's own state (launcher mounts are sb's alone)"
+        return "which is pot's own state (launcher mounts are pot's alone)"
     for h in hidden_paths:
         if under(real, h):
             return f"which resolves into a hidden path ({canon_path(h, inp['host']['home'])})"
@@ -1143,7 +1149,7 @@ def repo_kits_for(origin_key, ident, repo_kits):
     for pat, m in sorted((repo_kits or {}).items()):
         k = pattern_key(pat)
         if (origin_key and fnmatch.fnmatchcase(origin_key, k)) or ident == pat or ident == f"repo:{k}":
-            out.append((m, f"programs.sb.repoKits.\"{pat}\""))
+            out.append((m, f"programs.pot.repoKits.\"{pat}\""))
     return out
 
 
@@ -1156,20 +1162,20 @@ def describe_request(c):
 def stale_message(ctxname, st):
     lines = []
     if st["status"] == "unverified":
-        lines.append(f"graft sandbox ({ctxname}): {st['name']} ({st['kit']}) is not a verified release, so its grant does not apply")
+        lines.append(f"pot ({ctxname}): {st['name']} ({st['kit']}) is not a verified release, so its grant does not apply")
         return "\n".join(lines)
     if st["status"] == "never":
-        lines.append(f"graft sandbox ({ctxname}): {st['name']} ({st['kit']}) requests reach that is not granted:")
+        lines.append(f"pot ({ctxname}): {st['name']} ({st['kit']}) requests reach that is not granted:")
     elif st["status"] == "grown":
-        lines.append(f"graft sandbox ({ctxname}): {st['name']} ({st['kit']}) asks for more than its grant:")
+        lines.append(f"pot ({ctxname}): {st['name']} ({st['kit']}) asks for more than its grant:")
     else:
-        lines.append(f"graft sandbox ({ctxname}): {st['name']} ({st['kit']}) changed source since its grant:")
+        lines.append(f"pot ({ctxname}): {st['name']} ({st['kit']}) changed source since its grant:")
         lines.append(f"  source: {fmt_source(st.get('was'))} -> {fmt_source(st.get('now'))}")
         for d in st.get("diffstat") or []:
             lines.append(f"    {d}")
     for a in st["added"]:
         lines.append(f"  + {a}")
-    lines.append(f"  grant it: sb grant {st['name']}")
+    lines.append(f"  grant it: pot grant {st['name']}")
     return "\n".join(lines)
 
 
@@ -1184,9 +1190,9 @@ def fmt_source(s):
 
 
 def root_paths(root):
-    """How a fix to the root is written, and what applies it: home-manager's programs.sb or mkRoot's."""
+    """How a fix to the root is written, and what applies it: home-manager's programs.pot or mkRoot's."""
     if root.get("name") == "home-manager":
-        return "programs.sb.", "home-manager switch"
+        return "programs.pot.", "home-manager switch"
     return "", "rebuild the root"
 
 
@@ -1222,10 +1228,10 @@ def kit_short(ident, report):
 
 
 def denial_text(ctxname, hostport, fix):
-    """The one phrasing of a network refusal (exit line, denials file, sb why inside a run)."""
+    """The one phrasing of a network refusal (exit line, denials file, pot why inside a run)."""
     host, _, port = hostport.rpartition(":") if ":" in hostport else (hostport, "", "443")
     flag = host if port == "443" else f"{host}:{port}"
-    return f"graft sandbox ({ctxname}): the run tried {hostport} (not in this run). one run: sb --net {flag} …  permanent: {fix}"
+    return f"pot ({ctxname}): the run tried {hostport} (not in this run). one run: pot --net {flag} …  permanent: {fix}"
 
 
 def binding_desc(cap, cfg, root_name=None):
@@ -1266,7 +1272,7 @@ def label(x, report=None):
 
 
 def explain_text(policy, report, root):
-    """sb explain: every item with the file or grant it came from (Appendix C's shape)."""
+    """pot explain: every item with the file or grant it came from (Appendix C's shape)."""
     out = []
     ctx = report["context"]
     cmd = report.get("command") or {}
@@ -1294,7 +1300,7 @@ def explain_text(policy, report, root):
     if report.get("argv") and report["argv"][:1] != [cmd.get("name")]:
         out.append("argv       " + " ".join(report["argv"]))
     for h in report.get("overlayHooks") or []:
-        out.append(f"hooks      {h} (sb's --settings overlay; /hooks does not list it)")
+        out.append(f"hooks      {h} (pot's --settings overlay; /hooks does not list it)")
     inc = ctx.get("include") or []
     out.append(f"context    {ctx['name']}: {policy['mode']}, access {policy['access']}, {policy['backend']['name']}"
                + (f"; includes {', '.join('root:' + n for n in inc)}" if inc else ""))
@@ -1338,7 +1344,7 @@ def explain_text(policy, report, root):
     else:
         out.append(f"limits     the workspace is read-only (access {policy['access']})")
     hid = [i for i in eff if i["kind"] == "hidden"]
-    out.append(f"           hidden: {len(hid)} paths (sb explain --json lists them)")
+    out.append(f"           hidden: {len(hid)} paths (pot explain --json lists them)")
     if any(i["kind"] == "network" and i["value"] == "none" for i in policy["items"]):
         out.append(f"           network: none (context {ctx['name']})")
     rows = []
@@ -1386,12 +1392,12 @@ def validate_root(root):
     for n, k in (root.get("kits") or {}).items():
         if not NAME_RE.fullmatch(n) or n.count("@") > 1:
             raise KitError(f"the root's kits: {n!r} is not a kit name (NAME or NAME@ACCOUNT)")
-        validate_kit(k, k.get("file", f"programs.sb.kits.{n}"), "/home/user")
+        validate_kit(k, k.get("file", f"programs.pot.kits.{n}"), "/home/user")
     for n, k in (root.get("repoKits") or {}).items():
-        validate_kit(k, k.get("file", f"programs.sb.repoKits.{n}"), "/home/user")
+        validate_kit(k, k.get("file", f"programs.pot.repoKits.{n}"), "/home/user")
     for n in (root.get("contexts") or {}):
         if n in VERBS:
-            raise KitError(f"the root's contexts: {n} is an sb verb")
+            raise KitError(f"the root's contexts: {n} is a pot verb")
         resolve_context(root, n)
     for h in root.get("hidden") or []:
         norm_path(h, "the root's hidden")

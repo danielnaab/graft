@@ -28,7 +28,7 @@ in
       };
 
   # what a run of this kit needs in its closure (store roots: a subpath, "${pkg}/bin/x", as its package)
-  # (a plain store-path string, with no context, is left to sb, which adds its closure at start)
+  # (a plain store-path string, with no context, is left to pot, which adds its closure at start)
   roots = kit: lib.filter (p: p != null) (map storeRoot ((kit.packages or [ ])
     ++ lib.concatMap (c: lib.filter (a: lib.isDerivation a || builtins.isPath a) (c.args or [ ])
       ++ lib.optional (c ? program && (lib.isDerivation c.program || builtins.isString c.program && lib.hasPrefix "/nix/store/" c.program)) c.program)

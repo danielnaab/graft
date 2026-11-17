@@ -1,9 +1,9 @@
-# graft.lib.mkRoot: a root as data (design §1, §13.1), and its `sb`.
+# graft.lib.mkRoot: a root as data (design §1, §13.1), and its `pot`.
 #
 #   graft.lib.mkRoot {
 #     pkgs;                         # the root's nixpkgs (--package builds from it alone)
-#     grantsFile ? "~/.config/graft/sb/grants.json";   # host-only, hidden from every run (D7)
-#     stateDir ? "~/.local/state/graft/sb";             # runs, logs, caches, state: hidden
+#     grantsFile ? "~/.config/pot/grants.json";   # host-only, hidden from every run (D7)
+#     stateDir ? "~/.local/state/pot";             # runs, logs, caches, state: hidden
 #     contexts ? { };               # added to, or changing, host inspect work dispatch (§5)
 #     defaultContext ? "work";
 #     kits ? { };                   # root kits, by name ("claude-code@personal", "daniel")
@@ -17,15 +17,15 @@
 #     caBundle ? null;              # a CA bundle (a path), at /etc/ssl/certs/ca-certificates.crt in runs
 #   }
 #
-# The result is the root's `sb` (passthru.root: the manifest; passthru.backend: the bubblewrap
-# backend). Kit manifests are checked when it builds (compose.py validate). On Darwin, sb refuses:
+# The result is the root's `pot` (passthru.root: the manifest; passthru.backend: the bubblewrap
+# backend). Kit manifests are checked when it builds (compose.py validate). On Darwin, pot refuses:
 # Seatbelt returns in 1b (D21).
-{ cli, sbSrc }:
+{ cli, potSrc }:
 
 { pkgs
 , name ? "default"
-, grantsFile ? "~/.config/graft/sb/grants.json"
-, stateDir ? "~/.local/state/graft/sb"
+, grantsFile ? "~/.config/pot/grants.json"
+, stateDir ? "~/.local/state/pot"
 , contexts ? { }
 , defaultContext ? "work"
 , kits ? { }
@@ -53,14 +53,14 @@ let
     tree ripgrep fd jq curl gnutar gzip unzip xz gnupatch python3 just gh graft ];
   inspectTools = with pkgs; lib.optionals (!darwin) [ procps iproute2 lsof systemdMinimal ];
 
-  # sb inside a run: explain and why, from /run/graft-sandbox/policy.json
-  inner = pkgs.writeText "sb-inner.json" (builtins.toJSON { inner = true; });
-  sbInner = pkgs.writeShellScriptBin "sb" ''exec ${python}/bin/python3 -I ${sbSrc}/sb.py ${inner} "$@"'';
+  # pot inside a run: explain and why, from /run/pot/policy.json
+  inner = pkgs.writeText "pot-inner.json" (builtins.toJSON { inner = true; });
+  potInner = pkgs.writeShellScriptBin "pot" ''exec ${python}/bin/python3 -I ${potSrc}/pot.py ${inner} "$@"'';
 
-  netwrap = pkgs.writeShellScript "sb-net" ''
+  netwrap = pkgs.writeShellScript "pot-net" ''
     # inside a run with network: the proxy's socket as 127.0.0.1:3128, listening before the command
     # starts (0100007F:0C38 0A is 127.0.0.1:3128, LISTEN, in /proc/net/tcp)
-    ${pkgs.socat}/bin/socat -lf /dev/null TCP-LISTEN:3128,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/graft-sandbox/proxy.sock &
+    ${pkgs.socat}/bin/socat -lf /dev/null TCP-LISTEN:3128,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/pot/proxy.sock &
     listening() {
       local _ local state
       while read -r _ local _ state _; do [ "$local $state" != "0100007F:0C38 0A" ] || return 0; done </proc/net/tcp
@@ -70,19 +70,19 @@ let
       ! listening || exec "$@"
       ${pkgs.coreutils}/bin/sleep 0.01
     done
-    echo "graft sandbox: the network relay (socat) did not start" >&2
+    echo "pot: the network relay (socat) did not start" >&2
     exit 1
   '';
-  bpf = pkgs.runCommand "sb-tiocsti.bpf" { nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.seccomp ])) ]; } ''
-    python3 ${sbSrc}/tiocsti.py $out
+  bpf = pkgs.runCommand "pot-tiocsti.bpf" { nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.seccomp ])) ]; } ''
+    python3 ${potSrc}/tiocsti.py $out
   '';
   closureOf = n: roots: pkgs.runCommand n { } "cp ${pkgs.closureInfo { rootPaths = roots; }}/store-paths $out";
-  backendConfig = pkgs.writeText "sb-bwrap.json" (builtins.toJSON {
+  backendConfig = pkgs.writeText "pot-bwrap.json" (builtins.toJSON {
     bwrap = "${pkgs.bubblewrap}/bin/bwrap";
     python = "${python}/bin/python3";
-    proxy = "${sbSrc}/proxy.py";
-    broker = "${sbSrc}/broker.py";
-    shim = "${sbSrc}/shim.py";
+    proxy = "${potSrc}/proxy.py";
+    broker = "${potSrc}/broker.py";
+    shim = "${potSrc}/shim.py";
     socat = "${pkgs.socat}/bin/socat";
     inherit bpf netwrap;
     sh = "${pkgs.bashInteractive}/bin/sh";
@@ -94,15 +94,15 @@ let
     fd = "${pkgs.fd}/bin/fd";
     find = "${pkgs.findutils}/bin/find";
     git = "${pkgs.gitMinimal}/bin/git";
-    baseClosure = closureOf "sb-base-closure" [ pkgs.bashInteractive pkgs.coreutils pkgs.cacert pkgs.ncurses pkgs.tzdata ];
-    netClosure = closureOf "sb-net-closure" [ netwrap ];
+    baseClosure = closureOf "pot-base-closure" [ pkgs.bashInteractive pkgs.coreutils pkgs.cacert pkgs.ncurses pkgs.tzdata ];
+    netClosure = closureOf "pot-net-closure" [ netwrap ];
   });
-  backend = pkgs.writeShellScriptBin "sb-backend-bwrap" ''exec ${python}/bin/python3 -I ${sbSrc}/bwrap.py --config ${backendConfig} "$@"'';
+  backend = pkgs.writeShellScriptBin "pot-backend-bwrap" ''exec ${python}/bin/python3 -I ${potSrc}/bwrap.py --config ${backendConfig} "$@"'';
 
-  kitManifests = lib.mapAttrs (n: k: kitLib.manifest { kit = k; file = "the root (programs.sb.kits.${n})"; }) kits;
-  repoKitManifests = lib.mapAttrs (n: k: kitLib.manifest { kit = k; file = "the root (programs.sb.repoKits.\"${n}\")"; }) repoKits;
+  kitManifests = lib.mapAttrs (n: k: kitLib.manifest { kit = k; file = "the root (programs.pot.kits.${n})"; }) kits;
+  repoKitManifests = lib.mapAttrs (n: k: kitLib.manifest { kit = k; file = "the root (programs.pot.repoKits.\"${n}\")"; }) repoKits;
   kitRoots = lib.concatLists (lib.mapAttrsToList (_: k: kitLib.roots k) kits);
-  closure = closureOf "sb-root-closure" (standard ++ tools ++ inspectTools ++ kitRoots ++ [ sbInner ]
+  closure = closureOf "pot-root-closure" (standard ++ tools ++ inspectTools ++ kitRoots ++ [ potInner ]
     ++ lib.optional (caBundle != null) caBundle);
 
   manifest = {
@@ -122,24 +122,24 @@ let
     git = "${pkgs.gitMinimal}/bin/git";
     nixpkgs = builtins.unsafeDiscardStringContext (toString pkgs.path);
     closure = "${closure}";
-    sbBin = "${sbInner}/bin";
+    potBin = "${potInner}/bin";
     shell = "bash";
-    backends = lib.optionalAttrs (!darwin) { bubblewrap = { kind = "bwrap"; program = "${backend}/bin/sb-backend-bwrap"; }; };
+    backends = lib.optionalAttrs (!darwin) { bubblewrap = { kind = "bwrap"; program = "${backend}/bin/pot-backend-bwrap"; }; };
     defaultBackend = if darwin then null else "bubblewrap";
   };
-  rootJson = pkgs.runCommand "sb-root-${name}.json" {
+  rootJson = pkgs.runCommand "pot-root-${name}.json" {
     nativeBuildInputs = [ python ];
     manifest = builtins.toJSON manifest;
     passAsFile = [ "manifest" ];
   } ''
-    python3 -I ${sbSrc}/compose.py validate-root "$manifestPath"
+    python3 -I ${potSrc}/compose.py validate-root "$manifestPath"
     cp "$manifestPath" $out
   '';
 in
-if badContexts != [ ] then throw "graft: mkRoot: a context may not be named like an sb verb: ${lib.concatStringsSep ", " badContexts}"
+if badContexts != [ ] then throw "graft: mkRoot: a context may not be named like a pot verb: ${lib.concatStringsSep ", " badContexts}"
 else pkgs.writeShellApplication {
-  name = "sb";
-  text = ''exec ${python}/bin/python3 -I ${sbSrc}/sb.py ${rootJson} "$@"'';
+  name = "pot";
+  text = ''exec ${python}/bin/python3 -I ${potSrc}/pot.py ${rootJson} "$@"'';
   passthru = { root = manifest; inherit rootJson; } // lib.optionalAttrs (!darwin) { inherit backend; };
-  meta.description = "graft sb: run a command under the root's policy (${name})";
+  meta.description = "pot: run a command under the root's policy (${name})";
 }

@@ -22,8 +22,8 @@
 # writes stays in its state, and the exit line names it), and onboarding and folder trust
 # reasserted in ~/.claude/.claude.json. The
 # `--settings` overlay turns Claude's own sandbox off (Claude treats it as managed) and adds the
-# denial hook (PostToolUse on Bash and WebFetch): new lines of /run/graft-sandbox/denials reach the
-# model as additionalContext. Overlay hooks are added to the user's own; `sb explain` lists them.
+# denial hook (PostToolUse on Bash and WebFetch): new lines of /run/pot/denials reach the
+# model as additionalContext. Overlay hooks are added to the user's own; `pot explain` lists them.
 { pkgs, account ? "default", binary ? "native", files ? { }, configDir ? ".claude", skillDirs ? [ "synced" ]
 , plugins ? true, skillSources ? [ ], provider ? "anthropic", region ? null, mcp ? [ ] }:
 
@@ -46,28 +46,28 @@ let
     (lib.mapAttrs' (_: f: lib.nameValuePair (f.target or "") f) files);
   # PreToolUse records where the denials file ends; PostToolUse passes on what the tool added since,
   # so refusals from before the first tool (Claude's own startup traffic) go only to the exit line
-  mark = pkgs.writeShellScript "sb-denial-mark" ''
-    d=/run/graft-sandbox/denials
-    ${pkgs.coreutils}/bin/stat -c %s "$d" > "''${TMPDIR:-/tmp}/.sb-denials-offset" 2>/dev/null || true
+  mark = pkgs.writeShellScript "pot-denial-mark" ''
+    d=/run/pot/denials
+    ${pkgs.coreutils}/bin/stat -c %s "$d" > "''${TMPDIR:-/tmp}/.pot-denials-offset" 2>/dev/null || true
   '';
-  denialHook = pkgs.writeShellScript "sb-denial-hook" ''
-    # graft sb's PostToolUse and PostToolUseFailure hook (Claude runs the second for a failed call):
+  denialHook = pkgs.writeShellScript "pot-denial-hook" ''
+    # pot's PostToolUse and PostToolUseFailure hook (Claude runs the second for a failed call):
     # sandbox denials during this tool call, as context for the model, under the event Claude names
     ev=$(${pkgs.jq}/bin/jq -r '.hook_event_name // "PostToolUse"' 2>/dev/null) || ev=PostToolUse
-    d=/run/graft-sandbox/denials o=''${TMPDIR:-/tmp}/.sb-denials-offset
+    d=/run/pot/denials o=''${TMPDIR:-/tmp}/.pot-denials-offset
     [ -s "$d" ] && [ -f "$o" ] || exit 0
     size=$(${pkgs.coreutils}/bin/stat -c %s "$d"); seen=$(${pkgs.coreutils}/bin/cat "$o")
     [ "$size" -gt "$seen" ] || exit 0
     echo "$size" > "$o"
     ${pkgs.coreutils}/bin/tail -c +"$((seen + 1))" "$d" | ${pkgs.jq}/bin/jq -Rs --arg ev "$ev" '{hookSpecificOutput: {hookEventName: $ev,
-      additionalContext: ("The sandbox (graft sb) refused this during the command; read /run/graft-sandbox/README.md:\n" + .)}}'
+      additionalContext: ("pot refused this during the command; read /run/pot/README.md:\n" + .)}}'
   '';
   # at start: what the model should know about its memory here
-  sessionHook = pkgs.writeShellScript "sb-session-start" ''
-    echo '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"In this graft sandbox run, the host memory files are read-only and MEMORY.md is a writable copy: write new memory as new files in the usual memory folder; sb copies new files and a changed MEMORY.md out for the person to review when the run ends."}}'
+  sessionHook = pkgs.writeShellScript "pot-session-start" ''
+    echo '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"In this pot run, the host memory files are read-only and MEMORY.md is a writable copy: write new memory as new files in the usual memory folder; pot copies new files and a changed MEMORY.md out for the person to review when the run ends."}}'
   '';
   hookFor = c: [ { matcher = "Bash|WebFetch"; hooks = [ { type = "command"; command = "${c}"; } ]; } ];
-  overlay = pkgs.writeText "sb-claude-overlay.json" (builtins.toJSON ({
+  overlay = pkgs.writeText "pot-claude-overlay.json" (builtins.toJSON ({
     sandbox.enabled = false;
     hooks = { PreToolUse = hookFor mark; PostToolUse = hookFor denialHook; PostToolUseFailure = hookFor denialHook;
               SessionStart = [ { hooks = [ { type = "command"; command = "${sessionHook}"; } ]; } ]; };
@@ -75,7 +75,7 @@ let
     # nothing inside can refresh AWS credentials (no aws CLI, no SSO): the host refreshes them
     awsAuthRefresh = "";
   }));
-  onboarding = pkgs.writeText "sb-claude-onboarding.json" (builtins.toJSON {
+  onboarding = pkgs.writeText "pot-claude-onboarding.json" (builtins.toJSON {
     hasCompletedOnboarding = true;
     projects."*".hasTrustDialogAccepted = true;
   });
@@ -94,7 +94,7 @@ in
   commands.claude = {
     program = if native then { host = "~/.local/bin/claude"; } else if binary == "host" then { host = "claude"; } else "${binary}/bin/claude";
     args = [ "--settings" overlay ]
-      ++ lib.optionals (mcp != [ ]) [ "--mcp-config" "/run/graft-sandbox/mcp.json" "--strict-mcp-config" ];
+      ++ lib.optionals (mcp != [ ]) [ "--mcp-config" "/run/pot/mcp.json" "--strict-mcp-config" ];
     fixedDirs = lib.genAttrs (map (d: "~/.claude/${d}") (lib.filter (d: plugins || d != "plugins") fixedDirNames))
       (d: "~/${configDir}/${baseNameOf d}");
     realDirs = lib.optional plugins "~/.claude/plugins";
