@@ -27,8 +27,9 @@ These are deprecated in v2.16.0 and removed in v2.17.0:
 
 | v2.15.0 | v2.16.0 | Until v2.17.0 |
 |---|---|---|
-| `packages.<system>.graft-kits` | `packages.<system>.pot-kits` | mkFlake writes both, so a v2.15.0 root reads a v2.16.0 consumer. A v2.16.0 pot reads `graft-kits` when a flake has no `pot-kits`, so it reads a v2.15.0 consumer. |
-| `kit.packages` | `kit.tools` | Read as `tools`. Both together are an error: `pot: FILE: tools and packages are one field (packages is its old name): give tools`. A provider keeps `packages` until v2.17.0 ([Move a provider](#move-a-provider)). <!-- TBD (F3): the build warning's text, from facts.md --> |
+| `packages.<system>.graft-kits` | `packages.<system>.pot-kits` | mkFlake writes both, so a v2.15.0 root reads a v2.16.0 consumer: `graft-kits` gives each kit as v2.15.0 reads it, and leaves out one that uses kit 1.1 (`graft: graft-kits: FILE uses kit 1.1 (dirs or agent), which a v2.15.0 pot cannot read: left out (pot-kits has it)`). A v2.16.0 pot reads `graft-kits` when a flake has no `pot-kits`, so it reads a v2.15.0 consumer, and says so at start: `~/DIR has graft-kits only: its graft predates v2.16.0 (pot reads graft-kits until v2.17.0)`. |
+| `kit.packages` | `kit.tools` | Read as `tools`, with the evaluation warning `FILE: packages is tools' old name; packages goes in v2.17.0`. Both together are an error: `pot: FILE: tools and packages are one field (packages is its old name): give tools`. A provider keeps `packages` until v2.17.0, warning and all ([Move a provider](#move-a-provider)). |
+| the claude-code kit's `account = "flexion";` | (nothing: the root's `kits` key names the instance) | Ignored, with the warning `graft.kits.claude-code: account is not used: the instance is the root's kits key; account goes in v2.17.0`. |
 | `pot --account NAME CMD` | `pot CMD@NAME`, or `pot --instance NAME CMD` | Works as `--instance`, after one line: `pot: --account is --instance; --account goes in v2.17.0`. |
 | `defaultAccount = "personal";` | `defaultInstance.claude-code = "personal";` | Applied to every kit with instances, with the evaluation warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` (from the module: `programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0`). Both together are an error. |
 | the claude-code kit's `provider = "bedrock"; region = "us-east-1";` | `api = graft.apis.bedrock { region = "us-east-1"; };` | With the warning `graft.kits.claude-code: provider and region are api = graft.apis.bedrock { region = …; } (or graft.apis.anthropic); they go in v2.17.0`. Both together are an error. |
@@ -136,8 +137,9 @@ The old forms and the new give the same canonical requests, so no grant asks aga
 
    ```nix
    programs.pot = {
+     kits."claude-code@personal" = inputs.graft.kits.claude-code { inherit pkgs; };
      kits."claude-code@flexion-bedrock" = inputs.graft.kits.claude-code {
-       inherit pkgs; configDir = ".claude-accounts/flexion";
+       inherit pkgs; account = "flexion"; configDir = ".claude-accounts/flexion";
        provider = "bedrock"; region = "us-east-2";
      };
      defaultAccount = "personal";
@@ -148,6 +150,7 @@ The old forms and the new give the same canonical requests, so no grant asks aga
 
    ```nix
    programs.pot = {
+     kits."claude-code@personal" = inputs.graft.kits.claude-code { inherit pkgs; };
      kits."claude-code@flexion-bedrock" = inputs.graft.kits.claude-code {
        inherit pkgs; configDir = ".claude-accounts/flexion";
        api = inputs.graft.apis.bedrock { region = "us-east-2"; };
@@ -156,7 +159,8 @@ The old forms and the new give the same canonical requests, so no grant asks aga
    };
    ```
 
-   With mkRoot, the same arguments go to `graft.lib.mkRoot`. An Anthropic instance needs no `api`: the default is
+   `account` goes too: the root's `kits` key names the instance. With mkRoot, the same arguments go to
+   `graft.lib.mkRoot`. An Anthropic instance needs no `api`: the default is
    `graft.apis.anthropic`.
 4. If you named an instance with `--account` in scripts or a workmux agent command, use `CMD@NAME`:
    `pot --account flexion claude` becomes `pot claude@flexion`.
@@ -201,6 +205,9 @@ Use your machine's system for `x86_64-linux`.
 - **`pot: claude: the caller's variables match claude-code@a and claude-code@b equally: choose one with
   claude@NAME or --instance NAME`.** Two instances have the same `select.env` (the same `configDir` and API).
   Name one with `CMD@NAME`, or set `defaultInstance` to one of them.
+- **`graft.lib.mkRoot: defaultInstance.claude-code = "X": the root declares claude-code@a, claude-code@b`.** The
+  default names no declared instance. Use one of the names it lists. A kit name that the root lacks gives
+  `graft.lib.mkRoot: defaultInstance.KIT: the root has no kit KIT@NAME (kits: …)`.
 - **A run picks a different instance than in v2.15.0.** The Bedrock instance now wins in a Bedrock shell. Name the
   instance with `CMD@NAME` when you want the other.
 - **`pot (work): ~/DIR#pot-kits: kit.json is version 2, and this pot reads version 1: …`.** The consumer's graft

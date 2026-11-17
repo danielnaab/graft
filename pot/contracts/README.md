@@ -43,9 +43,10 @@ pot ──▶ git facts: .gitmodules and gitlinks at HEAD, the tags at a scion's
   | Shim | Contract | Replaced by |
   |---|---|---|
   | `packages.<system>.graft-kits`: mkFlake still writes it, and pot reads it when a flake has no `pot-kits` | `pot-kits/1` | `packages.<system>.pot-kits` |
-  | `kit.packages` | `kit/1` | `kit.tools` |
+  | `kit.packages`: `FILE: packages is tools' old name; packages goes in v2.17.0` | `kit/1` | `kit.tools` |
   | `--account NAME`: `pot: --account is --instance; --account goes in v2.17.0` | pot's command line | `--instance NAME`, `CMD@NAME` |
   | `defaultAccount`: `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` | mkRoot, `programs.pot` | `defaultInstance.<kit>` |
+  | the claude-code kit's `account`: `graft.kits.claude-code: account is not used: the instance is the root's kits key; account goes in v2.17.0` | the kit's arguments | (nothing: the root's `kits` key names the instance) |
   | the claude-code kit's `provider` and `region`: `graft.kits.claude-code: provider and region are api = graft.apis.bedrock { region = …; } (or graft.apis.anthropic); they go in v2.17.0` | the kit's arguments | `api = graft.apis.<name>` |
 
 ## Sources

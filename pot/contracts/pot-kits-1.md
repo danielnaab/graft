@@ -14,7 +14,7 @@ status: working
 
 ```
 <out>/kit.json   { "version": 1, "self": <kit> | null, "scions": { "<name>": <kit> }, "protect": [ … ] }
-<out>/bin/       the workspace's tools, and the repo kit's packages
+<out>/bin/       the workspace's tools, and the repo kit's tools
 <out>/closure    the store paths a run needs, one per line
 ```
 
@@ -64,9 +64,11 @@ pot also protects the flake directory it evaluated, when it is a subdirectory, w
 - **A `version` other than 1, or a field this version does not know,** is refused.
 - **graft-kits**, v2.15.0's bundle (`kit.json`: `{ version = 1; dir; self; file; scions; }`, no `protect`), is read
   when a flake has no `pot-kits`, so a v2.16.0 root works with a v2.15.0 consumer. pot protects what v2.15.0
-  protected for it: `**/graft.nix` and its `dir`. Deprecated in v2.16.0, removed in v2.17.0.
+  protected for it: `**/graft.nix` and its `dir`. The startup line says so: `~/DIR has graft-kits only: its graft
+  predates v2.16.0 (pot reads graft-kits until v2.17.0)`. Deprecated in v2.16.0, removed in v2.17.0.
 - **mkFlake still writes graft-kits** in v2.15.0's exact shape beside `pot-kits`, so a v2.15.0 root works with a
-  v2.16.0 consumer. Deprecated in v2.16.0, removed in v2.17.0.
+  v2.16.0 consumer: each kit as v2.15.0 reads it ([kit/1](kit-1.md#compatibility)). Deprecated in v2.16.0, removed
+  in v2.17.0.
 
 ## Sources
 

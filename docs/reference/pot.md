@@ -27,7 +27,7 @@ A policy has three kinds of item:
 - **reach:** host paths, network hosts, passed variables, sockets, persistent state, and named **capabilities**
   such as `git.fetch` or `credential`.
 
-Any kit may add limits. A kit's see items configure its own commands, and only a repo kit's packages reach every
+Any kit may add limits. A kit's see items configure its own commands, and only a repo kit's tools reach every
 run. Reach comes only from the person: a **grant** recorded in their **root**, or a flag typed for one run.
 
 Eight concepts:
@@ -100,7 +100,7 @@ graft.lib.mkRoot {
 ```
 
 Its arguments are the options below. It checks every kit manifest when it builds, so a bad kit fails the root's
-build. A context named like a verb is an evaluation error:
+build. A context named like a verb (`runs` and `doctor` included) is an evaluation error:
 `pot: mkRoot: a context may not be named like a pot verb: …`.
 
 In v2.15.0 you run the `pot` on your `PATH`. The home-manager module also writes `<home>/.config/pot/launcher`,
@@ -118,7 +118,7 @@ from `$HOME`, and use graft's default root when the link is missing. There is no
 | `grantsFile` | The [grants file](#the-grants-file). Default `"~/.config/pot/grants.json"`; a home-manager root keeps it in its repository, such as `"~/.workstation/pot/grants.json"`. Hidden from every run. |
 | `stateDir` | `pot`'s state: agent homes, caches, run directories ([State](#state)). Default `"~/.local/state/pot"`. Hidden from every run, and refused inside a workspace. |
 | `defaultContext` | The context when none is typed. Default `"work"`. |
-| `defaultInstance` | Per kit, the instance (`KIT@NAME`) used with no `CMD@NAME`, `--instance` or matching caller variables: `{ claude-code = "personal"; }`. `defaultAccount` (a string, for every kit) is its old form: deprecated in v2.16.0, removed in v2.17.0, with the warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` (from the module: `programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0`). Both together are an error. |
+| `defaultInstance` | Per kit, the instance (`KIT@NAME`) used with no `CMD@NAME`, `--instance` or matching caller variables: `{ claude-code = "personal"; }`. Checked when the root evaluates: `graft.lib.mkRoot: defaultInstance.KIT = "X": the root declares KIT@a, KIT@b`, or `graft.lib.mkRoot: defaultInstance.KIT: the root has no kit KIT@NAME (kits: …)`. `defaultAccount` (a string, for every kit) is its old form: deprecated in v2.16.0, removed in v2.17.0, with the warning `graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0` (from the module: `programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0`). Both together are an error. |
 | `agentMarkers` | Variables that mean an agent is the caller, beyond the floor (`CODEX_SANDBOX`, `CLAUDECODE` and `POT`, whatever kits the root has) and each root kit's `agent.markers`. Default `[ ]`. |
 | `rootRepos` | The root's source repositories: checkout paths (`~/…`, `/…`) or origin patterns. mkRoot's default is `[ ]`; the home-manager module's is `[ "~/.workstation" ]`. See [Root repositories](#root-repositories). |
 | `hidden` | Paths hidden from every run, added to [pot's default list](#hidden-paths), which a root cannot shorten. |
@@ -178,6 +178,10 @@ pot: host · no sandbox · logged as 7f3a
 ```
 
 The log records `invoker` as `person` at a terminal, and `script` otherwise.
+
+When `CMD` is not on the host's `PATH`, `pot host` runs the workspace bundle's command of that name: a kit
+command's store `program`, else `pot-kits`' `bin/CMD`. So `pot host meeting-kit` works in a graft consumer, as the
+unverified-scion refusal suggests.
 
 #### Resume on the host
 
@@ -776,7 +780,7 @@ host memory for the workspace, a `see` row says `host memory: N files, read-only
 
 ```
 pot why PATH|HOST|CMD|VAR
-pot why HOST|HOST:PORT|URL --json
+pot why HOST|HOST:PORT|URL|PATH --json
 ```
 
 Answers for one item: whether the run has it, where it came from, and, if the run lacks it, the one-run flag and
@@ -800,13 +804,15 @@ every repository, and leaves that part out when the context includes none.
 | A hidden path | `pot (work): ~/.ssh is hidden by your root in every run (~/.ssh, …)` |
 | A protected path | `pot (work): justfile is protected (**/justfile, graft): edit it on the host` |
 
-`pot why TARGET --json` answers only whether the run reaches a host, `HOST:PORT` or git URL, as one JSON object:
+`pot why TARGET --json` answers only whether the run reaches a host, `HOST:PORT`, git URL or path, as one JSON object:
 `{ "version": 1, "target", "kind", "reach", "reached", "context", "text" }`. It exits 0 when the target is reached,
 1 when it is not. `kind` is `network` (a host, `HOST:PORT`, or an `https://`, `http://` or `git://` URL, reached
 when an effective network item matches), `git.fetch` (an `ssh://` URL or the scp form, reached when a `git.fetch`
-binding covers its remote) or `file` (a `file://` URL or `/path`, reached when it exists). `--json` may come before
-or after the target. Anything else is a usage error (exit 2):
-`pot why --json answers a host, HOST:PORT or a git URL; X is none (pot why X explains it)`. The git.fetch answers
+binding covers its remote) or `file` (a `file://` URL or a path, reached when the run sees it: in a workspace,
+granted, generated, in the store or under `/run/pot`; not when hidden, not in the run, or requested but not
+granted). pot classifies the target once, for the text answer and for `--json`, so a git URL never gets a path's
+answer. `--json` may come before or after the target. A command or a variable is a usage error (exit 2):
+`pot why --json answers a host, HOST:PORT, a git URL or a path; X is none (pot why X explains it)`. The git.fetch answers
 in `text`: `KEY is a bound git.fetch remote: a fetch goes through the ssh broker`, and
 `pot (work): KEY is not a bound git.fetch remote, so a fetch from it is refused`. This is the contract
 [run-env/1](../../pot/contracts/run-env-1.md#pot-why-target---json); `graft check` asks it inside a run.
@@ -1137,7 +1143,7 @@ The other messages, after `pot (<context>): `:
 | Not a repository (1) | `~/Downloads is not inside a git repository: pot inspect CMD, or pot host CMD` |
 | A `--repo` outside git (1) | `--repo PATH is not inside a git repository` |
 | Stale grant (125) | `meeting-kit (git:…) asks for more than its grant:`, then each new request as `  + network api.github.com:443`, then `  grant it: pot grant meeting-kit`. Also `… requests reach that is not granted:`; `… changed source since its grant:` with `  source: tree A -> tree B` and up to 12 lines of `git diff --stat`; and `… is not a verified release, so its grant does not apply`. |
-| An unverified scion's command (1) | `pot (work): meeting-kit is not a verified release (git:…), so its command runs with no grant: pot host meeting-kit`. Exit 1, not 125: no grant can fix it. <!-- TBD (F7): pot host runs a bundle kit's command, from facts.md --> |
+| An unverified scion's command (1) | `pot (work): meeting-kit is not a verified release (git:…), so its command runs with no grant: pot host meeting-kit`. Exit 1, not 125: no grant can fix it. `pot host meeting-kit` runs it on the host ([host](#host)). |
 | Clone mode (1) | `--clone is clone mode (dispatch), which comes in a later release`; `clone mode (dispatch) comes in a later release; this release works in place` |
 | Missing guarantee (125) | `requires separate-kernel; bubblewrap proves …` |
 | `pot` inside a run (1) | `pot inside a run starts nested runs in a later release: run it on the host` |
@@ -1154,7 +1160,7 @@ is `CAPABILITY: no binding`.
   unverified) or a missing guarantee.
 - `127` when the program is not in the run.
 - `2` for a usage error, such as an unknown context, an instance that the root does not declare, two kits that
-  ship the same command, `pot review`, `pot run` or `pot serve`.
+  ship the same command, `pot review`, `pot run`, `pot serve`, `pot runs` or `pot doctor`.
 - `1` when `pot` refuses to start the run for another reason: a root repository, a hidden path in a flag, a
   conflict between kits, clone mode, a grants file that does not parse, a command of a scion kit that is not a
   verified release, or macOS.
@@ -1193,6 +1199,10 @@ programs.pot.kits."claude-code@personal" = inputs.graft.kits.claude-code {
   mcp = [ "metamcp" ];
 };
 ```
+
+**The instance** is the root's `kits` key (`claude-code@personal`). The kit's `account` argument is not used: giving
+it warns `graft.kits.claude-code: account is not used: the instance is the root's kits key; account goes in
+v2.17.0`.
 
 **The API.** `api` is a value from graft's flake: `graft.apis.anthropic` (the default, `{ name = "anthropic"; }`)
 or `graft.apis.bedrock { region = "us-east-1"; }` (`{ name = "bedrock"; region; }`). It decides the kit's network

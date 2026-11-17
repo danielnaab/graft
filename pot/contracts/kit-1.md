@@ -137,7 +137,7 @@ Every field is optional. Only a root's kit may declare `agent`; anywhere else it
 
 | Field | Type | Meaning |
 |---|---|---|
-| `markers` | list of variable names | A caller with any of these set is an agent: `pot grant` refuses, and a stale grant exits 125 instead of prompting. pot's markers are a floor, `CODEX_SANDBOX` and `CLAUDECODE` (root data in pot's Nix, which no root removes), plus `POT`, the root kits' `markers` and the root's `agentMarkers`, which add to the floor. So `pot grant` refuses under Claude Code even in a root with no claude-code kit. |
+| `markers` | list of variable names | A caller with any of these set is an agent: `pot grant` refuses, and a stale grant exits 125 instead of prompting. pot's markers are a floor, `CODEX_SANDBOX` and `CLAUDECODE` (root data in pot's Nix, `baseAgentMarkers`, which no root removes), plus `POT`, the root kits' `markers` and the root's `agentMarkers` (default `[ ]`), which add to the floor. So `pot grant` refuses under Claude Code even in a root with no claude-code kit. |
 | `select.env` | attrs of strings | How the caller's environment names this instance ([Instances](#instances)). |
 | `resume.transcripts` | a glob in the run's `HOME` | where the agent writes its transcripts, under one of its `state` requests |
 | `resume.args` | list of strings | the arguments that resume a session; `{id}` is the newest transcript's name without its suffix |
@@ -157,7 +157,9 @@ A root names each instance of an agent kit: `kits."claude-code@flexion" = …`, 
    not match `"1"`. An unset variable never matches. **The most
    specific match wins:** the instance whose `select.env` names the most variables. A tie goes to the default
    when it is among the matches; otherwise pot stops and names them;
-4. the kit's default: the root's `defaultInstance.<kit>`, or the only instance.
+4. the kit's default: the root's `defaultInstance.<kit>`, or the only instance. mkRoot checks each
+   `defaultInstance.<kit>` when it evaluates: `graft.lib.mkRoot: defaultInstance.KIT = "X": the root declares
+   KIT@a, KIT@b`, or `graft.lib.mkRoot: defaultInstance.KIT: the root has no kit KIT@NAME (kits: …)`.
 
 Each instance is granted on its own.
 
@@ -195,18 +197,21 @@ identity.
   `memory`. It refuses `tools`, `version`, `agent` and `dirs` as unknown fields, and it refuses the whole bundle
   that holds one. So v2.16.0's mkFlake translates for it: the `graft-kits` it still writes gives `tools` as
   `packages` and drops `version`, and leaves out a kit that uses a 1.1-only field (`agent`, `dirs`), with a build
-  warning that names it. <!-- TBD: the warning's text, from facts.md -->
+  line in the build log: `graft: graft-kits: FILE uses kit 1.1 (dirs or agent), which a v2.15.0 pot cannot read:
+  left out (pot-kits has it)`. The `graft-kits` `kit.json` is otherwise byte-identical to v2.15.0's.
 - **Who may rename `packages` now.** A consumer may write `tools` in its own `perSystem.kit` once it is on graft
   v2.16.0: its own graft builds both bundles. A provider keeps `packages` until v2.17.0: each consumer's graft
   builds the provider's `graft.nix`, and a consumer still on v2.15.0 refuses `tools`.
 - **A newer minor gets one refusal, checked before any other field:**
   `pot: FILE: kit version 1.2 is newer than this pot reads (1.0, 1.1): take a newer pot`. Another major, or a
-  `version` that is not a string: `pot: FILE: kit version X: this pot reads kit 1.0 and 1.1`.
+  `version` that is not a string: `pot: FILE: kit version X: this pot reads kit 1.0 and 1.1`; a number such as
+  `version = 1.1`: `FILE: version is a string: "1.1"`. At run start, a bundle's refusal ends `, or run pot host CMD`.
 - **Unknown fields within a known minor are errors:** `pot: FILE: FIELD is not a kit field (…)`, listing that
   minor's fields. So are unknown request kinds, capability names and fields, command fields, `dirs` fields and
   `agent` fields. A provider learns of a mistake when its consumer builds, not when a run starts.
 - **Values are added, not fields,** within a minor. A new field is a new minor.
-- **`packages`** is read as `tools`, in 1.0 and 1.1. Giving both is an error:
+- **`packages`** is read as `tools`, in 1.0 and 1.1, with a warning when kitsFor evaluates it:
+  `FILE: packages is tools' old name; packages goes in v2.17.0`. Giving both is an error:
   `pot: FILE: tools and packages are one field (packages is its old name): give tools`. Deprecated in v2.16.0,
   removed in v2.17.0.
 

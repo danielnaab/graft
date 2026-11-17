@@ -151,7 +151,7 @@ Why:
   more stops until it is granted again.
 - **Reach belongs to the command, not the repository.** One `NODE_OPTIONS` or `ANTHROPIC_BASE_URL` from a kit
   would steer the agent that holds the reach. So what configures a program follows that program's command, and a
-  repo kit's packages are its only see items that reach every run.
+  repo kit's tools are its only see items that reach every run.
 - **The agent's needs were declared in every repository.** v2.14.0's guide made each repository list Claude
   Code's paths, hosts and token, and made `~/.claude` writable, with every project's transcripts. Now the root
   defines the agent kit once, and each run gets its own agent home, with state scoped per account, workspace and
