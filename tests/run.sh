@@ -1222,6 +1222,8 @@ EOF
   printf '{ pkgs, ... }: { kit = { version = "1.1"; commands.kn = { program = "${pkgs.hello}/bin/hello"; dirs."~/.kn" = { from = "~/.kn"; }; }; }; }\n' > "$work/src/kknew/graft.nix" && release kknew v1.0.0
   cd "$c" && by_hand kktools && by_hand kknew && commit "kktools kknew"
   ran "kits: graft-kits with a renamed and a kit 1.1 provider" nix build -L -o "$work/kgk2" ".#graft-kits"
+  # (its build log, also when the store had it built already)
+  ran "its build log" nix log "$(nix eval --raw ".#packages.$sys.graft-kits.drvPath")"
   expect "warns that the kit 1.1 one is left out" holds "graft: graft-kits: scions/kknew/graft.nix uses kit 1.1 (dirs or agent), which a v2.15.0 pot cannot read: left out (pot-kits has it)"
   expect "tools is written packages" test "$(jq -c '.scions.kktools | [has("packages"), has("tools"), has("version")]' "$work/kgk2/kit.json")" = '[true,false,false]'
   expect "the kit 1.1 one is not in it" test "$(jq -c '.scions | has("kknew")' "$work/kgk2/kit.json")" = false
