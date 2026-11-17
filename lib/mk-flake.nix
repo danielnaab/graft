@@ -20,31 +20,34 @@
 #   tools      one pkgs.buildEnv, packages.<system>.tools; a name two give is an error, unless both
 #              are the same store path
 #   apps packages
-#              by name; a duplicate is an error, and so are apps.graft, packages.tools and
-#              packages.graft-kits (graft's), and the reserved names sandbox and pot
+#              by name; a duplicate is an error, and so are apps.graft, packages.tools,
+#              packages.pot-kits and packages.graft-kits (graft's), and the reserved names sandbox and pot
 #   checks     checks.<system>.<scion>-<name>; perSystem's as checks.<system>.<name>
 #   devShells  perSystem's only; devShells.<system>.default, when none is defined: a shell with the
 #              tools
 #   requires   { name = "url"; }: siblings the provider needs; a missing one is an error naming
 #              `graft add url`
-#   kit        each provider's (a scion kit) and perSystem's (the repo kit), as data (lib/pot/kit.nix):
-#              packages.<system>.graft-kits, which pot builds with path: and reads: kit.json (the
-#              repo kit and each provider's), bin/ (the tools, graft's CLI, the repo kit's packages)
-#              and closure. graft v2.14.0's `sandbox` is an error naming `kit`.
+#   kit        each provider's (a scion kit) and perSystem's (the repo kit), handed unread to pot's
+#              library (pot.lib.kitsFor, contract pot-lib/1) with each one's file, the tools and graft's
+#              CLI for the repo, and what graft has pot protect (every graft.nix, the scions directory):
+#              packages.<system>.pot-kits, which pot builds with path: and reads (contract pot-kits/1).
+#              packages.<system>.graft-kits is v2.15.0's bundle (kit.json { version dir self file
+#              scions }), for a v2.15.0 pot; it goes in v2.17.0. graft v2.14.0's `sandbox` is an error
+#              naming `kit`.
 #
 # plus apps.<system>.graft, the graft command (lib/graft.sh). The repo's own `outputs` are merged
 # last (per system, per name), so the repo can add or override; apps.<system>.graft and
-# packages.<system>.graft-kits are graft's, and a repo's own is an error raised by graft's own value;
+# packages.<system>.{pot-kits,graft-kits} are graft's, and a repo's own is an error raised by graft's own value;
 # sandbox and pot are reserved names in apps and packages.
 #
 # Every check on the scions (the marker README, .gitmodules against what the source holds, names,
 # requires, collisions) is an error inside the values it guards, never on an attribute set's names,
 # and the names a provider gives are read so that a failing provider gives none (builtins.tryEval):
 # apps.<system>.graft (`graft sync` fills empty scions) and the repo's own outputs evaluate
-# whatever state the scions are in; graft-kits, like the tools, fails on a failing provider. An
+# whatever state the scions are in; pot-kits, like the tools, fails on a failing provider. An
 # empty scion (a path: flake's fresh clone; a private one left uninitialised) fails only what uses
 # it (scions.<name>); the tools leave its own out, with a warning.
-{ nixpkgs, systems, cli, potSrc }:
+{ nixpkgs, systems, cli, kitsFor }:
 
 { inputs, dir ? "scions", perSystem ? null, outputs ? { } }:
 
@@ -180,41 +183,36 @@ let
       taken = kind: k: map (n: "graft: ${kind} ${k} (from ${n}): that name is graft's; ${if n == "self" then "rename the repo's own" else "the provider must rename it"}")
         (lib.filter (n: lib.elem k (keysOf n kind)) units);
       reserved = taken "apps" "graft" ++ taken "packages" "tools"
-        ++ lib.concatMap (k: taken "apps" k ++ taken "packages" k) [ "sandbox" "pot" "graft-kits" ];
+        ++ lib.concatMap (k: taken "apps" k ++ taken "packages" k) [ "sandbox" "pot" "pot-kits" "graft-kits" ];
       warnEmpty = x: if empty == [ ] then x
         else lib.warn (emptyMsg empty ", so the tools leave out what ${if lib.length empty == 1 then "it gives" else "they give"}") x;
       toolsEnv = ok (if reserved != [ ] then throw (lib.concatStringsSep "\n" reserved)
         else warnEmpty (pkgs.buildEnv { name = "tools"; paths = lib.attrValues tools; }));
-      # graft-kits: the repo kit (perSystem's `kit`) and each provider's, for pot (lib/pot). v2.14.0's
-      # `sandbox` is an error that names its replacement
-      kitLib = import ./pot/kit.nix { inherit lib; };
+      # the kits, for pot: the repo kit (perSystem's `kit`) and each provider's, handed to pot's
+      # library unread. v2.14.0's `sandbox` is an error that names its replacement
       kitOf = n: let r = results.${n}; in
         if r ? sandbox then throw "graft: ${if n == "self" then "the consumer's perSystem" else "${dir}/${n}/graft.nix"} gives `sandbox`: graft v2.15.0 replaced it with `kit` (pot; see graft's CHANGELOG)"
         else r.kit or null;
       kitFile = n: if n == "self" then "flake.nix (perSystem)" else "${dir}/${n}/graft.nix";
-      kitData = lib.filterAttrs (_: v: v != null) (lib.genAttrs units (n:
-        let k = ctx n (kitOf n); in if k == null then null else kitLib.manifest { kit = k; file = kitFile n; }));
-      kitRoots = lib.concatMap (n: let k = ctx n (kitOf n); in if k == null then [ ] else kitLib.roots k) units;
+      kitUnits = lib.filterAttrs (_: v: v != null) (lib.genAttrs units (n:
+        let k = ctx n (kitOf n); in if k == null then null else { kit = k; file = kitFile n; }));
       graftForRepo = cli pkgs { GRAFT_DIR = dir; GRAFT_IN_REPO = "1"; };
-      selfKit = if perSystem != null then kitOf "self" else null;
-      kitTools = pkgs.buildEnv { name = "graft-kits-tools"; paths = lib.attrValues tools ++ [ graftForRepo ]
-        ++ (if selfKit == null then [ ] else selfKit.packages or [ ]); };
-      graftKits = ok (pkgs.runCommand "graft-kits" {
-        nativeBuildInputs = [ pkgs.python3 ];
-        kitJson = builtins.toJSON {
-          version = 1; inherit dir;
-          self = kitData.self or null;
-          file = "flake.nix (perSystem)";
-          scions = removeAttrs kitData [ "self" ];
-        };
-        passAsFile = [ "kitJson" ];
-      } ''
+      potKits = ok (kitsFor {
+        inherit pkgs;
+        self = kitUnits.self or null;
+        scions = removeAttrs kitUnits [ "self" ];
+        tools = lib.attrValues tools ++ [ graftForRepo ];
+        # graft's own files: every provider's graft.nix and the scions directory are read-only in a run
+        files = [ "**/graft.nix" dir ];
+      });
+      # v2.15.0's bundle, for a v2.15.0 pot (goes in v2.17.0): the same kits, tools and closure
+      graftKits = pkgs.runCommand "graft-kits" { nativeBuildInputs = [ pkgs.jq ]; } ''
         mkdir -p $out
-        cp "$kitJsonPath" $out/kit.json
-        python3 -I ${potSrc}/compose.py validate $out/kit.json
-        ln -s ${kitTools}/bin $out/bin
-        cp ${pkgs.closureInfo { rootPaths = [ kitTools ] ++ kitRoots; }}/store-paths $out/closure
-      '');
+        jq -S --arg dir ${lib.escapeShellArg dir} '{version: 1, dir: $dir, self, file: "flake.nix (perSystem)", scions}' \
+          ${potKits}/kit.json > $out/kit.json
+        ln -s ${potKits}/bin $out/bin
+        cp ${potKits}/closure $out/closure
+      '';
       devShells = lib.mapAttrs (_: ok) (results.self.devShells or { });
       ownDefault = devShells ? default || outputs ? devShells.${system}.default;
     in
@@ -222,9 +220,9 @@ let
       # packages' names by keysOf too: `nix build .#NAME` and `nix eval` look in packages.<system>
       # first, so its names must evaluate for the repo's own outputs (and apps.graft) to; the tools
       # (strict) fail on the provider instead
-      packages = removeAttrs (merge keysOf "packages") [ "tools" "graft-kits" "sandbox" "pot" ]
-        // { tools = toolsEnv; graft-kits = graftKits; };
-      apps = removeAttrs (merge keysOf "apps") [ "graft" "sandbox" "pot" "graft-kits" ];
+      packages = removeAttrs (merge keysOf "packages") [ "tools" "pot-kits" "graft-kits" "sandbox" "pot" ]
+        // { tools = toolsEnv; pot-kits = potKits; graft-kits = graftKits; };
+      apps = removeAttrs (merge keysOf "apps") [ "graft" "sandbox" "pot" "pot-kits" "graft-kits" ];
       checks = lib.foldl' (acc: n:
         acc // lib.listToAttrs (map (k: lib.nameValuePair (if n == "self" then k else "${n}-${k}")
           (ok (ctx n results.${n}.checks.${k}))) (keysStrict n "checks"))) { } units;
@@ -262,6 +260,7 @@ in
 merged // {
   apps = (merged.apps or { }) // lib.genAttrs systems (s: lib.mapAttrs (_: noReserved) (merged.apps.${s} or { }) // graftApps s);
   packages = (merged.packages or { }) // lib.genAttrs systems (s: lib.mapAttrs (_: noReserved) (merged.packages.${s} or { }) // {
+    pot-kits = own s "packages" "pot-kits" bySystem.${s}.packages.pot-kits;
     graft-kits = own s "packages" "graft-kits" bySystem.${s}.packages.graft-kits;
   });
 }

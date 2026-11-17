@@ -1,6 +1,6 @@
-"""Unit tests for pot's composition (lib/pot/compose.py): identity, normalisation, digests,
+"""Unit tests for pot's composition (pot/core/compose.py): identity, normalisation, digests,
 grants, merge rules, contexts, and policy.json v1's shape. Run from `nix flake check` (pot-unit), or
-here: cd lib/pot && python3 -m unittest discover -s ../../tests/pot -t ."""
+here: cd pot/core && python3 -m unittest discover -s ../tests -t ."""
 import copy
 import json
 import unittest
@@ -265,8 +265,17 @@ class Compose(unittest.TestCase):
     def test_base_protect_and_hidden(self):
         p, _ = C.compose(inp())
         prot = [i["value"] for i in p["items"] if i["kind"] == "protect"]
-        for x in ("**/flake.nix", "**/graft.nix", "**/.gitmodules", "**/.envrc", "**/justfile", "**/.claude", ".githooks"):
+        for x in ("**/flake.nix", "**/.gitmodules", "**/.envrc", "**/justfile", "**/.claude", ".githooks"):
             self.assertIn(x, prot)
+        # a producer's own files come from its bundle's protect, not from pot's list
+        self.assertNotIn("**/graft.nix", prot)
+        self.assertEqual(C.label(next(i for i in p["items"] if i["value"] == "**/flake.nix")["sources"][0]), "pot")
+        w = ws(kit={})
+        w["bundleProtect"] = ["**/graft.nix", "nix/tools/.scions"]
+        w["flakeDir"] = "nix/tools"
+        p, _ = C.compose(inp(workspace=[w]))
+        got = {i["value"]: C.label(i["sources"][0]) for i in p["items"] if i["kind"] == "protect"}
+        self.assertEqual((got["**/graft.nix"], got["nix/tools/.scions"], got["nix/tools"]), ("repo", "repo", "pot"))
         hid = [i["value"] for i in p["items"] if i["kind"] == "hidden"]
         for x in ("~/.ssh", "~/.claude", "/state/grants.json", "/state/pot"):
             self.assertIn(x, hid)
@@ -466,8 +475,14 @@ class Compose(unittest.TestCase):
         r = root(name="home-manager", kits={"daniel": {}}, contexts={"work": {"include": ["daniel"]}})
         _, rep = C.compose(inp(r=r, flags={"net": ["x.org"]}, workspace=[ws(kit={})]))
         self.assertEqual(C.permanent_fix("--net", "x.org:443", rep, r),
-                         "the repo kit's requests.network (perSystem.kit), or programs.pot.kits.daniel.requests.network "
+                         "the repo kit's requests.network (flake.nix (perSystem)), or programs.pot.kits.daniel.requests.network "
                          "for every repository (home-manager switch)")
+        # the kit's home is named only as its bundle reports it
+        w = ws(kit={})
+        w["repoKit"]["file"] = "kits.nix (somewhere)"
+        _, rep = C.compose(inp(r=root(), flags={"net": ["x.org"]}, workspace=[w]))
+        self.assertEqual(C.permanent_fix("--net", "x.org:443", rep, root()),
+                         "the repo kit's requests.network (kits.nix (somewhere))")
         # an mkRoot root, a repository that is not a consumer, no included kit
         r = root()
         _, rep = C.compose(inp(r=r, flags={"net": ["x.org"]}))
@@ -475,6 +490,30 @@ class Compose(unittest.TestCase):
                          'repoKits."example.com/o/r".requests.network (rebuild the root)')
         self.assertEqual(C.denial_text("work", "x.org:443", "F"),
                          "pot (work): the run tried x.org:443 (not in this run). one run: pot --net x.org …  permanent: F")
+
+class Bundle(unittest.TestCase):
+    """pot-kits/1's kit.json, as pot.lib.kitsFor writes it and pot reads it."""
+
+    def ok(t, **kw):
+        b = {"version": 1, "self": {"requests": {"capabilities": [{"name": "nix"}]}, "file": "flake.nix (perSystem)"},
+             "scions": {"k": {"protect": ["x"], "file": ".scions/k/graft.nix"}}, "protect": ["**/graft.nix", ".scions"]}
+        b.update({k.rstrip("_"): v for k, v in kw.items()})
+        return b
+
+    def test_valid(self):
+        C.validate_bundle(self.ok())
+        C.validate_bundle(self.ok(self_=None, scions={}, protect=[]))
+
+    def test_refusals(self):
+        for b, msg in [(self.ok(version=2), "kit.json is version 2, and this pot reads version 1"),
+                       (self.ok(dir="scions"), "dir is not a pot-kits field"),
+                       (self.ok(protect=["/abs"]), "a path in the repository"),
+                       (self.ok(self_={"requests": {}}), "self is not a kit with its file"),
+                       (self.ok(self_={"packages": [], "bogus": 1, "file": "f.nix"}), "f.nix: bogus is not a kit field")]:
+            with self.assertRaises(C.KitError) as e:
+                C.validate_bundle(b)
+            self.assertIn(msg, e.exception.message)
+
 
 if __name__ == "__main__":
     unittest.main()

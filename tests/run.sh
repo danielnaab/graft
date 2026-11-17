@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end test of graft: providers are local bare repositories with release tags, grafted into
 # consumers as git submodules with file:// URLs. Sections: mkflake (discovery, wiring, the errors),
-# nix (the Nix behaviours graft relies on: regression tests against Nix changes), seatbelt (the macOS
-# sandbox profile, from fixtures; unwired until 1b), pot (graft's sandbox), add, sync, check, outdated, changelog, upgrade, graft
+# nix (the Nix behaviours graft relies on: regression tests against Nix changes), pot (graft's sandbox), add, sync, check, outdated, changelog, upgrade, graft
 # (graft's own pin), workflows, ci, migrate. Needs nix, git and jq; fetches nixpkgs on the first run.
 # Usage: tests/run.sh [SECTION...] (from anywhere; default: every section, in order). KEEP=1 leaves the
 # work directory, to debug a failure.
@@ -1110,68 +1109,134 @@ sec_tarball() {
   expect "which passes" has "graft: 1 scion clean and at release tags"
 }
 
-# pot (lib/pot): mkFlake's kits and graft-kits, graft.lib.mkRoot, and runs under a test root whose
-# grants file and state are in the work directory. Composition's rules have unit tests (tests/pot,
-# from nix flake check); here, what a run does. Runs need unprivileged user namespaces; without them
-# that part is skipped, saying so.
-sec_pot() {
-  # sbk: a scion kit (limits, requests, a command) that reads kitArgs; sbold: v2.14.0's `sandbox`
-  prov sbk
-  cat > "$work/src/sbk/graft.nix" <<'EOF'
+# kits: mkFlake's side of the seam with pot (graft calls pot.lib.kitsFor, contract pot-lib/1): the bundle
+# packages.<system>.pot-kits (contract pot-kits/1) and v2.15.0's graft-kits, kitArgs, the reserved names
+# and the kit errors as a consumer's build shows them; and graft check's question to pot in a run. pot's
+# own tests (the pot section, pot/tests) read fixture bundles, never mkFlake.
+sec_kits() {
+  # kk: a scion kit (limits, requests, a command) that reads kitArgs; kkold: v2.14.0's `sandbox`
+  prov kk
+  cat > "$work/src/kk/graft.nix" <<'EOF'
 { pkgs, kitArgs ? { }, ... }:
-let tool = pkgs.writeShellScriptBin "sbk-tool" "echo sbk-tool ${kitArgs.word or "none"}"; in
+let tool = pkgs.writeShellScriptBin "kk-tool" "echo kk-tool ${kitArgs.word or "none"}"; in
 {
-  tools.sbk-tool = tool;
+  tools.kk-tool = tool;
   kit = {
-    protect = [ "sbk.yaml" ];
-    requests.network = [ "api.sbk.example" ];
-    commands.sbk-tool.program = "${tool}/bin/sbk-tool";
+    protect = [ "kk.yaml" ];
+    requests.network = [ "api.kk.example" ];
+    commands.kk-tool.program = "${tool}/bin/kk-tool";
   };
 }
 EOF
-  release sbk v1.0.0
-  prov sbold
-  printf '{ ... }: { sandbox.packages = [ ]; }\n' > "$work/src/sbold/graft.nix" && release sbold v1.0.0
-  prov sbbadkit
-  printf '{ ... }: { kit.paths = [ ]; }\n' > "$work/src/sbbadkit/graft.nix" && release sbbadkit v1.0.0
-  prov sbapp
-  printf '{ ... }: { apps.pot = { type = "app"; program = "/bin/sh"; }; }\n' > "$work/src/sbapp/graft.nix" && release sbapp v1.0.0
+  release kk v1.0.0
+  prov kkold
+  printf '{ ... }: { sandbox.packages = [ ]; }\n' > "$work/src/kkold/graft.nix" && release kkold v1.0.0
+  prov kkbad
+  printf '{ ... }: { kit.paths = [ ]; }\n' > "$work/src/kkbad/graft.nix" && release kkbad v1.0.0
+  prov kkapp
+  printf '{ ... }: { apps.pot = { type = "app"; program = "/bin/sh"; }; }\n' > "$work/src/kkapp/graft.nix" && release kkapp v1.0.0
 
-  local c=$work/sbc && consumer "$c" "$(printf '  inputs.self.submodules = true;\n  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; perSystem = { pkgs, ... }: { kitArgs.sbk.word = "hi"; kit = { protect = [ "AGENTS.md" ]; packages = [ pkgs.hello ]; }; }; };' "$graft")" && cd "$c"
+  local c=$work/kc && consumer "$c" "$(printf '  inputs.self.submodules = true;\n  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; perSystem = { pkgs, ... }: { kitArgs.kk.word = "hi"; kit = { protect = [ "AGENTS.md" ]; packages = [ pkgs.hello ]; }; }; };' "$graft")" && cd "$c"
+  echo "# agents" > AGENTS.md && echo "a: 1" > kk.yaml
+  by_hand kk && commit init && quiet nix flake lock && commit lock
+
+  # mkFlake: pot-kits, through pot.lib.kitsFor
+  ran "kits: pot-kits builds" nix build -o "$work/kpk" ".#pot-kits"
+  ran "its kit.json" jq -c . "$work/kpk/kit.json"
+  expect "is pot-kits/1: version, self, scions, protect" test "$(jq -c 'keys' "$work/kpk/kit.json")" = '["protect","scions","self","version"]'
+  expect "holds the repo kit, with its file" holds '"self":{"file":"flake.nix (perSystem)","packages":["/nix/store/'
+  expect "and the scion kit" holds '"kk":{"commands":{"kk-tool":{"program":"/nix/store/'
+  expect "naming its graft.nix" holds '"file":"scions/kk/graft.nix"'
+  expect "graft has pot protect every graft.nix and its scions directory" holds '"protect":["**/graft.nix","scions"]'
+  expect "its tools hold the repository's graft" test -x "$work/kpk/bin/graft"
+  expect "and the repo kit's packages" test -x "$work/kpk/bin/hello"
+  ran "kits: kitArgs reaches the provider" "$work/kpk/bin/kk-tool"
+  expect "its value" has "kk-tool hi"
+  expect "pot-kits has its closure" grep -q hello "$work/kpk/closure"
+  # graft-kits: v2.15.0's bundle, for a v2.15.0 pot
+  ran "kits: graft-kits (v2.15.0's) builds" nix build -o "$work/kgk" ".#graft-kits"
+  ran "its kit.json" jq -c . "$work/kgk/kit.json"
+  expect "in v2.15.0's shape: version, dir, self, file, scions" test "$(jq -c 'keys' "$work/kgk/kit.json")" = '["dir","file","scions","self","version"]'
+  expect "dir" holds '"dir":"scions"'
+  expect "the same kits as pot-kits" test "$(jq -cS '{self, scions}' "$work/kgk/kit.json")" = "$(jq -cS '{self, scions}' "$work/kpk/kit.json")"
+  expect "the same tools" test "$(readlink -f "$work/kgk/bin")" = "$(readlink -f "$work/kpk/bin")"
+  ran "kits: the default devShell" nix eval --json ".#devShells.$sys.default.nativeBuildInputs" --apply 'map (p: p.name)'
+  refuse "holds no sandbox launcher" holds '"sandbox"'
+  refused "kits: v2.14.0's packages.sandbox is gone" nix eval --raw ".#packages.$sys.sandbox.drvPath"
+  by_hand kkold && commit kkold
+  refused "kits: a provider's sandbox" nix build --no-link .#pot-kits
+  expect "names kit" holds "graft: scions/kkold/graft.nix gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\`"
+  git_ rm -q scions/kkold && by_hand kkbad && commit kkbad
+  refused "kits: a kit with an unknown field" nix build --no-link .#pot-kits
+  expect "pot's check names the field and the file" holds "pot: scions/kkbad/graft.nix: paths is not a kit field"
+  git_ rm -q scions/kkbad && by_hand kkapp && commit kkapp
+  refused "kits: a provider's apps.pot" nix build --no-link .#tools
+  expect "is reserved" holds "graft: apps pot (from kkapp): that name is graft's; the provider must rename it"
+  git_ rm -q scions/kkapp && commit "no kkapp"
+  local n
+  for n in pot-kits graft-kits; do
+    sed -i "s|perSystem = { pkgs, ... }: {|perSystem = { pkgs, ... }: { packages.$n = pkgs.hello;|" flake.nix && commit "own $n"
+    refused "kits: perSystem's packages.$n" nix build --no-link .#tools
+    expect "is graft's" holds "graft: packages $n (from self): that name is graft's; rename the repo's own"
+    sed -i "s|{ packages.$n = pkgs.hello;|{|" flake.nix && commit "no own $n"
+  done
+  local c2=$work/kc2 && consumer "$c2" "$(printf '  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; outputs.packages.%s.sandbox = inputs.self; };' "$graft" "$sys")"
+  (cd "$c2" && commit init && refused "kits: outputs' packages.sandbox" nix eval --raw ".#packages.$sys.sandbox.outPath" \
+    && expect "is reserved" holds "graft: mkFlake's outputs has packages.$sys.sandbox: that name is reserved (pot)")
+  local c3=$work/kc3 && consumer "$c3" "$(printf '  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; outputs.packages.%s.pot-kits = inputs.self; };' "$graft" "$sys")"
+  (cd "$c3" && commit init && refused "kits: outputs' packages.pot-kits" nix eval --raw ".#packages.$sys.pot-kits.outPath" \
+    && expect "is graft's" holds "graft: mkFlake's outputs has packages.$sys.pot-kits: that name is graft's; rename the repo's own")
+  # mkFlake reads no kit field: each kit goes to pot.lib.kitsFor as it is
+  refuse "kits: mkFlake reads no kit field" grep -qE 'kit\.(packages|requests|commands|protect|files|env)|selfKit' "$graft/lib/mk-flake.nix"
+  # graft check in a pot run asks pot (pot why URL --json, contract run-env/1), never pot's files
+  local stub=$work/kstub && mkdir -p "$stub"
+  cat > "$stub/pot" <<'EOF'
+#!/bin/sh
+case "$2 $3" in
+  "https://reached.example/x --json") echo '{"reached": true}'; exit 0 ;;
+  *" --json") echo '{"reached": false}'; exit 1 ;;
+esac
+exit 2
+EOF
+  chmod +x "$stub/pot"
+  # shellcheck disable=SC2016 # the inner bash expands them
+  local reach='GRAFT_TMP=$(mktemp -d) && . "$1/lib/common.sh" && pot_reaches "$2"'
+  expect "kits: graft check in a run: pot says reached" env PATH="$stub:$PATH" POT=work bash -c "$reach" _ "$graft" https://reached.example/x
+  refuse "pot says not reached" env PATH="$stub:$PATH" POT=work bash -c "$reach" _ "$graft" https://other.example/x
+  printf '#!/bin/sh\necho "usage: pot why PATH" >&2\nexit 2\n' > "$stub/pot"
+  expect "an older pot (no usable answer): the fetch is tried" env PATH="$stub:$PATH" POT=work bash -c "$reach" _ "$graft" https://other.example/x
+  refuse "kits: graft reads no POT_POLICY" grep -q POT_POLICY "$graft/lib/common.sh"
+  cd "$work"
+}
+
+# pot (pot/): graft.lib.mkRoot, and runs under a test root whose grants file and state are in the work
+# directory, in a workspace whose kits come from a fixture bundle: a flake that calls pot.lib.kitsFor
+# itself (no mkFlake). Composition's rules have unit tests (pot/tests, from nix flake check); here, what a
+# run does. Runs need unprivileged user namespaces; without them that part is skipped, saying so.
+sec_pot() {
+  # sbk: a scion at a release tag; the fixture flake gives its kit (pot reads only the bundle)
+  prov sbk && release sbk v1.0.0
+  local c=$work/sbc && mkdir -p "$c" && git_ -C "$c" init -q && cd "$c"
+  cat > flake.nix <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  outputs = { graft, ... }: {
+    packages = graft.inputs.nixpkgs.lib.genAttrs [ "$sys" ] (s: let pkgs = graft.inputs.nixpkgs.legacyPackages.\${s};
+        tool = pkgs.writeShellScriptBin "sbk-tool" "echo sbk-tool hi"; in {
+      pot-kits = graft.lib.pot.kitsFor {
+        inherit pkgs;
+        self = { kit = { protect = [ "AGENTS.md" ]; packages = [ pkgs.hello ]; }; file = "flake.nix (fixture)"; };
+        scions.sbk = { file = "kits/sbk.nix"; kit = { requests.network = [ "api.sbk.example" ]; protect = [ "sbk.yaml" ];
+          commands.sbk-tool.program = "\${tool}/bin/sbk-tool"; }; };
+        tools = [ tool ];
+        files = [ "**/kit-owner.nix" "scions" ];
+      };
+    });
+  };
+}
+EOF
   echo "# agents" > AGENTS.md && echo "a: 1" > sbk.yaml && echo "default:" > justfile && echo data > notes.md
   by_hand sbk && commit init && quiet nix flake lock && commit lock
-
-  # mkFlake: graft-kits
-  ran "pot: graft-kits builds" nix build -o "$work/sbkits" ".#graft-kits"
-  ran "its kit.json" jq -c . "$work/sbkits/kit.json"
-  expect "holds the repo kit" holds '"self":{"file":"flake.nix (perSystem)","packages":["/nix/store/'
-  expect "and the scion kit, with its file" holds '"sbk":{"commands":{"sbk-tool":{"program":"/nix/store/'
-  expect "naming its graft.nix" holds '"file":"scions/sbk/graft.nix"'
-  expect "its tools hold graft" test -x "$work/sbkits/bin/graft"
-  expect "and the repo kit's packages" test -x "$work/sbkits/bin/hello"
-  ran "pot: kitArgs reaches the provider" "$work/sbkits/bin/sbk-tool"
-  expect "its value" has "sbk-tool hi"
-  expect "graft-kits has its closure" grep -q hello "$work/sbkits/closure"
-  ran "pot: the default devShell" nix eval --json ".#devShells.$sys.default.nativeBuildInputs" --apply 'map (p: p.name)'
-  refuse "holds no sandbox launcher" holds '"sandbox"'
-  refused "pot: v2.14.0's packages.sandbox is gone" nix eval --raw ".#packages.$sys.sandbox.drvPath"
-  by_hand sbold && commit sbold
-  refused "pot: a provider's sandbox" nix build --no-link .#graft-kits
-  expect "names kit" holds "graft: scions/sbold/graft.nix gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\`"
-  git_ rm -q scions/sbold && by_hand sbbadkit && commit sbbadkit
-  refused "pot: a kit with an unknown field" nix build --no-link .#graft-kits
-  expect "names the field and the file" holds "graft: scions/sbbadkit/graft.nix: paths is not a kit field"
-  git_ rm -q scions/sbbadkit && by_hand sbapp && commit sbapp
-  refused "pot: a provider's apps.pot" nix build --no-link .#tools
-  expect "is reserved" holds "graft: apps pot (from sbapp): that name is graft's; the provider must rename it"
-  git_ rm -q scions/sbapp && commit "no sbapp"
-  sed -i 's|perSystem = { pkgs, ... }: {|perSystem = { pkgs, ... }: { packages.graft-kits = pkgs.hello;|' flake.nix && commit "own graft-kits"
-  refused "pot: perSystem's packages.graft-kits" nix build --no-link .#tools
-  expect "is graft's" holds "graft: packages graft-kits (from self): that name is graft's; rename the repo's own"
-  sed -i 's|{ packages.graft-kits = pkgs.hello;|{|' flake.nix && commit "no own graft-kits"
-  local c2=$work/sbc2 && consumer "$c2" "$(printf '  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; outputs.packages.%s.sandbox = inputs.self; };' "$graft" "$sys")"
-  (cd "$c2" && commit init && refused "pot: outputs' packages.sandbox" nix eval --raw ".#packages.$sys.sandbox.outPath" \
-    && expect "is reserved" holds "graft: mkFlake's outputs has packages.$sys.sandbox: that name is reserved (pot)")
 
   # graft.lib.mkRoot: a test root
   local r=$work/sbroot && mkdir -p "$r" "$work/sbrootrepo" "$work/sbhidden"
@@ -1328,7 +1393,7 @@ STUB
   mkdir -p "$work/sbextra" && echo extra > "$work/sbextra/f"
   ran "pot: --read" sb_loud --read "$work/sbextra" cat "$work/sbextra/f"
   expect "reads it" has "extra"
-  expect "and the exit line names the permanent fix" holds "pot: --read $work/sbextra was for this run; permanent: the repo kit's requests.read (perSystem.kit), or kits.daniel.requests.read for every repository (rebuild the root)"
+  expect "and the exit line names the permanent fix" holds "pot: --read $work/sbextra was for this run; permanent: the repo kit's requests.read (flake.nix (fixture)), or kits.daniel.requests.read for every repository (rebuild the root)"
   refuse "pot: without --read, it is not there" sb_ cat "$work/sbextra/f" 2>/dev/null
 
   # network: through the proxy, to granted hosts alone; denials reach the run and the exit line
@@ -1336,8 +1401,8 @@ STUB
   local ask='exec 3<>/dev/tcp/127.0.0.1/3128 && printf "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n" "$1" "$1" >&3 && head -1 <&3'
   ran "pot: a host not granted" sb_loud bash -c "$ask; cat /run/pot/denials" _ denied.example:443
   expect "the proxy refuses it" holds "HTTP/1.1 403 Forbidden (pot: not in this run)"
-  expect "the run reads the denial, with its fix" holds "pot (work): the run tried denied.example:443 (not in this run). one run: pot --net denied.example …  permanent: the repo kit's requests.network (perSystem.kit), or kits.daniel.requests.network for every repository (rebuild the root)"
-  expect "and the exit line says so" has "pot (work): the run tried denied.example:443 (not in this run). one run: pot --net denied.example …  permanent: the repo kit's requests.network (perSystem.kit), or kits.daniel.requests.network for every repository (rebuild the root)"
+  expect "the run reads the denial, with its fix" holds "pot (work): the run tried denied.example:443 (not in this run). one run: pot --net denied.example …  permanent: the repo kit's requests.network (flake.nix (fixture)), or kits.daniel.requests.network for every repository (rebuild the root)"
+  expect "and the exit line says so" has "pot (work): the run tried denied.example:443 (not in this run). one run: pot --net denied.example …  permanent: the repo kit's requests.network (flake.nix (fixture)), or kits.daniel.requests.network for every repository (rebuild the root)"
   expect "with the run id" holds "pot: run "
   ran "pot: a granted host (nothing listens: Bad Gateway)" sb_ bash -c "$ask" _ 127.0.0.1:1
   expect "passes the proxy" holds "HTTP/1.1 502 Bad Gateway"
@@ -1393,7 +1458,7 @@ STUB
     # shellcheck disable=SC2016 # the run's shell expands them
     echo "diagnostics: $(sb_ bash -c 'echo "BASH_ENV=$BASH_ENV"; ls -la "$BASH_ENV"; declare -F command_not_found_handle; set -o | grep -E "posix|privileged"; env | grep -c BASH_FUNC; echo "$BASHOPTS"' 2>&1 | tr '\n' ';')" >&2
   fi
-  expect "bash's handler for any other" holds "pot (work): nosuchprogram is not in this run. one run: pot --package PKG …  permanent: tools (rebuild the root), or the repo kit's packages (perSystem.kit)"
+  expect "bash's handler for any other" holds "pot (work): nosuchprogram is not in this run. one run: pot --package PKG …  permanent: tools (rebuild the root), or the repo kit's packages (flake.nix (fixture))"
   expect "nix without the capability" holds "pot (work): nix needs the nix capability"
   ran "pot: the handler, exported as a function too" sb_ env -u BASH_ENV bash -c 'nosuchprogram2; true'
   expect "a bash that skips BASH_ENV still has it" holds "pot (work): nosuchprogram2 is not in this run"
@@ -1540,7 +1605,7 @@ STUB
   # explain and why
   ran "pot: explain" sb_ explain
   expect "the context" holds "context    work: in-place, access write, bubblewrap; includes root:daniel"
-  expect "the repo kit's protect" holds "AGENTS.md (repo)"
+  expect "the repo kit's protect" grep -qE 'AGENTS\.md .*\(repo\)' <<<"$out"
   expect "the scion kit's" holds "sbk.yaml (sbk)"
   refuse "no truncated kinds" holds "capabili "
   ran "pot: explain --json" sb_ explain --json
@@ -1554,9 +1619,9 @@ STUB
   ran "pot: a port-80 denial" sb_ bash -c "$ask; cat /run/pot/denials" _ denied.example:80
   expect "suggests HOST:80" holds "one run: pot --net denied.example:80 …"
   ran "pot: why HOST" sb_ why other.example
-  expect "says would, and names the included kit" has "pot (work): pot would refuse other.example:443 in a run here. one run: pot --net other.example …  permanent: the repo kit's requests.network (perSystem.kit), or kits.daniel.requests.network for every repository (rebuild the root)"
+  expect "says would, and names the included kit" has "pot (work): pot would refuse other.example:443 in a run here. one run: pot --net other.example …  permanent: the repo kit's requests.network (flake.nix (fixture)), or kits.daniel.requests.network for every repository (rebuild the root)"
   ran "pot: why, on the host" sb_ why justfile
-  expect "protected" has "pot (work): justfile is protected (**/justfile, graft): edit it on the host"
+  expect "protected" has "pot (work): justfile is protected (**/justfile, pot): edit it on the host"
   ran "pot: why, inside a run" sb_ bash -c 'pot why denied.example; pot why 127.0.0.1:1; pot why ~/.ssh'
   expect "a host not in the run" holds "pot (work): the run tried denied.example:443 (not in this run)"
   expect "a granted host" holds "127.0.0.1:1 is granted (daniel); in this run"
@@ -1566,6 +1631,74 @@ STUB
   expect "nests from 1b" holds "pot (work): pot inside a run starts nested runs in a later release"
   refused "pot: pot grant inside a run" sb_ pot grant
   expect "is the host's" holds "pot grant is for people, on the host"
+
+  # the bundle's protect, and the flake directory pot evaluated: labelled by who asks, never graft
+  ran "pot: explain shows the bundle's protect" sb_ explain
+  expect "every kit-owner.nix and the scions directory, as the repo's" grep -qE '\*\*/kit-owner\.nix scions .*\(repo\)' <<<"$out"
+  refuse "and no graft.nix of pot's own" holds "**/graft.nix"
+  refuse "and no (graft) label" holds "(graft)"
+  refuse "pot: the bundle's scions directory is read-only" sb_ touch scions/new2 2>/dev/null
+  # pot why --json (contract run-env/1): exit 0 when reached, 1 when not
+  ran "pot: why --json, on the host, a granted host" sb_ why 127.0.0.1:1 --json
+  expect "reached" test "$(jq -c '[.version, .kind, .reach, .reached]' <<<"$out")" = '[1,"network","127.0.0.1:1",true]'
+  refused "pot: why --json, a host not reached" sb_ why https://other.example/o/r.git --json
+  expect "says not reached, exit 1" test "$(jq -c '[.kind, .reach, .reached]' <<<"$out")" = '["network","other.example:443",false]'
+  refused "pot: why --json, an ssh URL without a git.fetch binding in this run" sb_ why ssh://git@fake.example/x.git --json
+  expect "is git.fetch, not reached" test "$(jq -c '[.kind, .reached]' <<<"$out")" = '["git.fetch",false]'
+  refused "pot: why --json, something else" sb_ why justfile --json
+  expect "is usage" holds "pot why --json answers a host, HOST:PORT or a git URL"
+  # shellcheck disable=SC2016 # the run's bash expands them
+  ran "pot: why --json, inside a run" sb_ bash -c 'pot why 127.0.0.1:1 --json; echo "exit $?"; pot why https://other.example/x --json; echo "exit $?"'
+  expect "reached, exit 0" has "exit 0"
+  expect "not reached, exit 1" has "exit 1"
+  expect "the JSON" holds '"reach": "other.example:443"'
+
+  # discovery from git facts (contract pot-kits/1): pot evaluates only a flake located from .gitmodules
+  # at HEAD; pot-kits, else v2.15.0's graft-kits; neither is no repo kit, cached by tree
+  local d
+  d=$work/sbnosub && mkdir -p "$d" && git_ -C "$d" init -q
+  printf 'this is not a flake {\n' > "$d/flake.nix"
+  (cd "$d" && commit init && ran "pot: a repository without submodules: its flake is never evaluated" sb_loud true \
+    && refuse "no build" holds "building the repo kit")
+  d=$work/sbold15 && mkdir -p "$d" && git_ -C "$d" init -q
+  cat > "$d/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  outputs = { graft, ... }: let pkgs = graft.inputs.nixpkgs.legacyPackages.$sys; in {
+    # v2.15.0's bundle, as its mkFlake wrote it
+    packages.$sys.graft-kits = pkgs.runCommand "graft-kits" { } ''
+      mkdir -p \$out/bin
+      echo '{"version":1,"dir":"scions","file":"flake.nix (perSystem)","self":{"file":"flake.nix (perSystem)","protect":["OLD.md"]},"scions":{}}' > \$out/kit.json
+      touch \$out/closure
+    '';
+  };
+}
+EOF
+  (cd "$d" && echo old > OLD.md && by_hand sbk && commit init && quiet nix flake lock && commit lock \
+    && ran "pot: a v2.15.0 consumer (graft-kits only)" sb_ explain \
+    && expect "its repo kit's protect, and what v2.15.0 protected for it" grep -qE 'OLD\.md \*\*/graft\.nix scions .*\(repo\)' <<<"$out" \
+    && refuse "its scions directory is read-only" sb_ touch scions/new 2>/dev/null)
+  d=$work/sbnokit && mkdir -p "$d" && git_ -C "$d" init -q
+  printf '{\n  inputs.graft.url = "path:%s";\n  outputs = { graft, ... }: { packages.%s.other = graft.packages.%s.default; };\n}\n' "$graft" "$sys" "$sys" > "$d/flake.nix"
+  (cd "$d" && by_hand sbk && commit init && quiet nix flake lock && commit lock \
+    && ran "pot: a flake with no pot-kits" sb_loud true \
+    && refuse "has no repo kit (no build)" holds "building the repo kit" \
+    && expect "and the answer is cached by tree" grep -lq '"out": null' "$work"/sbstate/cache/kits/*.json)
+  d=$work/sbv2 && mkdir -p "$d" && git_ -C "$d" init -q
+  cat > "$d/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  outputs = { graft, ... }: let pkgs = graft.inputs.nixpkgs.legacyPackages.$sys; in {
+    packages.$sys.pot-kits = pkgs.runCommand "pot-kits" { } ''
+      mkdir -p \$out/bin && echo '{"version":2,"self":null,"scions":{},"protect":[]}' > \$out/kit.json && touch \$out/closure
+    '';
+  };
+}
+EOF
+  (cd "$d" && by_hand sbk && commit init && quiet nix flake lock && commit lock \
+    && refused "pot: a newer bundle" sb_ true \
+    && expect "is refused, naming its version" holds "kit.json is version 2, and this pot reads version 1: take a pot that reads it, or run pot host CMD")
+  cd "$c"
 
   # grants: grown sets, arrival by git, a file that does not parse
   sed -i 's|kit = { protect|kit = { requests.network = [ "more.example" ]; protect|' flake.nix && commit "more"
@@ -1642,92 +1775,33 @@ STUB
   cd "$work"
 }
 
-# The Seatbelt profile (lib/sandbox/seatbelt.sh, seatbelt.sb), generated here from fixtures: macOS
-# alone runs it (tests/macos-smoke.sh), but what it says is checked on any host. No nix needed.
-sec_seatbelt() {
-  local sb=$src/lib/sandbox/seatbelt.sh base=$src/lib/sandbox/seatbelt.sb d=$work/sbp
-  local store=/nix/store/0123456789abcdfghijklmnpqrsvwxyz-jq-1.7.1-bin
-  mkdir -p "$d/home/ro" "$d/home/.cache/sb" "$d/repo/.git" && echo secret > "$d/home/.secret"
-  # resolved, as sb_host resolves paths.* (on a Mac, /tmp is /private/tmp)
-  d=$(cd "$d" && pwd -P)
-  touch "$d/repo/flake.nix" "$d/repo/.git/config"
-  expect "seatbelt: the base denies by default" grep -qxF "(deny default)" "$base"
-  refuse "and allows no user's folder" grep -qE '"/(Users|Volumes|private/tmp|private/var/folders)' "$base"
-  ran "seatbelt: a rule with no filter" bash -c "source '$sb'; sb_rule 'allow file-read*'"
-  expect "is no rule (it would match everything)" test -z "$out"
-  ran "seatbelt: the closure's store paths" bash -c "source '$sb'; sb_store" <<<"$store"
-  expect "readable and runnable" has "  (subpath \"$store\"))"
-  refused "seatbelt: a line that isn't a store path" bash -c "source '$sb'; sb_store" <<<"$store\"x"
-  expect "stops the build" holds "graft: sandbox: not a store path"
-  # the run's part, through backend_prepare, as the launcher calls it (launcher.sh's helpers stubbed)
-  # shellcheck disable=SC2016 # the inner bash expands them
-  local prep='
-    set -euo pipefail
-    source "$1"
-    home() { echo "${1/#\~\//$HOME/}"; }
-    rel() { echo "$1"; }
-    die() { echo "die: $*" >&2; exit 1; }
-    run=$2/run HOME=$2/home top=$2/repo common=$2/repo/.git profile=/dev/null cacert=/cacert dry=""
-    readOnly=("~/ro" "~/absent") writable=("~/.cache/sb") repoReadOnly=$3 allow=(x:443) proxyPort=51234 withPaths=("$4")
-    pinRO=("$top/.git/config" "$top/flake.nix") pinDirs=("$top/.git")
-    mkdir -p "$run"
-    backend_prepare </dev/null >/dev/null 2>&1
-    cp "$run/profile.sb" "$2/profile.out"; cat "$run/profile.sb"; printf "%s\n" "${sbParams[@]}"; ls -A "$run/home"; readlink "$run/home/ro"
-    echo "TMPDIR: ${backendEnv[*]}"; echo "proxy: $proxyUrl"'
-  rm -rf "$d/run"
-  ran "seatbelt: the run's profile (repository writable)" bash -c "$prep" _ "$sb" "$d" 0 "$store"
-  # param P: the parameters whose value is P
-  # shellcheck disable=SC2317 # run through expect and refuse
-  param() { awk -v p="$1" 'index($0, "-DP") == 1 { split($0, kv, "="); k = substr(kv[1], 3); v = substr($0, length(kv[1]) + 2); if (v == p) print k }' <<<"$out"; }
-  # rule OP KEYS: a filter on one of the parameters KEYS (lines) is in a rule OP
-  # shellcheck disable=SC2317
-  rule() {
-    awk -v op="$1" -v keys="$2" 'BEGIN { n = split(keys, k, "\n") } /^\(/ { cur = $0 }
-      { for (i = 1; i <= n; i++) if (k[i] != "" && index($0, "(param \"" k[i] "\")") && cur == op) found = 1 }
-      END { exit !found }' <<<"$out"
-  }
-  expect "the repository: read, written, run" rule "(allow file-read* file-write* process-exec" "$(param "$d/repo")"
-  expect "the run's HOME" rule "(allow file-read* file-write* process-exec" "$(param "$d/run/home")"
-  expect "and TMPDIR" rule "(allow file-read* file-write* process-exec" "$(param "$d/run/tmp")"
-  expect "TMPDIR is the run's, and SHLVL 1 (no host /etc/bashrc)" has "TMPDIR: TMPDIR=$d/run/tmp SHLVL=1"
-  expect "paths.readOnly: read" rule "(allow file-read* process-exec" "$(param "$d/home/ro")"
-  expect "paths.writable: written" rule "(allow file-read* file-write* process-exec" "$(param "$d/home/.cache/sb")"
-  expect "a ~/ entry is in the run's HOME, a link to the real one" has "$d/home/ro"
-  local h && h=$(param "$d/home")
-  expect "the real home: stat alone (realpath(3) of a path in it)" rule "(allow file-read-metadata" "$h"
-  refuse "not read" rule "(allow file-read* process-exec" "$h"
-  refuse "not written" rule "(allow file-read* file-write* process-exec" "$h"
-  expect "nor its secret" test "$(grep -c secret <<<"$out")" = 0
-  expect "an absent entry: skipped" test -z "$(param "$d/home/absent")"
-  expect "--with's store path" has "  (subpath \"$store\"))"
-  expect "a protected file: written by nothing, linked by nothing" rule "(deny file-write* file-link" "$(param "$d/repo/flake.nix")"
-  expect "the git config" rule "(deny file-write* file-link" "$(param "$d/repo/.git/config")"
-  expect ".git: not renamed, removed or replaced" rule "(deny file-write-unlink file-write-create" "$(param "$d/repo/.git")"
-  expect "nor the repository, nor HOME" rule "(deny file-write-unlink file-write-create" "$(param "$d/run/home")"
-  expect "the repository's parents: stat alone" rule "(allow file-read-metadata" "$(param "$d")"
-  expect "the network: the proxy's port alone" has '  (remote ip "localhost:51234"))'
-  expect "and its URL" has "proxy: http://127.0.0.1:51234"
-  expect "TIOCSTI: denied" holds "(deny file-ioctl"$'\n'"  (ioctl-command 2147579026))"
-  expect "the denies come last" test "$(grep -n '^(allow' <<<"$out" | tail -1 | cut -d: -f1)" -lt "$(grep -n '^(deny' <<<"$out" | head -1 | cut -d: -f1)"
-  refuse "no path of the run is written in the profile, only parameters" grep -qF "$d" "$d/profile.out"
-  rm -rf "$d/run"
-  ran "seatbelt: the run's profile (repository.readOnly)" bash -c "$prep" _ "$sb" "$d" 1 "$store"
-  expect "the repository: read alone" rule "(allow file-read* process-exec" "$(param "$d/repo")"
-  refuse "not written" rule "(allow file-read* file-write* process-exec" "$(param "$d/repo")"
-  rm -rf "$d/run"
-}
-
 sec_own() {
-  # graft's docs check reads knowledge-base-kit from a flake input: the same commit as its scion
-  local link rev
+  # graft's docs check (dev/flake.nix) reads knowledge-base-kit from a flake input: the same commit as its scion
+  local link rev b0 b1 c=$work/own-boundary
   link=$(git_ -C "$src" ls-files -s scions/knowledge-base-kit | awk '$1 == "160000" { print $2 }')
-  rev=$(jq -r '.nodes["knowledge-base-kit"].locked.rev' "$src/flake.lock")
-  expect "own: graft's knowledge-base-kit input is at its scion's gitlink ($link)" test "$link" = "$rev"
+  rev=$(jq -r '.nodes["knowledge-base-kit"].locked.rev' "$src/dev/flake.lock")
+  expect "own: dev/flake.nix's knowledge-base-kit input is at its scion's gitlink ($link)" test "$link" = "$rev"
+  expect "own: graft's own lock holds no knowledge-base-kit (consumers never lock it)" \
+    test "$(jq -r '.nodes | has("knowledge-base-kit")' "$src/flake.lock")" = false
   expect "own: graft's flake.nix doesn't declare self.submodules (it is others' input)" \
     test -z "$(grep -E '^[^#]*submodules *= *true' "$src/flake.nix")"
+  ran "own: the docs check (nix flake check ./dev)" nix build --no-link "$src/dev#checks.$sys.docs"
+  # the boundary: graft's command is built from graft's own sources (lib/*.sh, lib/*.jq, template/), so
+  # an edit in pot/ (or in mkFlake) leaves packages.<system>.default as it was
+  cp -r "$graft" "$c"
+  b0=$(nix eval --raw "path:$c#packages.$sys.default.drvPath")
+  local f
+  for f in pot/core/pot.py pot/nix/hm.nix pot/nix/root.nix pot/lib/kits-for.nix pot/kits/claude-code.nix lib/mk-flake.nix; do
+    echo "# a comment" >> "$c/$f"
+    b1=$(nix eval --raw "path:$c#packages.$sys.default.drvPath")
+    expect "own: a comment in $f leaves graft's command as it was" test "$b0" = "$b1"
+  done
+  echo "# a comment" >> "$c/lib/common.sh"
+  b1=$(nix eval --raw "path:$c#packages.$sys.default.drvPath")
+  expect "own: and a comment in lib/common.sh changes it (the experiment sees graft's sources)" test "$b0" != "$b1"
 }
 
-sections=(own mkflake tarball nix try seatbelt pot add sync check outdated changelog upgrade graft workflows ci migrate)
+sections=(own mkflake tarball nix try kits pot add sync check outdated changelog upgrade graft workflows ci migrate)
 [ $# -eq 0 ] || sections=("$@")
 for s in "${sections[@]}"; do
   echo "== $s"

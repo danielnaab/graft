@@ -1,5 +1,5 @@
 # A kit (design §6.1) as a JSON manifest: packages as store paths, file sources as store paths, the
-# rest literal. compose.py validates it (unknown fields are errors) when the root or graft-kits builds.
+# rest literal. compose.py validates it (unknown fields are errors) when the root or pot-kits builds.
 #
 #   kit = {
 #     packages = [ ];  env.set = { };  files."~/x" = { source; mode = "fixed"; };    # see
@@ -18,7 +18,7 @@ let
 in
 {
   manifest = { kit, file }:
-    if !builtins.isAttrs kit then throw "graft: ${file}: a kit is an attribute set"
+    if !builtins.isAttrs kit then throw "pot: ${file}: a kit is an attribute set"
     else kit // { inherit file; }
       // lib.optionalAttrs (kit ? packages) { packages = map str kit.packages; }
       // lib.optionalAttrs (kit ? files) { files = lib.mapAttrs (_: f: f // lib.optionalAttrs (f ? source) { source = str f.source; }) kit.files; }

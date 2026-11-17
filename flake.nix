@@ -4,10 +4,9 @@
   # graft is other flakes' input (github:, and path: or tarballs in its tests), so this flake.nix must not
   # declare inputs.self.submodules: Nix applies it to that fetch too, and those schemes reject it
   # ("input attribute 'submodules' not supported by scheme 'github'"). # graft: no self.submodules
-  # So graft can't mkFlake itself: its scion is absent from its source. The docs check reads
-  # knowledge-base-kit from this input instead, at the scion's gitlink (tests/run.sh `own` checks they match).
+  # So graft can't mkFlake itself: its scion is absent from its source. The docs check is in dev/flake.nix
+  # (nix flake check ./dev), with its knowledge-base-kit input, so graft's consumers never lock it.
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
-  inputs.knowledge-base-kit = { url = "github:danielnaab/knowledge-base-kit/v2.1.0"; flake = false; };
 
   outputs = { self, nixpkgs, ... }@inputs:
     let
@@ -15,6 +14,11 @@
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAll = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
+      # graft's command is built from graft's own sources alone: lib/'s scripts, its jq files and the
+      # scions README it writes, and template/. pot/ and lib/mk-flake.nix are not in it, so a pot change
+      # leaves packages.<system>.default as it was (tests/run.sh `own` checks it).
+      graftLib = builtins.path { path = ./lib; name = "graft-lib";
+        filter = p: t: t == "regular" && (lib.hasSuffix ".sh" p || lib.hasSuffix ".jq" p || baseNameOf p == "scions-readme.md"); };
       # The graft command (lib/graft.sh), with this version's workflows (template/). ENV is exported
       # first: a repo's own app (mkFlake) sets GRAFT_IN_REPO and GRAFT_DIR, its scions directory's name;
       # graft's own package sets nothing, and reads any checkout with -C.
@@ -24,19 +28,21 @@
         text = ''
           ${lib.concatStrings (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}\n") env)}
           export GRAFT_TEMPLATE=${./template}
-          exec bash ${./lib}/graft.sh "$@"
+          exec bash ${graftLib}/graft.sh "$@"
         '';
         meta.description = "Graft other repositories as git submodules pinned to release tags";
       };
-      # pot's programs (python), alone in the store: a change elsewhere in graft changes no root
-      potSrc = builtins.path { path = ./lib/pot; name = "graft-pot"; filter = p: _: lib.hasSuffix ".py" p; };
-      mkFlake = import ./lib/mk-flake.nix { inherit nixpkgs systems cli potSrc; };
-      mkRoot = import ./lib/pot/root.nix { inherit cli potSrc; };
+      # pot's programs (python, pot/core), alone in the store: a change elsewhere changes no root
+      potSrc = builtins.path { path = ./pot/core; name = "graft-pot"; filter = p: _: lib.hasSuffix ".py" p; };
+      # pot.lib.kitsFor (pot/lib/kits-for.nix, contract pot-lib/1): the one thing of pot's that mkFlake calls
+      kitsFor = import ./pot/lib/kits-for.nix { inherit potSrc; };
+      mkFlake = import ./lib/mk-flake.nix { inherit nixpkgs systems cli kitsFor; };
+      mkRoot = import ./pot/nix/root.nix { inherit potSrc; };
       # graft's default root: for someone without one (pot init writes a minimal one to edit). It runs
       # the host's claude as claude-code@personal, with its token file (claude setup-token) and nix
       defaultRoot = pkgs: mkRoot {
         inherit pkgs;
-        kits."claude-code@personal" = import ./lib/pot/kits/claude-code.nix { inherit pkgs; account = "personal"; binary = "host"; };
+        kits."claude-code@personal" = import ./pot/kits/claude-code.nix { inherit pkgs; account = "personal"; binary = "host"; };
         defaultAccount = "personal";
         bindings = {
           "status.relay"."*" = { workmux = true; };
@@ -44,15 +50,16 @@
           nix."*" = { via = "daemon-untrusted"; };
         };
       };
-      kbKit = inputs.knowledge-base-kit;
     in
     {
       lib.mkFlake = mkFlake;
       lib.mkRoot = mkRoot;
-      # agent kits, for a root to call: graft.kits.claude-code { pkgs; account; … } (lib/pot/kits)
-      kits.claude-code = import ./lib/pot/kits/claude-code.nix;
-      # a personal root in home-manager: programs.pot (lib/pot/hm.nix)
-      homeManagerModules.pot = import ./lib/pot/hm.nix { inherit mkRoot; };
+      # pot's library for a producer of kits (contract pot-lib/1): kitsFor { pkgs; self; scions; tools; files; }
+      lib.pot.kitsFor = kitsFor;
+      # agent kits, for a root to call: graft.kits.claude-code { pkgs; account; … } (pot/kits)
+      kits.claude-code = import ./pot/kits/claude-code.nix;
+      # a personal root in home-manager: programs.pot (pot/nix/hm.nix)
+      homeManagerModules.pot = import ./pot/nix/hm.nix { inherit mkRoot; };
 
       # Run against any checkout without evaluating its flake:
       #   nix run github:danielnaab/graft -- outdated -C path/to/repo
@@ -87,28 +94,28 @@
         # bash -n first: bash's own parser, so a script bash can't run fails even where shellcheck's
         # parser would differ
         shellcheck = pkgs.runCommand "graft-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
-          for f in ${./tests}/*.sh ${./lib}/*.sh ${./lib}/sandbox/*.sh; do bash -n "$f" || exit 1; done
-          shellcheck -x ${./tests/run.sh} ${./tests/fixtures.sh} ${./tests/macos-smoke.sh} ${./lib}/*.sh ${./lib}/sandbox/*.sh
+          for f in ${./tests}/*.sh ${graftLib}/*.sh; do bash -n "$f" || exit 1; done
+          shellcheck -x ${./tests/run.sh} ${./tests/fixtures.sh} ${graftLib}/*.sh
           touch $out
         '';
         # pot's unit tests: composition, identity, normalisation, digests, merge rules, grants
         pot-unit = pkgs.runCommand "graft-pot-unit" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          cp -r ${potSrc} pot && chmod -R u+w pot && cp ${./tests/pot}/*.py pot/
+          cp -r ${potSrc} pot && chmod -R u+w pot && cp ${./pot/tests}/test_*.py pot/
           cd pot && python3 -I -m unittest discover -s . -p 'test_*.py' -v
           touch $out
         '';
         # the golden grant test: the canonical grant items and digests of the default root's
-        # claude-code@personal, and of tests/pot/golden.nix's root (a real root's instances, its
-        # standing kit and a repo kit), equal tests/pot/golden.json byte for byte
+        # claude-code@personal, and of pot/tests/golden.nix's root (a real root's instances, its
+        # standing kit and a repo kit), equal pot/tests/golden.json byte for byte
         pot-golden = let
           kitsOf = r: { inherit (r.passthru.root) kits repoKits; };
           kitsJson = builtins.unsafeDiscardStringContext (builtins.toJSON {
             default = kitsOf (defaultRoot pkgs);
-            golden = kitsOf (import ./tests/pot/golden.nix { inherit pkgs mkRoot; claudeCode = self.kits.claude-code; });
+            golden = kitsOf (import ./pot/tests/golden.nix { inherit pkgs mkRoot; claudeCode = self.kits.claude-code; });
           });
         in pkgs.runCommand "graft-pot-golden" { nativeBuildInputs = [ pkgs.python3 ]; inherit kitsJson; passAsFile = [ "kitsJson" ];
           passthru = { inherit kitsJson; }; } ''
-          python3 -I ${./tests/pot/golden.py} ${potSrc} "$kitsJsonPath" ${./tests/pot/golden.json}
+          python3 -I ${./pot/tests/golden.py} ${potSrc} "$kitsJsonPath" ${./pot/tests/golden.json}
           touch $out
         '';
         # the default root builds (on Darwin: a pot that refuses, D21)
@@ -137,16 +144,6 @@
         in assert lib.all (a: a.assertion) ok.config.assertions;
           assert !(lib.all (a: a.assertion) bad.config.assertions);
           pkgs.runCommand "graft-pot-hm" { } "test -x ${ok.config.programs.pot.package}/bin/pot && touch $out";
-        # graft's docs against knowledge-base-kit's conventions: links and anchors, lifecycle status,
-        # provenance (scopes in knowledge-base.yaml). The checker is knowledge-base-kit's src/.
-        docs = pkgs.runCommand "graft-docs" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          cd ${self}
-          export PYTHONPATH=${kbKit}/src
-          # one command per line: under set -e, a failure left of `&&` would not stop the build
-          python3 -m link_validator .
-          python3 -m kb_linter .
-          touch $out
-        '';
       });
     };
 }

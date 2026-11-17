@@ -1,4 +1,4 @@
-# The golden grant test's root (check pot-golden, tests/pot/golden.py): instances built with the
+# The golden grant test's root (check pot-golden, pot/tests/golden.py): instances built with the
 # arguments of a real personal root (Daniel's ~/.workstation, modules/pot.nix, at graft v2.15.0),
 # its standing kit `daniel`, and flexion-assistant's repo kit (nix/agent-tools/flake.nix). The
 # canonical grant items of these kits, and their digests, are fixed in golden.json: a change to the

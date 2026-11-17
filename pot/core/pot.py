@@ -40,6 +40,7 @@ USAGE = """usage: pot [VERB | CONTEXT] [FLAGS] [--] [CMD [ARGS...]]
   pot host CMD                  no sandbox, said out loud
   pot explain [CONTEXT] [FLAGS] [CMD] [--json] [--backend-command]
   pot why PATH|HOST|CMD|VAR     why one item is or is not in the run (works inside a run)
+  pot why HOST|URL --json       whether a run here (inside: this run) reaches it; exit 0 yes, 1 no
   pot grant [KIT...] [--revoke KIT] [--diff] [--workspace PATH]
   pot host --resume RUN claude  a new host conversation, with run RUN's transcript as data
   pot init [DIR]                write a minimal root (graft.lib.mkRoot), for someone without one
@@ -138,38 +139,35 @@ def repo_of(host, path):
             "id": ident}
 
 
-def flake_dir(top):
-    """The flake directory pot evaluates: the folder holding graft's scions directory (its README has
-    graft's marker), else the repository's top, when its flake.nix calls mkFlake."""
-    marker = "<!-- managed by graft: https://github.com/danielnaab/graft -->"
-    cands = []
-    gm = os.path.join(top, ".gitmodules")
-    if os.path.isfile(gm):
-        with open(gm, errors="replace") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("path") and "=" in line:
-                    p = line.split("=", 1)[1].strip()
-                    d = os.path.dirname(os.path.dirname(p)) if "/" in p else ""
-                    if d not in cands:
-                        cands.append(d)
-    if "" not in cands:
-        cands.append("")
-    for d in cands:
-        fd = os.path.join(top, d) if d else top
-        f = os.path.join(fd, "flake.nix")
-        scions_ok = True
-        if d or os.path.isfile(gm):
-            pass
-        if os.path.isfile(f):
-            with open(f, errors="replace") as fh:
-                text = fh.read()
-            if re.search(r"mkFlake\s*\{", text):
-                rd = [os.path.join(fd, x, "README.md") for x in os.listdir(fd) if os.path.isdir(os.path.join(fd, x))]
-                has_marker = any(os.path.isfile(r) and marker in open(r, errors="replace").read(400) for r in rd)
-                if has_marker or not os.path.isfile(gm) or scions_ok:
-                    return d
-    return None
+def submodule_paths(host, top):
+    """The submodule paths .gitmodules names at HEAD (never the working tree), in its order."""
+    r = run_git(host, top, "config", "--blob", "HEAD:.gitmodules", "--get-regexp", r"^submodule\..*\.path$")
+    return [line.partition(" ")[2] for line in r.stdout.splitlines() if line.partition(" ")[2]]
+
+
+def flake_dir(host, top):
+    """The flake directory pot evaluates, from git facts alone (contract pot-kits/1): for each submodule
+    path in .gitmodules at HEAD, the nearest folder holding flake.nix at or above its parent, inside the
+    repository. When the submodules name several, the deepest (then the first in .gitmodules order).
+    None: no .gitmodules at HEAD, or no flake.nix above any submodule, so no flake repo kit."""
+    found = []
+    for p in submodule_paths(host, top):
+        parts = [x for x in p.split("/") if x not in ("", ".")]
+        if ".." in parts:
+            continue
+        d = parts[:-1]
+        while True:
+            rel = "/".join(d)
+            if os.path.isfile(os.path.join(top, rel, "flake.nix")):
+                if rel not in found:
+                    found.append(rel)
+                break
+            if not d:
+                break
+            d = d[:-1]
+    if not found:
+        return None
+    return max(found, key=lambda r: (len([x for x in r.split("/") if x]), -found.index(r)))
 
 
 def scions_of(host, top):
@@ -274,9 +272,13 @@ def tree_diffstat(host, top, old, new, rel=None):
     return lines[-12:]
 
 
+BUNDLES = ("pot-kits", "graft-kits")   # graft-kits: v2.15.0's name and shape, read until v2.17.0
+
+
 def repo_kit(host, w, rel, ctxname="work"):
-    """The repo kit's manifest and tools: packages.<system>.graft-kits, always built with path:,
-    cached in pot's state by the flake directory's contents and the scions' state."""
+    """The repo kit's bundle: packages.<system>.pot-kits (else v2.15.0's graft-kits), always built with
+    path:, cached in pot's state by the flake directory's contents and the scions' state. Returns
+    (out, name), or (None, None) when the flake has neither output (no repo kit; cached the same way)."""
     fdir = os.path.join(w["top"], rel) if rel else w["top"]
     key = tree_hash(host, w["top"], rel)
     w["tree"] = key
@@ -286,27 +288,65 @@ def repo_kit(host, w, rel, ctxname="work"):
     cfile = os.path.join(cdir, key.replace("/", "_") + ".json")
     try:
         with open(cfile) as f:
-            out = json.load(f)["out"]
-        if os.path.isfile(os.path.join(out, "kit.json")):
-            return out
-    except (OSError, ValueError, KeyError):
+            c = json.load(f)
+        if c["out"] is None:
+            return None, None
+        if os.path.isfile(os.path.join(c["out"], "kit.json")):
+            return c["out"], c.get("bundle", "graft-kits")
+    except (OSError, ValueError, KeyError, TypeError):
         pass
     nix = host.root.get("nix") or "nix"
-    attr = f"path:{fdir}#packages.{host.root['system']}.graft-kits"
-    say(f"pot: building the repo kit ({attr})")
+    system = host.root["system"]
+    flake = f"path:{fdir}"
     if not os.path.isfile(os.path.join(fdir, "flake.lock")):
         raise C.Refusal(f"pot ({ctxname}): {C.canon_path(fdir, host.home)}/flake.lock is missing, and pot never writes one into a "
                         "workspace: run nix flake lock there, on the host, and commit it")
+    names = json.dumps(list(BUNDLES))
+    r = subprocess.run([nix, "eval", "--json", "--no-write-lock-file", f"{flake}#packages",
+                        "--apply", f"ps: builtins.filter (n: (ps.{system} or {{ }}) ? ${{n}}) (builtins.fromJSON ''{names}'')"],
+                       stdout=subprocess.PIPE, text=True)
+    if r.returncode != 0:
+        raise C.Refusal(f"pot ({ctxname}): the flake at {C.canon_path(fdir, host.home)} did not evaluate (nix eval, above): "
+                        "fix it, or run pot host CMD")
+    try:
+        have = json.loads(r.stdout)
+    except ValueError:
+        have = []
+    bundle = next((b for b in BUNDLES if b in have), None)
+    os.makedirs(cdir, exist_ok=True)
+    if bundle is None:
+        with open(cfile, "w") as f:
+            json.dump({"out": None, "flake": fdir}, f)
+        return None, None
+    attr = f"{flake}#packages.{system}.{bundle}"
+    say(f"pot: building the repo kit ({attr})")
     r = subprocess.run([nix, "build", "--no-link", "--no-write-lock-file", "--print-out-paths", attr], stdout=subprocess.PIPE, text=True)
     if r.returncode != 0:
-        raise C.Refusal(f"pot ({ctxname}): the repo kit did not build (nix build {attr}, above): it needs graft "
-                        "v2.15.0 or later (packages.<system>.graft-kits), and a path: flake directory holds no "
-                        "sockets or other special files; fix it, or run pot host CMD")
+        raise C.Refusal(f"pot ({ctxname}): the repo kit did not build (nix build {attr}, above), and a path: flake "
+                        "directory holds no sockets or other special files; fix it, or run pot host CMD")
     out = r.stdout.strip().splitlines()[-1]
-    os.makedirs(cdir, exist_ok=True)
     with open(cfile, "w") as f:
-        json.dump({"out": out, "flake": fdir}, f)
-    return out
+        json.dump({"out": out, "flake": fdir, "bundle": bundle}, f)
+    return out, bundle
+
+
+def read_bundle(host, out, bundle, fdir, ctxname):
+    """kit.json, as pot-kits/1. A v2.15.0 graft-kits ({version, dir, self, file, scions}) is read as the
+    same bundle, with what v2.15.0 protected for it: every graft.nix and its `dir`."""
+    with open(os.path.join(out, "kit.json")) as f:
+        k = json.load(f)
+    if bundle == "graft-kits" and isinstance(k, dict):
+        d = k.get("dir")
+        self_ = k.get("self")
+        if isinstance(self_, dict) and "file" not in self_:
+            self_ = {**self_, "file": k.get("file") or "flake.nix"}
+        k = {"version": k.get("version"), "self": self_, "scions": k.get("scions") or {},
+             "protect": ["**/graft.nix"] + ([d] if isinstance(d, str) and d else [])}
+    try:
+        C.validate_bundle(k, f"{C.canon_path(fdir, host.home)}#{bundle}")
+    except C.KitError as e:
+        raise C.Refusal(f"pot ({ctxname}): {e.message}: take a pot that reads it, or run pot host CMD") from None
+    return k
 
 
 def workspace_facts(host, paths, ctx, cache):
@@ -317,24 +357,28 @@ def workspace_facts(host, paths, ctx, cache):
             continue
         if any(x["top"] == r["top"] for x in ws):
             continue
-        rel = flake_dir(r["top"])
+        rel = flake_dir(host, r["top"])
         r["flakeDir"] = rel if rel else ("." if rel == "" else None)
         r["rootRepoKits"] = C.repo_kits_for(r["originKey"], r["id"], host.root.get("repoKits"))
         r["repoKit"] = None
         kitjson = {}
+        out = None
         if rel is not None:
-            out = repo_kit(host, r, rel, ctx["name"])
-            with open(os.path.join(out, "kit.json")) as f:
-                kitjson = json.load(f)
-            r["repoKit"] = {"manifest": kitjson.get("self") or {}, "file": kitjson.get("file", "flake.nix (perSystem)")}
-            # §9: the scions directory, as mkFlake's dir names it, below the flake directory
-            if kitjson.get("dir") and os.path.isdir(os.path.join(r["top"], rel, kitjson["dir"])):
-                r["scionsDir"] = os.path.join(rel, kitjson["dir"]) if rel else kitjson["dir"]
+            out, bundle = repo_kit(host, r, rel, ctx["name"])
+        if out is not None:
+            fdir = os.path.join(r["top"], rel) if rel else r["top"]
+            kitjson = read_bundle(host, out, bundle, fdir, ctx["name"])
+            selfk = kitjson.get("self")
+            r["repoKit"] = {"manifest": selfk or {}, "file": (selfk or {}).get("file") or "flake.nix"}
+            # §9: what the bundle has pot protect, relative to the flake directory ("**/NAME" anywhere)
+            r["bundleProtect"] = [p if p.startswith("**/") or not rel else f"{rel}/{p}"
+                                  for p in kitjson.get("protect") or []]
             if os.path.isdir(os.path.join(out, "bin")):
                 r["tools"] = out
             r["closure"] = os.path.join(out, "closure")
         else:
             r["tree"] = None
+            r["source"] = None   # (a flake it evaluated stays protected: flakeDir)
         if r["flakeDir"] == ".":
             r["flakeDir"] = None   # the whole repository: its flake.nix and lock are in the base list
         r["scions"] = []
@@ -345,7 +389,7 @@ def workspace_facts(host, paths, ctx, cache):
             tag = verify_scion(host, s, cache) if (s["manifest"] or {}).get("requests") or (s["manifest"] or {}).get("commands") else cache.get(f"{s['url']} {s['commit']}")
             s["tag"] = tag
             s["verified"] = tag is not None
-            s["file"] = f"{s['path']}/graft.nix"
+            s["file"] = (s["manifest"] or {}).get("file") or s["path"]
             r["scions"].append(s)
         ws.append(r)
     return ws
@@ -534,7 +578,7 @@ def parse(argv, root):
             flags["help"] = True
             j += 1
             continue
-        if verb == "explain" and a in ("--json", "--backend-command"):
+        if (verb == "explain" and a in ("--json", "--backend-command")) or (verb == "why" and a == "--json"):
             flags[a[2:]] = True
             j += 1
             continue
@@ -939,7 +983,7 @@ def run(host, root, context, flags, cmd):
                 if s["status"] == "source" and (s.get("was") or {}).get("tree") and (s.get("now") or {}).get("tree"):
                     w = next((w for w in ws if w["id"] == s["kit"]), None)
                     if w:
-                        s["diffstat"] = tree_diffstat(host, w["top"], s["was"]["tree"], s["now"]["tree"], flake_dir(w["top"]))
+                        s["diffstat"] = tree_diffstat(host, w["top"], s["was"]["tree"], s["now"]["tree"], flake_dir(host, w["top"]))
                 err(C.stale_message(ctx["name"], s))
             return C.EXIT_GRANT
         launch = launch_facts(host, root, policy, ws, flags, report["argv"])
@@ -1273,16 +1317,90 @@ def why_facts(policy, report, root):
             "commands": cmds, "carried": carried}
 
 
-def why(host, root, flags, args):
+def why_args(flags, args):
+    """pot why's one target; --json after it is pot why's own flag too."""
+    if "--json" in args:
+        flags["json"] = True
+        args = [a for a in args if a != "--json"]
     if len(args) != 1:
-        raise Usage("pot why PATH|HOST|CMD|VAR")
+        raise Usage("pot why PATH|HOST|CMD|VAR, or pot why HOST|URL --json")
+    return args
+
+
+def reach_of(policy, target):
+    """What TARGET reaches (contract run-env/1, pot why --json): a host, host:port or git URL, as
+    (kind, reach, reached); None for anything else. https/http: the network reach of the run;
+    ssh (and scp-style user@host:path): a git.fetch binding whose remote covers it; file: a path."""
+    import fnmatch
+    t = target
+
+    def net(h, port):
+        for i in policy["items"]:
+            if i["kind"] == "network" and i["class"] == "reach" and i["effective"]:
+                ih, _, ip = i["value"].rpartition(":")
+                if fnmatch.fnmatchcase(h, ih) and ip == str(port):
+                    return True
+        return False
+
+    def hostport(hp, port):
+        hp = hp.rpartition("@")[2].lower()
+        if hp.startswith("["):
+            return None
+        h, _, p = hp.partition(":")
+        if not h or (p and not p.isdigit()):
+            return None
+        return h, int(p) if p else port
+
+    if t.startswith("file://") or t.startswith("/"):
+        path = t[len("file://"):] if t.startswith("file://") else t
+        return "file", path, os.path.exists(path)
+    m = re.fullmatch(r"(https?|git|ssh|git\+ssh)://([^/?#]+)(.*)", t)
+    if m and m.group(1) in ("https", "http", "git"):
+        hp = hostport(m.group(2), {"https": 443, "http": 80, "git": 9418}[m.group(1)])
+        if hp is None:
+            return None
+        return "network", f"{hp[0]}:{hp[1]}", net(*hp)
+    if m or re.fullmatch(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^/].*", t):
+        key = C.normalise_origin(t)
+        if not key:
+            return None
+        remotes = [r for b in policy.get("bindings") or [] if b.get("capability") == "git.fetch" for r in b.get("remotes") or []]
+        return "git.fetch", key, any(fnmatch.fnmatchcase(key, C.pattern_key(r)) for r in remotes)
+    if "/" not in t and ("." in t or ":" in t):
+        hp = hostport(t, 443)
+        if hp is None:
+            return None
+        return "network", f"{hp[0]}:{hp[1]}", net(*hp)
+    return None
+
+
+def why_json(policy, target, text):
+    r = reach_of(policy, target)
+    if r is None:
+        raise Usage(f"pot why --json answers a host, HOST:PORT or a git URL; {target} is none (pot why {target} explains it)")
+    kind, reach, reached = r
+    if kind == "git.fetch":
+        msg = (f"{reach} is a bound git.fetch remote: a fetch goes through the ssh broker" if reached else
+               f"pot ({policy['context']}): {reach} is not a bound git.fetch remote, so a fetch from it is refused")
+    else:
+        msg = text(reach)
+    print(json.dumps({"version": 1, "target": target, "kind": kind, "reach": reach, "reached": reached,
+                      "context": policy["context"], "text": msg}, indent=1))
+    return 0 if reached else 1
+
+
+def why(host, root, flags, args):
+    args = why_args(flags, args)
     tmp = os.path.join(host.state, "runs", "why-" + secrets.token_hex(3))
     os.makedirs(tmp, exist_ok=True)
     try:
         _, policy, report, _, _ = gather(host, root, root.get("defaultContext") or "work", flags, [], tmp, "why")
     finally:
         scratch_done(host, tmp)
-    print(visible(answer_why(policy, args[0], host.home, why_facts(policy, report, root), on_host=True)))
+    facts = why_facts(policy, report, root)
+    if flags.get("json"):
+        return why_json(policy, args[0], lambda x: answer_why(policy, x, host.home, facts, on_host=True))
+    print(visible(answer_why(policy, args[0], host.home, facts, on_host=True)))
     return 0
 
 
@@ -1477,7 +1595,7 @@ def grant_flow(host, root, grants, sts, inline=False):
             reqs = st["requests"]
             kind = {"root": "root kit", "repo": "repo kit", "scion": "scion kit"}[st["kind"]]
             scope = {"root": "every run that uses it", "repo": "every run in this repository",
-                     "scion": f"every workspace that grafts {st['kit'][4:]}"}[st["kind"]]
+                     "scion": f"every workspace that pins {st['kit'][4:]}"}[st["kind"]]
             state = C.STATUS_WORDS[st["status"]]
             t.write(visible(f"{st['name']}   {kind} ({st['kit']}), for {scope}   {state}\n"))
             if st.get("uncommitted"):
@@ -1489,7 +1607,7 @@ def grant_flow(host, root, grants, sts, inline=False):
                 was, now = st.get("was") or {}, st.get("now") or st.get("source") or {}
                 t.write(visible(f"  source: {C.fmt_source(was)} -> {C.fmt_source(now)}\n"))
                 if st.get("top") and was.get("tree") and now.get("tree"):
-                    for d in tree_diffstat(host, st["top"], was["tree"], now["tree"], flake_dir(st["top"])):
+                    for d in tree_diffstat(host, st["top"], was["tree"], now["tree"], flake_dir(host, st["top"])):
                         t.write(visible(f"    {d}\n"))
             approved = {c for c in set(have) & set(reqs) if not (again and cls[c] == "powerful")}
             ordinary = [c for c in reqs if c not in have and cls[c] == "ordinary"]
@@ -1671,7 +1789,7 @@ INIT_FLAKE = """{
           inherit pkgs;
           grantsFile = "GRANTS";
           stateDir = "~/.local/state/pot";
-          hidden = [ ];                       # beyond graft's defaults
+          hidden = [ ];                       # beyond pot's defaults
           tools = [ ];                        # packages on every run's PATH
           # Claude Code: the claude on your PATH, with a token file from `claude setup-token`
           kits."claude-code@personal" = graft.kits.claude-code { inherit pkgs; account = "personal"; binary = "host"; };
@@ -1725,15 +1843,17 @@ def inner(root, verb, flags, cmd):
         policy = json.load(f)
     ctxn = policy.get("context", ctxn)
     if verb == "why":
-        if len(cmd) != 1:
-            raise Usage("pot why PATH|HOST|CMD|VAR")
+        cmd = why_args(flags, cmd)
         facts = {}
         try:
             with open("/run/pot/why.json") as f:
                 facts = json.load(f)
         except (OSError, ValueError):
             pass
-        print(visible(answer_why(policy, cmd[0], pwd.getpwuid(os.getuid()).pw_dir, facts)))
+        home = pwd.getpwuid(os.getuid()).pw_dir
+        if flags.get("json"):
+            return why_json(policy, cmd[0], lambda x: answer_why(policy, x, home, facts))
+        print(visible(answer_why(policy, cmd[0], home, facts)))
         return 0
     if verb == "explain":
         if flags.get("json"):

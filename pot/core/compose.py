@@ -28,7 +28,7 @@ MODES = ("in-place", "clone", "none")
 ACCESS = ("write", "read", "none")
 ACCESS_RANK = {"none": 0, "read": 1, "write": 2}
 
-# The contexts graft defines; a root adds its own and may change these (but not their names' meaning).
+# The contexts pot defines; a root adds its own and may change these (but not their names' meaning).
 BUILTIN_CONTEXTS = {
     "host": {"mode": "none", "access": "none", "network": "granted"},
     "inspect": {"mode": "in-place", "access": "read", "trust": "workspace", "network": "granted"},
@@ -53,7 +53,7 @@ def owned(name):
     return name in OWNED_ENV or name.startswith("POT") or name.startswith("GRAFT_SANDBOX")
 
 
-# graft's default hidden list (Appendix B); the root adds its own. Globs are expanded at start.
+# pot's default hidden list (Appendix B); the root adds its own. Globs are expanded at start.
 DEFAULT_HIDDEN = [
     "~/.ssh", "~/.gnupg", "~/.aws", "~/.azure", "~/.config/gcloud", "~/.kube", "~/.docker/config.json",
     "~/.netrc", "~/.git-credentials", "~/.config/gh", "~/.config/sops",
@@ -64,8 +64,9 @@ DEFAULT_HIDDEN = [
     "/etc/ssh/*_key",
 ]
 
-# §9: the base protect list, in the workspace (the flake directory is added when pot evaluates one)
-BASE_PROTECT = ["**/flake.nix", "**/flake.lock", "**/graft.nix", "**/.gitmodules", "**/.envrc", "**/justfile",
+# §9: the base protect list, in the workspace (the flake directory is added when pot evaluates one, and
+# its pot-kits bundle adds the producer's own: graft's mkFlake, every graft.nix and its scions directory)
+BASE_PROTECT = ["**/flake.nix", "**/flake.lock", "**/.gitmodules", "**/.envrc", "**/justfile",
                 "**/.pre-commit-config.yaml", ".githooks", "**/.claude", "**/.mcp.json", "**/.pi", "**/.codex",
                 "**/.vscode"]
 
@@ -650,7 +651,7 @@ def compose(inp):
         for s in w.get("scions") or []:
             if s.get("manifest") is None:
                 continue
-            k = add_kit(s["identity"], "scion", s["manifest"], s.get("file", f"{s['path']}/graft.nix"), s["name"],
+            k = add_kit(s["identity"], "scion", s["manifest"], s.get("file") or s["path"], s["name"],
                         verified=s.get("verified", False),
                         source={"commit": s["commit"], "tag": s["tag"]} if s.get("tag") else None, scion=s)
             ws_kits.append(k)
@@ -677,13 +678,13 @@ def compose(inp):
     if cmdkit is None and flags.get("account"):
         raise Refusal("pot: --account chooses an agent kit's account; this command has no kit", 2)
     report["command"] = {"kit": cmdkit["id"] if cmdkit else None, "name": cmdname}
-    report["workspaces"] = [{"consumer": w.get("repoKit") is not None, "key": w.get("originKey") or w["id"][len("repo:"):]}
-                            for w in inp["workspace"]]
+    report["workspaces"] = [{"consumer": w.get("repoKit") is not None, "key": w.get("originKey") or w["id"][len("repo:"):],
+                             "file": (w.get("repoKit") or {}).get("file")} for w in inp["workspace"]]
     if cmdkit and cmdkit.get("instance") and cmdkit["instance"] != root.get("defaultAccount"):
         report["notes"].append(f"account {cmdkit['instance']}")
     if cmdkit and cmdkit["kind"] == "scion" and not cmdkit.get("verified"):
         raise Refusal(f"pot ({ctx['name']}): {kit_display(cmdkit)} is not a verified release "
-                      f"({cmdkit['id']}), so its command runs with no grant: pot host {cmdname}, or graft upgrade")
+                      f"({cmdkit['id']}), so its command runs with no grant: pot host {cmdname}")
 
     included = []
     for n in ctx.get("include") or []:
@@ -718,6 +719,7 @@ def compose(inp):
         st["digest"] = digest(canons) if canons else None
         st["requests"] = sorted(set(canons))
         st["source"] = k.get("source")
+        st["file"] = k["file"]
         st["powerful"] = sorted({r.canonical for r in k["requests"] if r.cls == "powerful"})
         status[k["id"]] = st
         report["kits"].append(st)
@@ -804,7 +806,7 @@ def compose(inp):
     item("access", access, "limits", [{"context": ctx["name"]}])
     hidden = []
     for h in DEFAULT_HIDDEN:
-        hidden.append((h, {"root": "graft"}))
+        hidden.append((h, {"root": "default"}))
     for h in root.get("hidden") or []:
         hidden.append((norm_path(h, "the root's hidden"), {"root": "hidden"}))
     for h in (root.get("grantsFile"), root.get("stateDir")):
@@ -823,7 +825,7 @@ def compose(inp):
         item("hidden", h, "limits", [src], paths=reals)
     protect_src = []
     for p in BASE_PROTECT:
-        protect_src.append((p, {"root": "graft"}))
+        protect_src.append((p, {"root": "default"}))
     pkits = [k for k in kits if k["kind"] in ("repo", "scion")] + ([cmdkit] if cmdkit and cmdkit["kind"] == "root" else []) \
         + [k for k in included if k is not cmdkit]
     for k in pkits:
@@ -831,9 +833,9 @@ def compose(inp):
             protect_src.append((p, ksrc(k, "limit")))
     for w in inp["workspace"]:
         if w.get("flakeDir"):
-            protect_src.append((w["flakeDir"], {"root": "graft", "why": "the flake directory pot evaluates"}))
-        if w.get("scionsDir"):
-            protect_src.append((w["scionsDir"], {"root": "graft", "why": "the scions directory"}))
+            protect_src.append((w["flakeDir"], {"root": "default", "why": "the flake directory pot evaluates"}))
+        for p in w.get("bundleProtect") or []:
+            protect_src.append((p, {"root": "bundle", "why": "the repository's pot-kits"}))
     protect = []
     for p, src in protect_src:
         if p not in protect:
@@ -1197,11 +1199,11 @@ def root_paths(root):
 
 
 def repo_fix(report, root, kind):
-    """The repo kit's KIND: perSystem.kit in a graft consumer, the root's repoKits for any other."""
+    """The repo kit's KIND: in the file its bundle names (flake.nix (perSystem)), else the root's repoKits."""
     pre, apply = root_paths(root)
     ws = (report.get("workspaces") or [{}])[0]
     if ws.get("consumer"):
-        return f"the repo kit's {kind} (perSystem.kit)"
+        return f"the repo kit's {kind} ({ws.get('file') or 'its pot-kits'})"
     return f"{pre}repoKits.\"{ws.get('key') or '<origin>'}\".{kind} ({apply})"
 
 
@@ -1218,7 +1220,8 @@ def permanent_fix(flag, value, report, root):
     if flag == "--package":
         return f"{pre}tools ({apply}), or {repo_fix(report, root, 'packages')}"
     if cmd.get("kit") and cmd["kit"].startswith("git:"):
-        return f"{kit_short(cmd['kit'], report)}'s {kind} (its graft.nix: a kit release)"
+        f = next((k.get("file") for k in report.get("kits") or [] if k["kit"] == cmd["kit"]), None)
+        return f"{kit_short(cmd['kit'], report)}'s {kind} ({f + ': ' if f else ''}a kit release)"
     alt = f", or {pre}kits.{inc[0]}.{kind} for every repository ({apply})" if inc else ""
     return repo_fix(report, root, kind) + alt
 
@@ -1252,7 +1255,7 @@ def binding_desc(cap, cfg, root_name=None):
 
 
 def label(x, report=None):
-    """A source as Appendix C labels it: (graft), (root), (repo), (<kit>), (one run), (<context>)."""
+    """A source as Appendix C labels it: (pot), (root), (repo), (<kit>), (one run), (<context>)."""
     if "kit" in x:
         k = x["kit"]
         if k.startswith("root:"):
@@ -1263,7 +1266,7 @@ def label(x, report=None):
     if "flag" in x:
         return "one run"
     if "root" in x:
-        return "graft" if x["root"] == "graft" else "root"
+        return {"default": "pot", "bundle": "repo"}.get(x["root"], "root")
     if "context" in x:
         return x["context"]
     if "binding" in x:
@@ -1387,6 +1390,32 @@ def explain_text(policy, report, root):
     return "\n".join(out) + "\n"
 
 
+BUNDLE_VERSION = 1
+BUNDLE_FIELDS = ("protect", "scions", "self", "version")
+
+
+def validate_bundle(b, where="pot-kits"):
+    """A pot-kits bundle's kit.json (contract pot-kits/1), checked: its version, its fields, each kit
+    (unknown fields are errors, named by the kit's own `file`), and its protect list (paths relative to
+    the flake directory, or "**/NAME")."""
+    if not isinstance(b, dict):
+        raise KitError(f"{where}: kit.json is not an object")
+    if b.get("version") != BUNDLE_VERSION:
+        raise KitError(f"{where}: kit.json is version {b.get('version')!r}, and this pot reads version {BUNDLE_VERSION}")
+    for k in b:
+        if k not in BUNDLE_FIELDS:
+            raise KitError(f"{where}: kit.json: {k} is not a pot-kits field ({', '.join(BUNDLE_FIELDS)})")
+    kits = ([("self", b["self"])] if b.get("self") is not None else []) + sorted((b.get("scions") or {}).items())
+    if not isinstance(b.get("scions") or {}, dict):
+        raise KitError(f"{where}: kit.json: scions is an object of kits")
+    for n, k in kits:
+        if not isinstance(k, dict) or not isinstance(k.get("file"), str):
+            raise KitError(f"{where}: kit.json: {n} is not a kit with its file")
+        validate_kit(k, k["file"], "/home/user")
+    for p in _list(b.get("protect"), f"{where}: protect"):
+        check_protect(p, f"{where}: protect")
+
+
 def validate_root(root):
     """The root's manifest, checked when it builds: its kits, repo kits and contexts."""
     for n, k in (root.get("kits") or {}).items():
@@ -1414,15 +1443,12 @@ if __name__ == "__main__":
         with open(sys.argv[2]) as f:
             data = json.load(f)
         if sys.argv[1] == "validate":
-            # graft-kits: the repo kit and each provider's
-            if data.get("self") is not None:
-                validate_kit(data["self"], data.get("file", "perSystem.kit"), "/home/user")
-            for n, k in (data.get("scions") or {}).items():
-                validate_kit(k, k.get("file", n), "/home/user")
+            # pot-kits (pot.lib.kitsFor, as it builds): the repo kit, each scion's, and the protect list
+            validate_bundle(data)
         elif sys.argv[1] == "validate-root":
             validate_root(data)
         else:
             raise SystemExit(f"usage: compose.py validate|validate-root FILE")
     except Refusal as e:
-        print(f"graft: {e.message}", file=sys.stderr)
+        print(f"pot: {e.message}", file=sys.stderr)
         sys.exit(1)

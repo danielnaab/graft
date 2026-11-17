@@ -21,24 +21,28 @@ sources:
       note: "graft's behaviour is defined by its code and tests/run.sh"
     - path: template/**
       note: "The workflows consumers must match"
+    - path: pot/**
+      note: "pot's behaviour is defined by its code and its tests"
   interpretation:
     - path: README.md
       note: "Orientation"
     - path: docs/**
       note: "Explains the code; reference pages cite it in a Sources section"
+    - path: pot/contracts/**
+      note: "pot's contracts; each cites the code in a Sources section"
 
 rules:
   lifecycle:
     statuses: [draft, working, stable, deprecated]
   checks:
     links:
-      include: [README.md, AGENTS.md, CHANGELOG.md, docs/**]
+      include: [README.md, AGENTS.md, CHANGELOG.md, docs/**, pot/contracts/**]
     lifecycle:
-      include: [docs/**]
+      include: [docs/**, pot/contracts/**]
     provenance:
-      include: [docs/reference/**]
+      include: [docs/reference/**, pot/contracts/**]
   writes:
-    allow: ["docs/**", "lib/**", "tests/**", "template/**"]
+    allow: ["docs/**", "lib/**", "tests/**", "template/**", "pot/**", "dev/**"]
     # scions/** is ask-first, so it is in neither list (knowledge-base-kit v2.1.0 has allow and deny only): a
     # scion is another repository, and an edit there is a change to that provider, made on a branch in the
     # scion and upstreamed (docs/guides/fix-a-provider.md). Ask before editing it.

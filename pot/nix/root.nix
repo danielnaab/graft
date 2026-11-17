@@ -8,11 +8,11 @@
 #     defaultContext ? "work";
 #     kits ? { };                   # root kits, by name ("claude-code@personal", "daniel")
 #     defaultAccount ? null;        # the account instance chosen with no --account
-#     hidden ? [ ];                 # beyond graft's defaults (Appendix B)
+#     hidden ? [ ];                 # beyond pot's defaults (Appendix B)
 #     tools ? [ ];                  # packages on every run's PATH, after the standard set
 #     bindings ? { };               # bindings.<capability>."<selector>" (§7.2; carried out from milestone 2)
 #     rootRepos ? [ ];              # the root's source repositories: work refuses them (D13, D23)
-#     repoKits ? { };               # repo kits for repositories that are not graft consumers, by origin pattern
+#     repoKits ? { };               # repo kits for repositories with no pot-kits of their own, by origin pattern
 #     inspect ? { };                # inspect.home: what inspect reads in ~ (replaces [ "~/src" ])
 #     caBundle ? null;              # a CA bundle (a path), at /etc/ssl/certs/ca-certificates.crt in runs
 #   }
@@ -20,7 +20,7 @@
 # The result is the root's `pot` (passthru.root: the manifest; passthru.backend: the bubblewrap
 # backend). Kit manifests are checked when it builds (compose.py validate). On Darwin, pot refuses:
 # Seatbelt returns in 1b (D21).
-{ cli, potSrc }:
+{ potSrc }:
 
 { pkgs
 , name ? "default"
@@ -41,16 +41,16 @@
 
 let
   lib = pkgs.lib;
-  kitLib = import ./kit.nix { inherit lib; };
+  kitLib = import ../lib/kit.nix { inherit lib; };
   darwin = pkgs.stdenv.hostPlatform.isDarwin;
   python = pkgs.python3;
-  graft = cli pkgs { };
   reservedContexts = [ "explain" "why" "grant" "review" "init" "run" "serve" ];
   badContexts = lib.filter (n: lib.elem n reservedContexts) (lib.attrNames contexts);
 
-  # §8: the standard set, first on every run's PATH
+  # §8: the standard set, first on every run's PATH (a root adds graft, or any other command, to `tools`;
+  # in a graft consumer, the repo's pot-kits bin/ carries its own graft)
   standard = with pkgs; [ bashInteractive coreutils findutils gnugrep gnused gawk diffutils less gitMinimal which file
-    tree ripgrep fd jq curl gnutar gzip unzip xz gnupatch python3 just gh graft ];
+    tree ripgrep fd jq curl gnutar gzip unzip xz gnupatch python3 just gh ];
   inspectTools = with pkgs; lib.optionals (!darwin) [ procps iproute2 lsof systemdMinimal ];
 
   # pot inside a run: explain and why, from /run/pot/policy.json
@@ -136,7 +136,7 @@ let
     cp "$manifestPath" $out
   '';
 in
-if badContexts != [ ] then throw "graft: mkRoot: a context may not be named like a pot verb: ${lib.concatStringsSep ", " badContexts}"
+if badContexts != [ ] then throw "pot: mkRoot: a context may not be named like a pot verb: ${lib.concatStringsSep ", " badContexts}"
 else pkgs.writeShellApplication {
   name = "pot";
   text = ''exec ${python}/bin/python3 -I ${potSrc}/pot.py ${rootJson} "$@"'';

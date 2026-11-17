@@ -304,7 +304,7 @@ the host that allows only granted hosts. Nothing that the run writes can widen a
 - [pot](../reference/pot.md): contexts, kits, requests, grants, flags, messages
 - [Move from v2.14.0's sandbox](move-from-the-v2-14-sandbox.md)
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit` in `perSystem`
-- [lib/pot/pot.py](../../lib/pot/pot.py): the grant prompt, the startup and exit lines
-- [lib/pot/kits/claude-code.nix](../../lib/pot/kits/claude-code.nix): the claude-code kit
-- [lib/pot/hm.nix](../../lib/pot/hm.nix): `programs.pot`
+- [pot/core/pot.py](../../pot/core/pot.py): the grant prompt, the startup and exit lines
+- [pot/kits/claude-code.nix](../../pot/kits/claude-code.nix): the claude-code kit
+- [pot/nix/hm.nix](../../pot/nix/hm.nix): `programs.pot`
 - [tests/run.sh](../../tests/run.sh): the `pot` section

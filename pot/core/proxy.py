@@ -1,4 +1,4 @@
-"""graft's sandbox proxy, on the host: a run's only way out to the network.
+"""pot's proxy, on the host: a run's only way out to the network.
 
 Usage: proxy.py LISTEN [--denials FILE --context NAME] [--tmux BIN --pane PANE] HOST:PORT...
 

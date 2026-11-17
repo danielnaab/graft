@@ -151,8 +151,8 @@ newer() { [ "$(printf '%s\n%s\n' "$(semver_key "$1")" "$(semver_key "$2")" | sor
 tags_of() {
   local url=$1 key out
   key=$GRAFT_TMP/tags.$(printf '%s' "$url" | cksum | cut -d' ' -f1)
-  # inside a pot run, only what the run's policy reaches is tried: no refusal left behind
-  if [ ! -f "$key" ] && [ -n "${POT:-}" ] && ! sandbox_reaches "$url"; then
+  # inside a pot run, only what the run reaches is tried: no refusal left behind
+  if [ ! -f "$key" ] && [ -n "${POT:-}" ] && ! pot_reaches "$url"; then
     echo "graft: $url is not reachable from this pot run" >&2
     return 1
   fi
@@ -168,22 +168,14 @@ tags_of() {
   cat "$key"
 }
 
-# sandbox_reaches URL: inside a pot run (POT set), whether its policy lets the run reach
-# URL: a file URL or path; an https/http host:port among the run's network reach; ssh with git.fetch
-sandbox_reaches() {
-  local url=$1 policy=${POT_POLICY:-/run/pot/policy.json} hp
-  case $url in
-    file://* | /*) return 0 ;;
-    https://* | http://*)
-      hp=${url#*://}; hp=${hp%%/*}; hp=${hp##*@}
-      case $hp in
-        *:*) ;;
-        *) if [[ $url == https://* ]]; then hp=$hp:443; else hp=$hp:80; fi ;;
-      esac
-      jq -e --arg hp "${hp,,}" '[.items[] | select(.kind == "network" and .class == "reach" and .effective) | .value] | index($hp) != null' \
-        "$policy" >/dev/null 2>&1 ;;
-    *) jq -e '[.bindings[] | select(.capability == "git.fetch")] | length > 0' "$policy" >/dev/null 2>&1 ;;
-  esac
+# pot_reaches URL: inside a pot run (POT set), whether the run reaches URL, as pot answers it
+# (`pot why URL --json`, pot's contract run-env/1: {"reached": true|false}). No usable answer (an
+# older pot, or none on PATH): yes, so the fetch is tried.
+pot_reaches() {
+  local out r
+  out=$(pot why "$1" --json 2>/dev/null) || true   # exit 1 is "not reached"; the JSON says which
+  r=$(jq -r 'if (.reached | type) == "boolean" then .reached else "?" end' <<<"$out" 2>/dev/null) || r="?"
+  [ "$r" != false ]
 }
 
 # version_at URL COMMIT: the highest semver tag at URL that is COMMIT, or nothing. Fails as tags_of.
