@@ -82,10 +82,10 @@ value, so other outputs still evaluate. The fix for each is in
 - `graft: apps graft (from NAME): that name is graft's; the provider must rename it`, and the same for
   `packages tools` and the reserved names `sandbox`, `pot` and `graft-kits`; for `perSystem`, `…; rename the repo's
   own`.
-- `graft: scions/NAME/graft.nix gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\` (graft pot; see graft's CHANGELOG)`,
+- `graft: scions/NAME/graft.nix gives \`sandbox\`: graft v2.15.0 replaced it with \`kit\` (pot; see graft's CHANGELOG)`,
   and the same with `the consumer's perSystem`.
 - `graft: mkFlake's outputs has apps.<system>.graft: that name is graft's; rename the repo's own`. For the
-  reserved names: `graft: mkFlake's outputs has packages.<system>.sandbox: that name is reserved (graft pot); rename the repo's own`.
+  reserved names: `graft: mkFlake's outputs has packages.<system>.sandbox: that name is reserved (pot); rename the repo's own`.
 - A kit with a field it should not have fails when `pot` reads it: `graft: FILE: FIELD is not a kit field (commands,
   env, files, packages, protect, recipes, requests)`.
 

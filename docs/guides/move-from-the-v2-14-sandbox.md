@@ -29,8 +29,8 @@ define them as packages or apps. There is no `packages.<system>.sandbox` or `app
 A `sandbox` left in `perSystem` or a provider's `graft.nix` fails the tools and `graft-kits` with:
 
 ```
-graft: the consumer's perSystem gives `sandbox`: graft v2.15.0 replaced it with `kit` (graft pot; see graft's CHANGELOG)
-graft: scions/notebook-kit/graft.nix gives `sandbox`: graft v2.15.0 replaced it with `kit` (graft pot; see graft's CHANGELOG)
+graft: the consumer's perSystem gives `sandbox`: graft v2.15.0 replaced it with `kit` (pot; see graft's CHANGELOG)
+graft: scions/notebook-kit/graft.nix gives `sandbox`: graft v2.15.0 replaced it with `kit` (pot; see graft's CHANGELOG)
 ```
 
 ## Move a consumer
