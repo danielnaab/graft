@@ -2235,13 +2235,22 @@ EOF
   # S2: a run whose commits fail the staging fetch (fsck refuses a malformed commit): ATTENTION says so, the run stays
   # in review, and keepDays and maxSize never remove its clone
   # shellcheck disable=SC2016 # the run's shell expands them
-  ran "dispatch: S2, a clone whose fetch fails" d_ dispatch bash -c 'printf "tree 0000\nnot a commit\n" > /tmp/bad
+  ran "dispatch: S2, a clone whose fetch fails" d_ dispatch bash -c 'git commit -q --allow-empty -m good-one
+    printf "tree 0000\nnot a commit\n" > /tmp/bad
     c=$(git hash-object -w --literally -t commit /tmp/bad) && echo "$c" > .git/refs/heads/bad && echo made-bad'
   local fid && fid=$(d_ runs --json | jq -r '[.runs[] | select(.attention | any(startswith("fetch failed")))][0].id')
   expect "S2: ATTENTION says the fetch failed" test -n "$fid" -a "$fid" != null
   expect "S2: the run is in review" test "$(rec "$fid" .state)" = review
   ran "dispatch: S2, pot review lists it" d_ review
   expect "with the failure" grep -q "^$fid .*fetch failed" <<<"$out"
+  expect "F3/R2: the good branch is staged all the same" test "$(rec "$fid" .clone.commits)" = 1
+  expect "F3/R2: the failure names the branch" test "$(rec "$fid" '.attention[] | select(startswith("fetch failed"))' | grep -c 'refs/heads/bad')" = 1
+  # the second trigger: a clone whose git directory lost its objects (fsck or upload-pack fails for every ref)
+  # shellcheck disable=SC2016
+  ran "dispatch: F3, a clone whose objects are gone" d_ dispatch bash -c 'git commit -q --allow-empty -m lost && rm -rf .git/objects/??'
+  local f3b && f3b=$(d_ runs --json | jq -r '[.runs[] | select(.attention | any(startswith("fetch failed")))][0].id')
+  expect "F3: it is in review too" test "$(rec "$f3b" .state)" = review
+  expect "F3: a different run from the first" test "$f3b" != "$fid"
   # F4/R1 by prune: a no-commit clone with a link out and a read-only folder, removed by keepDays 0
   mkdir -p "$work/outside2" && chmod 755 "$work/outside2"
   # shellcheck disable=SC2016
@@ -2249,6 +2258,7 @@ EOF
   # clones kept: keepDays and maxSize discard only fetched, discarded or commit-less clones
   ran "dispatch: a start with keepDays 0 and maxSize 1" env -u POT -u CLAUDECODE "$work/drp/bin/pot" dispatch true </dev/null
   expect "S2: keepDays keeps the clone whose fetch failed" test -d "$st/$fid/clone"
+  expect "F3: and the second one" test -d "$st/$f3b/clone"
   expect "F4: prune left the linked host folder's mode" test "$(stat -c %a "$work/outside2")" = 755
   expect "keeps the unfetched one" test -d "$st/$did/clone"
   expect "discards a fetched one" test ! -e "$st/$kid/clone"

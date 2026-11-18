@@ -1100,13 +1100,13 @@ def upload_pack(cfg, rundir, clone, gitdir, name):
     return path
 
 
-def host_git(cfg, gitdir, *args):
+def host_git(cfg, gitdir, *args, timeout=None):
     """Host git on a repository pot created (staging): none of the user's config, no hooks."""
     env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
     for k in [k for k in env if k.startswith("GIT_CONFIG_KEY_") or k.startswith("GIT_CONFIG_VALUE_") or k == "GIT_CONFIG_COUNT"]:
         del env[k]
     return subprocess.run([cfg["git"], "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
-                           "--git-dir", gitdir] + list(args), capture_output=True, text=True, env=env)
+                           "--git-dir", gitdir] + list(args), capture_output=True, text=True, env=env, timeout=timeout)
 
 
 def stage(cfg, rundir, clone, gitdir, name, alternates):
@@ -1121,15 +1121,45 @@ def stage(cfg, rundir, clone, gitdir, name, alternates):
             with open(os.path.join(sd, "objects", "info", "alternates"), "w") as f:
                 f.write(alternates + "\n")
     up = upload_pack(cfg, rundir, clone, gitdir, name)
-    r = host_git(cfg, sd, "-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true", "-c", "protocol.allow=never",
-                 "-c", "protocol.file.allow=always", "fetch", "-q", "--no-tags", "--prune", f"--upload-pack={up}",
-                 "file://" + gitdir, "+refs/heads/*:refs/heads/*", "+HEAD:refs/pot/head")
-    if r.returncode != 0:
-        msg = visible(" ".join(r.stderr.strip().splitlines()[-1:]) or f"git fetch exit {r.returncode}")[:200]
-        print(visible(f"pot: fetching the run's commits from its clone failed: {r.stderr.strip()[-400:]}"), file=sys.stderr)
-        FETCH_FAILED.append(f"{name}: {msg}" if name != "top" else msg)
+    opts = ["-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true", "-c", "protocol.allow=never",
+            "-c", "protocol.file.allow=always"]
+    url = "file://" + gitdir
+    upq = f"--upload-pack={shlex.quote(up)}"     # git runs it through a shell (R9)
+
+    def failed(what, r):
+        lines = [l for l in (r.stderr if r else "").strip().splitlines() if l.strip()] if r else []
+        for l in lines[-6:]:     # F8: one line per line, never \x0a
+            print(visible(f"pot: staging {name}: {l}"), file=sys.stderr)
+        FETCH_FAILED.append((f"{name} " if name != "top" else "") + what + ": "
+                            + (visible(lines[-1])[:200] if lines else (f"timed out" if r is None else f"git exit {r.returncode}")))
+
+    try:
+        ls = host_git(cfg, sd, *opts, "ls-remote", upq, url, timeout=600)
+    except subprocess.TimeoutExpired:
+        failed("listing its refs", None)
         return None
-    return sd
+    if ls.returncode != 0:
+        failed("listing its refs", ls)
+        return None
+    refs = []
+    for l in ls.stdout.splitlines():
+        sha, _, ref = l.partition("\t")
+        if ref == "HEAD" or ref.startswith("refs/heads/"):
+            refs.append(ref)
+    # F3/R2: branch by branch, so one bad object does not hide the good branches
+    good = 0
+    for ref in refs:
+        spec = "+HEAD:refs/pot/head" if ref == "HEAD" else f"+{ref}:{ref}"
+        try:
+            r = host_git(cfg, sd, *opts, "fetch", "-q", "--no-tags", upq, url, spec, timeout=600)
+        except subprocess.TimeoutExpired:
+            failed(ref, None)
+            continue
+        if r.returncode != 0:
+            failed(ref, r)
+            continue
+        good += 1
+    return sd if good else None
 
 
 FETCH_FAILED = []   # S2: each failed staging fetch, an attention item (the run stays in review)
