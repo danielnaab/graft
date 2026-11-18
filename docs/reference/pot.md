@@ -132,7 +132,7 @@ from `$HOME`, and use graft's default root when the link is missing. There is no
 | `repoKits."<pattern>"` | A repo kit for a repository that is not a graft consumer. The pattern is a [normalised origin](#identity), with `*` and `?` (`"platform-vm:2222/daniel/graft"`), or a URL, which is normalised. |
 | `contexts.<name>` | Changes to the contexts, and new ones ([Contexts](#contexts)). |
 | `bindings.<capability>."<selector>"` | How each capability is carried out ([Bindings](#bindings)). |
-| `limits.memoryMax`, `limits.tasksMax` | The [resource scope](#resource-limits)'s limits, in systemd's units (`"8G"`, `"50%"`, `"infinity"`). Default `"50%"` and `2048`. |
+| `limits.memoryMax`, `limits.tasksMax` | The [resource scope](#resource-limits)'s limits, in systemd's units (`"8G"`, `"50%"`, `"infinity"`). Default `"50%"` and `2048`. Another key: `graft.lib.mkRoot: limits is { memoryMax; tasksMax; } and clones { keepDays; maxSize; } (not X)`. |
 | `clones.keepDays`, `clones.maxSize` | How long a [dispatch](#dispatch) clone that needs no review is kept, and the clones' total size. Default `14` and `"20G"`. Neither removes unfetched commits. |
 
 The other options are mkRoot's arguments. While `programs.pot.enable` is on, the module asserts that workmux's
@@ -248,44 +248,54 @@ pot [CONTEXT] --clone [--from REF] [--detach] CMD …      # --clone is --mode c
 
 - **`dispatch`** is a built-in context, `{ mode = "clone"; access = "write"; }`, with its own state scope. `--clone`
   (or `--mode clone`) puts another in-place context with write access in clone mode, keeping that context's name
-  and state, so `pot --clone claude` resumes `work`'s transcripts.
-- **The base** is `--from REF`, default `HEAD`, resolved in your repository. The clone's branch is REF's branch
-  (`origin/NAME` gives `NAME`); a tag, a commit or a detached `HEAD` gives a branch `pot-<id>`.
+  and state, so `pot --clone claude` resumes `work`'s transcripts. Clone mode requires `same-path-clone`.
+- **The base** is `--from REF`, default `HEAD`, resolved in your repository: `pot (dispatch): --from X: not a commit
+  in DIR` otherwise. The clone's branch is the base's branch (`--from main`, `--from origin/x` gives `x`, `HEAD` on a
+  branch gives that branch); a tag, a commit or a detached `HEAD` gives a branch `pot-<id>`.
 - **What the clone carries:** your `user.name` and `user.email`, and the origin URL; nothing else of your config, and
-  none of your hooks. Its scions are cloned the same way, from your repository's module folders, at their gitlinks.
-  A nested submodule is cloned when yours is checked out. pot's git runs with no global or system config and no
-  hooks, so filters such as git-lfs's never run: LFS files stay pointer files.
+  none of your hooks. pot's git runs with no global or system config and no hooks, so filters such as git-lfs's
+  never run: LFS files stay pointer files.
+- **Scions:** the first level of submodules is cloned, from your repository's module folders, at their gitlinks;
+  deeper submodules are not. The scions folder stays read-only, as in place, so a run commits in a scion only
+  through its git directory. Those commits come back too, into that scion's `refs/remotes/pot-<id>/*`, and a commit
+  on a scion's detached `HEAD` as `pot-<id>/detached`.
 - **Uncommitted changes stay behind.** The clone starts at a commit. With a dirty tree, pot says so before the
-  startup line:
-  `pot (dispatch): the clone starts at main (c9996c5); your 3 uncommitted changes stay here, outside it`. <!-- TBD: sample -->
-- **In the run,** the clone is at your repository's own path (bubblewrap proves `same-path-clone`), your working tree
-  is not in the run, and `POT_CLONE=1`. The clone's git config, hooks and `info/`, and its modules' config and hooks,
-  are protected, and the [protected paths](#protected-paths) apply as in place.
+  startup line: `pot (dispatch): the clone starts at main (716424f); your 1 uncommitted change stays here, outside
+  it` (`N uncommitted changes stay`). The startup line names the base:
+  `pot: dispatch · flexion-assistant · from main (716424f) · pot explain`.
+- **In the run,** the clone is at your repository's own path, your working tree is not in the run, and
+  `POT_CLONE=1`. The clone's git config, hooks and `info/`, and its modules' config and hooks, are protected, and
+  the [protected paths](#protected-paths) apply as in place.
 - **Kits from the base.** The kit identities and the state scope are your repository's. The scion kits are read from
   `.gitmodules` at the base commit, and the repo kit is built from the clone's flake directory at the base, never
   from your working tree: a kit change you have not committed does not apply.
 - **`--repo`** is refused in clone mode: `pot (dispatch): --repo comes to clone mode in a later release; a dispatch
-  clones this repository only` (exit 1). <!-- TBD: sample -->
+  clones this repository only` (exit 1). Outside a repository: `pot (dispatch): DIR is not inside a git repository:
+  a dispatch clones one`. A failed clone: `pot (dispatch): the clone failed: git clone failed: …`.
 - **`--detach`** does what can fail in front of you first: composition, the grant check (the prompt at a terminal,
   else 125), the clone, the backend's preparation. Then a background pot runs the command, with its output in the
   run's `output.log`. The foreground prints the run's id alone on stdout, so `id=$(pot dispatch --detach …)` works,
-  and on stderr: `pot: run 9b0e in the background · dispatch · flexion-assistant · pot runs 9b0e · pot review 9b0e`. <!-- TBD: sample -->
-  A detached run has no terminal, so it always gets the [resource scope](#resource-limits).
-- **When the run ends,** the host reads each repository's branches out of the clone through a sandboxed
-  `git upload-pack`, with fsck, into host-owned staging repositories in the run's folder. Nothing of the clone (no
-  hook, config, attribute or filter) runs on the host, and no nested repository, untracked file or uncommitted
-  change crosses. The host's look at what the run left (the `after` event: commits, unsigned commits, gitlinks,
-  host-run files, repo-kit and root-repository changes) is computed from staging. The exit line ends:
-  `pot: run 9b0e · 3 commits on main (1 unsigned): pot review 9b0e, then pot review 9b0e --fetch`, or with none
-  `pot: run 9b0e · no commits; the clone is kept until 2026-12-01: pot review 9b0e --discard`. <!-- TBD: sample -->
-  If pot ended before that (killed, or a crash), the next `pot runs` or `pot review` that reads the run does it.
-- **Keeping clones.** A clone stays until `pot review ID --discard`. `clones.keepDays` (default 14) and
-  `clones.maxSize` (default `"20G"`) remove, at each clone-mode start, clones that were fetched, discarded or have no
-  commits, oldest first; never a running one, and **never unfetched commits**. Over the size cap, the startup line
-  and `pot doctor` name the oldest runs still in `review`, with `pot review ID --discard`. <!-- TBD: sample -->
+  and on stderr `pot: run 1ac1 in the background · dispatch · flexion-assistant · pot runs 1ac1 · pot review 1ac1`;
+  it exits 0. A detached run has no terminal, so it always gets the [resource scope](#resource-limits).
+- **When the run ends,** the host reads each repository's branches, and a commit on a detached `HEAD`, out of the
+  clone through a sandboxed `git upload-pack` (bubblewrap, no network, git's closure, the clone read-only), with
+  fsck, into host-owned staging repositories in the run's folder. Nothing of the clone (no hook, config, attribute
+  or filter) runs on the host, and no nested repository, untracked file or uncommitted change crosses; the same
+  sandboxed git counts the uncommitted files. The host's look at what the run left (the `after` event: commits,
+  unsigned commits, gitlinks, host-run files, repo-kit and root-repository changes) is computed from staging. The
+  exit line is `pot: run 1ac1 · 1 commit on main: pot review 1ac1, then pot review 1ac1 --fetch` (`N commits`;
+  `· exit S` after the id when the command failed), or with none `pot: run 1ac1 · no commits; the clone is kept
+  until 2026-12-01: pot review 1ac1 --discard`. Unsigned commits and new git metadata are left to `pot review`.
+- **If pot ended first** (killed, or a crash), the next `pot runs`, `pot runs ID` or `pot review` that reads the run
+  completes the host's look, records it with `recovered: true`, and cleans up. <!-- TBD: the crashed-run state changes -->
+- **Keeping clones.** A clone stays until `pot review ID --discard`. At each clone-mode start, `clones.keepDays`
+  (default 14) and `clones.maxSize` (default `"20G"`) remove clones that were fetched, discarded or have no
+  commits, oldest first; never a running one, and **never unfetched commits**. Still over the size cap, pot names
+  up to three runs waiting for review: `pot: the clones use 189.7 MB, over clones.maxSize (20G); the oldest still
+  in review: pot review 9b0e --discard, pot review c41d --discard`.
 - **Nested clones** (v2.18.0) will live in the parent's folder, `runs/<parent>/children/<child>/`.
-- Inside a run, `pot dispatch` and `--clone` are refused (exit 1):
-  `pot (work): dispatch inside a run comes in v2.18.0 (nested dispatch): run it on the host`. <!-- TBD: sample -->
+- Inside a run, `pot dispatch`, `--clone`, `--from` and `--detach` are refused (exit 1):
+  `pot (work): dispatch inside a run comes in v2.18.0 (nested dispatch): run it on the host`.
 
 ### Root repositories
 
@@ -295,12 +305,13 @@ A root's source repositories (`rootRepos`) decide what every run may do, so a ru
 ```
 pot (work): ~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD
 ```
- <!-- TBD: sample -->
 
 For a command that is not an agent kit's, the message adds `; pot host CMD runs it unsandboxed`.
 
-Change a root repository with `pot dispatch claude`: the change comes back as a branch, and `pot review` shows in
-red each commit that touches the grants file or adds or removes `programs.pot`. Review and merge it before
+Change a root repository with `pot dispatch claude`: the change comes back as a branch, and `pot review`'s
+attention names each changed file that holds the text `programs.pot` at the run's tip or its base
+(`root: modules/pot.nix (programs.pot)`) and a changed grants file (`root: pot/grants.json`); other commits in a
+root are `root changed`. Review and merge it before
 `home-manager switch`. `pot inspect` reads it. In a root repository's worktrees, set workmux's agent command to
 `pot dispatch claude`, or `claude`, in the repository's `.workmux.yaml`.
 
@@ -632,7 +643,7 @@ is `sha256-` and the base64 of the SHA-256 of the sorted, unique canonical lines
 |---|---|
 | Nothing new | The run proceeds. |
 | A stale kit (not granted, asks for more, changed source), at a terminal with no agent marker | The grant prompt appears inline, with the difference, and the run continues after it. The agent markers are the floor `CODEX_SANDBOX`, `CLAUDECODE` and `POT`, the root kits' `agent.markers`, and the root's `agentMarkers`. A workmux pane is not one. |
-| A stale kit, otherwise | Exit 125, with every kit's difference and `pot grant KIT`. The run's log records it as `stopped` ([pot runs](#pot-runs)), and when the run holds the launching pane (`status.relay` with workmux, under tmux), pot sets that pane's workmux status to `waiting`. No other message. |
+| A stale kit, otherwise | Exit 125, with every kit's difference and `pot grant KIT`. The run's log records it as `stopped` ([pot runs](#pot-runs)). When a kit of the run requests `status.relay`, the root binds it with `workmux = true`, the caller is in tmux and `workmux` is on its `PATH`, pot also sets the launching pane's workmux status to `waiting`. No other message. |
 | An unverified scion kit with requests (its gitlink is not a release tag at its URL, or the URL did not answer) | The run proceeds without that kit's reach, with one startup note: `meeting-kit: gitlink is not a release tag at its URL; its kit is unverified and its grant does not apply`, or `meeting-kit: its URL did not answer, so its kit is unverified and its grant does not apply`. <!-- TBD: sample --> Its command runs with its see items. |
 | A repo kit that is stale, in `inspect` | The run proceeds: a repo kit's reach does not apply in `inspect`. The startup line notes `NAME not granted (its reach does not apply in inspect)`. |
 | The file changed since this machine last read it | One line, `pot: the grants file changed since this machine last read it: pot grant --diff`, at each start until `pot grant --diff` or a grant acknowledges it. Nothing stops. A pull and a local edit read the same. |
@@ -717,14 +728,21 @@ scope. It lacks `separate-kernel` and `nest`: runs cannot create user namespaces
 A run without a terminal (stdin or stderr is not one), every `--detach` run, and every run of a context that
 `requires` `resource-limits` starts in a user systemd scope:
 `systemd-run --user --scope -p MemoryMax=M -p TasksMax=T`, with the root's `limits.memoryMax` (default `"50%"`) and
-`limits.tasksMax` (default `2048`). bubblewrap runs inside it; it costs about 14 ms. pot finds the user's systemd
-from the password database, not the caller's `XDG_*` variables. `pot explain`'s backend row says which applies:
-`resource-limits (runs without a terminal: MemoryMax=50% TasksMax=2048)`, or `lacks resource-limits (no user
-systemd)`. <!-- TBD: sample -->
+`limits.tasksMax` (default `2048`). bubblewrap runs inside it; with the probe that comes first, it costs about
+14 ms. pot sets `XDG_RUNTIME_DIR` from the password database, not from the caller, and runs the `systemd-run` on the
+caller's `PATH`. `resource-limits` is in policy.json's `proved` only for a run in the scope. `pot explain` has a
+`resources` row after `backend`:
+
+```
+resources  none at a terminal; a run without one gets a user systemd scope, MemoryMax=50% TasksMax=2048
+```
+
+and for a run that gets it, `resources  this run: a user systemd scope, MemoryMax=50% TasksMax=2048`.
 
 Without user systemd, a run that would get the scope starts without it, with the startup note
-`no resource limits (no user systemd: pot doctor)`; a context that `requires` `resource-limits` exits 125:
-`pot (CTX): requires resource-limits; bubblewrap proves … (no user systemd here: pot doctor)`. <!-- TBD: sample -->
+`no resource limits (no user systemd: pot doctor)`: `pot: work · flexion-assistant · no resource limits (no user
+systemd: pot doctor) · pot explain`. A context that `requires` `resource-limits` exits 125 there, as for any
+missing guarantee.
 An interactive run has no limits.
 
 ## The command line
@@ -779,9 +797,9 @@ and the exit line names each one's permanent form. `--flag=value` works too.
 | `--net HOST[:PORT]` | `requests.network` | Reaches a host, on port 443 by default. |
 | `--env NAME` | `requests.env` | Passes a variable from the caller. |
 | `--access read\|write` | `access` | Narrows the workspace's access. A wider access is refused: `--access write would widen this context's access (read)`. |
-| `--mode clone`, `--clone` | `mode` | Runs the context in a clone ([dispatch](#dispatch)). `--mode in-place` on a clone context: `pot (dispatch): --mode in-place: dispatch works in a clone; pot work CMD works here` (exit 2). <!-- TBD: sample --> |
+| `--mode clone`, `--clone` | `mode` | Runs the context in a clone ([dispatch](#dispatch)). `--mode in-place` on a clone context: `pot (dispatch): --mode in-place: dispatch works in a clone; pot work CMD works here` (exit 2). |
 | `--repo PATH` | | Adds a repository to the workspace, with its repo kit and protections. Refused in clone mode. |
-| `--from REF` | | Clone mode: the base commit, default `HEAD`. Without clone mode: `pot (work): --from is clone mode: pot dispatch --from REF CMD, or pot --clone --from REF CMD` (exit 2). <!-- TBD: sample --> |
+| `--from REF` | | Clone mode: the base commit, default `HEAD`. Without clone mode: `pot (work): --from is clone mode: pot dispatch --from REF CMD, or pot --clone --from REF CMD` (exit 2). |
 | `--detach` | | Clone mode: run in the background, and print the run's id ([dispatch](#dispatch)). Without clone mode, refused as `--from` is. |
 | `--instance NAME` | | Chooses an agent kit instance, as `CMD@NAME` does. Its old name, `--account`, is refused: `pot: --account is gone (v2.17.0): --instance NAME, or CMD@NAME` (exit 2). <!-- TBD: sample --> |
 | `--backend NAME` | | Chooses a backend that the root defines. |
@@ -812,8 +830,8 @@ entries left out, and says `left out until KIT is granted:` when the kit is not 
 protected path once, with every label that protects it (`.githooks (pot, repo)`), and the number of hidden paths.
 `reach` lists each item with the kit or grant that gives it and each capability's binding; then `children`. `not
 in run` lists, for each kit whose grant does not apply, its requests, filled under the row. `backend` gives the
-proved and lacking guarantees, whether `resource-limits` applies to this run ([Resource limits](#resource-limits)),
-and `note`. In clone mode, `context` says `clone` and the base. Rows wrap to the terminal's width, or 100 columns when the output is
+proved and lacking guarantees; `resources`, whether this run gets the [resource scope](#resource-limits); and
+`note`. Rows wrap to the terminal's width, or 100 columns when the output is
 not a terminal (and in the run's `explain.txt`). `pot explain --backend-command claude` prints the whole bubblewrap
 command and Claude's assembled arguments.
 
@@ -1120,41 +1138,69 @@ After an edit: nix profile upgrade --all (or build again). Track ~/src/pot-root 
 pot review [RUN] [--fetch|--discard] [--since T] [--until T] [--command NAME] [--flags] [--json]
 ```
 
-- **With no `RUN`:** the runs that need a person, newest first: every run in `review` (a clone with commits,
-  neither fetched nor discarded), and every ended run with an ATTENTION item, since `--since` (default 7 days ago).
-  The columns are `RUN STATE CONTEXT WORKSPACE COMMAND ENDED ATTENTION`. ATTENTION is the host's look after the
-  run: commits, unsigned commits, gitlinks and nested repositories, host-run files, repo-kit changes, denials, and
-  in a root repository the commits that touch the grants file or `programs.pot`, in red. <!-- TBD: sample -->
-- **Filters:** `--since T` and `--until T` (`2026-11-17`, `2026-11-17T14:00`, or `30m`, `2h`, `3d`), and
-  `--command NAME`. `--flags` adds the one-run flags each run used, with each one's permanent form. `--json`
-  prints [runs/1](../../pot/contracts/runs-1.md) records.
-- **`pot review RUN`** prints the run's record ([pot runs](#pot-runs)), then its commits and diffstat, read from the
-  host's staging, and the host's findings.
+- **With no `RUN`:** the runs that need a person, newest first: every run in `review` or `stopped`, and every ended
+  run with an ATTENTION item other than its commits, since `--since` (default `7d`). The columns are `RUN STATE
+  CONTEXT WORKSPACE COMMAND ENDED ATTENTION` (and `FLAGS` with `--flags`): <!-- TBD: ATTENTION becomes the after findings -->
+
+  ```
+  RUN   STATE    CONTEXT   WORKSPACE          COMMAND                       ENDED  ATTENTION
+  613f  review   dispatch  flexion-assistant  bash -c 'echo "- 2026-11-17…  19:33  1 commit · 1 unsigned
+  e681  exited   dispatch  ws                 bash -c 'sed -i "s/stateDir…  19:33  1 commit · 1 unsigned · root: modules/pot.nix (programs.pot)
+  96a8  stopped  work      flexion-assistant  bash -c true                  19:33  pot grant flexion-assistant
+  ```
+
+  Unsigned commits are counted only when your git config signs (`commit.gpgsign`). With nothing to show:
+  `pot review: no run needs a person (pot runs lists every run)`.
+- **Filters:** `--since T` and `--until T` (`2026-11-17`, `2026-11-17T14:00`, or `30m`, `2h`, `3d`; anything else is
+  a usage error, `T: a time is 2026-11-17, 2026-11-17T14:00, or 30m, 2h, 3d`), and `--command NAME`. `--flags`
+  adds the one-run flags each run used, with each one's permanent form. `--json` prints
+  `{ "version": 1, "runs": [ … ] }`, [runs/1](../../pot/contracts/runs-1.md) records.
+- **`pot review RUN`** prints the run's record ([pot runs](#pot-runs)), then `commits` (up to 40, `<sha> <subject>`)
+  and the diffstat, read from the host's staging:
+
+  ```
+  run        55e8 · review · dispatch · ws
+  command    bash -c 'sed -i … modules/pot.nix && git commit -qam "pot: a change to programs.pot"'
+  started    2026-11-17 19:34, by a script
+  ended      2026-11-17 19:34 · exit 0 · 0s
+  clone      from main (98d4d4d) · 1 commit on main, 1 unsigned · 13.6 MB
+  attention  1 commit · 1 unsigned · root: modules/pot.nix (programs.pot)
+  next       pot review 55e8 · pot review 55e8 --fetch
+  commits
+    e969057 pot: a change to programs.pot
+     modules/pot.nix | 2 +-
+     1 file changed, 1 insertion(+), 1 deletion(-)
+  ```
+ <!-- TBD: the workspace name rule -->
 - **`pot review RUN --fetch`** brings a clone's commits into your repository: host git fetches the run's staging
-  into `refs/remotes/pot-<id>/*`, with fsck and no tags, and each scion's into that scion's module repository. It
-  never opens the clone. The run's state becomes `exited` (fetched); its clone stays until `--discard` or
-  `keepDays`. It prints:
+  into `refs/remotes/pot-<id>/*` (and a commit on a detached `HEAD` as `pot-<id>/detached`), with fsck and no tags,
+  and each scion that has commits into that scion's module repository the same way. It never opens the clone. The
+  run's state becomes `exited`, with `fetched`; its clone stays until `--discard` or `keepDays`. It prints:
 
   ```
-  pot: fetched run 9b0e into ~/src/flexion-assistant: pot-9b0e/main (3 commits on c9996c5)
-    review:  git log --stat c9996c5..pot-9b0e/main
-    take it: git merge pot-9b0e/main
-    sign:    git rebase --exec 'git commit --amend --no-edit -S' c9996c5   (3 unsigned)
+  pot: fetched run 1ac1 into ~/src/flexion-assistant: pot-1ac1/main (1 commit on 716424f)
+    review:  git log --stat 716424f..pot-1ac1/main
+    take it: git merge pot-1ac1/main
+    sign:    git rebase --exec 'git commit --amend --no-edit -S' 716424f   (1 unsigned)
+    scions/sbd: its commits are in that scion's refs/remotes/pot-1ac1/* (a fix there goes to its provider)
   ```
- <!-- TBD: sample -->
 
-  `sign:` appears only when your git config signs. A second `--fetch` fetches the same refs again. With no commits:
-  `pot: run 9b0e has no commits to fetch`. A discarded clone: `pot: run 9b0e's clone was discarded (2026-11-20); its
-  log stays: pot runs 9b0e` (exit 1).
+  `sign:` appears only when your git config signs, and a scion's line only for a scion with commits; a run whose
+  only commits are a scion's says `…: its scions' commits`. A second `--fetch` fetches the same refs again. With no
+  commits: `pot: run 1ac1 has no commits to fetch` (exit 0). Refused (exit 1): `pot: run 1ac1 worked in place:
+  there is nothing to fetch`; `pot: run 1ac1 is running`; `pot: run 1ac1's clone was discarded (2026-11-17); its
+  log stays: pot runs 1ac1`; `pot: run 1ac1's repository DIR is gone`.
 - **`pot review RUN --discard`** removes the run's clone and staging from pot's state, and keeps its log:
-  `pot: discarded run 9b0e's clone (192 MB); its log stays: pot runs 9b0e`, and, when it was fetched,
-  `  the fetched refs stay: git branch -r -d pot-9b0e/main`. A running run is refused: `pot: run 9b0e is running`
-  (exit 1). <!-- TBD: sample -->
+  `pot: discarded run 1ac1's clone (189.7 MB); its log stays: pot runs 1ac1`, then, for each fetched ref,
+  `  the fetched refs stay: git branch -r -d pot-1ac1/main`. Refused: a running run, and one that worked in place
+  (`… it has no clone`). A second `--discard`: `pot: run 1ac1's clone was discarded already (DATE)` (exit 0).
+- `--fetch` or `--discard` with no `RUN` is a usage error: `pot review RUN --fetch|--discard: name the run (pot review
+  lists them)`. An unknown run: `pot review: no run ffff in pot's state (pot runs lists them)` (exit 1).
 - **Refused, exit 2:** `--approve` (`pot review --approve comes with pot serve (phase 3): no run waits for approval
   in this release`) and `--root` (`pot review --root comes with deployment roots (phase 2): pot review reads this
-  root's runs`). <!-- TBD: sample -->
+  root's runs`).
 - Inside a run, `pot review` is refused (exit 2): `pot (work): pot review is the host's: a run's output is reviewed
-  outside it`. <!-- TBD: sample -->
+  outside it`.
 
 ### pot runs
 
@@ -1164,36 +1210,46 @@ pot runs [ID] [--json] [--follow] [--all]
 
 Every run in pot's state, as [runs/1](../../pot/contracts/runs-1.md) records, computed from each run's log. The
 states are `running`, `exited` (also a run whose pot ended without an exit: killed or crashed), `stopped` (exit
-125, waiting for a grant or a guarantee), `review` (a clone with commits to review) and `pending` (reserved).
+125), `review` (a clone with commits, its own or a scion's, neither fetched nor discarded) and `pending`
+(reserved).
 
-- **With no `ID`:** newest first, every `running`, `stopped` and `review` run, then the last 20 others (`--all`: all):
-
-  ```
-  RUN   STATE    CONTEXT   WORKSPACE          COMMAND                      STARTED       NOTE
-  9b0e  review   dispatch  flexion-assistant  claude@flexion -p "migr…"    14:02 (29m)   3 commits · pot review 9b0e
-  c41d  stopped  work      flexion-assistant  claude                       13:40         pot grant flexion-assistant
-  53ae  exited   work      flexion-assistant  true                         13:38 (1s)    exit 0
-  ```
- <!-- TBD: sample -->
-- **`pot runs ID`:**
+- **With no `ID`:** newest first, every `running`, `stopped` and `review` run, then the 20 latest others (`--all`:
+  all). NOTE is `N commits · pot review ID` for a run in review, the fix for a stopped one, `running`, `pot ended
+  without an exit: killed or crashed`, or `exit S`: <!-- TBD: the crashed-run state changes --> <!-- TBD: the workspace name rule -->
 
   ```
-  run        9b0e · review · dispatch · flexion-assistant
-  command    claude@flexion -p "migrate tasks to schema v3"
-  started    2026-11-17 14:02, by a person, in the background
-  ended      2026-11-17 14:31 · exit 0 · 29m
-  clone      from main (c9996c5) · 3 commits on main, 1 unsigned · 192 MB · kept until 2026-12-01
-  attention  host-run: justfile · 2 denied: registry.npmjs.org
-  next       pot review 9b0e · pot review 9b0e --fetch
+  RUN   STATE    CONTEXT   WORKSPACE          COMMAND                       STARTED     NOTE
+  1151  stopped  work      flexion-assistant  bash -c true                  19:31 (0s)  pot grant flexion-assistant
+  a302  exited   dispatch  flexion-assistant  bash -c 'git commit -q --al…  19:31       pot ended without an exit: killed or crashed
+  021e  review   dispatch  flexion-assistant  bash -c 'git commit -q --al…  19:31 (2s)  1 commit · pot review 021e
   ```
- <!-- TBD: sample -->
-  An unknown id: `pot runs: no run 9b0f in pot's state (pot runs lists them)` (exit 1).
-- **`--json`** prints one record, or `{ "version": 1, "runs": [ … ] }`.
-- **`--follow`:** `pot runs ID --follow` prints the run's events as they come, until it ends, and exits with its
-  status (125 when it stopped, 0 when it ended in `review`); with `--json`, the log's own lines. `pot runs --follow`
-  prints the list, then a line for each state change (`9b0e running → review`), until interrupted.
+
+- **`pot runs ID`:** the rows `run`, `command`, `started` (`, by a person` or `, by a script`, and `, in the
+  background`), then `stopped    exit 125 (grant)` (or `(guarantee)`), `ended      DATE · exit S · DURATION`, or
+  `ended      unknown: pot ended without an exit (killed or crashed)`; `clone` (the base, commits, unsigned, size,
+  `kept until` or `discarded`, `fetched: pot-ID/main`, uncommitted files), `attention`, and `next` (for review,
+  `pot review ID · pot review ID --fetch`; for stopped, the fix):
+
+  ```
+  run        613f · review · dispatch · flexion-assistant
+  command    bash -c 'echo "- 2026-11-17: a note" >> notebook/tasks/index.md && git commit -qam "notes: a note"'
+  started    2026-11-17 19:33, by a script
+  ended      2026-11-17 19:33 · exit 0 · 0s
+  clone      from main (716424f) · 1 commit on main, 1 unsigned · 189.7 MB
+  attention  1 commit · 1 unsigned
+  next       pot review 613f · pot review 613f --fetch
+  ```
+ <!-- TBD: ATTENTION becomes the after findings -->
+  An unknown id: `pot runs: no run ffff in pot's state (pot runs lists them)` (exit 1).
+- **`--json`** prints one record on one line, or `{ "version": 1, "runs": [ … ] }`.
+- **`--follow`:** `pot runs ID --follow` prints the run's events as they come, as lines `HH:MM:SS start CONTEXT
+  ARGV`, `HH:MM:SS exit S`, `after N commits` (`(recovered)` when pot completed it later), `HH:MM:SS stopped (125,
+  REASON)` and `denied HOST:PORT (Nx)`, until it ends, and exits with its status: 125 when it stopped, 1 when it was
+  lost, else the command's. With `--json`, the log's own lines. `pot runs --follow` prints the list, then a line
+  `ID OLD → NEW` for each state change, until interrupted.
 - A clone-mode run whose pot ended before the host's look gets that look first ([dispatch](#dispatch)).
-- Inside a run, `pot runs` shows that run alone, from its policy.
+- Inside a run, `pot runs` shows that run alone (`run        ID · running · CTX · WORKSPACE`), and `pot runs OTHER`
+  says `pot runs: inside a run, pot runs shows this run (ID) only`.
 
 ### pot doctor
 
@@ -1230,7 +1286,7 @@ launcher   ~/.config/pot/launcher -> this pot
   limits`. A launcher that names another pot: `! launcher ~/.config/pot/launcher -> /nix/store/…/bin/pot, not this
   pot (home-manager switch)`. Over the clones' size cap, `state` names the oldest runs in `review`, with
   `pot review ID --discard`. <!-- TBD: sample -->
-- Inside a run it is refused (exit 2): `pot doctor runs on the host; inside a run, pot explain and pot why`. <!-- TBD: sample -->
+- Inside a run it is refused (exit 2): `pot doctor runs on the host; inside a run, pot explain and pot why`.
 
 ## Signals
 
@@ -1249,17 +1305,17 @@ The notes:
   `pot explain` names them, under the folder's row, as `left out: a b …`. An entry is left out when it is a link
   outside the read requests, or a real folder that the dir's `real` does not name (the claude-code kit's `skillDirs`);
 - hooks that will not run: `team-kb has .githooks but core.hooksPath is unset: commits run no hook (git config core.hooksPath .githooks, on the host)`;
-- in clone mode, the base: `from main (c9996c5)`, after the repositories; the dirty-tree line before it
-  ([dispatch](#dispatch)); <!-- TBD: sample -->
+- in clone mode, the base: `from main (716424f)`, first after the repositories; the dirty-tree line before it
+  ([dispatch](#dispatch));
 - an unverified scion kit with requests: `meeting-kit: gitlink is not a release tag at its URL; its kit is
   unverified and its grant does not apply` ([What pot checks at start](#what-pot-checks-at-start)); <!-- TBD: sample -->
 - a run that would get the resource scope where user systemd is missing: `no resource limits (no user systemd: pot
-  doctor)`; and, over the clones' size cap, the oldest runs in `review` with `pot review ID --discard`. <!-- TBD: sample -->
+  doctor)`. Over the clones' size cap, a line of its own names the oldest runs in review ([dispatch](#dispatch)).
 
 ```
 pot: work · team-kb · pot explain
 pot: work · team-kb · meeting-kit asks for more: pot grant · env METAMCP_API_KEY unset · pot explain
-pot: dispatch · flexion-assistant · from main (c9996c5) · pot explain
+pot: dispatch · flexion-assistant · from main (716424f) · pot explain
 ```
 
 `POT_QUIET=1` stops the startup line and the other informational lines, never a refusal.
@@ -1296,9 +1352,10 @@ pot: --net pypi.org:443 was for this run.
 - When the command kit's `agent.resume` finds a transcript the run wrote, its `pot` form, with the context and
   `@INSTANCE` when they are not the defaults: `pot: resume this session with: pot claude@flexion --resume ID`.
 - For each one-run flag used, its one permanent fix ([Messages](#messages)). Each line appears once.
-- In clone mode, last, the commits to review: `pot: run 9b0e · 3 commits on main (1 unsigned): pot review 9b0e, then
-  pot review 9b0e --fetch`, or `pot: run 9b0e · no commits; the clone is kept until 2026-12-01: pot review 9b0e
-  --discard`. <!-- TBD: sample -->
+- In clone mode, the first line is the commits to review instead: `pot: run 1ac1 · 1 commit on main: pot review
+  1ac1, then pot review 1ac1 --fetch`, or `pot: run 1ac1 · no commits; the clone is kept until 2026-12-01: pot
+  review 1ac1 --discard`. Unsigned commits and new git metadata are not on a clone's exit line: `pot review` shows
+  them, and `--fetch` offers to sign.
 
 ### Inside a run
 
@@ -1312,7 +1369,7 @@ pot: --net pypi.org:443 was for this run.
 - `pot` inside a run answers `pot explain` (the same text as on the host; `--json` for policy.json), `pot why`, and
   `pot runs` (that run alone). `pot review` and `pot doctor` are the host's (exit 2), and `pot dispatch` and
   `--clone` come with nested dispatch (exit 1: `pot (work): dispatch inside a run comes in v2.18.0 (nested
-  dispatch): run it on the host`). <!-- TBD: sample --> Other runs are refused:
+  dispatch): run it on the host`). Other runs are refused:
   `pot (work): pot inside a run starts nested runs in a later release: run it on the host`.
 
 ## Environment
@@ -1488,14 +1545,14 @@ The other messages, after `pot (<context>): `:
 | Hidden (`pot why`) | `~/.ssh is hidden by your root in every run (~/.ssh, …)` |
 | Hidden `--repo` | `--repo ~/.ssh/x: ~/.ssh/x is hidden by your root in every run` |
 | Protected (`pot why`) | `justfile is protected (**/justfile, graft): edit it on the host` |
-| A root repository, agent command (1) | `~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD` <!-- TBD: sample --> |
-| A root repository, other command (1) | `~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD; pot host CMD runs it unsandboxed` <!-- TBD: sample --> |
+| A root repository, agent command (1) | `~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD` |
+| A root repository, other command (1) | `~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD; pot host CMD runs it unsandboxed` |
 | Not a repository (1) | `~/Downloads is not inside a git repository: pot inspect CMD, or pot host CMD` |
 | A `--repo` outside git (1) | `--repo PATH is not inside a git repository` |
-| Stale grant (125) | `meeting-kit (git:…) asks for more than its grant:`, then each new request as `  + network api.github.com:443`, then `  grant it: pot grant meeting-kit`. Also `… requests reach that is not granted:`; `… changed source since its grant:` with `  source: tree A -> tree B` and up to 12 lines of `git diff --stat` of the defining files (and `the kit as built changed` when only the build differs). <!-- TBD: sample --> The run is recorded as `stopped`, and the launching pane set to `waiting` when the run holds it. |
+| Stale grant (125) | `meeting-kit (git:…) asks for more than its grant:`, then each new request as `  + network api.github.com:443`, then `  grant it: pot grant meeting-kit`. Also `… requests reach that is not granted:`; `… changed source since its grant:` with `  source: tree A -> tree B` and up to 12 lines of `git diff --stat` of the defining files (and `the kit as built changed` when only the build differs). <!-- TBD: sample --> The text is as before. The run is recorded as `stopped`, and the launching pane set to `waiting` when the run holds it ([What pot checks at start](#what-pot-checks-at-start)). |
 | An unverified scion kit (start note, no stop) | `meeting-kit: gitlink is not a release tag at its URL; its kit is unverified and its grant does not apply`; offline, `meeting-kit: its URL did not answer, so its kit is unverified and its grant does not apply`. <!-- TBD: sample --> Its command runs without its reach. |
-| `--repo` in clone mode (1) | `--repo comes to clone mode in a later release; a dispatch clones this repository only` <!-- TBD: sample --> |
-| `--from`, `--detach` without clone mode (2) | `--from is clone mode: pot dispatch --from REF CMD, or pot --clone --from REF CMD` <!-- TBD: sample --> |
+| `--repo` in clone mode (1) | `--repo comes to clone mode in a later release; a dispatch clones this repository only` |
+| `--from`, `--detach` without clone mode (2) | `--from is clone mode: pot dispatch --from REF CMD, or pot --clone --from REF CMD` |
 | `graft-kits` only (1) | `~/DIR has graft-kits only: its graft predates v2.16.0, and this pot reads pot-kits: take graft v2.16.0 or later there (nix flake update graft), or run pot host CMD` <!-- TBD: sample --> |
 | Missing guarantee (125) | `requires separate-kernel; bubblewrap proves …` |
 | `pot` inside a run (1) | `pot inside a run starts nested runs in a later release: run it on the host` |
@@ -1530,7 +1587,7 @@ The message says why. `pot` never runs the command with a weaker policy, a weake
 |---|---|
 | `runs/<id>/` | Each run's `policy.json`, `log.jsonl` (its record, [runs/1](../../pot/contracts/runs-1.md)), `README.md`, `denials` and its other files. `<id>` is four hex digits. A 125 leaves one too, with its `stop` event. |
 | `runs/<id>/clone/` | A [dispatch](#dispatch) run's clone, with its scions in `clone/.git/modules/`. Removed by `pot review ID --discard`, or by `keepDays` and `maxSize` once it needs no review. |
-| `runs/<id>/staging/<key>.git` | The host's bare copies of the clone's branches (`top`, or a scion's path with `/` as `-`), which `--fetch` reads. |
+| `runs/<id>/staging/<key>.git` | The host's bare copies of the clone's branches and its detached `HEAD` (`top.git`, or a scion's path with `/` as `-`), which `--fetch` reads. |
 | `runs/<id>/output.log` | A `--detach` run's output. |
 | `runs/<id>/children/` | Reserved for nested runs (v2.18.0). |
 | `state/<hash>/<name>` | A `state` request's directory, one per kit, workspace (or `none`) and context; or per kit for `shared`. |
@@ -1715,6 +1772,8 @@ first on `PATH` wins; `command -v pot` says which.
 ## Sources
 
 - [pot/core/pot.py](../../pot/core/pot.py): the command line, grants prompt, startup and exit lines, `pot why`, `pot init`
+- [pot/core/runs.py](../../pot/core/runs.py): runs/1 records from a run's log
+- [pot/core/clones.py](../../pot/core/clones.py): making, keeping and fetching dispatch clones
 - [pot/core/compose.py](../../pot/core/compose.py): composition, kit and request checks, grants, `pot explain`, policy.json
 - [pot/core/bwrap.py](../../pot/core/bwrap.py): the bubblewrap backend, guarantees, the run's environment
 - [pot/core/proxy.py](../../pot/core/proxy.py): the network proxy and the denials file

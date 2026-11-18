@@ -29,9 +29,11 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
    The startup line names the base:
 
    ```
-   pot: dispatch · flexion-assistant · from main (c9996c5) · pot explain
+   pot: dispatch · flexion-assistant · from main (716424f) · pot explain
    ```
-   <!-- TBD: sample -->
+
+   When it ends, the exit line counts its commits:
+   `pot: run 1ac1 · 1 commit on main: pot review 1ac1, then pot review 1ac1 --fetch`.
 
    To start from another commit or branch, add `--from REF`. To leave it running in the background, add `--detach`
    and give the agent its task:
@@ -41,17 +43,17 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
    ```
 
    pot prints the run's id on stdout, and on stderr how to follow it:
-   `pot: run 9b0e in the background · dispatch · flexion-assistant · pot runs 9b0e · pot review 9b0e`.
-   <!-- TBD: sample -->
+   `pot: run 1ac1 in the background · dispatch · flexion-assistant · pot runs 1ac1 · pot review 1ac1`.
 
 2. Follow it:
 
    ```
    pot runs              # every run and its state
-   pot runs 9b0e --follow
+   pot runs 1ac1 --follow
    ```
 
-   A run is `running`, then `review` when it ended with commits, or `exited` when it made none. A run that needs a
+   `--follow` prints the run's events until it ends (`20:22:43 start dispatch …`, `20:22:45 exit 0`, `after 1
+   commit`). A run is `running`, then `review` when it ended with commits, or `exited` when it made none. A run that needs a
    grant does not start: it is `stopped`, `pot grant` (no argument) offers what it needs, and a workmux pane that
    started it shows `waiting`.
 
@@ -59,32 +61,35 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
 
    ```
    pot review            # the runs that need you
-   pot review 9b0e       # one run: its commits, diffstat and the host's findings
+   pot review 1ac1       # one run: its commits, diffstat and the host's findings
    ```
 
-   The ATTENTION column lists what to read with care: unsigned commits, changed host-run files (`justfile`,
-   `.envrc`, CI workflows), new gitlinks or nested repositories, changes to the repo kit, and denials.
+   The ATTENTION column lists what to read with care: unsigned commits (when your git config signs), changed
+   host-run files (`justfile`, `.envrc`, CI workflows), new gitlinks or nested repositories, changes to the repo
+   kit, root-repository changes, and denials. <!-- TBD: ATTENTION becomes the after findings -->
 
 4. Fetch its commits into your repository:
 
    ```
-   pot review 9b0e --fetch
+   pot review 1ac1 --fetch
    ```
 
-   pot copies the run's branches into `refs/remotes/pot-9b0e/*`, and prints the next steps:
+   pot copies the run's branches into `refs/remotes/pot-1ac1/*`, and prints the next steps:
 
    ```
-   pot: fetched run 9b0e into ~/src/flexion-assistant: pot-9b0e/main (3 commits on c9996c5)
-     review:  git log --stat c9996c5..pot-9b0e/main
-     take it: git merge pot-9b0e/main
+   pot: fetched run 1ac1 into ~/src/flexion-assistant: pot-1ac1/main (1 commit on 716424f)
+     review:  git log --stat 716424f..pot-1ac1/main
+     take it: git merge pot-1ac1/main
    ```
-   <!-- TBD: sample -->
+
+   If the run committed in a scion, a line names that scion: its commits are in the scion's own
+   `refs/remotes/pot-1ac1/*`, and a fix there goes to its provider.
 
 5. Read the commits as you would a stranger's pull request, then merge what you want:
 
    ```
-   git log --stat c9996c5..pot-9b0e/main
-   git merge pot-9b0e/main
+   git log --stat 716424f..pot-1ac1/main
+   git merge pot-1ac1/main
    ```
 
    If your git config signs commits, `--fetch` also prints the `git rebase --exec … -S` line that signs them.
@@ -92,15 +97,15 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
 6. When you are done, remove the clone:
 
    ```
-   pot review 9b0e --discard
+   pot review 1ac1 --discard
    ```
 
-   The fetched refs stay: `git branch -r -d pot-9b0e/main` removes them.
+   The fetched refs stay: `git branch -r -d pot-1ac1/main` removes them.
 
 ## Check it worked
 
-- `git log -1 pot-9b0e/main` shows the run's last commit.
-- `pot runs 9b0e` says `exited` and `fetched`.
+- `git log -1 pot-1ac1/main` shows the run's last commit.
+- `pot runs 1ac1` says `exited` and `fetched`.
 
 ## Change a root repository
 
@@ -110,10 +115,10 @@ a clone instead:
 ```
 cd ~/.workstation
 pot dispatch claude
-pot review            # commits that touch pot/grants.json or programs.pot are shown in red
-pot review 9b0e --fetch
-git log --stat main..pot-9b0e/main
-git merge pot-9b0e/main
+pot review            # attention: root: modules/pot.nix (programs.pot), root: pot/grants.json
+pot review 1ac1 --fetch
+git log --stat main..pot-1ac1/main
+git merge pot-1ac1/main
 home-manager switch
 ```
 
@@ -121,7 +126,9 @@ Review the branch before the switch: it changes what every later run may do.
 
 ## What the clone has, and what it doesn't
 
-- Your commit (the base), its branch, and its scions at their gitlinks.
+- Your commit (the base), its branch, and its scions (the first level of submodules) at their gitlinks. The
+  scions folder is read-only, as in place; a commit made in a scion's git directory comes back into that scion's
+  `refs/remotes/pot-<id>/*`, and one on its detached `HEAD` as `pot-<id>/detached`.
 - Your `user.name`, `user.email` and the origin URL. None of your other git config, and none of your hooks.
 - No LFS content: pot's git runs no filters, so LFS files are pointer files.
 - Your repository's kits, as committed at the base. A kit change that you have not committed does not apply.
@@ -139,9 +146,10 @@ unfetched commits: over the cap, the startup line and `pot doctor` name the olde
 - **`your 3 uncommitted changes stay here, outside it`.** The clone started at your last commit. Commit first, or
   pass `--from` a branch that has the work.
 - **The run is `stopped`.** It needs a grant: run `pot grant` at a terminal, then start it again.
-- **`pot: run 9b0e has no commits to fetch`.** The run made no commit. Its uncommitted work stays in the clone,
+- **`pot: run 1ac1 has no commits to fetch`.** The run made no commit. Its uncommitted work stays in the clone,
   which pot never copies to your repository.
-- **The run is `exited`, `pot ended without an exit`.** pot was killed or crashed. `pot review 9b0e` still reads
+- **`pot ended without an exit: killed or crashed`.** pot was killed or crashed. The next `pot runs` or `pot review`
+  copies the commits it made out of the clone, and `pot review 1ac1` reads them. <!-- TBD: the crashed-run state changes -->
   the commits it made.
 - **Anything else:** `pot doctor` checks the backend, user systemd, the grants file and the bindings.
 

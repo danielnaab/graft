@@ -40,9 +40,9 @@ Every event has `ev` and `by`:
 | `net` | a network decision | `host`, `port`, `verdict`, `count`, `bytes_out` |
 | `cap`, `notfound` | in the shape; not written yet | |
 | `exit` | the command ended | `status`, `time` |
-| `after` | the host's look at what the run left | `commits`, `unsigned`, `touches_host_run`, `repo_kit_change`, `root_repo_change`, `base`; in clone mode also `refs` (the clone's branches that moved: `{ "main": "e91d2c7…" }`), `scions` (`{ "<path>": { "commits": [ … ] } }`), `uncommitted`, `size` (bytes), `gitlinks`, `new_git_metadata` and `root_attention` |
-| `fetch` | `pot review ID --fetch` | `refs` (`refs/remotes/pot-<id>/…`) |
-| `discard` | a clone was removed | `why`: `person` (`--discard`), `keepDays` or `maxSize`. `keepDays` and `maxSize` remove only a clone that was fetched, discarded, or has no commits: pot never removes unfetched commits on its own. |
+| `after` | the host's look at what the run left | `commits`, `unsigned`, `touches_host_run`, `repo_kit_change`, `root_repo_change`, `base`; in clone mode also `refs` (the clone's branches that moved: `{ "main": "e91d2c7…" }`), `scions` (`{ "<path>": { "commits": [ … ] } }`), `uncommitted`, `size` (bytes), `gitlinks`, `new_git_metadata` and `root_attention`; always `signs` (whether the host's git signs, which decides whether unsigned commits are shown); `recovered: true` when `pot runs` or `pot review` completed it after pot had ended |
+| `fetch` | `pot review ID --fetch` | `refs` (`refs/remotes/pot-<id>/…`), `time` |
+| `discard` | a clone was removed | `why`: `person` (`--discard`), `keepDays` or `maxSize`. `time`. `keepDays` and `maxSize` remove only a clone that was fetched, discarded, or has no commits: pot never removes unfetched commits on its own. |
 
 The shapes of `start`, `net`, `cap`, `notfound`, `exit` and `after` are frozen (pot's design, Appendix A). The other
 kinds, and the keys added to the frozen ones, are values that this version adds.
@@ -56,11 +56,12 @@ Each record has one state:
 | `running` | a `start`, no `exit` or `stop`, and its process alive: `pid` exists with the start time `pidStart`, on the boot `boot`. For a run started with `--detach`, the pid is the background pot's. |
 | `exited` | an `exit`. Also a `start` whose process is gone with no `exit` (a crash, a reboot, `kill -9`): then `exit` is `null` and `lost` is `true`. A clone-mode run that was fetched or discarded is `exited` too, with `fetched` or `discarded` set. |
 | `stopped` | a `stop`: exit 125, for a grant or a missing guarantee. The command never started; `stop.fix` says what unblocks it. |
-| `review` | clone mode, ended, with commits, neither fetched nor discarded. |
+| `review` | clone mode, ended, with commits (its own or a scion's), neither fetched nor discarded. |
 | `pending` | reserved for a request waiting for approval (phase 3). Not written. |
 
 When pot finds a clone-mode run that ended without its `after` event (its pot was killed), the next `pot runs` or
-`pot review` that reads the run completes the host's look first, as the run's end does, then shows it.
+`pot review` that reads the run completes the host's look first, as the run's end does, records it with
+`recovered: true`, then shows it. <!-- TBD: the crashed-run state changes -->
 
 ### The record
 
@@ -70,7 +71,7 @@ When pot finds a clone-mode run that ended without its `after` event (its pot wa
 { "version": 1, "id": "9b0e", "state": "review", "context": "dispatch", "mode": "clone",
   "command": { "name": "claude", "kit": "root:claude-code@flexion", "instance": "flexion" },
   "argv": [ "claude", "-p", "migrate tasks to schema v3" ],
-  "workspace": [ { "id": "repo:platform-vm:2222/daniel/flexion-assistant", "path": "/home/daniel/src/flexion-assistant" } ],
+  "workspace": [ { "id": "repo:platform-vm:2222/daniel/flexion-assistant", "path": "/home/daniel/src/flexion-assistant", "name": "flexion-assistant" } ],
   "invoker": "person", "detached": true, "pane": null, "parent": null, "children": [ ],
   "started": "2026-11-17T14:02:11", "ended": "2026-11-17T14:31:40", "exit": 0, "lost": false,
   "stop": null,
@@ -87,7 +88,7 @@ When pot finds a clone-mode run that ended without its `after` event (its pot wa
 | `context`, `mode` | strings | the context; `in-place`, `clone`, or `none` for `pot host` |
 | `command` | object | `name`, the command kit's identity `kit` (or `null`), and `instance` (or `null`) |
 | `argv` | list of strings | the command as started |
-| `workspace` | list | each repository's identity `id` and `path` |
+| `workspace` | list | each repository's identity `id`, `path`, and `name`, the short name the startup line uses <!-- TBD: the workspace name rule --> |
 | `invoker` | string | `person` (at a terminal) or `script` |
 | `detached` | boolean | started with `--detach` |
 | `pane` | string or `null` | the tmux pane the run held |
@@ -95,7 +96,7 @@ When pot finds a clone-mode run that ended without its `after` event (its pot wa
 | `started`, `ended` | strings or `null` | local times |
 | `exit`, `lost` | number or `null`; boolean | the exit status; whether pot ended without one |
 | `stop` | object or `null` | for `stopped`: `{ reason, kits, fix }` |
-| `clone` | object or `null` | in clone mode: the `base` commit and `branch`, `commits` and `unsigned`, the moved `refs`, `uncommitted` files left in the clone, its `size`, when it was `fetched` or `discarded`, and `keptUntil` |
+| `clone` | object or `null` | in clone mode: the `base` commit and `branch`, `commits` and `unsigned`, `scionCommits`, the moved `refs`, `uncommitted` files left in the clone, its `size`, when it was `fetched` or `discarded`, and `keptUntil` |
 | `attention` | list of strings | what the host's look found, as `pot review` shows it |
 
 Every string from the run (`argv`, ref names) is JSON in `--json`, and escaped in text.
@@ -103,7 +104,7 @@ Every string from the run (`argv`, ref names) is JSON in `--json`, and escaped i
 ### --follow
 
 - `pot runs ID --follow` prints the run's events as they are appended, until `exit`, `after` or `stop`, and exits
-  with the run's status: 125 when it stopped, 0 when it ended in `review`. With `--json` it prints the log's own
+  with the run's status: 125 when it stopped, 1 when it was lost, else the command's. With `--json` it prints the log's own
   lines, verbatim.
 - `pot runs --follow` prints the list, then one line for each change of any run's state, until interrupted.
 
@@ -124,5 +125,6 @@ Both read the logs again every half second.
 
 ## Sources
 
+- [pot/core/runs.py](../core/runs.py): a record from a run's log, the states
 - [pot/core/pot.py](../core/pot.py): the run log, `pot runs`, `pot review`
 - [pot's reference: State](../../docs/reference/pot.md#state)

@@ -165,7 +165,6 @@ place. `pot claude` refuses there:
 ```
 pot (work): ~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD
 ```
- <!-- TBD: sample -->
 
 - To read it, use `pot inspect claude`.
 - To change it, use `pot dispatch claude`: the change comes back as a branch for you to review, fetch and merge
