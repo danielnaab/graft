@@ -51,6 +51,7 @@ USAGE = """usage: pot [VERB | CONTEXT] [FLAGS] [--] [CMD [ARGS...]]
   pot review [RUN] [--fetch|--discard] [--since T] [--until T] [--command NAME] [--flags] [--json]
                                 what needs a person; one run's commits, fetched into refs/remotes/pot-RUN/*
   pot host --resume RUN CMD     a new host conversation, with run RUN's transcript as data
+  pot doctor                    the backend, bindings (by path), instances, this workspace, pot's state
   pot init [DIR]                write a minimal root (graft.lib.mkRoot), for someone without one
 
 flags (before CMD; one run only):
@@ -660,8 +661,6 @@ def parse(argv, root):
         verb, i = argv[0], 1
     elif argv and argv[0] in ctxs:
         context, i = argv[0], 1
-    if verb == "doctor":
-        raise Usage(f"{verb} comes in a later release")
     flags = {"package": [], "read": [], "write": [], "net": [], "env": [], "repo": []}
     rest = argv[i:]
     cmd = []
@@ -2667,6 +2666,148 @@ def discard(host, rec, ev, rd):
     return 0
 
 
+def doctor(host, root, rootjson):
+    """pot doctor (architecture §4): on the host; files by path, mode and presence, never their contents.
+    Exit 1 when a line starts with !."""
+    import shutil
+    lines = []
+
+    def row(label, text, bad=False):
+        first, *rest = text.split("\n")
+        lines.append((f"! {label:<9}{first}" if label else f"{'':<9}! {first}") if bad else f"{label:<11}{first}")
+        lines.extend(" " * 11 + r for r in rest)
+    sp = lambda p: C.canon_path(C.expand(p, host.home), host.home) if p else p   # noqa: E731
+    ver = "v2.17.0"
+    lines.append(f"pot doctor · root {root.get('name', '?')} · {host.machine} · pot {ver}")
+    # the backend
+    try:
+        bname, bprog = backend_cmd(host, None)
+        r = subprocess.run([bprog, "probe", host.state], capture_output=True, text=True)
+        g = (json.loads(r.stdout) if r.stdout.strip() else {}).get("guarantees") or []
+    except (C.Refusal, ValueError, OSError) as e:
+        bname, g = "none", []
+    if g:
+        lacks = [x for x in C.GUARANTEES if x not in g]
+        row("backend", f"{bname}: user namespaces work; proves {' '.join(g)}; lacks {' '.join(lacks)}")
+    else:
+        row("backend", f"{bname}: cannot create a user namespace here, so no run starts (pot host CMD runs unsandboxed)", True)
+    # the resource scope
+    sc = scope_for(host, root, {"requires": ["resource-limits"]}, {}, True)
+    if sc.get("argv"):
+        row("resources", f"user systemd: runs without a terminal get {sc['limits']}")
+    else:
+        row("resources", "no user systemd (systemd-run --user failed): runs without a terminal start without limits", True)
+    # the grants file
+    gp = host.grants_path
+    try:
+        grants, _ = load_grants(host, lenient=True, quiet=True)
+        n = len(grants.get("grants") or {})
+        mach = (grants.get("machines") or {}).get(host.machine) or {}
+        top = grants_repo(host)
+        tracked = ""
+        if top:
+            dirty = run_git(host, top, "diff", "--quiet", "HEAD", "--", gp).returncode != 0
+            tracked = f"; tracked in {C.canon_path(top, host.home)}, " + ("with uncommitted changes" if dirty else "committed")
+        row("grants", f"{C.canon_path(gp, host.home)}: parses, {n} kit{'s' if n != 1 else ''}, "
+            + (f"{len(mach)} in this machine's section" if mach else f"no section for {host.machine}") + tracked)
+    except C.Refusal as e:
+        row("grants", f"{C.canon_path(gp, host.home)}: {e.message}", True)
+    # bindings, by path
+    blines = []
+    for cap, sels in sorted((root.get("bindings") or {}).items()):
+        for sel, cfg in sorted(sels.items()):
+            cfg = cfg if isinstance(cfg, dict) else {}
+            name = f"{cap} {sel}"
+            f = (cfg.get("from") or {}).get("file") if isinstance(cfg.get("from"), dict) else None
+            if f:
+                p = C.expand(f, host.home)
+                if os.path.exists(p):
+                    mode = oct(os.stat(p).st_mode & 0o777)[2:].zfill(4)
+                    how = "file" if cfg.get("via", "file") == "file" else f"{cfg['via']} from file"
+                    blines.append((False, f"{name}: {how} {sp(f)} (present, {mode})"))
+                else:
+                    blines.append((True, f"{name}: file {sp(f)} is missing"))
+            elif cap == "credential":
+                blines.append((False, f"{name}: {cfg.get('via', '?')}" + (f" ({cfg['refresh']})" if cfg.get("refresh") else "")))
+            elif cap == "git.fetch":
+                ok = bool(os.environ.get("SSH_AUTH_SOCK")) or not (cfg.get("key") or {}).get("agent")
+                blines.append((not ok, f"{name}: ssh agent ({'SSH_AUTH_SOCK set' if os.environ.get('SSH_AUTH_SOCK') else 'SSH_AUTH_SOCK unset: fetches fail'})"))
+            elif cap == "nix":
+                nx = shutil.which("nix")
+                blines.append((not nx, f"{name}: {cfg.get('via')} " + (f"(nix on PATH)" if nx else "(no nix on PATH: runs with nix fail)")))
+            elif cap == "status.relay":
+                wm = shutil.which("workmux")
+                pane = os.environ.get("TMUX_PANE") if os.environ.get("TMUX") else None
+                blines.append((False, f"{name}: " + ("workmux on PATH" if wm else "no workmux on PATH (the relay does nothing)")
+                               + (f"; this shell is in tmux (pane {pane})" if pane else "; this shell is not in tmux")))
+            else:
+                blines.append((False, f"{name}: {cfg.get('via', 'bound')}"))
+    if not blines:
+        row("bindings", "none")
+    for i, (bad, t) in enumerate(blines):
+        row("bindings" if i == 0 else "", t, bad)
+    # instances
+    bases = {}
+    for n in sorted(root.get("kits") or {}):
+        b, _, inst = n.partition("@")
+        if inst:
+            bases.setdefault(b, []).append(inst)
+    if not bases:
+        row("instances", "none (no kit of this root has instances)")
+    for i, (b, insts) in enumerate(sorted(bases.items())):
+        d = (root.get("defaultInstance") or {}).get(b)
+        row("instances" if i == 0 else "", f"{b}: " + ", ".join(f"{x} (default)" if x == d else x for x in insts))
+        cmd = next((c for x in insts for c in ((root["kits"][f"{b}@{x}"].get("commands")) or {})), None)
+        if cmd:
+            m = C.select_matches(root, cmd, os.environ, lambda a, c: os.path.realpath(C.expand(a, host.home)) == os.path.realpath(C.expand(c, host.home)))
+            if m:
+                best = max(n for _, n in m)
+                top = [x for x, n in m if n == best]
+                pick = top[0] if len(top) == 1 else (d if d in top else None)
+                row("", f"this shell's variables select {b}@{pick}" if pick else f"this shell's variables match {', '.join(top)} equally")
+            else:
+                row("", f"this shell's variables select {b}@{d} (the default: no instance matches)" if d else "no instance matches this shell")
+    # this workspace
+    r = repo_of(host, os.path.realpath(os.getcwd()))
+    if r:
+        try:
+            ctx = C.resolve_context(root, root.get("defaultContext") or "work")
+            cache = {}
+            w = workspace_facts(host, [r["top"]], ctx, cache)[0]
+            kit = (f"repo kit {w['flakeDir'] or '.'} (pot-kits)" if w.get("repoKit") is not None else "no repo kit")
+            sc_ = ", ".join(f"{s['name']} {s['tag'] or '(unverified)'}" for s in w["scions"] if s.get("manifest")) or "no scion kits"
+            row("workspace", f"{C.repo_short_name(w)}: {w['id']} · {kit} · {sc_}")
+        except C.Refusal as e:
+            row("workspace", f"{C.canon_path(r['top'], host.home)}: {e.message}", True)
+    # pot's state
+    recs = all_records(host) if os.path.isdir(os.path.join(host.state, "runs")) else []
+    counts = {}
+    for rec, _, _ in recs:
+        counts[rec["state"]] = counts.get(rec["state"], 0) + 1
+    clones = [(rec, ev, rd) for rec, ev, rd in recs if os.path.isdir(os.path.join(rd, "clone"))]
+    size = sum(CL.size_of(rd, R.last(ev, "after")) for _, ev, rd in clones)
+    cc = root.get("clones") or {}
+    cap = CL.parse_size(cc.get("maxSize", "20G"))
+    states = ", ".join(f"{counts[k]} {k}" for k in ("running", "stopped", "review") if counts.get(k))
+    row("state", f"{C.canon_path(host.state, host.home)}: {len(recs)} runs" + (f" ({states})" if states else "")
+        + f", {len(clones)} clone{'s' if len(clones) != 1 else ''} ({CL.human(size)} of {cc.get('maxSize', '20G')}, keepDays {cc.get('keepDays', 14)})")
+    if size > cap:
+        rv = sorted([rec for rec, _, _ in clones if rec["state"] == "review"], key=lambda x: x["started"] or "")[:3]
+        row("", "over clones.maxSize; the oldest still in review: " + ", ".join(f"pot review {x['id']} --discard" for x in rv), True)
+    # the launcher
+    lp = os.path.join(host.home, ".config", "pot", "launcher")
+    try:
+        tgt = os.path.realpath(lp)
+        with open(tgt, errors="replace") as f:
+            mine = rootjson in f.read()
+        row("launcher", f"{sp(lp)} -> " + ("this pot" if mine else f"{tgt}, not this pot (home-manager switch)"), not mine)
+    except OSError:
+        row("launcher", f"{sp(lp)} is missing: kit wrappers (v2.18.0) fall back to the default root's pot")
+    for l in lines:
+        print(visible(l))
+    return 1 if any(l.lstrip().startswith("! ") for l in lines) else 0
+
+
 def short_names(ident):
     """The names people type for a kit: root:KIT@NAME is KIT@NAME and
     KIT (every instance); repo:… and git:… are their last path part."""
@@ -2876,6 +3017,8 @@ def main(argv):
             return review_cmd(host, root, flags, cmd)
         if verb == "runs":
             return runs_cmd(host, root, flags, cmd)
+        if verb == "doctor":
+            return doctor(host, root, argv[0])
         if verb == "explain":
             return explain(host, root, context, flags, cmd)
         if verb == "why":

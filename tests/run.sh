@@ -1976,6 +1976,8 @@ EOF
         capabilities = [ { name = "status.relay"; } ]; }; };
       bindings."status.relay"."*" = { workmux = true; };
       bindings.nix."*" = { via = "daemon-untrusted"; };
+      bindings.credential."api.example" = { via = "file"; from.file = "$work/dtoken"; };
+      bindings.credential."api.missing.example" = { via = "file"; from.file = "$work/dtoken-missing"; };
       contexts.strict = { extends = "work"; requires = [ "separate-kernel" ]; };
       limits = { memoryMax = "1G"; tasksMax = 512; };
     }; in {
@@ -2245,6 +2247,25 @@ EOF
   expect "is refused" holds "pot grant is for people: CLAUDECODE is set"
   ran "dispatch: pot grant, nothing stale" env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant </dev/null
   expect "says so" holds "pot grant: every kit here is granted, and no stopped run waits for a grant"
+
+  # pot doctor: the backend, the resource scope, the grants file, bindings by path (never contents), instances,
+  # this workspace, pot's state, the launcher; exit 1 when a line starts with !
+  echo "SECRET-VALUE-$RANDOM" > "$work/dtoken" && chmod 600 "$work/dtoken"
+  refused "dispatch: pot doctor" d_ doctor
+  expect "the backend" holds "backend    bubblewrap: user namespaces work; proves closure-store"
+  expect "the grants file" holds "grants     $work/dgrants/grants.json: parses"
+  expect "a binding file, by path" holds "credential api.example: file $work/dtoken (present, 0600)"
+  expect "a missing one, marked" holds "! credential api.missing.example: file $work/dtoken-missing is missing"
+  refuse "never a file's contents" holds "SECRET-VALUE"
+  expect "this workspace" holds "workspace  dc: repo:fake.example/dc"
+  expect "pot's state" grep -qE '^state      .*: [0-9]+ runs' <<<"$out"
+  expect "no agent kit, no instances" holds "instances  none (no kit of this root has instances)"
+  if systemd-run --user --scope --quiet true 2>/dev/null; then
+    expect "the resource scope" holds "resources  user systemd: runs without a terminal get MemoryMax=1G TasksMax=512"
+  fi
+  # shellcheck disable=SC2016
+  ran "dispatch: pot doctor inside a run is refused" d_ bash -c 'pot doctor 2>&1; true'
+  expect "naming explain and why" holds "pot doctor runs on the host; inside a run, pot explain and pot why"
 
   # refusals and inside a run
   refused "dispatch: --repo in clone mode" d_ dispatch --repo "$work/drootrepo" true
