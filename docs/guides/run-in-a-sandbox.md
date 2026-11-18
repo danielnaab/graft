@@ -4,13 +4,13 @@ status: working
 # Run commands in pot
 
 Run Claude Code, or any command, with pot, graft's sandbox, so that it can change your repository but cannot read your keys,
-reach hosts that you did not grant, or change what decides the sandbox. `pot` is experimental in v2.16.1. The terms
+reach hosts that you did not grant, or change what decides the sandbox. `pot` is experimental in v2.16.2. The terms
 are in [pot](../reference/pot.md#the-model).
 
 ## Before you begin
 
 - Linux, with unprivileged user namespaces (the default on NixOS, Debian, Ubuntu and Fedora). On macOS, `pot`
-  refuses to start in v2.16.1: stay on graft v2.14.0's sandbox there ([On macOS](../reference/pot.md#on-macos)).
+  refuses to start in v2.16.2: stay on graft v2.14.0's sandbox there ([On macOS](../reference/pot.md#on-macos)).
 - A root, the place where your grants live ([Set up a root](#set-up-a-root)).
 - Claude Code installed on the host.
 - tmux, if you want to see denials while the agent runs. Without it, you see them when the run ends.
@@ -156,7 +156,7 @@ Runs that the kit's requests do not apply to still start, with a note on the sta
 ## Root repositories
 
 Your root's own repository (`~/.workstation` here) decides what every run may do, so `pot` never writes it in
-place. In v2.16.1, `pot claude` refuses there:
+place. In v2.16.2, `pot claude` refuses there:
 
 ```
 pot (work): ~/.workstation is a root: pot inspect, or claude (unsandboxed) until pot dispatch (a later release)
@@ -221,7 +221,7 @@ If the repository's `ensure.sh` or `justfile` builds tools with `nix`, make it u
 | Root | Use it when | Start it with |
 |---|---|---|
 | A home-manager root | You manage your home with home-manager. | `programs.pot` (below) |
-| graft's default root | You have no root and want to try `pot`. | `nix run github:danielnaab/graft/v2.16.1#pot -- claude` |
+| graft's default root | You have no root and want to try `pot`. | `nix run github:danielnaab/graft/v2.16.2#pot -- claude` |
 | A minimal root of your own | You want a root without home-manager. | `pot init ~/src/pot-root`, then the steps that it prints |
 
 graft's default root and the root that `pot init` writes work without home-manager. Each has a
@@ -315,7 +315,7 @@ in [Home-manager options](../reference/pot.md#home-manager-options).
   Make the test use the `PATH` it was given.
 - **A claude.ai skill is missing inside a run.** Synced claude.ai skills do not load in a run (above). Install the
   skill as an ordinary skill folder.
-- **`pot: no backend for darwin in v2.16.1`.** You are on macOS. Use graft v2.14.0's sandbox there.
+- **`pot: no backend for darwin in v2.16.2`.** You are on macOS. Use graft v2.14.0's sandbox there.
 
 ## How it works
 

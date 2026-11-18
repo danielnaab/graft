@@ -105,7 +105,7 @@ Compared with the other ways:
 Nix 2.27 or later, with flakes. In a git repository:
 
 ```
-nix flake init -t github:danielnaab/graft/v2.16.1
+nix flake init -t github:danielnaab/graft/v2.16.2
 ```
 
 It writes graft's CI workflows and this `flake.nix`:
@@ -113,7 +113,7 @@ It writes graft's CI workflows and this `flake.nix`:
 ```nix
 {
   inputs.self.submodules = true;
-  inputs.graft.url = "github:danielnaab/graft/v2.16.1";
+  inputs.graft.url = "github:danielnaab/graft/v2.16.2";
   outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
 }
 ```
