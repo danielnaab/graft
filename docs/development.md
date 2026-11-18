@@ -48,6 +48,12 @@ tests/run.sh mkflake kits pot    # some sections only
 KEEP=1 tests/run.sh              # the same, and keep the work directory to debug a failure
 ```
 
+**A test-only fault point.** `POT_TEST_FAULT=after` (an error in the host's look at a clone) and
+`POT_TEST_FAULT=after-exit` (a backend that prints no `after` event) let `tests/run.sh dispatch` check that such a
+run lands in `review` with `fetch failed: the host's look failed (…)`, listed and kept. The backend reads it from
+the environment of the pot that starts the run, on the host; a run's own environment never reaches it. It can only
+make a run's look fail, which lands the run in `review`: it widens nothing.
+
 `nix flake check` runs `shellcheck`, pot's unit tests (`pot-unit`), the golden grant test (`pot-golden`: the
 canonical grant items and digests of the claude-code instances, a standing kit and a repo kit, as v2.15.0 wrote
 them; never regenerate its fixture to make it pass), and checks that roots and the home-manager module build

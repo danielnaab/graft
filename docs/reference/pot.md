@@ -221,7 +221,8 @@ be resumed this way: read its transcript in its state folder instead.
 - **Tools:** the standard set plus `procps`, `iproute2`, `lsof` and `systemd` (Linux).
 - **The network:** the command kit's model API only, without MCP. Whoever runs that API gets whatever the run
   reads.
-- **Hidden even here:** the grants file and `pot`'s state. Root repositories are readable, so an agent can
+- **Hidden even here:** the grants file and `pot`'s state. Nothing is bound or masked inside a hidden folder, so
+  `inspect` starts when pot's state lies under `inspect.home` and holds sockets. Root repositories are readable, so an agent can
   diagnose a failed `home-manager switch`. It can read the hidden list, and the grants file's committed
   contents through the root's `.git`.
 - **Outside a git repository**, `pot inspect` runs with no workspace. Its state is keyed `none`.
@@ -290,8 +291,14 @@ pot [CONTEXT] --clone [--from REF] [--detach] CMD …      # --clone is --mode c
   git's first `error:` line (else its first line), such as `fetch failed: refs/heads/bad: error: bogus commit object
   b40ae24…`, a scion's prefixed with its path, or `fetch failed: listing its refs: …`; git's output goes to stderr
   as `pot: staging top: error: …`, one line per line. Such a run stays in `review`, and `keepDays` and `maxSize`
-  never remove it. Each git call has a 600-second timeout. Paths are read NUL-separated (`diff-tree -z`,
-  `git grep --null`), so a name such as `dossier-é/justfile` is never quoted. Nothing of the clone (no hook, config, attribute
+  never remove it. If the host's look itself fails, the run is recorded the same way, with `fetch failed: the
+  host's look failed (TYPE: MESSAGE)`, and its exit line says `pot: run ID · fetch failed: …: pot review ID`: the
+  run is in `review`, `pot review` lists it, and the caps keep it. Each git call has a 600-second timeout. Host git
+  reads names as bytes and splits its output at newlines only, so a branch or path that is not UTF-8, or holds
+  U+0085 or U+2028, is staged and fetched like any other (`1 on b\xfe`, `pot-ID/b\xfe`); paths are read
+  NUL-separated (`diff-tree -z`, `git grep --null`), so a name such as `dossier-é/justfile` is never quoted, and
+  every pathspec is literal (`GIT_LITERAL_PATHSPECS=1`), so a committed file named `:(exclude)*` changes nothing.
+  Names are shown escaped ([residual 10](#residual-risks)). Nothing of the clone (no hook, config, attribute
   or filter) runs on the host, and no nested repository, untracked file or uncommitted change crosses; the same
   sandboxed git counts the uncommitted files. The host's look at what the run left (the `after` event: commits,
   unsigned commits, gitlinks, host-run files, repo-kit and root-repository changes) is computed from staging. The
@@ -1249,7 +1256,8 @@ pot review [RUN] [--fetch|--discard] [--since T] [--until T] [--command NAME] [-
 
   `sign:` appears only when your git config signs: it makes a local branch `pot-ID` of the run's commits and
   signs them, and `take it:` then merges that branch (`git merge pot-1ac1`); without signing, `take it:` is
-  `git merge pot-1ac1/main`. `--fetch` fetches only the refs the run moved. A scion's line appears only for a scion
+  `git merge pot-1ac1/main`. `--fetch` fetches only the refs the run moved, and names the base's branch first,
+  then the others by name, as the exit line counts them. A scion's line appears only for a scion
   with commits; a run whose
   only commits are a scion's says `…: its scions' commits`. A second `--fetch` fetches the same refs again. With no
   commits: `pot: run 1ac1 has no commits to fetch` (exit 0). Refused (exit 1): `pot: run 1ac1 worked in place:
@@ -1543,10 +1551,9 @@ depth: the tree after a run is untrusted output.
   absent at start, pot puts a neutral read-only placeholder there for the run (`commondir` holding `.`, the others
   empty), so a run cannot create one and point host git at a config it wrote; pot removes each placeholder after
   the run, if it still holds what pot wrote. A pot that is killed mid-run (`kill -9`, a reboot) leaves its
-  placeholders behind. They are harmless: host git works with them as with absent names, and the next run binds
-  them read-only as existing names, so the protection holds. Remove them by hand if you like
-  (`rm .git/commondir .git/config.worktree .git/gitdir`, each when it holds `.` or nothing); pot removes only the
-  ones it made in that run. The rest is writable, so a run can commit. It can also delete other
+  placeholders, and its sockets, behind until the next run: every run (and `inspect`) first cleans up a lost
+  in-place run, removing its sockets and the placeholders that still hold what pot wrote. Until then they are
+  harmless: host git works with them as with absent names. The rest is writable, so a run can commit. It can also delete other
   branches' refs.
 
 Protection covers the paths that exist when the run starts. A host-run file that the run creates (a new `justfile`
@@ -1855,7 +1862,9 @@ first on `PATH` wins; `command -v pot` says which.
 10. **The terminal is shared:** OSC 52 clipboard writes, title changes, tmux passthrough. Set tmux's
     `set-clipboard off` and `allow-passthrough off`. `pot` escapes every byte that a run chose before it prints it:
     control characters, and Unicode format characters (bidi overrides and isolates, zero-width ones, the BOM) as
-    `\uNNNN`. A newline in a command is escaped in the `pot runs` and `pot review` tables.
+    `\uNNNN`, and bytes that are not UTF-8 as `\xNN`: in paths, in ref names (the exit line, `--fetch`, the
+    `fetched:` row) and in the clone's base branch. A newline in a command is escaped in the `pot runs` and
+    `pot review` tables.
 11. **Verifying a scion kit needs the network.** Offline, an uncached scion kit is unverified, and its grant does
     not apply.
 12. **The nix relay depends on experimental Nix features.** Review it at each Nix upgrade.
