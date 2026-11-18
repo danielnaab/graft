@@ -742,7 +742,8 @@ A run without a terminal (stdin or stderr is not one), every `--detach` run, and
 `systemd-run --user --scope -p MemoryMax=M -p TasksMax=T`, with the root's `limits.memoryMax` (default `"50%"`) and
 `limits.tasksMax` (default `2048`). bubblewrap runs inside it; with the probe that comes first, it costs about
 14 ms. pot sets `XDG_RUNTIME_DIR` from the password database, not from the caller, and runs the `systemd-run` on the
-caller's `PATH`. `resource-limits` is in policy.json's `proved` only for a run in the scope. `pot explain` has a
+caller's `PATH`. `resource-limits` is in policy.json's `proved` only for a run in the scope, so `pot explain` at a
+terminal lists it among the backend's lacks; its `resources` row says that a run without a terminal gets the scope. `pot explain` has a
 `resources` row after `backend`:
 
 ```
@@ -1316,7 +1317,8 @@ state      ~/.local/state/pot: 0 runs, 0 clones (0 B of 20G, keepDays 14)
   the grants file's machines`, or `N in the grants file's machines entry for platform-vm`), and, when it is
   tracked, `tracked in TOP, committed` or `with uncommitted changes`. No file: `grants     PATH: missing: pot grant
   writes it`. One that does not parse: `!` with the error, naming the file once.
-- `bindings`: each binding's file by path and mode, never its contents. A key file that group or others can read is
+- `bindings`: one row per binding, by its selector as the root wrote it (`api.anthropic.com kit=claude-code@flexion`
+  for a binding per kit instance, `*` for one that covers all), and its file by path and mode, never its contents. A key file that group or others can read is
   marked `!` (`chmod 600 it`). A missing one is marked with its fix: the binding's `refresh` command, such as
   `… is missing: claude setup-token, saved with mode 600` (the default root and `pot init` set it), else
   `… is missing: create it, with mode 600`. An unset `SSH_AUTH_SOCK` for `git.fetch` is marked too.
