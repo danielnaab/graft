@@ -1229,6 +1229,13 @@ EOF
   expect "names the kits key" holds "graft.kits.claude-code: account is gone (v2.17.0): the instance is the root's kits key (\"claude-code@NAME\")"
   refused "kits: claude-code's provider and region" nix eval --impure --json --expr "$ex (g.kits.claude-code { inherit pkgs; provider = \"bedrock\"; region = \"us-east-1\"; }).version"
   expect "names api" holds 'graft.kits.claude-code: provider and region are gone (v2.17.0): api = graft.apis.bedrock { region = "…"; } (or graft.apis.anthropic)'
+  # v2.17.1: graft.apis.gateway takes an https url on 443 (the kit reaches its host there)
+  ran "kits: graft.apis.gateway" nix eval --impure --raw --expr "$ex (g.kits.claude-code { inherit pkgs; api = g.apis.gateway { url = \"https://llm.example.test/\"; }; }).env.set.ANTHROPIC_BASE_URL"
+  expect "sets the base URL under /anthropic" test "$out" = "https://llm.example.test/anthropic"
+  refused "kits: a gateway url that is not https" nix eval --impure --json --expr "$ex (g.apis.gateway { url = \"http://llm.example.test\"; }).url"
+  expect "names the form" holds 'graft.apis.gateway: url = "http://llm.example.test": give https://HOST[/PATH] (pot reaches HOST on port 443)'
+  refused "kits: a gateway url on another port" nix eval --impure --json --expr "$ex (g.apis.gateway { url = \"https://llm.example.test:8443\"; }).url"
+  expect "is refused the same way" holds 'graft.apis.gateway: url = "https://llm.example.test:8443": give https://HOST[/PATH] (pot reaches HOST on port 443)'
   refused "kits: a root kit's packages" nix eval --impure --raw --expr "$ex (g.lib.mkRoot { inherit pkgs; kits.x.packages = [ pkgs.hello ]; }).drvPath"
   expect "names tools" holds "pot: the root (programs.pot.kits.x): packages is tools' old name, gone in v2.17.0: give tools"
   ran "kits: programs.pot.defaultAccount (home-manager fails on the assertion)" nix eval --impure --raw --expr "$ex builtins.concatStringsSep \"\\n\" (map (a: a.message) (builtins.filter (a: !a.assertion) (g.inputs.nixpkgs.lib.evalModules { modules = [ g.homeManagerModules.pot ({ lib, ... }: {
@@ -1495,6 +1502,30 @@ STUB
   printf '#!/bin/sh\necho "$TMUX_PANE $*" >> %s/workmux.log\n' "$work" > "$fb/workmux"
   printf '#!/bin/sh\necho "$*" >> %s/tmux.log\n' "$work" > "$fb/tmux"
   chmod +x "$fb/workmux" "$fb/tmux"
+  # B1 (v2.17.1): binding files are checked before the grant prompts and the clone. relay is not granted yet,
+  # and its credential's and MCP key's files are not made yet
+  refused "pot: B1, a run whose binding files are missing" sb_ relaytest true
+  expect "B1: names the file, the binding and the fix" has "pot (work): $work/sbtok is missing (the credential binding api.example): create it, with mode 600, then start again"
+  expect "B1: and the MCP key's" has "pot (work): $work/sbmcp.env is missing (the mcp binding s): create it, with mode 600, then start again"
+  refuse "B1: before the grant check" holds "pot grant relay"
+  expect "B1: exits 1" test "$(sb_ relaytest true >/dev/null 2>&1; echo $?)" = 1
+  refused "pot: B1, at a terminal" tty_ $'y\ny\ny\n' "$work/sbr/bin/pot" relaytest true
+  expect "B1: refused there too" holds "$work/sbtok is missing (the credential binding api.example)"
+  refuse "B1: with no grant prompt" holds "+ capability"
+  refuse "B1: and no grant" grep -q '"root:relay"' "$work/sbgrants/grants.json"
+  refused "pot: B1, a dispatch" sb_ dispatch relaytest true
+  expect "B1: names its context" has "pot (dispatch): $work/sbtok is missing (the credential binding api.example): create it, with mode 600, then start again"
+  expect "B1: leaves no clone" test -z "$(for d in "$work"/sbstate/runs/*/; do [ -d "$d/clone" ] && [ ! -s "$d/log.jsonl" ] && echo "$d"; done)"
+  expect "B1: and no run folder" test -z "$(for d in "$work"/sbstate/runs/*/; do [ -e "$d/log.jsonl" ] || echo "$d"; done)"
+  ran "pot: B1, explain does not check the files" sb_ explain relaytest
+  out=$(sb_ why TESTTOK 2>&1 || true)
+  refuse "B1: nor does why" holds "is missing (the"
+  printf 'MCPKEY=mcp-value\n' > "$work/sbmcp.env" && printf 'tok-value\n' > "$work/sbtok" && chmod 000 "$work/sbtok"
+  if [ ! -r "$work/sbtok" ]; then
+    refused "pot: B1, an unreadable binding file" sb_ relaytest true
+    expect "B1: is named" has "pot (work): $work/sbtok is unreadable (the credential binding api.example): create it, with mode 600, then start again"
+  fi
+  chmod 600 "$work/sbtok"
   printf 'tok-value\n' > "$work/sbtok" && printf 'MCPKEY=mcp-value\n' > "$work/sbmcp.env"
   ran "pot: pot grant relay, at a terminal" tty_ $'y\ny\ny\n' "$work/sbr/bin/pot" grant relay
   expect "ordinary items together" holds "+ capability status.relay  bound: workmux relay"

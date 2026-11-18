@@ -1072,6 +1072,28 @@ def resume_spec(agent, policy):
             "render": res.get("render")}
 
 
+def binding_file_refusals(checks, context, home):
+    """v2.17.1: the binding files (compose's report["bindingFiles"]) that are missing or unreadable, each a line
+    with its fix (the binding's refresh, else "create it"), once per file. Checked by path and mode alone: the
+    file is never opened."""
+    out, seen = [], set()
+    for b in checks:
+        p = C.expand(b["file"], home)
+        if p in seen:
+            continue
+        seen.add(p)
+        if not os.path.exists(p):
+            what = "missing"
+        elif not os.path.isfile(p) or not os.access(p, os.R_OK):
+            what = "unreadable"
+        else:
+            continue
+        fix = f"{b['refresh']}, saved with mode 600" if b.get("refresh") else "create it, with mode 600"
+        out.append(f"pot ({context}): {C.canon_path(p, home)} is {what} (the {b['capability']} binding {b['selector']}): "
+                   f"{fix}, then start again")
+    return out
+
+
 def credential_notes(report):
     """§12.2: a credential carried from the host's environment that is unset or expired, with the
     host command that refreshes it (the binding's `refresh`, or the AWS default)."""
@@ -1448,6 +1470,11 @@ def run(host, root, context, flags, cmd):
         if report.get("unsandboxed"):
             say(f"pot: unsandboxed: {report['unsandboxed']} holds a granted unsandboxed request")
             return host_run(host, root, ctx, flags, cmd, quiet_line=True)
+        # v2.17.1: a missing or unreadable binding file, before the grant prompts and the clone's use (a refusal
+        # before the start event removes the clone and the run folder: finally, below)
+        bad = binding_file_refusals(report.get("bindingFiles") or [], ctx["name"], host.home)
+        if bad:
+            raise C.Refusal("\n".join(bad))
         stale = report["stale"]
         if stale and sys.stdin.isatty() and sys.stderr.isatty() and not agent_marker(root):
             # at a terminal: each stale kit's prompt (not granted, asks for more, changed source), from the

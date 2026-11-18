@@ -802,7 +802,7 @@ def compose(inp):
     ctx = resolve_context(root, inp["context"])
     flags = inp.get("flags") or {}
     report = {"notes": [], "stale": [], "kits": [], "refusals": [], "context": ctx, "command": None,
-              "unsetEnv": [], "oneRun": [], "noBinding": []}
+              "unsetEnv": [], "oneRun": [], "noBinding": [], "bindingFiles": []}
     machine = inp["machine"]
     grants = inp["grants"]
 
@@ -1093,6 +1093,13 @@ def compose(inp):
             if r.kind == "capability":
                 extra["data"] = r.data
                 b = find_binding(bindings, r, k["id"])
+                # v2.17.1: a credential or MCP key this run's kits read from a file, granted or not yet (pot checks the
+                # file before the grant prompts and the clone's use)
+                f = ((b[1].get("from") if b and isinstance(b[1], dict) else None) or {})
+                if (applies_here and r.value in ("credential", "mcp") and isinstance(f, dict) and f.get("file")
+                        and not (view and r.value == "mcp")):
+                    report["bindingFiles"].append({"capability": r.value, "selector": b[0], "kit": k["id"], "file": f["file"],
+                                                   **({"refresh": b[1]["refresh"]} if b[1].get("refresh") else {})})
                 if eff and b is None:
                     eff, why = False, "no binding"
                     report["noBinding"].append((k["id"], r))

@@ -275,6 +275,21 @@ instance whose variables the shell matches (`CLAUDE_CONFIG_DIR=~/.claude-account
 `CLAUDE_CODE_USE_BEDROCK=1` pick `@work`), and otherwise the default. The startup line names an instance that is
 not the default: `pot: work · team-kb · instance work · pot explain`.
 
+For an Anthropic-compatible gateway that takes a key as a bearer token (v2.17.1), give its url, and bind its key
+file to the credential:
+
+```nix
+kits."claude-code@gateway" = inputs.graft.kits.claude-code {
+  inherit pkgs; configDir = ".claude-accounts/work";
+  api = inputs.graft.apis.gateway { url = "https://llm.example.org"; };
+};
+bindings.credential."llm.example.org kit=claude-code@gateway" = {
+  via = "file"; from.file = "~/.config/llm-gateway/key"; };   # the key alone, mode 600
+```
+
+The run reaches only the gateway's host, and Claude reads `ANTHROPIC_BASE_URL=https://llm.example.org/anthropic`.
+A shell with that `ANTHROPIC_BASE_URL` and the instance's `CLAUDE_CONFIG_DIR` picks `@gateway`.
+
 What the claude-code kit binds from your host into each run, read-only:
 
 - your skills folder: links into the store or into a checkout under `skillSources`, and the real folders that

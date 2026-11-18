@@ -58,7 +58,7 @@
       lib.pot.kitsFor = kitsFor;
       # agent kits, for a root to call: graft.kits.claude-code { pkgs; configDir; api; … } (pot/kits)
       kits.claude-code = import ./pot/kits/claude-code.nix;
-      # the APIs an agent kit can use: graft.apis.anthropic, graft.apis.bedrock { region; } (pot/kits/apis.nix)
+      # the APIs an agent kit can use: graft.apis.anthropic, graft.apis.bedrock { region; }, graft.apis.gateway { url; } (pot/kits/apis.nix)
       apis = import ./pot/kits/apis.nix;
       # a personal root in home-manager: programs.pot (pot/nix/hm.nix)
       homeManagerModules.pot = import ./pot/nix/hm.nix { inherit mkRoot; };
@@ -122,16 +122,44 @@
         '';
         # the default root builds (on Darwin: a pot that refuses, D21)
         pot-root = defaultRoot pkgs;
-        # a root with the claude-code kit (two instances, MCP, Bedrock) builds: its manifests validate
+        # a root with the claude-code kit (three instances, MCP, Bedrock, a gateway) builds: its manifests validate
         pot-root-claude = mkRoot {
           inherit pkgs;
           name = "check";
           kits."claude-code@personal" = self.kits.claude-code { inherit pkgs; mcp = [ "metamcp" ]; };
           kits."claude-code@work" = self.kits.claude-code { inherit pkgs; configDir = ".claude-accounts/work";
             api = self.apis.bedrock { region = "us-east-1"; }; binary = pkgs.hello; };
+          kits."claude-code@gateway" = self.kits.claude-code { inherit pkgs; configDir = ".claude-accounts/work";
+            api = self.apis.gateway { url = "https://llm.example.test"; }; };
           defaultInstance.claude-code = "personal";
           bindings.mcp.metamcp = { url = "https://mcp.example/mcp"; via = "env"; env = "METAMCP_API_KEY"; from.file = "~/.config/x/key.env"; };
         };
+        # v2.17.1: the claude-code kit pointed at a gateway (graft.apis.gateway): its host on 443 and no claude.ai,
+        # its base URL and model discovery (nonessential traffic left on; telemetry, error reports and /bug off),
+        # the credential as ANTHROPIC_AUTH_TOKEN, and the base URL in agent.select.env; a url that is not https on
+        # 443 fails evaluation (tests/run.sh kits checks the message)
+        pot-gateway = let
+          fails = x: !(builtins.tryEval (builtins.deepSeq x true)).success;
+          gw = url: self.kits.claude-code { inherit pkgs; configDir = ".claude-accounts/flexion"; api = self.apis.gateway { inherit url; }; };
+          k = gw "https://llm.example.test/";
+          rq = k.commands.claude.requests;
+          base = "https://llm.example.test/anthropic";
+        in assert rq.network == [ "llm.example.test" ];
+          assert rq.env == [ ];
+          assert k.env.set.ANTHROPIC_BASE_URL == base;
+          assert k.env.set.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY == "1";
+          assert !(k.env.set ? CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC);
+          assert lib.all (v: k.env.set.${v} == "1") [ "DISABLE_AUTOUPDATER" "DISABLE_TELEMETRY" "DISABLE_ERROR_REPORTING" "DISABLE_BUG_COMMAND" ];
+          assert lib.elem { name = "credential"; host = "llm.example.test"; env = "ANTHROPIC_AUTH_TOKEN"; } rq.capabilities;
+          assert k.agent.select.env == { CLAUDE_CONFIG_DIR = "~/.claude-accounts/flexion"; ANTHROPIC_BASE_URL = base; };
+          assert (gw "https://llm.example.test:443/v1/").env.set.ANTHROPIC_BASE_URL == "https://llm.example.test/v1/anthropic";
+          assert (gw "https://LLM.Example.test").commands.claude.requests.network == [ "llm.example.test" ];
+          assert fails (self.apis.gateway { url = "http://llm.example.test"; });
+          assert fails (self.apis.gateway { url = "https://llm.example.test:8443"; });
+          assert fails (self.apis.gateway { url = "llm.example.test"; });
+          assert fails (self.apis.gateway { url = "https://user@llm.example.test"; });
+          assert fails (self.apis.gateway { url = "https://llm.example.test/?x=1"; });
+          pkgs.runCommand "graft-pot-gateway" { } "touch $out";
         # v2.16.0's deprecated forms are gone in v2.17.0: each fails evaluation (tests/run.sh kits checks the
         # message, which names its replacement); defaultInstance is checked at build (F4)
         pot-removed = let

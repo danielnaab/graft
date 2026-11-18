@@ -10,7 +10,8 @@
 #     skillDirs ? [ "synced" ];    # real directories in the skills folder that are bound (by name; [ ] opts out)
 #     plugins ? true;              # bind the account's plugins folder read-only (false opts out)
 #     skillSources ? [ ];          # checkouts the skill links point into (read requests)
-#     api ? graft.apis.anthropic;  # or graft.apis.bedrock { region = "us-east-1"; }
+#     api ? graft.apis.anthropic;  # or graft.apis.bedrock { region = "us-east-1"; }, or
+#                                  # graft.apis.gateway { url = "https://…"; } (v2.17.1)
 #     mcp ? [ ];                   # MCP server names, each a `mcp` request
 #   }
 #
@@ -42,7 +43,12 @@ let
   # a host binary built for an FHS system gets nix-ld at the FHS loader's path (Linux)
   fhs = hostBinary && pkgs.stdenv.hostPlatform.isLinux;
   bedrock = provider' == "bedrock";
-  host = if bedrock then "bedrock-runtime.${region'}.amazonaws.com" else "api.anthropic.com";
+  # a gateway (v2.17.1): an Anthropic-compatible service at api.url, its key as the bearer token
+  # (ANTHROPIC_AUTH_TOKEN), and Claude's model list from it (gateway model discovery, which
+  # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC would turn off; its other parts are set one by one)
+  gateway = provider' == "gateway";
+  baseUrl = "${api'.url}/anthropic";
+  host = if bedrock then "bedrock-runtime.${region'}.amazonaws.com" else if gateway then api'.host else "api.anthropic.com";
   # the loader a foreign binary names (FHS), and glibc's own, which nix-ld hands it to (NIX_LD)
   fhsLinker = if pkgs.stdenv.hostPlatform.isAarch64 then "/lib/ld-linux-aarch64.so.1" else "/lib64/ld-linux-x86-64.so.2";
   linker = pkgs.stdenv.cc.bintools.dynamicLinker;
@@ -106,18 +112,23 @@ noAccount {
   files = lib.mapAttrs' (t: f: lib.nameValuePair "~/.claude/${lib.removePrefix prefix t}" { source = f.source; mode = "fixed"; }) hmFiles
     // { "~/.claude/.claude.json" = { source = onboarding; mode = "reassert"; keys = [ "hasCompletedOnboarding" "projects.*.hasTrustDialogAccepted" ]; }; }
     // lib.optionalAttrs fhs { ${fhsLinker} = { source = "${pkgs.nix-ld}/libexec/nix-ld"; mode = "fixed"; }; };
-  env.set = { CLAUDE_CONFIG_DIR = "~/.claude"; DISABLE_AUTOUPDATER = "1"; CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"; }
+  env.set = { CLAUDE_CONFIG_DIR = "~/.claude"; DISABLE_AUTOUPDATER = "1"; }
+    // (if gateway then {
+      ANTHROPIC_BASE_URL = baseUrl; CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1";
+      DISABLE_TELEMETRY = "1"; DISABLE_ERROR_REPORTING = "1"; DISABLE_BUG_COMMAND = "1";
+    } else { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"; })
     // lib.optionalAttrs fhs {
       NIX_LD = linker;
       NIX_LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ];
     };
   protect = [ "**/.claude" "**/.mcp.json" ];
   # what pot's core knows of Claude Code, as data (kit 1.1): how a caller in Claude is recognised, which
-  # caller variables select this instance (Bedrock's add CLAUDE_CODE_USE_BEDROCK, so they are the more
-  # specific match), where its transcripts are and how a session resumes, and the overlay's hooks
+  # caller variables select this instance (Bedrock's add CLAUDE_CODE_USE_BEDROCK and a gateway's its
+  # ANTHROPIC_BASE_URL, so they are the more specific match), where its transcripts are and how a session resumes, and the overlay's hooks
   agent = {
     markers = [ "CLAUDECODE" ];
-    select.env = { CLAUDE_CONFIG_DIR = "~/${configDir}"; } // lib.optionalAttrs bedrock { CLAUDE_CODE_USE_BEDROCK = "1"; };
+    select.env = { CLAUDE_CONFIG_DIR = "~/${configDir}"; } // lib.optionalAttrs bedrock { CLAUDE_CODE_USE_BEDROCK = "1"; }
+      // lib.optionalAttrs gateway { ANTHROPIC_BASE_URL = baseUrl; };
     resume = { transcripts = "~/.claude/projects/**/*.jsonl"; args = [ "--resume" "{id}" ]; render = "${render}"; };
     # explain's rows: the events by matcher, in the order Claude runs them, then where they come from
     hooks = let
@@ -146,7 +157,7 @@ noAccount {
       capabilities = [ { name = "status.relay"; }
         { name = "credential"; inherit host;
           env = if bedrock then [ "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY" "AWS_SESSION_TOKEN" "AWS_CREDENTIAL_EXPIRATION" ]
-                else "CLAUDE_CODE_OAUTH_TOKEN"; } ]
+                else if gateway then "ANTHROPIC_AUTH_TOKEN" else "CLAUDE_CODE_OAUTH_TOKEN"; } ]
         ++ map (s: { name = "mcp"; server = s; }) mcp;
     };
   };

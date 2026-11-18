@@ -612,6 +612,19 @@ as the token that `claude setup-token` prints. An `mcp` key file must name its v
 `the mcp binding SEL reads F, which holds no NAME=VALUE line for METAMCP_API_KEY: write METAMCP_API_KEY=… in it`.
 A file that lacks a variable it should hold: `… reads F, which has no NAME`.
 
+**The binding check (v2.17.1).** Before the grant prompts, and before a dispatch uses its clone, a run checks
+each `from.file` of the credential and mcp bindings its kits use, granted or not yet, by path and mode (it never
+opens the file). A missing or unreadable one stops the run (exit 1), one line per file, with the binding's
+`refresh` as the fix, else `create it, with mode 600`:
+
+```
+pot (work): ~/.config/pot/claude-token-flexion is missing (the credential binding api.anthropic.com kit=claude-code@flexion): claude setup-token, saved with mode 600, then start again
+```
+
+`is unreadable` names a file the user cannot read, or a path that is not a file. Nothing was started: a dispatch
+leaves no clone and no run folder. `pot explain` and `pot why` do not check the files, and `pot doctor` lists
+them all ([pot doctor](#pot-doctor)).
+
 - `from` is always a reference. Each file that `from.file`, `from.envFile` or `key.file` names is hidden from
   every run.
 - A binding may add see items, such as a shim or a config file. It never adds reach beyond its capability.
@@ -1673,6 +1686,7 @@ The other messages, after `pot (<context>): `:
 | Missing guarantee (125) | `requires separate-kernel; bubblewrap proves …` |
 | `pot` inside a run (1) | `pot inside a run starts nested runs in a later release: run it on the host` |
 | A missing lock | `pot (work): ~/…/nix/agent-tools/flake.lock is missing, and pot never writes one into a workspace: run nix flake lock there, on the host, and commit it` |
+| A binding file (1, v2.17.1) | `pot (work): ~/.config/pot/claude-token-flexion is missing (the credential binding api.anthropic.com kit=claude-code@flexion): claude setup-token, saved with mode 600, then start again`; `is unreadable` for one the user cannot read; before the grant prompts ([the binding check](#key-files)) |
 
 On macOS: `pot: no backend for darwin in v2.17.0; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)`.
 On the startup line, a requested variable that the host lacks is `env NAME unset`, and a capability with no binding
@@ -1728,7 +1742,8 @@ programs.pot.kits."claude-code@personal" = inputs.graft.kits.claude-code {
   skillDirs = [ "synced" ];             # the default: real directories in the skills folder to bind; [ ] opts out
   plugins = true;                       # the default: the plugins folder, read-only; false opts out
   skillSources = [ "~/src/agent-skills" ];   # checkouts that skill links point into
-  api = graft.apis.anthropic;           # or graft.apis.bedrock { region = "us-east-1"; }
+  api = graft.apis.anthropic;           # or graft.apis.bedrock { region = "us-east-1"; },
+                                        # or graft.apis.gateway { url = "https://llm.example.org"; }
   mcp = [ "metamcp" ];
 };
 ```
@@ -1737,8 +1752,13 @@ programs.pot.kits."claude-code@personal" = inputs.graft.kits.claude-code {
 fails, `graft.kits.claude-code: account is gone (v2.17.0): the instance is the root's kits key ("claude-code@NAME")`.
 
 **The API.** `api` is a value from graft's flake: `graft.apis.anthropic` (the default, `{ name = "anthropic"; }`)
-or `graft.apis.bedrock { region = "us-east-1"; }` (`{ name = "bedrock"; region; }`). It decides the kit's network
-requests, variables and credential ([below](#claude-code)). v2.15.0's `provider` and `region` arguments fail:
+, `graft.apis.bedrock { region = "us-east-1"; }` (`{ name = "bedrock"; region; }`), or, from v2.17.1,
+`graft.apis.gateway { url = "https://llm.example.org"; }` (`{ name = "gateway"; url; host; }`): an
+Anthropic-compatible gateway, such as a Bifrost or LiteLLM proxy, that takes its key as a bearer token. It decides
+the kit's network requests, variables and credential ([below](#claude-code)). A gateway's `url` is
+`https://HOST[/PATH]`, reached on port 443; the value keeps it without a trailing slash or `:443`, and its host
+lowercased. Any other url fails evaluation:
+`graft.apis.gateway: url = "http://llm.example.org": give https://HOST[/PATH] (pot reaches HOST on port 443)`. v2.15.0's `provider` and `region` arguments fail:
 `graft.kits.claude-code: provider and region are gone (v2.17.0): api = graft.apis.bedrock { region = "…"; } (or
 graft.apis.anthropic)`.
 
@@ -1783,21 +1803,25 @@ The run gets its own agent home, configured by the root:
   Native also gets `NIX_LD`, `NIX_LD_LIBRARY_PATH`, glibc, and nix-ld fixed at `/lib64/ld-linux-x86-64.so.2`
   (`/lib/ld-linux-aarch64.so.1` on aarch64). A package runs its `bin/claude`.
 - **Variables:** `CLAUDE_CONFIG_DIR=~/.claude` (in the run's `HOME`), `DISABLE_AUTOUPDATER=1` and
-  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, which keeps Claude's startup traffic to its model API.
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, which keeps Claude's startup traffic to its model API. With a
+  gateway: `ANTHROPIC_BASE_URL=<url>/anthropic` and `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`, so `/model`
+  lists the gateway's models. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` would turn that discovery off too, so it
+  is not set; its other parts are: `DISABLE_TELEMETRY=1`, `DISABLE_ERROR_REPORTING=1` and `DISABLE_BUG_COMMAND=1`.
 - **MCP:** with `mcp`, Claude gets `--mcp-config /run/pot/mcp.json --strict-mcp-config`, and the run
   reaches the MCP server's host.
 - **Login:** a `credential` for `api.anthropic.com` with `env = "CLAUDE_CODE_OAUTH_TOKEN"`, bound to a file that
   you make once per account with `claude setup-token`. There is no `/login` inside, and the run never reaches a
-  keychain.
+  keychain. With a gateway: a `credential` for the gateway's host with `env = "ANTHROPIC_AUTH_TOKEN"`, which Claude
+  sends as `Authorization: Bearer`; bind it to the file that holds the gateway's key.
 - **Onboarding and folder trust:** `~/.claude/.claude.json` is `reassert`, with the keys `hasCompletedOnboarding`
   and `projects.*.hasTrustDialogAccepted` (`*` is each workspace path). The host writes seeded and reasserted
   files into state, and refuses to write through a link that a run planted.
 - **Transcripts:** `state claude` at `~/.claude`, scoped per instance, workspace and context.
 - **Requests:** `read ~/.local/share/claude` (native) and `skillSources`; `network` `api.anthropic.com` and
   `claude.ai`, or with Bedrock `bedrock-runtime.<region>.amazonaws.com`, `bedrock.<region>.amazonaws.com` and
-  `sts.<region>.amazonaws.com`; with Bedrock, `env` `CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_MODEL` and `AWS_REGION`;
-  `state claude`; and the capabilities `status.relay`, `credential` (`CLAUDE_CODE_OAUTH_TOKEN`, or
-  `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`, with `AWS_CREDENTIAL_EXPIRATION` when it is
+  `sts.<region>.amazonaws.com`, or with a gateway its host alone (port 443; no `claude.ai`); with Bedrock, `env` `CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_MODEL` and `AWS_REGION`;
+  `state claude`; and the capabilities `status.relay`, `credential` (`CLAUDE_CODE_OAUTH_TOKEN`; with a gateway,
+  `ANTHROPIC_AUTH_TOKEN`; or with Bedrock `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`, with `AWS_CREDENTIAL_EXPIRATION` when it is
   set) and one `mcp` per server.
 - **Bedrock credentials:** the run cannot refresh them, so the overlay sets `awsAuthRefresh` to empty. When the
   `AWS_*` keys are unset or expired on the host, the startup line says so, with the command that refreshes them:
@@ -1805,8 +1829,9 @@ The run gets its own agent home, configured by the root:
   2. Export the keys into the shell that starts `pot`, if your helper does not.
   3. Start the run again. A run keeps the keys it started with, until they expire.
 - **Instances:** one per Claude account and API, each granted on its own. Its `agent.select.env` is
-  `CLAUDE_CONFIG_DIR = "~/<configDir>"`, plus `CLAUDE_CODE_USE_BEDROCK = "1"` for Bedrock, so a shell that `ai use`
-  set up picks its instance (Bedrock is the more specific match).
+  `CLAUDE_CONFIG_DIR = "~/<configDir>"`, plus `CLAUDE_CODE_USE_BEDROCK = "1"` for Bedrock or
+  `ANTHROPIC_BASE_URL = "<url>/anthropic"` for a gateway, so a shell that `ai use` set up picks its instance
+  (Bedrock and a gateway are the more specific match when an instance shares their `configDir`).
 
 A sandboxed transcript is run output. `pot host --resume RUN claude` starts a new host conversation with it
 attached as quoted data ([Resume on the host](#resume-on-the-host)).
