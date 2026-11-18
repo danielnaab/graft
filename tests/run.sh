@@ -2505,6 +2505,11 @@ EOF
   expect "names the scion" holds "scions/sbd: its commits are in that scion's refs/remotes/pot-$sr/*"
   expect "into the scion's repository" test "$(git_ -C scions/sbd log -1 --format=%s "refs/remotes/pot-$sr/detached")" = scion-fix
   expect "F1: and no no-op scion branch" test -z "$(git_ -C scions/sbd for-each-ref --format='%(refname)' "refs/remotes/pot-$sr/" | grep -v '/detached$')"
+  # R7: the exit line counts each moved ref's commits and the scions'
+  # shellcheck disable=SC2016
+  ran "dispatch: R7, commits on two branches and in a scion" dl dispatch bash -c 'git -C scions/sbd commit -q --allow-empty -m s7
+    git commit -q --allow-empty -m t7 && git switch -q -c side7 && git commit -q --allow-empty -m u7'
+  expect "R7: names each ref and the scion" grep -qE "^pot: run [0-9a-f]{4} · 1 commit on main, 2 on side7, 1 in scions/sbd: pot review [0-9a-f]{4}, then pot review [0-9a-f]{4} --fetch" <<<"$out"
   # X8: when the host signs, the sign line names a branch to rebase on
   ran "dispatch: X8, a commit to sign" d_ dispatch bash -c 'git commit -q --allow-empty -m to-sign'
   local gid && gid=$(d_ runs --json | jq -r '[.runs[] | select(.state == "review" and .clone.commits == 1)][0].id')

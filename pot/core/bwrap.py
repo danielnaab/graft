@@ -1209,6 +1209,9 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
         if hd and hd != base and hd not in tips:
             moved["detached"] = hd
         ev["refs"] = {n: o[:12] for n, o in moved.items()}
+        # R7: each moved ref's own commits since the base, for the exit line
+        ev["refCommits"] = {n: int(host_git(cfg, sd, "rev-list", "--count", o, "--not", base).stdout.strip() or 0)
+                            for n, o in moved.items()}
         if moved:
             commits = [c for c in host_git(cfg, sd, "rev-list", *moved.values(), "--not", base).stdout.split() if c]
             ev["commits"] += [c[:12] for c in commits]

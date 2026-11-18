@@ -1463,11 +1463,22 @@ def run(host, root, context, flags, cmd):
             + resume_lines(policy, report, started, report["command"].get("instance"),
                            report["command"].get("defaultInstance"))
         if cinfo:
-            n = len(ev.get("commits") or [])
-            br = cinfo["branch"]
-            if n:
+            # R7: each moved ref's commits (the base's branch first), then each scion's
+            rc = ev.get("refCommits") or {}
+            order = sorted(rc, key=lambda r: (r != cinfo["branch"], r))
+            parts = [f"{rc[r]} {'commit' if rc[r] == 1 else 'commits'} on {visible(r)}" if i == 0 else f"{rc[r]} on {visible(r)}"
+                     for i, r in enumerate(order) if rc[r]]
+            for p_, v in sorted((ev.get("scions") or {}).items()):
+                k = len(v.get("commits") or [])
+                if not k:
+                    continue
+                if parts:
+                    parts.append(f"{k} in {visible(p_)}")
+                else:
+                    parts.append(f"{k} {'commit' if k == 1 else 'commits'} in {visible(p_)}")
+            if parts:
                 say(f"pot: run {rid}" + (f" · exit {status}" if status else "")
-                    + f" · {n} commit{'s' if n != 1 else ''} on {br}: pot review {rid}, then pot review {rid} --fetch")
+                    + f" · {', '.join(parts)}: pot review {rid}, then pot review {rid} --fetch")
             else:
                 keep = int((root.get("clones") or {}).get("keepDays", 14))
                 until = (datetime.date.today() + datetime.timedelta(days=keep)).isoformat()
