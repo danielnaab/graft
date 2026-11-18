@@ -425,11 +425,24 @@ class Compose(unittest.TestCase):
         self.assertEqual(p["access"], "read")
         self.assertEqual(p["workspace"][0]["protected"], [])
 
-    def test_clone_lands_in_1b(self):
-        with self.assertRaisesRegex(C.Refusal, "a later release"):
+    def test_clone_mode(self):
+        # v2.17.0: clone mode composes; it requires same-path-clone (a backend that can't is refused, 125)
+        with self.assertRaisesRegex(C.Refusal, "requires same-path-clone") as e:
             C.compose(inp(context="dispatch"))
-        with self.assertRaisesRegex(C.Refusal, "a later release"):
-            C.compose(inp(flags={"mode": "clone"}))
+        self.assertEqual(e.exception.status, C.EXIT_GRANT)
+        full = ["closure-store", "own-netns", "own-pidns", "no-tiocsti", "protected-as-mounts", "in-place",
+                "same-path-clone", "root-files"]
+        i = inp(context="dispatch", probe=full)
+        i["workspace"][0]["clone"] = "/s/runs/9b0e/clone"
+        p, _ = C.compose(i)
+        self.assertEqual(p["mode"], "clone")
+        w = p["workspace"][0]
+        self.assertEqual((w["clone"], w["common"]), ("/s/runs/9b0e/clone", w["path"] + "/.git"))
+        self.assertIn("same-path-clone", p["backend"]["requires"])
+        p, _ = C.compose(inp(flags={"mode": "clone"}, probe=full))
+        self.assertEqual(p["mode"], "clone")
+        p, _ = C.compose(inp(probe=full))
+        self.assertEqual((p["mode"], p["workspace"][0]["clone"]), ("in-place", None))
 
     def test_inspect(self):
         r = root(kits={"cc": {"commands": {"claude": {"requests": {

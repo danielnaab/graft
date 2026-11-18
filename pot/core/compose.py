@@ -12,6 +12,7 @@ import base64
 import fnmatch
 import hashlib
 import json
+import os
 import posixpath
 import re
 from urllib.parse import urlsplit
@@ -775,8 +776,7 @@ def compose(inp):
     machine = inp["machine"]
     grants = inp["grants"]
 
-    if ctx["mode"] == "clone" or flags.get("mode") == "clone":
-        raise Refusal(f"pot ({ctx['name']}): clone mode (dispatch) comes in a later release; this release works in place")
+    clone_mode = ctx["mode"] == "clone" or flags.get("mode") == "clone"
     if ctx["mode"] == "none":
         raise Refusal("pot: host runs no sandbox and composes no policy")
     trust = ctx.get("trust", "workspace")
@@ -1151,17 +1151,22 @@ def compose(inp):
         # inspect sees the whole store (§5); so does a run with the nix capability (§8)
         proved = [g for g in proved if g != "closure-store"]
     requires = list(ctx.get("requires") or [])
+    if clone_mode and "same-path-clone" not in requires:
+        # a clone is mounted at the original path (§9.3); a backend that can't is refused, never weaker
+        requires.append("same-path-clone")
     missing = [g for g in requires if g not in proved]
     if missing:
         raise Refusal(f"pot ({ctx['name']}): requires {' '.join(missing)}; {inp.get('backendName', 'the backend')} proves {' '.join(proved) or 'nothing'}", EXIT_GRANT)
 
-    workspace = [{"id": w["id"], "path": w["top"], "common": w["common"], "protected": protect if access == "write" else [],
-                  "clone": None} for w in inp["workspace"]]
+    workspace = [{"id": w["id"], "path": w["top"],
+                  "common": os.path.join(w["top"], ".git") if w.get("clone") else w["common"],
+                  "protected": protect if access == "write" else [],
+                  "clone": w.get("clone")} for w in inp["workspace"]]
     policy = {
         "version": POLICY_VERSION,
         "run": inp["run"],
         "context": ctx["name"],
-        "mode": "in-place",
+        "mode": "clone" if clone_mode else "in-place",
         "access": access,
         "backend": {"name": inp.get("backendName", "bubblewrap"), "requires": requires, "proved": proved},
         "workspace": workspace,
@@ -1746,6 +1751,16 @@ def explain_text(policy, report, root, width=100):
     lacks = [g for g in GUARANTEES if g not in b["proved"]]
     out += wrap_words("backend    ", f"{b['name']} proves {' '.join(b['proved']) or 'nothing'}; lacks {' '.join(lacks)}".split(" "),
                       width, 11)
+    # §11: resource-limits is proved per run, for a run in a user systemd scope
+    sc = report.get("scope") or {}
+    lim = root.get("limits") or {}
+    if sc.get("limits"):
+        out.append(f"resources  this run: a user systemd scope, {sc['limits']}")
+    elif sc.get("note"):
+        out.append(f"resources  {sc['note']}")
+    else:
+        out.append(f"resources  none at a terminal; a run without one gets a user systemd scope, "
+                   f"MemoryMax={lim.get('memoryMax', '50%')} TasksMax={lim.get('tasksMax', 2048)}")
     out.append("note       kit tools run as this run's own programs; sandboxing each kit command comes in a later release")
     return "\n".join(out) + "\n"
 

@@ -672,8 +672,25 @@ def prepare(cfg, rundir, print_cmd=False):
 
     # the workspace
     pinsets = []
+    clones = []
     for w in policy["workspace"]:
         top, common = w["path"], w["common"]
+        if w.get("clone"):
+            # clone mode (§9): the clone, bound at the original path (same-path-clone); its git directory, config
+            # and hooks pinned as in place, so the run can't change what a later host git would run
+            src = w["clone"]
+
+            def at(p, src=src, top=top):
+                return top + p[len(src):] if p == src or p.startswith(src + "/") else p
+            pins = Pins(src, os.path.join(src, ".git"), w["protected"], cfg)
+            pins.compute(os.path.join(src, ".git", "hooks"))
+            clones.append((w, pins))
+            mount(top, 0, ["--bind", src, top])
+            for d in pins.dirs:
+                mount(at(d), 0, ["--bind", d, at(d)])
+            for p in pins.ro:
+                mount(at(p), 1, ["--ro-bind", p, at(p)])
+            continue
         if view or policy["access"] != "write":
             if not view:
                 mount(top, 1, ["--ro-bind", top, top])
@@ -778,6 +795,8 @@ def prepare(cfg, rundir, print_cmd=False):
         before["pins"].append({"top": pins.top, "fingerprint": fingerprint(cfg, pins)})
         before["hostrun"][pins.top] = hostrun_hashes(pins.top, pins.protect)
         before["refs"][pins.top] = refs(cfg, pins.top)
+    for w, pins in clones:
+        before.setdefault("clones", []).append({"top": w["path"], "clone": w["clone"], "gits": sorted(pins.dotgits)})
     with open(os.path.join(rundir, "before.json"), "w") as f:
         json.dump(before, f)
     with open(os.path.join(rundir, "launch.json"), "w") as f:
@@ -811,6 +830,8 @@ def run_env(cfg, policy, launch):
            "PS1": f"(pot:{ctx}) \\w \\$ "}
     if tools:
         env["POT_TOOLS"] = tools
+    if policy.get("mode") == "clone":
+        env["POT_CLONE"] = "1"
     for v in ("TERM", "COLORTERM"):
         if v in os.environ:
             env[v] = os.environ[v]
@@ -993,7 +1014,9 @@ def after(cfg, rundir):
     except OSError:
         before = {"pins": [], "hostrun": {}, "refs": {}}
     ev = {"ev": "after", "by": "host", "commits": [], "unsigned": 0, "touches_host_run": [], "repo_kit_change": [],
-          "root_repo_change": False, "new_git_metadata": [], "denials": []}
+          "root_repo_change": False, "new_git_metadata": [], "denials": [], "signs": bool(launch.get("hostSigns"))}
+    for b in before.get("clones") or []:
+        clone_after(cfg, rundir, policy, launch, b, ev)
     for b in before["pins"]:
         top = b["top"]
         w = next(w for w in policy["workspace"] if w["path"] == top)
@@ -1036,9 +1059,167 @@ def after(cfg, rundir):
     print(json.dumps(ev))
 
 
+# ---------------------------------------------------------------- clone mode: staging and its after event
+
+def sandboxed_git(cfg, rundir, clone, args, cwd="/clone", timeout=600):
+    """git inside bubblewrap: the clone read-only at /clone, git's closure, no network, no home. What the
+    clone's config, hooks or attributes make it run, runs there (P4)."""
+    with open(cfg["gitClosure"]) as f:
+        closure = [l.strip() for l in f if l.strip()]
+    cmd = [cfg["bwrap"], "--unshare-all", "--unshare-user", "--disable-userns", "--die-with-parent", "--new-session",
+           "--clearenv", "--setenv", "HOME", "/tmp", "--setenv", "PATH", os.path.dirname(cfg["git"]),
+           "--setenv", "GIT_CONFIG_NOSYSTEM", "1", "--setenv", "GIT_CONFIG_GLOBAL", "/dev/null"]
+    for p in closure:
+        cmd += ["--ro-bind", p, p]
+    cmd += ["--ro-bind", clone, "/clone", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--chdir", cwd,
+            cfg["git"], "-c", "safe.directory=*"] + args
+    return cmd
+
+
+def upload_pack(cfg, rundir, clone, gitdir, name):
+    """The --upload-pack program a host fetch runs: upload-pack, sandboxed, for one git directory of the clone."""
+    path = os.path.join(rundir, f"upload-pack-{name}")
+    inner = "/clone" + gitdir[len(clone):]
+    with open(path, "w") as f:
+        f.write("#!/bin/sh\n# pot: fetch-back's upload-pack, in bubblewrap (the clone read-only, nothing else of the host)\nexec "
+                + " ".join(shlex.quote(a) for a in sandboxed_git(cfg, rundir, clone, ["upload-pack", "--strict", inner])) + "\n")
+    os.chmod(path, 0o700)
+    return path
+
+
+def host_git(cfg, gitdir, *args):
+    """Host git on a repository pot created (staging): none of the user's config, no hooks."""
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+    for k in [k for k in env if k.startswith("GIT_CONFIG_KEY_") or k.startswith("GIT_CONFIG_VALUE_") or k == "GIT_CONFIG_COUNT"]:
+        del env[k]
+    return subprocess.run([cfg["git"], "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
+                           "--git-dir", gitdir] + list(args), capture_output=True, text=True, env=env)
+
+
+def stage(cfg, rundir, clone, gitdir, name, alternates):
+    """Fetch refs/heads/* of one git directory of the clone into <run dir>/staging/<name>.git (host-owned,
+    bare), through the sandboxed upload-pack, with fsck. Returns the staging directory, or None."""
+    sd = os.path.join(rundir, "staging", f"{name}.git")
+    if not os.path.isdir(sd):
+        os.makedirs(os.path.dirname(sd), exist_ok=True)
+        subprocess.run([cfg["git"], "init", "-q", "--bare", sd], capture_output=True,
+                       env={**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"})
+        if alternates and os.path.isdir(alternates):
+            with open(os.path.join(sd, "objects", "info", "alternates"), "w") as f:
+                f.write(alternates + "\n")
+    up = upload_pack(cfg, rundir, clone, gitdir, name)
+    r = host_git(cfg, sd, "-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true", "-c", "protocol.allow=never",
+                 "-c", "protocol.file.allow=always", "fetch", "-q", "--no-tags", "--prune", f"--upload-pack={up}",
+                 "file://" + gitdir, "+refs/heads/*:refs/heads/*", "+HEAD:refs/pot/head")
+    if r.returncode != 0:
+        print(visible(f"pot: fetching the run's commits from its clone failed: {r.stderr.strip()[-400:]}"), file=sys.stderr)
+        return None
+    return sd
+
+
+def tree_size(p):
+    n = 0
+    for d, _, fs in os.walk(p):
+        for f in fs:
+            try:
+                n += os.lstat(os.path.join(d, f)).st_blocks * 512
+            except OSError:
+                pass
+    return n
+
+
+def matches(path, pats):
+    for p in pats:
+        if p.startswith("**/"):
+            if p[3:] in path.split("/"):
+                return True
+        elif path == p.rstrip("/") or path.startswith(p.rstrip("/") + "/"):
+            return True
+    return False
+
+
+def clone_after(cfg, rundir, policy, launch, b, ev):
+    """The after event for a clone (§9), from the staging repositories, never from the clone."""
+    clone, top = b["clone"], b["top"]
+    w = next(w for w in policy["workspace"] if w["path"] == top)
+    cl = launch.get("clone") or {}
+    base = cl.get("base")
+    sd = stage(cfg, rundir, clone, os.path.join(clone, ".git"), "top", cl.get("objects"))
+    ev["base"] = base[:12] if base else ""
+    ev["refs"], ev["scions"], ev["gitlinks"], ev["root_attention"] = {}, {}, [], []
+    if sd:
+        heads = host_git(cfg, sd, "for-each-ref", "--format=%(refname:strip=2) %(objectname)", "refs/heads").stdout.split("\n")
+        moved = {}
+        for l in heads:
+            if " " in l:
+                n, o = l.split(" ", 1)
+                if o != base:
+                    moved[n] = o
+        # a detached HEAD that moved (a commit on no branch) comes back as pot-<id>/detached
+        hd = host_git(cfg, sd, "rev-parse", "--verify", "--quiet", "refs/pot/head").stdout.strip()
+        tips = {o for l in heads if " " in l for o in [l.split(" ", 1)[1]]}
+        if hd and hd != base and hd not in tips:
+            moved["detached"] = hd
+        ev["refs"] = {n: o[:12] for n, o in moved.items()}
+        if moved:
+            commits = [c for c in host_git(cfg, sd, "rev-list", *moved.values(), "--not", base).stdout.split() if c]
+            ev["commits"] += [c[:12] for c in commits]
+            for c in commits:
+                body = host_git(cfg, sd, "cat-file", "commit", c).stdout
+                head = body.split("\n\n", 1)[0]
+                if "\ngpgsig " not in head and not head.startswith("gpgsig "):
+                    ev["unsigned"] += 1
+            changed = set()
+            for o in moved.values():
+                for l in host_git(cfg, sd, "diff-tree", "-r", "--no-renames", "--raw", base, o).stdout.splitlines():
+                    if "\t" not in l:
+                        continue
+                    meta, path = l.split("\t", 1)
+                    changed.add(path)
+                    if "160000" in meta.split()[:2]:
+                        ev["gitlinks"].append(visible(path))
+            prot = w["protected"] + HOST_RUN_EXTRA
+            ev["touches_host_run"] += sorted(visible(p) for p in changed if matches(p, prot))
+            flake = [p for p in w["protected"] if not p.startswith("**/")]
+            ev["repo_kit_change"] += [p for p in ev["touches_host_run"] if any(p == f or p.startswith(f + "/") for f in flake)]
+            if launch.get("rootRepo"):
+                ev["root_repo_change"] = True
+                g = launch.get("grantsRel")
+                att = {visible(p) for p in changed if g and p == g}
+                # a changed file that sets programs.pot, at the run's tip or at the base (git grep reads objects)
+                for o in moved.values():
+                    for rev in (o, base):
+                        out = host_git(cfg, sd, "grep", "-l", "-F", "programs.pot", rev, "--", *sorted(changed)).stdout
+                        att |= {visible(l.split(":", 1)[1]) + " (programs.pot)" for l in out.splitlines() if ":" in l}
+                ev["root_attention"] = sorted(att)
+    # the scions: each submodule git directory the clone holds, staged the same way
+    for m in cl.get("scions") or []:
+        gd = os.path.join(clone, ".git", "modules", m["name"])
+        if not os.path.isdir(gd):
+            continue
+        key = m["path"].replace("/", "-")
+        ssd = stage(cfg, rundir, clone, gd, key, m.get("objects"))
+        if not ssd:
+            continue
+        tips = [l.split(" ", 1)[1] for l in host_git(cfg, ssd, "for-each-ref", "--format=%(refname) %(objectname)").stdout.splitlines() if " " in l]
+        tips = [t for t in tips if t != m["commit"]]
+        cs = [c[:12] for c in host_git(cfg, ssd, "rev-list", *tips, "--not", m["commit"]).stdout.split()] if tips else []
+        if cs:
+            ev["scions"][m["path"]] = {"commits": cs}
+    # what stays in the clone: uncommitted changes (read by the sandboxed git) and new git metadata
+    r = subprocess.run(sandboxed_git(cfg, rundir, clone, ["--no-optional-locks", "status", "--porcelain", "--ignore-submodules=dirty"]),
+                       capture_output=True, text=True, timeout=600)
+    ev["uncommitted"] = len([l for l in r.stdout.splitlines() if l.strip()]) if r.returncode == 0 else None
+    now = subprocess.run([cfg["find"], clone, "-name", ".git", "-prune", "-print0"], capture_output=True).stdout
+    gits = {os.fsdecode(e) for e in now.split(b"\0") if e}
+    ev["new_git_metadata"] += sorted(visible(top + g[len(clone):]).replace(top + "/", "") for g in gits - set(b.get("gits") or [])
+                                     if g != os.path.join(clone, ".git"))
+    ev["size"] = tree_size(clone) + tree_size(os.path.join(rundir, "staging"))
+
+
 def cleanup(rundir):
     for n in ("proxy.sock", "relay.sock", "git.sock", "nix.sock", "nix-relay", "bwrap.args", "bwrap.args.all",
-              "closure.args", "passwd", "group", "hosts"):
+              "closure.args", "passwd", "group", "hosts") + tuple(x for x in os.listdir(rundir) if x.startswith("upload-pack-")):
         try:
             os.unlink(os.path.join(rundir, n))
         except OSError:

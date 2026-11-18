@@ -1803,9 +1803,8 @@ EOF
   expect "runs it" holds "sbk-tool hi"
   # a protected folder is read-only throughout: a file inside a scion, not only its graft.nix (B)
   refuse "pot: a scion's file is read-only" sb_ bash -c 'echo x >> scions/sbk/README.md' 2>/dev/null
-  # runs and doctor are reserved (C7); an unknown command says where a program for every run goes (C9)
-  refused "pot: pot runs" sb_ runs
-  expect "comes later" holds "pot: runs comes in a later release"
+  # doctor is reserved (C7; runs is v2.17.0's: sec_dispatch); an unknown command says where a program for
+  # every run goes (C9)
   refused "pot: pot doctor" sb_ doctor
   expect "comes later" holds "pot: doctor comes in a later release"
   refused "pot: an unknown command" sb_ no-such-program-x
@@ -1863,11 +1862,9 @@ EOF
 
   # root repositories, contexts, verbs
   (cd "$work/sbrootrepo" && refused "pot: work in a root repository" sb_ true \
-    && expect "is refused (D23)" holds "is a root: pot inspect, or pot host CMD until pot dispatch (a later release)")
+    && expect "is refused, naming dispatch (D13)" holds "is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD; pot host CMD runs it unsandboxed")
   refused "pot: --repo to a root repository" sb_ --repo "$work/sbrootrepo" true
-  expect "is refused" holds "is a root: pot inspect"
-  refused "pot: dispatch" sb_ dispatch true
-  expect "comes later" holds "clone mode (dispatch) comes in a later release"
+  expect "is refused" holds "is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
   refused "pot: run is reserved" sb_ run true
   expect "says so" holds "pot run is reserved"
   refused "pot: serve is reserved" sb_ serve
@@ -1914,6 +1911,273 @@ EOF
   cd "$work"
 }
 
+# dispatch (pot/, v2.17.0): clone mode, fetch-back through staging, the run log as runs/1 (pot runs,
+# pot review), a 125's stopped record and the pane, and the resource scope. Its own test root and workspace.
+sec_dispatch() {
+  prov sbd && release sbd v1.0.0
+  local c=$work/dc && mkdir -p "$c" && git_ -C "$c" init -q && cd "$c"
+  cat > flake.nix <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  outputs = { graft, ... }: {
+    packages = graft.inputs.nixpkgs.lib.genAttrs [ "$sys" ] (s: let pkgs = graft.inputs.nixpkgs.legacyPackages.\${s}; in {
+      pot-kits = graft.lib.pot.kitsFor {
+        inherit pkgs;
+        self = { kit = { protect = [ "AGENTS.md" ]; }; file = "flake.nix (fixture)"; };
+        files = [ "scions" ];
+      };
+    });
+  };
+}
+EOF
+  echo "# agents" > AGENTS.md && echo data > notes.md
+  by_hand sbd && commit init && quiet nix flake lock && commit lock
+  git_ remote add origin ssh://git@fake.example/dc.git
+  local base && base=$(git_ rev-parse HEAD)
+
+  local r=$work/droot && mkdir -p "$r" "$work/drootrepo" "$work/dbin"
+  git_ -C "$work/drootrepo" init -q && printf 'programs.pot = {\n  a = 1;\n};\n' > "$work/drootrepo/pot.nix"
+  git_ -C "$work/drootrepo" add pot.nix && git_ -C "$work/drootrepo" commit -q -m init
+  cat > "$r/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  inputs.nixpkgs.follows = "graft/nixpkgs";
+  outputs = { graft, nixpkgs, ... }: let pkgs = nixpkgs.legacyPackages.$sys; bash = "\${pkgs.bashInteractive}/bin/bash";
+    common = {
+      inherit pkgs;
+      name = "dispatch";
+      grantsFile = "$work/dgrants/grants.json";
+      stateDir = "$work/dstate";
+      rootRepos = [ "$work/drootrepo" ];
+      kits.needs.commands.needtest = { program = bash; requests = { network = [ "x.example" ];
+        capabilities = [ { name = "status.relay"; } ]; }; };
+      bindings."status.relay"."*" = { workmux = true; };
+      contexts.strict = { extends = "work"; requires = [ "separate-kernel" ]; };
+      limits = { memoryMax = "1G"; tasksMax = 512; };
+    }; in {
+    packages.$sys = {
+      pot = graft.lib.mkRoot common;
+      # the same state, clones kept 0 days and capped at 1 byte
+      prune = graft.lib.mkRoot (common // { clones = { keepDays = 0; maxSize = "1"; }; });
+    };
+  };
+}
+EOF
+  (cd "$r" && quiet nix flake lock)
+  ran "dispatch: a root" nix build -o "$work/dr" "path:$r#packages.$sys.pot"
+  ran "dispatch: a root with clones.keepDays and maxSize" nix build -o "$work/drp" "path:$r#packages.$sys.prune"
+  local bw && bw=$(nix build --no-link --print-out-paths "$np#bubblewrap")/bin/bwrap
+  if ! "$bw" --unshare-all --unshare-user --disable-userns --ro-bind / / true 2>/dev/null; then
+    echo "skip dispatch: runs (bubblewrap can't create an unprivileged user namespace here)"
+    cd "$work"; return 0
+  fi
+  # shellcheck disable=SC2317 # run through ran, expect and refuse
+  dl() { env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u TMUX -u TMUX_PANE "$work/dr/bin/pot" "$@" </dev/null; }
+  # shellcheck disable=SC2317
+  d_() { POT_QUIET=1 dl "$@"; }
+  # shellcheck disable=SC2317
+  rec() { d_ runs "$1" --json | jq -r "$2"; }
+  local short && short=$(git_ rev-parse --short HEAD)
+  local st=$work/dstate/runs
+
+  # a run in a clone: at the original path, from the base, with POT_CLONE; the source untouched
+  echo dirty >> notes.md
+  # shellcheck disable=SC2016 # the run's shell expands them
+  ran "dispatch: a run in a clone" dl dispatch bash -c 'pwd; echo "clone=$POT_CLONE"; grep -c dirty notes.md || true
+    echo new > made.txt && git add made.txt && git commit -qm "run: made" && git log -1 --format=%s
+    touch .git/hooks/x 2>/dev/null || echo "hooks: read-only"; git config core.fsmonitor x 2>/dev/null || echo "config: read-only"'
+  expect "at the original path" has "$c"
+  expect "POT_CLONE=1" has "clone=1"
+  expect "from the base, not the working tree" has "0"
+  expect "the commit is made in the clone" has "run: made"
+  expect "the clone's hooks are read-only" has "hooks: read-only"
+  expect "and its config" has "config: read-only"
+  expect "the dirty-tree notice" holds "pot (dispatch): the clone starts at main ($short); your 1 uncommitted change stays here, outside it"
+  expect "the startup line names the base" holds "pot: dispatch · dc · from main ($short)"
+  local rid && rid=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\) · 1 commit on main: .*/\1/p' <<<"$out")
+  expect "the exit line names pot review" holds "pot: run $rid · 1 commit on main: pot review $rid, then pot review $rid --fetch"
+  expect "nothing in the source tree" test ! -e made.txt
+  expect "nor in its history" test "$(git_ rev-parse HEAD)" = "$base"
+  expect "the clone is in pot's state" test -d "$st/$rid/clone/.git"
+  expect "its scion too" test -f "$st/$rid/clone/scions/sbd/README.md"
+  expect "staged at the run's end" test -d "$st/$rid/staging/top.git"
+  git_ checkout -q -- notes.md
+
+  # runs/1: the record, pot runs, pot review
+  ran "dispatch: pot runs ID --json" d_ runs "$rid" --json
+  expect "state review" test "$(jq -r .state <<<"$out")" = review
+  expect "one commit" test "$(jq -r .clone.commits <<<"$out")" = 1
+  expect "from the base" test "$(jq -r .clone.base <<<"$out")" = "$base"
+  expect "its context and mode" test "$(jq -r '"\(.context) \(.mode)"' <<<"$out")" = "dispatch clone"
+  ran "dispatch: pot runs" d_ runs
+  expect "lists it" holds "$rid  review   dispatch"
+  ran "dispatch: pot runs ID" d_ runs "$rid"
+  expect "says what is next" holds "next       pot review $rid · pot review $rid --fetch"
+  ran "dispatch: pot review" d_ review
+  expect "lists it" holds "$rid  review"
+  ran "dispatch: pot review ID" d_ review "$rid"
+  expect "shows its commit, read from staging" holds "run: made"
+  refused "dispatch: pot runs, an unknown run" d_ runs ffff
+  expect "says so" holds "pot runs: no run ffff in pot's state (pot runs lists them)"
+
+  # fetch-back
+  ran "dispatch: pot review ID --fetch" dl review "$rid" --fetch
+  expect "says what it fetched" holds "pot-$rid/main (1 commit on $short)"
+  expect "and how to take it" holds "  take it: git merge pot-$rid/main"
+  expect "into refs/remotes/pot-ID/*" test "$(git_ log -1 --format=%s "refs/remotes/pot-$rid/main")" = "run: made"
+  expect "the run is exited, fetched" test "$(rec "$rid" '"\(.state) \(.clone.fetched[0])"')" = "exited refs/remotes/pot-$rid/main"
+  expect "and no longer needs review" test -z "$(d_ review | grep "^$rid ")"
+  ran "dispatch: --discard" dl review "$rid" --discard
+  expect "says so" holds "pot: discarded run $rid's clone"
+  expect "the fetched refs stay" holds "  the fetched refs stay: git branch -r -d pot-$rid/main"
+  expect "the clone is gone" test ! -e "$st/$rid/clone"
+  expect "its log stays" test -f "$st/$rid/log.jsonl"
+  refused "dispatch: --fetch after --discard" d_ review "$rid" --fetch
+  expect "says so" holds "pot: run $rid's clone was discarded"
+
+  # --from, kits from the base
+  git_ checkout -q -b side && echo s > side.txt && commit side && git_ checkout -q main
+  ran "dispatch: --from a branch" d_ dispatch --from side bash -c 'git branch --show-current; test -f side.txt && echo has-side'
+  expect "on that branch" has side
+  expect "at its commit" has has-side
+  sed -i 's/protect = \[ "AGENTS.md" \]/protect = [ "AGENTS.md" "notes.md" ]/' flake.nix
+  refused "dispatch: in place, the working tree's kit protects notes.md" d_ bash -c 'echo x >> notes.md'
+  ran "dispatch: the base's kit does not" d_ dispatch bash -c 'echo x >> notes.md && echo wrote'
+  expect "(kits from the base)" has wrote
+  git_ checkout -q -- flake.nix
+
+  # --detach: the id alone on stdout; pot runs ID --follow waits for the end
+  # shellcheck disable=SC2016
+  ran "dispatch: --detach" d_ dispatch --detach bash -c 'echo bg > bg.txt && git add bg.txt && git commit -qm bg && sleep 1'
+  local did=$out
+  expect "prints the id alone" grep -qx '[0-9a-f]\{4\}' <<<"$did"
+  expect "running" test "$(rec "$did" .state)" = running
+  ran "dispatch: pot runs ID --follow" timeout 120 env -u POT POT_QUIET=1 "$work/dr/bin/pot" runs "$did" --follow
+  expect "follows it to its end" holds "exit 0"
+  expect "then review" test "$(rec "$did" '"\(.state) \(.detached) \(.clone.commits)"')" = "review true 1"
+  expect "its output kept" test -f "$st/$did/output.log"
+
+  # pot dies before after (kill -9 of the detached pot's group): the next pot runs completes the staging,
+  # through the sandboxed upload-pack, whatever hooks and config the clone holds
+  # shellcheck disable=SC2016
+  ran "dispatch: a detached run to kill" d_ dispatch --detach bash -c 'echo c > c.txt && git add c.txt && git commit -qm crash && sleep 300'
+  local kid=$out pgid
+  for _ in $(seq 1 100); do git_ -C "$st/$kid/clone" log -1 --format=%s 2>/dev/null | grep -qx crash && break; sleep 0.2; done
+  pgid=$(jq -r 'select(.ev == "start") | .pid' "$st/$kid/log.jsonl")
+  kill -9 -- "-$pgid" 2>/dev/null || true
+  for _ in $(seq 1 50); do ! kill -0 "$pgid" 2>/dev/null && break; sleep 0.1; done
+  local h
+  for h in pre-receive post-receive reference-transaction post-checkout fsmonitor-watchman pre-auto-gc post-index-change; do
+    printf '#!/bin/sh\ntouch %s\n' "$work/PLANTED-hook-$h" > "$st/$kid/clone/.git/hooks/$h"
+    chmod +x "$st/$kid/clone/.git/hooks/$h"
+  done
+  git_ -C "$st/$kid/clone" config core.fsmonitor "touch $work/PLANTED-fsmonitor"
+  git_ -C "$st/$kid/clone" config uploadpack.packObjectsHook "touch $work/PLANTED-packobjectshook"
+  git_ -C "$st/$kid/clone" config core.sshCommand "touch $work/PLANTED-sshcommand"
+  mkdir -p "$st/$kid/clone/nested" && git_ -C "$st/$kid/clone/nested" init -q
+  git_ -C "$st/$kid/clone/nested" config core.fsmonitor "touch $work/PLANTED-nested"
+  ran "dispatch: pot runs ID after the kill" d_ runs "$kid" --json
+  expect "completes the staging: review" test "$(jq -r '"\(.state) \(.lost) \(.clone.commits)"' <<<"$out")" = "review true 1"
+  ran "dispatch: and --fetch" d_ review "$kid" --fetch
+  expect "fetches its commit" test "$(git_ log -1 --format=%s "refs/remotes/pot-$kid/main")" = crash
+  expect "no hook or config of the clone ran on the host" test -z "$(find "$work" -maxdepth 1 -name 'PLANTED-*')"
+  expect "the planted nested repository reached nothing" test ! -e nested
+  git_ -C "$st/$kid/clone" status --short >/dev/null 2>&1 || true
+  expect "(control: plain host git in the clone runs its fsmonitor)" test -e "$work/PLANTED-fsmonitor"
+  rm -f -- "$work"/PLANTED-*
+
+  # a run whose pot is killed in place: exited, lost
+  setsid env -u CLAUDECODE -u CODEX_SANDBOX -u POT POT_QUIET=1 "$work/dr/bin/pot" bash -c 'sleep 300' </dev/null >/dev/null 2>&1 &
+  local lp=$! lid=
+  for _ in $(seq 1 100); do lid=$(grep -l "\"pid\":$lp," "$st"/*/log.jsonl 2>/dev/null | head -1) && [ -n "$lid" ] && break; sleep 0.2; done
+  lid=$(basename "$(dirname "$lid")")
+  expect "dispatch: a run in place is running" test "$(rec "$lid" .state)" = running
+  kill -9 -- "-$lp" 2>/dev/null || true
+  wait "$lp" 2>/dev/null || true
+  expect "killed: exited, lost" test "$(rec "$lid" '"\(.state) \(.lost) \(.exit)"')" = "exited true null"
+
+  # 125: a stopped record, and the pane workmux shows waiting
+  # shellcheck disable=SC2016 # the stub's shell expands them
+  printf '#!/bin/sh\necho "$TMUX_PANE $*" >> %s\n' "$work/workmux.log" > "$work/dbin/workmux" && chmod +x "$work/dbin/workmux"
+  refused "dispatch: a 125 in a workmux pane" env PATH="$work/dbin:$PATH" TMUX=/tmp/t,1,0 TMUX_PANE=%7 POT_QUIET=1 \
+    env -u CLAUDECODE -u CODEX_SANDBOX -u POT "$work/dr/bin/pot" needtest -c true </dev/null
+  local sid && sid=$(d_ runs --json | jq -r '[.runs[] | select(.state == "stopped")][0].id')
+  expect "writes a stopped record" test "$(rec "$sid" '"\(.stop.reason) \(.exit) \(.stop.fix)"')" = "grant 125 pot grant needs"
+  expect "and sets the pane waiting" grep -qx '%7 set-window-status waiting' "$work/workmux.log"
+  refused "dispatch: a 125 outside tmux" env PATH="$work/dbin:$PATH" POT_QUIET=1 env -u TMUX -u TMUX_PANE -u CLAUDECODE -u POT \
+    "$work/dr/bin/pot" needtest -c true </dev/null
+  expect "touches no pane" test "$(wc -l < "$work/workmux.log")" = 1
+  refused "dispatch: a missing guarantee" env PATH="$work/dbin:$PATH" TMUX=/tmp/t,1,0 TMUX_PANE=%8 POT_QUIET=1 \
+    env -u CLAUDECODE -u CODEX_SANDBOX -u POT "$work/dr/bin/pot" strict true </dev/null
+  expect "exits 125 too" holds "requires separate-kernel"
+  sid=$(d_ runs --json | jq -r '[.runs[] | select(.state == "stopped" and .context == "strict")][0].id')
+  expect "a stopped record (guarantee)" test "$(rec "$sid" .stop.reason)" = guarantee
+  expect "no pane: the run holds none (no status.relay)" test "$(wc -l < "$work/workmux.log")" = 1
+
+  # the resource scope: runs without a terminal, in a user systemd scope with the root's limits
+  if systemd-run --user --scope --quiet true 2>/dev/null; then
+    d_ bash -c 'sleep 4.3217' &
+    local bp=$! sp=
+    for _ in $(seq 1 100); do sp=$(pgrep -f '^sleep 4.3217' | head -1) && [ -n "$sp" ] && break; sleep 0.1; done
+    local cg && cg=$(cut -d: -f3 "/proc/$sp/cgroup")
+    expect "dispatch: a run without a terminal is in a scope of its own (systemd-run's)" grep -q '/run-[^/]*\.scope$' <<<"$cg"
+    expect "MemoryMax from the root" test "$(cat "/sys/fs/cgroup$cg/memory.max")" = 1073741824
+    expect "TasksMax from the root" test "$(cat "/sys/fs/cgroup$cg/pids.max")" = 512
+    wait "$bp"
+    local pr && pr=$(grep -l '4.3217' "$st"/*/log.jsonl | head -1)
+    expect "and proves resource-limits" jq -e '.backend.proved | index("resource-limits")' "$(dirname "$pr")/policy.json"
+    # no systemd-run on PATH: a repository with no flake, so pot needs no nix either
+    mkdir -p "$work/dplain" && git_ -C "$work/dplain" init -q && git_ -C "$work/dplain" commit -q --allow-empty -m init
+    # shellcheck disable=SC2016 # the inner bash expands them
+    ran "dispatch: with no user systemd" bash -c 'cd "$1" && env -u POT -u CLAUDECODE PATH="$2" "$3" true </dev/null' _ \
+      "$work/dplain" "$work/dbin" "$work/dr/bin/pot"
+    expect "the run starts, and says so" holds "no resource limits (no user systemd: pot doctor)"
+  else
+    echo "skip dispatch: resource scope (no user systemd here)"
+  fi
+
+  # clones kept: keepDays and maxSize discard only fetched, discarded or commit-less clones
+  ran "dispatch: a start with keepDays 0 and maxSize 1" env -u POT -u CLAUDECODE "$work/drp/bin/pot" dispatch true </dev/null
+  expect "keeps the unfetched one" test -d "$st/$did/clone"
+  expect "discards a fetched one" test ! -e "$st/$kid/clone"
+  expect "names the oldest still in review" holds "pot review $did --discard"
+  expect "logs why" jq -e 'select(.ev == "discard" and .why == "keepDays")' "$st/$kid/log.jsonl"
+
+  # refusals and inside a run
+  refused "dispatch: --repo in clone mode" d_ dispatch --repo "$work/drootrepo" true
+  expect "is a later release's" holds "pot (dispatch): --repo comes to clone mode in a later release; a dispatch clones this repository only"
+  refused "dispatch: --from in place" d_ --from side true
+  expect "is usage" holds "pot (work): --from is clone mode: pot dispatch --from REF CMD, or pot --clone --from REF CMD"
+  refused "dispatch: --mode in-place on dispatch" d_ dispatch --mode in-place true
+  expect "says so" holds "pot (dispatch): --mode in-place: dispatch works in a clone; pot work CMD works here"
+  refused "dispatch: --approve" d_ review --approve "$did"
+  expect "comes with pot serve" holds "pot review --approve comes with pot serve (phase 3): no run waits for approval in this release"
+  refused "dispatch: --root" d_ review --root x
+  expect "comes with deployment roots" holds "pot review --root comes with deployment roots (phase 2): pot review reads this root's runs"
+  # shellcheck disable=SC2016
+  ran "dispatch: pot runs inside a run" d_ bash -c 'pot runs --json; pot dispatch true 2>&1; pot review 2>&1; true'
+  expect "shows the run itself" test "$(head -1 <<<"$out" | jq -r '.runs[0].state')" = running
+  expect "dispatch inside a run is v2.18.0's" holds "pot (work): dispatch inside a run comes in v2.18.0 (nested dispatch): run it on the host"
+  expect "review is the host's" holds "pot (work): pot review is the host's: a run's output is reviewed outside it"
+  (
+    cd "$work/drootrepo"
+    refused "dispatch: work in a root repository" d_ true
+    expect "names dispatch" holds "pot (work): $work/drootrepo is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
+    # a change to a line of a file that sets programs.pot (not a line naming it)
+    ran "dispatch: dispatch in a root repository" d_ dispatch bash -c 'sed -i "s/a = 1/a = 2/" pot.nix && git commit -qam root'
+    local rr && rr=$(d_ runs --json | jq -r '[.runs[] | select(.workspace[0].path == "'"$work/drootrepo"'" and .state == "review")][0].id')
+    expect "its review flags the root change (D13)" test "$(rec "$rr" '.attention | index("root: pot.nix (programs.pot)")')" != null
+  )
+  # a commit in a scion, on its detached HEAD: back into that scion's own repository
+  ran "dispatch: a commit in a scion" d_ dispatch bash -c 'git -C scions/sbd commit -q --allow-empty -m scion-fix'
+  local sr && sr=$(d_ runs --json | jq -r '[.runs[] | select(.attention | index("1 commit in scions"))][0].id')
+  expect "is review" test "$(rec "$sr" .state)" = review
+  ran "dispatch: --fetch" dl review "$sr" --fetch
+  expect "names the scion" holds "scions/sbd: its commits are in that scion's refs/remotes/pot-$sr/*"
+  expect "into the scion's repository" test "$(git_ -C scions/sbd log -1 --format=%s "refs/remotes/pot-$sr/detached")" = scion-fix
+  cd "$work"
+}
+
 sec_own() {
   # graft's docs check (dev/flake.nix) reads knowledge-base-kit from a flake input: the same commit as its scion
   local link rev b0 b1 c=$work/own-boundary
@@ -1940,7 +2204,7 @@ sec_own() {
   expect "own: and a comment in lib/common.sh changes it (the experiment sees graft's sources)" test "$b0" != "$b1"
 }
 
-sections=(own mkflake tarball nix try kits pot add sync check outdated changelog upgrade graft workflows ci migrate)
+sections=(own mkflake tarball nix try kits pot dispatch add sync check outdated changelog upgrade graft workflows ci migrate)
 [ $# -eq 0 ] || sections=("$@")
 for s in "${sections[@]}"; do
   echo "== $s"

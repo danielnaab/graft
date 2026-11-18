@@ -32,7 +32,7 @@ let
     defaultInstance = checked;
     name = "home-manager";
     inherit (cfg) grantsFile stateDir contexts defaultContext kits hidden tools bindings rootRepos agentMarkers
-      repoKits inspect caBundle;
+      repoKits inspect caBundle limits clones;
   };
 in
 {
@@ -52,6 +52,8 @@ in
     rootRepos = opt (t.listOf t.str) [ "~/.workstation" ] "This root's source repositories: pot work refuses them. The module can't see which repository holds the home-manager flake, so the default is ~/.workstation.";
     repoKits = opt (t.attrsOf (t.attrsOf t.anything)) { } "Repo kits for repositories with no pot-kits of their own, by origin pattern.";
     inspect = opt (t.attrsOf t.anything) { } "inspect.home: what pot inspect reads in ~ (replaces [ \"~/src\" ]).";
+    limits = opt (t.attrsOf (t.either t.str t.int)) { } "The resource scope of runs without a terminal (a systemd user scope): { memoryMax = \"50%\"; tasksMax = 2048; } (these are the defaults).";
+    clones = opt (t.attrsOf (t.either t.str t.int)) { } "Dispatch clones kept: { keepDays = 14; maxSize = \"20G\"; } (the defaults). pot discards only clones that are fetched, discarded or have no commits.";
     caBundle = opt (t.nullOr t.path) null "A CA bundle, at /etc/ssl/certs/ca-certificates.crt in every run.";
     package = lib.mkOption { type = t.package; readOnly = true; description = "The root's pot."; };
   };

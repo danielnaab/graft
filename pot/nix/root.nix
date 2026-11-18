@@ -18,6 +18,8 @@
 #     repoKits ? { };               # repo kits for repositories with no pot-kits of their own, by origin pattern
 #     inspect ? { };                # inspect.home: what inspect reads in ~ (replaces [ "~/src" ])
 #     caBundle ? null;              # a CA bundle (a path), at /etc/ssl/certs/ca-certificates.crt in runs
+#     limits ? { };                 # the resource scope of runs without a terminal: { memoryMax = "50%"; tasksMax = 2048; }
+#     clones ? { };                 # dispatch clones kept: { keepDays = 14; maxSize = "20G"; } (never unfetched commits)
 #   }
 #
 # The result is the root's `pot` (passthru.root: the manifest; passthru.backend: the bubblewrap
@@ -42,6 +44,8 @@
 , repoKits ? { }
 , inspect ? { }
 , caBundle ? null
+, limits ? { }
+, clones ? { }
 }:
 
 let
@@ -70,6 +74,9 @@ let
       (if have == [ ] then "defaultInstance.${base}: the root has no kit ${base}@NAME (kits: ${lib.concatStringsSep ", " (lib.attrNames kits)})"
        else "defaultInstance.${base} = \"${inst}\": the root declares ${lib.concatMapStringsSep ", " (i: "${base}@${i}") have}"))
     defaultInstance');
+  limits' = { memoryMax = "50%"; tasksMax = 2048; } // limits;
+  clones' = { keepDays = 14; maxSize = "20G"; } // clones;
+  badLimits = lib.attrNames (removeAttrs limits [ "memoryMax" "tasksMax" ]) ++ lib.attrNames (removeAttrs clones [ "keepDays" "maxSize" ]);
   reservedContexts = [ "explain" "why" "grant" "review" "init" "run" "serve" "runs" "doctor" ];
   badContexts = lib.filter (n: lib.elem n reservedContexts) (lib.attrNames contexts);
 
@@ -122,6 +129,8 @@ let
     git = "${pkgs.gitMinimal}/bin/git";
     baseClosure = closureOf "pot-base-closure" [ pkgs.bashInteractive pkgs.coreutils pkgs.cacert pkgs.ncurses pkgs.tzdata ];
     netClosure = closureOf "pot-net-closure" [ netwrap ];
+    # fetch-back's upload-pack, sandboxed: git's closure only
+    gitClosure = closureOf "pot-git-closure" [ pkgs.gitMinimal ];
   });
   backend = pkgs.writeShellScriptBin "pot-backend-bwrap" ''exec ${python}/bin/python3 -I ${potSrc}/bwrap.py --config ${backendConfig} "$@"'';
 
@@ -135,6 +144,8 @@ let
     version = 1;
     inherit name grantsFile stateDir defaultContext rootRepos bindings darwin agentMarkers baseHidden baseProtect baseAgentMarkers;
     defaultInstance = defaultInstance';
+    limits = { memoryMax = toString limits'.memoryMax; tasksMax = toString limits'.tasksMax; };
+    clones = { keepDays = clones'.keepDays; maxSize = toString clones'.maxSize; };
     contexts = contexts;
     kits = kitManifests;
     repoKits = repoKitManifests;
@@ -164,6 +175,7 @@ let
   '';
 in
 if badContexts != [ ] then throw "pot: mkRoot: a context may not be named like a pot verb: ${lib.concatStringsSep ", " badContexts}"
+else if badLimits != [ ] then throw "graft.lib.mkRoot: limits is { memoryMax; tasksMax; } and clones { keepDays; maxSize; } (not ${lib.concatStringsSep ", " badLimits})"
 else if badDefaults != [ ] then throw "graft.lib.mkRoot: ${lib.concatStringsSep "; " badDefaults}"
 else pkgs.writeShellApplication {
   name = "pot";

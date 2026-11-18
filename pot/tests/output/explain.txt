@@ -65,4 +65,5 @@ not in run claude-code@personal (root:claude-code@personal): not granted:
 backend    bubblewrap proves own-netns own-pidns no-tiocsti protected-as-mounts in-place root-files;
            lacks closure-store local-listen resource-limits separate-kernel same-path-clone nest
            private-proxy
+resources  none at a terminal; a run without one gets a user systemd scope, MemoryMax=50% TasksMax=2048
 note       kit tools run as this run's own programs; sandboxing each kit command comes in a later release
