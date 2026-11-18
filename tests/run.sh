@@ -1155,6 +1155,12 @@ EOF
   ran "kits: kitArgs reaches the provider" "$work/kpk/bin/kk-tool"
   expect "its value" has "kk-tool hi"
   expect "pot-kits has its closure" grep -q hello "$work/kpk/closure"
+  # pot-lib/1's v2.17.0 additions (used from v2.18.0): recipes ? { }, and the result's passthru.wrappers
+  ran "kits: pot-kits has passthru.wrappers" nix build --no-link --print-out-paths ".#packages.$sys.pot-kits.passthru.wrappers"
+  local exk="let g = builtins.getFlake \"path:$graft\"; pkgs = g.inputs.nixpkgs.legacyPackages.$sys; in"
+  ran "kits: kitsFor takes recipes" nix eval --impure --raw --expr "$exk (g.lib.pot.kitsFor { inherit pkgs; recipes = { outdated = \"graft outdated\"; check = { run = \"graft check\"; description = \"d\"; }; }; }).drvPath"
+  refused "kits: a malformed recipe" nix eval --impure --raw --expr "$exk (g.lib.pot.kitsFor { inherit pkgs; recipes.x = { shell = 1; }; }).drvPath"
+  expect "is named" holds 'pot: kitsFor: recipes.x is "<command> <args>" or { run; description; }'
   # graft-kits, v2.15.0's bundle, is gone (v2.17.0); the name stays graft's (below)
   refused "kits: mkFlake writes no graft-kits" nix eval --raw ".#packages.$sys.graft-kits.drvPath"
   ran "kits: the default devShell" nix eval --json ".#devShells.$sys.default.nativeBuildInputs" --apply 'map (p: p.name)'

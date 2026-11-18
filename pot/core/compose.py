@@ -94,14 +94,20 @@ CAPABILITIES = {
 REQUEST_KINDS = ("read", "write", "socket", "network", "env", "state", "capabilities", "unsandboxed")
 # kit/1 (missing version: 1.0). 1.1 adds version, agent and a command's dirs, and drops the command
 # fields dirs replaces. tools is packages' new name in both (packages stays as its alias).
-KIT_VERSIONS = ("1.0", "1.1")
+# 1.2 (v2.17.0 reads it; producers write it from v2.18.0) adds a command's hook and recipes as attrs.
+KIT_VERSIONS = ("1.0", "1.1", "1.2")
 KIT_FIELDS = {"1.0": {"packages", "tools", "env", "files", "protect", "requests", "commands", "recipes", "file", "kind",
                       "version"},
               "1.1": {"packages", "tools", "env", "files", "protect", "requests", "commands", "recipes", "file", "kind",
+                      "version", "agent"},
+              "1.2": {"packages", "tools", "env", "files", "protect", "requests", "commands", "recipes", "file", "kind",
                       "version", "agent"}}
 COMMAND_FIELDS = {"1.0": {"program", "access", "requests", "args", "fixedDirs", "skillDirs", "realDirs", "memory",
                           "settings", "description"},
-                  "1.1": {"program", "access", "requests", "args", "dirs", "settings", "description"}}
+                  "1.1": {"program", "access", "requests", "args", "dirs", "settings", "description"},
+                  "1.2": {"program", "access", "requests", "args", "dirs", "settings", "description", "hook"}}
+HOOKS = ("pre-commit", "commit-msg", "prepare-commit-msg", "pre-push", "post-checkout", "post-merge")
+RECIPE_FIELDS = {"run", "description"}
 DIR_FIELDS = {"from", "mode", "real", "copy", "label"}
 AGENT_FIELDS = {"markers", "select", "resume", "hooks"}
 FILE_MODES = ("fixed", "seed", "reassert")
@@ -348,7 +354,7 @@ def kit_version(kit, where):
     m = re.fullmatch(r"1\.([0-9]+)", v) if isinstance(v, str) else None
     if m and int(m.group(1)) > 1:
         raise KitError(f"{where}: kit version {v} is newer than this pot reads ({', '.join(KIT_VERSIONS)}): take a newer pot")
-    raise KitError(f"{where}: kit version {v!r}: this pot reads kit {' and '.join(KIT_VERSIONS)}")
+    raise KitError(f"{where}: kit version {v!r}: this pot reads kit {', '.join(KIT_VERSIONS[:-1])} and {KIT_VERSIONS[-1]}")
 
 
 def validate_kit(kit, where, home, root=True):
@@ -410,9 +416,30 @@ def validate_kit(kit, where, home, root=True):
         for r in parse_requests(c.get("requests"), f"{where}: commands.{name}", home):
             r.command = name
             reqs.append(r)
+    for name, c in (kit.get("commands") or {}).items():
+        if isinstance(c, dict) and "hook" in c and c["hook"] not in HOOKS:
+            raise KitError(f"{where}: commands.{name}.hook: one of {', '.join(HOOKS)}")
     for n, body in (kit.get("recipes") or {}).items():
-        if not isinstance(body, str) or "\n" in body:
-            raise KitError(f"{where}: recipes.{n}: one line")
+        if ver != "1.2":
+            if not isinstance(body, str) or "\n" in body:
+                raise KitError(f"{where}: recipes.{n}: one line")
+            continue
+        # 1.2: a string or { run; description; }; run's first word is one of this kit's commands, the rest
+        # literal words (graft generates the recipe from it: D11)
+        if isinstance(body, dict):
+            if not set(body) <= RECIPE_FIELDS or not isinstance(body.get("run"), str) \
+                    or not isinstance(body.get("description", ""), str):
+                raise KitError(f"{where}: recipes.{n}: {{ run; description; }} (kit 1.2), or one line")
+            body = body["run"]
+        if not isinstance(body, str):
+            raise KitError(f"{where}: recipes.{n}: {{ run; description; }} (kit 1.2), or one line")
+        if any(x in body for x in ("{{", "`", "$", "\n")):
+            raise KitError(f"{where}: recipes.{n}: literal words only (no {{{{, `, $ or a newline)")
+        words = body.split()
+        cmds = sorted(kit.get("commands") or {})
+        if not words or words[0] not in cmds:
+            raise KitError(f"{where}: recipes.{n}: runs {words[0] if words else 'nothing'}, which is not one of this kit's "
+                           f"commands ({', '.join(cmds) or 'none'})")
     return reqs
 
 

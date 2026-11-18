@@ -9,14 +9,18 @@
 #     tools ? [ ];       # packages for bin/ (the repo kit's own `tools` are added here)
 #     files ? [ ];       # what the producer has pot protect in every run: paths relative to the flake
 #                        # directory, or "**/NAME" anywhere in the repository
+#     recipes ? { };     # the producer's own recipes (graft's outdated, upgrade, graft-check), in kit/1's
+#                        # recipe form, for kits.just (shape fixed in v2.17.0; generated from v2.18.0)
 #   }
+#
+# The result's passthru.wrappers: the declared commands' wrappers, one package (empty until v2.18.0).
 #
 # The bundle: kit.json { version = 1; self; scions.<name>; protect; } (each kit a manifest that keeps its
 # `file`), bin/ (the tools) and closure (the store paths a run needs). compose.py validates it as it
 # builds, so a kit with an unknown field fails the producer's build, naming its file.
 { potSrc }:
 
-{ pkgs, self ? null, scions ? { }, tools ? [ ], files ? [ ] }:
+{ pkgs, self ? null, scions ? { }, tools ? [ ], files ? [ ], recipes ? { } }:
 
 let
   lib = pkgs.lib;
@@ -33,12 +37,19 @@ let
   scionUs = lib.mapAttrs (n: s: noPackages (unit "scions.${n}" s)) scions;
   units = lib.optional (selfU != null) selfU ++ lib.attrValues scionUs;
   manifest = u: kitLib.manifest { inherit (u) kit file; };
+  recipeOk = r: builtins.isString r || (builtins.isAttrs r && r ? run && builtins.isString r.run
+    && builtins.attrNames (removeAttrs r [ "run" "description" ]) == [ ]);
+  badRecipes = lib.filter (n: !(recipeOk recipes.${n})) (lib.attrNames recipes);
+  wrappers = pkgs.buildEnv { name = "pot-kits-wrappers"; paths = [ ]; };
   env = pkgs.buildEnv {
     name = "pot-kits-tools";
     paths = tools ++ (if selfU == null then [ ] else selfU.kit.tools or [ ]);
   };
 in
-pkgs.runCommand "pot-kits" {
+if !builtins.isAttrs recipes || badRecipes != [ ]
+then throw "pot: kitsFor: recipes.${lib.head (badRecipes ++ [ "?" ])} is \"<command> <args>\" or { run; description; }"
+else pkgs.runCommand "pot-kits" {
+  passthru = { inherit wrappers; };
   nativeBuildInputs = [ pkgs.python3 ];
   kitJson = builtins.toJSON {
     version = 1;

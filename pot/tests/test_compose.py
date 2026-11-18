@@ -567,6 +567,42 @@ class Bundle(unittest.TestCase):
             self.assertIn(msg, e.exception.message)
 
 
+class Kit12(unittest.TestCase):
+    """kit 1.2 (v2.17.0 reads it; producers write it from v2.18.0): a command's hook, and recipes as attrs."""
+
+    def kit(self, **k):
+        return {"version": "1.2", "commands": {"mk": {"program": "/nix/store/x-mk/bin/mk"}}, **k}
+
+    def test_hook(self):
+        C.validate_kit(self.kit(commands={"pc": {"program": "/nix/store/x/bin/pc", "hook": "pre-commit"}}), "k", HOME)
+        with self.assertRaisesRegex(C.KitError, "k: commands.pc.hook: one of pre-commit, commit-msg, prepare-commit-msg, "
+                                                "pre-push, post-checkout, post-merge"):
+            C.validate_kit(self.kit(commands={"pc": {"program": "/nix/store/x/bin/pc", "hook": "post-receive"}}), "k", HOME)
+        with self.assertRaisesRegex(C.KitError, "commands.pc.hook is not a command field"):
+            C.validate_kit({"version": "1.1", "commands": {"pc": {"hook": "pre-commit"}}}, "k", HOME)
+
+    def test_recipes(self):
+        C.validate_kit(self.kit(recipes={"run": "mk run", "check": {"run": "mk check --all", "description": "Check it"}}), "k", HOME)
+        with self.assertRaisesRegex(C.KitError, r"k: recipes.x: runs other, which is not one of this kit's commands \(mk\)"):
+            C.validate_kit(self.kit(recipes={"x": "other run"}), "k", HOME)
+        for bad in ("mk {{x}}", "mk `id`", "mk $HOME"):
+            with self.assertRaisesRegex(C.KitError, r"k: recipes.x: literal words only \(no \{\{, `, \$ or a newline\)"):
+                C.validate_kit(self.kit(recipes={"x": bad}), "k", HOME)
+        with self.assertRaisesRegex(C.KitError, r"k: recipes.x: \{ run; description; \}"):
+            C.validate_kit(self.kit(recipes={"x": {"run": "mk", "shell": "sh"}}), "k", HOME)
+        # 1.0 and 1.1 keep their one-line check (a provider's 1.0 recipes keep building)
+        C.validate_kit({"recipes": {"x": "other $HOME"}}, "k", HOME)
+        with self.assertRaisesRegex(C.KitError, "recipes.x: one line"):
+            C.validate_kit({"recipes": {"x": {"run": "mk"}}}, "k", HOME)
+
+    def test_not_requests(self):
+        # hook and recipes change no canonical item
+        a = [r.canonical for r in C.validate_kit(self.kit(), "k", HOME)]
+        b = [r.canonical for r in C.validate_kit(self.kit(commands={"mk": {"program": "/nix/store/x-mk/bin/mk", "hook": "pre-push"}},
+                                                          recipes={"r": {"run": "mk", "description": "d"}}), "k", HOME)]
+        self.assertEqual(a, b)
+
+
 class Kit11(unittest.TestCase):
     """kit 1.1: versions, tools, dirs, agent (only in root kits), and 1.0's command fields as dirs."""
 
@@ -574,9 +610,9 @@ class Kit11(unittest.TestCase):
         C.validate_kit({}, "k", HOME)
         C.validate_kit({"version": "1.0"}, "k", HOME)
         C.validate_kit({"version": "1.1", "agent": {}}, "k", HOME)
-        with self.assertRaisesRegex(C.KitError, r"k: kit version 1.2 is newer than this pot reads \(1.0, 1.1\): take a newer pot"):
-            C.validate_kit({"version": "1.2", "anything": 1}, "k", HOME)
-        with self.assertRaisesRegex(C.KitError, "kit version '2.0': this pot reads kit 1.0 and 1.1"):
+        with self.assertRaisesRegex(C.KitError, r"k: kit version 1.3 is newer than this pot reads \(1.0, 1.1, 1.2\): take a newer pot"):
+            C.validate_kit({"version": "1.3", "anything": 1}, "k", HOME)
+        with self.assertRaisesRegex(C.KitError, "kit version '2.0': this pot reads kit 1.0, 1.1 and 1.2"):
             C.validate_kit({"version": "2.0"}, "k", HOME)
         with self.assertRaisesRegex(C.KitError, "agent is not a kit field"):
             C.validate_kit({"agent": {}}, "k", HOME)
