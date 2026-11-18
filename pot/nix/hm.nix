@@ -9,17 +9,10 @@ let
   cfg = config.programs.pot;
   t = lib.types;
   opt = type: default: description: lib.mkOption { inherit type default description; };
-  # defaultAccount (v2.15.0's): every kit's default instance; deprecated in v2.16.0, removed in v2.17.0
-  defaultInstance =
-    if cfg.defaultAccount == null then cfg.defaultInstance
-    else if cfg.defaultInstance != { } then throw "programs.pot: give defaultInstance, or defaultAccount (its old form), not both"
-    else lib.warn "programs.pot.defaultAccount is programs.pot.defaultInstance.<kit>; defaultAccount goes in v2.17.0"
-      (lib.listToAttrs (map (n: lib.nameValuePair (lib.head (lib.splitString "@" n)) cfg.defaultAccount)
-        (lib.filter (lib.hasInfix "@") (lib.attrNames cfg.kits))));
+  defaultInstance = cfg.defaultInstance;
   # every default names a declared instance (mkRoot checks too; here the messages name what was typed)
   instancesOf = base: map (n: lib.removePrefix "${base}@" n) (lib.filter (lib.hasPrefix "${base}@") (lib.attrNames cfg.kits));
-  typed = base: if cfg.defaultAccount != null then "programs.pot.defaultAccount = \"${cfg.defaultAccount}\" (for ${base})"
-    else "programs.pot.defaultInstance.${base} = \"${cfg.defaultInstance.${base}}\"";
+  typed = base: "programs.pot.defaultInstance.${base} = \"${cfg.defaultInstance.${base}}\"";
   badDefaults = lib.concatLists (lib.mapAttrsToList (base: inst:
     let have = instancesOf base; in
     lib.optional (!(lib.elem inst have))
@@ -36,6 +29,10 @@ let
   };
 in
 {
+  # v2.15.0's defaultAccount: deprecated in v2.16.0, gone in v2.17.0
+  imports = [ (lib.mkRemovedOptionModule [ "programs" "pot" "defaultAccount" ]
+    "Use programs.pot.defaultInstance.<kit> = \"NAME\" (v2.17.0).") ];
+
   options.programs.pot = {
     enable = lib.mkEnableOption "pot, a sandbox for agents and other commands (experimental)";
     grantsFile = opt t.str "~/.config/pot/grants.json" "The grants file (hidden from every run). Track it in your root's repository.";
@@ -44,7 +41,6 @@ in
     defaultContext = opt t.str "work" "The context of `pot CMD`.";
     kits = opt (t.attrsOf (t.attrsOf t.anything)) { } "Root kits, by name (NAME, or NAME@INSTANCE): graft.kits.claude-code { … }, or a kit's data.";
     defaultInstance = opt (t.attrsOf t.str) { } "Per kit, the instance a command with several gets with no @NAME, --instance or matching caller variables: { claude-code = \"personal\"; }.";
-    defaultAccount = opt (t.nullOr t.str) null "Deprecated (goes in v2.17.0): defaultInstance.<kit>.";
     agentMarkers = opt (t.listOf t.str) [ ] "Variables that mean an agent is the caller (pot grant refuses; no inline prompt), beyond the floor (CODEX_SANDBOX, CLAUDECODE, POT) and each kit's agent.markers.";
     hidden = opt (t.listOf t.str) [ ] "Paths hidden from every run, beyond pot's defaults.";
     tools = opt (t.listOf t.package) [ ] "Packages on every run's PATH, after the standard set.";

@@ -287,11 +287,11 @@ def tree_diffstat(host, top, old, new, rel=None):
     return lines[-12:]
 
 
-BUNDLES = ("pot-kits", "graft-kits")   # graft-kits: v2.15.0's name and shape, read until v2.17.0
+BUNDLES = ("pot-kits", "graft-kits")   # graft-kits: v2.15.0's, asked for only to refuse it (gone in v2.17.0)
 
 
 def repo_kit(host, w, rel, ctxname="work"):
-    """The repo kit's bundle: packages.<system>.pot-kits (else v2.15.0's graft-kits), always built with
+    """The repo kit's bundle: packages.<system>.pot-kits (v2.15.0's graft-kits alone is refused), always built with
     path:, cached in pot's state by the flake directory's contents and the scions' state. Returns
     (out, name), or (None, None) when the flake has neither output (no repo kit; cached the same way)."""
     fdir = os.path.join(w["top"], rel) if rel else w["top"]
@@ -306,8 +306,8 @@ def repo_kit(host, w, rel, ctxname="work"):
             c = json.load(f)
         if c["out"] is None:
             return None, None
-        if os.path.isfile(os.path.join(c["out"], "kit.json")):
-            return c["out"], c.get("bundle", "graft-kits")
+        if os.path.isfile(os.path.join(c["out"], "kit.json")) and c.get("bundle", "pot-kits") == "pot-kits":
+            return c["out"], "pot-kits"
     except (OSError, ValueError, KeyError, TypeError):
         pass
     nix = host.root.get("nix") or "nix"
@@ -328,6 +328,10 @@ def repo_kit(host, w, rel, ctxname="work"):
     except ValueError:
         have = []
     bundle = next((b for b in BUNDLES if b in have), None)
+    if bundle == "graft-kits":
+        # v2.15.0's bundle alone: refused, never run without its protections (P6)
+        raise C.Refusal(f"pot ({ctxname}): {C.canon_path(fdir, host.home)} has graft-kits only: its graft predates v2.16.0, "
+                        "and this pot reads pot-kits: take graft v2.16.0 or later there (nix flake update graft), or run pot host CMD")
     os.makedirs(cdir, exist_ok=True)
     if bundle is None:
         with open(cfile, "w") as f:
@@ -346,17 +350,9 @@ def repo_kit(host, w, rel, ctxname="work"):
 
 
 def read_bundle(host, out, bundle, fdir, ctxname):
-    """kit.json, as pot-kits/1. A v2.15.0 graft-kits ({version, dir, self, file, scions}) is read as the
-    same bundle, with what v2.15.0 protected for it: every graft.nix and its `dir`."""
+    """kit.json, as pot-kits/1 (files of the bundle pot does not know are ignored)."""
     with open(os.path.join(out, "kit.json")) as f:
         k = json.load(f)
-    if bundle == "graft-kits" and isinstance(k, dict):
-        d = k.get("dir")
-        self_ = k.get("self")
-        if isinstance(self_, dict) and "file" not in self_:
-            self_ = {**self_, "file": k.get("file") or "flake.nix"}
-        k = {"version": k.get("version"), "self": self_, "scions": k.get("scions") or {},
-             "protect": ["**/graft.nix"] + ([d] if isinstance(d, str) and d else [])}
     try:
         C.validate_bundle(k, f"{C.canon_path(fdir, host.home)}#{bundle}")
     except C.KitError as e:
@@ -649,10 +645,8 @@ def parse(argv, root):
             j += 1
             key = name[2:]
             if key == "account":
-                err("pot: --account is --instance; --account goes in v2.17.0")
-                key = "instance"
-                flags["instanceForm"] = "--account"
-            elif key == "instance":
+                raise Usage("--account is gone (v2.17.0): --instance NAME, or CMD@NAME")
+            if key == "instance":
                 flags["instanceForm"] = "--instance"
             if key in flags and isinstance(flags[key], list):
                 flags[key].append(val)
@@ -841,10 +835,6 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000", clones=N
         if os.path.isdir(os.path.join(w["top"], ".githooks")) and not run_git(host, w["top"], "config", "core.hooksPath").stdout.strip():
             report["notes"].append(f"{os.path.basename(w['top'])} has .githooks but core.hooksPath is unset: commits run no hook "
                                    "(git config core.hooksPath .githooks, on the host)")
-    for w in ws:
-        if w.get("bundle") == "graft-kits":
-            report["notes"].append(f"{C.canon_path(w['flakePath'], host.home)} has graft-kits only: its graft predates "
-                                   "v2.16.0 (pot reads graft-kits until v2.17.0)")
     fixed_dirs(host, root, policy, report, ws)
     credential_notes(report)
     agent = command_agent(root, report)

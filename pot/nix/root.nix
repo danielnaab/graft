@@ -8,7 +8,7 @@
 #     defaultContext ? "work";
 #     kits ? { };                   # root kits, by name ("claude-code@personal", "daniel")
 #     defaultInstance ? { };        # per kit, the instance chosen with no @NAME, --instance or caller match
-#                                   # ({ claude-code = "personal"; }); defaultAccount: its old form, until v2.17.0
+#                                   # ({ claude-code = "personal"; })
 #     agentMarkers ? [ ];           # variables that mean an agent is the caller, beyond the floor
 #                                   # (CODEX_SANDBOX, CLAUDECODE) and the kits' own agent.markers
 #     hidden ? [ ];                 # beyond pot's defaults (Appendix B)
@@ -53,13 +53,9 @@ let
   kitLib = import ../lib/kit.nix { inherit lib; };
   darwin = pkgs.stdenv.hostPlatform.isDarwin;
   python = pkgs.python3;
-  # defaultAccount (v2.15.0's): every kit's default instance; deprecated in v2.16.0, removed in v2.17.0
-  defaultInstance' =
-    if defaultAccount == null then defaultInstance
-    else if defaultInstance != { } then throw "graft.lib.mkRoot: give defaultInstance, or defaultAccount (its old form), not both"
-    else lib.warn "graft.lib.mkRoot: defaultAccount is defaultInstance.<kit>; defaultAccount goes in v2.17.0"
-      (lib.listToAttrs (map (n: lib.nameValuePair (lib.head (lib.splitString "@" n)) defaultAccount)
-        (lib.filter (lib.hasInfix "@") (lib.attrNames kits))));
+  # defaultAccount (v2.15.0's): deprecated in v2.16.0, gone in v2.17.0; the argument stays only to say so
+  defaultInstance' = if defaultAccount == null then defaultInstance
+    else throw "graft.lib.mkRoot: defaultAccount is gone (v2.17.0): defaultInstance.<kit> = \"NAME\"";
   # the floor every run gets, which a root's hidden adds to and cannot remove: agents' folders and
   # credential stores, and their configuration in a workspace
   baseHidden = [ "~/.claude" "~/.claude.json" "~/.pi/agent/auth.json" "~/.codex/auth.json" "~/.local/share/opencode/auth.json" ];
@@ -134,8 +130,13 @@ let
   });
   backend = pkgs.writeShellScriptBin "pot-backend-bwrap" ''exec ${python}/bin/python3 -I ${potSrc}/bwrap.py --config ${backendConfig} "$@"'';
 
-  kitManifests = lib.mapAttrs (n: k: kitLib.manifest { kit = k; file = "the root (programs.pot.kits.${n})"; }) kits;
-  repoKitManifests = lib.mapAttrs (n: k: kitLib.manifest { kit = k; file = "the root (programs.pot.repoKits.\"${n}\")"; }) repoKits;
+  # kit.packages, tools' old name: gone at the source in v2.17.0
+  noPackages = file: k: if builtins.isAttrs k && k ? packages
+    then throw "pot: ${file}: packages is tools' old name, gone in v2.17.0: give tools" else k;
+  kitManifests = lib.mapAttrs (n: k: let file = "the root (programs.pot.kits.${n})"; in
+    kitLib.manifest { kit = noPackages file k; inherit file; }) kits;
+  repoKitManifests = lib.mapAttrs (n: k: let file = "the root (programs.pot.repoKits.\"${n}\")"; in
+    kitLib.manifest { kit = noPackages file k; inherit file; }) repoKits;
   kitRoots = lib.concatLists (lib.mapAttrsToList (_: k: kitLib.roots k) kits);
   closure = closureOf "pot-root-closure" (standard ++ tools ++ inspectTools ++ kitRoots ++ [ potInner ]
     ++ lib.optional (caBundle != null) caBundle);

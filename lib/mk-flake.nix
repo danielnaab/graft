@@ -21,7 +21,7 @@
 #              are the same store path
 #   apps packages
 #              by name; a duplicate is an error, and so are apps.graft, packages.tools,
-#              packages.pot-kits and packages.graft-kits (graft's), and the reserved names sandbox and pot
+#              packages.pot-kits (graft's), and the reserved names sandbox, pot and graft-kits
 #   checks     checks.<system>.<scion>-<name>; perSystem's as checks.<system>.<name>
 #   devShells  perSystem's only; devShells.<system>.default, when none is defined: a shell with the
 #              tools
@@ -31,13 +31,12 @@
 #              library (pot.lib.kitsFor, contract pot-lib/1) with each one's file, the tools and graft's
 #              CLI for the repo, and what graft has pot protect (every graft.nix, the scions directory):
 #              packages.<system>.pot-kits, which pot builds with path: and reads (contract pot-kits/1).
-#              packages.<system>.graft-kits is v2.15.0's bundle (kit.json { version dir self file
-#              scions }), for a v2.15.0 pot; it goes in v2.17.0. graft v2.14.0's `sandbox` is an error
-#              naming `kit`.
+#              (v2.15.0's graft-kits went in v2.17.0; its name stays reserved.) graft v2.14.0's `sandbox`
+#              is an error naming `kit`.
 #
 # plus apps.<system>.graft, the graft command (lib/graft.sh). The repo's own `outputs` are merged
 # last (per system, per name), so the repo can add or override; apps.<system>.graft and
-# packages.<system>.{pot-kits,graft-kits} are graft's, and a repo's own is an error raised by graft's own value;
+# packages.<system>.pot-kits is graft's, and a repo's own is an error raised by graft's own value; graft-kits,
 # sandbox and pot are reserved names in apps and packages.
 #
 # Every check on the scions (the marker README, .gitmodules against what the source holds, names,
@@ -205,26 +204,6 @@ let
         # graft's own files: every provider's graft.nix and the scions directory are read-only in a run
         files = [ "**/graft.nix" dir ];
       });
-      # v2.15.0's bundle, for a v2.15.0 pot (goes in v2.17.0): the same kits, tools and closure, as a
-      # v2.15.0 reader takes them: `tools` written `packages`, no `version`, and a kit that uses kit 1.1
-      # (dirs, agent) left out, with a build warning naming it. Compact, as v2.15.0 wrote it.
-      # graft-kits shim (goes in v2.17.0): the one place mkFlake looks inside a kit, to warn at evaluation
-      newKit = u: u.kit ? agent || lib.any (c: c ? dirs) (lib.attrValues (u.kit.commands or { }));  # graft-kits shim
-      leftOut = lib.filter (u: newKit u) (lib.attrValues kitUnits);  # graft-kits shim
-      warnLeftOut = x: lib.foldl' (acc: u: lib.warn "graft-kits: ${u.file} uses kit 1.1 (dirs or agent): a v2.15.0 pot cannot read it, so graft-kits leaves it out (pot-kits has it)" acc) x leftOut;  # graft-kits shim
-      graftKits = warnLeftOut (pkgs.runCommand "graft-kits" { nativeBuildInputs = [ pkgs.jq ]; } ''
-        mkdir -p $out
-        defs='def new: (.agent != null) or ([(.commands // {})[] | .dirs] | any(. != null));
-              def old: del(.version) | if has("tools") then (.packages = .tools | del(.tools)) else . end;'
-        jq -r "$defs"' [(.self // empty | select(new) | .file), (.scions[] | select(new) | .file)][]' ${potKits}/kit.json \
-          | while read -r f; do echo "graft: graft-kits: $f uses kit 1.1 (dirs or agent), which a v2.15.0 pot cannot read: left out (pot-kits has it)" >&2; done
-        jq -jcS --arg dir ${lib.escapeShellArg dir} "$defs"' {version: 1, dir: $dir, file: "flake.nix (perSystem)",
-          self: (if .self == null or (.self | new) then null else (.self | old) end),
-          scions: (.scions | with_entries(select(.value | new | not) | .value |= old))}' \
-          ${potKits}/kit.json > $out/kit.json
-        ln -s ${potKits}/bin $out/bin
-        cp ${potKits}/closure $out/closure
-      '');
       devShells = lib.mapAttrs (_: ok) (results.self.devShells or { });
       ownDefault = devShells ? default || outputs ? devShells.${system}.default;
     in
@@ -233,7 +212,7 @@ let
       # first, so its names must evaluate for the repo's own outputs (and apps.graft) to; the tools
       # (strict) fail on the provider instead
       packages = removeAttrs (merge keysOf "packages") [ "tools" "pot-kits" "graft-kits" "sandbox" "pot" ]
-        // { tools = toolsEnv; pot-kits = potKits; graft-kits = graftKits; };
+        // { tools = toolsEnv; pot-kits = potKits; };
       apps = removeAttrs (merge keysOf "apps") [ "graft" "sandbox" "pot" "pot-kits" "graft-kits" ];
       checks = lib.foldl' (acc: n:
         acc // lib.listToAttrs (map (k: lib.nameValuePair (if n == "self" then k else "${n}-${k}")
@@ -273,6 +252,5 @@ merged // {
   apps = (merged.apps or { }) // lib.genAttrs systems (s: lib.mapAttrs (_: noReserved) (merged.apps.${s} or { }) // graftApps s);
   packages = (merged.packages or { }) // lib.genAttrs systems (s: lib.mapAttrs (_: noReserved) (merged.packages.${s} or { }) // {
     pot-kits = own s "packages" "pot-kits" bySystem.${s}.packages.pot-kits;
-    graft-kits = own s "packages" "graft-kits" bySystem.${s}.packages.graft-kits;
   });
 }

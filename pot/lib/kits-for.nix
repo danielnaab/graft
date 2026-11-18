@@ -6,7 +6,7 @@
 #     pkgs;              # the system's nixpkgs
 #     self ? null;       # the repo kit: { kit; file; } (file: where it is written, for pot's messages)
 #     scions ? { };      # scions.<name> = { kit; file; }: each scion's kit
-#     tools ? [ ];       # packages for bin/ (the repo kit's own `packages` are added here)
+#     tools ? [ ];       # packages for bin/ (the repo kit's own `tools` are added here)
 #     files ? [ ];       # what the producer has pot protect in every run: paths relative to the flake
 #                        # directory, or "**/NAME" anywhere in the repository
 #   }
@@ -25,17 +25,17 @@ let
     if !(builtins.isAttrs u && u ? kit && u ? file && builtins.isString u.file)
     then throw "pot: kitsFor: ${where} is { kit; file; } (file: a string naming where the kit is written)"
     else u;
-  # packages warns for the consumer's own kit only: a provider keeps packages until v2.17.0 (a v2.15.0
-  # consumer's graft refuses tools), and its consumers could not act on the warning
-  selfU = if self == null then null else
-    let u = unit "self" self; in
-    if u.kit ? packages then lib.warn "${u.file}: packages is tools' old name; packages goes in v2.17.0" u else u;
-  scionUs = lib.mapAttrs (n: unit "scions.${n}") scions;
+  # kit.packages, tools' old name: gone at the source in v2.17.0 (pot still reads it in a bundle graft v2.16.x
+  # built)
+  noPackages = u: if builtins.isAttrs u.kit && u.kit ? packages
+    then throw "pot: ${u.file}: packages is tools' old name, gone in v2.17.0: give tools" else u;
+  selfU = if self == null then null else noPackages (unit "self" self);
+  scionUs = lib.mapAttrs (n: s: noPackages (unit "scions.${n}" s)) scions;
   units = lib.optional (selfU != null) selfU ++ lib.attrValues scionUs;
   manifest = u: kitLib.manifest { inherit (u) kit file; };
   env = pkgs.buildEnv {
     name = "pot-kits-tools";
-    paths = tools ++ (if selfU == null then [ ] else selfU.kit.tools or selfU.kit.packages or [ ]);
+    paths = tools ++ (if selfU == null then [ ] else selfU.kit.tools or [ ]);
   };
 in
 pkgs.runCommand "pot-kits" {

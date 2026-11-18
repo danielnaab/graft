@@ -1138,7 +1138,7 @@ EOF
   prov kkapp
   printf '{ ... }: { apps.pot = { type = "app"; program = "/bin/sh"; }; }\n' > "$work/src/kkapp/graft.nix" && release kkapp v1.0.0
 
-  local c=$work/kc && consumer "$c" "$(printf '  inputs.self.submodules = true;\n  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; perSystem = { pkgs, ... }: { kitArgs.kk.word = "hi"; kit = { protect = [ "AGENTS.md" ]; packages = [ pkgs.hello ]; }; }; };' "$graft")" && cd "$c"
+  local c=$work/kc && consumer "$c" "$(printf '  inputs.self.submodules = true;\n  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; perSystem = { pkgs, ... }: { kitArgs.kk.word = "hi"; kit = { protect = [ "AGENTS.md" ]; tools = [ pkgs.hello ]; }; }; };' "$graft")" && cd "$c"
   echo "# agents" > AGENTS.md && echo "a: 1" > kk.yaml
   by_hand kk && commit init && quiet nix flake lock && commit lock
 
@@ -1146,29 +1146,17 @@ EOF
   ran "kits: pot-kits builds" nix build -o "$work/kpk" ".#pot-kits"
   ran "its kit.json" jq -c . "$work/kpk/kit.json"
   expect "is pot-kits/1: version, self, scions, protect" test "$(jq -c 'keys' "$work/kpk/kit.json")" = '["protect","scions","self","version"]'
-  expect "holds the repo kit, with its file" holds '"self":{"file":"flake.nix (perSystem)","packages":["/nix/store/'
+  expect "holds the repo kit, with its file" holds '"self":{"file":"flake.nix (perSystem)","protect":["AGENTS.md"],"tools":["/nix/store/'
   expect "and the scion kit" holds '"kk":{"commands":{"kk-tool":{"program":"/nix/store/'
   expect "naming its graft.nix" holds '"file":"scions/kk/graft.nix"'
   expect "graft has pot protect every graft.nix and its scions directory" holds '"protect":["**/graft.nix","scions"]'
   expect "its tools hold the repository's graft" test -x "$work/kpk/bin/graft"
-  expect "and the repo kit's packages" test -x "$work/kpk/bin/hello"
+  expect "and the repo kit's tools" test -x "$work/kpk/bin/hello"
   ran "kits: kitArgs reaches the provider" "$work/kpk/bin/kk-tool"
   expect "its value" has "kk-tool hi"
   expect "pot-kits has its closure" grep -q hello "$work/kpk/closure"
-  # graft-kits: v2.15.0's bundle, for a v2.15.0 pot
-  ran "kits: graft-kits (v2.15.0's) builds" nix build -o "$work/kgk" ".#graft-kits"
-  ran "its kit.json" jq -c . "$work/kgk/kit.json"
-  expect "in v2.15.0's shape: version, dir, self, file, scions" test "$(jq -c 'keys' "$work/kgk/kit.json")" = '["dir","file","scions","self","version"]'
-  expect "dir" holds '"dir":"scions"'
-  expect "the same kits as pot-kits" test "$(jq -cS '{self, scions}' "$work/kgk/kit.json")" = "$(jq -cS '{self, scions}' "$work/kpk/kit.json")"
-  expect "the same tools" test "$(readlink -f "$work/kgk/bin")" = "$(readlink -f "$work/kpk/bin")"
-  # graft-kits, byte for byte as v2.15.0's mkFlake writes it for the same kits (C8)
-  local g15=$work/graft15 kc15=$work/kc15
-  mkdir -p "$g15" && git_ -C "$src" archive 2d6fece | tar -x -C "$g15"
-  consumer "$kc15" "$(sed "s|path:$graft|path:$g15|" flake.nix | sed '1d;$d')"
-  (cd "$kc15" && echo "# agents" > AGENTS.md && echo "a: 1" > kk.yaml && by_hand kk && commit init && quiet nix flake lock && commit lock \
-    && ran "kits: v2.15.0's graft-kits, for the same kits" nix build -o "$work/kgk15" ".#graft-kits")
-  expect "kits: graft-kits is byte-identical to v2.15.0's" cmp "$work/kgk/kit.json" "$work/kgk15/kit.json"
+  # graft-kits, v2.15.0's bundle, is gone (v2.17.0); the name stays graft's (below)
+  refused "kits: mkFlake writes no graft-kits" nix eval --raw ".#packages.$sys.graft-kits.drvPath"
   ran "kits: the default devShell" nix eval --json ".#devShells.$sys.default.nativeBuildInputs" --apply 'map (p: p.name)'
   refuse "holds no sandbox launcher" holds '"sandbox"'
   refused "kits: v2.14.0's packages.sandbox is gone" nix eval --raw ".#packages.$sys.sandbox.drvPath"
@@ -1196,8 +1184,7 @@ EOF
   (cd "$c3" && commit init && refused "kits: outputs' packages.pot-kits" nix eval --raw ".#packages.$sys.pot-kits.outPath" \
     && expect "is graft's" holds "graft: mkFlake's outputs has packages.$sys.pot-kits: that name is graft's; rename the repo's own")
   # mkFlake reads no kit field: each kit goes to pot.lib.kitsFor as it is
-  # (but the graft-kits shim, which warns at evaluation for a kit it leaves out; it goes in v2.17.0)
-  refuse "kits: mkFlake reads no kit field" bash -c "grep -v 'graft-kits shim' '$graft/lib/mk-flake.nix' | grep -qE 'kit\.(packages|requests|commands|protect|files|env)|selfKit'"
+  refuse "kits: mkFlake reads no kit field" bash -c "cat '$graft/lib/mk-flake.nix' | grep -qE 'kit\.(packages|requests|commands|protect|files|env)|selfKit'"
   # graft check in a pot run asks pot (pot why URL --json, contract run-env/1), never pot's files
   local stub=$work/kstub && mkdir -p "$stub"
   cat > "$stub/pot" <<'EOF'
@@ -1216,32 +1203,34 @@ EOF
   printf '#!/bin/sh\necho "usage: pot why PATH" >&2\nexit 2\n' > "$stub/pot"
   expect "an older pot (no usable answer): the fetch is tried" env PATH="$stub:$PATH" POT=work bash -c "$reach" _ "$graft" https://other.example/x
   refuse "kits: graft reads no POT_POLICY" grep -q POT_POLICY "$graft/lib/common.sh"
-  # a provider that renamed packages to tools, and one that uses kit 1.1: graft-kits stays readable by a
-  # v2.15.0 pot (tools written packages, no version, the 1.1 kit left out with a warning) (F1, C1)
-  prov kktools
-  printf '{ pkgs, ... }: { kit = { version = "1.1"; tools = [ pkgs.hello ]; requests.network = [ "t.example" ]; }; }\n' > "$work/src/kktools/graft.nix" && release kktools v1.0.0
-  prov kknew
-  # shellcheck disable=SC2016 # a Nix string, written as it is
-  printf '{ pkgs, ... }: { kit = { version = "1.1"; commands.kn = { program = "${pkgs.hello}/bin/hello"; dirs."~/.kn" = { from = "~/.kn"; }; }; }; }\n' > "$work/src/kknew/graft.nix" && release kknew v1.0.0
-  cd "$c" && by_hand kktools && by_hand kknew && commit "kktools kknew"
-  ran "kits: graft-kits with a renamed and a kit 1.1 provider" nix build -L -o "$work/kgk2" ".#graft-kits"
-  # (its build log, also when the store had it built already)
-  ran "its build log" nix log "$(nix eval --raw ".#packages.$sys.graft-kits.drvPath")"
-  expect "warns that the kit 1.1 one is left out" holds "graft: graft-kits: scions/kknew/graft.nix uses kit 1.1 (dirs or agent), which a v2.15.0 pot cannot read: left out (pot-kits has it)"
-  expect "tools is written packages" test "$(jq -c '.scions.kktools | [has("packages"), has("tools"), has("version")]' "$work/kgk2/kit.json")" = '[true,false,false]'
-  expect "the kit 1.1 one is not in it" test "$(jq -c '.scions | has("kknew")' "$work/kgk2/kit.json")" = false
-  ran "kits: and evaluation warns too (DX R1)" nix eval --no-eval-cache --raw ".#packages.$sys.graft-kits.drvPath"
-  expect "naming the file" holds "graft-kits: scions/kknew/graft.nix uses kit 1.1 (dirs or agent): a v2.15.0 pot cannot read it, so graft-kits leaves it out (pot-kits has it)"
-  ran "kits: pot-kits has both" jq -c '.scions | keys' "$(nix build --no-link --print-out-paths .#pot-kits)/kit.json"
-  expect "them" holds '"kknew","kktools"'
-  # perSystem's kit still names packages: kitsFor says it is tools' old name (F3); a provider's packages
-  # does not warn (providers keep it until v2.17.0)
+  # kit.packages is gone at the source (v2.17.0): kitsFor refuses it in a provider's kit and the consumer's own,
+  # naming tools (pot still reads it in a bundle that graft v2.16.x built: sec_pot)
   prov kkpkg
   printf '{ pkgs, ... }: { kit.packages = [ pkgs.hello ]; }\n' > "$work/src/kkpkg/graft.nix" && release kkpkg v1.0.0
   by_hand kkpkg && commit kkpkg
-  ran "kits: packages warns" nix eval --no-eval-cache --raw ".#packages.$sys.pot-kits.drvPath"
-  expect "for the consumer's own kit" holds "flake.nix (perSystem): packages is tools' old name; packages goes in v2.17.0"
-  refuse "never for a provider's" holds "scions/kkpkg/graft.nix: packages"
+  refused "kits: a provider's kit.packages" nix build --no-link .#pot-kits
+  expect "names tools" holds "pot: scions/kkpkg/graft.nix: packages is tools' old name, gone in v2.17.0: give tools"
+  git_ rm -q scions/kkpkg && commit "no kkpkg"
+  sed -i 's|tools = \[ pkgs.hello \]; }; }; };|packages = [ pkgs.hello ]; }; }; };|' flake.nix && commit "own packages"
+  refused "kits: the consumer's own kit.packages" nix build --no-link .#pot-kits
+  expect "names tools" holds "pot: flake.nix (perSystem): packages is tools' old name, gone in v2.17.0: give tools"
+  sed -i 's|packages = \[ pkgs.hello \]; }; }; };|tools = [ pkgs.hello ]; }; }; };|' flake.nix && commit "tools again"
+  # the other v2.16.0 forms, gone: each error names its replacement
+  local ex="let g = builtins.getFlake \"path:$graft\"; pkgs = g.inputs.nixpkgs.legacyPackages.$sys; in"
+  refused "kits: mkRoot's defaultAccount" nix eval --impure --raw --expr "$ex (g.lib.mkRoot { inherit pkgs; kits.\"claude-code@a\" = g.kits.claude-code { inherit pkgs; }; defaultAccount = \"a\"; }).drvPath"
+  expect "names defaultInstance" holds 'graft.lib.mkRoot: defaultAccount is gone (v2.17.0): defaultInstance.<kit> = "NAME"'
+  refused "kits: claude-code's account" nix eval --impure --json --expr "$ex (g.kits.claude-code { inherit pkgs; account = \"a\"; }).version"
+  expect "names the kits key" holds "graft.kits.claude-code: account is gone (v2.17.0): the instance is the root's kits key (\"claude-code@NAME\")"
+  refused "kits: claude-code's provider and region" nix eval --impure --json --expr "$ex (g.kits.claude-code { inherit pkgs; provider = \"bedrock\"; region = \"us-east-1\"; }).version"
+  expect "names api" holds 'graft.kits.claude-code: provider and region are gone (v2.17.0): api = graft.apis.bedrock { region = "…"; } (or graft.apis.anthropic)'
+  refused "kits: a root kit's packages" nix eval --impure --raw --expr "$ex (g.lib.mkRoot { inherit pkgs; kits.x.packages = [ pkgs.hello ]; }).drvPath"
+  expect "names tools" holds "pot: the root (programs.pot.kits.x): packages is tools' old name, gone in v2.17.0: give tools"
+  ran "kits: programs.pot.defaultAccount (home-manager fails on the assertion)" nix eval --impure --raw --expr "$ex builtins.concatStringsSep \"\\n\" (map (a: a.message) (builtins.filter (a: !a.assertion) (g.inputs.nixpkgs.lib.evalModules { modules = [ g.homeManagerModules.pot ({ lib, ... }: {
+      options.home.packages = lib.mkOption { default = [ ]; }; options.home.file = lib.mkOption { default = { }; };
+      options.assertions = lib.mkOption { default = [ ]; };
+      config = { _module.args.pkgs = pkgs; programs.pot.enable = true; programs.pot.defaultAccount = \"a\"; }; }) ]; }).config.assertions))"
+  expect "names defaultInstance" holds 'no longer has any effect; please remove it.'
+  expect "and its replacement" holds 'Use programs.pot.defaultInstance.<kit> = "NAME" (v2.17.0).'
   cd "$work"
 }
 
@@ -1261,7 +1250,7 @@ sec_pot() {
         tool = pkgs.writeShellScriptBin "sbk-tool" "echo sbk-tool hi"; in {
       pot-kits = graft.lib.pot.kitsFor {
         inherit pkgs;
-        self = { kit = { protect = [ "AGENTS.md" ]; packages = [ pkgs.hello ]; }; file = "flake.nix (fixture)"; };
+        self = { kit = { protect = [ "AGENTS.md" ]; tools = [ pkgs.hello ]; }; file = "flake.nix (fixture)"; };
         scions.sbk = { file = "kits/sbk.nix"; kit = { requests.network = [ "api.sbk.example" ]; protect = [ "sbk.yaml" ];
           commands.sbk-tool.program = "\${tool}/bin/sbk-tool"; }; };
         tools = [ tool ];
@@ -1401,9 +1390,8 @@ STUB
   expect "is sel@c" holds "run        seltest -> root:sel@c"
   ran "pot: --instance" env SELV=b POT_QUIET=1 "$work/sbr/bin/pot" explain --instance b seltest
   expect "is sel@b" holds "run        seltest -> root:sel@b"
-  ran "pot: --account, its old name" env -u SELV POT_QUIET=1 "$work/sbr/bin/pot" explain --account c seltest
-  expect "says so once" holds "pot: --account is --instance; --account goes in v2.17.0"
-  expect "and works" holds "run        seltest -> root:sel@c"
+  refused "pot: --account, gone in v2.17.0" env -u SELV POT_QUIET=1 "$work/sbr/bin/pot" explain --account c seltest
+  expect "names --instance and CMD@NAME" holds "pot: --account is gone (v2.17.0): --instance NAME, or CMD@NAME"
   refused "pot: an instance the root does not declare" sb_ explain seltest@nope
   expect "names them" holds "pot: seltest@nope: this root declares sel@a, sel@b, sel@bw, sel@c"
   refused "pot: CMD@NAME and another --instance" sb_ explain --instance a seltest@c
@@ -1760,9 +1748,27 @@ STUB
 }
 EOF
   (cd "$d" && echo old > OLD.md && by_hand sbk && commit init && quiet nix flake lock && commit lock \
-    && ran "pot: a v2.15.0 consumer (graft-kits only)" sb_ explain \
-    && expect "its repo kit's protect, and what v2.15.0 protected for it" grep -qE 'OLD\.md \*\*/graft\.nix scions .*\(repo\)' <<<"$out" \
-    && refuse "its scions directory is read-only" sb_ touch scions/new 2>/dev/null)
+    && refused "pot: a v2.15.0 consumer (graft-kits only)" sb_ true \
+    && expect "is refused, naming pot-kits" holds "pot (work): $d has graft-kits only: its graft predates v2.16.0, and this pot reads pot-kits: take graft v2.16.0 or later there (nix flake update graft), or run pot host CMD")
+  # a bundle graft v2.16.x built may hold packages: pot reads it as tools, with no warning (ruling 2)
+  d=$work/sbpk16 && mkdir -p "$d" && git_ -C "$d" init -q
+  cat > "$d/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  outputs = { graft, ... }: let pkgs = graft.inputs.nixpkgs.legacyPackages.$sys; in {
+    packages.$sys.pot-kits = pkgs.runCommand "pot-kits" { } ''
+      mkdir -p \$out
+      echo '{"version":1,"self":{"file":"flake.nix (perSystem)","packages":["\${pkgs.hello}"]},"scions":{},"protect":[]}' > \$out/kit.json
+      ln -s \${pkgs.hello}/bin \$out/bin
+      cat \${pkgs.closureInfo { rootPaths = [ pkgs.hello ]; }}/store-paths > \$out/closure
+    '';
+  };
+}
+EOF
+  (cd "$d" && by_hand sbk && commit init && quiet nix flake lock && commit lock \
+    && ran "pot: a v2.16.x bundle whose kit has packages" sb_loud hello \
+    && expect "runs, its package on PATH" holds "Hello, world!" \
+    && refuse "with no warning" holds "old name")
   d=$work/sbnokit && mkdir -p "$d" && git_ -C "$d" init -q
   printf '{\n  inputs.graft.url = "path:%s";\n  outputs = { graft, ... }: { packages.%s.other = graft.packages.%s.default; };\n}\n' "$graft" "$sys" "$sys" > "$d/flake.nix"
   (cd "$d" && by_hand sbk && commit init && quiet nix flake lock && commit lock \
@@ -1791,9 +1797,6 @@ EOF
   printf '{"nodes":{"root":{}},"root":"root","version":7}\n' > "$d/nix/flake.lock"
   (cd "$d" && commit init && ran "pot: a stale .gitmodules entry" sb_loud true \
     && refuse "evaluates nothing" holds "must not be evaluated" && refuse "builds nothing" holds "building the repo kit")
-  # a v2.15.0 consumer says so at start (F3)
-  (cd "$work/sbold15" && ran "pot: graft-kits only, at start" sb_loud true \
-    && expect "names the flake and why" holds "has graft-kits only: its graft predates v2.16.0 (pot reads graft-kits until v2.17.0)")
   cd "$c"
   # pot grant takes the name pot displays: this repository's (its folder, a local origin) (R4)
   sb_ grant sbc </dev/null >/dev/null 2>"$work/r4.err" || true

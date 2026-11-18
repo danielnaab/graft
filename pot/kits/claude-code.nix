@@ -11,7 +11,6 @@
 #     plugins ? true;              # bind the account's plugins folder read-only (false opts out)
 #     skillSources ? [ ];          # checkouts the skill links point into (read requests)
 #     api ? graft.apis.anthropic;  # or graft.apis.bedrock { region = "us-east-1"; }
-#                                  # (provider and region: the old form, until v2.17.0)
 #     mcp ? [ ];                   # MCP server names, each a `mcp` request
 #   }
 #
@@ -29,17 +28,13 @@
 let
   lib = pkgs.lib;
   apis = import ./apis.nix;
-  # account (v2.15.0's examples set it) was never used: deprecated in v2.16.0, removed in v2.17.0
-  noAccount = x: if account == null then x
-    else lib.warn "graft.kits.claude-code: account is not used: the instance is the root's kits key; account goes in v2.17.0" x;
-  # api, or v2.15.0's provider and region (deprecated in v2.16.0, removed in v2.17.0)
-  old = provider != null || region != null;
-  api' =
-    if api != null && old then throw "graft.kits.claude-code: give api, or provider and region (the old form), not both"
-    else if api != null then api
-    else if !old then apis.anthropic
-    else lib.warn "graft.kits.claude-code: provider and region are api = graft.apis.bedrock { region = …; } (or graft.apis.anthropic); they go in v2.17.0"
-      (if provider == "bedrock" then apis.bedrock { inherit region; } else apis.anthropic);
+  # v2.15.0's account, provider and region: deprecated in v2.16.0, gone in v2.17.0 (each error names its
+  # replacement; the arguments stay only to say so)
+  noAccount = x:
+    if account != null then throw "graft.kits.claude-code: account is gone (v2.17.0): the instance is the root's kits key (\"claude-code@NAME\")"
+    else if provider != null || region != null then throw "graft.kits.claude-code: provider and region are gone (v2.17.0): api = graft.apis.bedrock { region = \"…\"; } (or graft.apis.anthropic)"
+    else x;
+  api' = if api != null then api else apis.anthropic;
   provider' = api'.name;
   region' = api'.region or null;
   native = binary == "native";
