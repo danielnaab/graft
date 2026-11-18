@@ -2098,21 +2098,21 @@ EOF
 
   # 125: a stopped record, and the pane workmux shows waiting
   # shellcheck disable=SC2016 # the stub's shell expands them
-  printf '#!/bin/sh\necho "$TMUX_PANE $*" >> %s\n' "$work/workmux.log" > "$work/dbin/workmux" && chmod +x "$work/dbin/workmux"
+  printf '#!/bin/sh\necho "$TMUX_PANE $*" >> %s\n' "$work/dworkmux.log" > "$work/dbin/workmux" && chmod +x "$work/dbin/workmux"
   refused "dispatch: a 125 in a workmux pane" env PATH="$work/dbin:$PATH" TMUX=/tmp/t,1,0 TMUX_PANE=%7 POT_QUIET=1 \
     env -u CLAUDECODE -u CODEX_SANDBOX -u POT "$work/dr/bin/pot" needtest -c true </dev/null
   local sid && sid=$(d_ runs --json | jq -r '[.runs[] | select(.state == "stopped")][0].id')
   expect "writes a stopped record" test "$(rec "$sid" '"\(.stop.reason) \(.exit) \(.stop.fix)"')" = "grant 125 pot grant needs"
-  expect "and sets the pane waiting" grep -qx '%7 set-window-status waiting' "$work/workmux.log"
+  expect "and sets the pane waiting" grep -qx '%7 set-window-status waiting' "$work/dworkmux.log"
   refused "dispatch: a 125 outside tmux" env PATH="$work/dbin:$PATH" POT_QUIET=1 env -u TMUX -u TMUX_PANE -u CLAUDECODE -u POT \
     "$work/dr/bin/pot" needtest -c true </dev/null
-  expect "touches no pane" test "$(wc -l < "$work/workmux.log")" = 1
+  expect "touches no pane" test "$(wc -l < "$work/dworkmux.log")" = 1
   refused "dispatch: a missing guarantee" env PATH="$work/dbin:$PATH" TMUX=/tmp/t,1,0 TMUX_PANE=%8 POT_QUIET=1 \
     env -u CLAUDECODE -u CODEX_SANDBOX -u POT "$work/dr/bin/pot" strict true </dev/null
   expect "exits 125 too" holds "requires separate-kernel"
   sid=$(d_ runs --json | jq -r '[.runs[] | select(.state == "stopped" and .context == "strict")][0].id')
   expect "a stopped record (guarantee)" test "$(rec "$sid" .stop.reason)" = guarantee
-  expect "no pane: the run holds none (no status.relay)" test "$(wc -l < "$work/workmux.log")" = 1
+  expect "no pane: the run holds none (no status.relay)" test "$(wc -l < "$work/dworkmux.log")" = 1
 
   # the resource scope: runs without a terminal, in a user systemd scope with the root's limits
   if systemd-run --user --scope --quiet true 2>/dev/null; then
