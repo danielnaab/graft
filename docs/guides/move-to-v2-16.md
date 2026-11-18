@@ -9,7 +9,7 @@ kits to pot as `packages.<system>.pot-kits`, and pot finds that flake from `.git
 longer knows any one agent: an agent kit says how pot recognises it and its instances (kit 1.1), a root chooses an
 instance with `CMD@NAME`, and the claude-code kit takes an `api` value. Most repositories and roots need no edit
 now: the old forms still work, with a warning, until v2.17.0. This page says what changes for a consumer, a root
-and a provider.
+and a provider. v2.17.0 removes the old forms: [Move to v2.17.0](move-to-v2-17.md).
 
 ## When to use this
 

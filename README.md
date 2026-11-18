@@ -89,7 +89,8 @@ git submodules give you a pinned clone. graft adds what makes them a dependency 
 - **An agent rule** for working with scions, ready to paste into `AGENTS.md`.
 - **A sandbox for agents (experimental).** pot, graft's sandbox: `pot claude` runs an agent, or any command, so that it writes the
   repository but reaches only what you granted from your own root, and cannot change the files that decide the
-  sandbox. Repositories and providers declare what they need as kits; only you grant it (Linux;
+  sandbox. `pot dispatch` works in a throwaway clone, and hands its commits back for you to review and fetch.
+  Repositories and providers declare what they need as kits; only you grant it (Linux;
   [Run commands in pot](docs/guides/run-in-a-sandbox.md)).
 
 Compared with the other ways:
@@ -164,6 +165,7 @@ and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 | Consumer: keep private files out of the Nix store | [Keep private files out of the Nix store](docs/guides/flake-in-a-subdirectory.md) |
 | Consumer: graft a provider that only an ssh key can read | [Graft a private repository](docs/guides/private-providers.md) |
 | Anyone: run an agent or a command in a sandbox | [Run commands in pot](docs/guides/run-in-a-sandbox.md) |
+| Anyone: hand a task to an agent in a clone, then review and fetch its commits | [Work in a clone](docs/guides/dispatch.md) |
 | Provider: release a version | [Publish a pattern](docs/guides/publish.md) |
 | Provider: ship tools, apps and checks | [Write a provider's graft.nix](docs/guides/write-graft-nix.md) |
 | Consumer on v2.12 or earlier: move to submodules | [Move from copy mode](docs/guides/move-from-copy-mode.md) |
@@ -172,6 +174,7 @@ and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 | Look up a context, a kit field, a request, a grant, a `pot` flag or message | [pot](docs/reference/pot.md) |
 | Anyone on v2.14.0's sandbox: move to `pot` | [Move from v2.14.0's sandbox](docs/guides/move-from-the-v2-14-sandbox.md) |
 | Anyone on v2.15.0: move to v2.16.0 (`pot-kits`, the boundary between graft and pot) | [Move to v2.16.0](docs/guides/move-to-v2-16.md) |
+| Anyone on v2.16.x: move to v2.17.0 (the removed forms, dispatch) | [Move to v2.17.0](docs/guides/move-to-v2-17.md) |
 | Look up a format that pot shares with graft and other programs | [pot's contracts](pot/contracts/README.md), [provider/2](docs/reference/provider.md) |
 | Know how Nix sees a scion | [Nix behaviours](docs/reference/nix-behaviours.md) |
 | Know why graft is this small, and where graft v1 went | [Decisions](docs/decisions.md) |

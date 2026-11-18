@@ -54,7 +54,7 @@ always a `path:` flake, never `.#` or `git+file:`, which would copy the whole re
      grant = [ "notebook-kit" ];
    };
 
-   # v2.16.0 (v2.15.0 wrote packages, which is still read until v2.17.0)
+   # v2.16.0 and later (v2.15.0 wrote packages; since v2.17.0 it is refused)
    kit = {
      tools = [ pkgs.ripgrep ];
      protect = [ "AGENTS.md" ];
@@ -163,5 +163,5 @@ Use your machine's system for `x86_64-linux`.
 ## Sources
 
 - [pot](../reference/pot.md)
-- [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit`, `kitArgs`, `packages.<system>.pot-kits` and `graft-kits`
+- [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit`, `kitArgs`, and `packages.<system>.pot-kits`
 - [CHANGELOG](../../CHANGELOG.md)

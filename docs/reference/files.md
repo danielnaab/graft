@@ -127,7 +127,7 @@ A function, called once per system by the consumer's mkFlake. Its versioned cont
 | `apps` | `apps.<system>.<name>` | An error; `graft`, `sandbox`, `pot`, `pot-kits` and `graft-kits` are reserved. |
 | `packages` | `packages.<system>.<name>` | An error; `tools`, `sandbox`, `pot`, `pot-kits` and `graft-kits` are reserved. |
 | `checks` | `checks.<system>.<scion>-<name>` | None: prefixed. |
-| `kit` | The provider's [scion kit](pot.md#schema), in `packages.<system>.pot-kits` (and v2.15.0's `graft-kits`, until v2.17.0). Its `requests` apply only when a person grants them, in their root, with `pot grant`. | None: each kit keeps its own identity. |
+| `kit` | The provider's [scion kit](pot.md#schema), in `packages.<system>.pot-kits`. Its `requests` apply only when a person grants them, in their root, with `pot grant`. | None: each kit keeps its own identity. |
 | `requires` | Nothing. Checked first: each named scion must exist, or evaluation fails with `graft add URL`. | |
 | Anything else | Visible to other providers as `scions.NAME.ATTR`, not a flake output. | |
 

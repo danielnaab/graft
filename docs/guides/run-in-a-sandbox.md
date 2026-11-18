@@ -88,6 +88,7 @@ such as `flake.nix`.
 |---|---|---|
 | Work on this repository | `pot claude` | writes the repository in place, reaches only what is granted |
 | Diagnose the machine, change nothing | `pot inspect claude` | reads the machine except secrets and hidden paths, writes nothing, reaches only the model API |
+| Hand a task off, or change a root repository | `pot dispatch claude` | works in a clone in pot's state; you review and fetch its commits ([Work in a clone](dispatch.md)) |
 | Do what only the host may do | `pot host CMD`, or plain `claude` | has no sandbox |
 
 `inspect` diagnoses; the host repairs. `sudo`, `systemctl restart`, `docker run` and `home-manager switch` are
@@ -146,9 +147,12 @@ When an upgrade gives a kit new requests, or a new source for a powerful one, th
 At a terminal, it is the grant prompt, inline: accept or refuse each item, and the run goes on. Elsewhere (an
 agent, a script), the run stops with exit 125 and the difference:
 
-1. Read the difference that `pot` printed, or run `pot grant --diff`.
-2. If you accept it, run `pot grant KIT` at a terminal, with the short name that `pot` printed (`claude-code` names
-   every instance). Commit the grants file. Otherwise, take back the upgrade.
+1. Read the difference that `pot` printed, or run `pot grant --diff`. A stopped run is listed by `pot runs` as
+   `stopped`, and a workmux pane that started it shows `waiting`.
+2. If you accept it, run `pot grant` at a terminal: with no argument it offers every kit here that is stale, and
+   every kit a stopped run waits for, showing only what changed. Or name one, `pot grant KIT`, with the short name
+   that `pot` printed (`claude-code` names every instance). Add `--commit` to commit the grants file at once (only
+   that file; it never pushes), or commit it with your root's next change. Otherwise, take back the upgrade.
 
 Runs that the kit's requests do not apply to still start, with a note on the startup line:
 `meeting-kit asks for more: pot grant`.
@@ -156,19 +160,21 @@ Runs that the kit's requests do not apply to still start, with a note on the sta
 ## Root repositories
 
 Your root's own repository (`~/.workstation` here) decides what every run may do, so `pot` never writes it in
-place. In v2.16.1, `pot claude` refuses there:
+place. `pot claude` refuses there:
 
 ```
-pot (work): ~/.workstation is a root: pot inspect, or claude (unsandboxed) until pot dispatch (a later release)
+pot (work): ~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD
 ```
+ <!-- TBD: sample -->
 
 - To read it, use `pot inspect claude`.
-- To change it, use plain `claude`, then review the diff before `home-manager switch`.
+- To change it, use `pot dispatch claude`: the change comes back as a branch for you to review, fetch and merge
+  before `home-manager switch` ([Work in a clone](dispatch.md#change-a-root-repository)).
 - In its worktrees, set workmux's agent command in `~/.workstation/.workmux.yaml` to anything but `pot claude`,
   because the project file overrides the global `agent`:
 
   ```yaml
-  agent: claude
+  agent: pot dispatch claude
   ```
 
 ## Add a repo kit
@@ -301,6 +307,8 @@ in [Home-manager options](../reference/pot.md#home-manager-options).
 
 ## If something goes wrong
 
+- **Start with `pot doctor`.** It checks the backend, user systemd, the grants file, each binding's file (by path,
+  never its contents), the instances and which one your shell selects ([pot doctor](../reference/pot.md#pot-doctor)).
 - **`pot` fails before the command starts, in Docker,** because bubblewrap cannot create a user namespace.
   Docker's default seccomp profile blocks them. Run `pot` on the host or in a VM. `pot` never runs the command
   without the sandbox.
@@ -313,6 +321,9 @@ in [Home-manager options](../reference/pot.md#home-manager-options).
 - **A test fails because `/run/current-system/sw/bin/…` is missing.** In `work`, `/run/current-system` is a
   link whose target the run does not see: without the `nix` capability, a run sees only its closure in the store.
   Make the test use the `PATH` it was given.
+- **The startup line says `meeting-kit: gitlink is not a release tag at its URL; its kit is unverified and its grant
+  does not apply`.** That scion is not at a release tag, so the run goes on without its reach. Move it to a release
+  (`graft upgrade NAME`), or try it on the host with `pot host CMD`. <!-- TBD: sample -->
 - **A claude.ai skill is missing inside a run.** Synced claude.ai skills do not load in a run (above). Install the
   skill as an ordinary skill folder.
 - **`pot: no backend for darwin in v2.16.1`.** You are on macOS. Use graft v2.14.0's sandbox there.
@@ -324,7 +335,8 @@ context includes. It reads your grants file, and composes the run's policy: what
 the reach that you granted. Then bubblewrap starts the command with only that. Network goes through a proxy on
 the host that allows only granted hosts. Nothing that the run writes can widen a later run: the grants file and
 `pot`'s state are hidden, and your root's repository is never written in place
-([Decisions](../decisions.md#roots-grant-reach-kits-only-ask)).
+([Decisions](../decisions.md#roots-grant-reach-kits-only-ask)). `pot dispatch` runs in a clone instead of your
+tree, and its commits come back only when you fetch them ([Work in a clone](dispatch.md)).
 
 ## Sources
 
