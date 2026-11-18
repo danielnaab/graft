@@ -167,25 +167,39 @@ Costs accepted:
 - **Experimental, and Linux only, in v2.16.1.** On macOS, `pot` refuses with a message. v2.14.0 is the last
   release with a Seatbelt sandbox. v2.15.0, a minor version, breaks v2.14.0's sandbox, and its CHANGELOG says
   so.
-- **Kit tools run on the host in v2.16.1.** A kit's commands are not wrapped and sandboxed on their own until a
-  later release. Inside `pot claude`, they run under the run's policy.
+- **Kit tools are not sandboxed on their own yet.** A kit's commands are not wrapped and sandboxed under their own
+  policy until v2.18.0. On the host they run as before; inside `pot claude`, under the run's policy.
 - **A person needs a root:** a home-manager module, graft's default root, or one that `pot init` writes.
 - **Grants are readable.** Hidden means unmounted and unwritable. A grants file is readable through the root's git
   history wherever that `.git` is readable, `inspect` included. Grants hold no secrets.
 - **`pot grant` is a speed bump.** It refuses agents and reads from `/dev/tty`, but an unrestricted host agent can
   edit the grants file or script a terminal. Plain `claude` stays unrestricted by choice.
-- **The repository's history is not protected.** In place, a run can commit, and can delete refs. Push what you
-  need to keep. New git metadata, gitlinks and changed host-run files are reported after the run, not prevented.
-- **A root repository cannot be changed in a run.** In v2.16.1, `work` refuses there; use plain `claude` or a
-  person, and review before the switch. Clone mode, which returns root changes as a branch, comes later.
+- **In place, the repository's history is not protected.** A `work` run can commit, and can delete refs. Push what
+  you need to keep. New git metadata, gitlinks and changed host-run files are reported after the run, not
+  prevented. **`dispatch` removes this cost** for unattended work: the run works in a clone in pot's state, which
+  carries only `user.*` and the origin URLs, so it never reaches the repository's history, hooks or config. Its
+  commits reach the host only through a sandboxed `upload-pack` with fsck, which runs no hook, config or filter of
+  the clone's, and only into `refs/remotes/pot-<id>/*` when the person runs `pot review ID --fetch`. A nested
+  repository planted in the clone stays there.
+- **What `dispatch` does not remove:** the fetched commits are still untrusted output. The host's look after the
+  run flags host-run files, unsigned commits, new gitlinks, and repo-kit and root-repository changes for review; it
+  does not prevent them. Read the branch as you would a stranger's pull request before you merge it.
+- **A root repository changes only through a reviewed branch.** `work` refuses there. `dispatch` returns the change
+  as a branch, and `pot review` flags changes to the grants file and to `programs.pot`. Review it before the
+  switch.
+- **Clones take disk space** until `pot review ID --discard`, or until `keepDays` or the size cap removes them. Those
+  remove only clones that were fetched, discarded or have no commits: pot never deletes unfetched commits on its
+  own, and names the runs still waiting for review when the cap is reached.
+- **Resource limits cover only runs without a terminal,** and only where user systemd runs: a `systemd-run --user
+  --scope` with a memory and a task limit. An interactive run has none.
 - **The `nix` capability depends on experimental Nix features,** and shows the run the whole store.
 - **Linux needs unprivileged user namespaces.** Docker's default seccomp profile blocks them.
 
 Reopen when unprivileged user namespaces are no longer available on the machines that run graft, or when a kit's
 real needs cannot be expressed as requests that a root grants.
 
-Not yet: clone mode (`dispatch`) and `pot review`; nesting and wrapped kit commands; generated `kits.just`; the
-Seatbelt backend; brokers for `git.push` and proxy credentials; widening delegation through a supervisor; a VM
+Not yet: nesting and the children table, wrapped kit commands, generated `kits.just` and hook commands
+(v2.18.0); the `pi` kit (v2.19.0); the Seatbelt backend; brokers for `git.push` and proxy credentials; widening delegation through a supervisor; a VM
 backend for code that no one has reviewed.
 
 ## One repository, one-way arrows between graft and pot
@@ -201,7 +215,8 @@ to pot does not change it.
 - **Why not two repositories now:** the seam between them, how a repository presents its kits, still changes in
   most releases. Split now, and each change to it would be two releases in order, and a lock update in every
   consumer. The boundary already removes the coupling in code.
-- **When to split:** when `kit/1` and `pot-kits/1` have held unchanged for a release or two. A consumer then pins
+- **When to split:** when `kit/1` and `pot-kits/1` have held unchanged for two releases, checked after pot's phase
+  1b. A consumer then pins
   graft, a root pins pot, and the two meet only through `pot-kits/1`. No user path changes.
 - **Cost:** one tag line serves two audiences. `graft outdated` reports pot's releases to consumers who use only
   graft, and the CHANGELOG mixes both.
