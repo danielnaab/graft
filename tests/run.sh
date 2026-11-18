@@ -2218,6 +2218,34 @@ EOF
   expect "changed source" holds "changed source since its grant:"
   cd "$c"
 
+  # pot grant with no argument: every stale kit here, and every kit a stopped run waits for, wherever it ran
+  ran "dispatch: pot grant, no argument, from another repository" tty_ $'n\ny\n' "$work/dr/bin/pot" grant
+  expect "offers the stopped run's kit" holds "dn   repo kit (repo:fake.example/dn), for every run in this repository   changed source"
+  expect "naming the stopped run and where" grep -qE "\(stopped run [0-9a-f]{4}, in $n\)" <<<"$out"
+  (cd "$n" && ran "dispatch: then that repository's run goes on" d_ true)
+  # pot grant --commit (decision 3: opt-in each call): commits the grants file's path alone, never pushes
+  git_ -C "$work/dgrants" init -q && git_ -C "$work/dgrants" add grants.json && git_ -C "$work/dgrants" commit -q -m grants
+  echo other > "$work/dgrants/other.txt" && git_ -C "$work/dgrants" add other.txt
+  ran "dispatch: pot grant --commit" tty_ $'y\n' "$work/dr/bin/pot" grant --commit needs
+  expect "says it committed, and does not push" grep -qE "committed $work/dgrants/grants.json \([0-9a-f]{7}\); push it with $work/dgrants's next push" <<<"$out"
+  expect "the commit holds the grants file alone" test "$(git_ -C "$work/dgrants" show --name-only --format= HEAD)" = grants.json
+  expect "its subject names the kit" test "$(git_ -C "$work/dgrants" log -1 --format=%s)" = "pot grant: needs"
+  expect "another staged file stays staged" test "$(git_ -C "$work/dgrants" diff --cached --name-only)" = other.txt
+  echo " " >> "$work/dgrants/grants.json"
+  refused "dispatch: --commit, the grants file has uncommitted changes" env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant --commit needs </dev/null
+  expect "is refused before any prompt" holds "pot grant --commit: $work/dgrants/grants.json has uncommitted changes (git -C $work/dgrants diff HEAD -- grants.json): commit or revert them first, or run pot grant without --commit"
+  git_ -C "$work/dgrants" checkout -q -- grants.json
+  mv "$work/dgrants/.git" "$work/dgrants/.git.off"
+  refused "dispatch: --commit, not in a git repository" env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant --commit </dev/null
+  expect "is refused" holds "pot grant --commit: $work/dgrants/grants.json is not in a git repository; run pot grant without --commit"
+  mv "$work/dgrants/.git.off" "$work/dgrants/.git"
+  refused "dispatch: --commit with --diff" env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant --diff --commit </dev/null
+  expect "is usage" holds "pot: grant --commit records grants; --diff only shows them"
+  refused "dispatch: --commit under an agent" env CLAUDECODE=1 "$work/dr/bin/pot" grant --commit </dev/null
+  expect "is refused" holds "pot grant is for people: CLAUDECODE is set"
+  ran "dispatch: pot grant, nothing stale" env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant </dev/null
+  expect "says so" holds "pot grant: every kit here is granted, and no stopped run waits for a grant"
+
   # refusals and inside a run
   refused "dispatch: --repo in clone mode" d_ dispatch --repo "$work/drootrepo" true
   expect "is a later release's" holds "pot (dispatch): --repo comes to clone mode in a later release; a dispatch clones this repository only"

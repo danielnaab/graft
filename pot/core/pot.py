@@ -43,7 +43,7 @@ USAGE = """usage: pot [VERB | CONTEXT] [FLAGS] [--] [CMD [ARGS...]]
   pot explain [CONTEXT] [FLAGS] [CMD] [--json] [--backend-command]
   pot why PATH|HOST|CMD|VAR     why one item is or is not in the run (works inside a run)
   pot why HOST|URL --json       whether a run here (inside: this run) reaches it; exit 0 yes, 1 no
-  pot grant [KIT...] [--revoke KIT] [--diff [--verbose]] [--workspace PATH]
+  pot grant [KIT...] [--revoke KIT] [--diff [--verbose]] [--commit] [--workspace PATH]
   pot dispatch [--from REF] [--detach] CMD
                                 run CMD in a throwaway clone; its commits come back by pot review RUN --fetch
   pot runs [RUN] [--json] [--follow] [--all]
@@ -698,7 +698,7 @@ def parse(argv, root):
             cmd = cmd + [a]
             j += 1
             continue
-        if verb == "grant" and a in ("--diff", "--verbose"):
+        if verb == "grant" and a in ("--diff", "--verbose", "--commit"):
             flags[a[2:]] = True
             j += 1
             continue
@@ -2063,7 +2063,7 @@ def binding_note(root, canon, kit_id):
     return "  bound: " + C.binding_desc(name, b[1])
 
 
-def grant_flow(host, root, grants, sts, inline=False):
+def grant_flow(host, root, grants, sts, inline=False, commit=False):
     """The people-only prompt: ordinary items together, each powerful item alone, from /dev/tty."""
     m = agent_marker(root)
     if m:
@@ -2084,7 +2084,8 @@ def grant_flow(host, root, grants, sts, inline=False):
             scope = {"root": "every run that uses it", "repo": "every run in this repository",
                      "scion": f"every workspace that pins {st['kit'][4:]}"}[st["kind"]]
             state = C.STATUS_WORDS[st["status"]]
-            t.write(visible(f"{st['name']}   {kind} ({st['kit']}), for {scope}   {state}\n"))
+            where_ = f"   (stopped run {st['stoppedRun']}, in {C.canon_path(st['stoppedIn'], host.home)})" if st.get("stoppedRun") else ""
+            t.write(visible(f"{st['name']}   {kind} ({st['kit']}), for {scope}   {state}{where_}\n"))
             if st.get("uncommitted"):
                 t.write("  note: its defining file has uncommitted changes\n")
             cls = {c: ("powerful" if c in st.get("powerful", []) else "ordinary") for c in reqs}
@@ -2116,10 +2117,14 @@ def grant_flow(host, root, grants, sts, inline=False):
             where = C.write_grant(grants, st["kit"], sorted(approved), src, host.machine, when,
                                   local=st["kit"].startswith("repo:") and C.is_local_identity(st["kit"]))
             wrote = True
+            st["granted"] = True
             t.write(visible(f"  recorded in {where}\n"))
         if wrote:
             save_grants(host, grants)
-            t.write(visible(f"wrote {C.canon_path(host.grants_path, host.home)}. Commit it with your root's next change.\n"))
+            if commit:
+                t.write(visible(commit_grants(host, [st["name"] for st in sts if st.get("granted")]) + "\n"))
+            else:
+                t.write(visible(f"wrote {C.canon_path(host.grants_path, host.home)}. Commit it with your root's next change.\n"))
         t.flush()
     finally:
         t.close()
@@ -2167,6 +2172,13 @@ def grant(host, root, flags, kits_named):
         return 0
     if flags.get("root"):
         raise C.Refusal("pot grant --root comes with deployment roots, in a later release", 2)
+    if flags.get("commit") and flags.get("diff"):
+        raise Usage("grant --commit records grants; --diff only shows them")
+    if flags.get("commit"):
+        m = agent_marker(root)
+        if m:
+            raise C.Refusal(f"pot grant is for people: {m} is set (an agent's environment). Run pot grant in your own terminal.")
+        commit_check(host)
     if flags.get("workspace"):
         os.chdir(C.expand(flags["workspace"][0], host.home))
     context = root.get("defaultContext") or "work"
@@ -2211,12 +2223,84 @@ def grant(host, root, flags, kits_named):
             print(visible(line))
         return 0
     todo = [s for s in sts if s["status"] in ("never", "grown", "source", "unverified")]
+    if not kits_named:
+        # no argument: and every kit a stopped run waits for, wherever it ran (its status from that workspace)
+        have = {s["kit"] for s in sts}
+        todo += [s for s in stopped_kits(host, root, context, flags) if s["kit"] not in have]
     if not todo:
-        print("pot grant: " + (", ".join(s["name"] for s in sts) + (" is" if len(sts) == 1 else " are") if kits_named
-                              else "every kit here is") + " granted")
+        print("pot grant: " + (", ".join(s["name"] for s in sts) + (" is" if len(sts) == 1 else " are") + " granted" if kits_named
+                              else "every kit here is granted, and no stopped run waits for a grant"))
         return 0
-    grant_flow(host, root, grants, todo)
+    grant_flow(host, root, grants, todo, commit=bool(flags.get("commit")))
     return 0
+
+
+def stopped_kits(host, root, context, flags):
+    """The kits that stopped runs (runs/1's stopped) wait for, in workspaces other than this one, each with its
+    status recomputed there (never taken from the record), still stale."""
+    here = os.path.realpath(os.getcwd())
+    want = {}
+    for rec, ev, _ in all_records(host):
+        if rec["state"] != "stopped":
+            continue
+        for w in rec.get("workspace") or []:
+            p = w.get("path")
+            if p and os.path.isdir(p) and not (here == p or here.startswith(p + "/")):
+                for k in (rec.get("stop") or {}).get("kits") or []:
+                    want.setdefault(p, {}).setdefault(k["id"], rec["id"])
+    out = []
+    for p, ids in want.items():
+        try:
+            os.chdir(p)
+            for st in all_kit_status(host, root, context, {}):
+                if st["kit"] in ids and st["kind"] != "root" and st["status"] in ("never", "grown", "source"):
+                    st["stoppedRun"], st["stoppedIn"] = ids[st["kit"]], p
+                    out.append(st)
+        except C.Refusal:
+            continue
+        finally:
+            os.chdir(here)
+    return out
+
+
+def grants_repo(host):
+    d = os.path.dirname(host.grants_path)
+    r = run_git(host, d, "rev-parse", "--show-toplevel")
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def commit_check(host):
+    """pot grant --commit, before any prompt: the grants file is in a git repository, not ignored, and has no
+    uncommitted changes (its commit then holds this grant alone)."""
+    g = host.grants_path
+    shown = C.canon_path(g, host.home)
+    top = grants_repo(host)
+    if not top:
+        raise C.Refusal(f"pot grant --commit: {shown} is not in a git repository; run pot grant without --commit")
+    if run_git(host, top, "check-ignore", "-q", g).returncode == 0:
+        raise C.Refusal(f"pot grant --commit: {shown} is ignored by git in {C.canon_path(top, host.home)}; run pot grant without --commit")
+    tracked = run_git(host, top, "ls-files", "--error-unmatch", g).returncode == 0
+    rel = os.path.relpath(g, top)
+    if tracked and run_git(host, top, "diff", "--quiet", "HEAD", "--", g).returncode != 0:
+        raise C.Refusal(f"pot grant --commit: {shown} has uncommitted changes (git -C {C.canon_path(top, host.home)} diff HEAD -- {rel}): "
+                        "commit or revert them first, or run pot grant without --commit")
+
+
+def commit_grants(host, names):
+    """Commit the grants file's path alone (git commit -- PATH: other staged changes stay staged); never push."""
+    g = host.grants_path
+    top = grants_repo(host)
+    shown = C.canon_path(g, host.home)
+    if run_git(host, top, "ls-files", "--error-unmatch", g).returncode != 0:
+        run_git(host, top, "add", "--", g)
+    msg = "pot grant: " + ", ".join(dict.fromkeys(names))
+    body = f"Granted on {host.machine}, {datetime.date.today().isoformat()} (pot grant --commit)."
+    r = subprocess.run([host.git, "-C", top, "commit", "-q", "-m", msg, "-m", body, "--", g], capture_output=True, text=True)
+    if r.returncode != 0:
+        err(r.stderr.strip())
+        raise C.Refusal(f"pot grant --commit: git commit failed (above); the grants file is written, not committed")
+    sha = run_git(host, top, "rev-parse", "--short=7", "HEAD").stdout.strip()
+    return f"committed {shown} ({sha}); push it with {C.canon_path(top, host.home)}'s next push"
 
 
 # ---------------------------------------------------------------- runs/1: pot runs, pot review
