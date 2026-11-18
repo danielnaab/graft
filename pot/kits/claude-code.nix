@@ -58,23 +58,27 @@ let
   hmFiles = lib.filterAttrs (t: f: lib.hasPrefix prefix t && f ? source
       && !(lib.elem (lib.head (lib.splitString "/" (lib.removePrefix prefix t))) fixedDirNames))
     (lib.mapAttrs' (_: f: lib.nameValuePair (f.target or "") f) files);
+  # the run's folder: /run/pot (bubblewrap); on macOS (Seatbelt, no mounts) the folder POT_POLICY is in
+  darwin = pkgs.stdenv.hostPlatform.isDarwin;
+  runDir = if darwin then "\${POT_POLICY%/*}" else "/run/pot";
+  readmeAt = if darwin then "README.md beside $POT_POLICY" else "/run/pot/README.md";
   # PreToolUse records where the denials file ends; PostToolUse passes on what the tool added since,
   # so refusals from before the first tool (Claude's own startup traffic) go only to the exit line
   mark = pkgs.writeShellScript "pot-denial-mark" ''
-    d=/run/pot/denials
+    d=${runDir}/denials
     ${pkgs.coreutils}/bin/stat -c %s "$d" > "''${TMPDIR:-/tmp}/.pot-denials-offset" 2>/dev/null || true
   '';
   denialHook = pkgs.writeShellScript "pot-denial-hook" ''
     # pot's PostToolUse and PostToolUseFailure hook (Claude runs the second for a failed call):
     # sandbox denials during this tool call, as context for the model, under the event Claude names
     ev=$(${pkgs.jq}/bin/jq -r '.hook_event_name // "PostToolUse"' 2>/dev/null) || ev=PostToolUse
-    d=/run/pot/denials o=''${TMPDIR:-/tmp}/.pot-denials-offset
+    d=${runDir}/denials o=''${TMPDIR:-/tmp}/.pot-denials-offset
     [ -s "$d" ] && [ -f "$o" ] || exit 0
     size=$(${pkgs.coreutils}/bin/stat -c %s "$d"); seen=$(${pkgs.coreutils}/bin/cat "$o")
     [ "$size" -gt "$seen" ] || exit 0
     echo "$size" > "$o"
     ${pkgs.coreutils}/bin/tail -c +"$((seen + 1))" "$d" | ${pkgs.jq}/bin/jq -Rs --arg ev "$ev" '{hookSpecificOutput: {hookEventName: $ev,
-      additionalContext: ("pot refused this during the command; read /run/pot/README.md:\n" + .)}}'
+      additionalContext: ("pot refused this during the command; read ${readmeAt}:\n" + .)}}'
   '';
   # at start: what the model should know about its memory here
   sessionHook = pkgs.writeShellScript "pot-session-start" ''
@@ -117,6 +121,8 @@ noAccount {
       ANTHROPIC_BASE_URL = baseUrl; CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1";
       DISABLE_TELEMETRY = "1"; DISABLE_ERROR_REPORTING = "1"; DISABLE_BUG_COMMAND = "1";
     } else { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"; })
+    # macOS (Seatbelt): /tmp is the host's, and Claude's /tmp/claude-<uid> its host sessions'; the run's own is in its HOME
+    // lib.optionalAttrs darwin { CLAUDE_CODE_TMPDIR = "~/.tmp"; }
     // lib.optionalAttrs fhs {
       NIX_LD = linker;
       NIX_LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ];

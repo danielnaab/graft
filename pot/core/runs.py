@@ -8,6 +8,8 @@ import datetime
 import json
 import os
 import re
+import struct
+import sys
 
 RECORD_VERSION = 1
 
@@ -196,6 +198,8 @@ def process_alive(start):
 
 
 def boot_id():
+    if sys.platform == "darwin":
+        return darwin_sysctl("kern.bootsessionuuid")
     try:
         with open("/proc/sys/kernel/random/boot_id") as f:
             return f.read().strip()
@@ -203,8 +207,43 @@ def boot_id():
         return None
 
 
+def darwin_sysctl(name):
+    import ctypes
+    try:
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        size = ctypes.c_size_t(0)
+        if libc.sysctlbyname(name.encode(), None, ctypes.byref(size), None, 0) != 0:
+            return None
+        buf = ctypes.create_string_buffer(size.value)
+        if libc.sysctlbyname(name.encode(), buf, ctypes.byref(size), None, 0) != 0:
+            return None
+        return buf.value.decode(errors="replace").strip() or None
+    except OSError:
+        return None
+
+
+def darwin_start(pid):
+    """macOS: a process's start time (struct kinfo_proc's p_starttime, from sysctl kern.proc.pid), in
+    microseconds since the epoch; None when it is gone."""
+    import ctypes
+    try:
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        mib = (ctypes.c_int * 4)(1, 14, 1, pid)          # CTL_KERN, KERN_PROC, KERN_PROC_PID
+        buf = ctypes.create_string_buffer(1024)
+        size = ctypes.c_size_t(1024)
+        if libc.sysctl(mib, 4, buf, ctypes.byref(size), None, 0) != 0 or size.value == 0:
+            return None
+        sec, usec = struct.unpack_from("<qi", buf.raw, 0)  # kp_proc.p_un.p_starttime: a struct timeval, first
+        return sec * 1000000 + usec if sec else None
+    except OSError:
+        return None
+
+
 def proc_start(pid):
-    """Field 22 of /proc/PID/stat, the process's start time in clock ticks; None when it is gone."""
+    """Field 22 of /proc/PID/stat, the process's start time in clock ticks (macOS: kinfo_proc's start time);
+    None when it is gone."""
+    if sys.platform == "darwin":
+        return darwin_start(pid)
     try:
         with open(f"/proc/{pid}/stat") as f:
             s = f.read()

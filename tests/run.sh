@@ -1361,11 +1361,16 @@ STUB
   ran "pot: and a root with no agent kit" nix build -o "$work/sbr0" "path:$r#packages.$sys.pot0"
   ran "pot: on aarch64-darwin, the root evaluates" nix eval --raw "path:$r#packages.aarch64-darwin.pot.drvPath"
   ran "and it is darwin's" nix eval --json "path:$r#packages.aarch64-darwin.pot.passthru.root.darwin"
-  expect "(it refuses at start, D21)" has "true"
+  expect "(its backend is Seatbelt)" has "true"
   ran "pot: graft's default root" nix eval --raw "path:$graft#packages.$sys.pot.drvPath"
   ran "pot: apps.pot" nix eval --raw "path:$graft#apps.$sys.pot.program"
   expect "runs pot" holds "/bin/pot"
 
+  # macOS: the Seatbelt backend's runs (pot_seatbelt); the rest of this section is bubblewrap's
+  if [ "$(uname)" = Darwin ]; then
+    pot_seatbelt "$c"
+    return 0
+  fi
   local bw && bw=$(nix build --no-link --print-out-paths "$np#bubblewrap")/bin/bwrap
   if ! "$bw" --unshare-all --unshare-user --disable-userns --ro-bind / / true 2>/dev/null; then
     echo "skip pot: runs (bubblewrap can't create an unprivileged user namespace here)"
@@ -2013,6 +2018,129 @@ EOF
 
 # dispatch (pot/, v2.17.0): clone mode, fetch-back through staging, the run log as runs/1 (pot runs,
 # pot review), a 125's stopped record and the pane, and the resource scope. Its own test root and workspace.
+# pot_seatbelt CONSUMER: the pot section on macOS, the Seatbelt backend (pot/core/seatbelt.py), with sec_pot's test
+# root ($work/sbr) and consumer. What Seatbelt claims (closure-store no-tiocsti in-place private-proxy), what it
+# refuses (nesting, listening), and what stands in for mounts (a HOME of links, path rules, the run's folder).
+pot_seatbelt() {
+  local c=$1 st
+  cd "$c"
+  # shellcheck disable=SC2317 # run through ran, expect and refuse
+  sb_loud() { env -u CLAUDECODE -u CODEX_SANDBOX -u POT "$work/sbr/bin/pot" "$@"; }
+  # shellcheck disable=SC2317
+  sb_() { POT_QUIET=1 sb_loud "$@"; }
+  # tty_ ANSWERS CMD: CMD on a terminal (BSD script), its prompts answered from ANSWERS
+  # shellcheck disable=SC2317
+  tty_() { local a=$1; shift; (sleep 3; printf '%s' "$a"; sleep 3) | script -q /dev/null env -u CLAUDECODE -u CODEX_SANDBOX -u POT "$@" | tr -d '\r'; }
+
+  # (it exits 1: the fixture's binding files are missing, each a ! line)
+  out=$(sb_ doctor 2>&1) || true
+  expect "names the backend and what it proves" holds "backend    seatbelt: sandbox-exec works; proves closure-store no-tiocsti in-place private-proxy; lacks own-netns own-pidns"
+  expect "and no resource limits" holds "resources  Seatbelt has no resource limits"
+  refused "pot (seatbelt): never granted, no terminal" sb_loud true
+  expect "stops with the diff" holds "pot (work): daniel (root:daniel) requests reach that is not granted:"
+  sb_ true >/dev/null 2>&1 && st=0 || st=$?
+  expect "exit 125" test "$st" = 125
+  ran "pot (seatbelt): the inline first grant, at a terminal" tty_ $'y\n' "$work/sbr/bin/pot" echo ran-after-grant
+  expect "and the run continues" holds "ran-after-grant"
+
+  ran "pot (seatbelt): a command runs, in the repository" sb_loud pwd
+  expect "there" has "$(pwd -P)"
+  expect "the startup line names what Seatbelt lacks" holds "seatbelt lacks own-netns own-pidns"
+  # shellcheck disable=SC2016 # the run's shell expands them
+  ran "pot (seatbelt): the run's environment" sb_ bash -c 'echo "ctx=$POT home=$HOME tmp=$TMPDIR"; ls -A ~; hello; jq -r .context "$POT_POLICY"; head -1 "${POT_POLICY%/*}/README.md"'
+  expect "HOME is the run's own" holds "home=$(cd "$work" && pwd -P)/sbstate/runs/"
+  expect "with the hidden list and the gitconfig" holds ".pot-hidden"
+  expect "the repo kit's package" holds "Hello, world!"
+  expect "POT_POLICY is the run's policy.json" has "work"
+  expect "the README beside it" has "# pot: this run (work)"
+  ran "pot (seatbelt): the caller's variables" env SB_DECOY=decoy-secret POT_QUIET=1 "$work/sbr/bin/pot" bash -c 'env | grep -c decoy-secret || true'
+  expect "none of them" has "0"
+  ran "pot (seatbelt): explain --backend-command" sb_ explain --backend-command
+  expect "is sandbox-exec, with the profile" holds "/usr/bin/sandbox-exec -f"
+  expect "and every path a parameter" holds "-DP0="
+
+  # protections: path rules, not mounts
+  for p in AGENTS.md sbk.yaml flake.nix .gitmodules .git/config; do
+    refuse "pot (seatbelt): read-only: $p" sb_ bash -c "echo x >> $p" 2>/dev/null
+  done
+  refuse "pot (seatbelt): no new hard link to a protected file" sb_ ln AGENTS.md agents-link 2>/dev/null
+  expect "pot (seatbelt): the repository is writable" sb_ bash -c 'echo y >> notes.md'
+  refuse "pot (seatbelt): .git can't be renamed" sb_ mv .git .git2 2>/dev/null
+  refuse "nor a scion's folder" sb_ mv scions/sbk scions/sbk2 2>/dev/null
+  refuse "nor the run's HOME link to its hidden list" sb_ bash -c 'rm ~/.pot-hidden' 2>/dev/null
+  ran "pot (seatbelt): a commit inside" sb_ bash -c 'git add notes.md && git commit -qm inside && git log -1 --format=%s'
+  expect "is made" has "inside"
+  ran "pot (seatbelt): a redirected stdout (a regular file)" sb_ cat notes.md
+  sb_ cat AGENTS.md > "$work/sb-out.txt"
+  expect "takes what the run writes" grep -q "# agents" "$work/sb-out.txt"
+  ln AGENTS.md "$work/pot-agents-link"
+  refused "pot (seatbelt): a protected file with another hard link" sb_ true
+  expect "stops the run" holds "pot (work): AGENTS.md has another hard link"
+  rm -f -- "$work/pot-agents-link"
+
+  # what the run can't read: the hidden list, pot's state, the grants file, the real home, other store paths
+  mkdir -p "$work/sbhidden" && echo s > "$work/sbhidden/x"
+  refuse "pot (seatbelt): a hidden path" sb_ cat "$work/sbhidden/x" 2>/dev/null
+  refuse "pot (seatbelt): pot's state" sb_ ls "$work/sbstate" 2>/dev/null
+  refuse "pot (seatbelt): the grants file" sb_ cat "$work/sbgrants/grants.json" 2>/dev/null
+  refuse "pot (seatbelt): the real home" sb_ ls "$(eval echo "~$(id -un)")" 2>/dev/null
+  refuse "pot (seatbelt): a store path outside the closure" sb_ ls "$(nix build --no-link --print-out-paths "$np#cowsay")" 2>/dev/null
+  rm -rf -- "$work/sbhidden/x"
+
+  # the network: the proxy's port and the run's token, nothing else
+  # shellcheck disable=SC2016
+  ran "pot (seatbelt): a host not granted" sb_ bash -c 'curl -sS -m 5 https://denied.example/ 2>&1; cat "${POT_POLICY%/*}/denials"'
+  expect "is refused by the proxy" holds "CONNECT tunnel failed, response 403"
+  expect "and the run's denials say so" holds "pot (work): the run tried denied.example:443 (not in this run)."
+  # shellcheck disable=SC2016
+  ran "pot (seatbelt): the proxy without the run's token" sb_ bash -c 'p=${HTTPS_PROXY##*@}; curl -sS -m 5 -x "http://$p" https://denied.example/ 2>&1 || true'
+  expect "is refused (407)" holds "407"
+  # a port that listens on the host: the run can't reach it (no proxy, no rule)
+  python3 -c 'import socket, sys, time; s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(); print(s.getsockname()[1], flush=True); time.sleep(60)' > "$work/sb-port" &
+  local lp=$! && sleep 1
+  refused "pot (seatbelt): a host port, around the proxy" sb_ python3 -I -c "import socket; socket.create_connection(('127.0.0.1', $(cat "$work/sb-port")), 3)"
+  expect "is refused" holds "PermissionError: [Errno 1] Operation not permitted"
+  kill "$lp" 2>/dev/null || true
+  refused "pot (seatbelt): listening on a port" sb_ python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); s.listen()'
+  expect "is refused (local-listen)" holds "Operation not permitted"
+  ran "pot (seatbelt): pot why, inside" sb_ pot why denied.example
+  expect "answers from the run's folder" holds "denied.example"
+
+  # processes: the run's group is stopped when the command exits, and what left it by setsid
+  sb_ bash -c 'sleep 307 & python3 -I -c "import os; os.fork() or (os.setsid(), os.execvp(\"sleep\", [\"sleep\", \"308\"]))"' >/dev/null 2>&1
+  sleep 0.5
+  refuse "pot (seatbelt): survivors are stopped" pgrep -f "sleep 30[78]"
+  ran "pot (seatbelt): at a terminal, the run is the foreground group" tty_ '' "$work/sbr/bin/pot" python3 -I -c '
+import fcntl, os, termios
+print("fg", os.tcgetpgrp(0) == os.getpgrp())
+try:
+    fcntl.ioctl(0, termios.TIOCSTI, b"x"); print("TIOCSTI allowed")
+except OSError as e:
+    print("TIOCSTI", e.errno)'
+  expect "in the foreground" holds "fg True"
+  expect "TIOCSTI is refused (no-tiocsti)" holds "TIOCSTI 1"
+
+  # nesting is refused (§10: a narrower child is never flattened into its parent)
+  refused "pot (seatbelt): pot inside a run" sb_ pot work true
+  expect "is refused: Seatbelt cannot nest" holds "Seatbelt cannot nest"
+  refused "pot (seatbelt): pot dispatch inside a run" sb_ pot dispatch true
+  expect "too" holds "Seatbelt cannot nest"
+  # the inside-run proof is sandbox_check, which a host process can't fake: a forged POT_POLICY is a host call
+  mkdir -p "$work/sbfake" && echo '{"context":"forged"}' > "$work/sbfake/policy.json" && chmod 444 "$work/sbfake/policy.json"
+  ran "pot (seatbelt): a forged POT_POLICY on the host" env POT_POLICY="$work/sbfake/policy.json" POT_QUIET=1 "$work/sbr/bin/pot" explain true
+  expect "is the host's explain" holds "context    work: in-place, access write, seatbelt"
+
+  # dispatch: the clone at its own path, its commits back through the sandboxed upload-pack
+  ran "pot (seatbelt): a dispatch" sb_loud dispatch bash -c 'pwd; echo d > d.txt && git add d.txt && git commit -qm from-the-clone'
+  expect "says the clone is at its own path" holds "clone at its own path"
+  expect "runs in it" holds "/sbstate/runs/"
+  local id && id=$(sb_ runs --json | jq -r '[.runs[] | select(.mode == "clone")][0].id')
+  ran "pot (seatbelt): pot review" sb_ review "$id"
+  expect "names the commit" holds "from-the-clone"
+  ran "pot (seatbelt): pot review --fetch" sb_ review "$id" --fetch
+  expect "fetches it" test "$(git_ log -1 --format=%s "pot-$id/main")" = from-the-clone
+}
+
 sec_dispatch() {
   prov sbd && release sbd v1.0.0
   local c=$work/dc && mkdir -p "$c" && git_ -C "$c" init -q && cd "$c"
@@ -2075,6 +2203,10 @@ EOF
   (cd "$r" && quiet nix flake lock)
   ran "dispatch: a root" nix build -o "$work/dr" "path:$r#packages.$sys.pot"
   ran "dispatch: a root with clones.keepDays and maxSize" nix build -o "$work/drp" "path:$r#packages.$sys.prune"
+  if [ "$(uname)" = Darwin ]; then
+    echo "skip dispatch: runs (bubblewrap's; the pot section's Seatbelt runs cover dispatch on macOS)"
+    return 0
+  fi
   local bw && bw=$(nix build --no-link --print-out-paths "$np#bubblewrap")/bin/bwrap
   if ! "$bw" --unshare-all --unshare-user --disable-userns --ro-bind / / true 2>/dev/null; then
     echo "skip dispatch: runs (bubblewrap can't create an unprivileged user namespace here)"

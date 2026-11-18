@@ -32,7 +32,24 @@ class Reach(unittest.TestCase):
             self.assertIsNone(pot.reach_of(POLICY, t))
 
 
+def fixture_home():
+    """The fixtures' home is /home/u. On macOS /home is an automount (realpath gives
+    /System/Volumes/Data/home/…): keep it as written, as on Linux."""
+    import os.path
+    import sys
+    from unittest import mock
+    real = os.path.realpath
+    if sys.platform != "darwin":
+        return mock.patch.object(os.path, "realpath", real)
+    return mock.patch.object(os.path, "realpath", lambda p, *a, **k: p if str(p).startswith("/home/") else real(p, *a, **k))
+
+
 class Classify(unittest.TestCase):
+    def setUp(self):
+        p = fixture_home()
+        p.start()
+        self.addCleanup(p.stop)
+
     """F10: one classification for pot why's text and --json; a git URL is never a path."""
 
     def test_kinds(self):

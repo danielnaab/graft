@@ -22,7 +22,7 @@ v2.16.0's bundle, `pot-kits`; from v2.15.0, see [Move to v2.16.0](move-to-v2-16.
 | `--explain`, `--dry-run` | `pot explain`, `pot explain --backend-command` |
 | `GRAFT_SANDBOX=1` | `POT=<context>`. Test it with `[ -n "${POT:-}" ]` only. |
 | A policy built with the launcher | Kit manifests, composed at each start with your grants |
-| Seatbelt on macOS | None in v2.15.0: `pot` refuses on macOS. A repository used on a Mac keeps its sandbox only on v2.14.0; the choice is per repository, by its graft pin. |
+| Seatbelt on macOS | None from v2.15.0 to v2.17.1 (`pot` refused on macOS); since then pot's Seatbelt backend, built from `policy.json` at each start ([On macOS](../reference/pot.md#on-macos)). |
 
 The names `sandbox`, `pot`, `pot-kits` and `graft-kits` are graft's: a provider, `perSystem` or mkFlake's `outputs` cannot
 define them as packages or apps. There is no `packages.<system>.sandbox` or `apps.<system>.sandbox` any more.
@@ -157,8 +157,8 @@ Use your machine's system for `x86_64-linux`.
   `pot grant`.
 - **`ensure.sh: … nix: command not found` inside a run.** `ensure.sh` lacks the `POT_TOOLS` branch, or
   it is not the first step.
-- **On macOS, `pot: no backend for darwin in v2.17.1`.** Keep graft at v2.14.0 on that machine's repositories
-  until the Seatbelt backend returns.
+- **On macOS, `pot: no backend for darwin`.** That root's graft predates the Seatbelt backend's return: update graft
+  and rebuild the root.
 
 ## Sources
 

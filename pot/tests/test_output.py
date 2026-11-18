@@ -122,7 +122,24 @@ class GrantDiff(unittest.TestCase):
         self.assertEqual(t, golden("grant-diff-verbose.txt", t))
 
 
+def fixture_home():
+    """The fixtures' home is /home/u. On macOS /home is an automount (realpath gives
+    /System/Volumes/Data/home/…): keep it as written, as on Linux."""
+    import os.path
+    import sys
+    from unittest import mock
+    real = os.path.realpath
+    if sys.platform != "darwin":
+        return mock.patch.object(os.path, "realpath", real)
+    return mock.patch.object(os.path, "realpath", lambda p, *a, **k: p if str(p).startswith("/home/") else real(p, *a, **k))
+
+
 class Why(unittest.TestCase):
+    def setUp(self):
+        p = fixture_home()
+        p.start()
+        self.addCleanup(p.stop)
+
     def test_answers(self):
         p, r = compose()
         facts = pot.why_facts(p, r, ROOT)

@@ -13,9 +13,15 @@ patterns ("*.example.com"). Writes one line per request: ALLOW or DENY, then hos
 it shows each new one on the launching pane with `tmux display-message` (never a write to the run's
 terminal: that corrupts a full-screen program). It exits when
 the launcher, its parent, is gone.
+
+POT_PROXY_TOKEN in its environment (Seatbelt: the port is on the host's loopback, where any local process
+can connect): every request must carry Proxy-Authorization: Basic with that token as its password (the run's
+proxy URL is http://pot:TOKEN@127.0.0.1:PORT); one without it is refused, 407, and logged NOTOKEN.
 """
 import asyncio
+import base64
 import fnmatch
+import hmac
 import os
 import re
 import sys
@@ -30,6 +36,27 @@ while ARGS and ARGS[0] in ("--denials", "--context", "--tmux", "--pane", "--fix"
 DENIALS, CONTEXT = OPT.get("denials"), OPT.get("context")
 LISTEN, RULES = sys.argv[1], [e.rpartition(":")[::2] for e in ARGS]
 DENIED = set()
+TOKEN = os.environ.pop("POT_PROXY_TOKEN", None)
+
+
+def authorized(headers):
+    """With a token: the request's Proxy-Authorization holds it (Basic, any user name)."""
+    if TOKEN is None:
+        return True
+    for h in headers:
+        k, _, v = h.partition(":")
+        if k.strip().lower() != "proxy-authorization":
+            continue
+        scheme, _, cred = v.strip().partition(" ")
+        if scheme.lower() != "basic":
+            continue
+        try:
+            _, _, pw = base64.b64decode(cred.strip(), validate=True).decode("utf-8").partition(":")
+        except ValueError:
+            continue
+        if hmac.compare_digest(pw.encode(), TOKEN.encode()):
+            return True
+    return False
 # a host name, an IPv4 literal, or an IPv6 literal in brackets: nothing else is looked up, or logged
 HOST = re.compile(r"[A-Za-z0-9_.-]+|\[?[0-9A-Fa-f:.]+\]?")
 
@@ -84,6 +111,14 @@ async def handle(r, w):
         w.close()
         return
     first, *headers = [h for h in head.split("\r\n") if h]
+    if not authorized(headers):
+        # not the run's (no token): nothing is looked up, nor written to the run's denials
+        print("NOTOKEN", flush=True)     # not a DENY: the after event counts only the run's own
+        w.write(b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"pot\"\r\n"
+                b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+        await w.drain()
+        w.close()
+        return
     try:
         method, target, version = first.split()
         if method == "CONNECT":

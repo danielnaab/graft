@@ -1192,9 +1192,13 @@ def compose(inp):
         # inspect sees the whole store (§5); so does a run with the nix capability (§8)
         proved = [g for g in proved if g != "closure-store"]
     requires = list(ctx.get("requires") or [])
-    if clone_mode and "same-path-clone" not in requires:
-        # a clone is mounted at the original path (§9.3); a backend that can't is refused, never weaker
+    if clone_mode and "same-path-clone" not in requires and "same-path-clone" in proved:
+        # a clone is mounted at the original path (§9.3)
         requires.append("same-path-clone")
+    elif clone_mode and "same-path-clone" not in proved and "same-path-clone" not in requires:
+        # §11: Seatbelt has no mounts, so its clone runs at its own path, and the startup line says so (a context
+        # that requires same-path-clone still stops, 125)
+        report["notes"].append("clone at its own path")
     missing = [g for g in requires if g not in proved]
     if missing:
         hint = " (resource-limits: a user systemd scope, for runs without a terminal: pot doctor)" if "resource-limits" in missing else ""
@@ -1785,7 +1789,9 @@ def explain_text(policy, report, root, width=100):
             out.append(f"  {'':<10} {'':<{w}} {status}")
         else:
             out.append(f"  {kind:<10} {v:<{w}} {status}")
-    out.append("children   none (nesting comes in a later release)")
+    kind = ((root.get("backends") or {}).get(policy["backend"]["name"]) or {}).get("kind")
+    out.append("children   none (Seatbelt cannot nest: a run on macOS starts no runs)" if kind == "seatbelt"
+               else "children   none (nesting comes in a later release)")
 
     # ---- not in run: each kit's items under its row, filled to the width
     nir = [k for k in report["kits"] if k["status"] in ("never", "grown", "source", "unverified")]
@@ -1809,6 +1815,8 @@ def explain_text(policy, report, root, width=100):
         out.append(f"resources  this run: a user systemd scope, {sc['limits']}")
     elif sc.get("note"):
         out.append(f"resources  {sc['note']}")
+    elif kind == "seatbelt":
+        out.append("resources  none (Seatbelt has no resource limits)")
     else:
         out.append(f"resources  none at a terminal; a run without one gets a user systemd scope, "
                    f"MemoryMax={lim.get('memoryMax', '50%')} TasksMax={lim.get('tasksMax', 2048)}")

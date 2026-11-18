@@ -12,8 +12,9 @@ with graft are [pot's contracts](../../pot/contracts/README.md): [kit](../../pot
 [grants](../../pot/contracts/grants-1.md), [run-env](../../pot/contracts/run-env-1.md) and
 [runs](../../pot/contracts/runs-1.md).
 
-`pot` is experimental in v2.17.1. It runs on Linux, with bubblewrap. On macOS it refuses to start until a later
-release ([On macOS](#on-macos)).
+`pot` is experimental. It runs on Linux, with bubblewrap, and on macOS, with Seatbelt (`/usr/bin/sandbox-exec`),
+which is weaker: no process or network isolation, no nesting, and a dispatch clone at its own path
+([On macOS](#on-macos)).
 
 ## The model
 
@@ -785,6 +786,10 @@ bubblewrap proves `closure-store`, `own-netns`, `own-pidns`, `no-tiocsti`, `prot
 `in-place`, `same-path-clone`, `private-proxy` and `root-files`, and `resource-limits` for a run in the resource
 scope. It lacks `separate-kernel` and `nest`: runs cannot create user namespaces until nesting (v2.18.0). An
 `inspect` run lacks `closure-store`.
+
+Seatbelt (macOS) proves `closure-store`, `no-tiocsti`, `in-place` and `private-proxy`. It lacks `own-netns`,
+`own-pidns`, `protected-as-mounts`, `local-listen`, `same-path-clone`, `nest`, `resource-limits`, `root-files` and
+`separate-kernel`; on a Mac's startup line, `seatbelt lacks own-netns own-pidns` ([On macOS](#on-macos)).
 
 ### Resource limits
 
@@ -1684,11 +1689,12 @@ The other messages, after `pot (<context>): `:
 | `--from`, `--detach` without clone mode (2) | `--from is clone mode: pot dispatch --from REF CMD, or pot --clone --from REF CMD` |
 | `graft-kits` only (1) | `~/DIR has graft-kits only: its graft predates v2.16.0, and this pot reads pot-kits: take graft v2.16.0 or later there (nix flake update graft), or run pot host CMD` |
 | Missing guarantee (125) | `requires separate-kernel; bubblewrap proves …` |
-| `pot` inside a run (1) | `pot inside a run starts nested runs in a later release: run it on the host` |
+| `pot` inside a run (1) | `pot inside a run starts nested runs in a later release: run it on the host`; on macOS `Seatbelt cannot nest: a run on macOS starts no runs inside it (pot dispatch, pot CONTEXT CMD); run it on the host` |
 | A missing lock | `pot (work): ~/…/nix/agent-tools/flake.lock is missing, and pot never writes one into a workspace: run nix flake lock there, on the host, and commit it` |
 | A binding file (1, v2.17.1) | `pot (work): ~/.config/pot/claude-token-flexion is missing (the credential binding api.anthropic.com kit=claude-code@flexion): claude setup-token, saved with mode 600, then start again`; `is unreadable` for one the user cannot read; before the grant prompts ([the binding check](#key-files)) |
 
-On macOS: `pot: no backend for darwin in v2.17.1; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)`.
+On macOS, a root built by a graft before Seatbelt's return: `pot: this root has no backend for darwin (a root built
+before Seatbelt's return): rebuild it with this graft`.
 On the startup line, a requested variable that the host lacks is `env NAME unset`, and a capability with no binding
 is `CAPABILITY: no binding`.
 
@@ -1704,7 +1710,7 @@ is `CAPABILITY: no binding`.
   `pot run` or `pot serve`, and `pot review` or `pot doctor` inside a run.
 - `1` when `pot` refuses to start the run for another reason: a root repository in `work`, a hidden path in a
   flag, a conflict between kits, `--repo` in clone mode, dispatch inside a run, a flake with `graft-kits` only, a
-  grants file that does not parse, or macOS. Also a `pot review` or `pot runs` that cannot act (an unknown run, a
+  grants file that does not parse, or nesting on macOS. Also a `pot review` or `pot runs` that cannot act (an unknown run, a
   discarded clone, `--discard` on a running run), and `pot doctor` with a line marked `!`.
 
 The message says why. `pot` never runs the command with a weaker policy, a weaker backend or no sandbox.
@@ -1838,14 +1844,45 @@ attached as quoted data ([Resume on the host](#resume-on-the-host)).
 
 ## On macOS
 
-In v2.17.1, `pot` refuses to start on macOS:
+On macOS, `pot` runs each command under `/usr/bin/sandbox-exec` with a profile that denies by default, written at
+start from the run's `policy.json` ([pot/core/seatbelt.py](../../pot/core/seatbelt.py)): what a process needs from
+macOS, read-only (system libraries and frameworks, `/private/etc`, the standard devices, a few sysctls and Mach
+services; no keychain and no DNS); the closure's store paths; the run's reads and writes; then deny rules that
+nothing above reopens. Every host path is a profile parameter, never text in it. `pot explain --backend-command`
+prints the command and the profile.
 
-```
-pot: no backend for darwin in v2.17.1; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)
-```
+Seatbelt has no mounts, so links and path rules stand in for them:
 
-v2.14.0 is the last release with a Seatbelt sandbox. On a Mac, stay on v2.14.0 for a sandbox until the Seatbelt
-backend returns.
+- **HOME** is a new folder in the run's folder (`runs/ID/home`, with `TMPDIR` beside it). A state request's `at`, a
+  fixed file, a fixed directory and a `~/` read request appear there as links; the run cannot remove or replace
+  them. A fixed file inside a state folder is a link in that folder, refreshed at each start.
+- **The run's folder is its `/run/pot`.** `POT_POLICY` names its `policy.json`, beside the README, the denials and
+  the bindings' sockets; `/run/pot/…` in a kit's arguments is rewritten to it.
+- **The workspace** is the host's working tree, writable; the same pins as bubblewrap's are path rules: protected
+  files refuse writes and new hard links, and their folders refuse renames and removals.
+- **inspect** reads the whole file system but the home, `/private/tmp`, `/private/var/folders` and `/Volumes`,
+  then what `inspect.home` names; the hidden list and secret files are denied over it.
+- **The network** is the proxy's port on the host's loopback, with a per-run token: `HTTPS_PROXY` is
+  `http://pot:TOKEN@127.0.0.1:PORT`, and a request without the token gets `407`. The profile allows connecting to
+  that port alone; listening on a port is refused.
+- **A dispatch clone runs at its own path** (`runs/ID/clone`), and the startup line says so:
+  `pot: dispatch · flexion-assistant · from main (83bd903) · clone at its own path · …`. A context that `requires`
+  `same-path-clone` exits 125. The host's look at the clone runs git under Seatbelt, the clone read-only.
+- **Processes:** the run is its own process group, in the terminal's foreground when `pot` is (`^C` and `^Z` reach
+  it). When the command exits, what is left of the group is stopped, then any process that left it (`setsid`) but
+  carries the run's `TMPDIR`.
+- **No nesting.** `pot` inside a run on macOS refuses: `pot (work): Seatbelt cannot nest: a run on macOS starts no
+  runs inside it (pot dispatch, pot CONTEXT CMD); run it on the host`. A narrower child is never flattened into its
+  parent.
+- **Inside a run,** `pot` knows it is in one when the process is sandboxed (`sandbox_check`, which a host process
+  cannot fake) and `POT_POLICY` names a `policy.json` it can read and not write. A forged `POT_POLICY` on the host
+  is a host call.
+- **No resource limits:** `resources  none (Seatbelt has none)`, and a context that requires them exits 125.
+- **The nix capability** relays to the host's daemon, which on macOS builds unsandboxed by default; the startup
+  line says `nix builds run unsandboxed (the host's daemon, on macOS)`.
+- **The claude-code kit** sets `CLAUDE_CODE_TMPDIR=~/.tmp` on macOS: Claude's own `/tmp/claude-UID` is the host's.
+- **A redirected output** (`pot CMD > out.txt`) is allowed by its path: some programs (GNU `cat`) write through a
+  path check, not only the descriptor.
 
 ## Not yet
 
@@ -1857,7 +1894,7 @@ backend returns.
 - **No generated recipes or wrappers:** `recipes` and hook commands are checked but not generated, and `commands`
   are not wrapped (v2.18.0).
 - **Clone mode is one repository:** `--repo` is refused in it.
-- **No macOS** ([On macOS](#on-macos)).
+- **macOS is weaker** ([On macOS](#on-macos)): no nesting, no process or network isolation, no resource limits.
 - **No synced claude.ai skills inside a run** ([Claude Code](#claude-code)): install them as ordinary skill
   folders.
 - No proxy credentials, `git.push`, `git.sign`, `ops.read`, `trust = "root"`, `delegate`, or resource limits for
@@ -1913,10 +1950,16 @@ first on `PATH` wins; `command -v pot` says which.
     merge it.
 21. **A dispatch clone carries no LFS content.** pot's git runs no filters, so LFS files are pointer files in the
     clone.
+22. **macOS is weaker.** A Seatbelt run shares the host's processes and network stack: it lists this user's
+    processes, and Seatbelt does not check `KERN_PROCARGS2`, so a run can read the arguments and environment of
+    every process of the same user (a credential another program holds in its environment among them). Sockets it
+    creates are on the host's file system; a protected folder is a path rule, not a mount point; there is no
+    nesting and no resource limit.
 
 ## Sources
 
 - [pot/core/pot.py](../../pot/core/pot.py): the command line, grants prompt, startup and exit lines, `pot why`, `pot init`
+- [pot/core/seatbelt.py](../../pot/core/seatbelt.py): the Seatbelt backend (macOS)
 - [pot/core/runs.py](../../pot/core/runs.py): runs/1 records from a run's log
 - [pot/core/clones.py](../../pot/core/clones.py): making, keeping and fetching dispatch clones
 - [pot/core/compose.py](../../pot/core/compose.py): composition, kit and request checks, grants, `pot explain`, policy.json

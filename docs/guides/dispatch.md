@@ -11,7 +11,7 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
 ## Before you begin
 
 - `pot` set up, with your agent's kit granted ([Run commands in pot](run-in-a-sandbox.md)).
-- Linux. On macOS, `pot` refuses to start ([On macOS](../reference/pot.md#on-macos)).
+- Linux, or macOS, where the clone runs at its own path and nesting is refused ([On macOS](../reference/pot.md#on-macos)).
 - Commit what the run should start from. The clone starts at a commit, never at your working tree, and your
   uncommitted changes stay behind.
 - The steps use `~/src/flexion-assistant` (its flake is `nix/agent-tools/flake.nix`) and the instance

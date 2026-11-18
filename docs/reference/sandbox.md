@@ -8,8 +8,8 @@ This page moved. graft's sandbox is pot since v2.15.0: see [pot](pot.md). v2.14.
 
 ## On macOS
 
-pot refuses to start on macOS in v2.17.1. v2.14.0 is the last release with a Seatbelt sandbox: on a Mac, keep a
-repository on v2.14.0 to keep it ([pot on macOS](pot.md#on-macos)).
+pot runs on macOS again, with a Seatbelt backend whose profile is written at each start; it is weaker than
+bubblewrap ([pot on macOS](pot.md#on-macos)).
 
 ## Sources
 

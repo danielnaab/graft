@@ -164,9 +164,10 @@ Why:
 
 Costs accepted:
 
-- **Experimental, and Linux only, in v2.17.1.** On macOS, `pot` refuses with a message. v2.14.0 is the last
-  release with a Seatbelt sandbox. v2.15.0, a minor version, breaks v2.14.0's sandbox, and its CHANGELOG says
-  so.
+- **Experimental, and Linux only from v2.15.0 to v2.17.1.** On macOS, `pot` refused with a message; v2.14.0 was
+  the last release with a Seatbelt sandbox until the port (a Seatbelt backend, weaker: no nesting, no process or
+  network isolation, a dispatch clone at its own path). v2.15.0, a minor version, broke v2.14.0's sandbox, and its
+  CHANGELOG says so.
 - **Kit tools are not sandboxed on their own yet.** A kit's commands are not wrapped and sandboxed under their own
   policy until v2.18.0. On the host they run as before; inside `pot claude`, under the run's policy.
 - **A person needs a root:** a home-manager module, graft's default root, or one that `pot init` writes.
@@ -199,7 +200,7 @@ Reopen when unprivileged user namespaces are no longer available on the machines
 real needs cannot be expressed as requests that a root grants.
 
 Not yet: nesting and the children table, wrapped kit commands, generated `kits.just` and hook commands
-(v2.18.0); the `pi` kit (v2.19.0); the Seatbelt backend; brokers for `git.push` and proxy credentials; widening delegation through a supervisor; a VM
+(v2.18.0); the `pi` kit (v2.19.0); nesting on macOS; brokers for `git.push` and proxy credentials; widening delegation through a supervisor; a VM
 backend for code that no one has reviewed.
 
 ## One repository, one-way arrows between graft and pot

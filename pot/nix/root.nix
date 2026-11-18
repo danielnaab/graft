@@ -23,8 +23,8 @@
 #   }
 #
 # The result is the root's `pot` (passthru.root: the manifest; passthru.backend: the bubblewrap
-# backend). Kit manifests are checked when it builds (compose.py validate). On Darwin, pot refuses:
-# Seatbelt returns in 1b (D21).
+# backend: bubblewrap on Linux, Seatbelt on Darwin). Kit manifests are checked when it builds (compose.py
+# validate).
 { potSrc }:
 
 { pkgs
@@ -130,6 +130,30 @@ let
   });
   backend = pkgs.writeShellScriptBin "pot-backend-bwrap" ''exec ${python}/bin/python3 -I ${potSrc}/bwrap.py --config ${backendConfig} "$@"'';
 
+  # macOS: the Seatbelt backend (seatbelt.py, /usr/bin/sandbox-exec). Its profile is written at start, from
+  # policy.json; what a run reads of the store is the closure, as with bubblewrap. No netwrap (the run's
+  # network is the proxy's port on the loopback) and no seccomp filter (the profile denies TIOCSTI).
+  seatbeltConfig = pkgs.writeText "pot-seatbelt.json" (builtins.toJSON {
+    python = "${python}/bin/python3";
+    proxy = "${potSrc}/proxy.py";
+    broker = "${potSrc}/broker.py";
+    shim = "${potSrc}/shim.py";
+    socat = "${pkgs.socat}/bin/socat";
+    sh = "${pkgs.bashInteractive}/bin/sh";
+    shell = "${pkgs.bashInteractive}/bin/bash";
+    env = "${pkgs.coreutils}/bin/env";
+    cacert = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+    terminfo = "${pkgs.ncurses}/share/terminfo";
+    tzdir = "${pkgs.tzdata}/share/zoneinfo";
+    fd = "${pkgs.fd}/bin/fd";
+    find = "${pkgs.findutils}/bin/find";
+    git = "${pkgs.gitMinimal}/bin/git";
+    # the shims run pot's python, so the base closure holds it
+    baseClosure = closureOf "pot-base-closure" [ pkgs.bashInteractive pkgs.coreutils pkgs.cacert pkgs.ncurses pkgs.tzdata python ];
+    gitClosure = closureOf "pot-git-closure" [ pkgs.gitMinimal pkgs.coreutils ];
+  });
+  seatbelt = pkgs.writeShellScriptBin "pot-backend-seatbelt" ''exec ${python}/bin/python3 -I ${potSrc}/seatbelt.py --config ${seatbeltConfig} "$@"'';
+
   # kit.packages, tools' old name: gone at the source in v2.17.0
   noPackages = file: k: if builtins.isAttrs k && k ? packages
     then throw "pot: ${file}: packages is tools' old name, gone in v2.17.0: give tools" else k;
@@ -163,8 +187,12 @@ let
     closure = "${closure}";
     potBin = "${potInner}/bin";
     shell = "bash";
-    backends = lib.optionalAttrs (!darwin) { bubblewrap = { kind = "bwrap"; program = "${backend}/bin/pot-backend-bwrap"; }; };
-    defaultBackend = if darwin then null else "bubblewrap";
+    backends = if darwin then { seatbelt = { kind = "seatbelt"; program = "${seatbelt}/bin/pot-backend-seatbelt"; }; }
+      else { bubblewrap = { kind = "bwrap"; program = "${backend}/bin/pot-backend-bwrap"; }; };
+    defaultBackend = if darwin then "seatbelt" else "bubblewrap";
+  } // lib.optionalAttrs darwin {
+    # the startup line names what a Seatbelt run lacks that a Linux one has (design §12.2); explain lists every lack
+    usualGuarantees = [ "own-netns" "own-pidns" ];
   };
   rootJson = pkgs.runCommand "pot-root-${name}.json" {
     nativeBuildInputs = [ python ];
@@ -181,6 +209,6 @@ else if badDefaults != [ ] then throw "graft.lib.mkRoot: ${lib.concatStringsSep 
 else pkgs.writeShellApplication {
   name = "pot";
   text = ''exec ${python}/bin/python3 -I ${potSrc}/pot.py ${rootJson} "$@"'';
-  passthru = { root = manifest; inherit rootJson; } // lib.optionalAttrs (!darwin) { inherit backend; };
+  passthru = { root = manifest; inherit rootJson; backend = if darwin then seatbelt else backend; };
   meta.description = "pot: run a command under the root's policy (${name})";
 }

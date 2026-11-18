@@ -9,8 +9,8 @@ are in [pot](../reference/pot.md#the-model).
 
 ## Before you begin
 
-- Linux, with unprivileged user namespaces (the default on NixOS, Debian, Ubuntu and Fedora). On macOS, `pot`
-  refuses to start in v2.17.1: stay on graft v2.14.0's sandbox there ([On macOS](../reference/pot.md#on-macos)).
+- Linux, with unprivileged user namespaces (the default on NixOS, Debian, Ubuntu and Fedora), or macOS, where pot
+  uses Seatbelt and is weaker: no process or network isolation, no nesting ([On macOS](../reference/pot.md#on-macos)).
 - A root, the place where your grants live ([Set up a root](#set-up-a-root)).
 - Claude Code installed on the host.
 - tmux, if you want to see denials while the agent runs. Without it, you see them when the run ends.
@@ -340,7 +340,8 @@ in [Home-manager options](../reference/pot.md#home-manager-options).
   (`graft upgrade NAME`), or try it on the host with `pot host CMD`.
 - **A claude.ai skill is missing inside a run.** Synced claude.ai skills do not load in a run (above). Install the
   skill as an ordinary skill folder.
-- **`pot: no backend for darwin in v2.17.1`.** You are on macOS. Use graft v2.14.0's sandbox there.
+- **`pot: this root has no backend for darwin`.** Your root was built by a graft before Seatbelt's return: update
+  graft and rebuild the root.
 
 ## How it works
 

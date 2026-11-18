@@ -156,9 +156,35 @@ def run_git(host, cwd, *args, check=False):
     return r
 
 
+def sandboxed_darwin():
+    """macOS: whether this process is under a Seatbelt profile (sandbox_check(2) on itself, which a process
+    cannot fake: an unsandboxed one gets 0)."""
+    import ctypes
+    try:
+        lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        lib.sandbox_check.restype = ctypes.c_int
+        return lib.sandbox_check(os.getpid(), None, 0) == 1
+    except (OSError, AttributeError):
+        return False
+
+
+def inside_policy():
+    """The run's policy.json: /run/pot/policy.json (bubblewrap); on macOS, POT_POLICY's, in the run's folder
+    (Seatbelt has no mounts, so the run sees its folder at its own path)."""
+    if sys.platform == "darwin":
+        return os.environ.get("POT_POLICY") or INSIDE_POLICY
+    return INSIDE_POLICY
+
+
 def inside_run():
-    """§4.4: /run/pot/policy.json on a read-only mount, which no host process can create
-    without root."""
+    """§4.4: Linux: /run/pot/policy.json on a read-only mount, which no host process can create without
+    root. macOS (Seatbelt): this process is sandboxed (sandbox_check, which a host process cannot fake) and
+    POT_POLICY names a policy.json it can read and cannot write. A forged POT_POLICY in some other sandbox
+    only makes pot refuse (inside a run, pot explains and refuses), never run on the host."""
+    if sys.platform == "darwin":
+        p = os.environ.get("POT_POLICY") or ""
+        return (os.path.basename(p) == "policy.json" and os.path.isabs(p) and os.path.isfile(p)
+                and os.access(p, os.R_OK) and not os.access(p, os.W_OK) and sandboxed_darwin())
     try:
         st = os.statvfs(INSIDE_POLICY)
         return bool(st.f_flag & os.ST_RDONLY) and os.path.isfile(INSIDE_POLICY)
@@ -855,6 +881,9 @@ def probe_now(prog, rundir):
         p = json.loads(r.stdout)
     except ValueError:
         p = {"guarantees": [], "error": r.stderr}
+    if not p["guarantees"] and sys.platform == "darwin":
+        raise C.Refusal("pot: Seatbelt (/usr/bin/sandbox-exec) does not start a sandbox here ("
+                        + p.get("error", "").strip() + "). pot never runs it unsandboxed: pot host CMD is the explicit way out.")
     if not p["guarantees"] and not shutil.which("true"):
         # D2: doctor's F9 text: the probe runs true from PATH; without one it says nothing about user namespaces
         raise C.Refusal(f"pot: bubblewrap: its probe runs true, and PATH has none (PATH={os.environ.get('PATH', '')}); "
@@ -966,6 +995,9 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000", clones=N
             report["notes"].append(f"{os.path.basename(w['top'])} has .githooks but core.hooksPath is unset: commits run no hook "
                                    "(git config core.hooksPath .githooks, on the host)")
     fixed_dirs(host, root, policy, report, ws)
+    if sys.platform == "darwin" and any(b["capability"] == "nix" for b in policy.get("bindings") or []):
+        # §11: the nix capability's builds run in the host's daemon, which on macOS builds unsandboxed by default
+        report["notes"].append("nix builds run unsandboxed (the host's daemon, on macOS)")
     credential_notes(report)
     agent = command_agent(root, report)
     report["agentHooks"] = list(agent.get("hooks") or [])
@@ -1334,6 +1366,8 @@ def scope_for(host, root, ctx, flags, detach):
     want = detach or not (sys.stdin.isatty() and sys.stderr.isatty()) or "resource-limits" in (ctx.get("requires") or [])
     if not want:
         return {}
+    if sys.platform == "darwin":
+        return {"note": "no resource limits (Seatbelt has none)"}
     lim = root.get("limits") or {}
     mem, tasks = str(lim.get("memoryMax", "50%")), str(lim.get("tasksMax", 2048))
     sr = shutil.which("systemd-run")
@@ -1440,6 +1474,8 @@ def clone_notes(report, cinfo):
 def run(host, root, context, flags, cmd):
     if inside_run():
         ctxn = os.environ.get("POT", "run")
+        if sys.platform == "darwin":
+            raise C.Refusal(f"pot ({ctxn}): Seatbelt cannot nest: a run on macOS starts no runs inside it; run it on the host")
         raise C.Refusal(f"pot ({ctxn}): pot inside a run starts nested runs in a later release: run it on the host")
     context = context or root.get("defaultContext") or "work"
     ctx = C.resolve_context(root, context)
@@ -1917,7 +1953,7 @@ def scratch_done(host, tmp):
 
 def explain(host, root, context, flags, cmd):
     if inside_run():
-        with open(INSIDE_POLICY) as f:
+        with open(inside_policy()) as f:
             policy = json.load(f)
         if flags.get("json"):
             print(json.dumps(policy, indent=1))
@@ -3063,15 +3099,20 @@ def doctor(host, root, rootjson):
     sc = scope_for(host, root, {"requires": ["resource-limits"]}, {}, True)
     if g:
         lacks = [x for x in C.GUARANTEES if x not in g and not (x == "resource-limits" and sc.get("argv"))]
-        row("backend", f"{bname}: user namespaces work; proves {' '.join(g)}"
+        works = "sandbox-exec works" if sys.platform == "darwin" else "user namespaces work"
+        row("backend", f"{bname}: {works}; proves {' '.join(g)}"
             + ("; resource-limits: for runs without a terminal" if sc.get("argv") else "") + f"; lacks {' '.join(lacks)}")
     elif not shutil.which("true"):
         # F9: the probe runs true from PATH; without one it says nothing about user namespaces
         row("backend", f"{bname}: its probe runs true, and PATH has none (PATH={os.environ.get('PATH', '')}); user namespaces were not tested", True)
+    elif sys.platform == "darwin":
+        row("backend", f"{bname}: /usr/bin/sandbox-exec does not start a sandbox here, so no run starts (pot host CMD runs unsandboxed)", True)
     else:
         row("backend", f"{bname}: cannot create a user namespace here, so no run starts (pot host CMD runs unsandboxed)", True)
     if sc.get("argv"):
         row("resources", f"user systemd: runs without a terminal get {sc['limits']}")
+    elif sys.platform == "darwin":
+        row("resources", "Seatbelt has no resource limits: a context that requires resource-limits stops (125)")
     else:
         row("resources", "no user systemd (systemd-run --user failed): runs without a terminal start without limits", True)
     # the grants file
@@ -3328,14 +3369,15 @@ def inner(root, verb, flags, cmd, context=None):
     ctxn = os.environ.get("POT") or "run"
     if not inside_run():
         raise C.Refusal("pot: this pot is the one inside runs, and this is not a run")
-    with open(INSIDE_POLICY) as f:
+    with open(inside_policy()) as f:
         policy = json.load(f)
     ctxn = policy.get("context", ctxn)
+    rd = os.path.dirname(inside_policy())
     if verb == "why":
         cmd = why_args(flags, cmd)
         facts = {}
         try:
-            with open("/run/pot/why.json") as f:
+            with open(os.path.join(rd, "why.json")) as f:
                 facts = json.load(f)
         except (OSError, ValueError):
             pass
@@ -3348,7 +3390,7 @@ def inner(root, verb, flags, cmd, context=None):
         if flags.get("json"):
             print(json.dumps(policy, indent=1))
         else:
-            with open("/run/pot/explain.txt") as f:
+            with open(os.path.join(rd, "explain.txt")) as f:
                 sys.stdout.write(f.read())
         return 0
     if verb == "grant":
@@ -3371,6 +3413,11 @@ def inner(root, verb, flags, cmd, context=None):
         raise C.Refusal(f"pot ({ctxn}): pot review is the host's: a run's output is reviewed outside it", 2)
     if verb == "doctor":
         raise C.Refusal("pot doctor runs on the host; inside a run, pot explain and pot why", 2)
+    if sys.platform == "darwin":
+        # §10: Seatbelt cannot nest (a sandboxed process cannot apply a narrower profile of its own); a narrower
+        # child is refused, never flattened into its parent
+        raise C.Refusal(f"pot ({ctxn}): Seatbelt cannot nest: a run on macOS starts no runs inside it (pot dispatch, "
+                        "pot CONTEXT CMD); run it on the host")
     if context == "dispatch" or flags.get("mode") == "clone" or flags.get("detach") or flags.get("from"):
         raise C.Refusal(f"pot ({ctxn}): dispatch inside a run comes in v2.18.0 (nested dispatch): run it on the host")
     raise C.Refusal(f"pot ({ctxn}): pot inside a run starts nested runs in a later release: run it on the host")
@@ -3383,8 +3430,8 @@ def main(argv):
     with open(argv[0]) as f:
         root = json.load(f)
     args = argv[1:]
-    if sys.platform == "darwin" or root.get("darwin"):
-        err("pot: no backend for darwin in v2.17.1; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)")
+    if (sys.platform == "darwin" or root.get("darwin")) and not root.get("inner") and not root.get("backends"):
+        err("pot: this root has no backend for darwin (a root built before Seatbelt's return): rebuild it with this graft")
         return 1
     try:
         verb, context, flags, cmd = parse(args, root)

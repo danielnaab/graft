@@ -1,5 +1,44 @@
 # Changelog
 
+## Unreleased
+
+pot, graft's sandbox (experimental), runs on macOS again: a Seatbelt backend replaces the refusal that v2.15.0 to
+v2.17.1 printed there. Linux runs do not change, and no grant asks again: the canonical grant items and digests are
+unchanged (`pot-golden` holds them).
+
+### Added
+- **The Seatbelt backend** (`pot/core/seatbelt.py`, `/usr/bin/sandbox-exec`): a Darwin root's backend is `seatbelt`.
+  Its profile denies by default and is written at each start from `policy.json`, every host path a parameter.
+  It proves `closure-store`, `no-tiocsti`, `in-place` and `private-proxy`; the startup line says
+  `seatbelt lacks own-netns own-pidns`, and `pot explain` lists every lack. HOME is the run's own folder, where links
+  stand in for state, fixed files and fixed directories; protected paths are path rules (no write, no new hard
+  link, no rename or removal); `inspect` reads allow-then-deny; the network is the proxy's port on the loopback with
+  a per-run token (`407` without it); the run is its own process group, stopped with what left it when the command
+  exits ([On macOS](docs/reference/pot.md#on-macos)).
+- **The proxy's token** (`POT_PROXY_TOKEN`, from the backend): every request must carry it as its
+  `Proxy-Authorization` password. bubblewrap's proxy, on a socket only its run sees, has none.
+
+### Changed
+- **A dispatch on a backend without `same-path-clone` runs the clone at its own path**, said on the startup line
+  (`clone at its own path`), where v2.17.0 refused it. A context that `requires` `same-path-clone` still exits 125.
+  bubblewrap proves it, so Linux dispatch is unchanged.
+- **Nesting on macOS is refused**, never flattened: `pot (work): Seatbelt cannot nest: a run on macOS starts no runs
+  inside it (pot dispatch, pot CONTEXT CMD); run it on the host`.
+- **The claude-code kit, on macOS only:** its denial hooks read the denials file in the run's folder
+  (`${POT_POLICY%/*}`), and `CLAUDE_CODE_TMPDIR=~/.tmp` keeps Claude out of the host's `/tmp/claude-UID`. On Linux
+  the kit is byte for byte v2.17.1's.
+- The run's shims find their sockets beside `POT_POLICY` (`/run/pot` under bubblewrap, as before).
+
+### Fixed
+- pot's unit tests pass on macOS: their `/home/u` fixtures were rewritten by `realpath`, as `/home` is an automount
+  there.
+
+### Upgrading
+- On a Mac: rebuild the root with this graft; then `pot doctor`, and `pot grant` as on Linux. Grants carry over.
+- Weaker than Linux, on purpose and stated: no nesting, no process or network isolation, no resource limits, and a
+  run can read the arguments and environment of this user's other processes (Seatbelt does not check
+  `KERN_PROCARGS2`) ([residual 22](docs/reference/pot.md#residual-risks)).
+
 ## v2.17.1 - 2026-11-18
 
 pot, graft's sandbox (experimental): the claude-code kit can use an Anthropic-compatible gateway, and a run checks

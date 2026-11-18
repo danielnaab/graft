@@ -426,9 +426,15 @@ class Compose(unittest.TestCase):
         self.assertEqual(p["workspace"][0]["protected"], [])
 
     def test_clone_mode(self):
-        # v2.17.0: clone mode composes; it requires same-path-clone (a backend that can't is refused, 125)
+        # v2.17.0: clone mode composes; it requires same-path-clone where the backend proves it. Seatbelt can't: its
+        # clone runs at its own path, said on the startup line; a context that requires same-path-clone stops (125)
+        p, rep = C.compose(inp(context="dispatch"))
+        self.assertEqual(p["mode"], "clone")
+        self.assertNotIn("same-path-clone", p["backend"]["requires"])
+        self.assertIn("clone at its own path", rep["notes"])
+        r = root(contexts={"dispatch": {"requires": ["same-path-clone"]}})
         with self.assertRaisesRegex(C.Refusal, "requires same-path-clone") as e:
-            C.compose(inp(context="dispatch"))
+            C.compose(inp(r=r, context="dispatch"))
         self.assertEqual(e.exception.status, C.EXIT_GRANT)
         full = ["closure-store", "own-netns", "own-pidns", "no-tiocsti", "protected-as-mounts", "in-place",
                 "same-path-clone", "root-files"]

@@ -1,5 +1,5 @@
 """pot's shims inside a run: `shim.py workmux ARGS` (status.relay) and `shim.py ssh ARGS`
-(git.fetch's GIT_SSH_COMMAND). Each talks to the host broker over its socket in /run/pot;
+(git.fetch's GIT_SSH_COMMAND). Each talks to the host broker over its socket in the run's folder (/run/pot);
 the broker decides."""
 import json
 import os
@@ -9,7 +9,9 @@ import threading
 
 mode, argv = sys.argv[1], sys.argv[2:]
 sock = socket.socket(socket.AF_UNIX)
-path = {"workmux": "/run/pot/relay.sock", "ssh": "/run/pot/git.sock"}[mode]
+# the run's folder: /run/pot (bubblewrap), or the folder POT_POLICY names (Seatbelt, which has no mounts)
+run = os.path.dirname(os.environ.get("POT_POLICY") or "/run/pot/policy.json")
+path = os.path.join(run, {"workmux": "relay.sock", "ssh": "git.sock"}[mode])
 try:
     sock.connect(path)
 except OSError:
