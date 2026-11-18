@@ -91,14 +91,18 @@ Each request has one canonical string, which the [grants file](grants-1.md#canon
 A recipe is data from which graft generates a just recipe; kits ship no hand-written `.just` files. The string form
 (1.0) is `"<command> <args>"`; the attrs form (1.2) is `{ run = "<command> <args>"; description = "…"; }`. The first
 word of `run` must be a command of the same kit, and the rest are literal words: no `{{`, backtick, `$` or newline.
-kitsFor checks this when it builds. From v2.18.0, graft generates one file, `kits.just`, from every kit's recipes
+kitsFor checks this when it builds: `pot: FILE: recipes.N: { run; description; } (kit 1.2), or one line`,
+`… recipes.N: literal words only (no {{, `, $ or a newline)`, `… recipes.N: runs X, which is not one of this kit's
+commands (A, B)`. Kits 1.0 and 1.1 take the string form only. From v2.18.0, graft generates one file, `kits.just`, from every kit's recipes
 ([pot-kits/1](pot-kits-1.md#shape)); v2.17.0 checks recipes and generates nothing.
 
 ### Hook commands
 
 `commands.<name>.hook` names the git hook that the command serves. From v2.18.0, the consumer's
 `.githooks/<hook>` execs the command's wrapper, and `git commit` inside a run gets that command's own policy from
-the children table. v2.17.0 reads and checks the field, and does nothing with it.
+the children table. v2.17.0 reads and checks the field, and does nothing with it. Another value:
+`pot: FILE: commands.NAME.hook: one of pre-commit, commit-msg, prepare-commit-msg, pre-push, post-checkout,
+post-merge`; in a 1.1 kit, `commands.NAME.hook is not a command field (…)`.
 
 There is no field that runs a command unsandboxed: running kit code outside the sandbox stays a granted
 `unsandboxed` request.
@@ -214,16 +218,17 @@ identity.
   or later. The claude-code kit writes 1.1.
 - **A newer minor gets one refusal, checked before any other field:**
   `pot: FILE: kit version 1.3 is newer than this pot reads (1.0, 1.1, 1.2): take a newer pot`. Another major, or a
-  `version` that is not a string: `pot: FILE: kit version X: this pot reads kit 1.0, 1.1 and 1.2`; a number such
+  `version` that is not a string: `pot: FILE: kit version 'X': this pot reads kit 1.0, 1.1 and 1.2`; a number such
   as `version = 1.1`: `FILE: version is a string: "1.1"`. At run start, a bundle's refusal ends `, or run pot host
-  CMD`. <!-- TBD: texts from the samples -->
+  CMD`.
 - **Unknown fields within a known minor are errors:** `pot: FILE: FIELD is not a kit field (…)`, listing that
   minor's fields. So are unknown request kinds, capability names and fields, command fields, `dirs` fields,
   `agent` fields and `hook` values. A provider learns of a mistake when its consumer builds, not when a run starts.
 - **Values are added, not fields,** within a minor. A new field is a new minor. (v2.16.0 was the one exception: it
   widened what a 1.0 reader accepts with `tools` and `version`.)
 - **`packages`, removed at the source.** Since v2.17.0, kitsFor and mkRoot refuse a kit that gives `packages`:
-  `pot: FILE: packages is tools' old name, gone in v2.17.0: give tools`. <!-- TBD: text from the samples --> pot
+  `pot: FILE: packages is tools' old name, gone in v2.17.0: give tools` (FILE is the kit's file, such as
+  `scions/x/graft.nix` or `flake.nix (perSystem)`; for a root's kit, `pot: the root (programs.pot.kits.NAME): …`). pot
   still reads `packages` as `tools`, with no warning, in a bundle that graft v2.16.x built, so a consumer that has
   not moved its graft keeps working under a newer root. Giving both is an error.
 - **The last planned change.** 1.2 adds every field that v2.18.0's wrapped commands, generated recipes, hook

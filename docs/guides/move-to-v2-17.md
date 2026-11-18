@@ -20,6 +20,8 @@ deprecated. This page names each removed form, its replacement and its new error
 - **A consumer still on graft v2.16.0, under a v2.17.0 root.** Its `pot-kits` bundle reads as before, `packages`
   included. You move its graft when you choose.
 - **Your grants.** Taking v2.17.0 in the root asks for no grant again: every existing grant's source still holds.
+  One caveat: pot learns a repo kit as built at the first v2.17.0 run whose tree equals its grant's. If that
+  repository has moved past the granted tree before its first v2.17.0 run, it asks once (`pot grant NAME`).
   A consumer that later takes v2.17.0 changes its `flake.lock`, so it asks once for its own repo kit
   (`pot grant NAME`), and for no other kit.
 
@@ -27,13 +29,13 @@ deprecated. This page names each removed form, its replacement and its new error
 
 | Removed | Use instead | What v2.17.0 says |
 |---|---|---|
-| `packages.<system>.graft-kits` (mkFlake no longer writes it; pot no longer reads it) | `packages.<system>.pot-kits`, which any graft v2.16.0 or later writes | A flake with `graft-kits` only: `pot (work): ~/DIR has graft-kits only: its graft predates v2.16.0, and this pot reads pot-kits: take graft v2.16.0 or later there (nix flake update graft), or run pot host CMD` <!-- TBD: sample --> |
-| `kit.packages`, in a kit that graft builds | `kit.tools` | `pot: FILE: packages is tools' old name, gone in v2.17.0: give tools` <!-- TBD: sample --> |
-| `pot --account NAME` | `pot CMD@NAME`, or `pot --instance NAME CMD` | `pot: --account is gone (v2.17.0): --instance NAME, or CMD@NAME` (exit 2) <!-- TBD: sample --> |
-| `defaultAccount` (mkRoot) | `defaultInstance.<kit> = "NAME";` | `graft.lib.mkRoot: defaultAccount is gone (v2.17.0): defaultInstance.<kit> = "NAME"` <!-- TBD: sample --> |
-| `programs.pot.defaultAccount` | `programs.pot.defaultInstance.<kit> = "NAME";` | `The option 'programs.pot.defaultAccount' can no longer be used since it's been removed. Use programs.pot.defaultInstance.<kit> = "NAME" (v2.17.0).` <!-- TBD: sample --> |
-| the claude-code kit's `account` | nothing: the root's `kits` key names the instance | `graft.kits.claude-code: account is gone (v2.17.0): the instance is the root's kits key ("claude-code@NAME")` <!-- TBD: sample --> |
-| the claude-code kit's `provider` and `region` | `api = graft.apis.bedrock { region = "…"; }`, or `graft.apis.anthropic` | `graft.kits.claude-code: provider and region are gone (v2.17.0): api = graft.apis.bedrock { region = "…"; } (or graft.apis.anthropic)` <!-- TBD: sample --> |
+| `packages.<system>.graft-kits` (mkFlake no longer writes it; pot no longer reads it) | `packages.<system>.pot-kits`, which any graft v2.16.0 or later writes | A flake with `graft-kits` only: `pot (work): ~/DIR has graft-kits only: its graft predates v2.16.0, and this pot reads pot-kits: take graft v2.16.0 or later there (nix flake update graft), or run pot host CMD` |
+| `kit.packages`, in a kit that graft builds | `kit.tools` | `pot: FILE: packages is tools' old name, gone in v2.17.0: give tools`; for a root's kit, `pot: the root (programs.pot.kits.NAME): packages is tools' old name, gone in v2.17.0: give tools` |
+| `pot --account NAME` | `pot CMD@NAME`, or `pot --instance NAME CMD` | `pot: --account is gone (v2.17.0): --instance NAME, or CMD@NAME` (exit 2) |
+| `defaultAccount` (mkRoot) | `defaultInstance.<kit> = "NAME";` | `graft.lib.mkRoot: defaultAccount is gone (v2.17.0): defaultInstance.<kit> = "NAME"` |
+| `programs.pot.defaultAccount` | `programs.pot.defaultInstance.<kit> = "NAME";` | home-manager's ``The option definition `programs.pot.defaultAccount' in `FILE' no longer has any effect; please remove it.``, then `Use programs.pot.defaultInstance.<kit> = "NAME" (v2.17.0).` |
+| the claude-code kit's `account` | nothing: the root's `kits` key names the instance | `graft.kits.claude-code: account is gone (v2.17.0): the instance is the root's kits key ("claude-code@NAME")` |
+| the claude-code kit's `provider` and `region` | `api = graft.apis.bedrock { region = "…"; }`, or `graft.apis.anthropic` | `graft.kits.claude-code: provider and region are gone (v2.17.0): api = graft.apis.bedrock { region = "…"; } (or graft.apis.anthropic)` |
 
 pot still reads `packages` in a bundle that graft v2.16.x built, with no warning: the removal is where a kit is
 built, so nothing that already works stops.

@@ -61,7 +61,7 @@ Each record has one state:
 
 When pot finds a clone-mode run that ended without its `after` event (its pot was killed), the next `pot runs` or
 `pot review` that reads the run completes the host's look first, as the run's end does, records it with
-`recovered: true`, then shows it. <!-- TBD: the crashed-run state changes -->
+`recovered: true`, then shows it: a clone with commits is `review`, as for any run that ended.
 
 ### The record
 
@@ -77,7 +77,7 @@ When pot finds a clone-mode run that ended without its `after` event (its pot wa
   "stop": null,
   "clone": { "base": "c9996c5…", "branch": "main", "commits": 3, "unsigned": 1, "refs": { "main": "e91d2c7…" },
              "uncommitted": 0, "size": 201326592, "fetched": null, "discarded": null, "keptUntil": "2026-12-01" },
-  "attention": [ "3 commits", "1 unsigned", "host-run: justfile", "2 denied: registry.npmjs.org" ] }
+  "attention": [ "1 unsigned", "host-run: justfile", "2 denied: registry.npmjs.org" ] }
 ```
 
 | Field | Type | Meaning |
@@ -88,7 +88,7 @@ When pot finds a clone-mode run that ended without its `after` event (its pot wa
 | `context`, `mode` | strings | the context; `in-place`, `clone`, or `none` for `pot host` |
 | `command` | object | `name`, the command kit's identity `kit` (or `null`), and `instance` (or `null`) |
 | `argv` | list of strings | the command as started |
-| `workspace` | list | each repository's identity `id`, `path`, and `name`, the short name the startup line uses <!-- TBD: the workspace name rule --> |
+| `workspace` | list | each repository's identity `id`, `path`, and `name`, the short name the startup line uses: the normalised origin's last path part, else the checkout's folder |
 | `invoker` | string | `person` (at a terminal) or `script` |
 | `detached` | boolean | started with `--detach` |
 | `pane` | string or `null` | the tmux pane the run held |
@@ -97,7 +97,7 @@ When pot finds a clone-mode run that ended without its `after` event (its pot wa
 | `exit`, `lost` | number or `null`; boolean | the exit status; whether pot ended without one |
 | `stop` | object or `null` | for `stopped`: `{ reason, kits, fix }` |
 | `clone` | object or `null` | in clone mode: the `base` commit and `branch`, `commits` and `unsigned`, `scionCommits`, the moved `refs`, `uncommitted` files left in the clone, its `size`, when it was `fetched` or `discarded`, and `keptUntil` |
-| `attention` | list of strings | what the host's look found, as `pot review` shows it |
+| `attention` | list of strings | what the host's look found, as `pot review` shows it: `N unsigned` (when the host signs, until fetched), `root: …` or `root changed`, `host-run: …`, `repo kit: …`, `gitlinks: …`, `N new git metadata paths`, `N denied: …`. Never a bare commit count. |
 
 Every string from the run (`argv`, ref names) is JSON in `--json`, and escaped in text.
 

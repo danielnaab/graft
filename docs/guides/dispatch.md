@@ -29,8 +29,11 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
    The startup line names the base:
 
    ```
-   pot: dispatch · flexion-assistant · from main (716424f) · pot explain
+   pot: dispatch · flexion-assistant · from main (716424f) · nix/agent-tools/.scions/knowledge-base-kit: its own
+   submodules are not cloned · nix/agent-tools/.scions/notebook-kit: its own submodules are not cloned · pot explain
    ```
+
+   (wrapped here). Only the first level of submodules is cloned, so two scions' own submodules are left out.
 
    When it ends, the exit line counts its commits:
    `pot: run 1ac1 · 1 commit on main: pot review 1ac1, then pot review 1ac1 --fetch`.
@@ -65,8 +68,8 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
    ```
 
    The ATTENTION column lists what to read with care: unsigned commits (when your git config signs), changed
-   host-run files (`justfile`, `.envrc`, CI workflows), new gitlinks or nested repositories, changes to the repo
-   kit, root-repository changes, and denials. <!-- TBD: ATTENTION becomes the after findings -->
+   host-run files (`justfile`, `.envrc`, CI workflows), new gitlinks or git metadata, changes to the repo kit,
+   root-repository changes, and denials. A run whose commits need nothing more than a read shows none.
 
 4. Fetch its commits into your repository:
 
@@ -148,8 +151,9 @@ unfetched commits: over the cap, the startup line and `pot doctor` name the olde
 - **The run is `stopped`.** It needs a grant: run `pot grant` at a terminal, then start it again.
 - **`pot: run 1ac1 has no commits to fetch`.** The run made no commit. Its uncommitted work stays in the clone,
   which pot never copies to your repository.
-- **`pot ended without an exit: killed or crashed`.** pot was killed or crashed. The next `pot runs` or `pot review`
-  copies the commits it made out of the clone, and `pot review 1ac1` reads them. <!-- TBD: the crashed-run state changes -->
+- **`ended      unknown: pot ended without an exit (killed or crashed)`.** pot was killed or crashed. The next
+  `pot runs` or `pot review` copies the commits it made out of the clone, so the run is in `review` and
+  `pot review 1ac1` reads them as usual.
   the commits it made.
 - **Anything else:** `pot doctor` checks the backend, user systemd, the grants file and the bindings.
 

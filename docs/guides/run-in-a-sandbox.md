@@ -322,7 +322,7 @@ in [Home-manager options](../reference/pot.md#home-manager-options).
   Make the test use the `PATH` it was given.
 - **The startup line says `meeting-kit: gitlink is not a release tag at its URL; its kit is unverified and its grant
   does not apply`.** That scion is not at a release tag, so the run goes on without its reach. Move it to a release
-  (`graft upgrade NAME`), or try it on the host with `pot host CMD`. <!-- TBD: sample -->
+  (`graft upgrade NAME`), or try it on the host with `pot host CMD`.
 - **A claude.ai skill is missing inside a run.** Synced claude.ai skills do not load in a run (above). Install the
   skill as an ordinary skill folder.
 - **`pot: no backend for darwin in v2.16.1`.** You are on macOS. Use graft v2.14.0's sandbox there.

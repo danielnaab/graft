@@ -70,7 +70,8 @@ machine-independent.
      directory, and the kit as built is unchanged: the hash of the bundle's repo kit (its requests, protect list,
      tools and commands, with their store paths) equals the one this machine recorded, in pot's state, for the
      old tree. With no record (another machine granted it), or with the old tree's objects unavailable, only
-     rule 1 applies.
+     rule 1 applies. pot records the kit as built at each run whose tree equals its grant's, so a machine whose
+     repository moved past the granted tree before its first v2.17.0 run asks once more.
 
   So a scion bump or a changed test file no longer asks again; a new `flake.lock` does, and so does any change to
   what the kit builds, even in a file that `flake.nix` imports. A pot from before v2.17.0 applies rule 1 alone: it

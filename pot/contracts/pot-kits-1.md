@@ -86,7 +86,7 @@ pot also protects the flake directory it evaluated, when it is a subdirectory, w
 - **graft-kits is gone.** v2.15.0's bundle was deprecated in v2.16.0. Since v2.17.0, mkFlake no longer writes it and
   pot no longer reads it. A flake with `graft-kits` but no `pot-kits` is refused, never run without its
   protections: `pot (work): ~/DIR has graft-kits only: its graft predates v2.16.0, and this pot reads pot-kits: take
-  graft v2.16.0 or later there (nix flake update graft), or run pot host CMD`. <!-- TBD: text from the samples -->
+  graft v2.16.0 or later there (nix flake update graft), or run pot host CMD`.
   `graft-kits` stays a name graft reserves in `apps` and `packages`.
 
 ## Sources
