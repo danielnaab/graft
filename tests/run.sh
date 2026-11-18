@@ -1826,10 +1826,7 @@ EOF
   git_ -C scions/sbk checkout -q --detach v1.0.0 && git_ add scions/sbk && commit "sbk v1.0.0 again"
   # a protected folder is read-only throughout: a file inside a scion, not only its graft.nix (B)
   refuse "pot: a scion's file is read-only" sb_ bash -c 'echo x >> scions/sbk/README.md' 2>/dev/null
-  # doctor is reserved (C7; runs is v2.17.0's: sec_dispatch); an unknown command says where a program for
-  # every run goes (C9)
-  refused "pot: pot doctor" sb_ doctor
-  expect "comes later" holds "pot: doctor comes in a later release"
+  # (runs and doctor are v2.17.0's: sec_dispatch); an unknown command says where a program for every run goes (C9)
   refused "pot: an unknown command" sb_ no-such-program-x
   local rc=0 && { sb_ no-such-program-x >/dev/null 2>&1 || rc=$?; }
   expect "exits 2" test "$rc" = 2
@@ -2257,6 +2254,10 @@ EOF
   expect "a binding file, by path" holds "credential api.example: file $work/dtoken (present, 0600)"
   expect "a missing one, marked" holds "! credential api.missing.example: file $work/dtoken-missing is missing"
   refuse "never a file's contents" holds "SECRET-VALUE"
+  chmod 644 "$work/dtoken"
+  refused "dispatch: pot doctor, a key file others can read" d_ doctor
+  expect "is marked" holds "credential api.example: file $work/dtoken (present, 0644: others can read it; chmod 600 it)"
+  chmod 600 "$work/dtoken"
   expect "this workspace" holds "workspace  dc: repo:fake.example/dc"
   expect "pot's state" grep -qE '^state      .*: [0-9]+ runs' <<<"$out"
   expect "no agent kit, no instances" holds "instances  none (no kit of this root has instances)"

@@ -2724,7 +2724,9 @@ def doctor(host, root, rootjson):
                 if os.path.exists(p):
                     mode = oct(os.stat(p).st_mode & 0o777)[2:].zfill(4)
                     how = "file" if cfg.get("via", "file") == "file" else f"{cfg['via']} from file"
-                    blines.append((False, f"{name}: {how} {sp(f)} (present, {mode})"))
+                    loose = os.stat(p).st_mode & 0o077
+                    blines.append((bool(loose), f"{name}: {how} {sp(f)} (present, {mode}"
+                                   + (": others can read it; chmod 600 it)" if loose else ")")))
                 else:
                     blines.append((True, f"{name}: file {sp(f)} is missing"))
             elif cap == "credential":
