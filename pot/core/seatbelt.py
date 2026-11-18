@@ -244,17 +244,28 @@ def load(rundir):
     return policy, launch
 
 
-def link(at, target, made):
-    """A link at AT (in the run's HOME or a state directory) to TARGET: what Seatbelt has for a mount."""
+def link(root, rel, target, made):
+    """A link at ROOT/REL (ROOT: the run's HOME or a state directory) to TARGET: what Seatbelt has for a mount.
+    Never through a link below ROOT (bwrap.safe_dest): a run writes its state, and an earlier run could have planted
+    one there (P3); in HOME, a link pot made for a read request leads to a host folder."""
+    at = B.safe_dest(root, rel.strip("/"))
     if os.path.islink(at):
         os.unlink(at)
     elif os.path.lexists(at):
         kind = "folder" if os.path.isdir(at) else "file"
         raise Stop(f"{at} is a {kind} of the run's state, where the policy places {target}: move it out of the way "
                    "(the run's state is the host's to tidy), then run again")
-    os.makedirs(os.path.dirname(at), exist_ok=True)
     os.symlink(target, at)
     made.append(at)
+
+
+def place(policy, home, runhome, value):
+    """Where a ~/ entry goes: (root, rel), in the state directory whose `at` holds it, else in the run's HOME."""
+    dest = home + value[1:]
+    st = next((s for s in policy["mounts"]["state"] if dest.startswith(home + s["at"][1:] + "/")), None)
+    if st:
+        return real(st["dir"]), dest[len(home + st["at"][1:]) + 1:]
+    return runhome, value[2:]
 
 
 def in_dir(p, dirs):
@@ -286,9 +297,8 @@ def prepare(cfg, rundir, print_cmd=False):
     def home_link(value, target):
         # a ~/ entry of the policy, where a program looks for it: in the run's HOME
         if value.startswith("~/"):
-            at = os.path.join(runhome, value[2:])
-            if not os.path.lexists(at):
-                link(at, target, made)
+            if not os.path.lexists(os.path.join(runhome, value[2:])):
+                link(runhome, value[2:], target, made)
 
     # the store: the closure, or the whole store (the nix capability, and inspect)
     if view or B.binding(policy, "nix"):
@@ -319,7 +329,10 @@ def prepare(cfg, rundir, print_cmd=False):
                 if not in_dir(ln, hidden):
                     rel = ln[len(home) + 1:]
                     if not os.path.lexists(os.path.join(runhome, rel)):
-                        link(os.path.join(runhome, rel), target, made)
+                        try:
+                            link(runhome, rel, target, made)
+                        except Stop:
+                            pass     # below a read request's link: the host folder shows its own
         for w in policy["workspace"]:
             reads.append(real(w["path"]))
         t = time.time()
@@ -385,9 +398,8 @@ def prepare(cfg, rundir, print_cmd=False):
         state_dirs.append(d)
         own_writes.append(d)
         keep.append(d)
-        at = runhome + s["at"][1:]
-        if not os.path.lexists(at):
-            link(at, d, made)
+        if not os.path.lexists(runhome + s["at"][1:]):
+            link(*place(policy, home, runhome, s["at"]), d, made)     # a nested state's, in the outer one
     # files: fixed ones a link (the run can't replace it); seeded and reasserted ones written into state
     ssl = cfg["cacert"]
     for i in B.eff(policy, "file"):
@@ -401,9 +413,7 @@ def prepare(cfg, rundir, print_cmd=False):
         if i.get("mode", "fixed") != "fixed":
             B.into_state(policy, launch, i)
             continue
-        st = next((s for s in policy["mounts"]["state"] if (home + v[1:]).startswith(home + s["at"][1:] + "/")), None)
-        at = (real(st["dir"]) + (home + v[1:])[len(home + st["at"][1:]):]) if st else runhome + v[1:]
-        link(at, i["source"], made)
+        link(*place(policy, home, runhome, v), i["source"], made)
         own_reads.append(real(i["source"]))
     # fixed directories (skills, agents, …): a folder of links in the run's folder, linked at its place
     for n, i in enumerate(B.eff(policy, "dir")):
@@ -416,9 +426,7 @@ def prepare(cfg, rundir, print_cmd=False):
             if not target.startswith("/nix/store/"):
                 own_reads.append(real(target))
         v = i["value"]
-        st = next((s for s in policy["mounts"]["state"] if (home + v[1:]).startswith(home + s["at"][1:] + "/")), None)
-        at = (real(st["dir"]) + (home + v[1:])[len(home + st["at"][1:]):]) if st else runhome + v[1:]
-        link(at, d, made)
+        link(*place(policy, home, runhome, v), d, made)
 
     # pot's own: shims, the not-found handler, the MCP configuration; the run's .gitconfig and hidden list
     B.write_own(cfg, rundir, policy, launch)
@@ -435,9 +443,9 @@ def prepare(cfg, rundir, print_cmd=False):
             if g.get(k):
                 f.write(f"\t{k} = {json.dumps(g[k])}\n")
         f.write("[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[safe]\n\tdirectory = *\n")
-    link(os.path.join(runhome, ".pot-hidden"), os.path.join(rundir, "hidden.txt"), made)
+    link(runhome, ".pot-hidden", os.path.join(rundir, "hidden.txt"), made)
     if not view and not os.path.lexists(os.path.join(runhome, ".gitconfig")):
-        link(os.path.join(runhome, ".gitconfig"), os.path.join(rundir, "gitconfig"), made)
+        link(runhome, ".gitconfig", os.path.join(rundir, "gitconfig"), made)
     with open(os.path.join(rundir, "README.md"), "w") as f:
         f.write(readme(policy, launch, rundir, runhome))
     open(os.path.join(rundir, "denials"), "a").close()
