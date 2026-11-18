@@ -319,11 +319,12 @@ def object_env(host, top):
 
 def tree_diffstat(host, top, old, new, rel=None, paths=()):
     r = subprocess.run([host.git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*",
-                        "-C", top, "diff", "--stat=100", old, new] + (["--"] + list(paths) if paths else []), capture_output=True, text=True,
-                       env={**os.environ, **object_env(host, top)})
+                        "-C", top, "diff", "--stat=100", old, new] + (["--"] + list(paths) if paths else []), capture_output=True,
+                       env={**os.environ, **object_env(host, top), "GIT_LITERAL_PATHSPECS": "1"})
     if r.returncode != 0:
         return []
-    lines = git_lines(r.stdout.rstrip("\n"))
+    # K1: a clone's paths are the run's: bytes, surrogateescape, shown through visible()
+    lines = [visible(l) for l in git_lines(r.stdout.decode("utf-8", "surrogateescape").rstrip("\n"))]
     if rel:
         # the trees are the flake directory's: paths relative to the workspace, as people see them
         lines = [f" {rel}/{l.lstrip()}" if " | " in l else l for l in lines]
