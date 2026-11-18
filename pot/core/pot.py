@@ -751,10 +751,14 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
                 continue
             m = C.root_repo_match(r["top"], r["originKey"], root.get("rootRepos"), host.home)
             if m:
-                shown = C.canon_path(r["top"], host.home)
-                agent = cmd and any(cmd[0] in (k.get("commands") or {}) for k in (root.get("kits") or {}).values())
-                alt = f"{cmd[0]} (unsandboxed)" if agent else "pot host CMD"
-                raise C.Refusal(f"pot ({ctx['name']}): {shown} is a root: pot inspect, or {alt} until pot dispatch (a later release)")
+                raise root_refusal(host, root, ctx, r["top"], cmd)
+        # S3: a --repo with write access may not hold a root repository either
+        for p in paths[1:]:
+            r = repo_of(host, p)
+            if r:
+                inner = root_inside(host, root, r["top"])
+                if inner:
+                    raise root_refusal(host, root, ctx, inner, cmd)
     # state, logs and caches are never inside a workspace (§4.4)
     for p in paths:
         r = repo_of(host, p)
@@ -796,6 +800,7 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
            "host": {"home": host.home, "user": host.user, "env": {n: n in os.environ for n in env_names},
                     "resolve": resolve, "hidden": resolve_hidden(host, root), "tz": host.tz()}}
     policy, report = C.compose(inp)
+    root_writes(host, root, ctx, policy, cmd)
     for w in ws:
         if os.path.isdir(os.path.join(w["top"], ".githooks")) and not run_git(host, w["top"], "config", "core.hooksPath").stdout.strip():
             report["notes"].append(f"{os.path.basename(w['top'])} has .githooks but core.hooksPath is unset: commits run no hook "
@@ -812,6 +817,62 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000"):
     report["arrived"] = arrived_line(host, grants, text)
     report["grantsText"] = text
     return inp, policy, report, bprog, ws
+
+
+def root_refusal(host, root, ctx, top, cmd):
+    shown = C.canon_path(top, host.home)
+    agent = cmd and any(cmd[0] in (k.get("commands") or {}) for k in (root.get("kits") or {}).values())
+    alt = f"{cmd[0]} (unsandboxed)" if agent else "pot host CMD"
+    return C.Refusal(f"pot ({ctx['name']}): {shown} is a root: pot inspect, or {alt} until pot dispatch (a later release)")
+
+
+def is_root(host, root, top):
+    r = repo_of(host, top)
+    return r is not None and r["top"] == top and \
+        C.root_repo_match(r["top"], r["originKey"], root.get("rootRepos"), host.home) is not None
+
+
+def root_inside(host, root, d):
+    """S3: a root repository at or below folder D: a root listed by path, or any repository found below D (the
+    .git names within five levels) whose top or origin the root lists. Its top, or None."""
+    d = os.path.realpath(d)
+    for rr in root.get("rootRepos") or []:
+        if rr.startswith(("~", "/")):
+            rp = os.path.realpath(C.expand(rr, host.home))
+            if C.under(rp, d) and os.path.isdir(rp):
+                return rp
+    try:
+        out = subprocess.run(["find", d, "-maxdepth", "5", "-name", ".git", "-prune", "-print0"],
+                             capture_output=True, timeout=20).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        out = b""
+    for e in out.split(b"\0"):
+        if e:
+            top = os.path.dirname(os.fsdecode(e))
+            if is_root(host, root, top):
+                return top
+    return None
+
+
+def root_writes(host, root, ctx, policy, cmd):
+    """S3 (v2.16.2): a write item (--write, a granted requests.write) that equals, sits inside or contains a root
+    repository is refused at start, with the root message: a run never writes a root in place (D13)."""
+    for i in policy["items"]:
+        if i["kind"] != "write" or not i.get("effective") or not i.get("path"):
+            continue
+        p = os.path.realpath(i["path"])
+        r = repo_of(host, p) if os.path.exists(p) else None
+        if r and C.root_repo_match(r["top"], r["originKey"], root.get("rootRepos"), host.home):
+            raise root_refusal(host, root, ctx, r["top"], cmd)
+        for rr in root.get("rootRepos") or []:
+            if rr.startswith(("~", "/")):
+                rp = os.path.realpath(C.expand(rr, host.home))
+                if C.under(p, rp):
+                    raise root_refusal(host, root, ctx, rp, cmd)
+        if os.path.isdir(p):
+            inner = root_inside(host, root, p)
+            if inner:
+                raise root_refusal(host, root, ctx, inner, cmd)
 
 
 def command_agent(root, report):
@@ -1372,6 +1433,7 @@ def explain(host, root, context, flags, cmd):
             with open(os.path.join(tmp, "launch.json"), "w") as f:
                 json.dump(launch, f)
             r = subprocess.run([bprog, "prepare", tmp, "--print"])
+            subprocess.run([bprog, "cleanup", tmp])    # prepare's S1 placeholders, removed
             return r.returncode
         else:
             sys.stdout.write(C.explain_text(policy, report, root, width_of(sys.stdout)))

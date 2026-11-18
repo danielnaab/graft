@@ -1291,7 +1291,10 @@ EOF
         name = "test";
         grantsFile = "$work/sbgrants/grants.json";
         stateDir = "$work/sbstate";
-        rootRepos = [ "$work/sbrootrepo" ];
+        rootRepos = [ "$work/sbrootrepo" "fake.example/rootx" ];
+        # S3: a granted write request that names a root repository
+        kits.rootwriter.commands.rwtest = { program = "\${nixpkgs.legacyPackages.\${s}.bashInteractive}/bin/bash";
+          requests.write = [ "$work/sbrootrepo" ]; };
         hidden = [ "$work/sbhidden" ];
         kits.daniel.requests.network = [ "127.0.0.1:1" ];
         # relay: a command kit with state, a reasserted file, and the status.relay, credential and mcp bindings
@@ -1596,6 +1599,27 @@ STUB
   expect "is masked" has "masked"
   rm -f -- "$work/sbextra/s.sock"
 
+  # S1 (v2.16.2): git names absent at start (commondir, config.worktree, gitdir) can't be created by a run in any
+  # git directory pot protects: a neutral read-only placeholder is there for the run, and gone after it. The
+  # qa-security repro: a run-written .git/commondir would point host git at the run's config (core.fsmonitor).
+  local mk=$work/MARKER-commondir n
+  # shellcheck disable=SC2016 # the run's shell expands them
+  ran "pot: S1, a run tries to create .git/commondir" sb_ bash -c 'mkdir -p alt && cp -r .git/objects .git/refs .git/HEAD alt/
+    printf "[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tfsmonitor = \"touch %s; false\"\n" "$1" > alt/config
+    echo ../alt > .git/commondir 2>/dev/null && echo "wrote commondir" || echo "commondir: refused"
+    for n in config.worktree gitdir; do echo x > .git/$n 2>/dev/null && echo "wrote $n" || echo "$n: refused"; done
+    echo x > .git/modules/scions/sbk/commondir 2>/dev/null && echo "wrote the scion commondir" || echo "module commondir: refused"' _ "$mk"
+  expect "is refused" has "commondir: refused"
+  expect "so are config.worktree" has "config.worktree: refused"
+  expect "and gitdir" has "gitdir: refused"
+  expect "and a scion's git directory's" has "module commondir: refused"
+  for n in commondir config.worktree gitdir; do
+    expect "pot: the placeholder .git/$n is gone after the run" test ! -e ".git/$n"
+  done
+  git_ status --short >/dev/null 2>&1 || true
+  expect "host git ran none of the run's config (the marker is absent)" test ! -e "$mk"
+  rm -rf -- alt
+
   # S: §16.11: names a run chose reach the host escaped
   # shellcheck disable=SC2016 # the run's shell expands them
   ran "pot: a run-made name with an escape byte" sb_loud bash -c 'd=$(printf "e\033]0;x\007v"); mkdir "$d" && git -C "$d" init -q'
@@ -1866,6 +1890,25 @@ EOF
     && expect "is refused (D23)" holds "is a root: pot inspect, or pot host CMD until pot dispatch (a later release)")
   refused "pot: --repo to a root repository" sb_ --repo "$work/sbrootrepo" true
   expect "is refused" holds "is a root: pot inspect"
+  # S3 (v2.16.2): a write item that equals, contains or sits inside a root repository is refused at start
+  mkdir -p "$work/sbrootrepo/sub"
+  local wr
+  for wr in "$work/sbrootrepo" "$work/sbrootrepo/sub"; do
+    refused "pot: S3, --write $wr" sb_ --write "$wr" true
+    expect "is refused with the root message" holds "$work/sbrootrepo is a root: pot inspect"
+  done
+  # a root by its origin, nested in another repository: --write and --repo of the outer one are refused too
+  local ou=$work/sbouter && mkdir -p "$ou/inner" && git_ -C "$ou" init -q && git_ -C "$ou" commit -q --allow-empty -m o
+  git_ -C "$ou/inner" init -q && git_ -C "$ou/inner" remote add origin ssh://git@fake.example/rootx.git && git_ -C "$ou/inner" commit -q --allow-empty -m i
+  refused "pot: S3, --write of a folder holding a root (by origin)" sb_ --write "$ou" true
+  expect "names the root" holds "$ou/inner is a root: pot inspect"
+  refused "pot: S3, --repo of a repository holding a root" sb_ --repo "$ou" true
+  expect "names the root" holds "$ou/inner is a root: pot inspect"
+  ran "pot: S3, --repo of it with --access read" sb_ --access read --repo "$ou" true
+  # a granted write request naming a root
+  ran "pot: S3, grant a kit's write of a root" tty_ $'y\n' "$work/sbr/bin/pot" grant rootwriter
+  refused "pot: S3, its command" sb_ rwtest -c true
+  expect "is refused at start" holds "$work/sbrootrepo is a root: pot inspect"
   refused "pot: dispatch" sb_ dispatch true
   expect "comes later" holds "clone mode (dispatch) comes in a later release"
   refused "pot: run is reserved" sb_ run true
