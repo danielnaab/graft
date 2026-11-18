@@ -1286,7 +1286,10 @@ EOF
         name = "test";
         grantsFile = "$work/sbgrants/grants.json";
         stateDir = "$work/sbstate";
-        rootRepos = [ "$work/sbrootrepo" ];
+        rootRepos = [ "$work/sbrootrepo" "fake.example/rootx" ];
+        # S3: a granted write request that names a root repository
+        kits.rootwriter.commands.rwtest = { program = "\${nixpkgs.legacyPackages.\${s}.bashInteractive}/bin/bash";
+          requests.write = [ "$work/sbrootrepo" ]; };
         hidden = [ "$work/sbhidden" ];
         kits.daniel.requests.network = [ "127.0.0.1:1" ];
         # relay: a command kit with state, a reasserted file, and the status.relay, credential and mcp bindings
@@ -1906,6 +1909,27 @@ EOF
     && expect "is refused, naming dispatch (D13)" holds "is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD; pot host CMD runs it unsandboxed")
   refused "pot: --repo to a root repository" sb_ --repo "$work/sbrootrepo" true
   expect "is refused" holds "is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
+  # S3 (v2.16.2; pot-1b): a write item that equals, contains or sits inside a root repository is refused at start
+  mkdir -p "$work/sbrootrepo/sub"
+  local wr
+  for wr in "$work/sbrootrepo" "$work/sbrootrepo/sub"; do
+    refused "pot: S3, --write $wr" sb_ --write "$wr" true
+    expect "is refused with the root message" holds "$work/sbrootrepo is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
+  done
+  # a root by its origin, nested in another repository: --write and --repo of the outer one are refused too
+  local ou=$work/sbouter && mkdir -p "$ou/inner" && git_ -C "$ou" init -q && git_ -C "$ou" commit -q --allow-empty -m o
+  git_ -C "$ou/inner" init -q && git_ -C "$ou/inner" remote add origin ssh://git@fake.example/rootx.git && git_ -C "$ou/inner" commit -q --allow-empty -m i
+  refused "pot: S3, --write of a folder holding a root (by origin)" sb_ --write "$ou" true
+  expect "names the root" holds "$ou/inner is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
+  refused "pot: S3, --repo of a repository holding a root" sb_ --repo "$ou" true
+  expect "names the root" holds "$ou/inner is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
+  ran "pot: S3, --repo of it with --access read" sb_ --access read --repo "$ou" true
+  # a granted write request naming a root
+  ran "pot: S3, grant a kit's write of a root" tty_ $'y\n' "$work/sbr/bin/pot" grant rootwriter
+  refused "pot: S3, its command" sb_ rwtest -c true
+  expect "is refused at start" holds "$work/sbrootrepo is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
+  refused "pot: S3, --write of a root from a dispatch (it would write the root in place)" sb_ dispatch --write "$work/sbrootrepo" true
+  expect "is refused too" holds "$work/sbrootrepo is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
   refused "pot: run is reserved" sb_ run true
   expect "says so" holds "pot run is reserved"
   refused "pot: serve is reserved" sb_ serve
