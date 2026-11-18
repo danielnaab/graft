@@ -241,6 +241,17 @@ pot (work): ~/.workstation is a root: pot inspect, or claude (unsandboxed) until
 
 For a command that is not an agent kit's, the alternative is `pot host CMD`.
 
+**Write access to a root is refused in every form.** A `--write PATH`, a granted `requests.write` item, or a
+`--repo PATH` with write access that is a root repository, sits inside one, or holds one is refused at start
+(exit 1), naming the flag or the kit and the root:
+
+```
+pot (work): --write ~/src/w holds the root ~/src/w/rootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)
+```
+
+A write item that holds a root is refused, not narrowed to the rest of the folder. Reading a root is not refused:
+`--read` and `inspect` still see it.
+
 Change a root repository with plain `claude`, or by hand, and review the change before `home-manager switch`.
 `pot inspect` reads it. In a root repository's worktrees, set workmux's agent command to `claude` in the
 repository's `.workmux.yaml`.
@@ -700,7 +711,7 @@ and the exit line names each one's permanent form. `--flag=value` works too.
 | `--backend NAME` | | Chooses a backend that the root defines. |
 | `--resume RUN`, `--resume last` | | Only with `host`: passes the transcript of run `RUN` (`last`: the newest run that left one) into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `pot: --resume RUN goes with pot host (pot host --resume RUN CMD)`. |
 
-A flag or `--repo` that names a hidden path, or a root repository in `work`, is refused at start.
+A flag or `--repo` that names a hidden path, or that would write a root repository, is refused at start.
 
 ### pot explain
 
@@ -1164,8 +1175,11 @@ depth: the tree after a run is untrusted output.
   `graft-kits` bundle, which pot reads until v2.17.0.
 - Each kit's `protect`.
 - In every git directory (the top `.git`, each scion's, each worktree's): `config`, `config.worktree`, `hooks/`,
-  `info/`, `commondir` and `gitdir`; and every `.git` file. The rest is writable, so a run can commit. It can also
-  delete other branches' refs.
+  `info/`, `commondir` and `gitdir`; and every `.git` file. When `commondir`, `config.worktree` or `gitdir` is
+  absent at start, pot puts a neutral read-only placeholder there for the run (`commondir` holding `.`, the others
+  empty), so a run cannot create one and point host git at a config it wrote. pot removes each placeholder after
+  the run, if it still holds what pot wrote. The rest is writable, so a run can commit. It can also delete other
+  branches' refs.
 
 A protected file with a second hard link stops the run. To change a protected file, edit it on the host.
 
@@ -1262,6 +1276,7 @@ The other messages, after `pot (<context>): `:
 | Protected (`pot why`) | `justfile is protected (**/justfile, graft): edit it on the host` |
 | A root repository, agent command (1) | `~/.workstation is a root: pot inspect, or claude (unsandboxed) until pot dispatch (a later release)` |
 | A root repository, other command (1) | `~/.workstation is a root: pot inspect, or pot host CMD until pot dispatch (a later release)` |
+| Writing a root (1) | `--write ~/src/w holds the root ~/src/w/rootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)`; the same form for a `--write` of the root itself, a granted `requests.write` item (naming its kit) and `--repo` with write access |
 | Not a repository (1) | `~/Downloads is not inside a git repository: pot inspect CMD, or pot host CMD` |
 | A `--repo` outside git (1) | `--repo PATH is not inside a git repository` |
 | Stale grant (125) | `meeting-kit (git:…) asks for more than its grant:`, then each new request as `  + network api.github.com:443`, then `  grant it: pot grant meeting-kit`. Also `… requests reach that is not granted:`; `… changed source since its grant:` with `  source: tree A -> tree B` and up to 12 lines of `git diff --stat`; and `… is not a verified release, so its grant does not apply`. |
