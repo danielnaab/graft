@@ -87,6 +87,8 @@ LOST = "pot ended without an exit (killed or crashed)"
 def note(rec):
     """pot runs' NOTE column."""
     c = rec.get("clone") or {}
+    if rec.get("recovering"):
+        return f"recovering · pot runs {rec['id']} again"
     if rec["state"] == "review" and not (c.get("commits", 0) + c.get("scionCommits", 0)):
         return f"fetch failed · pot review {rec['id']}"
     if rec["state"] == "review":
@@ -132,6 +134,7 @@ def record(rid, events, alive):
                  "unsigned": (af or {}).get("unsigned", 0),
                  "refs": (af or {}).get("refs") or {}, "uncommitted": (af or {}).get("uncommitted"),
                  "nested": c.get("nested") or [],
+                 "fetchFailed": (af or {}).get("fetch_failed") or None,      # N2: the after event's failure, as text
                  "size": (af or {}).get("size"), "fetched": (fetch or {}).get("refs"),
                  "discarded": (disc or {}).get("time"), "keptUntil": None}
     if stop:

@@ -1923,6 +1923,11 @@ EOF
   refused "pot: S3, --repo of a repository holding a root" sb_ --repo "$ou" true
   expect "names the root (V1)" holds "--repo $ou holds the root $ou/inner: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   ran "pot: S3, --repo of it with --access read" sb_ --access read --repo "$ou" true
+  # D5: in a dispatch, --repo of a root gets the root refusal, before --repo's later-release one
+  refused "pot: D5, dispatch --repo of a root" sb_ dispatch --repo "$work/sbrootrepo" true
+  expect "D5: the root refusal (V1)" holds "pot (dispatch): --repo $work/sbrootrepo is the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
+  refused "pot: D5, dispatch --repo of a repository holding a root" sb_ dispatch --repo "$ou" true
+  expect "D5: names the root it holds" holds "pot (dispatch): --repo $ou holds the root $ou/inner: a run never writes a root"
   # a granted write request naming a root
   ran "pot: S3, grant a kit's write of a root" tty_ $'y\n' "$work/sbr/bin/pot" grant rootwriter
   refused "pot: S3, its command" sb_ rwtest -c true
@@ -2028,6 +2033,8 @@ EOF
       pot = graft.lib.mkRoot common;
       # the same state, clones kept 0 days and capped at 1 byte
       prune = graft.lib.mkRoot (common // { clones = { keepDays = 0; maxSize = "1"; }; });
+      # G4: a stateDir with a space (the sandboxed upload-pack's path is quoted)
+      spaced = graft.lib.mkRoot (common // { stateDir = "$work/d state"; });
     };
   };
 }
@@ -2175,9 +2182,27 @@ EOF
   git_ -C "$st/$kid/clone" config core.sshCommand "touch $work/PLANTED-sshcommand"
   mkdir -p "$st/$kid/clone/nested" && git_ -C "$st/$kid/clone/nested" init -q
   git_ -C "$st/$kid/clone/nested" config core.fsmonitor "touch $work/PLANTED-nested"
-  # R9: a recovery another pot holds (its lock) is left to that pot
-  ran "dispatch: R9, pot runs while another holds the recovery lock" flock "$st/$kid/recover.lock" env -u POT -u CLAUDECODE POT_QUIET=1 "$work/dr/bin/pot" runs "$kid" --json
-  expect "R9: is not recovered twice" test "$(jq -r '.clone.commits' <<<"$out")" = 0
+  # R9, G1: a recovery another pot holds (its lock) is left to that pot; a reader waits for it (15s), then rereads
+  flock "$st/$kid/recover.lock" sleep 20 &
+  local hold=$!
+  sleep 0.5
+  dl runs "$kid" > "$work/g1-text.out" 2>&1 &
+  local g1t=$!
+  ran "dispatch: G1, pot runs while another holds the recovery lock past the wait" d_ runs "$kid" --json
+  expect "G1: shows recovering, never a run with no commits" test "$(jq -r '"\(.recovering) \(.state)"' <<<"$out")" = "true running"
+  wait "$g1t" || true
+  out=$(cat "$work/g1-text.out")
+  expect "G1: and says so" holds "recovering: another pot is completing this run's staging; pot runs $kid again"
+  refuse "G1: not lost" holds "unknown: pot ended"
+  wait "$hold" || true
+  expect "R9: is not recovered while held" test "$(grep -c '"ev":"after"' "$st/$kid/log.jsonl")" = 0
+  flock "$st/$kid/recover.lock" sleep 2 &
+  hold=$!
+  sleep 0.5
+  ran "dispatch: G1, pot runs while the lock is held for 2s" d_ runs "$kid" --json
+  wait "$hold" || true
+  expect "G1: waits, then completes the staging itself: review" test "$(jq -r '"\(.state) \(.clone.commits)"' <<<"$out")" = "review 1"
+  expect "R9: recovered once" test "$(grep -c '"ev":"after"' "$st/$kid/log.jsonl")" = 1
   ran "dispatch: pot runs ID after the kill" d_ runs "$kid" --json
   expect "completes the staging: review" test "$(jq -r '"\(.state) \(.lost) \(.clone.commits)"' <<<"$out")" = "review true 1"
   ran "dispatch: pot runs lists it" d_ runs
@@ -2207,16 +2232,38 @@ EOF
     git update-index --cacheinfo 100644,"$b",dossier-é/justfile && git commit -qm "change the justfile"'
   local r3 && r3=$(d_ runs --json | jq -r '.runs[0].id')
   expect "R3: ATTENTION names it, unquoted" test "$(rec "$r3" '.attention | index("host-run: dossier-é/justfile")')" != null
+  # G2: git's -z output read as bytes: a CR stays \x0d, a byte that is not UTF-8 shows as \xNN
+  # shellcheck disable=SC2016 # the run's shell expands them
+  ran "dispatch: G2, a commit changing justfiles under folders with a CR and a 0xff byte" d_ dispatch bash -c '
+    for d in "$(printf "cr\rdir")" "$(printf "bad\377dir")"; do mkdir -p "$d" && echo "x:" > "$d/justfile" && git add -- "$d/justfile"; done
+    git commit -qm g2'
+  local g2 && g2=$(d_ runs --json | jq -r '.runs[0].id')
+  expect "G2: the CR stays \\x0d" test "$(rec "$g2" '.attention | index("host-run: bad\\xffdir/justfile, cr\\x0ddir/justfile")')" != null
   # F2: a dispatch that stops with 125 (needs is not granted yet) records its clone; --discard removes it
   refused "dispatch: F2, a dispatch that stops (125)" d_ dispatch needtest -c true
   local f2 && f2=$(d_ runs --json | jq -r '[.runs[] | select(.state == "stopped" and .mode == "clone")][0].id')
   expect "F2: its record has the clone" test "$(rec "$f2" '.clone.base | length')" = 40
+  ran "dispatch: D4, pot runs ID of it" d_ runs "$f2"
+  expect "D4: next names the fix, its kept clone and --discard" grep -qE "^next       pot grant needs · its clone is kept until [0-9]{4}-[0-9]{2}-[0-9]{2}: pot review $f2 --discard$" <<<"$out"
   ran "dispatch: F2, --discard of it" dl review "$f2" --discard
   expect "F2: says it discarded the clone" holds "pot: discarded run $f2's clone"
   expect "F2: the clone is gone" test ! -e "$st/$f2/clone"
   # a dispatch refused for another reason after its clone was made: no clone is left without a log
   refused "dispatch: F2, a dispatch of a program nowhere" d_ dispatch no-such-program-x
   expect "F2: no orphan clone" test -z "$(for d in "$st"/*/; do [ -d "$d/clone" ] && [ ! -s "$d/log.jsonl" ] && echo "$d"; done)"
+  expect "D1: its fix names dispatch" holds "  one run:   pot dispatch --package PKG …"
+  expect "C1: and no run folder without a log" test -z "$(for d in "$st"/*/; do [ -e "$d/log.jsonl" ] || echo "$d"; done)"
+  refused "dispatch: C1, an in-place run refused before its start" d_ --write "$work/drootrepo" true
+  expect "C1: leaves no run folder either" test -z "$(for d in "$st"/*/; do [ -e "$d/log.jsonl" ] || echo "$d"; done)"
+  # D1: a dispatch's hints name dispatch: the denials file, the exit line, the not-found handler
+  # shellcheck disable=SC2016 # the run's shell expands them
+  local ask='exec 3<>/dev/tcp/127.0.0.1/3128 && printf "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n" "$1" "$1" >&3 && head -1 <&3'
+  ran "dispatch: D1, a host not granted (with --net, so the run has a proxy)" dl dispatch --net allowed.example bash -c "$ask; cat /run/pot/denials; no-such-tool-d1; true" _ denied.example:443
+  expect "D1: the denials file's one-run form is pot dispatch" holds "pot (dispatch): the run tried denied.example:443 (not in this run)."
+  expect "D1: one run: pot dispatch --net" test "$(grep -c '^  one run:   pot dispatch --net denied.example …$' <<<"$out")" -ge 2
+  refuse "D1: never pot --net (a work run)" holds "  one run:   pot --net"
+  expect "D1: the not-found handler too" holds "  one run:   pot dispatch --package PKG …"
+  refuse "D1: never pot --package" holds "  one run:   pot --package"
 
   # 125: a stopped record, and the pane workmux shows waiting
   # shellcheck disable=SC2016 # the stub's shell expands them
@@ -2261,11 +2308,13 @@ EOF
   # S2: a run whose commits fail the staging fetch (fsck refuses a malformed commit): ATTENTION says so, the run stays
   # in review, and keepDays and maxSize never remove its clone
   # shellcheck disable=SC2016 # the run's shell expands them
-  ran "dispatch: S2, a clone whose fetch fails" d_ dispatch bash -c 'git commit -q --allow-empty -m good-one
+  ran "dispatch: S2, a clone whose fetch fails" dl dispatch bash -c 'git commit -q --allow-empty -m good-one
     printf "tree 0000\nnot a commit\n" > /tmp/bad
     c=$(git hash-object -w --literally -t commit /tmp/bad) && echo "$c" > .git/refs/heads/bad && echo made-bad'
+  expect "N1: the exit line names the failure, then the good ref's fetch" grep -qE "^pot: run [0-9a-f]{4} · 1 commit on main · fetch failed: refs/heads/bad: .*: pot review [0-9a-f]{4}, then pot review [0-9a-f]{4} --fetch$" <<<"$out"
   local fid && fid=$(d_ runs --json | jq -r '[.runs[] | select(.attention | any(startswith("fetch failed")))][0].id')
   expect "S2: ATTENTION says the fetch failed" test -n "$fid" -a "$fid" != null
+  expect "N2: the record carries clone.fetchFailed" test "$(rec "$fid" '.clone.fetchFailed | startswith("refs/heads/bad")')" = true
   expect "S2: the run is in review" test "$(rec "$fid" .state)" = review
   ran "dispatch: S2, pot review lists it" d_ review
   expect "with the failure" grep -q "^$fid .*fetch failed" <<<"$out"
@@ -2274,8 +2323,13 @@ EOF
   expect "F8: and git's own error, not its last line" test "$(rec "$fid" '.attention[] | select(startswith("fetch failed"))' | grep -c 'bogus commit object')" = 1
   # the second trigger: a clone whose git directory lost its objects (fsck or upload-pack fails for every ref)
   # shellcheck disable=SC2016
-  ran "dispatch: F3, a clone whose objects are gone" d_ dispatch bash -c 'git commit -q --allow-empty -m lost && rm -rf .git/objects/??'
+  ran "dispatch: F3, a clone whose objects are gone" dl dispatch bash -c 'git commit -q --allow-empty -m lost && rm -rf .git/objects/??'
+  expect "N1: the exit line names the failure and pot review, not no commits" grep -qE "^pot: run [0-9a-f]{4} · fetch failed: .*: pot review [0-9a-f]{4}$" <<<"$out"
+  refuse "N1: never no commits … --discard" holds "no commits; the clone is kept"
   local f3b && f3b=$(d_ runs --json | jq -r '[.runs[] | select(.attention | any(startswith("fetch failed")))][0].id')
+  ran "dispatch: N1, pot runs ID of it" d_ runs "$f3b"
+  expect "N1: next names the failure, no --fetch" has "next       pot review $f3b · pot review $f3b --discard (the staging fetch failed: nothing to fetch)"
+  refuse "N1: never --fetch" holds "--fetch"
   expect "F3: it is in review too" test "$(rec "$f3b" .state)" = review
   expect "F3: a different run from the first" test "$f3b" != "$fid"
   # F4/R1 by prune: a no-commit clone with a link out and a read-only folder, removed by keepDays 0
@@ -2399,6 +2453,7 @@ EOF
   expect "R4: commits it" grep -qE "^committed $work/dgrants/grants.json \([0-9a-f]{7}\)" <<<"$out"
   expect "R4: its subject" test "$(git_ -C "$work/dgrants" log -1 --format=%s)" = "pot grant --revoke: needs"
   expect "R4: the grant is gone" test "$(jq -r '.grants["root:needs"] // "gone"' "$work/dgrants/grants.json")" = gone
+  expect "G3: its body says Revoked on" grep -q "^Revoked on " <<<"$(git_ -C "$work/dgrants" log -1 --format=%b)"
   # R5: pot grant KIT --commit (the synopsis order) reads --commit as a flag
   ran "dispatch: R5, pot grant KIT --commit" tty_ $'y\n' "$work/dr/bin/pot" grant needs --commit
   expect "R5: commits the grant" holds "committed $work/dgrants/grants.json"
@@ -2471,6 +2526,13 @@ EOF
     "$work/dplain" "$work/dbin" "$work/dr/bin/pot"
   expect "F9: names PATH" holds "its probe runs true, and PATH has none"
   refuse "F9: not user namespaces" holds "cannot create a user namespace"
+  # D2: a run's own probe (no cached result) with the same PATH says the same
+  case "$work/dstate/cache" in "$work"/*) rm -f -- "$work/dstate/cache"/probe-*;; esac
+  # shellcheck disable=SC2016 # the inner bash expands them
+  refused "dispatch: D2, a run with a PATH that lacks true" bash -c 'cd "$1" && env -u POT -u CLAUDECODE PATH="$2" "$3" true </dev/null' _ \
+    "$work/dplain" "$work/dbin" "$work/dr/bin/pot"
+  expect "D2: names PATH" holds "pot: bubblewrap: its probe runs true, and PATH has none (PATH=$work/dbin); user namespaces were not tested, so no run starts"
+  refuse "D2: not user namespaces" holds "can't create a user namespace"
   # shellcheck disable=SC2016
   ran "dispatch: pot doctor inside a run is refused" d_ bash -c 'pot doctor 2>&1; true'
   expect "naming explain and why" holds "pot doctor runs on the host; inside a run, pot explain and pot why"
@@ -2483,7 +2545,8 @@ EOF
   expect "says it is pot's state" holds "which is pot's own state"
 
   # refusals and inside a run
-  refused "dispatch: --repo in clone mode" d_ dispatch --repo "$work/drootrepo" true
+  # (a repository that is not a root: a root gets the root refusal first, D5)
+  refused "dispatch: --repo in clone mode" d_ dispatch --repo "$work/dplain" true
   expect "is a later release's" holds "pot (dispatch): --repo comes to clone mode in a later release; a dispatch clones this repository only"
   refused "dispatch: --from in place" d_ --from side true
   expect "is usage" holds "pot (work): --from is clone mode: pot dispatch --from REF CMD, or pot --clone --from REF CMD"
@@ -2524,6 +2587,7 @@ EOF
   expect "names the scion" holds "scions/sbd: its commits are in that scion's refs/remotes/pot-$sr/*"
   expect "into the scion's repository" test "$(git_ -C scions/sbd log -1 --format=%s "refs/remotes/pot-$sr/detached")" = scion-fix
   expect "F1: and no no-op scion branch" test -z "$(git_ -C scions/sbd for-each-ref --format='%(refname)' "refs/remotes/pot-$sr/" | grep -v '/detached$')"
+  expect "G3: and no top-level pot-ID/main (the run moved no top-level ref)" test -z "$(git_ for-each-ref "refs/remotes/pot-$sr/")"
   # R7: the exit line counts each moved ref's commits and the scions'
   # shellcheck disable=SC2016
   ran "dispatch: R7, commits on two branches and in a scion" dl dispatch bash -c 'git -C scions/sbd commit -q --allow-empty -m s7
@@ -2544,6 +2608,24 @@ EOF
   local gid && gid=$(d_ runs --json | jq -r '[.runs[] | select(.state == "review" and .clone.commits == 1)][0].id')
   ran "dispatch: X8, --fetch where the host signs" env GIT_CONFIG_VALUE_3=true POT_QUIET=1 env -u CLAUDECODE -u POT "$work/dr/bin/pot" review "$gid" --fetch
   expect "names a branch" grep -qE "^  sign:    git switch -c pot-$gid pot-$gid/main && git rebase --exec 'git commit --amend --no-edit -S' [0-9a-f]{7}" <<<"$out"
+  expect "D3: sign first, then take it" test "$(grep -oE '^  (review|sign|take it):' <<<"$out" | tr -d ' ' | paste -sd,)" = "review:,sign:,takeit:"
+  expect "D3: take it merges the signed branch" has "  take it: git merge pot-$gid"
+  # G4: a root whose stateDir has a space: dispatch and fetch-back work
+  ran "dispatch: G4, a root whose stateDir has a space" nix build -o "$work/drs" "path:$work/droot#packages.$sys.spaced"
+  ran "dispatch: G4, a dispatch there" env -u POT -u CLAUDECODE POT_QUIET=1 "$work/drs/bin/pot" dispatch bash -c 'git commit -q --allow-empty -m spaced' </dev/null
+  local g4 && g4=$(env -u POT POT_QUIET=1 "$work/drs/bin/pot" runs --json | jq -r '.runs[0].id')
+  expect "G4: its clone is under the spaced folder" test -d "$work/d state/runs/$g4/clone"
+  ran "dispatch: G4, its --fetch" env -u POT -u CLAUDECODE "$work/drs/bin/pot" review "$g4" --fetch </dev/null
+  expect "G4: fetch-back works" test "$(git_ log -1 --format=%s "refs/remotes/pot-$g4/main")" = spaced
+  # G4: a .gitmodules name with .. is never a path pot clones from (git's own rule for names)
+  local gm=$work/dmods && mkdir -p "$gm" && git_ -C "$gm" init -q && git_ -C "$gm" commit -q --allow-empty -m init
+  mkdir -p "$gm/evil" && git_ -C "$gm/evil" init -q && echo planted > "$gm/evil/PLANTED" && git_ -C "$gm/evil" add PLANTED && git_ -C "$gm/evil" commit -q -m evil
+  local evc && evc=$(git_ -C "$gm/evil" rev-parse HEAD)
+  printf '[submodule "../../evil"]\n\tpath = sub\n\turl = ./evil\n' > "$gm/.gitmodules"
+  git_ -C "$gm" add .gitmodules && git_ -C "$gm" update-index --add --cacheinfo "160000,$evc,sub" && git_ -C "$gm" commit -q -m mods
+  # shellcheck disable=SC2016 # the inner bash expands them
+  ran "dispatch: G4, a dispatch where .gitmodules names a submodule ../../evil" bash -c 'cd "$1" && env -u POT -u CLAUDECODE POT_QUIET=1 "$2" dispatch bash -c "ls -A sub 2>&1; true" </dev/null' _ "$gm" "$work/dr/bin/pot"
+  refuse "G4: its submodule is not cloned from the name's path" holds PLANTED
   cd "$work"
 }
 

@@ -61,7 +61,9 @@ Each record has one state:
 
 When pot finds a clone-mode run that ended without its `after` event (its pot was killed), the next `pot runs` or
 `pot review` that reads the run completes the host's look first, as the run's end does, records it with
-`recovered: true`, then shows it: a clone with commits is `review`, as for any run that ended.
+`recovered: true`, then shows it: a clone with commits is `review`, as for any run that ended. One pot recovers a run at
+a time (`runs/<id>/recover.lock`): another reader waits for it, up to 15 seconds, then reads the log again; while the
+lock is still held, the record is `running` with `recovering: true`.
 
 ### The record
 
@@ -97,7 +99,8 @@ When pot finds a clone-mode run that ended without its `after` event (its pot wa
 | `started`, `ended` | strings or `null` | local times |
 | `exit`, `lost` | number or `null`; boolean | the exit status; whether pot ended without one |
 | `stop` | object or `null` | for `stopped`: `{ reason, kits, fix, grantedSince }` |
-| `clone` | object or `null` | in clone mode: the `base` commit and `branch`, `commits` and `unsigned`, `scionCommits`, `nested` (the scions whose own submodules were not cloned), `fetchFailed`, the moved `refs`, `uncommitted` files left in the clone, its `size`, when it was `fetched` or `discarded`, and `keptUntil` |
+| `recovering` | `true`, or absent | another pot is completing the run's staging (its `recover.lock`), still after a reader's 15-second wait: the state is `running` until it ends |
+| `clone` | object or `null` | in clone mode: the `base` commit and `branch`, `commits` and `unsigned`, `scionCommits`, `nested` (the scions whose own submodules were not cloned), `fetchFailed` (the after event's `fetch_failed`, else `null`), the moved `refs`, `uncommitted` files left in the clone, its `size`, when it was `fetched` or `discarded`, and `keptUntil` |
 | `attention` | list of strings | what the host's look found, as `pot review` shows it: `N unsigned` (when the host signs, until fetched), `root: …` or `root changed`, `host-run: …`, `repo kit: …`, `gitlinks: …`, `N new git metadata paths`, `N denied: …`, `fetch failed: …`. Never a bare commit count. |
 
 Every string from the run (`argv`, ref names) is JSON in `--json`, and escaped in text.

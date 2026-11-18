@@ -47,7 +47,7 @@ def denied(what):
             flag = host if what.endswith(":443") else what
             # compose.denial_text's form: what was refused, then the one-run and permanent fixes
             alts = [a for a in OPT.get("fix", "the repo kit").split("\n") if a]
-            f.write(f"pot ({CONTEXT}): the run tried {what} (not in this run).\n  one run:   pot --net {flag} …\n"
+            f.write(f"pot ({CONTEXT}): the run tried {what} (not in this run).\n  one run:   pot {'' if CONTEXT == 'work' else CONTEXT + ' '}--net {flag} …\n"
                     f"  permanent: {alts[0]}\n" + "".join(f"             {a}\n" for a in alts[1:]))
     if OPT.get("tmux") and OPT.get("pane"):
         import subprocess

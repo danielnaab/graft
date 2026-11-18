@@ -1463,12 +1463,17 @@ def permanent_fix(flag, value, report, root):
     return repo_fix(report, root, kind) + alt
 
 
-def fix_block(one_run, fix, indent="  "):
+def one_run(ctxname, rest):
+    """D1: a hint's one-run form, in the run's own context: pot --net HOST … for work, pot dispatch --net HOST …"""
+    return "pot " + ("" if ctxname in (None, "work") else f"{ctxname} ") + rest
+
+
+def fix_block(once, fix, indent="  "):
     """The two lines of a fix, under the line that says what is missing:
          one run:   pot --net HOST …
          permanent: FIX
                     or OTHER FIX"""
-    lines = [f"{indent}one run:   {one_run}"] if one_run else []
+    lines = [f"{indent}one run:   {once}"] if once else []
     alts = [a for a in (fix or "").split("\n") if a]
     if alts:
         lines.append(f"{indent}permanent: {alts[0]}")
@@ -1515,17 +1520,17 @@ def denial_text(ctxname, hostport, fix, count=1):
     flag = host if port == "443" else f"{host}:{port}"
     times = f", {count}x" if count > 1 else ""
     return "\n".join([f"pot ({ctxname}): the run tried {hostport} (not in this run{times})."]
-                     + fix_block(f"pot --net {flag} …", fix))
+                     + fix_block(one_run(ctxname, f"--net {flag} …"), fix))
 
 
 def not_found_text(ctxname, name, fix, on_host=True):
     """A program that is not in the run (exit 127): with how to get it, when the host has it; else first
     that the host lacks it too."""
     if on_host:
-        return "\n".join([f"pot ({ctxname}): {name} is not in this run."] + fix_block("pot --package PKG …", fix))
+        return "\n".join([f"pot ({ctxname}): {name} is not in this run."] + fix_block(one_run(ctxname, "--package PKG …"), fix))
     return "\n".join([f"pot ({ctxname}): {name} is not in this run, nor on the host's PATH.",
                       "  install it (for a repository's own tools, its package manager), then:"]
-                     + fix_block("pot --package PKG …", fix))
+                     + fix_block(one_run(ctxname, "--package PKG …"), fix))
 
 
 def grant_count(n, what="request"):

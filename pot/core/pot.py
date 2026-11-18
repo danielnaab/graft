@@ -63,7 +63,8 @@ flags (before CMD; one run only):
 
 def visible(s, lines=True):
     """Run-chosen text, safe for the host's terminal: C0 and C1 controls as \\xNN, Unicode format characters (Cf:
-    bidi overrides and isolates, zero-width ones) as \\uNNNN (R8). LINES keeps a newline (a message's own lines).
+    bidi overrides and isolates, zero-width ones) as \\uNNNN (R8), a byte that is not UTF-8 as \\xNN (G2). LINES keeps
+    a newline (a message's own lines).
     pot.py and bwrap.py hold the same function (bwrap's never keeps lines)."""
     import unicodedata
     out = []
@@ -73,6 +74,8 @@ def visible(s, lines=True):
             out.append(c)
         elif o < 0x20 or 0x7f <= o <= 0x9f:
             out.append(f"\\x{o:02x}")
+        elif 0xdc80 <= o <= 0xdcff:
+            out.append(f"\\x{o - 0xdc00:02x}")     # G2: a byte that is not UTF-8 (surrogateescape)
         elif o > 0x9f and unicodedata.category(c) == "Cf":
             out.append(f"\\u{o:04x}" if o <= 0xffff else f"\\U{o:08x}")
         else:
@@ -126,6 +129,12 @@ class Host:
         except OSError:
             pass
         return tz or "UTC"
+
+
+def path_ref(p):
+    """A path as a flake reference: percent-encoded (G4: a stateDir or a checkout with a space, # or ?)."""
+    import urllib.parse
+    return "path:" + urllib.parse.quote(p, safe="/")
 
 
 def run_git(host, cwd, *args, check=False):
@@ -253,11 +262,14 @@ def tree_hash(host, top, rel):
     h = hashlib.sha256()
     sel = ["--", rel] if rel else []
     h.update(run_git(host, top, "ls-files", "-s", *sel).stdout.encode())
-    st = run_git(host, top, "status", "--porcelain=v1", "-z", "-uall", "--ignore-submodules=none", *sel).stdout
-    h.update(st.encode())
-    for e in st.split("\0"):
+    # G2: -z output as bytes (a CR in a path stays one; a byte that is not UTF-8 is kept)
+    st = subprocess.run([host.git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*",
+                         "-C", top, "status", "--porcelain=v1", "-z", "-uall", "--ignore-submodules=none", *sel],
+                        capture_output=True).stdout
+    h.update(st)
+    for e in st.split(b"\0"):
         if len(e) > 3:
-            p = os.path.join(top, e[3:])
+            p = os.path.join(top, os.fsdecode(e[3:]))
             if os.path.isfile(p) and not os.path.islink(p):
                 with open(p, "rb") as f:
                     h.update(hashlib.sha256(f.read()).digest())
@@ -403,7 +415,7 @@ def repo_kit(host, w, rel, ctxname="work"):
         pass
     nix = host.root.get("nix") or "nix"
     system = host.root["system"]
-    flake = f"path:{fdir}"
+    flake = path_ref(fdir)
     if not os.path.isfile(os.path.join(fdir, "flake.lock")):
         raise C.Refusal(f"pot ({ctxname}): {C.canon_path(fdir, host.home)}/flake.lock is missing, and pot never writes one into a "
                         "workspace: run nix flake lock there, on the host, and commit it")
@@ -823,11 +835,16 @@ def probe(prog, rundir, host=None):
 
 
 def probe_now(prog, rundir):
+    import shutil
     r = subprocess.run([prog, "probe", rundir], capture_output=True, text=True)
     try:
         p = json.loads(r.stdout)
     except ValueError:
         p = {"guarantees": [], "error": r.stderr}
+    if not p["guarantees"] and not shutil.which("true"):
+        # D2: doctor's F9 text: the probe runs true from PATH; without one it says nothing about user namespaces
+        raise C.Refusal(f"pot: bubblewrap: its probe runs true, and PATH has none (PATH={os.environ.get('PATH', '')}); "
+                        "user namespaces were not tested, so no run starts")
     if not p["guarantees"]:
         raise C.Refusal("pot: bubblewrap can't create a user namespace here (" + p.get("error", "").strip()
                         + "). In Docker, run the container with --security-opt seccomp=unconfined --security-opt "
@@ -1142,7 +1159,7 @@ def build_package(host, name):
     if not np or not os.path.exists(np):
         raise C.Refusal("pot: --package needs the root's nixpkgs in the Nix store; it is gone (rebuild the root)")
     nix = host.root.get("nix") or "nix"
-    r = subprocess.run([nix, "build", "--no-link", "--print-out-paths", f"path:{np}#{name}"], stdout=subprocess.PIPE, text=True)
+    r = subprocess.run([nix, "build", "--no-link", "--print-out-paths", f"{path_ref(np)}#{name}"], stdout=subprocess.PIPE, text=True)
     if r.returncode != 0:
         raise C.Refusal(f"pot: --package {name}: nix build failed (above)")
     say(f"pot: package {name}, from the root's nixpkgs, for this run")
@@ -1294,7 +1311,7 @@ def scope_for(host, root, ctx, flags, detach):
     return {"note": "no resource limits (no user systemd: pot doctor)"}
 
 
-def clone_mode_checks(ctx, flags, clone):
+def clone_mode_checks(host, root, ctx, flags, clone):
     name = ctx["name"]
     if flags.get("mode") == "in-place" and ctx["mode"] == "clone":
         raise C.Refusal(f"pot ({name}): --mode in-place: {name} works in a clone; pot work CMD works here", 2)
@@ -1302,6 +1319,16 @@ def clone_mode_checks(ctx, flags, clone):
         if flags.get(f) and not clone:
             form = "--from REF" if f == "from" else "--detach"
             raise C.Refusal(f"pot ({name}): --{f} is clone mode: pot dispatch {form} CMD, or pot --clone {form} CMD", 2)
+    if clone and flags.get("repo") and flags.get("access") != "read":
+        # D5: a --repo that is or holds a root gets the root refusal (V1) first
+        for v in flags["repo"]:
+            p = os.path.realpath(C.expand(v, host.home) if v.startswith("~") else v)
+            r = repo_of(host, p) if os.path.isdir(p) else None
+            if r and C.root_repo_match(r["top"], r["originKey"], root.get("rootRepos"), host.home):
+                raise write_refusal(host, ctx, f"--repo {v}", "is" if r["top"] == p else "is inside", r["top"])
+            inner = root_inside(host, root, r["top"]) if r else None
+            if inner:
+                raise write_refusal(host, ctx, f"--repo {v}", "holds", inner)
     if clone and flags.get("repo"):
         raise C.Refusal(f"pot ({name}): --repo comes to clone mode in a later release; a dispatch clones this repository only")
 
@@ -1359,7 +1386,7 @@ def run(host, root, context, flags, cmd):
     if flags.get("resume"):
         raise C.Refusal("pot: --resume RUN goes with pot host (pot host --resume RUN CMD)", 2)
     clone = (ctx["mode"] == "clone" and flags.get("mode") != "in-place") or flags.get("mode") == "clone"
-    clone_mode_checks(ctx, flags, clone)
+    clone_mode_checks(host, root, ctx, flags, clone)
     detach = bool(flags.get("detach"))
     rid, rundir = new_run_id(host)
     argv0 = cmd or [root.get("shell", "bash")]
@@ -1497,9 +1524,14 @@ def run(host, root, context, flags, cmd):
                     parts.append(f"{k} in {visible(p_)}")
                 else:
                     parts.append(f"{k} {'commit' if k == 1 else 'commits'} in {visible(p_)}")
+            ff = ev.get("fetch_failed")
+            ffs = f" · fetch failed: {visible(ff)}" if ff else ""
             if parts:
                 say(f"pot: run {rid}" + (f" · exit {status}" if status else "")
-                    + f" · {', '.join(parts)}: pot review {rid}, then pot review {rid} --fetch")
+                    + f" · {', '.join(parts)}{ffs}: pot review {rid}, then pot review {rid} --fetch")
+            elif ff:
+                # N1: nothing was staged; the run is in review, with the failure
+                say(f"pot: run {rid}" + (f" · exit {status}" if status else "") + f"{ffs}: pot review {rid}")
             else:
                 keep = int((root.get("clones") or {}).get("keepDays", 14))
                 until = (datetime.date.today() + datetime.timedelta(days=keep)).isoformat()
@@ -1528,6 +1560,12 @@ def run(host, root, context, flags, cmd):
             if clone and not os.path.exists(os.path.join(rundir, "log.jsonl")):
                 try:
                     CL.remove_clone(host.state, rundir)
+                except CL.CloneError:
+                    pass
+            # C1: a run refused before its start was logged leaves no run folder either
+            if not os.path.exists(os.path.join(rundir, "log.jsonl")):
+                try:
+                    CL.remove_run_dir(host.state, rundir)
                 except CL.CloneError:
                     pass
 
@@ -2064,7 +2102,7 @@ def answer_why(policy, x, home, facts, on_host=False):
         for i in hits:
             return f"{pre} {x} is requested by {srcs(i)}, not in {'a run here' if on_host else 'this run'} ({i.get('why', 'not granted')})"
         return "\n".join([f"{pre} {x} is not in {'a run here' if on_host else 'this run'}."]
-                         + C.fix_block(f"pot --env {x} …", facts.get("envFix")))
+                         + C.fix_block(C.one_run(ctx, f"--env {x} …"), facts.get("envFix")))
     if kind == "file-like":
         return no_such_path(x)
     # a path (an existing bare name too: flake.nix, nix/)
@@ -2093,7 +2131,7 @@ def answer_why(policy, x, home, facts, on_host=False):
             return f"{pre} this context has no network"
         hp = f"{h}:{port or 443}"
         if on_host:
-            return "\n".join([f"{pre} pot would refuse {hp} in a run here."] + C.fix_block(f"pot --net {h} …", facts.get("netFix")))
+            return "\n".join([f"{pre} pot would refuse {hp} in a run here."] + C.fix_block(C.one_run(ctx, f"--net {h} …"), facts.get("netFix")))
         return C.denial_text(ctx, hp, facts.get("netFix"))
     return command_answer(policy, x, pre, facts, srcs, on_host)
 
@@ -2108,7 +2146,7 @@ def command_answer(policy, x, pre, facts, srcs, on_host):
     if on_host and not shutil.which(x):
         return C.not_found_text(policy["context"], x, facts.get("pkgFix"), on_host=False).replace(" in this run,", " in a run here,", 1)
     return "\n".join([f"{pre} {x} is not in {'a run here' if on_host else 'this run'}."]
-                     + C.fix_block("pot --package PKG …", facts.get("pkgFix")))
+                     + C.fix_block(C.one_run(policy["context"], "--package PKG …"), facts.get("pkgFix")))
 
 
 def path_answer(policy, p, cp, pre, home, facts, srcs):
@@ -2152,7 +2190,10 @@ def path_answer(policy, p, cp, pre, home, facts, srcs):
             return f"{cp} is readable in inspect (outside ~, read-only; secrets and sockets masked)", True
         if any(C.under(p, C.expand(h, home)) for h in view["home"]):
             return f"{cp} is readable in inspect (inspect.home), unless it matches a secret pattern", True
-    return "\n".join([f"{pre} {cp} is not in this run."] + C.fix_block(f"pot --read {cp} …, or pot --repo {cp} for a repository",
+    # D1: in the run's own context; a clone takes no --repo
+    once = C.one_run(policy["context"], f"--read {cp} …") + ("" if policy.get("mode") == "clone" else
+                                                          ", or " + C.one_run(policy["context"], f"--repo {cp} for a repository"))
+    return "\n".join([f"{pre} {cp} is not in this run."] + C.fix_block(once,
                                                                        facts.get("readFix"))), False
 
 
@@ -2465,7 +2506,7 @@ def commit_grants(host, names, verb="pot grant"):
     if added:
         run_git(host, top, "add", "--", g)
     msg = f"{verb}: " + ", ".join(dict.fromkeys(names))
-    body = f"Granted on {host.machine}, {datetime.date.today().isoformat()} (pot grant --commit)."
+    body = f"{'Revoked' if '--revoke' in verb else 'Granted'} on {host.machine}, {datetime.date.today().isoformat()} ({verb} --commit)."
     r = subprocess.run([host.git, "-C", top, "commit", "-q", "-m", msg, "-m", body, "--", g], capture_output=True, text=True)
     if r.returncode != 0:
         err(r.stderr.strip())
@@ -2478,11 +2519,15 @@ def commit_grants(host, names, verb="pot grant"):
 
 # ---------------------------------------------------------------- runs/1: pot runs, pot review
 
+RECOVER_WAIT = 15     # G1: seconds a reader waits for another pot's recovery of a run
+
+
 def load_record(host, rid, rundir, recover=True):
     """A run's record (runs/1), from its log. A clone run whose pot died before its after event gets that
     event now: the same sandboxed fetch into staging (ruling 4), before the record is shown."""
     lf = os.path.join(rundir, "log.jsonl")
     ev = R.read_log(lf)
+    recovering = False
     if recover and R.needs_after(ev, R.process_alive):
         prog = None
         try:
@@ -2491,20 +2536,38 @@ def load_record(host, rid, rundir, recover=True):
         except C.Refusal:
             pass
         if prog and os.path.exists(os.path.join(rundir, "launch.json")):
-            # R9: one recovery at a time (recover.lock); a recovery another pot holds is left to it
+            # R9: one recovery at a time (recover.lock). G1: a reader that finds another pot recovering waits for it
+            # (RECOVER_WAIT seconds), then rereads the log; still held after that, the run shows as recovering
             import fcntl
-            fd = os.open(os.path.join(rundir, "recover.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+            got = False
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                if R.needs_after(R.read_log(lf), R.process_alive):
-                    after_event(prog, rundir, recovered=True)
-                    subprocess.run([prog, "cleanup", rundir])
+                fd = os.open(os.path.join(rundir, "recover.lock"), os.O_RDWR | os.O_CREAT, 0o600)
             except OSError:
-                pass
-            finally:
-                os.close(fd)
+                fd = None
+            if fd is not None:
+                try:
+                    deadline = time.monotonic() + RECOVER_WAIT
+                    while True:
+                        try:
+                            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            got = True
+                            break
+                        except BlockingIOError:
+                            if time.monotonic() >= deadline:
+                                break
+                            time.sleep(0.2)
+                    if got and R.needs_after(R.read_log(lf), R.process_alive):
+                        after_event(prog, rundir, recovered=True)
+                        subprocess.run([prog, "cleanup", rundir])
+                except OSError:
+                    pass
+                finally:
+                    os.close(fd)
             ev = R.read_log(lf)
+            recovering = not got and R.needs_after(ev, R.process_alive)
     rec = R.record(rid, ev, R.process_alive)
+    if recovering:
+        rec.update(state="running", lost=False, recovering=True)
     if rec["state"] == "stopped" and rec["stop"]:
         rec["stop"]["grantedSince"] = granted_since(host, R.last(ev, "stop"))
     if rec["clone"] and not rec["clone"]["discarded"]:
@@ -2622,6 +2685,7 @@ def record_text(rec, ev, rd=None, review=False):
     if c:
         base = (c.get("base") or "")[:7]
         parts = [f"from {c.get('branch')} ({base})",
+                 "its commits are being staged" if rec.get("recovering") else
                  (f"{c['commits']} commit{'s' if c['commits'] != 1 else ''} on {c.get('branch')}" if c["commits"] else "no commits")
                  + (f", {c['unsigned']} unsigned" if c.get("unsigned") else "")]
         if c.get("size"):
@@ -2637,14 +2701,23 @@ def record_text(rec, ev, rd=None, review=False):
         lines.append("clone      " + " · ".join(parts))
     for p_ in (c or {}).get("nested") or []:
         lines.append(f"note       {p_}: its own submodules are not cloned")
+    if rec.get("recovering"):
+        lines.append(f"note       recovering: another pot is completing this run's staging; pot runs {rec['id']} again")
     if rec["attention"]:
         lines.append("attention  " + visible(" · ".join(rec["attention"])))
     nxt = None
-    if rec["state"] == "review":
+    if rec["state"] == "review" and c and c.get("fetchFailed") and not (c["commits"] or c.get("scionCommits")):
+        # N1: nothing was staged, so there is nothing to fetch
+        tail = f"pot review {rec['id']} --discard (the staging fetch failed: nothing to fetch)"
+        nxt = tail if review else f"pot review {rec['id']} · {tail}"
+    elif rec["state"] == "review":
         # X6: pot review ID names the next step, never itself
         nxt = f"pot review {rec['id']} --fetch" if review else f"pot review {rec['id']} · pot review {rec['id']} --fetch"
     elif rec["state"] == "stopped":
         nxt = "start it again" if (rec["stop"] or {}).get("grantedSince") else (rec["stop"] or {}).get("fix")
+        if c and not c.get("discarded") and c.get("keptUntil"):
+            # D4: a stopped dispatch keeps its clone
+            nxt = (f"{nxt} · " if nxt else "") + f"its clone is kept until {c['keptUntil']}: pot review {rec['id']} --discard"
     if nxt:
         lines.append(f"next       {nxt}")
     return lines
@@ -2827,13 +2900,15 @@ def fetch_back(host, rec, ev, rd):
     src = (rec.get("workspace") or [{}])[0].get("path")
     if not src or not os.path.isdir(src):
         raise C.Refusal(f"pot: run {rid}'s repository {src} is gone")
-    specs = [f"+refs/heads/*:refs/remotes/pot-{rid}/*"]
-    if "detached" in ((R.last(ev, "after") or {}).get("refs") or {}):
-        specs.append(f"+refs/pot/head:refs/remotes/pot-{rid}/detached")
-    r = run_git(host, src, "-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
-                sd, *specs)
-    if r.returncode != 0:
-        raise C.Refusal(f"pot: fetching run {rid} into {C.canon_path(src, host.home)} failed: {r.stderr.strip()}")
+    # G3: only the refs the run moved (a scion-only run moved none at the top: no top-level fetch)
+    moved = list((R.last(ev, "after") or {}).get("refs") or {})
+    specs = [f"+refs/pot/head:refs/remotes/pot-{rid}/detached" if b == "detached" else f"+refs/heads/{b}:refs/remotes/pot-{rid}/{b}"
+             for b in moved]
+    if specs:
+        r = run_git(host, src, "-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
+                    sd, *specs)
+        if r.returncode != 0:
+            raise C.Refusal(f"pot: fetching run {rid} into {C.canon_path(src, host.home)} failed: {r.stderr.strip()}")
     refs = sorted(f"refs/remotes/pot-{rid}/{b}" for b in (R.last(ev, "after") or {}).get("refs", {}))
     # the scions' commits, into each scion's own repository
     st = R.first(ev, "start") or {}
@@ -2854,14 +2929,17 @@ def fetch_back(host, rec, ev, rd):
         n = run_git(host, src, "rev-list", "--count", f"{base}..refs/remotes/pot-{rid}/{b}").stdout.strip()
         shown.append(f"pot-{rid}/{b} ({n} commit{'s' if n != '1' else ''} on {short})")
     print(visible(f"pot: fetched run {rid} into {C.canon_path(src, host.home)}: " + (", ".join(shown) or "its scions' commits")))
+    signs = c.get("unsigned") and run_git(host, src, "config", "--bool", "commit.gpgsign").stdout.strip() == "true"
     if shown:
         first_ref = f"pot-{rid}/" + next(iter((R.last(ev, "after") or {}).get("refs", {})))
         print(visible(f"  review:  git log --stat {short}..{first_ref}"))
-        print(visible(f"  take it: git merge {first_ref}"))
-    if c.get("unsigned") and run_git(host, src, "config", "--bool", "commit.gpgsign").stdout.strip() == "true":
+    if signs:
+        # D3: sign first, then take the signed branch
         b_ = next(iter((R.last(ev, "after") or {}).get("refs", {})), c.get("branch") or "main")
         print(visible(f"  sign:    git switch -c pot-{rid} pot-{rid}/{b_} && git rebase --exec 'git commit --amend --no-edit -S' {short}"
                       f"   ({c['unsigned']} unsigned)"))
+    if shown:
+        print(visible(f"  take it: git merge {f'pot-{rid}' if signs else first_ref}"))
     for path in ((R.last(ev, "after") or {}).get("scions") or {}):
         print(visible(f"  {path}: its commits are in that scion's refs/remotes/pot-{rid}/* (a fix there goes to its provider)"))
     return 0

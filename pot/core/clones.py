@@ -53,7 +53,7 @@ def dirty_count(gitbin, top):
 
 
 def safe_rel(p):
-    """A .gitmodules path pot may clone into: relative, with no . or .. part (R9)."""
+    """A .gitmodules path or name pot may use: relative, with no . or .. part (R9, G4)."""
     parts = p.split("/")
     return bool(p) and not p.startswith("/") and all(x not in ("", ".", "..") for x in parts)
 
@@ -68,7 +68,9 @@ def submodules_at(gitbin, top, commit):
         subs.setdefault(name, {"name": name})[field] = v
     out = []
     for s in subs.values():
-        if "path" not in s or not safe_rel(s["path"]):
+        # R9, G4: the path is where pot clones to, the name where it clones from (.git/modules/NAME): neither may
+        # leave the repository (git's own rule for names)
+        if "path" not in s or not safe_rel(s["path"]) or not safe_rel(s["name"]):
             continue
         ls = git(gitbin, top, "ls-tree", commit, "--", s["path"]).stdout.split()
         if len(ls) >= 3 and ls[1] == "commit":
@@ -197,6 +199,21 @@ def remove_clone(state, rundir):
             if os.path.lexists(p):
                 writable_tree(p)
                 shutil.rmtree(p, ignore_errors=True)
+
+
+def remove_run_dir(state, rundir):
+    """C1: a run folder with no log (the run was refused before its start), only under pot's own runs folder; links
+    inside are removed, never followed."""
+    runs = os.path.join(os.path.realpath(state), "runs") + "/"
+    rd = os.path.realpath(rundir)
+    if not rd.startswith(runs) or os.path.dirname(rd) + "/" != runs or os.path.islink(rundir):
+        raise CloneError(f"refusing to remove {rundir}: not a run folder of pot's state")
+    if os.path.lexists(os.path.join(rd, "log.jsonl")):
+        raise CloneError(f"refusing to remove {rundir}: it has a log")
+    shutil.rmtree(rd, ignore_errors=True)
+    if os.path.lexists(rd):
+        writable_tree(rd)
+        shutil.rmtree(rd, ignore_errors=True)
 
 
 def prune(state, clones_cfg, log, alive, now=None):

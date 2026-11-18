@@ -47,7 +47,8 @@ class Stop(Exception):
 
 def visible(s, lines=False):
     """Run-chosen text, safe for the host's terminal: C0 and C1 controls as \\xNN, Unicode format characters (Cf:
-    bidi overrides and isolates, zero-width ones) as \\uNNNN (R8). LINES keeps a newline (a message's own lines).
+    bidi overrides and isolates, zero-width ones) as \\uNNNN (R8), a byte that is not UTF-8 as \\xNN (G2). LINES keeps
+    a newline (a message's own lines).
     pot.py and bwrap.py hold the same function (bwrap's never keeps lines)."""
     import unicodedata
     out = []
@@ -57,6 +58,8 @@ def visible(s, lines=False):
             out.append(c)
         elif o < 0x20 or 0x7f <= o <= 0x9f:
             out.append(f"\\x{o:02x}")
+        elif 0xdc80 <= o <= 0xdcff:
+            out.append(f"\\x{o - 0xdc00:02x}")     # G2: a byte that is not UTF-8 (surrogateescape)
         elif o > 0x9f and unicodedata.category(c) == "Cf":
             out.append(f"\\u{o:04x}" if o <= 0xffff else f"\\U{o:08x}")
         else:
@@ -452,7 +455,8 @@ NOTFOUND = {
 def not_found_body(ctx, launch):
     """The not-found handler's body: the startup check's words and permanent fix."""
     alts = [a for a in (launch.get("pkgFix") or "programs.pot.tools\nor the repo kit's tools").split("\n") if a]
-    body = "  one run:   pot --package PKG …\\n  permanent: " + alts[0] + "\\n" + "".join(f"             {a}\\n" for a in alts[1:])
+    once = "pot " + ("" if ctx == "work" else ctx + " ") + "--package PKG …"     # D1: the run's own context
+    body = "  one run:   " + once + "\\n  permanent: " + alts[0] + "\\n" + "".join(f"             {a}\\n" for a in alts[1:])
     body = body.replace("%", "%%").replace("'", "'\\''")
     return ("{ printf 'pot (%s): %s is not in this run.\\n" + body + "' "
             f"'{ctx}' \"$1\" >&2; return 127; }}")
@@ -1124,6 +1128,17 @@ def host_git(cfg, gitdir, *args, timeout=None):
                            "--git-dir", gitdir] + list(args), capture_output=True, text=True, env=env, timeout=timeout)
 
 
+def host_git_z(cfg, gitdir, *args):
+    """G2: host_git for -z and --null output: read as bytes, so a CR is never turned into a newline, and decoded with
+    surrogateescape, so a byte that is not UTF-8 survives (visible() shows it as \\xNN)."""
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+    for k in [k for k in env if k.startswith("GIT_CONFIG_KEY_") or k.startswith("GIT_CONFIG_VALUE_") or k == "GIT_CONFIG_COUNT"]:
+        del env[k]
+    r = subprocess.run([cfg["git"], "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
+                        "--git-dir", gitdir] + list(args), capture_output=True, env=env)
+    return r.stdout.decode("utf-8", "surrogateescape")
+
+
 def stage(cfg, rundir, clone, gitdir, name, alternates):
     """Fetch refs/heads/* of one git directory of the clone into <run dir>/staging/<name>.git (host-owned,
     bare), through the sandboxed upload-pack, with fsck. Returns the staging directory, or None."""
@@ -1239,7 +1254,7 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
             changed = set()
             for o in moved.values():
                 # R3: -z, so a path is never C-quoted (dossier-é/justfile stays itself); shown through visible()
-                f = host_git(cfg, sd, "diff-tree", "-r", "-z", "--no-renames", "--raw", base, o).stdout.split("\0")
+                f = host_git_z(cfg, sd, "diff-tree", "-r", "-z", "--no-renames", "--raw", base, o).split("\0")
                 for meta, path in zip(f[0::2], f[1::2]):
                     if not meta.startswith(":"):
                         continue
@@ -1257,7 +1272,7 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
                 # a changed file that sets programs.pot, at the run's tip or at the base (git grep reads objects)
                 for o in moved.values():
                     for rev in (o, base):
-                        out = host_git(cfg, sd, "grep", "-l", "--null", "-F", "programs.pot", rev, "--", *sorted(changed)).stdout
+                        out = host_git_z(cfg, sd, "grep", "-l", "--null", "-F", "programs.pot", rev, "--", *sorted(changed))
                         att |= {visible(e.split(":", 1)[1]) + " (programs.pot)" for e in out.split("\0") if ":" in e}
                 ev["root_attention"] = sorted(att)
     # the scions: each submodule git directory the clone holds, staged the same way
