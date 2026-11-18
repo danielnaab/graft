@@ -143,24 +143,43 @@ def size_of(rundir, after):
     return n
 
 
+def writable_tree(top):
+    """Make every real folder below TOP writable (the run may have left read-only ones), never through a link: each
+    folder is opened with O_NOFOLLOW | O_DIRECTORY and changed with fchmod, and links are never entered (F4/R1)."""
+    stack = [top]
+    while stack:
+        d = stack.pop()
+        try:
+            fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError:
+            continue        # a link, or gone: never followed
+        try:
+            os.fchmod(fd, 0o700)
+            with os.scandir(fd) as it:
+                for e in it:
+                    if e.is_dir(follow_symlinks=False):
+                        stack.append(os.path.join(d, e.name))
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+
+
 def remove_clone(state, rundir):
-    """clone/ and staging/ of one run, only under pot's own runs folder."""
+    """clone/ and staging/ of one run, only under pot's own runs folder; links inside are removed, never followed."""
     runs = os.path.join(os.path.realpath(state), "runs") + "/"
     rd = os.path.realpath(rundir)
     if not rd.startswith(runs) or os.path.dirname(rd) + "/" != runs:
         raise CloneError(f"refusing to remove {rundir}: not a run folder of pot's state")
     for d in ("clone", "staging"):
         p = os.path.join(rd, d)
+        if os.path.islink(p):
+            os.unlink(p)
+            continue
         if os.path.lexists(p):
-            shutil.rmtree(p, ignore_errors=True)
+            shutil.rmtree(p, ignore_errors=True)       # rmtree unlinks links, never follows them
             if os.path.lexists(p):
-                # a clone's files are the run's: make them writable, then remove them
-                for root, ds, fs in os.walk(p):
-                    for x in ds:
-                        try:
-                            os.chmod(os.path.join(root, x), 0o700)
-                        except OSError:
-                            pass
+                writable_tree(p)
                 shutil.rmtree(p, ignore_errors=True)
 
 

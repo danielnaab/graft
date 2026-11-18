@@ -2114,6 +2114,17 @@ EOF
   expect "the fetched refs stay" holds "  the fetched refs stay: git branch -r -d pot-$rid/main"
   expect "the clone is gone" test ! -e "$st/$rid/clone"
   expect "its log stays" test -f "$st/$rid/log.jsonl"
+  # F4/R1: a clone holding a read-only folder (so the first removal pass fails) and links to host folders: removal
+  # changes no mode outside the clone, by --discard, keepDays or maxSize
+  mkdir -p "$work/outside/sub" && chmod 755 "$work/outside" "$work/outside/sub"
+  # shellcheck disable=SC2016 # the run's shell expands them
+  ran "dispatch: F4, a clone with links out and a read-only folder" d_ dispatch bash -c 'mkdir -p ro && touch ro/f &&
+    ln -s "$1" ro/out && ln -s "$1/sub" outlink && chmod 500 ro && git commit -q --allow-empty -m f4' _ "$work/outside"
+  local f4 && f4=$(d_ runs --json | jq -r '[.runs[] | select(.state == "review")][0].id')
+  ran "dispatch: F4, --discard" dl review "$f4" --discard
+  expect "F4: the clone is gone" test ! -e "$st/$f4/clone"
+  expect "F4: the linked host folder keeps its mode" test "$(stat -c %a "$work/outside")" = 755
+  expect "F4: and its subfolder" test "$(stat -c %a "$work/outside/sub")" = 755
   ran "dispatch: pot runs, after --discard" d_ runs --all
   expect "says discarded" grep -q "^$rid .*discarded$" <<<"$out"
   refused "dispatch: --fetch after --discard" d_ review "$rid" --fetch
@@ -2232,9 +2243,14 @@ EOF
   expect "S2: the run is in review" test "$(rec "$fid" .state)" = review
   ran "dispatch: S2, pot review lists it" d_ review
   expect "with the failure" grep -q "^$fid .*fetch failed" <<<"$out"
+  # F4/R1 by prune: a no-commit clone with a link out and a read-only folder, removed by keepDays 0
+  mkdir -p "$work/outside2" && chmod 755 "$work/outside2"
+  # shellcheck disable=SC2016
+  ran "dispatch: F4, a no-commit clone with a link out" d_ dispatch bash -c 'mkdir -p ro2 && touch ro2/f && ln -s "$1" ro2/out && chmod 500 ro2' _ "$work/outside2"
   # clones kept: keepDays and maxSize discard only fetched, discarded or commit-less clones
   ran "dispatch: a start with keepDays 0 and maxSize 1" env -u POT -u CLAUDECODE "$work/drp/bin/pot" dispatch true </dev/null
   expect "S2: keepDays keeps the clone whose fetch failed" test -d "$st/$fid/clone"
+  expect "F4: prune left the linked host folder's mode" test "$(stat -c %a "$work/outside2")" = 755
   expect "keeps the unfetched one" test -d "$st/$did/clone"
   expect "discards a fetched one" test ! -e "$st/$kid/clone"
   expect "names the oldest still in review" holds "pot review $did --discard"
