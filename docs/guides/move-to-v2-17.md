@@ -5,7 +5,7 @@ status: working
 
 graft v2.17.0 adds pot's [dispatch](dispatch.md) (work in a clone, then review and fetch its commits), `pot runs`,
 `pot doctor`, and `pot grant` with no argument and with `--commit`. It removes the six forms that v2.16.0
-deprecated. This page names each removed form, its replacement and its new error, and who needs to change nothing.
+deprecated (seven rows below: `defaultAccount` has one for mkRoot and one for the home-manager module). This page names each removed form, its replacement and its new error, and who needs to change nothing.
 
 ## When to use this
 
@@ -46,6 +46,7 @@ built, so nothing that already works stops.
 
    ```nix
    programs.pot = {
+     kits."claude-code@personal" = inputs.graft.kits.claude-code { inherit pkgs; };
      kits."claude-code@flexion-bedrock" = inputs.graft.kits.claude-code {
        inherit pkgs; account = "flexion"; configDir = ".claude-accounts/flexion";
        provider = "bedrock"; region = "us-east-2";
@@ -58,6 +59,7 @@ built, so nothing that already works stops.
 
    ```nix
    programs.pot = {
+     kits."claude-code@personal" = inputs.graft.kits.claude-code { inherit pkgs; };
      kits."claude-code@flexion-bedrock" = inputs.graft.kits.claude-code {
        inherit pkgs; configDir = ".claude-accounts/flexion";
        api = inputs.graft.apis.bedrock { region = "us-east-2"; };
@@ -79,8 +81,8 @@ built, so nothing that already works stops.
    nix flake update graft
    ```
 
-4. Build the root (`home-manager switch`, or rebuild your mkRoot flake). An evaluation error names each removed
-   form that is left.
+4. Build the root (`home-manager switch`, or rebuild your mkRoot flake). Each removed form that is left stops the
+   evaluation with its error, one at a time: fix it and build again until the build passes.
 5. Optionally, add the new root options: `limits.memoryMax`, `limits.tasksMax`, `clones.keepDays` and
    `clones.maxSize` ([pot](../reference/pot.md#home-manager-options)). The defaults suit most machines.
 

@@ -56,7 +56,8 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
    ```
 
    `--follow` prints the run's events until it ends (`20:22:43 start dispatch …`, `20:22:45 exit 0`, `after 1
-   commit`). A run is `running`, then `review` when it ended with commits, or `exited` when it made none. A run that needs a
+   commit`). A run is `running`, then `review` when it ended with commits, or `exited` when it made none (and once
+   its commits are fetched or discarded). A run that needs a
    grant does not start: it is `stopped`, `pot grant` (no argument) offers what it needs, and a workmux pane that
    started it shows `waiting`.
 
@@ -154,7 +155,6 @@ unfetched commits: over the cap, the startup line and `pot doctor` name the olde
 - **`ended      unknown: pot ended without an exit (killed or crashed)`.** pot was killed or crashed. The next
   `pot runs` or `pot review` copies the commits it made out of the clone, so the run is in `review` and
   `pot review 1ac1` reads them as usual.
-  the commits it made.
 - **Anything else:** `pot doctor` checks the backend, user systemd, the grants file and the bindings.
 
 ## How it works

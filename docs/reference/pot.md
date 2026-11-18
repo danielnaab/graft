@@ -316,7 +316,8 @@ attention names each changed file that holds the text `programs.pot` at the run'
 (`root: modules/pot.nix (programs.pot)`) and a changed grants file (`root: pot/grants.json`); other commits in a
 root are `root changed`. Review and merge it before
 `home-manager switch`. `pot inspect` reads it. In a root repository's worktrees, set workmux's agent command to
-`pot dispatch claude`, or `claude`, in the repository's `.workmux.yaml`.
+`claude` in the repository's `.workmux.yaml`, and start `pot dispatch claude` from the pane yourself: workmux
+recognises an agent by its executable's name, so an agent command `pot …` loses workmux's resume.
 
 ## Kits
 
@@ -1222,8 +1223,8 @@ states are `running`, `exited` (also a run whose pot ended without an exit: kill
 125), `review` (a clone with commits, its own or a scion's, neither fetched nor discarded) and `pending`
 (reserved).
 
-- **With no `ID`:** newest first, every `running`, `stopped` and `review` run, then the 20 latest others (`--all`:
-  all). NOTE is `N commits · pot review ID` for a run in review, the fix for a stopped one, `running`, `exit S`
+- **With no `ID`:** every `running`, `stopped` and `review` run and the 20 latest others, all newest first
+  (`--all`: every run). NOTE is `N commits · pot review ID` for a run in review, the fix for a stopped one, `running`, `exit S`
   (`exit S · fetched`), `discarded`, `discarded (pot ended without an exit: killed or crashed)`, or `lost: pot ended
   without an exit (killed or crashed)` for a run with no clone to review:
 
@@ -1273,7 +1274,7 @@ never their contents. It exits 1 when a line starts `!`, else 0. There is no `--
 pot doctor · root home-manager · platform-vm · pot v2.17.0
 backend    bubblewrap: user namespaces work; proves closure-store own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files; lacks resource-limits separate-kernel nest
 resources  user systemd: runs without a terminal get MemoryMax=50% TasksMax=2048
-grants     ~/.workstation/pot/grants.json: parses, 3 kits, no section for platform-vm
+grants     ~/.workstation/pot/grants.json: parses, 3 kits, no section for platform-vm; tracked in ~/.workstation, committed
 ! bindings credential api.anthropic.com kit=claude-code@flexion: file ~/.config/pot/claude-token-flexion is missing
          ! credential api.anthropic.com kit=claude-code@personal: file ~/.config/pot/claude-token-personal (present, 0644: others can read it; chmod 600 it)
            credential bedrock-runtime.us-east-2.amazonaws.com kit=claude-code@flexion-bedrock: env (ai use flexion-bedrock)
@@ -1471,7 +1472,13 @@ depth: the tree after a run is untrusted output.
   `info/`, `commondir` and `gitdir`; and every `.git` file. The rest is writable, so a run can commit. It can also
   delete other branches' refs.
 
-A protected file with a second hard link stops the run. To change a protected file, edit it on the host.
+Protection covers the paths that exist when the run starts. A host-run file that the run creates (a new `justfile`
+or `.envrc` in a subfolder, say) is not stopped: the exit line, and `pot review` for a clone, flag it as a changed
+host-run file.
+
+In place, a protected file with a second hard link stops the run. A clone has no hard links to your repository
+(it is made with `--no-hardlinks`), so the check does not apply there. To change a protected file, edit it on the
+host.
 
 ## Hidden paths
 

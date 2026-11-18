@@ -173,7 +173,7 @@ pot (work): ~/.workstation is a root: pot dispatch CMD (a reviewed branch), or p
   because the project file overrides the global `agent`:
 
   ```yaml
-  agent: pot dispatch claude
+  agent: claude
   ```
 
 ## Add a repo kit
