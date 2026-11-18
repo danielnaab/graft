@@ -1145,8 +1145,9 @@ def stage(cfg, rundir, clone, gitdir, name, alternates):
         lines = [l for l in (r.stderr if r else "").strip().splitlines() if l.strip()] if r else []
         for l in lines[-6:]:     # F8: one line per line, never \x0a
             print(visible(f"pot: staging {name}: {l}"), file=sys.stderr)
+        first = next((l for l in lines if l.startswith("error:")), lines[0] if lines else None)   # git's own error (F8)
         FETCH_FAILED.append((f"{name} " if name != "top" else "") + what + ": "
-                            + (visible(lines[-1])[:200] if lines else (f"timed out" if r is None else f"git exit {r.returncode}")))
+                            + (visible(first)[:200] if first else ("timed out" if r is None else f"git exit {r.returncode}")))
 
     try:
         ls = host_git(cfg, sd, *opts, "ls-remote", upq, url, timeout=600)

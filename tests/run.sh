@@ -2271,6 +2271,7 @@ EOF
   expect "with the failure" grep -q "^$fid .*fetch failed" <<<"$out"
   expect "F3/R2: the good branch is staged all the same" test "$(rec "$fid" .clone.commits)" = 1
   expect "F3/R2: the failure names the branch" test "$(rec "$fid" '.attention[] | select(startswith("fetch failed"))' | grep -c 'refs/heads/bad')" = 1
+  expect "F8: and git's own error, not its last line" test "$(rec "$fid" '.attention[] | select(startswith("fetch failed"))' | grep -c 'bogus commit object')" = 1
   # the second trigger: a clone whose git directory lost its objects (fsck or upload-pack fails for every ref)
   # shellcheck disable=SC2016
   ran "dispatch: F3, a clone whose objects are gone" d_ dispatch bash -c 'git commit -q --allow-empty -m lost && rm -rf .git/objects/??'
