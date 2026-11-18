@@ -2134,6 +2134,11 @@ EOF
   ran "dispatch: --from a branch" d_ dispatch --from side bash -c 'git branch --show-current; test -f side.txt && echo has-side'
   expect "on that branch" has side
   expect "at its commit" has has-side
+  local fr && fr=$(d_ runs --json | jq -r '.runs[0].id')
+  expect "F1: a --from run with no commit of its own is not in review" test "$(rec "$fr" '"\(.state) \(.clone.commits)"')" = "exited 0"
+  ran "dispatch: F1, the clone's branches" d_ dispatch --from side bash -c 'git for-each-ref --format="%(refname)" refs/heads'
+  expect "F1: only the base's branch" has "refs/heads/side"
+  refuse "F1: no other local branch" has "refs/heads/main"
   sed -i 's/protect = \[ "AGENTS.md" \]/protect = [ "AGENTS.md" "notes.md" ]/' flake.nix
   refused "dispatch: in place, the working tree's kit protects notes.md" d_ bash -c 'echo x >> notes.md'
   ran "dispatch: the base's kit does not" d_ dispatch bash -c 'echo x >> notes.md && echo wrote'
@@ -2469,6 +2474,7 @@ EOF
   ran "dispatch: --fetch" dl review "$sr" --fetch
   expect "names the scion" holds "scions/sbd: its commits are in that scion's refs/remotes/pot-$sr/*"
   expect "into the scion's repository" test "$(git_ -C scions/sbd log -1 --format=%s "refs/remotes/pot-$sr/detached")" = scion-fix
+  expect "F1: and no no-op scion branch" test -z "$(git_ -C scions/sbd for-each-ref --format='%(refname)' "refs/remotes/pot-$sr/" | grep -v '/detached$')"
   # X8: when the host signs, the sign line names a branch to rebase on
   ran "dispatch: X8, a commit to sign" d_ dispatch bash -c 'git commit -q --allow-empty -m to-sign'
   local gid && gid=$(d_ runs --json | jq -r '[.runs[] | select(.state == "review" and .clone.commits == 1)][0].id')

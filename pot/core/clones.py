@@ -70,6 +70,14 @@ def submodules_at(gitbin, top, commit):
     return sorted(out, key=lambda s: s["path"])
 
 
+def drop_heads(gitbin, repo, keep=None):
+    """Delete every local branch of a fresh clone but KEEP, so only refs a run moves come back."""
+    out = git(gitbin, repo, "for-each-ref", "--format=%(refname)", "refs/heads").stdout.split()
+    for ref in out:
+        if ref != f"refs/heads/{keep}":
+            git(gitbin, repo, "update-ref", "-d", ref)
+
+
 def make_clone(gitbin, top, common, origin, dest, base, branch, rid, user):
     """runs/<id>/clone: a full clone of TOP at BASE (no hard links), its submodules from the source's own
     module directories, carrying user.* and the raw origin URLs only (§9.1, §9.2)."""
@@ -86,6 +94,7 @@ def make_clone(gitbin, top, common, origin, dest, base, branch, rid, user):
     r = git(gitbin, dest, "checkout", "-q", "-B", name, base)
     if r.returncode != 0:
         raise CloneError(f"git checkout of {base[:12]} failed: {r.stderr.strip()}")
+    drop_heads(gitbin, dest, keep=name)     # F1: the clone has the base's branch only
     scions, nested = [], []
     subs = submodules_at(gitbin, dest, base)
     if subs:
@@ -101,6 +110,7 @@ def make_clone(gitbin, top, common, origin, dest, base, branch, rid, user):
         if r.returncode != 0:
             continue
         git(gitbin, wt, "checkout", "-q", "--detach", s["commit"])
+        drop_heads(gitbin, wt)                  # F1: a scion's clone has its gitlink only (a detached HEAD)
         if s.get("url"):
             git(gitbin, wt, "remote", "set-url", "origin", s["url"])
         scions.append({"name": s["name"], "path": s["path"], "commit": s["commit"], "objects": os.path.join(src, "objects")})
