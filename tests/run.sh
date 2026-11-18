@@ -2197,6 +2197,13 @@ EOF
   wait "$lp" 2>/dev/null || true
   expect "killed: exited, lost" test "$(rec "$lid" '"\(.state) \(.lost) \(.exit)"')" = "exited true null"
 
+  # R3: a host-run file under a non-ASCII folder, changed by a run's commit, is flagged (git paths read with -z)
+  mkdir -p "dossier-é" && echo "x:" > "dossier-é/justfile" && commit "a justfile under dossier-é"
+  # shellcheck disable=SC2016
+  ran "dispatch: R3, a commit changing dossier-é/justfile" d_ dispatch bash -c 'b=$(echo "y:" | git hash-object -w --stdin)
+    git update-index --cacheinfo 100644,"$b",dossier-é/justfile && git commit -qm "change the justfile"'
+  local r3 && r3=$(d_ runs --json | jq -r '.runs[0].id')
+  expect "R3: ATTENTION names it, unquoted" test "$(rec "$r3" '.attention | index("host-run: dossier-é/justfile")')" != null
   # F2: a dispatch that stops with 125 (needs is not granted yet) records its clone; --discard removes it
   refused "dispatch: F2, a dispatch that stops (125)" d_ dispatch needtest -c true
   local f2 && f2=$(d_ runs --json | jq -r '[.runs[] | select(.state == "stopped" and .mode == "clone")][0].id')

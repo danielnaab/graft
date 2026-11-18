@@ -1219,10 +1219,11 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
                     ev["unsigned"] += 1
             changed = set()
             for o in moved.values():
-                for l in host_git(cfg, sd, "diff-tree", "-r", "--no-renames", "--raw", base, o).stdout.splitlines():
-                    if "\t" not in l:
+                # R3: -z, so a path is never C-quoted (dossier-é/justfile stays itself); shown through visible()
+                f = host_git(cfg, sd, "diff-tree", "-r", "-z", "--no-renames", "--raw", base, o).stdout.split("\0")
+                for meta, path in zip(f[0::2], f[1::2]):
+                    if not meta.startswith(":"):
                         continue
-                    meta, path = l.split("\t", 1)
                     changed.add(path)
                     if "160000" in meta.split()[:2]:
                         ev["gitlinks"].append(visible(path))
@@ -1237,8 +1238,8 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
                 # a changed file that sets programs.pot, at the run's tip or at the base (git grep reads objects)
                 for o in moved.values():
                     for rev in (o, base):
-                        out = host_git(cfg, sd, "grep", "-l", "-F", "programs.pot", rev, "--", *sorted(changed)).stdout
-                        att |= {visible(l.split(":", 1)[1]) + " (programs.pot)" for l in out.splitlines() if ":" in l}
+                        out = host_git(cfg, sd, "grep", "-l", "--null", "-F", "programs.pot", rev, "--", *sorted(changed)).stdout
+                        att |= {visible(e.split(":", 1)[1]) + " (programs.pot)" for e in out.split("\0") if ":" in e}
                 ev["root_attention"] = sorted(att)
     # the scions: each submodule git directory the clone holds, staged the same way
     for m in cl.get("scions") or []:
