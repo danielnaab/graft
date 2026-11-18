@@ -181,7 +181,8 @@ system bus or the docker socket. `inspect` diagnoses; `host` repairs. `pot` says
 pot: host · no sandbox · logged as 7f3a
 ```
 
-The log records `invoker` as `person` at a terminal, and `script` otherwise.
+The log records `invoker` as `person` at a terminal, and `script` otherwise; a `--detach` run typed at a terminal is
+`person`.
 
 When `CMD` is not on the host's `PATH`, `pot host` runs the workspace bundle's command of that name: a kit
 command's store `program`, else `pot-kits`' `bin/CMD`. So `pot host meeting-kit` works in a graft consumer, as the
@@ -256,8 +257,8 @@ pot [CONTEXT] --clone [--from REF] [--detach] CMD …      # --clone is --mode c
   none of your hooks. pot's git runs with no global or system config and no hooks, so filters such as git-lfs's
   never run: LFS files stay pointer files.
 - **Scions:** the first level of submodules is cloned, from your repository's module folders, at their gitlinks;
-  deeper submodules are not, and the startup line says so for each scion that has its own:
-  `nix/agent-tools/.scions/notebook-kit: its own submodules are not cloned`. The scions folder stays read-only, as in place, so a run commits in a scion only
+  deeper submodules are not. For each scion that has its own, `pot runs ID`, `pot review ID` and the run's
+  `explain.txt` have a note: `note       nix/agent-tools/.scions/notebook-kit: its own submodules are not cloned`. The scions folder stays read-only, as in place, so a run commits in a scion only
   through its git directory. Those commits come back too, into that scion's `refs/remotes/pot-<id>/*`, and a commit
   on a scion's detached `HEAD` as `pot-<id>/detached`.
 - **Uncommitted changes stay behind.** The clone starts at a commit. With a dirty tree, pot says so before the
@@ -286,7 +287,7 @@ pot [CONTEXT] --clone [--from REF] [--detach] CMD …      # --clone is --mode c
   unsigned commits, gitlinks, host-run files, repo-kit and root-repository changes) is computed from staging. The
   exit line is `pot: run 1ac1 · 1 commit on main: pot review 1ac1, then pot review 1ac1 --fetch` (`N commits`;
   `· exit S` after the id when the command failed), or with none `pot: run 1ac1 · no commits; the clone is kept
-  until 2026-12-01: pot review 1ac1 --discard`. Unsigned commits and new git metadata are left to `pot review`.
+  until 2026-12-01: pot review 1ac1 --discard` (and `no commits` wherever a clone has none). Unsigned commits and new git metadata are left to `pot review`.
 - **If pot ended first** (killed, or a crash), the next `pot runs`, `pot runs ID` or `pot review` that reads the run
   completes the host's look, records it with `recovered: true`, and cleans up. A clone with commits is then in
   `review`, like any other; `pot runs ID` says `ended      unknown: pot ended without an exit (killed or
@@ -310,6 +311,12 @@ pot (work): ~/.workstation is a root: pot dispatch CMD (a reviewed branch), or p
 ```
 
 For a command that is not an agent kit's, the message adds `; pot host CMD runs it unsandboxed`.
+
+**Write access to a root is refused in every context, `dispatch` included.** A `--write PATH`, a granted
+`requests.write` item, or a `--repo PATH` with write access that is a root repository, sits inside one, or holds
+one is refused at start (exit 1) with the same message. A dispatch's `--write` path is a host path written in
+place, not the clone, so it is refused there too. A write item that holds a root is refused, not narrowed.
+Reading a root is not refused.
 
 Change a root repository with `pot dispatch claude`: the change comes back as a branch, and `pot review`'s
 attention names each changed file that holds the text `programs.pot` at the run's tip or its base
@@ -1013,14 +1020,19 @@ repository`.
 pot grant [KIT...] [--revoke KIT] [--diff [--verbose]] [--commit] [--workspace PATH]
 ```
 
-- With no `KIT`: every root kit, and every kit of this workspace (and of each `--repo`), that is not granted, asks
-  for more or changed source, **and every kit that a `stopped` run names**, if that run's workspace still exists
-  and the kit is still stale there (its status computed again from that workspace, never from the record). Each
-  shows only the difference: the new items, or a changed source's diffstat and its powerful items. A stopped
-  run's kit from another workspace is headed with it: `flexion-assistant   repo kit (repo:…), for every run in this
-  repository   not granted   (stopped run 85d3, in ~/src/flexion-assistant)`. With nothing to do:
-  `pot grant: every kit here is granted, and no stopped run waits for a grant`, or
-  `pot grant: standing is granted` for a named kit.
+- With no `KIT`, it prompts for two kinds of kit, in this order:
+  1. every kit that a `stopped` run waits for, in any workspace that still exists, root kits included, with its
+     status computed again there (never from the record). It is headed with the run:
+     `flexion-assistant   repo kit (repo:…), for every run in this repository   not granted   (stopped run 8b3f)`,
+     or `(stopped run 9427, in ~/src/flexion-assistant)` for another workspace;
+  2. then each kit of this workspace (and of each `--repo`) and each root kit whose grant is stale: it asks for more,
+     or its source changed.
+
+  Each shows only the difference: the new items, or a changed source's diffstat and its powerful items. A kit that
+  was never granted and that no run waits for is not prompted. After the prompts, one line names those kits:
+  `pot: also not granted: claude-code@flexion, claude-code@personal (pot grant NAME)`. With nothing to prompt:
+  `pot: nothing to grant` (and that line, when there are any). A named kit with nothing to do:
+  `pot grant: standing is granted`.
 - `KIT` and `--revoke KIT` take the short names that `pot` prints everywhere (startup line, grant list, `--diff`,
   `pot explain`, the 125 message), so the name a 125 line offers always works, also for a repository with a local
   origin (its folder) and a scion named unlike its URL: `daniel`, `flexion-assistant`, or `claude-code` for every instance
@@ -1085,9 +1097,11 @@ pot grant [KIT...] [--revoke KIT] [--diff [--verbose]] [--commit] [--workspace P
 
 `pot grant` is for people:
 
-- It reads its answers from `/dev/tty`. It refuses when an agent marker is set
-  (`pot grant is for people: CLAUDECODE is set (an agent's environment). Run pot grant in your own terminal.`), when
-  there is no terminal, and inside a run
+- It reads its answers from `/dev/tty`. It refuses when an agent marker is set, before it reads any argument
+  (`--revoke`, a named kit and `--commit` included):
+  `pot grant is for people: CLAUDECODE is set (an agent's environment). Run pot grant in your own terminal.`
+  `pot grant --diff`, which writes nothing, is allowed under an agent. It also refuses when there is no terminal,
+  and inside a run
   (`pot grant is for people, on the host: a run never writes its root's grants file`).
 - It escapes everything it prints.
 - It approves ordinary items together, and each powerful item on its own.
@@ -1159,15 +1173,17 @@ pot review [RUN] [--fetch|--discard] [--since T] [--until T] [--command NAME] [-
   ATTENTION is the host's findings after the run, never a bare commit count: `N unsigned` (only when your git
   config signs, until the run is fetched), `root: FILE (programs.pot)`, `root: pot/grants.json` or `root changed`,
   `host-run: FILE`, `repo kit: FILE`, `gitlinks: PATH`, `N new git metadata paths` and `N denied: HOST`. A fetched
-  run with no other finding drops off the list. With nothing to show: `pot review: no run needs a person (pot runs
-  lists every run)`. The WORKSPACE column, here and in `pot runs`, is the short name the startup line uses: the
+  run with no other finding drops off the list. With nothing to show, it prints
+  `pot: no runs need review`, and no header. The WORKSPACE column, here and in `pot runs`, is the short name the startup line uses: the
   normalised origin's last path part, else the checkout's folder.
 - **Filters:** `--since T` and `--until T` (`2026-11-17`, `2026-11-17T14:00`, or `30m`, `2h`, `3d`; anything else is
   a usage error, `T: a time is 2026-11-17, 2026-11-17T14:00, or 30m, 2h, 3d`), and `--command NAME`. `--flags`
   adds the one-run flags each run used, with each one's permanent form. `--json` prints
   `{ "version": 1, "runs": [ … ] }`, [runs/1](../../pot/contracts/runs-1.md) records.
 - **`pot review RUN`** prints the run's record ([pot runs](#pot-runs)), then `commits` (up to 40, `<sha> <subject>`)
-  and the diffstat, read from the host's staging:
+  and the diffstat, read from the host's staging. Its `next` is `pot review RUN --fetch`. The `command` row, here
+  and in `pot runs`, is the command as you typed it (with `@INSTANCE` when its kit has instances), not the program
+  pot started; `--json` has both (`command.typed`, `argv`):
 
   ```
   run        55e8 · review · dispatch · workstation
@@ -1176,7 +1192,7 @@ pot review [RUN] [--fetch|--discard] [--since T] [--until T] [--command NAME] [-
   ended      2026-11-17 19:34 · exit 0 · 0s
   clone      from main (98d4d4d) · 1 commit on main, 1 unsigned · 13.6 MB
   attention  1 unsigned · root: modules/pot.nix (programs.pot)
-  next       pot review 55e8 · pot review 55e8 --fetch
+  next       pot review 55e8 --fetch
   commits
     e969057 pot: a change to programs.pot
      modules/pot.nix | 2 +-
@@ -1191,11 +1207,11 @@ pot review [RUN] [--fetch|--discard] [--since T] [--until T] [--command NAME] [-
   pot: fetched run 1ac1 into ~/src/flexion-assistant: pot-1ac1/main (1 commit on 716424f)
     review:  git log --stat 716424f..pot-1ac1/main
     take it: git merge pot-1ac1/main
-    sign:    git rebase --exec 'git commit --amend --no-edit -S' 716424f   (1 unsigned)
+    sign:    git switch -c pot-1ac1 pot-1ac1/main && git rebase --exec 'git commit --amend --no-edit -S' 716424f   (1 unsigned)
     scions/sbd: its commits are in that scion's refs/remotes/pot-1ac1/* (a fix there goes to its provider)
   ```
 
-  `sign:` appears only when your git config signs, and a scion's line only for a scion with commits; a run whose
+  `sign:` appears only when your git config signs, and makes a branch of the run's commits first, and a scion's line only for a scion with commits; a run whose
   only commits are a scion's says `…: its scions' commits`. A second `--fetch` fetches the same refs again. With no
   commits: `pot: run 1ac1 has no commits to fetch` (exit 0). Refused (exit 1): `pot: run 1ac1 worked in place:
   there is nothing to fetch`; `pot: run 1ac1 is running`; `pot: run 1ac1's clone was discarded (2026-11-17); its
@@ -1204,8 +1220,8 @@ pot review [RUN] [--fetch|--discard] [--since T] [--until T] [--command NAME] [-
   `pot: discarded run 1ac1's clone (189.7 MB); its log stays: pot runs 1ac1`, then, for each fetched ref,
   `  the fetched refs stay: git branch -r -d pot-1ac1/main`. Refused: a running run, and one that worked in place
   (`… it has no clone`). A second `--discard`: `pot: run 1ac1's clone was discarded already (DATE)` (exit 0).
-- `--fetch` or `--discard` with no `RUN` is a usage error: `pot review RUN --fetch|--discard: name the run (pot review
-  lists them)`. An unknown run: `pot review: no run ffff in pot's state (pot runs lists them)` (exit 1).
+- `--fetch` or `--discard` with no `RUN` is a usage error: `pot: review RUN --fetch|--discard: name the run (pot review
+  lists them)`; both together: `pot: review RUN --fetch or --discard, not both`. An unknown run: `pot review: no run ffff in pot's state (pot runs lists them)` (exit 1).
 - **Refused, exit 2:** `--approve` (`pot review --approve comes with pot serve (phase 3): no run waits for approval
   in this release`) and `--root` (`pot review --root comes with deployment roots (phase 2): pot review reads this
   root's runs`).
@@ -1224,8 +1240,9 @@ states are `running`, `exited` (also a run whose pot ended without an exit: kill
 (reserved).
 
 - **With no `ID`:** every `running`, `stopped` and `review` run and the 20 latest others, all newest first
-  (`--all`: every run). NOTE is `N commits · pot review ID` for a run in review, the fix for a stopped one, `running`, `exit S`
-  (`exit S · fetched`), `discarded`, `discarded (pot ended without an exit: killed or crashed)`, or `lost: pot ended
+  (`--all`: every run). NOTE is `N commits · pot review ID` for a run in review (`fetch failed ·
+  pot review ID` when the host's staging fetch failed), the fix for a stopped one (`stopped · granted since: start it
+  again` once its kits are granted), `running`, `exit S` (`exit S · fetched`), `discarded`, `discarded (pot ended without an exit: killed or crashed)`, or `lost: pot ended
   without an exit (killed or crashed)` for a run with no clone to review:
 
   ```
@@ -1235,9 +1252,11 @@ states are `running`, `exited` (also a run whose pot ended without an exit: kill
   ```
 
 - **`pot runs ID`:** the rows `run`, `command`, `started` (`, by a person` or `, by a script`, and `, in the
-  background`), then `stopped    exit 125 (grant)` (or `(guarantee)`), `ended      DATE · exit S · DURATION`, or
+  background`), then `stopped    exit 125 (grant)` (or `(guarantee)`; `· granted since: start it again` once its kits are granted,
+  with `next       start it again`), `ended      DATE · exit S · DURATION`, or
   `ended      unknown: pot ended without an exit (killed or crashed)`; `clone` (the base, commits, unsigned, size,
-  `kept until` or `discarded`, `fetched: pot-ID/main`, uncommitted files), `attention`, and `next` (for review,
+  `kept until` or `discarded`, `fetched: pot-ID/main`, uncommitted files), a `note` row for each scion whose own
+  submodules were not cloned, `attention`, and `next` (for review,
   `pot review ID · pot review ID --fetch`; for stopped, the fix):
 
   ```
@@ -1272,10 +1291,10 @@ never their contents. It exits 1 when a line starts `!`, else 0. There is no `--
 
 ```
 pot doctor · root home-manager · platform-vm · pot v2.17.0
-backend    bubblewrap: user namespaces work; proves closure-store own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files; lacks resource-limits separate-kernel nest
+backend    bubblewrap: user namespaces work; proves closure-store own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files; resource-limits: for runs without a terminal; lacks separate-kernel nest
 resources  user systemd: runs without a terminal get MemoryMax=50% TasksMax=2048
-grants     ~/.workstation/pot/grants.json: parses, 3 kits, no section for platform-vm; tracked in ~/.workstation, committed
-! bindings credential api.anthropic.com kit=claude-code@flexion: file ~/.config/pot/claude-token-flexion is missing
+grants     ~/.workstation/pot/grants.json: parses, 3 kits, no entry for platform-vm in the grants file's machines; tracked in ~/.workstation, committed
+! bindings credential api.anthropic.com kit=claude-code@flexion: file ~/.config/pot/claude-token-flexion is missing: create it, with mode 600
          ! credential api.anthropic.com kit=claude-code@personal: file ~/.config/pot/claude-token-personal (present, 0644: others can read it; chmod 600 it)
            credential bedrock-runtime.us-east-2.amazonaws.com kit=claude-code@flexion-bedrock: env (ai use flexion-bedrock)
          ! git.fetch ssh://forgejo@platform-vm:2222/*: ssh agent (SSH_AUTH_SOCK unset: fetches fail)
@@ -1289,21 +1308,27 @@ state      ~/.local/state/pot: 0 runs, 0 clones (0 B of 20G, keepDays 14)
 ```
 
 - `backend` is the probe (`… cannot create a user namespace here, so no run starts (pot host CMD runs unsandboxed)`
-  when it fails). It lists `resource-limits` as lacking, because only a run in the scope proves it: `resources`
-  says whether the scope is there (`! … no user systemd (systemd-run --user failed): runs without a terminal start
-  without limits`).
-- `grants` says whether the file parses, how many kits it holds, this machine's section, and, when it is tracked,
-  `tracked in TOP, committed` or `with uncommitted changes`.
+  when it fails). Where user systemd answers, it says `resource-limits: for runs without a terminal`; where it does
+  not, `resource-limits` is among the lacks, and `resources` says why:
+  `! resources no user systemd (systemd-run --user failed): runs without a terminal start without limits`. A
+  marked row is `! LABEL TEXT`.
+- `grants` says whether the file parses, how many kits it holds, this machine's entry (`no entry for platform-vm in
+  the grants file's machines`, or `N in the grants file's machines entry for platform-vm`), and, when it is
+  tracked, `tracked in TOP, committed` or `with uncommitted changes`. No file: `grants     PATH: missing: pot grant
+  writes it`. One that does not parse: `!` with the error, naming the file once.
 - `bindings`: each binding's file by path and mode, never its contents. A key file that group or others can read is
-  marked `!` (`chmod 600 it`); so is a missing one, and an unset `SSH_AUTH_SOCK` for `git.fetch`.
+  marked `!` (`chmod 600 it`). A missing one is marked with its fix: the binding's `refresh` command, such as
+  `… is missing: claude setup-token, saved with mode 600` (the default root and `pot init` set it), else
+  `… is missing: create it, with mode 600`. An unset `SSH_AUTH_SOCK` for `git.fetch` is marked too.
 - `instances`: each agent kit's instances, and which one this shell's variables select; `none (no kit of this root
   has instances)`.
 - `workspace` appears only inside a repository (it builds the repo kit, cached): its name and identity, its repo
   kit's folder or `no repo kit`, and its scion kits with their releases, or `no scion kits`.
-- `state`: runs by state, and the clones' size against `clones.maxSize`; over the cap, `! … over clones.maxSize; the
+- `state`: runs by state (`1 run`, `N runs`), and the clones' size against `clones.maxSize`; over the cap, `! … over clones.maxSize; the
   oldest still in review: pot review ID --discard`.
-- `launcher`: `~/.config/pot/launcher -> this pot`; `!` when it names another pot (`home-manager switch`), and a note
-  when it is missing (kit wrappers, v2.18.0, would use the default root's pot).
+- `launcher`: `~/.config/pot/launcher -> this pot`; `!` when it names another pot, with the step for the root's
+  kind: `(home-manager switch)` for a home-manager root, else `(point ~/.config/pot/launcher at this root's
+  bin/pot)`; and a note when it is missing (kit wrappers, v2.18.0, would use the default root's pot).
 - Inside a run it is refused (exit 2): `pot doctor runs on the host; inside a run, pot explain and pot why`.
 
 ## Signals
@@ -1469,12 +1494,16 @@ depth: the tree after a run is untrusted output.
   `**/graft.nix` and its scions directory, such as `scions` or `nix/agent-tools/.scions`.
 - Each kit's `protect`.
 - In every git directory (the top `.git`, each scion's, each worktree's, a clone's and its modules'): `config`, `config.worktree`, `hooks/`,
-  `info/`, `commondir` and `gitdir`; and every `.git` file. The rest is writable, so a run can commit. It can also
-  delete other branches' refs.
+  `info/`, `commondir` and `gitdir`; and every `.git` file. When `commondir`, `config.worktree` or `gitdir` is
+  absent at start, pot puts a neutral read-only placeholder there for the run (`commondir` holding `.`, the others
+  empty), so a run cannot create one and point host git at a config it wrote; pot removes each placeholder after
+  the run, if it still holds what pot wrote. The rest is writable, so a run can commit. It can also delete other
+  branches' refs.
 
 Protection covers the paths that exist when the run starts. A host-run file that the run creates (a new `justfile`
 or `.envrc` in a subfolder, say) is not stopped: the exit line, and `pot review` for a clone, flag it as a changed
-host-run file.
+host-run file. The exception is the git names above: an absent `commondir`, `config.worktree` or `gitdir` gets a
+placeholder, so a run cannot create one.
 
 In place, a protected file with a second hard link stops the run. A clone has no hard links to your repository
 (it is made with `--no-hardlinks`), so the check does not apply there. To change a protected file, edit it on the
@@ -1570,6 +1599,7 @@ The other messages, after `pot (<context>): `:
 | Outside the workspace (`pot why`) | `~/src/other is not in this run.`, then `  one run:   pot --read ~/src/other …, or pot --repo ~/src/other for a repository` and the `permanent:` lines |
 | Hidden (`pot why`) | `~/.ssh is hidden by your root in every run (~/.ssh, …)` |
 | Hidden `--repo` | `--repo ~/.ssh/x: ~/.ssh/x is hidden by your root in every run` |
+| `--read` or `--write` of pot's state (1) | a folder that holds it: `--read ~/.local: which holds pot's own state (~/.local/state/pot)`; a path inside it: `… which is pot's own state` |
 | Protected (`pot why`) | `justfile is protected (**/justfile, graft): edit it on the host` |
 | A root repository, agent command (1) | `~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD` |
 | A root repository, other command (1) | `~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD; pot host CMD runs it unsandboxed` |

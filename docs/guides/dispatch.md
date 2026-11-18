@@ -29,11 +29,11 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
    The startup line names the base:
 
    ```
-   pot: dispatch · flexion-assistant · from main (716424f) · nix/agent-tools/.scions/knowledge-base-kit: its own
-   submodules are not cloned · nix/agent-tools/.scions/notebook-kit: its own submodules are not cloned · pot explain
+   pot: dispatch · flexion-assistant · from main (716424f) · pot explain
    ```
 
-   (wrapped here). Only the first level of submodules is cloned, so two scions' own submodules are left out.
+   Only the first level of submodules is cloned; `pot runs ID` and `pot review ID` note each scion whose own
+   submodules are left out.
 
    When it ends, the exit line counts its commits:
    `pot: run 1ac1 · 1 commit on main: pot review 1ac1, then pot review 1ac1 --fetch`.
@@ -86,6 +86,8 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
      take it: git merge pot-1ac1/main
    ```
 
+   If your git config signs commits, a `sign:` line makes a branch of the run's commits and signs them:
+   `git switch -c pot-1ac1 pot-1ac1/main && git rebase --exec 'git commit --amend --no-edit -S' 716424f`.
    If the run committed in a scion, a line names that scion: its commits are in the scion's own
    `refs/remotes/pot-1ac1/*`, and a fix there goes to its provider.
 
@@ -96,7 +98,6 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
    git merge pot-1ac1/main
    ```
 
-   If your git config signs commits, `--fetch` also prints the `git rebase --exec … -S` line that signs them.
 
 6. When you are done, remove the clone:
 

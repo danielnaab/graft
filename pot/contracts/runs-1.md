@@ -35,12 +35,12 @@ Every event has `ev` and `by`:
 
 | `ev` | When | Keys |
 |---|---|---|
-| `start` | the run starts (also `pot host`) | `run`, `context`, `backend`, `argv`, `kits`, `invoker`, `time`; `mode`, `workspace`, `command`, `pid`, `boot`, `pidStart`, `pane`, `detached`, `parent`, `oneRun`, and in clone mode `clone` (`{ base, branch, path }`) |
-| `stop` | pot refused to start the run with exit 125 | `reason` (`grant` or `guarantee`), `kits` (each `{ id, status }`), `fix` (such as `pot grant flexion-assistant`), `text` (the 125 lines), `workspace`, `time` |
+| `start` | the run starts (also `pot host`) | `run`, `context`, `backend`, `argv`, `kits`, `invoker`, `time`; `mode`, `workspace`, `command`, `pid`, `boot`, `pidStart`, `pane`, `detached`, `parent`, `oneRun`, and in clone mode `clone` (`{ base, branch, path, nested }`) |
+| `stop` | pot refused to start the run with exit 125 | `reason` (`grant` or `guarantee`), `kits` (each `{ id, status, digest, source }`: what was wanted), `fix` (such as `pot grant flexion-assistant`), `text` (the 125 lines), `workspace`, `time` |
 | `net` | a network decision | `host`, `port`, `verdict`, `count`, `bytes_out` |
 | `cap`, `notfound` | in the shape; not written yet | |
 | `exit` | the command ended | `status`, `time` |
-| `after` | the host's look at what the run left | `commits`, `unsigned`, `touches_host_run`, `repo_kit_change`, `root_repo_change`, `base`; in clone mode also `refs` (the clone's branches that moved: `{ "main": "e91d2c7…" }`), `scions` (`{ "<path>": { "commits": [ … ] } }`), `uncommitted`, `size` (bytes), `gitlinks`, `new_git_metadata` and `root_attention`; always `signs` (whether the host's git signs, which decides whether unsigned commits are shown); `recovered: true` when `pot runs` or `pot review` completed it after pot had ended |
+| `after` | the host's look at what the run left | `commits`, `unsigned`, `touches_host_run`, `repo_kit_change`, `root_repo_change`, `base`; in clone mode also `refs` (the clone's branches that moved: `{ "main": "e91d2c7…" }`), `scions` (`{ "<path>": { "commits": [ … ] } }`), `uncommitted`, `size` (bytes), `gitlinks`, `new_git_metadata`, `root_attention` and, when the host's staging fetch failed, `fetch_failed` (git's last line; a scion's prefixed `PATH: `); always `signs` (whether the host's git signs, which decides whether unsigned commits are shown); `recovered: true` when `pot runs` or `pot review` completed it after pot had ended |
 | `fetch` | `pot review ID --fetch` | `refs` (`refs/remotes/pot-<id>/…`), `time` |
 | `discard` | a clone was removed | `why`: `person` (`--discard`), `keepDays` or `maxSize`. `time`. `keepDays` and `maxSize` remove only a clone that was fetched, discarded, or has no commits: pot never removes unfetched commits on its own. |
 
@@ -55,8 +55,8 @@ Each record has one state:
 |---|---|
 | `running` | a `start`, no `exit` or `stop`, and its process alive: `pid` exists with the start time `pidStart`, on the boot `boot`. For a run started with `--detach`, the pid is the background pot's. |
 | `exited` | an `exit`. Also a `start` whose process is gone with no `exit` (a crash, a reboot, `kill -9`): then `exit` is `null` and `lost` is `true`. A clone-mode run that was fetched or discarded is `exited` too, with `fetched` or `discarded` set. |
-| `stopped` | a `stop`: exit 125, for a grant or a missing guarantee. The command never started; `stop.fix` says what unblocks it. |
-| `review` | clone mode, ended, with commits (its own or a scion's), neither fetched nor discarded. |
+| `stopped` | a `stop`: exit 125, for a grant or a missing guarantee. The command never started; `stop.fix` says what unblocks it. When every kit it waited for now has a grant of that digest and source on this machine, `stop.grantedSince` is `true`: start it again. A `stop` written before v2.17.0's fix round (no `digest`) is never granted since. |
+| `review` | clone mode, ended, with commits (its own or a scion's), neither fetched nor discarded; or ended with a failed staging fetch (`fetch_failed`), which `keepDays` and `maxSize` never remove. |
 | `pending` | reserved for a request waiting for approval (phase 3). Not written. |
 
 When pot finds a clone-mode run that ended without its `after` event (its pot was killed), the next `pot runs` or
@@ -69,7 +69,8 @@ When pot finds a clone-mode run that ended without its `after` event (its pot wa
 
 ```json
 { "version": 1, "id": "9b0e", "state": "review", "context": "dispatch", "mode": "clone",
-  "command": { "name": "claude", "kit": "root:claude-code@flexion", "instance": "flexion" },
+  "command": { "name": "claude", "kit": "root:claude-code@flexion", "instance": "flexion",
+               "typed": [ "claude@flexion", "-p", "migrate tasks to schema v3" ] },
   "argv": [ "claude", "-p", "migrate tasks to schema v3" ],
   "workspace": [ { "id": "repo:platform-vm:2222/daniel/flexion-assistant", "path": "/home/daniel/src/flexion-assistant", "name": "flexion-assistant" } ],
   "invoker": "person", "detached": true, "pane": null, "parent": null, "children": [ ],
@@ -86,8 +87,8 @@ When pot finds a clone-mode run that ended without its `after` event (its pot wa
 | `id` | string | the run's id, four hex digits |
 | `state` | string | one of the [states](#states) |
 | `context`, `mode` | strings | the context; `in-place`, `clone`, or `none` for `pot host` |
-| `command` | object | `name`, the command kit's identity `kit` (or `null`), and `instance` (or `null`) |
-| `argv` | list of strings | the command as started |
+| `command` | object | `name`, the command kit's identity `kit` (or `null`), `instance` (or `null`), and `typed`, the command as the person typed it. Text shows `typed`. (A log from before the field: `command` is `null`.) |
+| `argv` | list of strings | the command as pot started it: the kit's program and arguments |
 | `workspace` | list | each repository's identity `id`, `path`, and `name`, the short name the startup line uses: the normalised origin's last path part, else the checkout's folder |
 | `invoker` | string | `person` (at a terminal) or `script` |
 | `detached` | boolean | started with `--detach` |
@@ -95,9 +96,9 @@ When pot finds a clone-mode run that ended without its `after` event (its pot wa
 | `parent`, `children` | string or `null`; list | for nested runs (v2.18.0): a child's id is `PARENT/CHILD`, such as `9b0e/c210`. `null` and `[ ]` until then. |
 | `started`, `ended` | strings or `null` | local times |
 | `exit`, `lost` | number or `null`; boolean | the exit status; whether pot ended without one |
-| `stop` | object or `null` | for `stopped`: `{ reason, kits, fix }` |
-| `clone` | object or `null` | in clone mode: the `base` commit and `branch`, `commits` and `unsigned`, `scionCommits`, the moved `refs`, `uncommitted` files left in the clone, its `size`, when it was `fetched` or `discarded`, and `keptUntil` |
-| `attention` | list of strings | what the host's look found, as `pot review` shows it: `N unsigned` (when the host signs, until fetched), `root: …` or `root changed`, `host-run: …`, `repo kit: …`, `gitlinks: …`, `N new git metadata paths`, `N denied: …`. Never a bare commit count. |
+| `stop` | object or `null` | for `stopped`: `{ reason, kits, fix, grantedSince }` |
+| `clone` | object or `null` | in clone mode: the `base` commit and `branch`, `commits` and `unsigned`, `scionCommits`, `nested` (the scions whose own submodules were not cloned), `fetchFailed`, the moved `refs`, `uncommitted` files left in the clone, its `size`, when it was `fetched` or `discarded`, and `keptUntil` |
+| `attention` | list of strings | what the host's look found, as `pot review` shows it: `N unsigned` (when the host signs, until fetched), `root: …` or `root changed`, `host-run: …`, `repo kit: …`, `gitlinks: …`, `N new git metadata paths`, `N denied: …`, `fetch failed: …`. Never a bare commit count. |
 
 Every string from the run (`argv`, ref names) is JSON in `--json`, and escaped in text.
 
