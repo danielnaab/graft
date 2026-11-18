@@ -56,15 +56,27 @@ machine-independent.
   1, an unknown top-level field, an entry field other than the five above, or a digest that does not match its
   requests: every run stops, with a message ending `every run stops until it is fixed`. `pot grant` alone reads
   digest mismatches leniently, setting such entries aside, so it can repair the file.
-- **Frozen.** v2.16.0 changes no canonical string and no digest. The flake check `pot-golden` holds the
+- **Frozen.** No release since v2.15.0 changes a canonical string or a digest. The flake check `pot-golden` holds the
   canonical items and digests of the claude-code instances, a standing kit and a repo kit, captured from v2.15.0,
   and fails when one changes.
 - **A change to the canonical form is canonical 2**, which every older pot refuses, stopping its runs. So the
   machines sharing a file upgrade pot together, before any of them writes canonical 2.
-- **A changed source is not a changed request.** A repo kit's source is the tree of its flake directory, so any
-  committed or staged change there (a new `flake.lock`, say) asks for one new grant of its powerful items, with
-  the same requests. Taking graft v2.16.0 is such a change: flexion-assistant asks for one
-  `pot grant flexion-assistant`.
+- **A changed source is not a changed request.** A repo kit's stored source is the tree of its flake directory.
+  A change to that source asks for one new grant of its powerful items, with the same requests.
+- **When a repo kit's source has changed** is the reader's comparison, not the file's shape. Since v2.17.0, pot
+  still writes `{ "tree": … }` exactly as v2.16.0 does, and a grant holds when either:
+  1. its tree equals the flake directory's tree now; or
+  2. the two trees differ only outside the kit's defining files, `flake.nix` and `flake.lock` in the flake
+     directory, and the kit as built is unchanged: the hash of the bundle's repo kit (its requests, protect list,
+     tools and commands, with their store paths) equals the one this machine recorded, in pot's state, for the
+     old tree. With no record (another machine granted it), or with the old tree's objects unavailable, only
+     rule 1 applies.
+
+  So a scion bump or a changed test file no longer asks again; a new `flake.lock` does, and so does any change to
+  what the kit builds, even in a file that `flake.nix` imports. A pot from before v2.17.0 applies rule 1 alone: it
+  is stricter, never in conflict, and the grant it writes is one that a newer pot reads. Taking a new graft into a
+  consumer changes its `flake.lock`, so it asks for one `pot grant NAME` for that consumer's repo kit, and for no
+  other kit.
 
 ## Sources
 

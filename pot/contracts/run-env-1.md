@@ -19,7 +19,7 @@ status: working
 | `POT` | The context's name, such as `work`. Set in every run: test it with `[ -n "${POT:-}" ]`. |
 | `POT_POLICY` | `/run/pot/policy.json` |
 | `POT_TOOLS` | The `bin/` of the workspace's [pot-kits](pot-kits-1.md) bundle, when the workspace has a repo kit. |
-| `POT_CLONE` | `1` in clone mode. Not set by v2.16.0, which has no clone mode. |
+| `POT_CLONE` | `1` in clone mode (since v2.17.0); unset in place. |
 
 The rest of a run's environment is described in pot's reference
 ([Environment](../../docs/reference/pot.md#environment)); it is not part of this contract.
@@ -55,13 +55,13 @@ optional key to an item, never remove or rename one.
 |---|---|---|
 | `version` | number | `1` |
 | `run` | string | the run's id, four hex digits |
-| `context`, `mode`, `access` | strings | the context; `in-place`; `read` or `write` |
-| `backend` | object | its `name`, the guarantees the context `requires`, and those it `proved` |
-| `workspace` | list | each repository: `id` (a [kit identity](kit-1.md#identity)), `path`, `common`, `protected`, `clone` (`null` in place) |
+| `context`, `mode`, `access` | strings | the context; `in-place` or `clone`; `read` or `write` |
+| `backend` | object | its `name`, the guarantees the context `requires`, and those it `proved` for this run (`resource-limits` only for a run that gets the resource scope) |
+| `workspace` | list | each repository: `id` (a [kit identity](kit-1.md#identity)), `path` (the original path, where the run sees it), `common`, `protected`, `clone` (`null` in place; in clone mode, the clone's host path in pot's state, and `common` is the clone's `.git`) |
 | `items` | list | every see, limits and reach item: `kind`, `value`, `class` (`see`, `limits` or `reach`), `sources`, `effective`; a file a mirror dir binds also has `memory: true` (as in v2.15.0) and, from v2.16.0, `mirror` (the dir's label, such as `"memory"`) |
 | `mounts` | object | the state directories, each with its scope `key`, and the run directory |
 | `bindings` | list | each bound capability, its socket, and the see items it adds |
-| `children` | object | the policies of the commands the run may start: empty, until nesting |
+| `children` | object | the policies of the commands the run may start: empty until nesting (v2.18.0) |
 | `grants` | list | each kit's grant `id`, `digest`, and whether it `match`ed |
 
 An item's `sources` say where it came from. Each is one of these objects:

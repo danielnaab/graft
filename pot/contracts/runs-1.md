@@ -1,42 +1,128 @@
 ---
 status: draft
 ---
-# runs/1: runs, for other programs (reserved)
+# runs/1: runs, for other programs
 
-**Reserved.** v2.16.0 has no verb for this contract. It is written down so that a program waiting for it knows
-what not to read: a run's state folder is pot's private layout, and may change in any release.
+A run's record and its log, as pot reads them back. `pot runs` lists runs and follows one, and `pot review` uses the
+same records for the runs that need a person. workmux, Windmill jobs and, later, grove read this contract instead
+of pot's state folder.
 
 | | |
 |---|---|
-| Version | 1 (reserved) |
-| Producer | pot |
-| Reader | workmux, Windmill jobs, later grove |
+| Version | 1: the `version` of `pot runs --json` |
+| Producer | pot, which writes each run's log on the host |
+| Reader | `pot runs` and `pot review`; workmux, Windmill jobs, later grove |
 | Owner | pot |
 
-## Shape (planned)
+## Shape
 
 ```
-pot runs [ID] [--json] [--follow]
+pot runs [ID] [--json] [--follow] [--all]
 ```
 
-A run record has:
+### The run log
 
-| Field | Meaning |
+Each run's log, `log.jsonl`, is written by the host, one JSON object per line, and hidden from every run. **A record
+is computed from the log alone:** there is no second record file, so a record always agrees with its events.
+
+Every event has `ev` and `by`:
+
+| `by` | Meaning |
 |---|---|
-| `state` | `running`, `exited`, `stopped` (exit 125, waiting for a grant), `review` (a dispatch waiting for review) or `pending` |
-| `context` | the context |
-| `command.kit` | the command kit's identity, when there is one |
-| `workspace[]` | the workspace's repository identities |
+| `host` | a fact the host observed |
+| `parent` | written by a nested parent's in-run pot, as trustworthy as that parent. Reserved: nested runs write it from v2.18.0. |
+| `run` | a claim the run reported: data, never evidence |
 
-Events are the lines of the run log (`log.jsonl`), whose shape is frozen: `start`, `net`, `cap`, `notfound`, `exit`
-and `after`, each with `ev` and `by` (`host` or `run`). A `by: "run"` line is data the run reported, never evidence.
+| `ev` | When | Keys |
+|---|---|---|
+| `start` | the run starts (also `pot host`) | `run`, `context`, `backend`, `argv`, `kits`, `invoker`, `time`; `mode`, `workspace`, `command`, `pid`, `boot`, `pidStart`, `pane`, `detached`, `parent`, `oneRun`, and in clone mode `clone` (`{ base, branch, path }`) |
+| `stop` | pot refused to start the run with exit 125 | `reason` (`grant` or `guarantee`), `kits` (each `{ id, status }`), `fix` (such as `pot grant flexion-assistant`), `text` (the 125 lines), `workspace`, `time` |
+| `net` | a network decision | `host`, `port`, `verdict`, `count`, `bytes_out` |
+| `cap`, `notfound` | in the shape; not written yet | |
+| `exit` | the command ended | `status`, `time` |
+| `after` | the host's look at what the run left | `commits`, `unsigned`, `touches_host_run`, `repo_kit_change`, `root_repo_change`, `base`; in clone mode also `refs` (the clone's branches that moved: `{ "main": "e91d2c7…" }`), `scions` (`{ "<path>": { "commits": [ … ] } }`), `uncommitted`, `size` (bytes), `gitlinks`, `new_git_metadata` and `root_attention` |
+| `fetch` | `pot review ID --fetch` | `refs` (`refs/remotes/pot-<id>/…`) |
+| `discard` | a clone was removed | `why`: `person` (`--discard`), `keepDays` or `maxSize`. `keepDays` and `maxSize` remove only a clone that was fetched, discarded, or has no commits: pot never removes unfetched commits on its own. |
+
+The shapes of `start`, `net`, `cap`, `notfound`, `exit` and `after` are frozen (pot's design, Appendix A). The other
+kinds, and the keys added to the frozen ones, are values that this version adds.
+
+### States
+
+Each record has one state:
+
+| State | When |
+|---|---|
+| `running` | a `start`, no `exit` or `stop`, and its process alive: `pid` exists with the start time `pidStart`, on the boot `boot`. For a run started with `--detach`, the pid is the background pot's. |
+| `exited` | an `exit`. Also a `start` whose process is gone with no `exit` (a crash, a reboot, `kill -9`): then `exit` is `null` and `lost` is `true`. A clone-mode run that was fetched or discarded is `exited` too, with `fetched` or `discarded` set. |
+| `stopped` | a `stop`: exit 125, for a grant or a missing guarantee. The command never started; `stop.fix` says what unblocks it. |
+| `review` | clone mode, ended, with commits, neither fetched nor discarded. |
+| `pending` | reserved for a request waiting for approval (phase 3). Not written. |
+
+When pot finds a clone-mode run that ended without its `after` event (its pot was killed), the next `pot runs` or
+`pot review` that reads the run completes the host's look first, as the run's end does, then shows it.
+
+### The record
+
+`pot runs ID --json` prints one record. `pot runs --json` prints `{ "version": 1, "runs": [ record, … ] }`.
+
+```json
+{ "version": 1, "id": "9b0e", "state": "review", "context": "dispatch", "mode": "clone",
+  "command": { "name": "claude", "kit": "root:claude-code@flexion", "instance": "flexion" },
+  "argv": [ "claude", "-p", "migrate tasks to schema v3" ],
+  "workspace": [ { "id": "repo:platform-vm:2222/daniel/flexion-assistant", "path": "/home/daniel/src/flexion-assistant" } ],
+  "invoker": "person", "detached": true, "pane": null, "parent": null, "children": [ ],
+  "started": "2026-11-17T14:02:11", "ended": "2026-11-17T14:31:40", "exit": 0, "lost": false,
+  "stop": null,
+  "clone": { "base": "c9996c5…", "branch": "main", "commits": 3, "unsigned": 1, "refs": { "main": "e91d2c7…" },
+             "uncommitted": 0, "size": 201326592, "fetched": null, "discarded": null, "keptUntil": "2026-12-01" },
+  "attention": [ "3 commits", "1 unsigned", "host-run: justfile", "2 denied: registry.npmjs.org" ] }
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `version` | number | `1` |
+| `id` | string | the run's id, four hex digits |
+| `state` | string | one of the [states](#states) |
+| `context`, `mode` | strings | the context; `in-place`, `clone`, or `none` for `pot host` |
+| `command` | object | `name`, the command kit's identity `kit` (or `null`), and `instance` (or `null`) |
+| `argv` | list of strings | the command as started |
+| `workspace` | list | each repository's identity `id` and `path` |
+| `invoker` | string | `person` (at a terminal) or `script` |
+| `detached` | boolean | started with `--detach` |
+| `pane` | string or `null` | the tmux pane the run held |
+| `parent`, `children` | string or `null`; list | for nested runs (v2.18.0): a child's id is `PARENT/CHILD`, such as `9b0e/c210`. `null` and `[ ]` until then. |
+| `started`, `ended` | strings or `null` | local times |
+| `exit`, `lost` | number or `null`; boolean | the exit status; whether pot ended without one |
+| `stop` | object or `null` | for `stopped`: `{ reason, kits, fix }` |
+| `clone` | object or `null` | in clone mode: the `base` commit and `branch`, `commits` and `unsigned`, the moved `refs`, `uncommitted` files left in the clone, its `size`, when it was `fetched` or `discarded`, and `keptUntil` |
+| `attention` | list of strings | what the host's look found, as `pot review` shows it |
+
+Every string from the run (`argv`, ref names) is JSON in `--json`, and escaped in text.
+
+### --follow
+
+- `pot runs ID --follow` prints the run's events as they are appended, until `exit`, `after` or `stop`, and exits
+  with the run's status: 125 when it stopped, 0 when it ended in `review`. With `--json` it prints the log's own
+  lines, verbatim.
+- `pot runs --follow` prints the list, then one line for each change of any run's state, until interrupted.
+
+Both read the logs again every half second.
+
+### Inside a run
+
+`pot runs` inside a run shows that run alone, from its policy: `id`, `state` (`running`), `context`, `mode` and
+`workspace`; the other fields are `null`. The host's logs stay hidden.
 
 ## Compatibility
 
-- Until the verb exists, no reader may depend on pot's state folder (`runs/<id>/`): it is hidden from every run,
-  and its layout is not a contract.
+- **Values are added, never fields,** within version 1: new event kinds, new keys in an event, new `attention`
+  strings. A reader ignores what it does not know, and treats a state it does not know as one it does not act on.
+- **`by` decides trust.** Only `by: host` lines are evidence. `by: parent` and `by: run` lines are claims.
+- **The state folder is not the contract.** A reader uses `pot runs --json`. The layout of `runs/<id>/` is pot's
+  own, and may change in any release.
 
 ## Sources
 
-- [pot/core/pot.py](../core/pot.py): the run log
+- [pot/core/pot.py](../core/pot.py): the run log, `pot runs`, `pot review`
 - [pot's reference: State](../../docs/reference/pot.md#state)

@@ -26,7 +26,8 @@ graft.lib.pot.kitsFor {
   scions ? { };        # scions.<name> = { kit = <kit>; file = ".scions/<name>/graft.nix"; }
   tools ? [ ];         # packages for the bundle's bin/; kitsFor adds the repo kit's own packages
   files ? [ ];         # what the producer has pot protect in every run here
-}                      # → a derivation: packages.<system>.pot-kits
+  recipes ? { };       # the producer's own recipes, for kits.just (from v2.18.0)
+}                      # → a derivation: packages.<system>.pot-kits, with passthru.wrappers
 ```
 
 | Argument | Type | Meaning |
@@ -36,6 +37,10 @@ graft.lib.pot.kitsFor {
 | `scions.<name>` | `{ kit; file; }` | each scion's kit, by its folder name |
 | `tools` | list of packages | the workspace's tools. mkFlake passes the merged tools and the repository's own `graft`. |
 | `files` | list of strings | paths relative to the flake directory, or `**/NAME` anywhere in the repository. mkFlake passes `[ "**/graft.nix" "<dir>" ]`, its scions folder. |
+| `recipes` | attrs, default `{ }` | the producer's own recipes, in [kit/1's recipe form](kit-1.md#recipes), written into the same `kits.just` as the kits' recipes. graft's are `outdated`, `upgrade` and `graft-check`. Fixed in v2.17.0; used from v2.18.0. |
+
+The result has `passthru.wrappers`: the declared commands' wrappers as one package, for the producer's tools.
+Fixed in v2.17.0; mkFlake puts it in a consumer's tools from v2.18.0.
 
 mkFlake's call, for a consumer whose scions folder is `.scions`:
 
@@ -60,9 +65,10 @@ is written)`.
   default, so a producer written for an earlier pot keeps evaluating.
 - graft's lock pins this library, and a root pins its own pot, so the two pots meet only through
   [pot-kits/1](pot-kits-1.md).
-- **One exception, deprecated:** mkFlake builds v2.15.0's `graft-kits` from the `kit.json` that kitsFor wrote, so
-  graft reads pot-kits' shape there. That is the only place graft reads a pot format. It goes with `graft-kits`, in
-  v2.17.0.
+- **graft reads no pot format.** Until v2.17.0, mkFlake built v2.15.0's `graft-kits` from the `kit.json` that
+  kitsFor wrote; that bundle is gone, and with it the one place graft read pot's shapes.
+- **A kit with `packages` fails the build:** `pot: FILE: packages is tools' old name, gone in v2.17.0: give tools`
+  ([kit/1](kit-1.md#compatibility)). <!-- TBD: text from the samples -->
 
 ## Sources
 
