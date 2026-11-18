@@ -1889,26 +1889,26 @@ EOF
   (cd "$work/sbrootrepo" && refused "pot: work in a root repository" sb_ true \
     && expect "is refused (D23)" holds "is a root: pot inspect, or pot host CMD until pot dispatch (a later release)")
   refused "pot: --repo to a root repository" sb_ --repo "$work/sbrootrepo" true
-  expect "is refused" holds "is a root: pot inspect"
+  expect "is refused, naming the flag (V1)" holds "--repo $work/sbrootrepo is the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   # S3 (v2.16.2): a write item that equals, contains or sits inside a root repository is refused at start
   mkdir -p "$work/sbrootrepo/sub"
   local wr
-  for wr in "$work/sbrootrepo" "$work/sbrootrepo/sub"; do
-    refused "pot: S3, --write $wr" sb_ --write "$wr" true
-    expect "is refused with the root message" holds "$work/sbrootrepo is a root: pot inspect"
-  done
+  refused "pot: S3, --write of the root" sb_ --write "$work/sbrootrepo" true
+  expect "names the flag and the root (V1)" holds "--write $work/sbrootrepo is the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
+  refused "pot: S3, --write inside the root" sb_ --write "$work/sbrootrepo/sub" true
+  expect "says it is inside the root (V1)" holds "--write $work/sbrootrepo/sub is inside the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   # a root by its origin, nested in another repository: --write and --repo of the outer one are refused too
   local ou=$work/sbouter && mkdir -p "$ou/inner" && git_ -C "$ou" init -q && git_ -C "$ou" commit -q --allow-empty -m o
   git_ -C "$ou/inner" init -q && git_ -C "$ou/inner" remote add origin ssh://git@fake.example/rootx.git && git_ -C "$ou/inner" commit -q --allow-empty -m i
   refused "pot: S3, --write of a folder holding a root (by origin)" sb_ --write "$ou" true
-  expect "names the root" holds "$ou/inner is a root: pot inspect"
+  expect "names the root (V1)" holds "--write $ou holds the root $ou/inner: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   refused "pot: S3, --repo of a repository holding a root" sb_ --repo "$ou" true
-  expect "names the root" holds "$ou/inner is a root: pot inspect"
+  expect "names the root (V1)" holds "--repo $ou holds the root $ou/inner: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   ran "pot: S3, --repo of it with --access read" sb_ --access read --repo "$ou" true
   # a granted write request naming a root
   ran "pot: S3, grant a kit's write of a root" tty_ $'y\n' "$work/sbr/bin/pot" grant rootwriter
   refused "pot: S3, its command" sb_ rwtest -c true
-  expect "is refused at start" holds "$work/sbrootrepo is a root: pot inspect"
+  expect "is refused at start, naming the kit (V1)" holds "rootwriter's write $work/sbrootrepo is the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   refused "pot: dispatch" sb_ dispatch true
   expect "comes later" holds "clone mode (dispatch) comes in a later release"
   refused "pot: run is reserved" sb_ run true
