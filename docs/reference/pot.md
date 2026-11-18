@@ -12,7 +12,7 @@ with graft are [pot's contracts](../../pot/contracts/README.md): [kit](../../pot
 [grants](../../pot/contracts/grants-1.md), [run-env](../../pot/contracts/run-env-1.md) and
 [runs](../../pot/contracts/runs-1.md).
 
-`pot` is experimental in v2.17.0. It runs on Linux, with bubblewrap. On macOS it refuses to start until a later
+`pot` is experimental in v2.17.1. It runs on Linux, with bubblewrap. On macOS it refuses to start until a later
 release ([On macOS](#on-macos)).
 
 ## The model
@@ -54,7 +54,7 @@ Terms built from these:
 | **state** | A reach request for a private persistent directory. |
 | **command** | A program that a kit ships. |
 | **command kit**, **repo kit**, **scion kit**, **root kit**, **agent kit** | A kit by its place: the kit whose command runs; a repository's own needs; a grafted provider's kit; a kit the root defines; a kit that describes an agent, such as Claude Code. |
-| **allowance** | The bounds on a `delegate` grant (not in v2.17.0). |
+| **allowance** | The bounds on a `delegate` grant (not in v2.17.1). |
 | **digest**, **source** | What a grant is fixed to: a hash of the kit's request set, and for powerful items the code it came from. |
 
 graft's other terms keep their meaning. A provider ships a kit in `graft.nix`. A consumer's own kit is its repo
@@ -71,7 +71,7 @@ A root is where the person's authority lives. A run never writes a root in place
 | Root | Where | For |
 |---|---|---|
 | A home-manager root | `programs.pot` in your home-manager configuration, from `inputs.graft.homeManagerModules.pot` | Your own machine. Its source repository is a [root repository](#root-repositories). |
-| graft's default root | `nix run github:danielnaab/graft/v2.17.0#pot -- CMD` (`packages.<system>.pot`, `apps.<system>.pot`) | Someone without a root. Its grants file is `~/.config/pot/grants.json`. |
+| graft's default root | `nix run github:danielnaab/graft/v2.17.1#pot -- CMD` (`packages.<system>.pot`, `apps.<system>.pot`) | Someone without a root. Its grants file is `~/.config/pot/grants.json`. |
 | A minimal root of your own | `pot init DIR` writes `DIR/flake.nix`, built with `graft.lib.mkRoot` | A start for a root that you then edit and commit. |
 
 graft's default root and the root that `pot init` writes have graft's contexts, hidden list and standard tools,
@@ -105,7 +105,7 @@ Its arguments are the options below. It checks every kit manifest when it builds
 build. A context named like a verb (`runs` and `doctor` included) is an evaluation error:
 `pot: mkRoot: a context may not be named like a pot verb: …`.
 
-In v2.17.0 you run the `pot` on your `PATH`. The home-manager module also writes `<home>/.config/pot/launcher`,
+In v2.17.1 you run the `pot` on your `PATH`. The home-manager module also writes `<home>/.config/pot/launcher`,
 a link to its `pot`, for the kit-command wrappers of a later release: they will find `<home>` from the password database, never
 from `$HOME`, and use graft's default root when the link is missing. There is no host-wide `/etc` pointer.
 
@@ -163,11 +163,11 @@ programs.pot.contexts.readonly = { extends = "work"; access = "read"; };
 | `access` | `write`, `read`, `none` | What the run may do to its workspace. |
 | `backend` | a backend name, default `auto` | The backend that enforces the run. |
 | `requires` | guarantee names | A run for which the backend cannot prove these is refused ([Guarantees](#guarantees)). |
-| `trust` | `workspace`, `root` | Whether workspace kits are evaluated. `root` is not in v2.17.0. |
+| `trust` | `workspace`, `root` | Whether workspace kits are evaluated. `root` is not in v2.17.1. |
 | `include` | root kit names | Root kits in every run of the context: their reach is standing reach. |
-| `commands` | root kit names | Root kits whose commands a run may start as children, without their reach. Not in v2.17.0. |
+| `commands` | root kit names | Root kits whose commands a run may start as children, without their reach. Not in v2.17.1. |
 | `network` | `granted`, `none` | `none` drops every network item. |
-| `nest` | boolean, default `true` | Whether the run may hold nested children. Not in v2.17.0. |
+| `nest` | boolean, default `true` | Whether the run may hold nested children. Not in v2.17.1. |
 
 A context name may not be a verb: `explain`, `why`, `grant`, `review`, `runs`, `doctor`, `init`, `run` or `serve`.
 
@@ -428,7 +428,7 @@ kit = {
 - **Paths are normalised.** `..` is refused. A path under your home is recorded as `~/…`.
 - A `program` written `{ host = "~/.local/bin/claude"; }` is resolved on the host at each start. Its target must
   be in the store or fall under a granted `read` request.
-- In v2.17.0, `commands` are checked, and `pot NAME` finds a command's kit and applies its `access` and requests.
+- In v2.17.1, `commands` are checked, and `pot NAME` finds a command's kit and applies its `access` and requests.
   But commands are not wrapped, and `recipes` are checked but not generated: a kit tool that `just`, a hook or a
   scheduler calls runs on the host, as before ([Not yet](#not-yet)).
 - A repository presents its kits as `packages.<system>.pot-kits`, which pot's library `graft.lib.pot.kitsFor`
@@ -537,9 +537,9 @@ item on its own.
 ### Capabilities
 
 A capability is a request named by its effect, and a root [binding](#bindings) carries it out. Every name is
-reserved now. v2.17.0 binds the first five; the others come in a later release.
+reserved now. v2.17.1 binds the first five; the others come in a later release.
 
-| Capability | Binding in v2.17.0 | Class |
+| Capability | Binding in v2.17.1 | Class |
 |---|---|---|
 | `status.relay` | a relay and a `workmux` shim | ordinary |
 | `git.fetch { remote }` | an ssh shim and a host broker that allows only `git-upload-pack` | ordinary |
@@ -878,7 +878,7 @@ pot explain [CONTEXT] [FLAGS] [CMD] [--json] [--backend-command]
 ```
 
 Prints the run's policy without running it: every item with the kit, file or grant that it came from, and a
-note that kit tools run as the run's own programs in v2.17.0. `--json` prints [policy.json](#policyjson).
+note that kit tools run as the run's own programs in v2.17.1. `--json` prints [policy.json](#policyjson).
 `--backend-command` prints bubblewrap's command line, with each secret variable shown as `(the run holds it)`;
 with `host`, it prints `argv       CMD` (and `(+ the transcript of run ID, as data)` with `--resume`).
 Inside a run, `pot explain` prints the same text as on the host; `--json` prints the run's policy.json.
@@ -1190,7 +1190,7 @@ It is a speed bump, not a guarantee: an unrestricted agent on the host can edit 
 pot init DIR
 ```
 
-Writes `DIR/flake.nix`: a minimal root built with `graft.lib.mkRoot`, from `github:danielnaab/graft/v2.17.0`, with
+Writes `DIR/flake.nix`: a minimal root built with `graft.lib.mkRoot`, from `github:danielnaab/graft/v2.17.1`, with
 its grants file at `DIR/grants.json`. It has the default root's [claude-code instance, token binding and
 nix](#roots). A root is a repository you edit and commit, so `pot init` refuses:
 
@@ -1352,7 +1352,7 @@ On the host only. It checks what a run depends on, and reads no secret: binding 
 never their contents. It exits 1 when a line starts `!`, else 0. There is no `--json` yet.
 
 ```
-pot doctor · root home-manager · platform-vm · pot v2.17.0
+pot doctor · root home-manager · platform-vm · pot v2.17.1
 backend    bubblewrap: user namespaces work; proves closure-store own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files; resource-limits: for runs without a terminal; lacks separate-kernel nest
 resources  user systemd: runs without a terminal get MemoryMax=50% TasksMax=2048
 grants     ~/.workstation/pot/grants.json: parses, 3 kits, no entry for platform-vm in the grants file's machines; tracked in ~/.workstation, committed
@@ -1688,7 +1688,7 @@ The other messages, after `pot (<context>): `:
 | A missing lock | `pot (work): ~/…/nix/agent-tools/flake.lock is missing, and pot never writes one into a workspace: run nix flake lock there, on the host, and commit it` |
 | A binding file (1, v2.17.1) | `pot (work): ~/.config/pot/claude-token-flexion is missing (the credential binding api.anthropic.com kit=claude-code@flexion): claude setup-token, saved with mode 600, then start again`; `is unreadable` for one the user cannot read; before the grant prompts ([the binding check](#key-files)) |
 
-On macOS: `pot: no backend for darwin in v2.17.0; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)`.
+On macOS: `pot: no backend for darwin in v2.17.1; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)`.
 On the startup line, a requested variable that the host lacks is `env NAME unset`, and a capability with no binding
 is `CAPABILITY: no binding`.
 
@@ -1838,10 +1838,10 @@ attached as quoted data ([Resume on the host](#resume-on-the-host)).
 
 ## On macOS
 
-In v2.17.0, `pot` refuses to start on macOS:
+In v2.17.1, `pot` refuses to start on macOS:
 
 ```
-pot: no backend for darwin in v2.17.0; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)
+pot: no backend for darwin in v2.17.1; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)
 ```
 
 v2.14.0 is the last release with a Seatbelt sandbox. On a Mac, stay on v2.14.0 for a sandbox until the Seatbelt

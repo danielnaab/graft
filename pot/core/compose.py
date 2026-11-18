@@ -1293,7 +1293,7 @@ def binding_entry(k, r, b, inp, ctx):
         env = [env] if isinstance(env, str) else list(env or [])
         via = cfg.get("via", "env")
         if via not in ("env", "file"):
-            raise Refusal(f"pot ({ctx['name']}): bindings.{r.value}.\"{sel}\".via = {via!r}: v2.17.0 carries "
+            raise Refusal(f"pot ({ctx['name']}): bindings.{r.value}.\"{sel}\".via = {via!r}: v2.17.1 carries "
                           "env and file; proxy comes in a later release")
         e.update(via=via, env=env, **{"from": cfg.get("from") or {}}, holds="the run holds it",
                  **({"refresh": cfg["refresh"]} if cfg.get("refresh") else {}))

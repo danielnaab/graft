@@ -69,7 +69,7 @@
       packages = forAll (pkgs: {
         default = cli pkgs { };
         tools = pkgs.buildEnv { name = "tools"; paths = [ ]; };
-        # graft's default root's pot (experimental, v2.17.0): nix run github:danielnaab/graft#pot -- CMD
+        # graft's default root's pot (experimental, v2.17.1): nix run github:danielnaab/graft#pot -- CMD
         pot = defaultRoot pkgs;
       });
 
@@ -87,7 +87,7 @@
         description = "A repo that grafts other repositories, with graft's Forgejo workflows";
         welcomeText = ''
           Graft a first repository (a git submodule at its newest release tag), then commit:
-            nix run github:danielnaab/graft/v2.17.0 -- add -C . URL
+            nix run github:danielnaab/graft/v2.17.1 -- add -C . URL
           See https://github.com/danielnaab/graft.
         '';
       };

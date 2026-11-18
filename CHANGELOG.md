@@ -1,5 +1,39 @@
 # Changelog
 
+## v2.17.1 - 2026-11-18
+
+pot, graft's sandbox (experimental): the claude-code kit can use an Anthropic-compatible gateway, and a run checks
+its binding files before it asks for grants or makes a clone. Nothing else changes: no grant asks again, and the
+anthropic and Bedrock instances' canonical grant items and digests are unchanged (`pot-golden` holds them).
+
+### Added
+- **`graft.apis.gateway { url; }`**, a third API for the claude-code kit: a gateway at an `https://HOST[/PATH]` url
+  that takes its key as a bearer token, such as a Bifrost or LiteLLM proxy. The run reaches only the gateway's host,
+  on port 443 (no `claude.ai`). Claude gets `ANTHROPIC_BASE_URL=<url>/anthropic` and
+  `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`, so `/model` lists the gateway's models. The credential carries
+  `ANTHROPIC_AUTH_TOKEN`: bind it to the key's file. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is not set, since it
+  would stop the model discovery too; `DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING` and `DISABLE_BUG_COMMAND` are set
+  in its place. `agent.select.env` adds the `ANTHROPIC_BASE_URL`, so a shell set up for the gateway picks the gateway
+  instance over one that shares its config folder. A url that is not https, or names a port other than 443, fails
+  evaluation: `graft.apis.gateway: url = "http://…": give https://HOST[/PATH] (pot reaches HOST on port 443)`
+  ([the claude-code kit](docs/reference/pot.md#claude-code)).
+
+### Fixed
+- **A missing token file was found only after the grant prompts, and a dispatch left its clone behind.** A run now
+  checks each `from.file` of the credential and mcp bindings its kits use (granted or not yet) after it composes,
+  before the grant prompts and before a dispatch uses its clone. A missing or unreadable file stops the run (exit 1),
+  with the binding's `refresh` as the fix:
+  `pot (work): ~/.config/pot/claude-token-flexion is missing (the credential binding api.anthropic.com
+  kit=claude-code@flexion): claude setup-token, saved with mode 600, then start again`, else `create it, with mode
+  600`. A dispatch refused there leaves no clone and no run folder (v2.17.0 kept a stopped run with its clone,
+  about 190 MB for flexion-assistant). The file is checked by path and mode alone, never opened. `pot explain` and
+  `pot why` do not check ([the binding check](docs/reference/pot.md#key-files)).
+
+### Upgrading
+- Nothing to change. To use a gateway, add an instance with `api = graft.apis.gateway { url = "…"; }` and a
+  credential binding for its host, then grant it once: `pot grant claude-code@NAME`
+  ([Run in a sandbox](docs/guides/run-in-a-sandbox.md)).
+
 ## v2.17.0 - 2026-11-18
 
 pot, graft's sandbox (experimental), in three parts:
