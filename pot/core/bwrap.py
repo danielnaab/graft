@@ -28,6 +28,11 @@ import time
 GUARANTEES = ["closure-store", "own-netns", "own-pidns", "no-tiocsti", "protected-as-mounts", "local-listen",
               "in-place", "same-path-clone", "private-proxy", "root-files"]
 GITFILES = ["config", "config.worktree", "hooks", "info", "commondir", "gitdir"]
+# S1: names host git reads in a git directory that a run could create when they are absent (commondir would point
+# host git at a run-written config). pot puts a neutral placeholder at each absent one, read-only in the run, and
+# removes it after: commondir "." (the directory itself), the others empty (host git verified to work with each).
+PLACEHOLDERS = {"commondir": ".\n", "config.worktree": "", "gitdir": ""}
+PLACED = []   # every placeholder this backend made, written to <run dir>/placeholders.json even when prepare stops
 # §9: changed host-run files the after event reports, beyond the protect list
 HOST_RUN_EXTRA = [".gitmodules", ".lfsconfig", ".gitattributes", ".github/workflows", ".forgejo/workflows",
                   ".gitlab-ci.yml"]
@@ -78,6 +83,7 @@ class Pins:
     def __init__(self, top, common, protect, cfg):
         self.top, self.common, self.protect, self.cfg = top, common, protect, cfg
         self.dirs, self.ro, self.seen = [], [], set()
+        self.placeholders = []
 
     def rel(self, p):
         return p[len(self.top) + 1:] if p.startswith(self.top + "/") else p
@@ -162,6 +168,13 @@ class Pins:
             self.pin("rw", g)
             if os.path.isfile(os.path.join(g, "config")) and not os.path.isdir(os.path.join(g, "hooks")):
                 os.mkdir(os.path.join(g, "hooks"))
+            for name, body in PLACEHOLDERS.items():
+                f = os.path.join(g, name)
+                if not os.path.lexists(f) and os.path.isfile(os.path.join(g, "HEAD")):
+                    with open(f, "x") as fh:
+                        fh.write(body)
+                    self.placeholders.append([f, body])
+                    PLACED.append([f, body])
             for f in GITFILES:
                 if os.path.lexists(os.path.join(g, f)):
                     self.pin("ro", os.path.join(g, f))
@@ -1218,6 +1231,21 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
 
 
 def cleanup(rundir):
+    # S1's placeholders: removed when they still hold what pot wrote (the run saw them read-only)
+    try:
+        with open(os.path.join(rundir, "placeholders.json")) as f:
+            for path, body in json.load(f):
+                try:
+                    st = os.lstat(path)
+                    if stat.S_ISREG(st.st_mode):
+                        with open(path) as fh:
+                            same = fh.read() == body
+                        if same:
+                            os.unlink(path)
+                except OSError:
+                    pass
+    except (OSError, ValueError):
+        pass
     for n in ("proxy.sock", "relay.sock", "git.sock", "nix.sock", "nix-relay", "bwrap.args", "bwrap.args.all",
               "closure.args", "passwd", "group", "hosts") + tuple(x for x in os.listdir(rundir) if x.startswith("upload-pack-")):
         try:
@@ -1237,7 +1265,12 @@ def main(argv):
         if verb == "probe":
             probe(cfg)
         elif verb == "prepare":
-            prepare(cfg, rundir, print_cmd="--print" in argv[4:])
+            try:
+                prepare(cfg, rundir, print_cmd="--print" in argv[4:])
+            finally:
+                if PLACED:
+                    with open(os.path.join(rundir, "placeholders.json"), "w") as f:
+                        json.dump(PLACED, f)
         elif verb == "run":
             return run(cfg, rundir)
         elif verb == "after":

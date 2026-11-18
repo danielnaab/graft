@@ -1691,6 +1691,7 @@ def explain(host, root, context, flags, cmd):
             with open(os.path.join(tmp, "launch.json"), "w") as f:
                 json.dump(launch, f)
             r = subprocess.run([bprog, "prepare", tmp, "--print"])
+            subprocess.run([bprog, "cleanup", tmp])    # prepare's S1 placeholders, removed
             return r.returncode
         else:
             sys.stdout.write(C.explain_text(policy, report, root, width_of(sys.stdout)))

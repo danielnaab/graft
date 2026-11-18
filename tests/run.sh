@@ -1590,6 +1590,27 @@ STUB
   expect "is masked" has "masked"
   rm -f -- "$work/sbextra/s.sock"
 
+  # S1 (fix round 1): git names absent at start (commondir, config.worktree, gitdir) can't be created by a run in
+  # any git directory pot protects: pot puts a neutral read-only placeholder there for the run, and removes it after.
+  # The qa-security repro: a run-written .git/commondir would point host git at the run's config (core.fsmonitor).
+  local mk=$work/MARKER-commondir n
+  # shellcheck disable=SC2016 # the run's shell expands them
+  ran "pot: S1, a run tries to create .git/commondir" sb_ bash -c 'mkdir -p alt && cp -r .git/objects .git/refs .git/HEAD alt/
+    printf "[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tfsmonitor = \"touch %s; false\"\n" "$1" > alt/config
+    echo ../alt > .git/commondir 2>/dev/null && echo "wrote commondir" || echo "commondir: refused"
+    for n in config.worktree gitdir; do echo x > .git/$n 2>/dev/null && echo "wrote $n" || echo "$n: refused"; done
+    echo x > .git/modules/scions/sbk/commondir 2>/dev/null && echo "wrote the scion commondir" || echo "module commondir: refused"' _ "$mk"
+  expect "is refused" has "commondir: refused"
+  expect "so are config.worktree" has "config.worktree: refused"
+  expect "and gitdir" has "gitdir: refused"
+  expect "and a scion's git directory's" has "module commondir: refused"
+  for n in commondir config.worktree gitdir; do
+    expect "pot: the placeholder .git/$n is gone after the run" test ! -e ".git/$n"
+  done
+  git_ status --short >/dev/null 2>&1 || true
+  expect "host git ran none of the run's config (the marker is absent)" test ! -e "$mk"
+  rm -rf -- alt
+
   # S: §16.11: names a run chose reach the host escaped
   # shellcheck disable=SC2016 # the run's shell expands them
   ran "pot: a run-made name with an escape byte" sb_loud bash -c 'd=$(printf "e\033]0;x\007v"); mkdir "$d" && git -C "$d" init -q'
@@ -2008,12 +2029,14 @@ EOF
   # shellcheck disable=SC2016 # the run's shell expands them
   ran "dispatch: a run in a clone" dl dispatch bash -c 'pwd; echo "clone=$POT_CLONE"; grep -c dirty notes.md || true
     echo new > made.txt && git add made.txt && git commit -qm "run: made" && git log -1 --format=%s
-    touch .git/hooks/x 2>/dev/null || echo "hooks: read-only"; git config core.fsmonitor x 2>/dev/null || echo "config: read-only"'
+    touch .git/hooks/x 2>/dev/null || echo "hooks: read-only"; git config core.fsmonitor x 2>/dev/null || echo "config: read-only"
+    echo .. > .git/commondir 2>/dev/null || echo "commondir: refused"'
   expect "at the original path" has "$c"
   expect "POT_CLONE=1" has "clone=1"
   expect "from the base, not the working tree" has "0"
   expect "the commit is made in the clone" has "run: made"
   expect "the clone's hooks are read-only" has "hooks: read-only"
+  expect "S1: the clone's absent git names can't be created" has "commondir: refused"
   expect "and its config" has "config: read-only"
   expect "the dirty-tree notice" holds "pot (dispatch): the clone starts at main ($short); your 1 uncommitted change stays here, outside it"
   expect "the startup line names the base" holds "pot: dispatch · dc · from main ($short)"
