@@ -1,5 +1,181 @@
 # Changelog
 
+## v2.17.0 - 2026-11-18
+
+pot, graft's sandbox (experimental), in three parts:
+
+- **Dispatch: unattended work in a clone.** `pot dispatch CMD` runs a command in a throwaway clone in pot's state.
+  Its commits reach your repository only when you review and fetch them (`pot review ID --fetch`, into
+  `refs/remotes/pot-<id>/*`). Every run leaves a record that `pot runs` reads (contract
+  [runs/1](pot/contracts/runs-1.md)). A 125 is recorded as `stopped` and turns its workmux pane `waiting`, and runs
+  without a terminal get memory and task limits.
+- **Grants and doctor.** `pot grant` with no argument offers what stopped runs wait for, and `--commit` commits the
+  grants file. A repo kit's grant now holds across changes outside its defining files. `pot doctor` checks what
+  runs depend on. An unverified scion no longer stops a run.
+- **The removals and the contract additions.** The six forms that v2.16.0 deprecated are gone, each with an error
+  that names its replacement. kit 1.2, pot-kits/1's new bundle files and pot-lib/1's new argument fix every shape
+  that v2.18.0's wrapped kit commands need, so v2.18.0 and v2.19.0 can leave `kit/1` and `pot-kits/1` unchanged:
+  pot's split waits for two such releases.
+
+**No grant asks again** when a root takes v2.17.0 (one caveat below), and a consumer still on v2.16.x keeps working
+under it ([Move to v2.17.0](docs/guides/move-to-v2-17.md)).
+
+### Upgrading
+- **Roots: replace the removed forms first.** `defaultAccount`, the claude-code kit's `account`, `provider` and
+  `region`, and `--account` now fail, one at a time, with an error that names the replacement
+  ([Removed](#removed)). A root that builds on v2.16.x with no evaluation warning from graft needs no edit.
+- **No re-grant.** grants/1 does not change: pot still writes a repo kit's source as `{ "tree": … }`, so a v2.16.x pot
+  sharing the file reads what v2.17.0 writes, with no prompt. Only the comparison narrows ([Changed](#changed)). The
+  caveat: pot learns a repo kit as built at the first v2.17.0 run whose tree equals its grant's, so a repository
+  that has moved past its granted tree before that first run asks once.
+- **A consumer that takes v2.17.0** changes its `flake.lock`, so its repo kit asks once: `pot grant NAME`. No other
+  kit asks.
+- **Providers and consumers: `kit.packages` is refused where a kit is built** (kitsFor, mkRoot): rename it to
+  `tools`. A bundle that graft v2.16.x built still reads, `packages` included, so nothing that works today stops.
+- **`graft-kits` is gone.** A repository whose graft is older than v2.16.0 (it has `graft-kits` and no `pot-kits`)
+  is refused, not run without its protections: take graft v2.16.0 or later there, or run `pot host CMD`.
+- **Dispatch runs have their own context.** It does not include `work`'s standing kit: give it with
+  `contexts.dispatch.include = [ "NAME" ];` (the kit's existing grant applies).
+- **An unverified scion no longer stops a run.** A scion whose gitlink is not a release tag at its URL gets one
+  startup note, and its kit's reach does not apply; its command runs with its see items. It was exit 1 for its
+  command, and 125 where its grant applied.
+- Every root's drvPath changes (new `limits` and `clones` data); no grant does.
+
+### Removed
+- **`packages.<system>.graft-kits`:** mkFlake no longer writes it, and pot no longer reads it:
+  `pot (work): ~/DIR has graft-kits only: its graft predates v2.16.0, and this pot reads pot-kits: take graft v2.16.0
+  or later there (nix flake update graft), or run pot host CMD`. The name stays reserved.
+- **`kit.packages`,** at the source: kitsFor refuses it in a provider's or a consumer's kit, `pot: FILE: packages is
+  tools' old name, gone in v2.17.0: give tools`, and mkRoot in a root's, `pot: the root (programs.pot.kits.NAME):
+  packages is tools' old name, gone in v2.17.0: give tools`. A bundle that graft v2.16.x built is still read, with
+  `packages` as `tools` and no warning.
+- **`--account NAME`:** `pot: --account is gone (v2.17.0): --instance NAME, or CMD@NAME` (exit 2).
+- **`defaultAccount`:** `graft.lib.mkRoot: defaultAccount is gone (v2.17.0): defaultInstance.<kit> = "NAME"`.
+- **`programs.pot.defaultAccount`:** a removed option: home-manager stops with ``The option definition
+  `programs.pot.defaultAccount' in `FILE' no longer has any effect; please remove it.`` and `Use
+  programs.pot.defaultInstance.<kit> = "NAME" (v2.17.0).`
+- **The claude-code kit's `account`:** `graft.kits.claude-code: account is gone (v2.17.0): the instance is the root's
+  kits key ("claude-code@NAME")`.
+- **The claude-code kit's `provider` and `region`:** `graft.kits.claude-code: provider and region are gone (v2.17.0):
+  api = graft.apis.bedrock { region = "…"; } (or graft.apis.anthropic)`.
+- The flake check `pot-aliases` is replaced by `pot-removed`: each removed form fails with its message.
+
+### Added: dispatch
+- **`pot dispatch [--from REF] [--detach] CMD`,** and `--clone` (`--mode clone`) for another context
+  ([pot: dispatch](docs/reference/pot.md#dispatch), [Work in a clone](docs/guides/dispatch.md)):
+  - the clone is in pot's state (`runs/<id>/clone/`), at the base (`--from`, default `HEAD`), keeping only the base's
+    branch; the first level of submodules is cloned too, each at its gitlink only. It carries `user.name`,
+    `user.email` and the origin URL, and none of your other config or hooks;
+  - it is mounted at the repository's own path (`same-path-clone`), with `POT_CLONE=1`; kits come from the base
+    commit, never the working tree; uncommitted changes stay behind, with a notice;
+  - `--detach` runs in the background after every visible check, and prints the run's id on stdout;
+  - at the run's end, the host lists the clone's refs and fetches each branch alone through a sandboxed
+    `git upload-pack` with fsck into its own staging, and runs no hook, config or filter of the clone's. The exit
+    line counts each moved branch's and each scion's commits: `pot: run cdf8 · 1 commit on main, 2 on side, 1 in
+    nix/agent-tools/.scions/meeting-kit: pot review cdf8, then pot review cdf8 --fetch`. A ref that fails to stage
+    is an ATTENTION item quoting git (`fetch failed: refs/heads/bad: error: bogus commit object …`), the exit line
+    says so (`pot: run 5d5b · 1 commit on main · fetch failed: …: pot review 5d5b, then pot review 5d5b --fetch`),
+    and the run stays in `review`; so does a run whose host look itself fails (`fetch failed: the host's look
+    failed (…)`), listed and kept. Host git reads names as bytes, splits at newlines only, and takes every pathspec
+    literally, so a branch or path that is not UTF-8 or holds U+0085 works (`1 on b\xfe`), and a file named
+    `:(exclude)*` hides nothing;
+  - a run whose pot was killed gets that look from the next `pot runs` or `pot review`, one pot at a time
+    (`recovering · pot runs ID again` while another pot completes it);
+  - allowed in a root repository, where its branch is the way to change the root (D13); `pot review` names a changed
+    file that holds `programs.pot` (`root: modules/pot.nix (programs.pot)`) and the grants file
+    (`root: pot/grants.json`). `--repo` is refused in clone mode (a later release), a `--repo` that is a root first
+    with the root refusal;
+  - one-run hints name the context: `pot dispatch --net HOST …`, `pot dispatch --read PATH …`.
+- **`pot review [RUN] [--fetch|--discard]`:** the runs that need a person (`review` and `stopped`, and ended runs with
+  an ATTENTION item), with `--since`, `--until`, `--command`, `--flags` and `--json`; empty, `pot: no runs need
+  review`. ATTENTION is the host's findings, never a bare commit count: `N unsigned` (when your git config signs,
+  until fetched), `root: …`, `host-run: …`, `repo kit: …` (only the repo kit's own files), `gitlinks: …`,
+  `N new git metadata paths`, `N denied: …`, `fetch failed: …`. `--fetch` fetches only the refs the run moved, names
+  the base's branch first, and prints `review:`, then, when your git config signs, `sign:    git switch -c pot-ID pot-ID/main && git rebase
+  --exec 'git commit --amend --no-edit -S' BASE`, then `take it: git merge pot-ID` (`git merge pot-ID/main` without
+  signing). `--discard` removes the clone and keeps its log. `--approve` (phase 3) and `--root` (phase 2) are
+  refused with their phase.
+- **`clones.keepDays`** (default 14) and **`clones.maxSize`** (`"20G"`): they remove only clones that were fetched,
+  discarded or have no commits, and never follow a link. pot never deletes unfetched commits on its own; over the
+  cap, the startup line and `pot doctor` name the runs waiting for review. A dispatch stopped with 125 keeps its
+  clone, and says so (`next       pot grant NAME · its clone is kept until 2026-12-02: pot review ID --discard`).
+- **`pot runs [ID] [--json] [--follow] [--all]`** and contract **runs/1**: every run's record, computed from its log,
+  with the states `running`, `exited`, `stopped`, `review` (and `pending`, reserved). The command is shown as you
+  typed it (`command.typed`; `argv` stays pot's). New log events `stop`, `fetch` and `discard`; new record keys
+  include `clone.nested`, `clone.fetchFailed`, `stop.grantedSince` and `recovering`.
+- **A 125 is recorded** as a `stopped` run. When a kit that applies to the run requests `status.relay`, the root
+  binds it with `workmux = true`, and the caller is in tmux with `workmux` on its `PATH`, it also sets the launching
+  pane's workmux status to `waiting`. The 125 text is unchanged. Once its kits are granted, the run reads
+  `stopped · granted since: start it again` and leaves `pot review`'s list.
+- **Resource limits:** a run without a terminal, every `--detach` run, and a context that requires
+  `resource-limits` start in `systemd-run --user --scope` with `MemoryMax` and `TasksMax` from the root's
+  `limits.memoryMax` (default `"50%"`) and `limits.tasksMax` (`2048`). bubblewrap proves `resource-limits` for such
+  a run only. `pot explain` gains a `resources` row. Without user systemd, the run starts with the note
+  `no resource limits (no user systemd: pot doctor)`, and a context that requires the limits stops with 125, ending
+  ` (resource-limits: a user systemd scope, for runs without a terminal: pot doctor)`.
+- Every run (and `inspect`) first cleans up a killed in-place run: its sockets, and v2.16.2's placeholders that
+  still hold what pot wrote. `inspect` starts when pot's state lies under `inspect.home` and holds sockets.
+- v2.16.2's protections cover the clone: its `.git` and modules get the read-only placeholders, and write access to
+  a root is refused in `dispatch` too (a dispatch's `--write` is a host path).
+
+### Added: grants and doctor
+- **`pot grant` with no argument** prompts for every kit that a `stopped` run waits for (in any workspace, its status
+  computed there), then for this workspace's stale grants (asks for more, changed source), showing only the
+  difference. A stopped run's kit is headed `(stopped run 8b3f)`, or `(stopped run 9427, in
+  ~/src/flexion-assistant)`. A kit never granted that no run waits for is not prompted; one line names those:
+  `pot: also not granted: claude-code@flexion, claude-code@personal (pot grant NAME)`. Nothing to prompt:
+  `pot: nothing to grant`.
+- **`pot grant --commit`** (opt-in on each call) commits the grants file's path alone in its repository, with that
+  repository's hooks, and never pushes: `committed ~/.workstation/pot/grants.json (8982a53); push it with
+  ~/.workstation's next push`. The body is `Granted on MACHINE, DATE (pot grant --commit).`; `--revoke KIT --commit`
+  commits the revocation (`pot grant --revoke: KIT`, `Revoked on MACHINE, DATE (pot grant --revoke --commit).`).
+  It is refused before any prompt when the path has uncommitted changes, is ignored, or is not in a git repository;
+  a commit that fails unstages a file pot added for it. Flags may come in any position. Under an agent marker,
+  `pot grant` is refused before it reads any argument; `pot grant --diff`, which writes nothing, is allowed.
+- **`pot doctor`:** the backend and its guarantees (`resource-limits: for runs without a terminal` where user systemd
+  answers; `PATH` named when its probe finds no `true` there), user systemd, the grants file, each binding's file by
+  path and mode (never its contents), the instances and which one the shell selects, the workspace, pot's state and
+  the launcher. A key file that others can read is marked (`chmod 600 it`); a missing one names its fix (the
+  binding's new `refresh`, such as `claude setup-token, saved with mode 600`, else `create it, with mode 600`); a
+  missing grants file reads `missing: pot grant writes it`; the launcher's fix fits the root's kind. Exit 1 when a
+  line starts `!`. A run that meets the same probe failure says `… user namespaces were not tested, so no run
+  starts`.
+
+### Added: contracts
+- **Kit 1.2** ([kit/1](pot/contracts/kit-1.md)), read now and used from v2.18.0: `commands.<n>.hook` (one of
+  `pre-commit`, `commit-msg`, `prepare-commit-msg`, `pre-push`, `post-checkout`, `post-merge`) and the `recipes`
+  attrs form `{ run; description; }`, whose first word must be one of the kit's commands. A 1.3 kit gets
+  `pot: FILE: kit version 1.3 is newer than this pot reads (1.0, 1.1, 1.2): take a newer pot`.
+- **pot-kits/1** fixes three bundle files for v2.18.0 (`kits.just`, `wrappers/bin/`, `commands/*.json`) and the rule
+  that a reader ignores bundle files it does not know; it stays version 1, and a v2.16.x pot reads such a bundle.
+- **pot-lib/1** gains `recipes ? { }` and `passthru.wrappers` (an empty package until v2.18.0).
+
+### Changed
+- **A repo kit's grant holds across changes outside its defining files.** The grant holds when its tree is equal, or
+  when only files outside `flake.nix` and `flake.lock` changed and the kit as built is the one this machine recorded
+  for the old tree (`cache/sources/` in pot's state). So a scion bump or a test file no longer asks again; a new
+  `flake.lock` does. A changed source shows the defining files' diffstat when they changed, else the tree's, and the
+  line `the kit as built changed` when the build differs.
+- **Root repositories:** `pot (work): ~/.workstation is a root: pot dispatch CMD (its commits come back for review), or
+  pot inspect CMD` (was `… pot inspect, or claude (unsandboxed) until pot dispatch (a later release)`).
+- **The unverified-scion note:** `meeting-kit: gitlink is not a release tag at its URL; its kit is unverified and its
+  grant does not apply`, or `meeting-kit: its URL did not answer, …`, in place of the refusal.
+- **Exit status:** 125 no longer covers an unverified scion. `pot review`, `pot runs` and `pot doctor` are verbs, not
+  usage errors; `--from` and `--detach` without clone mode, and `--account`, are.
+- Inside a run, `pot runs` shows the run itself; `pot review` and `pot doctor` are the host's (exit 2); `pot
+  dispatch` waits for nested dispatch, in v2.18.0 (exit 1).
+- `--read` or `--write` of a folder that holds pot's state says `which holds pot's own state (~/.local/state/pot)`
+  (was `which is pot's own state (launcher mounts are pot's alone)`).
+- `nix flake init -t github:danielnaab/graft/v2.17.0` and the docs pin v2.17.0.
+
+### Fixed
+- **A repository or state folder whose path has a space, `#` or `?`** works: pot percent-encodes the repo kit's flake
+  reference (it was `path:<dir>` as written, so such a checkout failed `the flake at … did not evaluate`). Messages
+  show the path as before.
+- **Unicode format characters** (bidi overrides and isolates, zero-width characters, the BOM) that a run chose are
+  escaped as `\uNNNN` wherever pot prints them, so v2.16.2's known limit (a U+202E name on the exit line) is gone. A
+  byte that is not UTF-8 in a path shows as `\xNN`.
+
 ## v2.16.2 - 2026-11-18
 
 A security patch for pot, graft's sandbox (experimental). It closes two ways a run could change what the host does

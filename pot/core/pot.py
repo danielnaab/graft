@@ -3280,7 +3280,7 @@ def init(host, args, flags):
     f = os.path.join(d, "flake.nix")
     if os.path.exists(f):
         raise C.Refusal(f"pot init: {C.canon_path(f, host.home)} exists; edit it, or choose another folder: pot init DIR")
-    graft_url = os.environ.get("POT_INIT_GRAFT") or "github:danielnaab/graft/v2.16.2"
+    graft_url = os.environ.get("POT_INIT_GRAFT") or "github:danielnaab/graft/v2.17.0"
     os.makedirs(d, exist_ok=True)
     grants = os.path.join(C.canon_path(d, host.home), "grants.json")
     with open(f, "w") as fh:
@@ -3357,7 +3357,7 @@ def main(argv):
         root = json.load(f)
     args = argv[1:]
     if sys.platform == "darwin" or root.get("darwin"):
-        err("pot: no backend for darwin in v2.16.2; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)")
+        err("pot: no backend for darwin in v2.17.0; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)")
         return 1
     try:
         verb, context, flags, cmd = parse(args, root)
