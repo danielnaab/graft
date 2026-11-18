@@ -852,6 +852,8 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000", clones=N
             if r is None:
                 continue
             m = C.root_repo_match(r["top"], r["originKey"], root.get("rootRepos"), host.home)
+            if m and p != paths[0]:
+                raise write_refusal(host, ctx, f"--repo {repo_flag(host, p, flags)}", "is", r["top"])
             if m:
                 raise root_refusal(host, root, ctx, r["top"], cmd)
         # S3: a --repo with write access may not hold a root repository either
@@ -860,7 +862,7 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000", clones=N
             if r:
                 inner = root_inside(host, root, r["top"])
                 if inner:
-                    raise root_refusal(host, root, ctx, inner, cmd)
+                    raise write_refusal(host, ctx, f"--repo {repo_flag(host, p, flags)}", "holds", inner)
     # state, logs and caches are never inside a workspace (§4.4)
     for p in paths:
         r = repo_of(host, p)
@@ -906,7 +908,7 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000", clones=N
            "host": {"home": host.home, "user": host.user, "env": {n: n in os.environ for n in env_names},
                     "resolve": resolve, "hidden": resolve_hidden(host, root), "tz": host.tz()}}
     policy, report = C.compose(inp)
-    root_writes(host, root, ctx, policy, cmd)
+    root_writes(host, root, ctx, policy, cmd, flags)
     record_sources(host, ws, report)
     report["scope"] = scope or {}
     if scope and scope.get("note"):
@@ -929,7 +931,7 @@ def root_refusal(host, root, ctx, top, cmd):
     shown = C.canon_path(top, host.home)
     agent = cmd and any(cmd[0] in (k.get("commands") or {}) for k in (root.get("kits") or {}).values())
     tail = "" if agent else "; pot host CMD runs it unsandboxed"
-    return C.Refusal(f"pot ({ctx['name']}): {shown} is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD{tail}")
+    return C.Refusal(f"pot ({ctx['name']}): {shown} is a root: pot dispatch CMD (its commits come back for review), or pot inspect CMD{tail}")
 
 
 def is_root(host, root, top):
@@ -960,25 +962,46 @@ def root_inside(host, root, d):
     return None
 
 
-def root_writes(host, root, ctx, policy, cmd):
+def write_refusal(host, ctx, what, rel, top):
+    """V1: the S3 refusal, naming what writes (--write PATH, --repo PATH, or KIT's write PATH) and the root."""
+    return C.Refusal(f"pot ({ctx['name']}): {what} {rel} the root {C.canon_path(top, host.home)}: a run never writes a root "
+                     "(pot inspect reads it; pot host CMD runs unsandboxed)")
+
+
+def repo_flag(host, p, flags):
+    """The --repo value as given, else the path."""
+    for r in flags.get("repo") or []:
+        if os.path.realpath(C.expand(r, host.home) if r.startswith("~") else r) == p:
+            return r
+    return C.canon_path(p, host.home)
+
+
+def root_writes(host, root, ctx, policy, cmd, flags=None):
     """S3: a write item (--write, a granted requests.write) that is in, inside or holds a root repository is refused
-    at start, with the root message, in every context (a dispatch's --write would write the host's root in place)."""
+    at start (V1: naming the flag or the kit, and the root): a run never writes a root in place (D13)."""
     for i in policy["items"]:
         if i["kind"] != "write" or not i.get("effective") or not i.get("path"):
             continue
         p = os.path.realpath(i["path"])
+        src = i.get("sources") or []
+        kit = next((x["kit"] for x in src if "kit" in x), None)
+        given = next((v for v in (flags or {}).get("write") or []
+                      if os.path.realpath(C.expand(v, host.home) if v.startswith("~") else v) == p), None)
+        shown = given or C.canon_path(p, host.home)
+        what = f"--write {shown}" if any("flag" in x for x in src) or not kit else \
+            f"{kit.split(':', 1)[-1].rstrip('/').rsplit('/', 1)[-1]}'s write {shown}"
         r = repo_of(host, p) if os.path.exists(p) else None
         if r and C.root_repo_match(r["top"], r["originKey"], root.get("rootRepos"), host.home):
-            raise root_refusal(host, root, ctx, r["top"], cmd)
+            raise write_refusal(host, ctx, what, "is" if r["top"] == p else "is inside", r["top"])
         for rr in root.get("rootRepos") or []:
             if rr.startswith(("~", "/")):
                 rp = os.path.realpath(C.expand(rr, host.home))
                 if C.under(p, rp):
-                    raise root_refusal(host, root, ctx, rp, cmd)
+                    raise write_refusal(host, ctx, what, "is" if rp == p else "is inside", rp)
         if os.path.isdir(p):
             inner = root_inside(host, root, p)
             if inner:
-                raise root_refusal(host, root, ctx, inner, cmd)
+                raise write_refusal(host, ctx, what, "is" if inner == p else "holds", inner)
 
 
 def command_agent(root, report):

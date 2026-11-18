@@ -1904,32 +1904,31 @@ EOF
   expect "stops every run" holds "the grants file does not parse"
   cp "$work/sbgrants.bak" "$work/sbgrants/grants.json"
 
-  # root repositories, contexts, verbs
+  # root repositories, contexts, verbs (X9: its commits come back for review)
   (cd "$work/sbrootrepo" && refused "pot: work in a root repository" sb_ true \
-    && expect "is refused, naming dispatch (D13)" holds "is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD; pot host CMD runs it unsandboxed")
+    && expect "is refused, naming dispatch (D13, X9)" holds "is a root: pot dispatch CMD (its commits come back for review), or pot inspect CMD; pot host CMD runs it unsandboxed")
   refused "pot: --repo to a root repository" sb_ --repo "$work/sbrootrepo" true
-  expect "is refused" holds "is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
-  # S3 (v2.16.2; pot-1b): a write item that equals, contains or sits inside a root repository is refused at start
+  expect "is refused, naming the flag (V1)" holds "--repo $work/sbrootrepo is the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
+  # S3 and V1: a write item that is, sits inside or holds a root repository is refused at start, naming it
   mkdir -p "$work/sbrootrepo/sub"
-  local wr
-  for wr in "$work/sbrootrepo" "$work/sbrootrepo/sub"; do
-    refused "pot: S3, --write $wr" sb_ --write "$wr" true
-    expect "is refused with the root message" holds "$work/sbrootrepo is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
-  done
+  refused "pot: S3, --write of the root" sb_ --write "$work/sbrootrepo" true
+  expect "names the flag and the root (V1)" holds "--write $work/sbrootrepo is the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
+  refused "pot: S3, --write inside the root" sb_ --write "$work/sbrootrepo/sub" true
+  expect "says it is inside the root (V1)" holds "--write $work/sbrootrepo/sub is inside the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   # a root by its origin, nested in another repository: --write and --repo of the outer one are refused too
   local ou=$work/sbouter && mkdir -p "$ou/inner" && git_ -C "$ou" init -q && git_ -C "$ou" commit -q --allow-empty -m o
   git_ -C "$ou/inner" init -q && git_ -C "$ou/inner" remote add origin ssh://git@fake.example/rootx.git && git_ -C "$ou/inner" commit -q --allow-empty -m i
   refused "pot: S3, --write of a folder holding a root (by origin)" sb_ --write "$ou" true
-  expect "names the root" holds "$ou/inner is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
+  expect "names the root (V1)" holds "--write $ou holds the root $ou/inner: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   refused "pot: S3, --repo of a repository holding a root" sb_ --repo "$ou" true
-  expect "names the root" holds "$ou/inner is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
+  expect "names the root (V1)" holds "--repo $ou holds the root $ou/inner: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   ran "pot: S3, --repo of it with --access read" sb_ --access read --repo "$ou" true
   # a granted write request naming a root
   ran "pot: S3, grant a kit's write of a root" tty_ $'y\n' "$work/sbr/bin/pot" grant rootwriter
   refused "pot: S3, its command" sb_ rwtest -c true
-  expect "is refused at start" holds "$work/sbrootrepo is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
+  expect "is refused at start, naming the kit (V1)" holds "rootwriter's write $work/sbrootrepo is the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   refused "pot: S3, --write of a root from a dispatch (it would write the root in place)" sb_ dispatch --write "$work/sbrootrepo" true
-  expect "is refused too" holds "$work/sbrootrepo is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
+  expect "is refused too (V1)" holds "pot (dispatch): --write $work/sbrootrepo is the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   refused "pot: run is reserved" sb_ run true
   expect "says so" holds "pot run is reserved"
   refused "pot: serve is reserved" sb_ serve
@@ -2438,7 +2437,7 @@ EOF
   (
     cd "$work/drootrepo"
     refused "dispatch: work in a root repository" d_ true
-    expect "names dispatch" holds "pot (work): $work/drootrepo is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD"
+    expect "names dispatch" holds "pot (work): $work/drootrepo is a root: pot dispatch CMD (its commits come back for review), or pot inspect CMD"
     # a change to a line of a file that sets programs.pot (not a line naming it)
     ran "dispatch: dispatch in a root repository" d_ dispatch bash -c 'sed -i "s/a = 1/a = 2/" pot.nix && git commit -qam root'
     local rr && rr=$(d_ runs --json | jq -r '[.runs[] | select(.workspace[0].path == "'"$work/drootrepo"'" and .state == "review")][0].id')
