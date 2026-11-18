@@ -2197,6 +2197,17 @@ EOF
   wait "$lp" 2>/dev/null || true
   expect "killed: exited, lost" test "$(rec "$lid" '"\(.state) \(.lost) \(.exit)"')" = "exited true null"
 
+  # F2: a dispatch that stops with 125 (needs is not granted yet) records its clone; --discard removes it
+  refused "dispatch: F2, a dispatch that stops (125)" d_ dispatch needtest -c true
+  local f2 && f2=$(d_ runs --json | jq -r '[.runs[] | select(.state == "stopped" and .mode == "clone")][0].id')
+  expect "F2: its record has the clone" test "$(rec "$f2" '.clone.base | length')" = 40
+  ran "dispatch: F2, --discard of it" dl review "$f2" --discard
+  expect "F2: says it discarded the clone" holds "pot: discarded run $f2's clone"
+  expect "F2: the clone is gone" test ! -e "$st/$f2/clone"
+  # a dispatch refused for another reason after its clone was made: no clone is left without a log
+  refused "dispatch: F2, a dispatch of a program nowhere" d_ dispatch no-such-program-x
+  expect "F2: no orphan clone" test -z "$(for d in "$st"/*/; do [ -d "$d/clone" ] && [ ! -s "$d/log.jsonl" ] && echo "$d"; done)"
+
   # 125: a stopped record, and the pane workmux shows waiting
   # shellcheck disable=SC2016 # the stub's shell expands them
   printf '#!/bin/sh\necho "$TMUX_PANE $*" >> %s\n' "$work/dworkmux.log" > "$work/dbin/workmux" && chmod +x "$work/dbin/workmux"

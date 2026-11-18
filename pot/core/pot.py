@@ -1238,10 +1238,11 @@ def pane_waiting():
                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def stopped(host, root, rundir, rid, ctx, argv, reason, text, report=None, ws=None, flags=None, kits=()):
-    """A 125: its start and stop events (runs/1's stopped), and the pane waiting when the run holds it."""
+def stopped(host, root, rundir, rid, ctx, argv, reason, text, report=None, ws=None, flags=None, kits=(), cinfo=None):
+    """A 125: its start and stop events (runs/1's stopped), and the pane waiting when the run holds it. A dispatch's
+    clone is recorded in the start event (F2), so --discard, keepDays and maxSize find it."""
     log(rundir, start_event(rid, ctx, None, argv, [{"id": k["kit"], "grant": k["status"]} for k in (report or {}).get("kits") or []],
-                            report, ws, flags or {}, None, False, typed=argv))
+                            report, ws, flags or {}, cinfo, False, typed=argv))
     names = list(dict.fromkeys(k["name"] for k in kits))
     log(rundir, {"ev": "stop", "by": "host", "reason": reason,
                  "kits": [{"id": k["kit"], "status": k["status"], "digest": k.get("digest"),
@@ -1353,7 +1354,7 @@ def run(host, root, context, flags, cmd):
             inp, policy, report, bprog, ws = gather(host, root, context, flags, argv0, rundir, rid, clones_map, scope)
         except C.Refusal as e:
             if e.status == C.EXIT_GRANT:
-                stopped(host, root, rundir, rid, ctx, argv0, "guarantee", e.message)
+                stopped(host, root, rundir, rid, ctx, argv0, "guarantee", e.message, cinfo=cinfo)
             raise
         clone_notes(report, cinfo)
         if report.get("unsandboxed"):
@@ -1381,7 +1382,7 @@ def run(host, root, context, flags, cmd):
                         source_diff(host, w, s)
                 texts.append(C.stale_message(ctx["name"], s))
                 err(texts[-1])
-            stopped(host, root, rundir, rid, ctx, argv0, "grant", "\n".join(texts), report, ws, flags,
+            stopped(host, root, rundir, rid, ctx, argv0, "grant", "\n".join(texts), report, ws, flags, cinfo=cinfo, kits=
                     [s for s in stale if s["status"] != "unverified"])
             return C.EXIT_GRANT
         launch = launch_facts(host, root, policy, ws, flags, report["argv"])
@@ -1488,6 +1489,12 @@ def run(host, root, context, flags, cmd):
                 pass
             if prog and os.path.exists(os.path.join(rundir, "launch.json")):
                 subprocess.run([prog, "cleanup", rundir])
+            # F2: a dispatch refused before its start was logged leaves no clone without a record
+            if clone and not os.path.exists(os.path.join(rundir, "log.jsonl")):
+                try:
+                    CL.remove_clone(host.state, rundir)
+                except CL.CloneError:
+                    pass
 
 
 def after_event(bprog, rundir, recovered=False):
