@@ -551,8 +551,10 @@ def grant_entry(grants, ident, machine):
     return None, None
 
 
-def grant_status(ident, kind, canons, powerful, source, grants, machine, verified=True):
-    """match | none (nothing requested) | never | grown | source | unverified, and the diff."""
+def grant_status(ident, kind, canons, powerful, source, grants, machine, verified=True, accepts=()):
+    """match | none (nothing requested) | never | grown | source | unverified, and the diff. ACCEPTS: stored
+    sources that the host found equivalent to SOURCE (a repo kit's tree whose defining files and built kit are
+    unchanged: the narrowed comparison, v2.17.0)."""
     canons = sorted(set(canons))
     if not canons:
         return {"status": "none", "added": [], "entry": None}
@@ -564,7 +566,8 @@ def grant_status(ident, kind, canons, powerful, source, grants, machine, verifie
     added = [c for c in canons if c not in entry["requests"]]
     if added:
         return {"status": "grown", "added": added, "entry": entry, "section": where}
-    if powerful and kind != "root" and source is not None and entry.get("source") != source:
+    if powerful and kind != "root" and source is not None and entry.get("source") != source \
+            and entry.get("source") not in list(accepts):
         return {"status": "source", "added": [], "entry": entry, "section": where, "was": entry.get("source"),
                 "now": source}
     return {"status": "match", "added": [], "entry": entry, "section": where}
@@ -813,6 +816,7 @@ def compose(inp):
         merged = merge_manifests([(normalise_kit(m), f) for m, f in manifests])
         w["kit"] = add_kit(w["id"], "repo", merged, " + ".join(f for _, f in manifests) or "(none)",
                            name=repo_short_name(w), source={"tree": w["source"]} if w.get("source") else None,
+                           sourceAccepts=w.get("sourceAccepts") or [],
                            workspace=w)
         ws_kits.append(w["kit"])
         for s in w.get("scions") or []:
@@ -888,6 +892,7 @@ def compose(inp):
         canons = [r.canonical for r in k["requests"]]
         powerful = any(r.cls == "powerful" for r in k["requests"])
         st = grant_status(k["id"], k["kind"], canons, powerful, k.get("source"), grants, machine,
+                          accepts=k.get("sourceAccepts") or (),
                           verified=k.get("verified", True) if k["kind"] == "scion" else True)
         st["kit"] = k["id"]
         st["name"] = kit_display(k)

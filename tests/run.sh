@@ -1955,6 +1955,7 @@ EOF
       kits.needs.commands.needtest = { program = bash; requests = { network = [ "x.example" ];
         capabilities = [ { name = "status.relay"; } ]; }; };
       bindings."status.relay"."*" = { workmux = true; };
+      bindings.nix."*" = { via = "daemon-untrusted"; };
       contexts.strict = { extends = "work"; requires = [ "separate-kernel" ]; };
       limits = { memoryMax = "1G"; tasksMax = 512; };
     }; in {
@@ -2149,6 +2150,53 @@ EOF
   expect "discards a fetched one" test ! -e "$st/$kid/clone"
   expect "names the oldest still in review" holds "pot review $did --discard"
   expect "logs why" jq -e 'select(.ev == "discard" and .why == "keepDays")' "$st/$kid/log.jsonl"
+
+  # the narrowed repo-kit source (ruling 1): grants/1 is unchanged, a powerful grant still records the flake
+  # directory's tree, and it holds while flake.nix, flake.lock and the kit as built are unchanged
+  # shellcheck disable=SC2317
+  tty_() { local a=$1; shift; (sleep 2; printf '%s' "$a") | script -qec "env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u TMUX $*" /dev/null; }
+  local n=$work/dn && mkdir -p "$n" && git_ -C "$n" init -q && cd "$n"
+  cat > flake.nix <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  outputs = { graft, ... }: {
+    packages.$sys.pot-kits = graft.lib.pot.kitsFor {
+      pkgs = graft.inputs.nixpkgs.legacyPackages.$sys;
+      self = { kit = import ./kit.nix; file = "flake.nix (fixture)"; };
+      files = [ "scions" ];
+    };
+  };
+}
+EOF
+  printf '{ requests.capabilities = [ { name = "nix"; } ]; commands.dn-tool.program = ./dn-tool.sh; }\n' > kit.nix
+  printf '#!/bin/sh\necho dn-tool 1\n' > dn-tool.sh && chmod +x dn-tool.sh
+  echo "test 1" > t.test.ts
+  by_hand sbd && commit init && quiet nix flake lock && commit lock
+  git_ remote add origin ssh://git@fake.example/dn.git
+  ran "dispatch: grant a repo kit's powerful item" tty_ $'y\n' "$work/dr/bin/pot" grant dn
+  expect "it records the tree" test "$(jq -r '.grants["repo:fake.example/dn"].source.tree' "$work/dgrants/grants.json")" = "$(git_ rev-parse 'HEAD^{tree}')"
+  ran "dispatch: a run, the grant as written" d_ true
+  local gsha && gsha=$(sha256sum "$work/dgrants/grants.json")
+  echo "test 2" > t.test.ts && commit "a test file"
+  ran "dispatch: a test file changed: the grant holds" d_ true
+  release sbd v1.0.1 && git_ -C scions/sbd fetch -q --tags && git_ -C scions/sbd checkout -q --detach v1.0.1 && git_ add scions/sbd && commit "sbd v1.0.1"
+  ran "dispatch: a scion bumped: the grant holds" d_ true
+  expect "and the grants file is untouched (its stored form)" test "$(sha256sum "$work/dgrants/grants.json")" = "$gsha"
+  printf '#!/bin/sh\necho dn-tool 2\n' > dn-tool.sh && commit "the kit's command changed"
+  refused "dispatch: the kit as built changed" d_ true
+  expect "re-asks: changed source" holds "dn (repo:fake.example/dn) changed source since its grant:"
+  expect "saying the kit changed" holds "the kit as built changed"
+  git_ revert --no-edit HEAD >/dev/null
+  ran "dispatch: reverted: the grant holds again" d_ true
+  printf '\n' >> flake.lock && commit "flake.lock changed"
+  refused "dispatch: flake.lock changed: re-asks" d_ true
+  expect "with its diffstat" holds "flake.lock | 1 +"
+  git_ revert --no-edit HEAD >/dev/null
+  echo "test 3" > t.test.ts && commit "another test file"
+  rm -rf -- "$work/dstate/cache/sources"
+  refused "dispatch: with no record of the kit as built (another machine's grant): the tree alone decides" d_ true
+  expect "changed source" holds "changed source since its grant:"
+  cd "$c"
 
   # refusals and inside a run
   refused "dispatch: --repo in clone mode" d_ dispatch --repo "$work/drootrepo" true

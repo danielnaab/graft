@@ -274,9 +274,9 @@ def object_env(host, top):
     return {"GIT_OBJECT_DIRECTORY": mine, "GIT_ALTERNATE_OBJECT_DIRECTORIES": objs}
 
 
-def tree_diffstat(host, top, old, new, rel=None):
+def tree_diffstat(host, top, old, new, rel=None, paths=()):
     r = subprocess.run([host.git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*",
-                        "-C", top, "diff", "--stat=100", old, new], capture_output=True, text=True,
+                        "-C", top, "diff", "--stat=100", old, new] + (["--"] + list(paths) if paths else []), capture_output=True, text=True,
                        env={**os.environ, **object_env(host, top)})
     if r.returncode != 0:
         return []
@@ -285,6 +285,77 @@ def tree_diffstat(host, top, old, new, rel=None):
         # the trees are the flake directory's: paths relative to the workspace, as people see them
         lines = [f" {rel}/{l.lstrip()}" if " | " in l else l for l in lines]
     return lines[-12:]
+
+
+DEFINING = ("flake.nix", "flake.lock")   # a repo kit's defining files, in its flake directory (ruling 1)
+
+
+def manifest_sha(m):
+    """The repo kit as built: its bundle manifest (store paths included), without the file label."""
+    body = {k: v for k, v in (m or {}).items() if k != "file"}
+    return "sha256-" + hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def sources_file(host, ident):
+    return os.path.join(host.state, "cache", "sources", hashlib.sha256(ident.encode()).hexdigest()[:16] + ".json")
+
+
+def read_sources(host, ident):
+    try:
+        with open(sources_file(host, ident)) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def record_source(host, ident, tree, sha):
+    """This machine's record: under grant tree TREE, the repo kit as built was SHA (pot's state, hidden)."""
+    d = read_sources(host, ident)
+    if d.get(tree) == sha:
+        return
+    d[tree] = sha
+    f = sources_file(host, ident)
+    os.makedirs(os.path.dirname(f), exist_ok=True)
+    with open(f + ".tmp", "w") as fh:
+        json.dump(d, fh)
+    os.replace(f + ".tmp", f)
+
+
+def narrowed(host, w, grants):
+    """Ruling 1, the narrowed comparison: a repo kit's stored source {tree: OLD} (grants/1, as v2.16 wrote it)
+    still holds for the current tree when OLD's and the current flake.nix and flake.lock are the same, and the
+    kit as built equals what this machine recorded under OLD. Sets w["sourceAccepts"] and w["sourceWhy"]."""
+    w["sourceAccepts"], w["sourceWhy"] = [], None
+    if not w.get("source") or w.get("repoKit") is None:
+        return
+    entry, _ = C.grant_entry(grants, w["id"], host.machine)
+    old = ((entry or {}).get("source") or {}).get("tree") if isinstance((entry or {}).get("source"), dict) else None
+    if not old or old == w["source"]:
+        return
+    top = w.get("clone") or w["top"]
+    env = {**os.environ, **object_env(host, top)}
+    g = [host.git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*", "-C", top]
+    if subprocess.run(g + ["cat-file", "-e", f"{old}^{{tree}}"], capture_output=True, env=env).returncode != 0:
+        return     # the granted tree is in neither the repository nor pot's objects: the tree alone decides
+    d = subprocess.run(g + ["diff-tree", "-r", "--name-only", old, w["source"], "--"] + list(DEFINING),
+                       capture_output=True, text=True, env=env)
+    defining = d.returncode != 0 or bool(d.stdout.strip())
+    rec = read_sources(host, w["id"]).get(old)
+    kit_changed = rec is not None and rec != manifest_sha(w["repoKit"]["manifest"])
+    w["sourceWhy"] = {"defining": defining, "kitChanged": kit_changed, "recorded": rec is not None}
+    if not defining and rec is not None and not kit_changed:
+        w["sourceAccepts"] = [{"tree": old}]
+
+
+def record_sources(host, ws, report):
+    """After composing: for each repo kit whose grant matched its tree exactly, record the kit as built."""
+    for w in ws:
+        st = next((k for k in report.get("kits") or [] if k["kit"] == w["id"]), None)
+        e = (st or {}).get("entry") or {}
+        if st and st["status"] == "match" and w.get("source") and w.get("repoKit") is not None \
+                and isinstance(e.get("source"), dict) and e["source"].get("tree") == w["source"]:
+            record_source(host, w["id"], w["source"], manifest_sha(w["repoKit"]["manifest"]))
 
 
 BUNDLES = ("pot-kits", "graft-kits")   # graft-kits: v2.15.0's, asked for only to refuse it (gone in v2.17.0)
@@ -795,6 +866,8 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000", clones=N
     with open(cache_f, "w") as f:
         json.dump(cache, f)
     grants, text = load_grants(host)
+    for w in ws:
+        narrowed(host, w, grants)
     pkgs = []
     for p in flags.get("package") or []:
         pkgs.append(build_package(host, p))
@@ -828,6 +901,7 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000", clones=N
            "host": {"home": host.home, "user": host.user, "env": {n: n in os.environ for n in env_names},
                     "resolve": resolve, "hidden": resolve_hidden(host, root), "tz": host.tz()}}
     policy, report = C.compose(inp)
+    record_sources(host, ws, report)
     report["scope"] = scope or {}
     if scope and scope.get("note"):
         report["notes"].append(scope["note"])
@@ -1215,8 +1289,7 @@ def run(host, root, context, flags, cmd):
                 if s["status"] == "source" and (s.get("was") or {}).get("tree") and (s.get("now") or {}).get("tree"):
                     w = next((w for w in ws if w["id"] == s["kit"]), None)
                     if w:
-                        top = w.get("clone") or w["top"]
-                        s["diffstat"] = tree_diffstat(host, top, s["was"]["tree"], s["now"]["tree"], flake_dir(host, top))
+                        source_diff(host, w, s)
                 texts.append(C.stale_message(ctx["name"], s))
                 err(texts[-1])
             stopped(host, root, rundir, rid, ctx, argv0, "grant", "\n".join(texts), report, ws, flags,
@@ -2523,6 +2596,17 @@ def match_kits(name, idents):
     return [i for i in idents if name == i or name in short_names(i)]
 
 
+def source_diff(host, w, s):
+    """A changed source's diffstat: the defining files' when they changed, else the tree's, and whether the kit
+    as built changed (ruling 1)."""
+    top = w.get("clone") or w["top"]
+    why = w.get("sourceWhy") or {}
+    paths = DEFINING if why.get("defining") else ()
+    s["diffstat"] = tree_diffstat(host, top, s["was"]["tree"], s["now"]["tree"], flake_dir(host, top), paths)
+    if why.get("kitChanged"):
+        s["diffstat"] = s["diffstat"] + ["the kit as built changed"]
+
+
 def all_kit_status(host, root, context, flags):
     """Every kit of this workspace (and --repo's) and every root kit, with its grant status: what
     pot grant and the inline prompt both read."""
@@ -2537,6 +2621,8 @@ def all_kit_status(host, root, context, flags):
     paths = [p for p in [cwd] + [os.path.realpath(C.expand(r, host.home)) for r in flags.get("repo") or []] if repo_of(host, p)]
     ws = workspace_facts(host, paths, ctx, cache) if paths else []
     grants, _ = load_grants(host, lenient=True, quiet=True)
+    for w in ws:
+        narrowed(host, w, grants)
     out = []
     kits = [(f"root:{n}", "root", m, None, True, n) for n, m in sorted((root.get("kits") or {}).items())]
     for w in ws:
@@ -2551,7 +2637,9 @@ def all_kit_status(host, root, context, flags):
         reqs = C.validate_kit(m, ident, host.home)
         canons = [r.canonical for r in reqs]
         powerful = [r.canonical for r in reqs if r.cls == "powerful"]
-        st = C.grant_status(ident, kind, canons, bool(powerful), source, grants, host.machine, verified)
+        w_ = next((w for w in ws if w["id"] == ident), {}) if kind == "repo" else {}
+        st = C.grant_status(ident, kind, canons, bool(powerful), source, grants, host.machine, verified,
+                            accepts=w_.get("sourceAccepts") or ())
         st.update(kit=ident, kind=kind, name=name, requests=sorted(set(canons)), powerful=powerful, source=source,
                   top=next((w["top"] for w in ws if w["id"] == ident), None))
         out.append(st)
