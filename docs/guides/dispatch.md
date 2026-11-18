@@ -78,7 +78,7 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
    pot review 1ac1 --fetch
    ```
 
-   pot copies the run's branches into `refs/remotes/pot-1ac1/*`, and prints the next steps:
+   pot copies the branches the run moved into `refs/remotes/pot-1ac1/*`, and prints the next steps:
 
    ```
    pot: fetched run 1ac1 into ~/src/flexion-assistant: pot-1ac1/main (1 commit on 716424f)
@@ -86,8 +86,10 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
      take it: git merge pot-1ac1/main
    ```
 
-   If your git config signs commits, a `sign:` line makes a branch of the run's commits and signs them:
-   `git switch -c pot-1ac1 pot-1ac1/main && git rebase --exec 'git commit --amend --no-edit -S' 716424f`.
+   When your git config signs commits, a `sign:` line comes before `take it:`: it makes a local branch of the run's
+   commits and signs them (`git switch -c pot-1ac1 pot-1ac1/main && git rebase --exec 'git commit --amend --no-edit
+   -S' 716424f`), and `take it:` merges that branch, `git merge pot-1ac1`.
+
    If the run committed in a scion, a line names that scion: its commits are in the scion's own
    `refs/remotes/pot-1ac1/*`, and a fix there goes to its provider.
 
@@ -97,7 +99,6 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
    git log --stat 716424f..pot-1ac1/main
    git merge pot-1ac1/main
    ```
-
 
 6. When you are done, remove the clone:
 

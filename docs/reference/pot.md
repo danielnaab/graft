@@ -274,7 +274,9 @@ pot [CONTEXT] --clone [--from REF] [--detach] CMD …      # --clone is --mode c
   `.gitmodules` at the base commit, and the repo kit is built from the clone's flake directory at the base, never
   from your working tree: a kit change you have not committed does not apply.
 - **`--repo`** is refused in clone mode: `pot (dispatch): --repo comes to clone mode in a later release; a dispatch
-  clones this repository only` (exit 1). Outside a repository: `pot (dispatch): DIR is not inside a git repository:
+  clones this repository only` (exit 1). A `--repo` that is or holds a root gets the root refusal first:
+  `pot (dispatch): --repo ~/.workstation is the root ~/.workstation: a run never writes a root (…)`; with `--access
+  read`, the later-release refusal. Outside a repository: `pot (dispatch): DIR is not inside a git repository:
   a dispatch clones one`. A failed clone: `pot (dispatch): the clone failed: git clone failed: …`.
 - **`--detach`** does what can fail in front of you first: composition, the grant check (the prompt at a terminal,
   else 125), the clone, the backend's preparation. Then a background pot runs the command, with its output in the
@@ -295,10 +297,16 @@ pot [CONTEXT] --clone [--from REF] [--detach] CMD …      # --clone is --mode c
   unsigned commits, gitlinks, host-run files, repo-kit and root-repository changes) is computed from staging. The
   exit line counts the commits of each moved ref, the base's branch first, and of each scion: `pot: run cdf8 · 1
   commit on main, 2 on side, 1 in nix/agent-tools/.scions/meeting-kit: pot review cdf8, then pot review cdf8
-  --fetch` (`· exit S` after the id when the command failed), or with none `pot: run 1ac1 · no commits; the clone is kept
+  --fetch` (`· exit S` after the id when the command failed). After a failed staging fetch it says so instead of
+  `no commits`: `pot: run 5d5b · fetch failed: listing its refs: error: …: pot review 5d5b`, or with a good ref too
+  `pot: run 5d5b · 1 commit on main · fetch failed: refs/heads/bad: error: bogus commit object b40ae24…: pot review
+  5d5b, then pot review 5d5b --fetch`. With no commits, or with none `pot: run 1ac1 · no commits; the clone is kept
   until 2026-12-01: pot review 1ac1 --discard` (and `no commits` wherever a clone has none). Unsigned commits and new git metadata are left to `pot review`.
 - **If pot ended first** (killed, or a crash), the next `pot runs`, `pot runs ID` or `pot review` that reads the run
-  completes the host's look, records it with `recovered: true`, and cleans up. A clone with commits is then in
+  completes the host's look, records it with `recovered: true`, and cleans up. One pot recovers a run at a time
+  (`runs/<id>/recover.lock`); another reader waits up to 15 seconds for it, and if it is still busy shows the run
+  as `running` with NOTE `recovering · pot runs ID again` (`pot runs ID`: `note       recovering: another pot is
+  completing this run's staging; pot runs ID again`, and `its commits are being staged` in the clone row). A clone with commits is then in
   `review`, like any other; `pot runs ID` says `ended      unknown: pot ended without an exit (killed or
   crashed)`.
 - **Keeping clones.** A clone stays until `pot review ID --discard`. Removing a clone never follows a link: a link
@@ -1109,7 +1117,8 @@ pot grant [KIT...] [--revoke KIT] [--diff [--verbose]] [--commit] [--workspace P
   (`Granted on platform-vm, 2026-11-17 (pot grant --commit).`). It prints
   `committed ~/.workstation/pot/grants.json (a1b2c3d); push it with ~/.workstation's next push`.
   An untracked grants file is added. Nothing granted, nothing committed. `--revoke KIT --commit` commits the
-  revocation (subject `pot grant --revoke: KIT`), after the same checks. Flags may come in any position
+  revocation (subject `pot grant --revoke: KIT`, body `Revoked on platform-vm, 2026-11-18 (pot grant --revoke
+  --commit).`), after the same checks. Flags may come in any position
   (`pot grant flexion-assistant --commit`); `--diff` with `--commit` is a usage error (exit 2): `pot: grant --commit records grants; --diff only
   shows them`. It is refused before any prompt (exit 1) when the
   file is not in a git repository (`pot grant --commit: FILE is not in a git repository; run pot grant without
@@ -1233,12 +1242,15 @@ pot review [RUN] [--fetch|--discard] [--since T] [--until T] [--command NAME] [-
   ```
   pot: fetched run 1ac1 into ~/src/flexion-assistant: pot-1ac1/main (1 commit on 716424f)
     review:  git log --stat 716424f..pot-1ac1/main
-    take it: git merge pot-1ac1/main
     sign:    git switch -c pot-1ac1 pot-1ac1/main && git rebase --exec 'git commit --amend --no-edit -S' 716424f   (1 unsigned)
+    take it: git merge pot-1ac1
     scions/sbd: its commits are in that scion's refs/remotes/pot-1ac1/* (a fix there goes to its provider)
   ```
 
-  `sign:` appears only when your git config signs, and makes a branch of the run's commits first, and a scion's line only for a scion with commits; a run whose
+  `sign:` appears only when your git config signs: it makes a local branch `pot-ID` of the run's commits and
+  signs them, and `take it:` then merges that branch (`git merge pot-1ac1`); without signing, `take it:` is
+  `git merge pot-1ac1/main`. `--fetch` fetches only the refs the run moved. A scion's line appears only for a scion
+  with commits; a run whose
   only commits are a scion's says `…: its scions' commits`. A second `--fetch` fetches the same refs again. With no
   commits: `pot: run 1ac1 has no commits to fetch` (exit 0). Refused (exit 1): `pot: run 1ac1 worked in place:
   there is nothing to fetch`; `pot: run 1ac1 is running`; `pot: run 1ac1's clone was discarded (2026-11-17); its
@@ -1281,11 +1293,12 @@ states are `running`, `exited` (also a run whose pot ended without an exit: kill
 
 - **`pot runs ID`:** the rows `run`, `command`, `started` (`, by a person` or `, by a script`, and `, in the
   background`), then `stopped    exit 125 (grant)` (or `(guarantee)`; `· granted since: start it again` once its kits are granted,
-  with `next       start it again`), `ended      DATE · exit S · DURATION`, or
+  with `next       start it again`; a stopped dispatch's next adds its clone: `next       pot grant flexion-assistant ·
+  its clone is kept until 2026-12-02: pot review ID --discard`), `ended      DATE · exit S · DURATION`, or
   `ended      unknown: pot ended without an exit (killed or crashed)`; `clone` (the base, commits, unsigned, size,
   `kept until` or `discarded`, `fetched: pot-ID/main`, uncommitted files), a `note` row for each scion whose own
   submodules were not cloned, `attention`, and `next` (for review,
-  `pot review ID · pot review ID --fetch`; for stopped, the fix):
+  `pot review ID · pot review ID --fetch`, or after a failed staging with nothing staged `pot review ID · pot review ID --discard (the staging fetch failed: nothing to fetch)`; for stopped, the fix):
 
   ```
   run        613f · review · dispatch · flexion-assistant
@@ -1337,7 +1350,9 @@ state      ~/.local/state/pot: 0 runs, 0 clones (0 B of 20G, keepDays 14)
 
 - `backend` is the probe (`… cannot create a user namespace here, so no run starts (pot host CMD runs unsandboxed)`
   when it fails; when `PATH` has no `true` for it to run, `! backend  bubblewrap: its probe runs true, and PATH has
-  none (PATH=…); user namespaces were not tested`). Where user systemd answers, it says `resource-limits: for runs without a terminal`; where it does
+  none (PATH=…); user namespaces were not tested`). A run that meets the same probe failure stops (exit 1):
+  `pot: bubblewrap: its probe runs true, and PATH has none (PATH=…); user namespaces were not tested, so no run
+  starts`. Where user systemd answers, it says `resource-limits: for runs without a terminal`; where it does
   not, `resource-limits` is among the lacks, and `resources` says why:
   `! resources no user systemd (systemd-run --user failed): runs without a terminal start without limits`. A
   marked row is `! LABEL TEXT`.
@@ -1608,7 +1623,10 @@ pot (work): the run tried HOST:PORT (not in this run).
              or FIX
 ```
 
-For a port other than 443, the one-run flag names it: `pot --net HOST:80 …`.
+For a port other than 443, the one-run flag names it: `pot --net HOST:80 …`. Every one-run hint names the run's
+context when it is not `work`: `pot dispatch --net HOST …`, `pot inspect --net HOST …`, `pot dispatch --package PKG
+…`, `pot dispatch --env NAME …`, `pot dispatch --read PATH …` (in a clone without `, or pot --repo PATH for a
+repository`, which clone mode refuses).
 
 The exit line adds a count when it repeated: `(not in this run, 3x).` A request the proxy cannot read is
 `pot (work): the run sent the proxy a malformed request`.

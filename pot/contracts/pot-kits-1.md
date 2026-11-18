@@ -65,7 +65,7 @@ pot finds the flake that holds a repository's kits from git facts alone:
 4. **No submodules, or no `flake.nix` above them: no flake repo kit.** pot evaluates nothing in the repository
    and copies nothing of it into the store. The root's `repoKits."<origin>"` still applies.
 5. pot asks the flake which bundle it has (`nix eval` of `packages.<system>`), then builds it: always as a `path:`
-   flake, with `--no-write-lock-file`, never `git+file:`. A missing `flake.lock` stops the run.
+   flake (its path percent-encoded, so a space, `#` or `?` works), with `--no-write-lock-file`, never `git+file:`. A missing `flake.lock` stops the run.
 6. **A flake with no `pot-kits`** has no repo kit. One with v2.15.0's `graft-kits` alone is refused
    ([Compatibility](#compatibility)).
 7. In clone mode, the bundle is built from the clone's flake directory at the base commit, never from the
