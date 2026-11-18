@@ -1,5 +1,39 @@
 # Changelog
 
+## v2.16.2 - 2026-11-18
+
+A security patch for pot, graft's sandbox (experimental). It closes two ways a run could change what the host does
+after it, both present in v2.16.1. Nothing else changes: no grant asks again, no canonical grant item or digest
+changes (`pot-golden` holds them), and the only new output is the refusal below.
+
+### Fixed
+- **A run could point host git at a config it wrote.** In a git directory that pot protects (the top `.git`, each
+  worktree's, each scion's), the run could create an absent `commondir`, `config.worktree` or `gitdir`, and host git
+  then read run-chosen config after the run (a `core.fsmonitor` command, say), or broke. pot now puts a neutral
+  placeholder at each absent name before the run (`commondir` holding `.`, the others empty), binds it read-only
+  like the names that exist, and removes it after the run if it still holds what pot wrote. The exit line's
+  `WARNING: the run created …` no longer lists these names, since the run cannot create them. A pot killed
+  mid-run leaves its placeholders behind: host git works with them, and the next run binds them read-only, so the
+  protection holds; remove them by hand if you like.
+- **A run could be given write access to a root repository.** `work` refused in a root, but a `--write` path, a
+  granted `requests.write` item, or a `--repo` with write access that is, is inside or holds a root repository was
+  allowed. Each is now refused at start (exit 1), naming the flag or the kit, and the root:
+  `pot (work): --write ~/src/w holds the root ~/src/w/rootrepo: a run never writes a root (pot inspect reads it; pot
+  host CMD runs unsandboxed)`, likewise `--write ~/.workstation is the root ~/.workstation`, `--write
+  ~/.workstation/modules is inside the root ~/.workstation`, `KIT's write …` and `--repo …` (which said
+  `… is a root: pot inspect, or pot host CMD until pot dispatch (a later release)`). A write item that holds a root
+  is refused, not narrowed. Reading a root, `--repo` with `--access read` and `work`'s own refusal in a root are
+  unchanged.
+
+### Known limit
+- A name that a run creates with a Unicode format character, such as U+202E (right-to-left override), still reaches
+  the in-place exit line raw, so the terminal can show it reversed (`a…exe.jpg` for `a<U+202E>gpj.exe/.git`). pot
+  escapes only control characters there. This is the shared terminal, residual 10 in the pot reference; v2.17.0 escapes these characters too.
+
+### Upgrading
+- Nothing to change. A run that relied on writing a folder that holds a root repository now stops: narrow its
+  `--write` or `requests.write` to a folder beside the root, and change the root itself on the host.
+
 ## v2.16.1 - 2026-11-17
 
 pot's output, made readable. **Text and layout only:** nothing changes in what a run can reach, in grants, in the

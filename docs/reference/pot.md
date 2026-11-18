@@ -12,7 +12,7 @@ with graft are [pot's contracts](../../pot/contracts/README.md): [kit](../../pot
 [grants](../../pot/contracts/grants-1.md), [run-env](../../pot/contracts/run-env-1.md) and
 [runs](../../pot/contracts/runs-1.md).
 
-`pot` is experimental in v2.16.1. It runs on Linux, with bubblewrap. On macOS it refuses to start until a later
+`pot` is experimental in v2.16.2. It runs on Linux, with bubblewrap. On macOS it refuses to start until a later
 release ([On macOS](#on-macos)).
 
 ## The model
@@ -54,7 +54,7 @@ Terms built from these:
 | **state** | A reach request for a private persistent directory. |
 | **command** | A program that a kit ships. |
 | **command kit**, **repo kit**, **scion kit**, **root kit**, **agent kit** | A kit by its place: the kit whose command runs; a repository's own needs; a grafted provider's kit; a kit the root defines; a kit that describes an agent, such as Claude Code. |
-| **allowance** | The bounds on a `delegate` grant (not in v2.16.1). |
+| **allowance** | The bounds on a `delegate` grant (not in v2.16.2). |
 | **digest**, **source** | What a grant is fixed to: a hash of the kit's request set, and for powerful items the code it came from. |
 
 graft's other terms keep their meaning. A provider ships a kit in `graft.nix`. A consumer's own kit is its repo
@@ -71,7 +71,7 @@ A root is where the person's authority lives. A run never writes a root in place
 | Root | Where | For |
 |---|---|---|
 | A home-manager root | `programs.pot` in your home-manager configuration, from `inputs.graft.homeManagerModules.pot` | Your own machine. Its source repository is a [root repository](#root-repositories). |
-| graft's default root | `nix run github:danielnaab/graft/v2.16.1#pot -- CMD` (`packages.<system>.pot`, `apps.<system>.pot`) | Someone without a root. Its grants file is `~/.config/pot/grants.json`. |
+| graft's default root | `nix run github:danielnaab/graft/v2.16.2#pot -- CMD` (`packages.<system>.pot`, `apps.<system>.pot`) | Someone without a root. Its grants file is `~/.config/pot/grants.json`. |
 | A minimal root of your own | `pot init DIR` writes `DIR/flake.nix`, built with `graft.lib.mkRoot` | A start for a root that you then edit and commit. |
 
 graft's default root and the root that `pot init` writes have graft's contexts, hidden list and standard tools,
@@ -105,7 +105,7 @@ Its arguments are the options below. It checks every kit manifest when it builds
 build. A context named like a verb (`runs` and `doctor` included) is an evaluation error:
 `pot: mkRoot: a context may not be named like a pot verb: …`.
 
-In v2.16.1 you run the `pot` on your `PATH`. The home-manager module also writes `<home>/.config/pot/launcher`,
+In v2.16.2 you run the `pot` on your `PATH`. The home-manager module also writes `<home>/.config/pot/launcher`,
 a link to its `pot`, for the kit-command wrappers of a later release: they will find `<home>` from the password database, never
 from `$HOME`, and use graft's default root when the link is missing. There is no host-wide `/etc` pointer.
 
@@ -163,11 +163,11 @@ programs.pot.contexts.readonly = { extends = "work"; access = "read"; };
 | `access` | `write`, `read`, `none` | What the run may do to its workspace. |
 | `backend` | a backend name, default `auto` | The backend that enforces the run. |
 | `requires` | guarantee names | A run for which the backend cannot prove these is refused ([Guarantees](#guarantees)). |
-| `trust` | `workspace`, `root` | Whether workspace kits are evaluated. `root` is not in v2.16.1. |
+| `trust` | `workspace`, `root` | Whether workspace kits are evaluated. `root` is not in v2.16.2. |
 | `include` | root kit names | Root kits in every run of the context: their reach is standing reach. |
-| `commands` | root kit names | Root kits whose commands a run may start as children, without their reach. Not in v2.16.1. |
+| `commands` | root kit names | Root kits whose commands a run may start as children, without their reach. Not in v2.16.2. |
 | `network` | `granted`, `none` | `none` drops every network item. |
-| `nest` | boolean, default `true` | Whether the run may hold nested children. Not in v2.16.1. |
+| `nest` | boolean, default `true` | Whether the run may hold nested children. Not in v2.16.2. |
 
 A context name may not be a verb: `explain`, `why`, `grant`, `review`, `runs`, `doctor`, `init`, `run` or `serve`.
 
@@ -307,16 +307,29 @@ A root's source repositories (`rootRepos`) decide what every run may do, so a ru
 `work` refuses in a root repository, and so does `--repo` to one (exit 1):
 
 ```
-pot (work): ~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD
+pot (work): ~/.workstation is a root: pot dispatch CMD (its commits come back for review), or pot inspect CMD
 ```
 
 For a command that is not an agent kit's, the message adds `; pot host CMD runs it unsandboxed`.
 
 **Write access to a root is refused in every context, `dispatch` included.** A `--write PATH`, a granted
 `requests.write` item, or a `--repo PATH` with write access that is a root repository, sits inside one, or holds
-one is refused at start (exit 1) with the same message. A dispatch's `--write` path is a host path written in
-place, not the clone, so it is refused there too. A write item that holds a root is refused, not narrowed.
-Reading a root is not refused.
+one is refused at start (exit 1), naming the flag or the kit, and the root. A dispatch's `--write` path is a
+host path written in place, not the clone, so it is refused there too:
+
+```
+pot (work): --write ~/.workstation is the root ~/.workstation: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)
+pot (work): --write ~/.workstation/modules is inside the root ~/.workstation: a run never writes a root (…)
+pot (work): --write ~/src/w holds the root ~/src/w/rootrepo: a run never writes a root (…)
+pot (work): KIT's write ~/.workstation is the root ~/.workstation: a run never writes a root (…)
+pot (work): --repo ~/.workstation is the root ~/.workstation: a run never writes a root (…)
+pot (dispatch): --write ~/.workstation is the root ~/.workstation: a run never writes a root (…)
+```
+
+The path is shown as typed, else under `~`. "Holds" means a root listed by path below it, or a repository up to
+five levels below whose top or origin the root lists. A write item that holds a root is refused, not narrowed to
+the rest of the folder. Reading a root is not refused: `--read`, `--repo` with `--access read`, and `inspect` still
+see it.
 
 Change a root repository with `pot dispatch claude`: the change comes back as a branch, and `pot review`'s
 attention names each changed file that holds the text `programs.pot` at the run's tip or its base
@@ -390,7 +403,7 @@ kit = {
 - **Paths are normalised.** `..` is refused. A path under your home is recorded as `~/…`.
 - A `program` written `{ host = "~/.local/bin/claude"; }` is resolved on the host at each start. Its target must
   be in the store or fall under a granted `read` request.
-- In v2.16.1, `commands` are checked, and `pot NAME` finds a command's kit and applies its `access` and requests.
+- In v2.16.2, `commands` are checked, and `pot NAME` finds a command's kit and applies its `access` and requests.
   But commands are not wrapped, and `recipes` are checked but not generated: a kit tool that `just`, a hook or a
   scheduler calls runs on the host, as before ([Not yet](#not-yet)).
 - A repository presents its kits as `packages.<system>.pot-kits`, which pot's library `graft.lib.pot.kitsFor`
@@ -499,9 +512,9 @@ item on its own.
 ### Capabilities
 
 A capability is a request named by its effect, and a root [binding](#bindings) carries it out. Every name is
-reserved now. v2.16.1 binds the first five; the others come in a later release.
+reserved now. v2.16.2 binds the first five; the others come in a later release.
 
-| Capability | Binding in v2.16.1 | Class |
+| Capability | Binding in v2.16.2 | Class |
 |---|---|---|
 | `status.relay` | a relay and a `workmux` shim | ordinary |
 | `git.fetch { remote }` | an ssh shim and a host broker that allows only `git-upload-pack` | ordinary |
@@ -818,7 +831,7 @@ and the exit line names each one's permanent form. `--flag=value` works too.
 | `--backend NAME` | | Chooses a backend that the root defines. |
 | `--resume RUN`, `--resume last` | | Only with `host`: passes the transcript of run `RUN` (`last`: the newest run that left one) into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `pot: --resume RUN goes with pot host (pot host --resume RUN CMD)`. |
 
-A flag or `--repo` that names a hidden path, or a root repository in `work`, is refused at start.
+A flag or `--repo` that names a hidden path, or that would write a root repository, is refused at start.
 
 ### pot explain
 
@@ -827,7 +840,7 @@ pot explain [CONTEXT] [FLAGS] [CMD] [--json] [--backend-command]
 ```
 
 Prints the run's policy without running it: every item with the kit, file or grant that it came from, and a
-note that kit tools run as the run's own programs in v2.16.1. `--json` prints [policy.json](#policyjson).
+note that kit tools run as the run's own programs in v2.16.2. `--json` prints [policy.json](#policyjson).
 `--backend-command` prints bubblewrap's command line, with each secret variable shown as `(the run holds it)`;
 with `host`, it prints `argv       CMD` (and `(+ the transcript of run ID, as data)` with `--resume`).
 Inside a run, `pot explain` prints the same text as on the host; `--json` prints the run's policy.json.
@@ -1136,7 +1149,7 @@ It is a speed bump, not a guarantee: an unrestricted agent on the host can edit 
 pot init DIR
 ```
 
-Writes `DIR/flake.nix`: a minimal root built with `graft.lib.mkRoot`, from `github:danielnaab/graft/v2.16.1`, with
+Writes `DIR/flake.nix`: a minimal root built with `graft.lib.mkRoot`, from `github:danielnaab/graft/v2.16.2`, with
 its grants file at `DIR/grants.json`. It has the default root's [claude-code instance, token binding and
 nix](#roots). A root is a repository you edit and commit, so `pot init` refuses:
 
@@ -1499,7 +1512,11 @@ depth: the tree after a run is untrusted output.
   `info/`, `commondir` and `gitdir`; and every `.git` file. When `commondir`, `config.worktree` or `gitdir` is
   absent at start, pot puts a neutral read-only placeholder there for the run (`commondir` holding `.`, the others
   empty), so a run cannot create one and point host git at a config it wrote; pot removes each placeholder after
-  the run, if it still holds what pot wrote. The rest is writable, so a run can commit. It can also delete other
+  the run, if it still holds what pot wrote. A pot that is killed mid-run (`kill -9`, a reboot) leaves its
+  placeholders behind. They are harmless: host git works with them as with absent names, and the next run binds
+  them read-only as existing names, so the protection holds. Remove them by hand if you like
+  (`rm .git/commondir .git/config.worktree .git/gitdir`, each when it holds `.` or nothing); pot removes only the
+  ones it made in that run. The rest is writable, so a run can commit. It can also delete other
   branches' refs.
 
 Protection covers the paths that exist when the run starts. A host-run file that the run creates (a new `justfile`
@@ -1603,8 +1620,9 @@ The other messages, after `pot (<context>): `:
 | Hidden `--repo` | `--repo ~/.ssh/x: ~/.ssh/x is hidden by your root in every run` |
 | `--read` or `--write` of pot's state (1) | a folder that holds it: `--read ~/.local: which holds pot's own state (~/.local/state/pot)`; a path inside it: `… which is pot's own state` |
 | Protected (`pot why`) | `justfile is protected (**/justfile, graft): edit it on the host` |
-| A root repository, agent command (1) | `~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD` |
-| A root repository, other command (1) | `~/.workstation is a root: pot dispatch CMD (a reviewed branch), or pot inspect CMD; pot host CMD runs it unsandboxed` |
+| A root repository, agent command (1) | `~/.workstation is a root: pot dispatch CMD (its commits come back for review), or pot inspect CMD` |
+| A root repository, other command (1) | `~/.workstation is a root: pot dispatch CMD (its commits come back for review), or pot inspect CMD; pot host CMD runs it unsandboxed` |
+| Writing a root (1) | `WHAT PATH is the root ROOT: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)`, with `is inside` or `holds` in place of `is`; WHAT is `--write`, `--repo` (with write access) or `KIT's write` for a granted `requests.write` item: `--write ~/src/w holds the root ~/src/w/rootrepo: …` |
 | Not a repository (1) | `~/Downloads is not inside a git repository: pot inspect CMD, or pot host CMD` |
 | A `--repo` outside git (1) | `--repo PATH is not inside a git repository` |
 | Stale grant (125) | `meeting-kit (git:…) asks for more than its grant:`, then each new request as `  + network api.github.com:443`, then `  grant it: pot grant meeting-kit`. Also `… requests reach that is not granted:`; `… changed source since its grant:` with `  source: tree A -> tree B` and up to 12 lines of `git diff --stat` of the defining files when they changed (`nix/agent-tools/flake.lock | 1 +`), else of the tree, and the line `    the kit as built changed` when the build differs. The text is as before. The run is recorded as `stopped`, and the launching pane set to `waiting` when the run holds it ([What pot checks at start](#what-pot-checks-at-start)). |
@@ -1616,7 +1634,7 @@ The other messages, after `pot (<context>): `:
 | `pot` inside a run (1) | `pot inside a run starts nested runs in a later release: run it on the host` |
 | A missing lock | `pot (work): ~/…/nix/agent-tools/flake.lock is missing, and pot never writes one into a workspace: run nix flake lock there, on the host, and commit it` |
 
-On macOS: `pot: no backend for darwin in v2.16.1; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)`.
+On macOS: `pot: no backend for darwin in v2.16.2; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)`.
 On the startup line, a requested variable that the host lacks is `env NAME unset`, and a capability with no binding
 is `CAPABILITY: no binding`.
 
@@ -1755,10 +1773,10 @@ attached as quoted data ([Resume on the host](#resume-on-the-host)).
 
 ## On macOS
 
-In v2.16.1, `pot` refuses to start on macOS:
+In v2.16.2, `pot` refuses to start on macOS:
 
 ```
-pot: no backend for darwin in v2.16.1; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)
+pot: no backend for darwin in v2.16.2; Seatbelt returns in a later release (v2.14.0 has v2's sandbox)
 ```
 
 v2.14.0 is the last release with a Seatbelt sandbox. On a Mac, stay on v2.14.0 for a sandbox until the Seatbelt
