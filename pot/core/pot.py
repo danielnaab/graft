@@ -693,7 +693,7 @@ def parse(argv, root):
             flags[n[2:]] = v
             j += 1
             continue
-        if verb in ("runs", "review") and not a.startswith("-"):
+        if verb in ("runs", "review", "grant") and not a.startswith("-"):   # R5: their flags parse at any position
             cmd = cmd + [a]
             j += 1
             continue
@@ -2240,8 +2240,13 @@ def grant(host, root, flags, kits_named):
     m = agent_marker(root)
     if m and not flags.get("diff"):
         raise C.Refusal(f"pot grant is for people: {m} is set (an agent's environment). Run pot grant in your own terminal.")
+    if flags.get("commit") and flags.get("diff"):
+        raise Usage("grant --commit records grants; --diff only shows them")
+    if flags.get("commit"):
+        commit_check(host)      # before anything is written, --revoke included (R4)
     grants, text = load_grants(host, lenient=True)
     if flags.get("revoke"):
+        revoked = []
         granted = sorted(set(grants["grants"]) | {i for m in grants["machines"].values() for i in m})
         shown = None
         for k in flags["revoke"]:
@@ -2274,17 +2279,13 @@ def grant(host, root, flags, kits_named):
             for ident in ids:
                 while (where := C.revoke_grant(grants, ident, host.machine)) is not None:
                     print(visible(f"revoked {ident} ({where}) in {C.canon_path(host.grants_path, host.home)}"))
+                    revoked.append(k)
         save_grants(host, grants)
+        if flags.get("commit") and revoked:
+            print(visible(commit_grants(host, revoked, verb="pot grant --revoke")))
         return 0
     if flags.get("root"):
         raise C.Refusal("pot grant --root comes with deployment roots, in a later release", 2)
-    if flags.get("commit") and flags.get("diff"):
-        raise Usage("grant --commit records grants; --diff only shows them")
-    if flags.get("commit"):
-        m = agent_marker(root)
-        if m:
-            raise C.Refusal(f"pot grant is for people: {m} is set (an agent's environment). Run pot grant in your own terminal.")
-        commit_check(host)
     if flags.get("workspace"):
         os.chdir(C.expand(flags["workspace"][0], host.home))
     context = root.get("defaultContext") or "work"
@@ -2409,14 +2410,14 @@ def commit_check(host):
                         "commit or revert them first, or run pot grant without --commit")
 
 
-def commit_grants(host, names):
+def commit_grants(host, names, verb="pot grant"):
     """Commit the grants file's path alone (git commit -- PATH: other staged changes stay staged); never push."""
     g = host.grants_path
     top = grants_repo(host)
     shown = C.canon_path(g, host.home)
     if run_git(host, top, "ls-files", "--error-unmatch", g).returncode != 0:
         run_git(host, top, "add", "--", g)
-    msg = "pot grant: " + ", ".join(dict.fromkeys(names))
+    msg = f"{verb}: " + ", ".join(dict.fromkeys(names))
     body = f"Granted on {host.machine}, {datetime.date.today().isoformat()} (pot grant --commit)."
     r = subprocess.run([host.git, "-C", top, "commit", "-q", "-m", msg, "-m", body, "--", g], capture_output=True, text=True)
     if r.returncode != 0:

@@ -2387,6 +2387,15 @@ EOF
   expect "is refused before the name is looked up" holds "pot grant is for people: CLAUDECODE is set"
   refused "dispatch: --commit under an agent" env CLAUDECODE=1 "$work/dr/bin/pot" grant --commit </dev/null
   expect "is refused" holds "pot grant is for people: CLAUDECODE is set"
+  # R4: --revoke KIT --commit commits the revocation (after the marker check and commit_check)
+  ran "dispatch: R4, --revoke --commit" env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant --revoke needs --commit </dev/null
+  expect "R4: commits it" grep -qE "^committed $work/dgrants/grants.json \([0-9a-f]{7}\)" <<<"$out"
+  expect "R4: its subject" test "$(git_ -C "$work/dgrants" log -1 --format=%s)" = "pot grant --revoke: needs"
+  expect "R4: the grant is gone" test "$(jq -r '.grants["root:needs"] // "gone"' "$work/dgrants/grants.json")" = gone
+  # R5: pot grant KIT --commit (the synopsis order) reads --commit as a flag
+  ran "dispatch: R5, pot grant KIT --commit" tty_ $'y\n' "$work/dr/bin/pot" grant needs --commit
+  expect "R5: commits the grant" holds "committed $work/dgrants/grants.json"
+  expect "R5: subject" test "$(git_ -C "$work/dgrants" log -1 --format=%s)" = "pot grant: needs"
   ran "dispatch: pot grant, nothing stale" env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant </dev/null
   expect "L2: says there is nothing to grant" holds "pot: nothing to grant"
   expect "L2: and names the kit never granted" holds "pot: also not granted: unused (pot grant NAME)"
