@@ -2968,17 +2968,19 @@ def fetch_back(host, rec, ev, rd):
     base = c["base"]
     short = run_git(host, src, "rev-parse", "--short", base).stdout.strip() or base[:7]
     shown = []
-    for b in (R.last(ev, "after") or {}).get("refs", {}):
+    # the base's branch first, then the others by name (as the exit line counts them, R7)
+    order = sorted((R.last(ev, "after") or {}).get("refs", {}), key=lambda r: (r != c.get("branch"), r))
+    for b in order:
         n = run_git(host, src, "rev-list", "--count", f"{base}..refs/remotes/pot-{rid}/{b}").stdout.strip()
         shown.append(f"pot-{rid}/{b} ({n} commit{'s' if n != '1' else ''} on {short})")
     print(visible(f"pot: fetched run {rid} into {C.canon_path(src, host.home)}: " + (", ".join(shown) or "its scions' commits")))
     signs = c.get("unsigned") and run_git(host, src, "config", "--bool", "commit.gpgsign").stdout.strip() == "true"
     if shown:
-        first_ref = f"pot-{rid}/" + next(iter((R.last(ev, "after") or {}).get("refs", {})))
+        first_ref = f"pot-{rid}/" + order[0]
         print(visible(f"  review:  git log --stat {short}..{first_ref}"))
     if signs:
         # D3: sign first, then take the signed branch
-        b_ = next(iter((R.last(ev, "after") or {}).get("refs", {})), c.get("branch") or "main")
+        b_ = order[0] if order else (c.get("branch") or "main")
         print(visible(f"  sign:    git switch -c pot-{rid} pot-{rid}/{b_} && git rebase --exec 'git commit --amend --no-edit -S' {short}"
                       f"   ({c['unsigned']} unsigned)"))
     if shown:

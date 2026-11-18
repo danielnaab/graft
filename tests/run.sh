@@ -2344,6 +2344,7 @@ EOF
   ran "dispatch: K1, its --fetch" dl review "$k1" --fetch
   expect "K1: main is fetched" test "$(git_ log -1 --format=%s "refs/remotes/pot-$k1/main")" = k1-main
   expect "K1: the fetch names the branch, escaped" holds "pot-$k1/b\\xfe (1 commit on"
+  expect "K1: its next steps name the base's branch first" grep -qE "^  review:  git log --stat [0-9a-f]{7}\.\.pot-$k1/main$" <<<"$out"
   # K1: an after step that fails for any reason (the tests' fault point) is a fetch failure: review, kept
   ran "dispatch: K1, an after step that fails" env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u TMUX -u TMUX_PANE POT_TEST_FAULT=after "$work/dr/bin/pot" dispatch bash -c 'git commit -q --allow-empty -m k1-fault' </dev/null
   local kf && kf=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\) · .*/\1/p' <<<"$out" | tail -1)
