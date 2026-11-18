@@ -2349,6 +2349,7 @@ EOF
   local kf && kf=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\) · .*/\1/p' <<<"$out" | tail -1)
   expect "K1: the exit line says the look failed" grep -qE "^pot: run $kf · fetch failed: the host's look failed \(RuntimeError: an injected fault \(POT_TEST_FAULT=after\)\): pot review $kf$" <<<"$out"
   expect "K1: the run is in review" test "$(rec "$kf" .state)" = review
+  expect "K1: the backend's own event says so (the denials and the rest kept)" test "$(jq -s '[.[] | select(.ev == "after")][0] | has("error")' "$st/$kf/log.jsonl")" = false
   expect "K1: with clone.fetchFailed" test "$(rec "$kf" '.clone.fetchFailed | startswith("the host'"'"'s look failed")')" = true
   ran "dispatch: K1, a backend that prints no after event" env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u TMUX -u TMUX_PANE POT_TEST_FAULT=after-exit "$work/dr/bin/pot" dispatch bash -c 'git commit -q --allow-empty -m k1-exit' </dev/null
   local ke && ke=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\) · .*/\1/p' <<<"$out" | tail -1)
