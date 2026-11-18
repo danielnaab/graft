@@ -1614,17 +1614,22 @@ STUB
   ran "pot: the next run proceeds" sb_ true
   ran "pot: nix, with the nix capability" sb_ nix --version
   expect "runs the host's nix" holds "nix (Nix)"
+  # v2.17.0's narrowed comparison (ruling 1): a tracked change outside flake.nix, flake.lock and the kit as built
+  # keeps the grant; a change to flake.nix asks again
   echo more >> notes.md && commit "a tracked change"
+  ran "pot: a tracked change to another file: the grant holds" sb_ true
+  echo "# a comment" >> flake.nix && commit "flake.nix changed"
   sb_ true >/dev/null 2>&1 && st=0 || st=$?
   expect "pot: a changed source exits 125" test "$st" = 125
   refused "and says why" sb_ true
   expect "with its source" holds "sbc (repo:"
   expect "changed source since its grant" holds "changed source since its grant:"
-  expect "naming the changed paths" holds "notes.md"
+  expect "naming the changed defining file" holds "flake.nix | 1 +"
+  refuse "and not the others" holds "notes.md"
   ran "pot: a changed source, at a terminal" tty_ $'y\n' "$work/sbr/bin/pot" echo ran-after-source
   expect "prompts inline" holds "changed source"
   expect "asks again for the powerful item, alone" holds "powerful: + capability nix"
-  expect "with the changed paths" holds "notes.md"
+  expect "with the changed paths" holds "flake.nix"
   expect "and the run goes on" holds "ran-after-source"
   sed -i 's|requests.capabilities = \[ { name = "nix"; } \]; requests.network = \[ "inline.example" \]; ||' flake.nix && commit "no nix"
 
@@ -1810,6 +1815,15 @@ EOF
   # pot host CMD finds a command of the workspace's bundle that the host's PATH lacks (F7)
   ran "pot: pot host, a bundle kit's command" sb_ host sbk-tool
   expect "runs it" holds "sbk-tool hi"
+  # an unverified scion (its gitlink not a release tag): one start note, no 125; its command runs without its
+  # kit's reach (architecture §4, v2.17.0)
+  git_ -C "$work/src/sbk" commit -q --allow-empty -m "untagged" && git_ -C "$work/src/sbk" push -q origin HEAD:refs/heads/main
+  git_ -C scions/sbk fetch -q origin && git_ -C scions/sbk checkout -q --detach origin/main && git_ add scions/sbk && commit "sbk untagged"
+  ran "pot: an unverified scion" sb_loud true
+  expect "one start note" holds "sbk: gitlink is not a release tag at its URL; its kit is unverified and its grant does not apply"
+  ran "pot: its command runs, with no 125" sb_ sbk-tool
+  expect "without its reach" holds "sbk-tool hi"
+  git_ -C scions/sbk checkout -q --detach v1.0.0 && git_ add scions/sbk && commit "sbk v1.0.0 again"
   # a protected folder is read-only throughout: a file inside a scion, not only its graft.nix (B)
   refuse "pot: a scion's file is read-only" sb_ bash -c 'echo x >> scions/sbk/README.md' 2>/dev/null
   # doctor is reserved (C7; runs is v2.17.0's: sec_dispatch); an unknown command says where a program for

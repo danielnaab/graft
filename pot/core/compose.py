@@ -890,9 +890,8 @@ def compose(inp):
                              "flakeDir": w.get("flakeDir")} for w in inp["workspace"]]
     if cmdkit and cmdkit.get("instance") and cmdkit["instance"] != (root.get("defaultInstance") or {}).get(cmdkit.get("base")):
         report["notes"].append(f"instance {cmdkit['instance']}")
-    if cmdkit and cmdkit["kind"] == "scion" and not cmdkit.get("verified"):
-        raise Refusal(f"pot ({ctx['name']}): {kit_display(cmdkit)} is not a verified release "
-                      f"({cmdkit['id']}), so its command runs with no grant: pot host {cmdname}")
+    # an unverified scion kit's command runs with its see items, without its reach (architecture §4: one start
+    # note, no 125; v2.16 refused it)
 
     included = []
     for n in ctx.get("include") or []:
@@ -916,6 +915,11 @@ def compose(inp):
     # ---- grants
     status = {}
     for k in kits:
+        if k["kind"] == "scion" and not k.get("verified", True) and k["requests"]:
+            s_ = k.get("scion") or {}
+            report["notes"].append(f"{kit_display(k)}: its URL did not answer, so its kit is unverified and its grant does not apply"
+                                   if s_.get("unreachable") else
+                                   f"{kit_display(k)}: gitlink is not a release tag at its URL; its kit is unverified and its grant does not apply")
         canons = [r.canonical for r in k["requests"]]
         powerful = any(r.cls == "powerful" for r in k["requests"])
         st = grant_status(k["id"], k["kind"], canons, powerful, k.get("source"), grants, machine,
@@ -940,8 +944,6 @@ def compose(inp):
     for k, _ in applies:
         st = status[k["id"]]
         if st["status"] in ("grown", "source", "never"):
-            report["stale"].append(st)
-        if st["status"] == "unverified":
             report["stale"].append(st)
 
     # ---- items
@@ -1535,7 +1537,7 @@ def next_action(st):
     if st["status"] == "source":
         return f"pot grant {st['name']} (changed source)"
     if st["status"] == "unverified":
-        return f"{st['name']} is not a release tag at its URL: its grant does not apply"
+        return f"{st['name']}: gitlink is not a release tag at its URL; its kit is unverified and its grant does not apply"
     return None
 
 

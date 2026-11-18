@@ -215,8 +215,10 @@ def verify_scion(host, s, cache):
         r = subprocess.run([host.git, "ls-remote", "--tags", s["url"]], capture_output=True, text=True, timeout=15,
                            cwd="/", env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
     except subprocess.TimeoutExpired:
+        s["unreachable"] = True
         return None
     if r.returncode != 0:
+        s["unreachable"] = True    # offline, or the URL is gone (residual 14): said apart from "not a release tag"
         return None
     import re
     tags = []
@@ -2073,7 +2075,7 @@ def grant_flow(host, root, grants, sts, inline=False):
     try:
         for st in sts:
             if st["status"] == "unverified":
-                t.write(visible(f"{st['name']}: {st['kit']} is not a verified release; its grant would not apply\n"))
+                t.write(visible(f"{st['name']}: gitlink is not a release tag at its URL; its kit is unverified and its grant does not apply\n"))
                 continue
             entry = st.get("entry")
             have = set(entry["requests"]) if entry else set()

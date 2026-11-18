@@ -490,11 +490,31 @@ class Compose(unittest.TestCase):
         self.assertEqual((c["effective"], c["why"]), (False, "no binding"))
         self.assertEqual(len(rep["noBinding"]), 1)
 
-    def test_unverified_scion_command(self):
-        sc = {"name": "sk", "path": "s/sk", "identity": "git:u", "url": "u", "commit": "c", "tag": None,
-              "verified": False, "manifest": {"commands": {"skc": {}}}}
-        with self.assertRaisesRegex(C.Refusal, "not a verified release"):
-            C.compose(inp(argv=["skc"], workspace=[ws(scions=[sc])]))
+    def unverified(self, **extra):
+        return {"name": "sk", "path": "s/sk", "identity": "git:u", "url": "u", "commit": "c", "tag": None,
+                "verified": False, "manifest": {"requests": {"network": ["sk.example"]},
+                                                "commands": {"skc": {"program": "/nix/store/x-skc/bin/skc"}}}, **extra}
+
+    def test_unverified_scion_note(self):
+        # architecture §4: one start note, no 125; its kit's reach is not in the run (v2.17.0)
+        note = "sk: gitlink is not a release tag at its URL; its kit is unverified and its grant does not apply"
+        _, rep = C.compose(inp(argv=["bash"], workspace=[ws(scions=[self.unverified()])]))
+        self.assertIn(note, rep["notes"])
+        self.assertEqual(rep["stale"], [])
+        p, rep = C.compose(inp(argv=["skc"], workspace=[ws(scions=[self.unverified()])]))
+        self.assertEqual(rep["stale"], [])
+        self.assertEqual(rep["notes"].count(note), 1)
+        self.assertEqual([i["effective"] for i in p["items"] if i["kind"] == "network" and i["value"] == "sk.example:443"], [False])
+        self.assertEqual(rep["argv"][0], "/nix/store/x-skc/bin/skc")   # it runs, with its see items
+
+    def test_unverified_scion_offline(self):
+        _, rep = C.compose(inp(argv=["bash"], workspace=[ws(scions=[self.unverified(unreachable=True)])]))
+        self.assertIn("sk: its URL did not answer, so its kit is unverified and its grant does not apply", rep["notes"])
+
+    def test_no_note_without_requests(self):
+        sc = dict(self.unverified(), manifest={"commands": {"skc": {}}})
+        _, rep = C.compose(inp(argv=["bash"], workspace=[ws(scions=[sc])]))
+        self.assertFalse([n for n in rep["notes"] if "unverified" in n])
 
     def test_root_repos(self):
         self.assertEqual(C.root_repo_match("/home/u/.workstation", None, ["~/.workstation"], HOME), "~/.workstation")
