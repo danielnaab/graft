@@ -3,7 +3,10 @@ dispatch with its kept clone), D1 (a hint's one-run form names the run's context
 that is not UTF-8 as \\xNN). Run with the other unit tests (pot-unit)."""
 import unittest
 
+import subprocess
+
 import bwrap
+import clones as CL
 import compose as C
 import pot
 import runs as R
@@ -67,6 +70,24 @@ class Bytes(unittest.TestCase):
         s = b"bad\xffdir\r/justfile".decode("utf-8", "surrogateescape")
         self.assertEqual(bwrap.visible(s), "bad\\xffdir\\x0d/justfile")
         self.assertEqual(pot.visible(s), "bad\\xffdir\\x0d/justfile")
+
+
+class GitmodulesName(unittest.TestCase):
+    def test_dotdot_name_is_never_used(self):
+        # G4: pot clones a submodule from .git/modules/NAME, so a name with .. is skipped as a path with .. is (git
+        # itself also ignores such a name; this is pot's own check, with git's reader stubbed)
+        cfg = ("submodule.../../evil.path sub\nsubmodule.../../evil.url ./evil\n"
+               "submodule.scions/ok.path scions/ok\nsubmodule.scions/ok.url ./ok\n")
+
+        def fake(gitbin, top, *args, check=False):
+            out = cfg if "config" in args else "160000 commit abc123\tx\n"
+            return subprocess.CompletedProcess(args, 0, out, "")
+        real = CL.git
+        CL.git = fake
+        try:
+            self.assertEqual([s["name"] for s in CL.submodules_at("git", "/r", "HEAD")], ["scions/ok"])
+        finally:
+            CL.git = real
 
 
 if __name__ == "__main__":

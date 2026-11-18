@@ -2234,10 +2234,11 @@ EOF
   expect "R3: ATTENTION names it, unquoted" test "$(rec "$r3" '.attention | index("host-run: dossier-é/justfile")')" != null
   # G2: git's -z output read as bytes: a CR stays \x0d, a byte that is not UTF-8 shows as \xNN
   # shellcheck disable=SC2016 # the run's shell expands them
-  ran "dispatch: G2, a commit changing justfiles under folders with a CR and a 0xff byte" d_ dispatch bash -c '
+  ran "dispatch: G2, a commit changing justfiles under folders with a CR and a 0xff byte" dl dispatch bash -c '
     for d in "$(printf "cr\rdir")" "$(printf "bad\377dir")"; do mkdir -p "$d" && echo "x:" > "$d/justfile" && git add -- "$d/justfile"; done
     git commit -qm g2'
-  local g2 && g2=$(d_ runs --json | jq -r '.runs[0].id')
+  # (the run's id from its exit line: runs started in the same second have no newest)
+  local g2 && g2=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\) · .*/\1/p' <<<"$out" | tail -1)
   expect "G2: the CR stays \\x0d" test "$(rec "$g2" '.attention | index("host-run: bad\\xffdir/justfile, cr\\x0ddir/justfile")')" != null
   # F2: a dispatch that stops with 125 (needs is not granted yet) records its clone; --discard removes it
   refused "dispatch: F2, a dispatch that stops (125)" d_ dispatch needtest -c true
