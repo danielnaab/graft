@@ -1224,7 +1224,10 @@ def holds_pane(root, report):
     b = (root.get("bindings") or {}).get("status.relay") or {}
     if not any(isinstance(v, dict) and v.get("workmux") for v in b.values()):
         return False
-    return any(any(r.startswith("capability status.relay") for r in k.get("requests") or []) for k in (report or {}).get("kits") or [])
+    # F6/R6: only a kit whose requests apply to this run (its command's kit, the workspace's, the included ones) can
+    # give it the relay; a root kit that this command does not use gives the run no pane
+    return any(k.get("applies") and any(r.startswith("capability status.relay") for r in k.get("requests") or [])
+               for k in (report or {}).get("kits") or [])
 
 
 def pane_waiting():

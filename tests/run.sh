@@ -2326,7 +2326,10 @@ EOF
   git_ revert --no-edit HEAD >/dev/null
   ran "dispatch: reverted: the grant holds again" d_ true
   printf '\n' >> flake.lock && commit "flake.lock changed"
-  refused "dispatch: flake.lock changed: re-asks" d_ true
+  local wl0 && wl0=$(wc -l < "$work/dworkmux.log")
+  refused "dispatch: flake.lock changed: re-asks" env PATH="$work/dbin:$PATH" TMUX=/tmp/t,1,0 TMUX_PANE=%9 POT_QUIET=1 \
+    env -u CLAUDECODE -u CODEX_SANDBOX -u POT "$work/dr/bin/pot" true </dev/null
+  expect "F6/R6: a 125 of a run that holds no pane (true asks no status.relay) sets none" test "$(wc -l < "$work/dworkmux.log")" = "$wl0"
   expect "with its diffstat" holds "flake.lock | 1 +"
   git_ revert --no-edit HEAD >/dev/null
   echo "test 3" > t.test.ts && commit "another test file"
