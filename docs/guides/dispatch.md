@@ -35,7 +35,7 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
    Only the first level of submodules is cloned; `pot runs ID` and `pot review ID` note each scion whose own
    submodules are left out.
 
-   When it ends, the exit line counts its commits:
+   When it ends, the exit line counts its commits on each branch it moved, and in each scion:
    `pot: run 1ac1 · 1 commit on main: pot review 1ac1, then pot review 1ac1 --fetch`.
 
    To start from another commit or branch, add `--from REF`. To leave it running in the background, add `--detach`
@@ -129,9 +129,22 @@ home-manager switch
 
 Review the branch before the switch: it changes what every later run may do.
 
+## Give dispatch runs your standing reach
+
+`dispatch` is its own context: it does not include the root kit that your `work` context includes (`daniel` in
+these examples), so a dispatch run has no package registries or `git.fetch` from it. To give dispatch runs the
+same standing reach, include that kit in the context, in your root:
+
+```nix
+programs.pot.contexts.dispatch.include = [ "daniel" ];
+```
+
+With mkRoot, the same goes in `contexts`. Then `home-manager switch` (or rebuild the root). The kit's grant is the
+one you already made: including it asks for nothing new.
+
 ## What the clone has, and what it doesn't
 
-- Your commit (the base), its branch, and its scions (the first level of submodules) at their gitlinks. The
+- Your commit (the base) and its branch, and no other branch of yours; its scions (the first level of submodules) at their gitlinks. The
   scions folder is read-only, as in place; a commit made in a scion's git directory comes back into that scion's
   `refs/remotes/pot-<id>/*`, and one on its detached `HEAD` as `pot-<id>/detached`.
 - Your `user.name`, `user.email` and the origin URL. None of your other git config, and none of your hooks.
