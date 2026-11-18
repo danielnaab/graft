@@ -2466,6 +2466,7 @@ EOF
   expect "names resource-limits as lacking" grep -qE '^backend .*lacks .*resource-limits' <<<"$out"
   expect "and marks the resources row" holds "! resources no user systemd"
   # F9: with no true on PATH, doctor names PATH, not user namespaces
+  # shellcheck disable=SC2016 # the inner bash expands them
   ran "dispatch: F9, doctor with a PATH that lacks true" bash -c 'cd "$1" && env -u POT -u CLAUDECODE PATH="$2" "$3" doctor </dev/null; true' _ \
     "$work/dplain" "$work/dbin" "$work/dr/bin/pot"
   expect "F9: names PATH" holds "its probe runs true, and PATH has none"
