@@ -2035,6 +2035,8 @@ EOF
       prune = graft.lib.mkRoot (common // { clones = { keepDays = 0; maxSize = "1"; }; });
       # G4: a stateDir with a space (the sandboxed upload-pack's path is quoted)
       spaced = graft.lib.mkRoot (common // { stateDir = "$work/d state"; });
+      # K4: pot's state under what inspect reads
+      inspectstate = graft.lib.mkRoot (common // { stateDir = "$work/dinsp/state"; inspect.home = [ "$work/dinsp" ]; });
     };
   };
 }
@@ -2333,6 +2335,34 @@ EOF
   refuse "N1: never --fetch" holds "--fetch"
   expect "F3: it is in review too" test "$(rec "$f3b" .state)" = review
   expect "F3: a different run from the first" test "$f3b" != "$fid"
+  # K1: a branch whose name is not UTF-8 (b\xfe) beside a commit on main: both staged, the run in review, main fetched
+  # shellcheck disable=SC2016 # the run's shell expands them
+  ran "dispatch: K1, a commit on main and a branch b\\xfe" dl dispatch bash -c 'git commit -q --allow-empty -m k1-main && git branch "$(printf "b\376")"'
+  local k1 && k1=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\) · .*/\1/p' <<<"$out" | tail -1)
+  expect "K1: the exit line names the branch, escaped" holds "1 commit on main, 1 on b\\xfe: pot review $k1"
+  expect "K1: the run is in review" test "$(rec "$k1" '"\(.state) \(.clone.commits)"')" = "review 1"
+  ran "dispatch: K1, its --fetch" dl review "$k1" --fetch
+  expect "K1: main is fetched" test "$(git_ log -1 --format=%s "refs/remotes/pot-$k1/main")" = k1-main
+  expect "K1: the fetch names the branch, escaped" holds "pot-$k1/b\\xfe (1 commit on"
+  # K1: an after step that fails for any reason (the tests' fault point) is a fetch failure: review, kept
+  ran "dispatch: K1, an after step that fails" env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u TMUX -u TMUX_PANE POT_TEST_FAULT=after "$work/dr/bin/pot" dispatch bash -c 'git commit -q --allow-empty -m k1-fault' </dev/null
+  local kf && kf=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\) · .*/\1/p' <<<"$out" | tail -1)
+  expect "K1: the exit line says the look failed" grep -qE "^pot: run $kf · fetch failed: the host's look failed \(RuntimeError: an injected fault \(POT_TEST_FAULT=after\)\): pot review $kf$" <<<"$out"
+  expect "K1: the run is in review" test "$(rec "$kf" .state)" = review
+  expect "K1: with clone.fetchFailed" test "$(rec "$kf" '.clone.fetchFailed | startswith("the host'"'"'s look failed")')" = true
+  ran "dispatch: K1, a backend that prints no after event" env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u TMUX -u TMUX_PANE POT_TEST_FAULT=after-exit "$work/dr/bin/pot" dispatch bash -c 'git commit -q --allow-empty -m k1-exit' </dev/null
+  local ke && ke=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\) · .*/\1/p' <<<"$out" | tail -1)
+  expect "K1: is a failed look too: review" test "$(rec "$ke" '"\(.state) \(.clone.fetchFailed)"')" = "review the host's look failed (exit 3)"
+  ran "dispatch: K1, pot review" d_ review
+  expect "K1: lists it" grep -q "^$kf .*fetch failed: the host's look failed" <<<"$out"
+  # K2: a fetched branch named with U+202E and a C1 control: escaped in pot runs' clone row
+  # shellcheck disable=SC2016
+  ran "dispatch: K2, a branch named with U+202E and U+0085" dl dispatch bash -c 'git commit -q --allow-empty -m k2 && git branch "$(printf "k2\342\200\256x\302\205y")"'
+  local k2 && k2=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\) · .*/\1/p' <<<"$out" | tail -1)
+  ran "dispatch: K2, its --fetch" d_ review "$k2" --fetch
+  ran "dispatch: K2, pot runs ID" d_ runs "$k2"
+  expect "K2: fetched: escapes the name" holds "pot-$k2/k2\\u202ex\\x85y"
+  refuse "K2: never the raw override" holds "$(printf '\342\200\256')"
   # F4/R1 by prune: a no-commit clone with a link out and a read-only folder, removed by keepDays 0
   mkdir -p "$work/outside2" && chmod 755 "$work/outside2"
   # shellcheck disable=SC2016
@@ -2340,6 +2370,7 @@ EOF
   # clones kept: keepDays and maxSize discard only fetched, discarded or commit-less clones
   ran "dispatch: a start with keepDays 0 and maxSize 1" env -u POT -u CLAUDECODE "$work/drp/bin/pot" dispatch true </dev/null
   expect "S2: keepDays keeps the clone whose fetch failed" test -d "$st/$fid/clone"
+  expect "K1: and the one whose look failed" test -d "$st/$kf/clone"
   expect "F3: and the second one" test -d "$st/$f3b/clone"
   expect "F4: prune left the linked host folder's mode" test "$(stat -c %a "$work/outside2")" = 755
   expect "keeps the unfetched one" test -d "$st/$did/clone"
@@ -2570,6 +2601,12 @@ EOF
     ran "dispatch: dispatch in a root repository" d_ dispatch bash -c 'sed -i "s/a = 1/a = 2/" pot.nix && git commit -qam root'
     local rr && rr=$(d_ runs --json | jq -r '[.runs[] | select(.workspace[0].path == "'"$work/drootrepo"'" and .state == "review")][0].id')
     expect "its review flags the root change (D13)" test "$(rec "$rr" '.attention | index("root: pot.nix (programs.pot)")')" != null
+    # K3: a committed file named :(exclude)* beside the change: run-chosen paths are literal pathspecs
+    # shellcheck disable=SC2016
+    ran "dispatch: K3, a root change beside a file named :(exclude)*" dl dispatch bash -c 'sed -i "s/a = 1/a = 3/" pot.nix
+      echo x > ":(exclude)*" && git --literal-pathspecs add -- pot.nix ":(exclude)*" && git commit -qm k3'
+    local k3 && k3=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\) · .*/\1/p' <<<"$out" | tail -1)
+    expect "K3: still flags (programs.pot)" test "$(rec "$k3" '.attention | index("root: pot.nix (programs.pot)")')" != null
   )
   # a scion with submodules of its own: a clone holds only the first level, and says so
   prov nst && git_ -C "$work/src/nst" submodule add -q -- "$(url sbd)" deep 2>/dev/null && release nst v1.0.0
@@ -2618,6 +2655,23 @@ EOF
   expect "G4: its clone is under the spaced folder" test -d "$work/d state/runs/$g4/clone"
   ran "dispatch: G4, its --fetch" env -u POT -u CLAUDECODE "$work/drs/bin/pot" review "$g4" --fetch </dev/null
   expect "G4: fetch-back works" test "$(git_ log -1 --format=%s "refs/remotes/pot-$g4/main")" = spaced
+  # K4: pot's state under inspect's path, holding a killed in-place run's socket and a socket of its own: inspect
+  # starts (nothing is masked inside pot's hidden state), and the next pot removes the lost run's sockets
+  ran "dispatch: K4, a root whose state is under inspect.home" nix build -o "$work/dri" "path:$work/droot#packages.$sys.inspectstate"
+  mkdir -p "$work/dinsp/state"
+  python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$work/dinsp/state/other.sock"
+  setsid env -u CLAUDECODE -u CODEX_SANDBOX -u POT POT_QUIET=1 "$work/dri/bin/pot" --net allowed.example bash -c 'sleep 300' </dev/null >/dev/null 2>&1 &
+  local k4p=$! k4=
+  for _ in $(seq 1 100); do k4=$(grep -l "\"pid\":$k4p," "$work/dinsp/state"/runs/*/log.jsonl 2>/dev/null | head -1) && [ -n "$k4" ] && break; sleep 0.2; done
+  k4=$(basename "$(dirname "$k4")")
+  for _ in $(seq 1 50); do [ -S "$work/dinsp/state/runs/$k4/proxy.sock" ] && break; sleep 0.1; done
+  kill -9 -- "-$k4p" 2>/dev/null || true
+  wait "$k4p" 2>/dev/null || true
+  expect "K4: the killed run left its proxy socket" test -S "$work/dinsp/state/runs/$k4/proxy.sock"
+  ran "dispatch: K4, inspect with the state under its path" env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u TMUX -u TMUX_PANE POT_QUIET=1 "$work/dri/bin/pot" inspect bash -c 'echo inspected' </dev/null
+  expect "K4: inspect starts" has inspected
+  expect "K4: the lost run's socket is gone" test ! -e "$work/dinsp/state/runs/$k4/proxy.sock"
+  expect "K4: pot's own socket elsewhere in its state stays" test -S "$work/dinsp/state/other.sock"
   # G4: a .gitmodules name with .. is never a path pot clones from (git's own rule for names)
   local gm=$work/dmods && mkdir -p "$gm" && git_ -C "$gm" init -q && git_ -C "$gm" commit -q --allow-empty -m init
   mkdir -p "$gm/evil" && git_ -C "$gm/evil" init -q && echo planted > "$gm/evil/PLANTED" && git_ -C "$gm/evil" add PLANTED && git_ -C "$gm/evil" commit -q -m evil

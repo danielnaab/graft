@@ -21,9 +21,21 @@ def clean_env():
     return env
 
 
+def git_lines(s):
+    """K1: git's output as lines, split at newlines only (str.splitlines also splits at U+0085, U+2028 and the
+    other line breaks a run-chosen name may hold)."""
+    return [l for l in s.split("\n") if l]
+
+
 def git(gitbin, cwd, *args, check=False):
-    return subprocess.run([gitbin, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "safe.directory=*",
-                           "-C", cwd] + list(args), capture_output=True, text=True, env=clean_env(), check=check)
+    """K1: bytes, decoded with surrogateescape; K3: literal pathspecs."""
+    r = subprocess.run([gitbin, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "safe.directory=*",
+                        "-C", cwd] + list(args), capture_output=True, env={**clean_env(), "GIT_LITERAL_PATHSPECS": "1"})
+    r.stdout = r.stdout.decode("utf-8", "surrogateescape")
+    r.stderr = r.stderr.decode("utf-8", "surrogateescape")
+    if check:
+        r.check_returncode()
+    return r
 
 
 class CloneError(Exception):
@@ -62,7 +74,7 @@ def submodules_at(gitbin, top, commit):
     """The submodules .gitmodules names at COMMIT whose gitlink is a commit there: [{name, path, url, commit}]."""
     r = git(gitbin, top, "config", "--blob", f"{commit}:.gitmodules", "--get-regexp", r"^submodule\..*\.(path|url)$")
     subs = {}
-    for line in r.stdout.splitlines():
+    for line in git_lines(r.stdout):
         k, _, v = line.partition(" ")
         name, field = k[len("submodule."):].rsplit(".", 1)
         subs.setdefault(name, {"name": name})[field] = v

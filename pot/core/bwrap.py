@@ -226,11 +226,27 @@ class Pins:
                            "its own (cp -p F F.copy && mv F.copy F), then run again")
 
 
+def git_lines(s):
+    """K1: git's output as lines, split at newlines only (str.splitlines also splits at U+0085, U+2028 and the
+    other line breaks a run-chosen name may hold)."""
+    return [l for l in s.split("\n") if l]
+
+
+def git_run(argv, env=None, timeout=None):
+    """K1: every host git call that reads run-chosen names (refs, paths, subjects) reads bytes, decoded with
+    surrogateescape (a byte that is not UTF-8 survives; visible() shows it as \\xNN; a CR stays one). K3: pathspecs
+    are literal (GIT_LITERAL_PATHSPECS), so a run-chosen path is never pathspec magic."""
+    env = {**(os.environ if env is None else env), "GIT_LITERAL_PATHSPECS": "1"}
+    r = subprocess.run(argv, capture_output=True, env=env, timeout=timeout)
+    r.stdout = r.stdout.decode("utf-8", "surrogateescape")
+    r.stderr = r.stderr.decode("utf-8", "surrogateescape")
+    return r
+
+
 def git(cfg, top, *args):
     """Host git reading a run-written repository: no hooks, no fsmonitor, no config it could run."""
-    return subprocess.run([cfg["git"], "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-                           "-c", "safe.directory=*", "-C", top] + list(args),
-                          capture_output=True, text=True, check=False)
+    return git_run([cfg["git"], "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+                    "-c", "safe.directory=*", "-C", top] + list(args))
 
 
 def fingerprint(cfg, pins):
@@ -241,7 +257,7 @@ def fingerprint(cfg, pins):
         for f in GITFILES:
             if os.path.lexists(os.path.join(g, f)):
                 lines.add(os.path.join(g, f))
-    for l in git(cfg, pins.top, "ls-files", "-s").stdout.splitlines():
+    for l in git_lines(git(cfg, pins.top, "ls-files", "-s").stdout):
         if l.startswith("160000 "):
             lines.add("gitlink " + l.split("\t", 1)[1])
     return sorted(lines)
@@ -279,7 +295,7 @@ def hostrun_hashes(top, protect):
 def refs(cfg, top):
     r = git(cfg, top, "for-each-ref", "--format=%(objectname) %(refname)")
     head = git(cfg, top, "rev-parse", "HEAD").stdout.strip()
-    return {"refs": r.stdout.splitlines(), "head": head}
+    return {"refs": git_lines(r.stdout), "head": head}
 
 
 # ---------------------------------------------------------------- prepare
@@ -602,6 +618,10 @@ def prepare(cfg, rundir, print_cmd=False):
         mounts.append((dest, prio, a))
 
     hidden = [p for i in eff(policy, "hidden") for p in i.get("paths", [])]
+
+    def in_hidden(p):
+        # K4: a hidden folder (pot's state among them) is hidden as one unit: nothing is bound or masked inside it
+        return any(p.startswith(h.rstrip("/") + "/") for h in hidden if os.path.isdir(h) and not os.path.islink(h))
     run_mnt = policy["mounts"]["run"]
     net = [i for i in eff(policy, "network") if i["class"] == "reach"]
     bound_dirs = []
@@ -633,12 +653,14 @@ def prepare(cfg, rundir, print_cmd=False):
                 readable.append(w["path"])
         t = time.time()
         secrets, socks = secret_walk(cfg, readable)
+        secrets = [s for s in secrets if not in_hidden(s)]
         for s in secrets:
             mount(s, 2, ["--ro-bind", EMPTY, s])
         others = [d for d in ("/etc", "/var", "/srv", "/opt", "/root", "/mnt", "/media") if os.path.isdir(d)]
         if os.path.isdir("/home"):
             others += [os.path.join("/home", h) for h in os.listdir("/home") if os.path.join("/home", h) != home]
         socks += [s for s in sockets_in(cfg, others) if not s.startswith(home + "/")]
+        socks = [s for s in socks if not in_hidden(s)]
         for s in socks:
             mount(s, 2, ["--ro-bind", EMPTY, s])
         launch["walk"] = {"secrets": len(secrets), "sockets": len(socks), "seconds": round(time.time() - t, 2)}
@@ -698,7 +720,7 @@ def prepare(cfg, rundir, print_cmd=False):
         if os.path.exists(i["path"]):
             mount(i["path"], 0, ["--bind", i["path"], i["path"]])
     for s in sockets_in(cfg, bound_dirs):
-        if s not in named_socks:
+        if s not in named_socks and not in_hidden(s):
             mount(s, 2, ["--ro-bind", EMPTY, s])
 
     # the workspace
@@ -1038,6 +1060,8 @@ def run(cfg, rundir):
 # ---------------------------------------------------------------- after
 
 def after(cfg, rundir):
+    if os.environ.get("POT_TEST_FAULT") == "after-exit":     # the tests' fault point: a backend that prints no event
+        sys.exit(3)
     policy, launch = load(rundir)
     try:
         with open(os.path.join(rundir, "before.json")) as f:
@@ -1047,7 +1071,14 @@ def after(cfg, rundir):
     ev = {"ev": "after", "by": "host", "commits": [], "unsigned": 0, "touches_host_run": [], "repo_kit_change": [],
           "root_repo_change": False, "new_git_metadata": [], "denials": [], "signs": bool(launch.get("hostSigns"))}
     for b in before.get("clones") or []:
-        clone_after(cfg, rundir, policy, launch, b, ev)
+        try:
+            if os.environ.get("POT_TEST_FAULT") == "after":      # the tests' fault point: an after step that fails
+                raise RuntimeError("an injected fault (POT_TEST_FAULT=after)")
+            clone_after(cfg, rundir, policy, launch, b, ev)
+        except Exception as e:      # K1: never "no commits" for a look that failed; the run is in review, kept
+            FETCH_FAILED.append(visible(f"the host's look failed ({type(e).__name__}: {e})")[:300])
+            print(visible(f"pot: the host's look at the clone failed: {type(e).__name__}: {e}"), file=sys.stderr)
+            ev["fetch_failed"] = "; ".join(FETCH_FAILED)
     for b in before["pins"]:
         top = b["top"]
         w = next(w for w in policy["workspace"] if w["path"] == top)
@@ -1124,8 +1155,8 @@ def host_git(cfg, gitdir, *args, timeout=None):
     env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
     for k in [k for k in env if k.startswith("GIT_CONFIG_KEY_") or k.startswith("GIT_CONFIG_VALUE_") or k == "GIT_CONFIG_COUNT"]:
         del env[k]
-    return subprocess.run([cfg["git"], "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
-                           "--git-dir", gitdir] + list(args), capture_output=True, text=True, env=env, timeout=timeout)
+    return git_run([cfg["git"], "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
+                    "--git-dir", gitdir] + list(args), env=env, timeout=timeout)
 
 
 def host_git_z(cfg, gitdir, *args):
@@ -1134,9 +1165,8 @@ def host_git_z(cfg, gitdir, *args):
     env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
     for k in [k for k in env if k.startswith("GIT_CONFIG_KEY_") or k.startswith("GIT_CONFIG_VALUE_") or k == "GIT_CONFIG_COUNT"]:
         del env[k]
-    r = subprocess.run([cfg["git"], "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
-                        "--git-dir", gitdir] + list(args), capture_output=True, env=env)
-    return r.stdout.decode("utf-8", "surrogateescape")
+    return git_run([cfg["git"], "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
+                    "--git-dir", gitdir] + list(args), env=env).stdout
 
 
 def stage(cfg, rundir, clone, gitdir, name, alternates):
@@ -1173,7 +1203,7 @@ def stage(cfg, rundir, clone, gitdir, name, alternates):
         failed("listing its refs", ls)
         return None
     refs = []
-    for l in ls.stdout.splitlines():
+    for l in git_lines(ls.stdout):
         sha, _, ref = l.partition("\t")
         if ref == "HEAD" or ref.startswith("refs/heads/"):
             refs.append(ref)
@@ -1284,7 +1314,7 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
         ssd = stage(cfg, rundir, clone, gd, key, m.get("objects"))
         if not ssd:
             continue
-        tips = [l.split(" ", 1)[1] for l in host_git(cfg, ssd, "for-each-ref", "--format=%(refname) %(objectname)").stdout.splitlines() if " " in l]
+        tips = [l.split(" ", 1)[1] for l in git_lines(host_git(cfg, ssd, "for-each-ref", "--format=%(refname) %(objectname)").stdout) if " " in l]
         tips = [t for t in tips if t != m["commit"]]
         cs = [c[:12] for c in host_git(cfg, ssd, "rev-list", *tips, "--not", m["commit"]).stdout.split()] if tips else []
         if cs:
@@ -1292,7 +1322,7 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
     # what stays in the clone: uncommitted changes (read by the sandboxed git) and new git metadata
     r = subprocess.run(sandboxed_git(cfg, rundir, clone, ["--no-optional-locks", "status", "--porcelain", "--ignore-submodules=dirty"]),
                        capture_output=True, text=True, timeout=600)
-    ev["uncommitted"] = len([l for l in r.stdout.splitlines() if l.strip()]) if r.returncode == 0 else None
+    ev["uncommitted"] = len([l for l in git_lines(r.stdout) if l.strip()]) if r.returncode == 0 else None
     now = subprocess.run([cfg["find"], clone, "-name", ".git", "-prune", "-print0"], capture_output=True).stdout
     gits = {os.fsdecode(e) for e in now.split(b"\0") if e}
     ev["new_git_metadata"] += sorted(visible(top + g[len(clone):]).replace(top + "/", "") for g in gits - set(b.get("gits") or [])

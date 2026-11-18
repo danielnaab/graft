@@ -131,6 +131,12 @@ class Host:
         return tz or "UTC"
 
 
+def git_lines(s):
+    """K1: git's output as lines, split at newlines only (str.splitlines also splits at U+0085, U+2028 and the
+    other line breaks a run-chosen name may hold)."""
+    return [l for l in s.split("\n") if l]
+
+
 def path_ref(p):
     """A path as a flake reference: percent-encoded (G4: a stateDir or a checkout with a space, # or ?)."""
     import urllib.parse
@@ -138,9 +144,16 @@ def path_ref(p):
 
 
 def run_git(host, cwd, *args, check=False):
-    return subprocess.run([host.git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-                           "-c", "safe.directory=*", "-C", cwd] + list(args),
-                          capture_output=True, text=True, check=check)
+    """Host git: no fsmonitor or hooks. K1: bytes, decoded with surrogateescape (run-chosen names survive, for
+    visible()); K3: literal pathspecs."""
+    r = subprocess.run([host.git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+                        "-c", "safe.directory=*", "-C", cwd] + list(args),
+                       capture_output=True, env={**os.environ, "GIT_LITERAL_PATHSPECS": "1"})
+    r.stdout = r.stdout.decode("utf-8", "surrogateescape")
+    r.stderr = r.stderr.decode("utf-8", "surrogateescape")
+    if check:
+        r.check_returncode()
+    return r
 
 
 def inside_run():
@@ -176,11 +189,11 @@ def repo_of(host, path):
 def submodule_paths(host, top):
     """The submodule paths .gitmodules names at HEAD (never the working tree), in its order."""
     r = run_git(host, top, "config", "--blob", "HEAD:.gitmodules", "--get-regexp", r"^submodule\..*\.path$")
-    paths = [line.partition(" ")[2] for line in r.stdout.splitlines() if line.partition(" ")[2]]
+    paths = [line.partition(" ")[2] for line in git_lines(r.stdout) if line.partition(" ")[2]]
     if not paths:
         return []
     # only those whose gitlink is a commit at HEAD (as scions_of): a stale .gitmodules entry is no fact
-    ls = run_git(host, top, "ls-tree", "HEAD", "--", *paths).stdout.splitlines()
+    ls = git_lines(run_git(host, top, "ls-tree", "HEAD", "--", *paths).stdout)
     linked = {l.split("\t", 1)[1] for l in ls if "\t" in l and l.split()[1] == "commit"}
     return [p for p in paths if p.rstrip("/") in linked]
 
@@ -214,7 +227,7 @@ def scions_of(host, top):
     """Scion kits: .gitmodules at HEAD (never the working tree), with each gitlink's commit."""
     r = run_git(host, top, "config", "--blob", "HEAD:.gitmodules", "--get-regexp", r"^submodule\..*\.(path|url)$")
     subs = {}
-    for line in r.stdout.splitlines():
+    for line in git_lines(r.stdout):
         k, _, v = line.partition(" ")
         name, field = k[len("submodule."):].rsplit(".", 1)
         subs.setdefault(name, {})[field] = v
@@ -247,7 +260,7 @@ def verify_scion(host, s, cache):
         return None
     import re
     tags = []
-    for line in r.stdout.splitlines():
+    for line in git_lines(r.stdout):
         c, _, ref = line.partition("\t")
         t = ref[len("refs/tags/"):].removesuffix("^{}")
         if c == s["commit"] and re.fullmatch(r"v?[0-9]+\.[0-9]+\.[0-9]+", t):
@@ -310,7 +323,7 @@ def tree_diffstat(host, top, old, new, rel=None, paths=()):
                        env={**os.environ, **object_env(host, top)})
     if r.returncode != 0:
         return []
-    lines = r.stdout.rstrip("\n").splitlines()
+    lines = git_lines(r.stdout.rstrip("\n"))
     if rel:
         # the trees are the flake directory's: paths relative to the workspace, as people see them
         lines = [f" {rel}/{l.lstrip()}" if " | " in l else l for l in lines]
@@ -1311,6 +1324,32 @@ def scope_for(host, root, ctx, flags, detach):
     return {"note": "no resource limits (no user systemd: pot doctor)"}
 
 
+RUN_SOCKETS = ("proxy.sock", "relay.sock", "git.sock", "nix.sock")
+
+
+def tidy_lost(host):
+    """K4: an in-place run whose pot was killed (no exit, its process gone) leaves its sockets in its run folder; the
+    next pot removes them, with the backend's cleanup (a clone-mode run's comes with its recovery)."""
+    runs = os.path.join(host.state, "runs")
+    try:
+        names = os.listdir(runs)
+    except OSError:
+        return
+    for n in names:
+        rd = os.path.join(runs, n)
+        if not re.fullmatch(r"[0-9a-f]{4}", n) or not any(os.path.lexists(os.path.join(rd, s)) for s in RUN_SOCKETS):
+            continue
+        ev = R.read_log(os.path.join(rd, "log.jsonl"))
+        s = R.first(ev, "start")
+        if not s or s.get("mode") == "clone" or R.ended(ev) or R.process_alive(s):
+            continue
+        try:
+            prog = backend_cmd(host, s.get("backend"))[1]
+        except C.Refusal:
+            continue
+        subprocess.run([prog, "cleanup", rd])
+
+
 def clone_mode_checks(host, root, ctx, flags, clone):
     name = ctx["name"]
     if flags.get("mode") == "in-place" and ctx["mode"] == "clone":
@@ -1362,7 +1401,7 @@ def prepare_clone(host, root, rid, rundir, ctxname, flags):
     info["short"], info["source"] = short, src["top"]
     n = CL.dirty_count(host.git, src["top"])
     if n:
-        say(f"pot ({ctxname}): the clone starts at {info['branch']} ({short}); your {n} uncommitted "
+        say(f"pot ({ctxname}): the clone starts at {visible(info['branch'])} ({short}); your {n} uncommitted "
             f"change{'s stay' if n != 1 else ' stays'} here, outside it")
     return info
 
@@ -1372,7 +1411,7 @@ def clone_notes(report, cinfo):
     (only the first level of submodules is cloned)."""
     if not cinfo:
         return
-    report["notes"][:0] = [f"from {cinfo['branch']} ({cinfo['short']})"]
+    report["notes"][:0] = [f"from {visible(cinfo['branch'])} ({cinfo['short']})"]
 
 
 def run(host, root, context, flags, cmd):
@@ -1388,6 +1427,7 @@ def run(host, root, context, flags, cmd):
     clone = (ctx["mode"] == "clone" and flags.get("mode") != "in-place") or flags.get("mode") == "clone"
     clone_mode_checks(host, root, ctx, flags, clone)
     detach = bool(flags.get("detach"))
+    tidy_lost(host)
     rid, rundir = new_run_id(host)
     argv0 = cmd or [root.get("shell", "bash")]
     background = False
@@ -1589,7 +1629,9 @@ def after_event(bprog, rundir, recovered=False):
     try:
         ev = json.loads(a.stdout)
     except ValueError:
-        ev = {"ev": "after", "by": "host", "error": a.stderr.strip()}
+        # K1: a look that failed is a fetch failure (review, never pruned), not a run with no commits
+        why = (a.stderr.strip().splitlines() or [f"exit {a.returncode}"])[-1]
+        ev = {"ev": "after", "by": "host", "error": a.stderr.strip(), "fetch_failed": visible(f"the host's look failed ({why})")[:300]}
     if a.stderr.strip():
         err(a.stderr.strip())
     for e in net_events(ev):
@@ -2684,9 +2726,9 @@ def record_text(rec, ev, rd=None, review=False):
     c = rec.get("clone")
     if c:
         base = (c.get("base") or "")[:7]
-        parts = [f"from {c.get('branch')} ({base})",
+        parts = [f"from {visible(c.get('branch') or '')} ({base})",
                  "its commits are being staged" if rec.get("recovering") else
-                 (f"{c['commits']} commit{'s' if c['commits'] != 1 else ''} on {c.get('branch')}" if c["commits"] else "no commits")
+                 (f"{c['commits']} commit{'s' if c['commits'] != 1 else ''} on {visible(c.get('branch') or '')}" if c["commits"] else "no commits")
                  + (f", {c['unsigned']} unsigned" if c.get("unsigned") else "")]
         if c.get("size"):
             parts.append(CL.human(c["size"]))
@@ -2695,7 +2737,7 @@ def record_text(rec, ev, rd=None, review=False):
         elif c.get("keptUntil"):
             parts.append(f"kept until {c['keptUntil']}")
         if c.get("fetched"):
-            parts.append("fetched: " + ", ".join(x.replace("refs/remotes/", "") for x in c["fetched"]))
+            parts.append("fetched: " + ", ".join(visible(x.replace("refs/remotes/", "")) for x in c["fetched"]))
         if c.get("uncommitted"):
             parts.append(f"{c['uncommitted']} uncommitted (they stay in the clone)")
         lines.append("clone      " + " · ".join(parts))
@@ -2873,10 +2915,10 @@ def review_cmd(host, root, flags, args):
         if tips:
             log_ = CL.git(host.git, rd, "--git-dir", sd, "log", "--format=%h %s", *tips, "--not", c["base"]).stdout
             print("commits")
-            for l in log_.splitlines()[:40]:
+            for l in git_lines(log_)[:40]:
                 print("  " + visible(l))
             st = CL.git(host.git, rd, "--git-dir", sd, "diff", "--stat=100", c["base"], tips[0]).stdout
-            for l in st.splitlines()[-12:]:
+            for l in git_lines(st)[-12:]:
                 print("  " + visible(l))
     if flags.get("flags"):
         for a, b in (R.first(ev, "start") or {}).get("oneRun") or []:
