@@ -86,7 +86,7 @@ def make_clone(gitbin, top, common, origin, dest, base, branch, rid, user):
     r = git(gitbin, dest, "checkout", "-q", "-B", name, base)
     if r.returncode != 0:
         raise CloneError(f"git checkout of {base[:12]} failed: {r.stderr.strip()}")
-    scions = []
+    scions, nested = [], []
     subs = submodules_at(gitbin, dest, base)
     if subs:
         git(gitbin, dest, "submodule", "--quiet", "init")
@@ -104,11 +104,13 @@ def make_clone(gitbin, top, common, origin, dest, base, branch, rid, user):
         if s.get("url"):
             git(gitbin, wt, "remote", "set-url", "origin", s["url"])
         scions.append({"name": s["name"], "path": s["path"], "commit": s["commit"], "objects": os.path.join(src, "objects")})
+        if submodules_at(gitbin, wt, s["commit"]):
+            nested.append(s["path"])
     if scions:
         # the submodules' git directories into .git/modules, linked by relative paths, so they resolve at the
         # original path inside the run
         git(gitbin, dest, "submodule", "--quiet", "absorbgitdirs")
-    return {"base": base, "branch": name, "path": dest, "scions": scions,
+    return {"base": base, "branch": name, "path": dest, "scions": scions, "nested": nested,
             "objects": os.path.join(common, "objects")}
 
 

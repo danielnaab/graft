@@ -1165,6 +1165,15 @@ def prepare_clone(host, root, rid, rundir, ctxname, flags):
     return info
 
 
+def clone_notes(report, cinfo):
+    """The startup line's clone parts: the base, and each scion whose own submodules a clone leaves out
+    (only the first level of submodules is cloned)."""
+    if not cinfo:
+        return
+    report["notes"][:0] = [f"from {cinfo['branch']} ({cinfo['short']})"] + \
+        [f"{p}: its own submodules are not cloned" for p in cinfo.get("nested") or []]
+
+
 def run(host, root, context, flags, cmd):
     if inside_run():
         ctxn = os.environ.get("POT", "run")
@@ -1193,8 +1202,7 @@ def run(host, root, context, flags, cmd):
             if e.status == C.EXIT_GRANT:
                 stopped(host, root, rundir, rid, ctx, argv0, "guarantee", e.message)
             raise
-        if cinfo:
-            report["notes"].insert(0, f"from {cinfo['branch']} ({cinfo['short']})")
+        clone_notes(report, cinfo)
         if report.get("unsandboxed"):
             say(f"pot: unsandboxed: {report['unsandboxed']} holds a granted unsandboxed request")
             return host_run(host, root, ctx, flags, cmd, quiet_line=True)
@@ -1207,8 +1215,7 @@ def run(host, root, context, flags, cmd):
             grants, _ = load_grants(host)
             if todo and grant_flow(host, root, grants, todo, inline=True):
                 inp, policy, report, bprog, ws = gather(host, root, context, flags, argv0, rundir, rid, clones_map, scope)
-                if cinfo:
-                    report["notes"].insert(0, f"from {cinfo['branch']} ({cinfo['short']})")
+                clone_notes(report, cinfo)
                 stale = report["stale"]
         if report.get("arrived"):
             say(report["arrived"])
@@ -2194,8 +2201,7 @@ def one_record(host, rid, verb="runs"):
 
 
 def ws_name(rec):
-    w = rec.get("workspace") or []
-    return " ".join(x.get("name") or os.path.basename(x["path"]) for x in w) if w else "-"
+    return R.workspace_name(rec)
 
 
 def cmd_text(rec, width=28):
@@ -2223,16 +2229,7 @@ def duration(a, b):
 
 
 def note_of(rec):
-    if rec["state"] == "review":
-        c = rec["clone"]
-        return f"{c['commits']} commit{'s' if c['commits'] != 1 else ''} · pot review {rec['id']}"
-    if rec["state"] == "stopped":
-        return (rec.get("stop") or {}).get("fix") or "stopped"
-    if rec["state"] == "running":
-        return "running"
-    if rec["lost"]:
-        return "pot ended without an exit: killed or crashed"
-    return f"exit {rec['exit']}"
+    return R.note(rec)
 
 
 def table(rows, heads):
@@ -2257,7 +2254,7 @@ def record_text(rec, ev, rd=None):
     if rec["state"] == "stopped":
         lines.append(f"stopped    exit 125 ({(rec['stop'] or {}).get('reason')})")
     elif rec["lost"]:
-        lines.append("ended      unknown: pot ended without an exit (killed or crashed)")
+        lines.append("ended      unknown: " + R.LOST)
     elif rec["state"] != "running":
         lines.append(f"ended      {(rec['ended'] or '-').replace('T', ' ')[:16]} · exit {rec['exit']}"
                      + (f" · {duration(rec['started'], rec['ended'])}" if rec["ended"] else ""))
@@ -2366,11 +2363,9 @@ def runs_list(recs, flags):
 
 
 def needs_person(rec):
-    """pot review's list: a run in review, a stopped one, or an ended one with an ATTENTION item beyond its
-    commits (which, in place, are already the person's; in a clone, fetched or discarded)."""
-    if rec["state"] in ("review", "stopped"):
-        return True
-    return rec["state"] == "exited" and any(not re.fullmatch(r"[0-9]+ commits?", a) for a in rec["attention"])
+    """pot review's list: a run in review or stopped, or an ended one with an ATTENTION item (the after
+    event's findings; a commit count is none)."""
+    return rec["state"] in ("review", "stopped") or (rec["state"] == "exited" and bool(rec["attention"]))
 
 
 def staging_of(rd, name="top"):

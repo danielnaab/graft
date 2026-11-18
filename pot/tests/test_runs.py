@@ -81,8 +81,40 @@ class States(unittest.TestCase):
         self.assertFalse(R.needs_after([START], dead))
 
     def test_attention(self):
+        # ATTENTION is the after event's findings; a commit count alone is not attention (lead's note 2)
         r = R.record("9b0e", [CLONE, EXIT, AFTER], dead)
-        self.assertEqual(r["attention"], ["1 commit", "1 unsigned", "host-run: justfile", "2 denied: x.org:443"])
+        self.assertEqual(r["attention"], ["1 unsigned", "host-run: justfile", "2 denied: x.org:443"])
+        plain = dict(AFTER, touches_host_run=[], denials=[], unsigned=0)
+        self.assertEqual(R.record("9b0e", [CLONE, EXIT, plain], dead)["attention"], [])
+
+    def test_unsigned_until_fetched(self):
+        fetch = {"ev": "fetch", "by": "host", "refs": ["refs/remotes/pot-9b0e/main"], "time": "2026-11-17T15:00:00"}
+        r = R.record("9b0e", [CLONE, EXIT, AFTER, fetch], dead)
+        self.assertNotIn("1 unsigned", r["attention"])
+
+    def test_lost_clone_with_commits_is_review(self):
+        # pot was killed before its after; recovery logged the after: unfetched commits are review (ruling 4)
+        r = R.record("9b0e", [CLONE, dict(AFTER, recovered=True)], dead)
+        self.assertEqual((r["state"], r["lost"]), ("review", True))
+
+    def test_discarded_lost_clone(self):
+        d = {"ev": "discard", "by": "host", "why": "person", "time": "2026-11-17T15:00:00"}
+        r = R.record("9b0e", [CLONE, dict(AFTER, recovered=True), d], dead)
+        self.assertEqual((r["state"], r["clone"]["discarded"]), ("exited", "2026-11-17T15:00:00"))
+        self.assertEqual(R.note(r), "discarded (pot ended without an exit: killed or crashed)")
+
+    def test_notes(self):
+        self.assertEqual(R.note(R.record("9b0e", [CLONE, EXIT, AFTER], dead)), "1 commit · pot review 9b0e")
+        self.assertEqual(R.note(R.record("9b0e", [START], dead)), "lost: pot ended without an exit (killed or crashed)")
+        self.assertEqual(R.note(R.record("9b0e", [START, EXIT], dead)), "exit 0")
+
+    def test_workspace_name(self):
+        # one rule: the name the start event records (the origin's last path part, else the folder); a log
+        # without one shows its folder
+        self.assertEqual(R.workspace_name({"workspace": [{"id": "repo:h/x", "path": "/s/fa", "name": "flexion-assistant"}]}),
+                         "flexion-assistant")
+        self.assertEqual(R.workspace_name({"workspace": [{"id": "repo:h/x", "path": "/s/fa"}]}), "fa")
+        self.assertEqual(R.workspace_name({"workspace": []}), "-")
 
     def test_unsigned_only_when_the_host_signs(self):
         r = R.record("9b0e", [CLONE, EXIT, dict(AFTER, signs=False)], dead)

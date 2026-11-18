@@ -2032,6 +2032,8 @@ EOF
   expect "the fetched refs stay" holds "  the fetched refs stay: git branch -r -d pot-$rid/main"
   expect "the clone is gone" test ! -e "$st/$rid/clone"
   expect "its log stays" test -f "$st/$rid/log.jsonl"
+  ran "dispatch: pot runs, after --discard" d_ runs --all
+  expect "says discarded" grep -q "^$rid .*discarded$" <<<"$out"
   refused "dispatch: --fetch after --discard" d_ review "$rid" --fetch
   expect "says so" holds "pot: run $rid's clone was discarded"
 
@@ -2078,6 +2080,8 @@ EOF
   git_ -C "$st/$kid/clone/nested" config core.fsmonitor "touch $work/PLANTED-nested"
   ran "dispatch: pot runs ID after the kill" d_ runs "$kid" --json
   expect "completes the staging: review" test "$(jq -r '"\(.state) \(.lost) \(.clone.commits)"' <<<"$out")" = "review true 1"
+  ran "dispatch: pot runs lists it" d_ runs
+  expect "in review, though its pot was killed" holds "$kid  review"
   ran "dispatch: and --fetch" d_ review "$kid" --fetch
   expect "fetches its commit" test "$(git_ log -1 --format=%s "refs/remotes/pot-$kid/main")" = crash
   expect "no hook or config of the clone ran on the host" test -z "$(find "$work" -maxdepth 1 -name 'PLANTED-*')"
@@ -2168,9 +2172,14 @@ EOF
     local rr && rr=$(d_ runs --json | jq -r '[.runs[] | select(.workspace[0].path == "'"$work/drootrepo"'" and .state == "review")][0].id')
     expect "its review flags the root change (D13)" test "$(rec "$rr" '.attention | index("root: pot.nix (programs.pot)")')" != null
   )
+  # a scion with submodules of its own: a clone holds only the first level, and says so
+  prov nst && git_ -C "$work/src/nst" submodule add -q -- "$(url sbd)" deep 2>/dev/null && release nst v1.0.0
+  by_hand nst && commit "nst"
+  ran "dispatch: a scion with its own submodules" dl dispatch true
+  expect "the start note says they are not cloned" holds "scions/nst: its own submodules are not cloned"
   # a commit in a scion, on its detached HEAD: back into that scion's own repository
   ran "dispatch: a commit in a scion" d_ dispatch bash -c 'git -C scions/sbd commit -q --allow-empty -m scion-fix'
-  local sr && sr=$(d_ runs --json | jq -r '[.runs[] | select(.attention | index("1 commit in scions"))][0].id')
+  local sr && sr=$(d_ runs --json | jq -r '[.runs[] | select(.clone.scionCommits == 1)][0].id')
   expect "is review" test "$(rec "$sr" .state)" = review
   ran "dispatch: --fetch" dl review "$sr" --fetch
   expect "names the scion" holds "scions/sbd: its commits are in that scion's refs/remotes/pot-$sr/*"

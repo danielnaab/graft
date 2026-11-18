@@ -53,16 +53,13 @@ def plural(n, word):
     return f"{n} {word}" + ("" if n == 1 else "s")
 
 
-def attention(after, stop=None):
-    """The ATTENTION items of design §9, from the host's after event."""
+def attention(after, fetched=False):
+    """The ATTENTION items (design §9): the host's after findings. A commit count alone is not one; unsigned
+    commits are, when the host signs, until they are fetched."""
     out = []
-    if stop:
-        out.append(stop.get("fix") or "pot grant")
     if not after:
         return out
-    if after.get("commits"):
-        out.append(plural(len(after["commits"]), "commit"))
-    if after.get("unsigned") and after.get("signs"):
+    if after.get("unsigned") and after.get("signs") and not fetched:
         out.append(f"{after['unsigned']} unsigned")
     if after.get("root_attention"):
         out.append("root: " + ", ".join(after["root_attention"]))
@@ -76,14 +73,39 @@ def attention(after, stop=None):
         out.append("gitlinks: " + ", ".join(after["gitlinks"][:4]))
     if after.get("new_git_metadata"):
         out.append(plural(len(after["new_git_metadata"]), "new git metadata path"))
-    if after.get("scions"):
-        n = sum(len(v.get("commits") or []) for v in after["scions"].values())
-        if n:
-            out.append(f"{plural(n, 'commit')} in scions")
     d = after.get("denials") or []
     if d:
         out.append(f"{sum(x.get('count', 1) for x in d)} denied: " + ", ".join(x["host"] for x in d[:3]))
     return out
+
+
+LOST = "pot ended without an exit (killed or crashed)"
+
+
+def note(rec):
+    """pot runs' NOTE column."""
+    c = rec.get("clone") or {}
+    if rec["state"] == "review":
+        n = c.get("commits", 0) + c.get("scionCommits", 0)
+        return f"{plural(n, 'commit')} · pot review {rec['id']}"
+    if rec["state"] == "stopped":
+        return (rec.get("stop") or {}).get("fix") or "stopped"
+    if rec["state"] == "running":
+        return "running"
+    if c.get("discarded"):
+        return "discarded" + (" (pot ended without an exit: killed or crashed)" if rec["lost"] else "")
+    if rec["lost"]:
+        return "lost: " + LOST
+    if c.get("fetched"):
+        return f"exit {rec['exit']} · fetched"
+    return f"exit {rec['exit']}"
+
+
+def workspace_name(rec):
+    """One rule for a workspace's name: the one its start event records (the origin's last path part, else
+    the checkout's folder: compose.repo_short_name); a log written without one shows its folder."""
+    w = rec.get("workspace") or []
+    return " ".join(x.get("name") or os.path.basename(x["path"]) for x in w) if w else "-"
 
 
 def record(rid, events, alive):
@@ -121,7 +143,7 @@ def record(rid, events, alive):
         "parent": s.get("parent"), "started": s.get("time"), "ended": (ex or stop or {}).get("time"),
         "exit": (125 if stop else (ex or {}).get("status")), "lost": lost,
         "stop": {k: stop.get(k) for k in ("reason", "kits", "fix")} if stop else None,
-        "clone": clone, "attention": attention(af, stop), "children": [],
+        "clone": clone, "attention": attention(af, fetched=bool(fetch)), "children": [],
     }
 
 
