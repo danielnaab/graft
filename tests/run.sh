@@ -2527,6 +2527,16 @@ EOF
   ran "dispatch: R7, commits on two branches and in a scion" dl dispatch bash -c 'git -C scions/sbd commit -q --allow-empty -m s7
     git commit -q --allow-empty -m t7 && git switch -q -c side7 && git commit -q --allow-empty -m u7'
   expect "R7: names each ref and the scion" grep -qE "^pot: run [0-9a-f]{4} · 1 commit on main, 2 on side7, 1 in scions/sbd: pot review [0-9a-f]{4}, then pot review [0-9a-f]{4} --fetch" <<<"$out"
+  local r7 && r7=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\) · .*/\1/p' <<<"$out" | tail -1)
+  ran "dispatch: --fetch of a run with two branches" dl review "$r7" --fetch
+  expect "its next steps name the run's base branch" holds "  take it: git merge pot-$r7/main"
+  # the repo kit label: a commit to a file the repo kit protects (AGENTS.md) is host-run, not a repo-kit change
+  # shellcheck disable=SC2016
+  ran "dispatch: a commit changing AGENTS.md" d_ dispatch bash -c 'b=$(echo changed | git hash-object -w --stdin)
+    git update-index --cacheinfo 100644,"$b",AGENTS.md && git commit -qm agents'
+  local ag && ag=$(d_ runs --json | jq -r '.runs[0].id')
+  expect "flagged host-run" test "$(rec "$ag" '.attention | index("host-run: AGENTS.md")')" != null
+  expect "not labelled repo kit (only the flake's own files are)" test "$(rec "$ag" '[.attention[] | select(startswith("repo kit"))] | length')" = 0
   # X8: when the host signs, the sign line names a branch to rebase on
   ran "dispatch: X8, a commit to sign" d_ dispatch bash -c 'git commit -q --allow-empty -m to-sign'
   local gid && gid=$(d_ runs --json | jq -r '[.runs[] | select(.state == "review" and .clone.commits == 1)][0].id')

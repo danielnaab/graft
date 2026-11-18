@@ -1411,6 +1411,10 @@ def run(host, root, context, flags, cmd):
         launch["toolsFix"] = "{}tools ({})".format(*C.root_paths(root))
         launch["root"] = {"contexts": root.get("contexts") or {}}
         launch["hostSigns"] = run_git(host, launch["cwd"], "config", "--bool", "commit.gpgsign").stdout.strip() == "true"
+        # the after event's repo-kit changes: the repo kit's own files (its flake directory; at the top, flake.nix and
+        # flake.lock), and only where there is a repo kit
+        launch["repoKitPaths"] = {w["top"]: ([w["flakeDir"]] if w.get("flakeDir") else ["flake.nix", "flake.lock"])
+                                  for w in ws if w.get("repoKit") is not None}
         if cinfo:
             launch["clone"] = {k: cinfo[k] for k in ("base", "branch", "path", "scions", "objects")}
             w0 = ws[0] if ws else None

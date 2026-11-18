@@ -1070,7 +1070,8 @@ def after(cfg, rundir):
                 sig = git(cfg, top, "log", "--no-walk", "--format=%G?", *commits).stdout.split()
                 ev["unsigned"] += sum(1 for s in sig if s == "N")
                 ev["base"] = before["refs"].get(top, {}).get("head", "")[:12]
-        flake = [p for p in w["protected"] if not p.startswith("**/")]
+        # the repo kit's own files only: its flake directory, or the top's flake.nix and flake.lock
+        flake = (launch.get("repoKitPaths") or {}).get(top, [])
         ev["repo_kit_change"] += [p for p in ev["touches_host_run"] if any(p == f or p.startswith(f + "/") for f in flake)]
     try:
         with open(os.path.join(rundir, "proxy.log")) as f:
@@ -1246,8 +1247,8 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
                         ev["gitlinks"].append(visible(path))
             prot = w["protected"] + HOST_RUN_EXTRA
             ev["touches_host_run"] += sorted(visible(p) for p in changed if matches(p, prot))
-            flake = [p for p in w["protected"] if not p.startswith("**/")]
-            ev["repo_kit_change"] += [p for p in ev["touches_host_run"] if any(p == f or p.startswith(f + "/") for f in flake)]
+            flake = (launch.get("repoKitPaths") or {}).get(top, [])
+            ev["repo_kit_change"] += [p for p in sorted(visible(c) for c in changed) if any(p == f or p.startswith(f + "/") for f in flake)]
             if launch.get("rootRepo"):
                 ev["root_repo_change"] = True
                 g = launch.get("grantsRel")
