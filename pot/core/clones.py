@@ -52,6 +52,12 @@ def dirty_count(gitbin, top):
     return len([l for l in out.splitlines() if l.strip()])
 
 
+def safe_rel(p):
+    """A .gitmodules path pot may clone into: relative, with no . or .. part (R9)."""
+    parts = p.split("/")
+    return bool(p) and not p.startswith("/") and all(x not in ("", ".", "..") for x in parts)
+
+
 def submodules_at(gitbin, top, commit):
     """The submodules .gitmodules names at COMMIT whose gitlink is a commit there: [{name, path, url, commit}]."""
     r = git(gitbin, top, "config", "--blob", f"{commit}:.gitmodules", "--get-regexp", r"^submodule\..*\.(path|url)$")
@@ -62,7 +68,7 @@ def submodules_at(gitbin, top, commit):
         subs.setdefault(name, {"name": name})[field] = v
     out = []
     for s in subs.values():
-        if "path" not in s:
+        if "path" not in s or not safe_rel(s["path"]):
             continue
         ls = git(gitbin, top, "ls-tree", commit, "--", s["path"]).stdout.split()
         if len(ls) >= 3 and ls[1] == "commit":
@@ -205,6 +211,8 @@ def prune(state, clones_cfg, log, alive, now=None):
         if not os.path.isdir(os.path.join(rd, "clone")) and not os.path.isdir(os.path.join(rd, "staging")):
             continue
         ev = R.read_log(os.path.join(rd, "log.jsonl"))
+        if not R.first(ev, "start"):
+            continue    # R9: a clone being prepared (no start yet), never taken for an old one
         rec = R.record(rid, ev, alive)
         if rec["state"] == "running" or R.needs_after(ev, alive):
             continue

@@ -2175,6 +2175,9 @@ EOF
   git_ -C "$st/$kid/clone" config core.sshCommand "touch $work/PLANTED-sshcommand"
   mkdir -p "$st/$kid/clone/nested" && git_ -C "$st/$kid/clone/nested" init -q
   git_ -C "$st/$kid/clone/nested" config core.fsmonitor "touch $work/PLANTED-nested"
+  # R9: a recovery another pot holds (its lock) is left to that pot
+  ran "dispatch: R9, pot runs while another holds the recovery lock" flock "$st/$kid/recover.lock" env -u POT -u CLAUDECODE POT_QUIET=1 "$work/dr/bin/pot" runs "$kid" --json
+  expect "R9: is not recovered twice" test "$(jq -r '.clone.commits' <<<"$out")" = 0
   ran "dispatch: pot runs ID after the kill" d_ runs "$kid" --json
   expect "completes the staging: review" test "$(jq -r '"\(.state) \(.lost) \(.clone.commits)"' <<<"$out")" = "review true 1"
   ran "dispatch: pot runs lists it" d_ runs
@@ -2399,6 +2402,15 @@ EOF
   ran "dispatch: R5, pot grant KIT --commit" tty_ $'y\n' "$work/dr/bin/pot" grant needs --commit
   expect "R5: commits the grant" holds "committed $work/dgrants/grants.json"
   expect "R5: subject" test "$(git_ -C "$work/dgrants" log -1 --format=%s)" = "pot grant: needs"
+  # F11: a --commit that fails (a hook refuses) unstages the grants file pot added
+  git_ -C "$work/dgrants" rm -q --cached grants.json && git_ -C "$work/dgrants" commit -q -m "untrack grants"
+  printf '#!/bin/sh\nexit 1\n' > "$work/dgrants/.git/hooks/pre-commit" && chmod +x "$work/dgrants/.git/hooks/pre-commit"
+  env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant --revoke needs </dev/null >/dev/null 2>&1 || true
+  out=$(tty_ $'y\n' "$work/dr/bin/pot" grant --commit needs 2>&1 || true)
+  expect "F11: the commit failed" holds "pot grant --commit: git commit failed (above); the grants file is written, not committed"
+  expect "F11: and the file pot added is no longer staged" test -z "$(git_ -C "$work/dgrants" diff --cached --name-only -- grants.json)"
+  rm -f -- "$work/dgrants/.git/hooks/pre-commit"
+  git_ -C "$work/dgrants" add grants.json && git_ -C "$work/dgrants" commit -q -m "track grants again"
   ran "dispatch: pot grant, nothing stale" env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant </dev/null
   expect "L2: says there is nothing to grant" holds "pot: nothing to grant"
   expect "L2: and names the kit never granted" holds "pot: also not granted: unused (pot grant NAME)"
@@ -2452,6 +2464,11 @@ EOF
     "$work/dplain" "$work/dnosd" "$work/dr/bin/pot"
   expect "names resource-limits as lacking" grep -qE '^backend .*lacks .*resource-limits' <<<"$out"
   expect "and marks the resources row" holds "! resources no user systemd"
+  # F9: with no true on PATH, doctor names PATH, not user namespaces
+  ran "dispatch: F9, doctor with a PATH that lacks true" bash -c 'cd "$1" && env -u POT -u CLAUDECODE PATH="$2" "$3" doctor </dev/null; true' _ \
+    "$work/dplain" "$work/dbin" "$work/dr/bin/pot"
+  expect "F9: names PATH" holds "its probe runs true, and PATH has none"
+  refuse "F9: not user namespaces" holds "cannot create a user namespace"
   # shellcheck disable=SC2016
   ran "dispatch: pot doctor inside a run is refused" d_ bash -c 'pot doctor 2>&1; true'
   expect "naming explain and why" holds "pot doctor runs on the host; inside a run, pot explain and pot why"

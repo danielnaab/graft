@@ -45,9 +45,23 @@ class Stop(Exception):
     pass
 
 
-def visible(s):
-    """Run-chosen text, safe for the host's terminal: control bytes as \\xNN."""
-    return "".join(c if (0x20 <= ord(c) < 0x7f or ord(c) > 0x9f) else f"\\x{ord(c):02x}" for c in s)
+def visible(s, lines=False):
+    """Run-chosen text, safe for the host's terminal: C0 and C1 controls as \\xNN, Unicode format characters (Cf:
+    bidi overrides and isolates, zero-width ones) as \\uNNNN (R8). LINES keeps a newline (a message's own lines).
+    pot.py and bwrap.py hold the same function (bwrap's never keeps lines)."""
+    import unicodedata
+    out = []
+    for c in s:
+        o = ord(c)
+        if c == "\n" and lines:
+            out.append(c)
+        elif o < 0x20 or 0x7f <= o <= 0x9f:
+            out.append(f"\\x{o:02x}")
+        elif o > 0x9f and unicodedata.category(c) == "Cf":
+            out.append(f"\\u{o:04x}" if o <= 0xffff else f"\\U{o:08x}")
+        else:
+            out.append(c)
+    return "".join(out)
 
 
 def load(rundir):

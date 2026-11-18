@@ -1190,7 +1190,9 @@ def compose(inp):
         requires.append("same-path-clone")
     missing = [g for g in requires if g not in proved]
     if missing:
-        raise Refusal(f"pot ({ctx['name']}): requires {' '.join(missing)}; {inp.get('backendName', 'the backend')} proves {' '.join(proved) or 'nothing'}", EXIT_GRANT)
+        hint = " (resource-limits: a user systemd scope, for runs without a terminal: pot doctor)" if "resource-limits" in missing else ""
+        raise Refusal(f"pot ({ctx['name']}): requires {' '.join(missing)}; {inp.get('backendName', 'the backend')} proves "
+                      f"{' '.join(proved) or 'nothing'}{hint}", EXIT_GRANT)
 
     workspace = [{"id": w["id"], "path": w["top"],
                   "common": os.path.join(w["top"], ".git") if w.get("clone") else w["common"],

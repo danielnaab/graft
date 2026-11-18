@@ -61,8 +61,23 @@ flags (before CMD; one run only):
   (--resume RUN|last: with pot host)"""
 
 
-def visible(s):
-    return "".join(c if (c == "\n" or 0x20 <= ord(c) < 0x7f or ord(c) > 0x9f) else f"\\x{ord(c):02x}" for c in s)
+def visible(s, lines=True):
+    """Run-chosen text, safe for the host's terminal: C0 and C1 controls as \\xNN, Unicode format characters (Cf:
+    bidi overrides and isolates, zero-width ones) as \\uNNNN (R8). LINES keeps a newline (a message's own lines).
+    pot.py and bwrap.py hold the same function (bwrap's never keeps lines)."""
+    import unicodedata
+    out = []
+    for c in s:
+        o = ord(c)
+        if c == "\n" and lines:
+            out.append(c)
+        elif o < 0x20 or 0x7f <= o <= 0x9f:
+            out.append(f"\\x{o:02x}")
+        elif o > 0x9f and unicodedata.category(c) == "Cf":
+            out.append(f"\\u{o:04x}" if o <= 0xffff else f"\\U{o:08x}")
+        else:
+            out.append(c)
+    return "".join(out)
 
 
 def err(msg):
@@ -320,9 +335,11 @@ def record_source(host, ident, tree, sha):
     d[tree] = sha
     f = sources_file(host, ident)
     os.makedirs(os.path.dirname(f), exist_ok=True)
-    with open(f + ".tmp", "w") as fh:
+    import tempfile
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(f), prefix=".sources-")    # R9: never a fixed name
+    with os.fdopen(fd, "w") as fh:
         json.dump(d, fh)
-    os.replace(f + ".tmp", f)
+    os.replace(tmp, f)
 
 
 def narrowed(host, w, grants):
@@ -1511,6 +1528,19 @@ def run(host, root, context, flags, cmd):
                     pass
 
 
+def net_events(ev):
+    """The after event's denials as net events; the proxy's malformed requests as verdict malformed (R9)."""
+    out = []
+    for d in ev.get("denials") or []:
+        if d.get("host") == "(malformed)":
+            out.append({"ev": "net", "by": "host", "host": None, "port": None, "verdict": "malformed", "count": d["count"]})
+            continue
+        h, _, p = d["host"].rpartition(":")
+        out.append({"ev": "net", "by": "host", "host": h, "port": int(p) if p.isdigit() else None,
+                    "verdict": "deny", "count": d["count"]})
+    return out
+
+
 def after_event(bprog, rundir, recovered=False):
     """The backend's after event (for a clone: the staging fetch and what it found), logged."""
     a = subprocess.run([bprog, "after", rundir], capture_output=True, text=True)
@@ -1520,10 +1550,8 @@ def after_event(bprog, rundir, recovered=False):
         ev = {"ev": "after", "by": "host", "error": a.stderr.strip()}
     if a.stderr.strip():
         err(a.stderr.strip())
-    for d in ev.get("denials") or []:
-        h, _, p = d["host"].rpartition(":")
-        log(rundir, {"ev": "net", "by": "host", "host": h, "port": int(p) if p.isdigit() else None,
-                     "verdict": "deny", "count": d["count"]})
+    for e in net_events(ev):
+        log(rundir, e)
     if recovered:
         ev["recovered"] = True
     log(rundir, ev)
@@ -2429,13 +2457,16 @@ def commit_grants(host, names, verb="pot grant"):
     g = host.grants_path
     top = grants_repo(host)
     shown = C.canon_path(g, host.home)
-    if run_git(host, top, "ls-files", "--error-unmatch", g).returncode != 0:
+    added = run_git(host, top, "ls-files", "--error-unmatch", g).returncode != 0
+    if added:
         run_git(host, top, "add", "--", g)
     msg = f"{verb}: " + ", ".join(dict.fromkeys(names))
     body = f"Granted on {host.machine}, {datetime.date.today().isoformat()} (pot grant --commit)."
     r = subprocess.run([host.git, "-C", top, "commit", "-q", "-m", msg, "-m", body, "--", g], capture_output=True, text=True)
     if r.returncode != 0:
         err(r.stderr.strip())
+        if added:
+            run_git(host, top, "reset", "-q", "--", g)      # F11: what pot staged, unstaged again
         raise C.Refusal(f"pot grant --commit: git commit failed (above); the grants file is written, not committed")
     sha = run_git(host, top, "rev-parse", "--short=7", "HEAD").stdout.strip()
     return f"committed {shown} ({sha}); push it with {C.canon_path(top, host.home)}'s next push"
@@ -2456,8 +2487,18 @@ def load_record(host, rid, rundir, recover=True):
         except C.Refusal:
             pass
         if prog and os.path.exists(os.path.join(rundir, "launch.json")):
-            after_event(prog, rundir, recovered=True)
-            subprocess.run([prog, "cleanup", rundir])
+            # R9: one recovery at a time (recover.lock); a recovery another pot holds is left to it
+            import fcntl
+            fd = os.open(os.path.join(rundir, "recover.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if R.needs_after(R.read_log(lf), R.process_alive):
+                    after_event(prog, rundir, recovered=True)
+                    subprocess.run([prog, "cleanup", rundir])
+            except OSError:
+                pass
+            finally:
+                os.close(fd)
             ev = R.read_log(lf)
     rec = R.record(rid, ev, R.process_alive)
     if rec["state"] == "stopped" and rec["stop"]:
@@ -2523,7 +2564,7 @@ def cmd_text(rec, width=28):
     argv = list(c.get("typed") or rec.get("argv") or [])     # X4: as the person typed it
     if c.get("name") and c.get("instance") and argv and "@" not in argv[0]:
         argv = [f"{argv[0]}@{c['instance']}"] + argv[1:]
-    t = visible(shlex.join(str(a) for a in argv)) if argv else "-"
+    t = visible(shlex.join(str(a) for a in argv), lines=False) if argv else "-"
     return t if len(t) <= width else t[:width - 1] + "…"
 
 
@@ -2870,6 +2911,9 @@ def doctor(host, root, rootjson):
         lacks = [x for x in C.GUARANTEES if x not in g and not (x == "resource-limits" and sc.get("argv"))]
         row("backend", f"{bname}: user namespaces work; proves {' '.join(g)}"
             + ("; resource-limits: for runs without a terminal" if sc.get("argv") else "") + f"; lacks {' '.join(lacks)}")
+    elif not shutil.which("true"):
+        # F9: the probe runs true from PATH; without one it says nothing about user namespaces
+        row("backend", f"{bname}: its probe runs true, and PATH has none (PATH={os.environ.get('PATH', '')}); user namespaces were not tested", True)
     else:
         row("backend", f"{bname}: cannot create a user namespace here, so no run starts (pot host CMD runs unsandboxed)", True)
     if sc.get("argv"):
