@@ -1413,7 +1413,7 @@ STUB
   expect "holds the approved set" has '["network 127.0.0.1:1"]'
   ran "pot: pot grant KIT, nothing new" sb_ grant daniel
   expect "says so" has "pot grant: daniel is granted"
-  refused "pot: pot grant with no terminal" sb_ grant
+  refused "pot: pot grant with no terminal" sb_ grant relay
   expect "is refused" holds "pot grant is for people: it reads its answers from /dev/tty, and there is none"
 
   ran "pot: a command runs, in the repository" sb_loud pwd
@@ -2018,8 +2018,10 @@ EOF
         capabilities = [ { name = "status.relay"; } ]; }; };
       bindings."status.relay"."*" = { workmux = true; };
       bindings.nix."*" = { via = "daemon-untrusted"; };
+      # L2: a kit never granted that no run waits for (pot grant with no argument names it, prompts for nothing)
+      kits.unused.commands.unusedtest = { program = bash; requests.network = [ "u.example" ]; };
       bindings.credential."api.example" = { via = "file"; from.file = "$work/dtoken"; };
-      bindings.credential."api.missing.example" = { via = "file"; from.file = "$work/dtoken-missing"; };
+      bindings.credential."api.missing.example" = { via = "file"; from.file = "$work/dtoken-missing"; refresh = "make-token"; };
       contexts.strict = { extends = "work"; requires = [ "separate-kernel" ]; };
       limits = { memoryMax = "1G"; tasksMax = 512; };
     }; in {
@@ -2047,6 +2049,14 @@ EOF
   rec() { d_ runs "$1" --json | jq -r "$2"; }
   local short && short=$(git_ rev-parse --short HEAD)
   local st=$work/dstate/runs
+
+  # X6: before any run, pot review says so, with no header
+  ran "dispatch: X6, pot review with nothing to review" d_ review
+  expect "says so" has "pot: no runs need review"
+  refuse "with no header" holds "RUN "
+  refused "dispatch: X6, --fetch with no run" d_ review --fetch
+  expect "one pot:" holds "pot: review RUN --fetch|--discard: name the run (pot review lists them)"
+  refuse "never two" holds "pot: pot review"
 
   # a run in a clone: at the original path, from the base, with POT_CLONE; the source untouched
   echo dirty >> notes.md
@@ -2086,6 +2096,8 @@ EOF
   ran "dispatch: pot review" d_ review
   expect "lists it" holds "$rid  review"
   ran "dispatch: pot review ID" d_ review "$rid"
+  expect "X6: its next names --fetch, not itself" holds "next       pot review $rid --fetch"
+  refuse "X6: never pot review ID itself" holds "next       pot review $rid ·"
   expect "shows its commit, read from staging" holds "run: made"
   refused "dispatch: pot runs, an unknown run" d_ runs ffff
   expect "says so" holds "pot runs: no run ffff in pot's state (pot runs lists them)"
@@ -2210,8 +2222,19 @@ EOF
     echo "skip dispatch: resource scope (no user systemd here)"
   fi
 
+  # S2: a run whose commits fail the staging fetch (fsck refuses a malformed commit): ATTENTION says so, the run stays
+  # in review, and keepDays and maxSize never remove its clone
+  # shellcheck disable=SC2016 # the run's shell expands them
+  ran "dispatch: S2, a clone whose fetch fails" d_ dispatch bash -c 'printf "tree 0000\nnot a commit\n" > /tmp/bad
+    c=$(git hash-object -w --literally -t commit /tmp/bad) && echo "$c" > .git/refs/heads/bad && echo made-bad'
+  local fid && fid=$(d_ runs --json | jq -r '[.runs[] | select(.attention | any(startswith("fetch failed")))][0].id')
+  expect "S2: ATTENTION says the fetch failed" test -n "$fid" -a "$fid" != null
+  expect "S2: the run is in review" test "$(rec "$fid" .state)" = review
+  ran "dispatch: S2, pot review lists it" d_ review
+  expect "with the failure" grep -q "^$fid .*fetch failed" <<<"$out"
   # clones kept: keepDays and maxSize discard only fetched, discarded or commit-less clones
   ran "dispatch: a start with keepDays 0 and maxSize 1" env -u POT -u CLAUDECODE "$work/drp/bin/pot" dispatch true </dev/null
+  expect "S2: keepDays keeps the clone whose fetch failed" test -d "$st/$fid/clone"
   expect "keeps the unfetched one" test -d "$st/$did/clone"
   expect "discards a fetched one" test ! -e "$st/$kid/clone"
   expect "names the oldest still in review" holds "pot review $did --discard"
@@ -2265,8 +2288,13 @@ EOF
   cd "$c"
 
   # pot grant with no argument: every stale kit here, and every kit a stopped run waits for, wherever it ran
-  ran "dispatch: pot grant, no argument, from another repository" tty_ $'n\ny\n' "$work/dr/bin/pot" grant
+  # L2: it prompts only for kits a stopped run waits for and stale grants, stopped ones first (by name: dn, then
+  # needs); a kit never granted that no run waits for is named after the prompts
+  ran "dispatch: pot grant, no argument, from another repository" tty_ $'y\nn\n' "$work/dr/bin/pot" grant
   expect "offers the stopped run's kit" holds "dn   repo kit (repo:fake.example/dn), for every run in this repository   changed source"
+  expect "L2: and the stopped root kit" holds "needs   root kit (root:needs), for every run that uses it   not granted"
+  refuse "L2: not the kit no run waits for" holds "unused   root kit"
+  expect "L2: which it names after the prompts" holds "pot: also not granted: unused (pot grant NAME)"
   expect "naming the stopped run and where" grep -qE "\(stopped run [0-9a-f]{4}, in $n\)" <<<"$out"
   (cd "$n" && ran "dispatch: then that repository's run goes on" d_ true)
   # pot grant --commit (decision 3: opt-in each call): commits the grants file's path alone, never pushes
@@ -2277,6 +2305,23 @@ EOF
   expect "the commit holds the grants file alone" test "$(git_ -C "$work/dgrants" show --name-only --format= HEAD)" = grants.json
   expect "its subject names the kit" test "$(git_ -C "$work/dgrants" log -1 --format=%s)" = "pot grant: needs"
   expect "another staged file stays staged" test "$(git_ -C "$work/dgrants" diff --cached --name-only)" = other.txt
+  # X1: a stopped run whose kits are granted since reads so, and leaves pot review's list
+  local gsid && gsid=$(d_ runs --json | jq -r '[.runs[] | select(.state == "stopped" and (.stop.fix // "") == "pot grant needs")][0].id')
+  ran "dispatch: X1, pot runs after the grant" d_ runs --all
+  expect "the stopped run reads granted since" grep -q "^$gsid .*stopped · granted since: start it again" <<<"$out"
+  ran "dispatch: X1, pot review" d_ review
+  refuse "no longer lists it" grep -q "^$gsid " <<<"$out"
+  # X4: pot runs ID shows the command as typed; --json has pot's argv and command.typed
+  ran "dispatch: X4, a kit command" d_ needtest -c 'echo hi'
+  local xid && xid=$(d_ runs --json | jq -r '[.runs[] | select(.command.name == "needtest")][0].id')
+  ran "dispatch: X4, pot runs ID" d_ runs "$xid"
+  expect "the command as typed" has "command    needtest -c 'echo hi'"
+  expect "--json: argv is pot's" test "$(rec "$xid" '.argv[0] | startswith("/nix/store/")')" = true
+  expect "--json: command.typed is the person's" test "$(rec "$xid" '.command.typed | join(" ")')" = "needtest -c echo hi"
+  # X2: a detached dispatch started at a terminal is invoker person
+  ran "dispatch: X2, --detach at a terminal" tty_ '' "$work/dr/bin/pot" dispatch --detach true
+  local tid && tid=$(grep -o '^[0-9a-f]\{4\}' <<<"$out" | head -1)
+  expect "is by a person" test "$(rec "$tid" .invoker)" = person
   echo " " >> "$work/dgrants/grants.json"
   refused "dispatch: --commit, the grants file has uncommitted changes" env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant --commit needs </dev/null
   expect "is refused before any prompt" holds "pot grant --commit: $work/dgrants/grants.json has uncommitted changes (git -C $work/dgrants diff HEAD -- grants.json): commit or revert them first, or run pot grant without --commit"
@@ -2287,10 +2332,16 @@ EOF
   mv "$work/dgrants/.git.off" "$work/dgrants/.git"
   refused "dispatch: --commit with --diff" env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant --diff --commit </dev/null
   expect "is usage" holds "pot: grant --commit records grants; --diff only shows them"
+  refused "dispatch: S4, --revoke under an agent" env CLAUDECODE=1 "$work/dr/bin/pot" grant --revoke needs </dev/null
+  expect "is refused first" holds "pot grant is for people: CLAUDECODE is set"
+  expect "and the grant stays" jq -e '.grants["root:needs"]' "$work/dgrants/grants.json"
+  refused "dispatch: S4, a named kit under an agent" env CLAUDECODE=1 "$work/dr/bin/pot" grant no-such-kit </dev/null
+  expect "is refused before the name is looked up" holds "pot grant is for people: CLAUDECODE is set"
   refused "dispatch: --commit under an agent" env CLAUDECODE=1 "$work/dr/bin/pot" grant --commit </dev/null
   expect "is refused" holds "pot grant is for people: CLAUDECODE is set"
   ran "dispatch: pot grant, nothing stale" env -u CLAUDECODE -u POT "$work/dr/bin/pot" grant </dev/null
-  expect "says so" holds "pot grant: every kit here is granted, and no stopped run waits for a grant"
+  expect "L2: says there is nothing to grant" holds "pot: nothing to grant"
+  expect "L2: and names the kit never granted" holds "pot: also not granted: unused (pot grant NAME)"
 
   # pot doctor: the backend, the resource scope, the grants file, bindings by path (never contents), instances,
   # this workspace, pot's state, the launcher; exit 1 when a line starts with !
@@ -2300,6 +2351,20 @@ EOF
   expect "the grants file" holds "grants     $work/dgrants/grants.json: parses"
   expect "a binding file, by path" holds "credential api.example: file $work/dtoken (present, 0600)"
   expect "a missing one, marked" holds "! credential api.missing.example: file $work/dtoken-missing is missing"
+  expect "X5: with the binding's fix" holds "file $work/dtoken-missing is missing: make-token, saved with mode 600"
+  expect "X6: no section wording" holds "no entry for $(hostname -s) in the grants file's machines"
+  expect "X6: plurals agree" grep -qE '^state .*: [0-9]+ runs?( |,)' <<<"$out"
+  if [ -e "$HOME/.config/pot/launcher" ]; then
+    expect "X3: an mkRoot root's launcher fix" holds "point ~/.config/pot/launcher at this root's bin/pot"
+    refuse "X3: not home-manager switch" holds "(home-manager switch)"
+  fi
+  mv "$work/dgrants/grants.json" "$work/dgrants/grants.json.off"
+  refused "dispatch: X5, doctor with no grants file" d_ doctor
+  expect "says pot grant writes it" holds "grants     $work/dgrants/grants.json: missing: pot grant writes it"
+  echo "{" > "$work/dgrants/grants.json"
+  refused "dispatch: X5, doctor with a broken grants file" d_ doctor
+  expect "names its path once" test "$(grep '^! grants' <<<"$out" | grep -o "$work/dgrants/grants.json" | wc -l)" = 1
+  mv "$work/dgrants/grants.json.off" "$work/dgrants/grants.json"
   refuse "never a file's contents" holds "SECRET-VALUE"
   chmod 644 "$work/dtoken"
   refused "dispatch: pot doctor, a key file others can read" d_ doctor
@@ -2310,10 +2375,33 @@ EOF
   expect "no agent kit, no instances" holds "instances  none (no kit of this root has instances)"
   if systemd-run --user --scope --quiet true 2>/dev/null; then
     expect "the resource scope" holds "resources  user systemd: runs without a terminal get MemoryMax=1G TasksMax=512"
+    # L1: where the scope works, resource-limits is not a lack: the backend row says whom it covers
+    expect "the backend row: resource-limits for runs without a terminal" holds "; resource-limits: for runs without a terminal"
+    refuse "and not among what it lacks" grep -qE '^backend .*lacks .*resource-limits' <<<"$out"
   fi
+  # with no systemd-run on PATH (no user systemd): lacking, and marked. The PATH: every program of the test's, but
+  # systemd-run (a live probe runs true)
+  mkdir -p "$work/dnosd"
+  local pd px
+  for pd in ${PATH//:/ }; do for px in "$pd"/*; do
+    [ -x "$px" ] && [ "${px##*/}" != systemd-run ] && [ ! -e "$work/dnosd/${px##*/}" ] && ln -s "$px" "$work/dnosd/${px##*/}"
+  done; done 2>/dev/null
+  mkdir -p "$work/dplain" && { [ -d "$work/dplain/.git" ] || { git_ -C "$work/dplain" init -q && git_ -C "$work/dplain" commit -q --allow-empty -m init; }; }
+  # shellcheck disable=SC2016 # the inner bash expands them
+  ran "dispatch: pot doctor with no user systemd" bash -c 'cd "$1" && env -u POT -u CLAUDECODE PATH="$2" "$3" doctor </dev/null; true' _ \
+    "$work/dplain" "$work/dnosd" "$work/dr/bin/pot"
+  expect "names resource-limits as lacking" grep -qE '^backend .*lacks .*resource-limits' <<<"$out"
+  expect "and marks the resources row" holds "! resources no user systemd"
   # shellcheck disable=SC2016
   ran "dispatch: pot doctor inside a run is refused" d_ bash -c 'pot doctor 2>&1; true'
   expect "naming explain and why" holds "pot doctor runs on the host; inside a run, pot explain and pot why"
+
+  # S7: --read of a folder holding pot's state names pot's state, not "launcher mounts"
+  refused "dispatch: S7, --read of a folder holding pot's state" d_ --read "$work" true
+  expect "names pot's state" holds "which holds pot's own state ($work/dstate)"
+  refuse "and no launcher mounts" holds "launcher mounts"
+  refused "dispatch: S7, --read inside pot's state" d_ --read "$work/dstate/runs" true
+  expect "says it is pot's state" holds "which is pot's own state"
 
   # refusals and inside a run
   refused "dispatch: --repo in clone mode" d_ dispatch --repo "$work/drootrepo" true
@@ -2344,7 +2432,11 @@ EOF
   prov nst && git_ -C "$work/src/nst" submodule add -q -- "$(url sbd)" deep 2>/dev/null && release nst v1.0.0
   by_hand nst && commit "nst"
   ran "dispatch: a scion with its own submodules" dl dispatch true
-  expect "the start note says they are not cloned" holds "scions/nst: its own submodules are not cloned"
+  refuse "X7: not on the startup line" holds "scions/nst: its own submodules are not cloned"
+  local nid && nid=$(d_ runs --json | jq -r '.runs[0].id')
+  ran "dispatch: X7, pot review ID" d_ review "$nid"
+  expect "names the left-out submodules" holds "note       scions/nst: its own submodules are not cloned"
+  expect "and so does the run's explain" grep -q "scions/nst: its own submodules are not cloned" "$st/$nid/explain.txt"
   # a commit in a scion, on its detached HEAD: back into that scion's own repository
   ran "dispatch: a commit in a scion" d_ dispatch bash -c 'git -C scions/sbd commit -q --allow-empty -m scion-fix'
   local sr && sr=$(d_ runs --json | jq -r '[.runs[] | select(.clone.scionCommits == 1)][0].id')
@@ -2352,6 +2444,11 @@ EOF
   ran "dispatch: --fetch" dl review "$sr" --fetch
   expect "names the scion" holds "scions/sbd: its commits are in that scion's refs/remotes/pot-$sr/*"
   expect "into the scion's repository" test "$(git_ -C scions/sbd log -1 --format=%s "refs/remotes/pot-$sr/detached")" = scion-fix
+  # X8: when the host signs, the sign line names a branch to rebase on
+  ran "dispatch: X8, a commit to sign" d_ dispatch bash -c 'git commit -q --allow-empty -m to-sign'
+  local gid && gid=$(d_ runs --json | jq -r '[.runs[] | select(.state == "review" and .clone.commits == 1)][0].id')
+  ran "dispatch: X8, --fetch where the host signs" env GIT_CONFIG_VALUE_3=true POT_QUIET=1 env -u CLAUDECODE -u POT "$work/dr/bin/pot" review "$gid" --fetch
+  expect "names a branch" grep -qE "^  sign:    git switch -c pot-$gid pot-$gid/main && git rebase --exec 'git commit --amend --no-edit -S' [0-9a-f]{7}" <<<"$out"
   cd "$work"
 }
 

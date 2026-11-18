@@ -1335,8 +1335,11 @@ def merge_manifests(ms):
 def path_refusal(canon, real, hidden_paths, inp):
     """M3/M4: why a reach path is refused, or None."""
     sd = inp.get("stateDir")
-    if sd and (under(real, sd) or under(sd, real)):
-        return "which is pot's own state (launcher mounts are pot's alone)"
+    if sd and under(real, sd):
+        return "which is pot's own state"
+    if sd and under(sd, real):
+        # S7: a folder that holds pot's state, named as such
+        return f"which holds pot's own state ({canon_path(sd, inp['host']['home'])})"
     for h in hidden_paths:
         if under(real, h):
             return f"which resolves into a hidden path ({canon_path(h, inp['host']['home'])})"

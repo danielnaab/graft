@@ -65,6 +65,14 @@ class States(unittest.TestCase):
         r = R.record("9b0e", [CLONE, EXIT, a], dead)
         self.assertEqual((r["state"], r["clone"]["scionCommits"]), ("review", 1))
 
+    def test_fetch_failed(self):
+        # S2: a failed staging fetch is an attention item, and the run stays in review (never pruned as empty)
+        a = dict(AFTER, commits=[], refs={}, fetch_failed="error: object abc: badTree")
+        r = R.record("9b0e", [CLONE, EXIT, a], dead)
+        self.assertEqual(r["state"], "review")
+        self.assertIn("fetch failed: error: object abc: badTree", r["attention"])
+        self.assertEqual(R.note(r), "fetch failed · pot review 9b0e")
+
     def test_clone_without_commits(self):
         r = R.record("9b0e", [CLONE, EXIT, dict(AFTER, commits=[], refs={})], dead)
         self.assertEqual(r["state"], "exited")

@@ -46,7 +46,7 @@
         defaultInstance.claude-code = "personal";
         bindings = {
           "status.relay"."*" = { workmux = true; };
-          credential."api.anthropic.com kit=claude-code@personal" = { via = "file"; from.file = "~/.config/pot/claude-token-personal"; };
+          credential."api.anthropic.com kit=claude-code@personal" = { via = "file"; from.file = "~/.config/pot/claude-token-personal"; refresh = "claude setup-token"; };
           nix."*" = { via = "daemon-untrusted"; };
         };
       };

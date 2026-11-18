@@ -59,6 +59,8 @@ def attention(after, fetched=False):
     out = []
     if not after:
         return out
+    if after.get("fetch_failed"):
+        out.append("fetch failed: " + after["fetch_failed"])
     if after.get("unsigned") and after.get("signs") and not fetched:
         out.append(f"{after['unsigned']} unsigned")
     if after.get("root_attention"):
@@ -85,10 +87,14 @@ LOST = "pot ended without an exit (killed or crashed)"
 def note(rec):
     """pot runs' NOTE column."""
     c = rec.get("clone") or {}
+    if rec["state"] == "review" and not (c.get("commits", 0) + c.get("scionCommits", 0)):
+        return f"fetch failed · pot review {rec['id']}"
     if rec["state"] == "review":
         n = c.get("commits", 0) + c.get("scionCommits", 0)
         return f"{plural(n, 'commit')} · pot review {rec['id']}"
     if rec["state"] == "stopped":
+        if (rec.get("stop") or {}).get("grantedSince"):
+            return "stopped · granted since: start it again"
         return (rec.get("stop") or {}).get("fix") or "stopped"
     if rec["state"] == "running":
         return "running"
@@ -125,13 +131,14 @@ def record(rid, events, alive):
                  "commits": len(commits), "scionCommits": sum(len(v.get("commits") or []) for v in ((af or {}).get("scions") or {}).values()),
                  "unsigned": (af or {}).get("unsigned", 0),
                  "refs": (af or {}).get("refs") or {}, "uncommitted": (af or {}).get("uncommitted"),
+                 "nested": c.get("nested") or [],
                  "size": (af or {}).get("size"), "fetched": (fetch or {}).get("refs"),
                  "discarded": (disc or {}).get("time"), "keptUntil": None}
     if stop:
         state = "stopped"
     elif not ended(events) and s and alive(s):
         state = "running"
-    elif clone and (clone["commits"] or clone["scionCommits"]) and not fetch and not disc:
+    elif clone and (clone["commits"] or clone["scionCommits"] or (af or {}).get("fetch_failed")) and not fetch and not disc:
         state = "review"
     else:
         state = "exited"

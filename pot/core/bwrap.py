@@ -1125,9 +1125,14 @@ def stage(cfg, rundir, clone, gitdir, name, alternates):
                  "-c", "protocol.file.allow=always", "fetch", "-q", "--no-tags", "--prune", f"--upload-pack={up}",
                  "file://" + gitdir, "+refs/heads/*:refs/heads/*", "+HEAD:refs/pot/head")
     if r.returncode != 0:
+        msg = visible(" ".join(r.stderr.strip().splitlines()[-1:]) or f"git fetch exit {r.returncode}")[:200]
         print(visible(f"pot: fetching the run's commits from its clone failed: {r.stderr.strip()[-400:]}"), file=sys.stderr)
+        FETCH_FAILED.append(f"{name}: {msg}" if name != "top" else msg)
         return None
     return sd
+
+
+FETCH_FAILED = []   # S2: each failed staging fetch, an attention item (the run stays in review)
 
 
 def tree_size(p):
@@ -1228,6 +1233,8 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
     ev["new_git_metadata"] += sorted(visible(top + g[len(clone):]).replace(top + "/", "") for g in gits - set(b.get("gits") or [])
                                      if g != os.path.join(clone, ".git"))
     ev["size"] = tree_size(clone) + tree_size(os.path.join(rundir, "staging"))
+    if FETCH_FAILED:
+        ev["fetch_failed"] = "; ".join(FETCH_FAILED)
 
 
 def cleanup(rundir):

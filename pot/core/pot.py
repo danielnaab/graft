@@ -1179,17 +1179,20 @@ def proc_facts():
     return {"pid": pid, "pidStart": R.proc_start(pid), "boot": R.boot_id()}
 
 
-def start_event(rid, ctx, policy_backend, argv, kits, report, ws, flags, clone_info, detached):
+def start_event(rid, ctx, policy_backend, argv, kits, report, ws, flags, clone_info, detached, invoker=None, typed=None):
     cmd = (report or {}).get("command") or {}
+    command = {"name": cmd.get("name") or (typed or argv or [None])[0], "kit": cmd.get("kit"), "instance": cmd.get("instance"),
+               "typed": list(typed if typed is not None else argv or [])}
     return {"ev": "start", "by": "host", "run": rid, "context": ctx["name"], "backend": policy_backend, "argv": argv,
-            "kits": kits, "invoker": "person" if sys.stdin.isatty() else "script", "time": now_iso(),
+            "kits": kits, "invoker": invoker or ("person" if sys.stdin.isatty() else "script"), "time": now_iso(),
             "mode": "clone" if clone_info else "in-place",
             "workspace": [{"id": w["id"], "path": w["top"], "name": C.repo_short_name(w)} for w in ws or []],
-            "command": {"name": cmd.get("name"), "kit": cmd.get("kit"), "instance": cmd.get("instance")} if cmd.get("name") else None,
+            "command": command,
             **proc_facts(), "pane": os.environ.get("TMUX_PANE") if os.environ.get("TMUX") else None,
             "detached": detached, "parent": None,
             "oneRun": [list(x) for x in (report or {}).get("oneRun") or []],
-            "clone": {"base": clone_info["base"], "branch": clone_info["branch"], "path": clone_info["path"]} if clone_info else None}
+            "clone": {"base": clone_info["base"], "branch": clone_info["branch"], "path": clone_info["path"],
+                      "nested": clone_info.get("nested") or []} if clone_info else None}
 
 
 def holds_pane(root, report):
@@ -1215,9 +1218,11 @@ def pane_waiting():
 def stopped(host, root, rundir, rid, ctx, argv, reason, text, report=None, ws=None, flags=None, kits=()):
     """A 125: its start and stop events (runs/1's stopped), and the pane waiting when the run holds it."""
     log(rundir, start_event(rid, ctx, None, argv, [{"id": k["kit"], "grant": k["status"]} for k in (report or {}).get("kits") or []],
-                            report, ws, flags or {}, None, False))
+                            report, ws, flags or {}, None, False, typed=argv))
     names = list(dict.fromkeys(k["name"] for k in kits))
-    log(rundir, {"ev": "stop", "by": "host", "reason": reason, "kits": [{"id": k["kit"], "status": k["status"]} for k in kits],
+    log(rundir, {"ev": "stop", "by": "host", "reason": reason,
+                 "kits": [{"id": k["kit"], "status": k["status"], "digest": k.get("digest"),
+                           "source": k.get("now") or k.get("source")} for k in kits],
                  "fix": f"pot grant {' '.join(names)}" if names else None, "text": text,
                  "workspace": [{"id": w["id"], "path": w["top"]} for w in ws or []], "time": now_iso()})
     if holds_pane(root, report):
@@ -1296,8 +1301,7 @@ def clone_notes(report, cinfo):
     (only the first level of submodules is cloned)."""
     if not cinfo:
         return
-    report["notes"][:0] = [f"from {cinfo['branch']} ({cinfo['short']})"] + \
-        [f"{p}: its own submodules are not cloned" for p in cinfo.get("nested") or []]
+    report["notes"][:0] = [f"from {cinfo['branch']} ({cinfo['short']})"]
 
 
 def run(host, root, context, flags, cmd):
@@ -1377,6 +1381,9 @@ def run(host, root, context, flags, cmd):
             json.dump(launch, f)
         with open(os.path.join(rundir, "explain.txt"), "w") as f:
             f.write(C.explain_text(policy, report, root))
+            # X7: a clone leaves each scion's own submodules out (only the first level is cloned)
+            for p_ in (cinfo or {}).get("nested") or []:
+                f.write(f"note       {p_}: its own submodules are not cloned\n")
         with open(os.path.join(rundir, "why.json"), "w") as f:
             json.dump(why_facts(policy, report, root), f)
         with open(os.path.join(rundir, "resume.json"), "w") as f:
@@ -1387,6 +1394,7 @@ def run(host, root, context, flags, cmd):
             return 1
         say(startup_line(policy, report, ws, root))
         kits = [{"id": k["kit"], "grant": k["status"]} for k in report["kits"]]
+        invoker = "person" if sys.stdin.isatty() else "script"     # before --detach redirects stdin (X2)
         if detach:
             rfd, wfd = os.pipe()
             if os.fork():
@@ -1409,7 +1417,8 @@ def run(host, root, context, flags, cmd):
             os.close(nul)
             sys.stdout = os.fdopen(1, "w", buffering=1)
             sys.stderr = os.fdopen(2, "w", buffering=1)
-        log(rundir, start_event(rid, ctx, policy["backend"]["name"], launch["argv"], kits, report, ws, flags, cinfo, detach))
+        log(rundir, start_event(rid, ctx, policy["backend"]["name"], launch["argv"], kits, report, ws, flags, cinfo, detach,
+                                invoker=invoker, typed=argv0))
         if detach:
             os.write(wfd, b"1")
             os.close(wfd)
@@ -2145,7 +2154,8 @@ def grant_flow(host, root, grants, sts, inline=False, commit=False):
             scope = {"root": "every run that uses it", "repo": "every run in this repository",
                      "scion": f"every workspace that pins {st['kit'][4:]}"}[st["kind"]]
             state = C.STATUS_WORDS[st["status"]]
-            where_ = f"   (stopped run {st['stoppedRun']}, in {C.canon_path(st['stoppedIn'], host.home)})" if st.get("stoppedRun") else ""
+            where_ = (f"   (stopped run {st['stoppedRun']}" + (f", in {C.canon_path(st['stoppedIn'], host.home)})" if st.get("stoppedIn") else ")")
+                      if st.get("stoppedRun") else "")
             t.write(visible(f"{st['name']}   {kind} ({st['kit']}), for {scope}   {state}{where_}\n"))
             if st.get("uncommitted"):
                 t.write("  note: its defining file has uncommitted changes\n")
@@ -2195,6 +2205,11 @@ def grant_flow(host, root, grants, sts, inline=False, commit=False):
 def grant(host, root, flags, kits_named):
     if inside_run():
         raise C.Refusal("pot grant is for people, on the host: a run never writes its root's grants file")
+    # S4: an agent is refused before any argument is handled (--revoke, a kit's name, --commit); --diff, which
+    # writes nothing, is the one form an agent may use
+    m = agent_marker(root)
+    if m and not flags.get("diff"):
+        raise C.Refusal(f"pot grant is for people: {m} is set (an agent's environment). Run pot grant in your own terminal.")
     grants, text = load_grants(host, lenient=True)
     if flags.get("revoke"):
         granted = sorted(set(grants["grants"]) | {i for m in grants["machines"].values() for i in m})
@@ -2283,22 +2298,36 @@ def grant(host, root, flags, kits_named):
         for line in C.grant_diff_lines(sts, utf8=C.utf8_output(), verbose=flags.get("verbose")) + arrived:
             print(visible(line))
         return 0
-    todo = [s for s in sts if s["status"] in ("never", "grown", "source", "unverified")]
-    if not kits_named:
-        # no argument: and every kit a stopped run waits for, wherever it ran (its status from that workspace)
-        have = {s["kit"] for s in sts}
-        todo += [s for s in stopped_kits(host, root, context, flags) if s["kit"] not in have]
+    if kits_named:
+        todo = [s for s in sts if s["status"] in ("never", "grown", "source", "unverified")]
+        if not todo:
+            print("pot grant: " + ", ".join(s["name"] for s in sts) + (" is" if len(sts) == 1 else " are") + " granted")
+            return 0
+        grant_flow(host, root, grants, todo, commit=bool(flags.get("commit")))
+        return 0
+    # L2, no argument: the kits a stopped run waits for (wherever it ran; status from that workspace), stopped ones
+    # first, then this workspace's stale grants (a changed request or source). A kit never granted that no run waits
+    # for is only named.
+    todo = stopped_kits(host, root, context, flags)
+    have = {s["kit"] for s in todo}
+    todo += [s for s in sts if s["status"] in ("grown", "source") and s["kit"] not in have]
+    have = {s["kit"] for s in todo}
+    also = [s["name"] for s in sts if s["status"] == "never" and s["kit"] not in have]
+    also_line = f"pot: also not granted: {', '.join(also)} (pot grant NAME)" if also else None
     if not todo:
-        print("pot grant: " + (", ".join(s["name"] for s in sts) + (" is" if len(sts) == 1 else " are") + " granted" if kits_named
-                              else "every kit here is granted, and no stopped run waits for a grant"))
+        print("pot: nothing to grant")
+        if also_line:
+            print(also_line)
         return 0
     grant_flow(host, root, grants, todo, commit=bool(flags.get("commit")))
+    if also_line:
+        print(also_line)
     return 0
 
 
 def stopped_kits(host, root, context, flags):
-    """The kits that stopped runs (runs/1's stopped) wait for, in workspaces other than this one, each with its
-    status recomputed there (never taken from the record), still stale."""
+    """The kits that stopped runs (runs/1's stopped) wait for, in any workspace that still exists, each with its
+    status recomputed there (never taken from the record) and still stale; sorted by name, each once."""
     here = os.path.realpath(os.getcwd())
     want = {}
     for rec, ev, _ in all_records(host):
@@ -2306,22 +2335,25 @@ def stopped_kits(host, root, context, flags):
             continue
         for w in rec.get("workspace") or []:
             p = w.get("path")
-            if p and os.path.isdir(p) and not (here == p or here.startswith(p + "/")):
+            if p and os.path.isdir(p):
                 for k in (rec.get("stop") or {}).get("kits") or []:
                     want.setdefault(p, {}).setdefault(k["id"], rec["id"])
-    out = []
+    out, seen = [], set()
     for p, ids in want.items():
         try:
             os.chdir(p)
             for st in all_kit_status(host, root, context, {}):
-                if st["kit"] in ids and st["kind"] != "root" and st["status"] in ("never", "grown", "source"):
-                    st["stoppedRun"], st["stoppedIn"] = ids[st["kit"]], p
+                if st["kit"] in ids and st["kit"] not in seen and st["status"] in ("never", "grown", "source"):
+                    seen.add(st["kit"])
+                    if not (here == p or here.startswith(p + "/")):
+                        st["stoppedIn"] = p
+                    st["stoppedRun"] = ids[st["kit"]]
                     out.append(st)
         except C.Refusal:
             continue
         finally:
             os.chdir(here)
-    return out
+    return sorted(out, key=lambda s: s["name"])
 
 
 def grants_repo(host):
@@ -2383,12 +2415,39 @@ def load_record(host, rid, rundir, recover=True):
             subprocess.run([prog, "cleanup", rundir])
             ev = R.read_log(lf)
     rec = R.record(rid, ev, R.process_alive)
+    if rec["state"] == "stopped" and rec["stop"]:
+        rec["stop"]["grantedSince"] = granted_since(host, R.last(ev, "stop"))
     if rec["clone"] and not rec["clone"]["discarded"]:
         keep = int((host.root.get("clones") or {}).get("keepDays", 14))
         end = R.when(rec["ended"] or rec["started"])
         if end and rec["state"] != "review":
             rec["clone"]["keptUntil"] = (end + datetime.timedelta(days=keep)).date().isoformat()
     return rec, ev
+
+
+def granted_since(host, stop):
+    """X1: every kit a grant stop waited for now has a grant of the request set it wanted (its digest and, for a
+    powerful item's source, the source) on this machine."""
+    if not stop or stop.get("reason") != "grant":
+        return False
+    kits = stop.get("kits") or []
+    if not kits or any(not k.get("digest") for k in kits):
+        return False
+    if not hasattr(host, "_grants_now"):
+        try:
+            host._grants_now = load_grants(host, lenient=True, quiet=True)[0]
+        except C.Refusal:
+            host._grants_now = None
+    g = host._grants_now
+    if not g:
+        return False
+    for k in kits:
+        e, _ = C.grant_entry(g, k["id"], host.machine)
+        if not e or e.get("digest") != k["digest"]:
+            return False
+        if k.get("source") and e.get("source") and e.get("source") != k["source"]:
+            return False
+    return True
 
 
 def all_records(host):
@@ -2416,9 +2475,9 @@ def ws_name(rec):
 
 def cmd_text(rec, width=28):
     c = rec.get("command") or {}
-    argv = list(rec.get("argv") or [])
-    if c.get("name") and c.get("instance"):
-        argv = [f"{c['name']}@{c['instance']}"] + argv[1:]
+    argv = list(c.get("typed") or rec.get("argv") or [])     # X4: as the person typed it
+    if c.get("name") and c.get("instance") and argv and "@" not in argv[0]:
+        argv = [f"{argv[0]}@{c['instance']}"] + argv[1:]
     t = visible(shlex.join(str(a) for a in argv)) if argv else "-"
     return t if len(t) <= width else t[:width - 1] + "…"
 
@@ -2452,7 +2511,7 @@ def table(rows, heads):
     return out
 
 
-def record_text(rec, ev, rd=None):
+def record_text(rec, ev, rd=None, review=False):
     lines = [f"run        {rec['id']} · {rec['state']} · {rec['context']} · {ws_name(rec)}",
              f"command    {cmd_text(rec, 200)}"]
     how = []
@@ -2462,7 +2521,8 @@ def record_text(rec, ev, rd=None):
         how.append("in the background")
     lines.append(f"started    {(rec['started'] or '-').replace('T', ' ')[:16]}" + (", " + ", ".join(how) if how else ""))
     if rec["state"] == "stopped":
-        lines.append(f"stopped    exit 125 ({(rec['stop'] or {}).get('reason')})")
+        lines.append(f"stopped    exit 125 ({(rec['stop'] or {}).get('reason')})"
+                     + (" · granted since: start it again" if (rec["stop"] or {}).get("grantedSince") else ""))
     elif rec["lost"]:
         lines.append("ended      unknown: " + R.LOST)
     elif rec["state"] != "running":
@@ -2471,7 +2531,8 @@ def record_text(rec, ev, rd=None):
     c = rec.get("clone")
     if c:
         base = (c.get("base") or "")[:7]
-        parts = [f"from {c.get('branch')} ({base})", f"{c['commits']} commit{'s' if c['commits'] != 1 else ''} on {c.get('branch')}"
+        parts = [f"from {c.get('branch')} ({base})",
+                 (f"{c['commits']} commit{'s' if c['commits'] != 1 else ''} on {c.get('branch')}" if c["commits"] else "no commits")
                  + (f", {c['unsigned']} unsigned" if c.get("unsigned") else "")]
         if c.get("size"):
             parts.append(CL.human(c["size"]))
@@ -2484,13 +2545,16 @@ def record_text(rec, ev, rd=None):
         if c.get("uncommitted"):
             parts.append(f"{c['uncommitted']} uncommitted (they stay in the clone)")
         lines.append("clone      " + " · ".join(parts))
+    for p_ in (c or {}).get("nested") or []:
+        lines.append(f"note       {p_}: its own submodules are not cloned")
     if rec["attention"]:
         lines.append("attention  " + visible(" · ".join(rec["attention"])))
     nxt = None
     if rec["state"] == "review":
-        nxt = f"pot review {rec['id']} · pot review {rec['id']} --fetch"
+        # X6: pot review ID names the next step, never itself
+        nxt = f"pot review {rec['id']} --fetch" if review else f"pot review {rec['id']} · pot review {rec['id']} --fetch"
     elif rec["state"] == "stopped":
-        nxt = (rec["stop"] or {}).get("fix")
+        nxt = "start it again" if (rec["stop"] or {}).get("grantedSince") else (rec["stop"] or {}).get("fix")
     if nxt:
         lines.append(f"next       {nxt}")
     return lines
@@ -2514,7 +2578,7 @@ def follow_line(e):
 
 def runs_cmd(host, root, flags, args):
     if len(args) > 1:
-        raise Usage("pot runs [RUN] [--json] [--follow] [--all]")
+        raise Usage("runs [RUN] [--json] [--follow] [--all]")
     if args:
         rid = args[0]
         rec, ev, rd = one_record(host, rid)
@@ -2573,9 +2637,11 @@ def runs_list(recs, flags):
 
 
 def needs_person(rec):
-    """pot review's list: a run in review or stopped, or an ended one with an ATTENTION item (the after
-    event's findings; a commit count is none)."""
-    return rec["state"] in ("review", "stopped") or (rec["state"] == "exited" and bool(rec["attention"]))
+    """pot review's list: a run in review, a stopped one not granted since (X1), or an ended one with an
+    ATTENTION item (the after event's findings; a commit count is none)."""
+    if rec["state"] == "stopped":
+        return not (rec.get("stop") or {}).get("grantedSince")
+    return rec["state"] == "review" or (rec["state"] == "exited" and bool(rec["attention"]))
 
 
 def staging_of(rd, name="top"):
@@ -2589,10 +2655,10 @@ def review_cmd(host, root, flags, args):
     if flags.get("root"):
         raise C.Refusal("pot review --root comes with deployment roots (phase 2): pot review reads this root's runs", 2)
     if flags.get("fetch") and flags.get("discard"):
-        raise Usage("pot review RUN --fetch or --discard, not both")
+        raise Usage("review RUN --fetch or --discard, not both")
     if not args:
         if flags.get("fetch") or flags.get("discard"):
-            raise Usage("pot review RUN --fetch|--discard: name the run (pot review lists them)")
+            raise Usage("review RUN --fetch|--discard: name the run (pot review lists them)")
         try:
             since = R.parse_time(flags.get("since") or "7d")
             until = R.parse_time(flags["until"]) if flags.get("until") else None
@@ -2620,10 +2686,11 @@ def review_cmd(host, root, flags, args):
                 row.append(visible(" ".join(f"{a} {b}" for a, b in (R.first(ev, "start") or {}).get("oneRun") or [])) or "-")
             rows.append(row)
         heads = ["RUN", "STATE", "CONTEXT", "WORKSPACE", "COMMAND", "ENDED", "ATTENTION"] + (["FLAGS"] if flags.get("flags") else [])
+        if not rows:
+            print("pot: no runs need review")
+            return 0
         for l in table(rows, heads):
             print(l)
-        if not rows:
-            print("pot review: no run needs a person (pot runs lists every run)")
         return 0
     rid = args[0]
     rec, ev, rd = one_record(host, rid, "review")
@@ -2634,7 +2701,7 @@ def review_cmd(host, root, flags, args):
     if flags.get("json"):
         print(json.dumps(rec))
         return 0
-    for l in record_text(rec, ev, rd):
+    for l in record_text(rec, ev, rd, review=True):
         print(l)
     sd = staging_of(rd)
     c = rec.get("clone")
@@ -2702,7 +2769,9 @@ def fetch_back(host, rec, ev, rd):
         print(visible(f"  review:  git log --stat {short}..{first_ref}"))
         print(visible(f"  take it: git merge {first_ref}"))
     if c.get("unsigned") and run_git(host, src, "config", "--bool", "commit.gpgsign").stdout.strip() == "true":
-        print(visible(f"  sign:    git rebase --exec 'git commit --amend --no-edit -S' {short}   ({c['unsigned']} unsigned)"))
+        b_ = next(iter((R.last(ev, "after") or {}).get("refs", {})), c.get("branch") or "main")
+        print(visible(f"  sign:    git switch -c pot-{rid} pot-{rid}/{b_} && git rebase --exec 'git commit --amend --no-edit -S' {short}"
+                      f"   ({c['unsigned']} unsigned)"))
     for path in ((R.last(ev, "after") or {}).get("scions") or {}):
         print(visible(f"  {path}: its commits are in that scion's refs/remotes/pot-{rid}/* (a fix there goes to its provider)"))
     return 0
@@ -2736,7 +2805,8 @@ def doctor(host, root, rootjson):
 
     def row(label, text, bad=False):
         first, *rest = text.split("\n")
-        lines.append((f"! {label:<9}{first}" if label else f"{'':<9}! {first}") if bad else f"{label:<11}{first}")
+        # a marked row: "! " then the label, one space, the text (a 9-letter label, resources, kept its space: L1)
+        lines.append((f"! {label:<8} {first}" if label else f"{'':<9}! {first}") if bad else f"{label:<11}{first}")
         lines.extend(" " * 11 + r for r in rest)
     sp = lambda p: C.canon_path(C.expand(p, host.home), host.home) if p else p   # noqa: E731
     ver = "v2.17.0"
@@ -2748,13 +2818,15 @@ def doctor(host, root, rootjson):
         g = (json.loads(r.stdout) if r.stdout.strip() else {}).get("guarantees") or []
     except (C.Refusal, ValueError, OSError) as e:
         bname, g = "none", []
+    # the resource scope: resource-limits is proved per run (a run in the scope), so where the scope works it is
+    # no lack; it is one only when the probe fails (L1)
+    sc = scope_for(host, root, {"requires": ["resource-limits"]}, {}, True)
     if g:
-        lacks = [x for x in C.GUARANTEES if x not in g]
-        row("backend", f"{bname}: user namespaces work; proves {' '.join(g)}; lacks {' '.join(lacks)}")
+        lacks = [x for x in C.GUARANTEES if x not in g and not (x == "resource-limits" and sc.get("argv"))]
+        row("backend", f"{bname}: user namespaces work; proves {' '.join(g)}"
+            + ("; resource-limits: for runs without a terminal" if sc.get("argv") else "") + f"; lacks {' '.join(lacks)}")
     else:
         row("backend", f"{bname}: cannot create a user namespace here, so no run starts (pot host CMD runs unsandboxed)", True)
-    # the resource scope
-    sc = scope_for(host, root, {"requires": ["resource-limits"]}, {}, True)
     if sc.get("argv"):
         row("resources", f"user systemd: runs without a terminal get {sc['limits']}")
     else:
@@ -2762,6 +2834,8 @@ def doctor(host, root, rootjson):
     # the grants file
     gp = host.grants_path
     try:
+        if not os.path.exists(gp):
+            raise FileNotFoundError(gp)
         grants, _ = load_grants(host, lenient=True, quiet=True)
         n = len(grants.get("grants") or {})
         mach = (grants.get("machines") or {}).get(host.machine) or {}
@@ -2771,9 +2845,13 @@ def doctor(host, root, rootjson):
             dirty = run_git(host, top, "diff", "--quiet", "HEAD", "--", gp).returncode != 0
             tracked = f"; tracked in {C.canon_path(top, host.home)}, " + ("with uncommitted changes" if dirty else "committed")
         row("grants", f"{C.canon_path(gp, host.home)}: parses, {n} kit{'s' if n != 1 else ''}, "
-            + (f"{len(mach)} in this machine's section" if mach else f"no section for {host.machine}") + tracked)
+            + (f"{len(mach)} in the grants file's machines entry for {host.machine}" if mach
+               else f"no entry for {host.machine} in the grants file's machines") + tracked)
+    except FileNotFoundError:
+        row("grants", f"{C.canon_path(gp, host.home)}: missing: pot grant writes it")
     except C.Refusal as e:
-        row("grants", f"{C.canon_path(gp, host.home)}: {e.message}", True)
+        shown = C.canon_path(gp, host.home)
+        row("grants", e.message if shown in e.message or gp in e.message else f"{shown}: {e.message}", True)
     # bindings, by path
     blines = []
     for cap, sels in sorted((root.get("bindings") or {}).items()):
@@ -2790,7 +2868,9 @@ def doctor(host, root, rootjson):
                     blines.append((bool(loose), f"{name}: {how} {sp(f)} (present, {mode}"
                                    + (": others can read it; chmod 600 it)" if loose else ")")))
                 else:
-                    blines.append((True, f"{name}: file {sp(f)} is missing"))
+                    # X5: the binding's own fix (its refresh), else the general one
+                    fix = f"{cfg['refresh']}, saved with mode 600" if cfg.get("refresh") else "create it, with mode 600"
+                    blines.append((True, f"{name}: file {sp(f)} is missing: {fix}"))
             elif cap == "credential":
                 blines.append((False, f"{name}: {cfg.get('via', '?')}" + (f" ({cfg['refresh']})" if cfg.get("refresh") else "")))
             elif cap == "git.fetch":
@@ -2853,7 +2933,7 @@ def doctor(host, root, rootjson):
     cc = root.get("clones") or {}
     cap = CL.parse_size(cc.get("maxSize", "20G"))
     states = ", ".join(f"{counts[k]} {k}" for k in ("running", "stopped", "review") if counts.get(k))
-    row("state", f"{C.canon_path(host.state, host.home)}: {len(recs)} runs" + (f" ({states})" if states else "")
+    row("state", f"{C.canon_path(host.state, host.home)}: {len(recs)} run{'s' if len(recs) != 1 else ''}" + (f" ({states})" if states else "")
         + f", {len(clones)} clone{'s' if len(clones) != 1 else ''} ({CL.human(size)} of {cc.get('maxSize', '20G')}, keepDays {cc.get('keepDays', 14)})")
     if size > cap:
         rv = sorted([rec for rec, _, _ in clones if rec["state"] == "review"], key=lambda x: x["started"] or "")[:3]
@@ -2864,7 +2944,8 @@ def doctor(host, root, rootjson):
         tgt = os.path.realpath(lp)
         with open(tgt, errors="replace") as f:
             mine = rootjson in f.read()
-        row("launcher", f"{sp(lp)} -> " + ("this pot" if mine else f"{tgt}, not this pot (home-manager switch)"), not mine)
+        how = "home-manager switch" if root.get("name") == "home-manager" else f"point {sp(lp)} at this root's bin/pot"
+        row("launcher", f"{sp(lp)} -> " + ("this pot" if mine else f"{tgt}, not this pot ({how})"), not mine)
     except OSError:
         row("launcher", f"{sp(lp)} is missing: kit wrappers (v2.18.0) fall back to the default root's pot")
     for l in lines:
@@ -2962,7 +3043,7 @@ INIT_FLAKE = """{
           contexts.work.include = [ ];        # root kits whose requests reach every run here
           bindings = {
             "status.relay"."*" = { workmux = true; };
-            credential."api.anthropic.com kit=claude-code@personal" = { via = "file"; from.file = "~/.config/pot/claude-token-personal"; };
+            credential."api.anthropic.com kit=claude-code@personal" = { via = "file"; from.file = "~/.config/pot/claude-token-personal"; refresh = "claude setup-token"; };
             nix."*" = { via = "daemon-untrusted"; };
           };
         };
