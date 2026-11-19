@@ -1501,9 +1501,10 @@ STUB
   # F1 (v2.19.0): the host's loopback is never reached, even granted: a literal, localhost., and the host's own
   # name (which resolves to loopback on platform-vm), with a listener there that must see no connection
   local lp lpid hn
-  python3 -I -c 'import socket, sys, time; s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(); print(s.getsockname()[1], flush=True)
+  # it ends by itself (a failed check exits before the kill) and holds none of the test's output
+  python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(); s.settimeout(300); print(s.getsockname()[1], flush=True)
 while True:
-    c, _ = s.accept(); print("CONNECTED", flush=True); c.close()' > "$work/lo-port" &
+    c, _ = s.accept(); print("CONNECTED", flush=True); c.close()' > "$work/lo-port" 2>/dev/null </dev/null &
   lpid=$!
   for _ in $(seq 50); do [ -s "$work/lo-port" ] && break; sleep 0.1; done
   lp=$(head -1 "$work/lo-port")
