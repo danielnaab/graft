@@ -93,7 +93,7 @@ provider afresh at the version you want, with the URL that `.gitmodules` gives:
 ```
 git config -f .gitmodules submodule.scions/x.url
 git rm -r -q --cached scions/x && rm -rf scions/x
-nix run github:danielnaab/graft/v2.17.1 -- add -C . URL@TAG x
+nix run github:danielnaab/graft/v2.18.0 -- add -C . URL@TAG x
 git ls-files -s scions/x     # one line, mode 160000
 ```
 
@@ -203,7 +203,7 @@ deleted upstream. `nearest` is `git describe` of the commit.
 
 If the scion's commit was never pushed to the provider, `nix run .#graft` cannot even evaluate (Nix fails with
 `Cannot find Git revision …`, below). Run graft from its own flake instead:
-`nix run github:danielnaab/graft/v2.17.1 -- check -C .`.
+`nix run github:danielnaab/graft/v2.18.0 -- check -C .`.
 
 If a line before it says `(upstream unreadable: checked local tags)`, graft could not reach the provider, and
 compared with the scion's local tags. Fix the access, and run the check again. Inside a `pot` run, the line is
@@ -220,9 +220,9 @@ fetches from the URL) cannot fetch that commit unless a pushed branch holds it.
 
 The provider's `graft.nix` does not parse (the lines above show Nix's error). Nix cannot contain a parse
 error, so every output of the flake fails, `nix run .#graft` too: `check` prints this only when run from
-graft's own flake, `nix run github:danielnaab/graft/v2.17.1 -- check -C .`. Move the scion back to a release
+graft's own flake, `nix run github:danielnaab/graft/v2.18.0 -- check -C .`. Move the scion back to a release
 that parses: `git submodule update --recursive -- scions/NAME` (back to the recorded pin, if you edited it),
-or `nix run github:danielnaab/graft/v2.17.1 -- upgrade -C . NAME@TAG` (an earlier release). Tell the
+or `nix run github:danielnaab/graft/v2.18.0 -- upgrade -C . NAME@TAG` (an earlier release). Tell the
 provider.
 
 ### graft: the flake's tools or checks don't evaluate (above): a provider's graft.nix fails
@@ -272,7 +272,7 @@ Nix then fetches the scions itself ([Nix behaviours](../reference/nix-behaviours
 
 Nix's own message: the consumer records a scion commit that the provider's remote does not have. On a
 clean tree `nix run .#graft …` fetches every scion before graft runs, so it fails here too: run graft from
-its own flake, `nix run github:danielnaab/graft/v2.17.1 -- check -C .`. The same happens to `graft add` of a
+its own flake, `nix run github:danielnaab/graft/v2.18.0 -- check -C .`. The same happens to `graft add` of a
 provider whose own pinned submodules are not pushed yet (before the provider's release is pushed): push
 first. Push the scion's commit to the provider (any branch or tag), or go back to a release:
 `git submodule update --recursive -- scions/NAME`, then `git add scions/NAME`. `push.recurseSubmodules=check` prevents

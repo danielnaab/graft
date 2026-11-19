@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.18.0 - unreleased
+## v2.18.0 - 2026-11-18
 
 pot, graft's sandbox (experimental), in three parts:
 
