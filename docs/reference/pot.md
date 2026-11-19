@@ -2035,6 +2035,55 @@ The run gets its own agent home, configured by the root:
 A sandboxed transcript is run output. `pot host --resume RUN claude` starts a new host conversation with it
 attached as quoted data ([Resume on the host](#resume-on-the-host)).
 
+## pi
+
+`graft.kits.pi` (v2.19.0) returns a kit (data) for the pi coding agent (pi.dev). The root names the instance:
+
+```nix
+programs.pot.kits."pi@all" = inputs.graft.kits.pi {
+  inherit pkgs;
+  binary = "managed";                   # the default: ~/.pi/agent/bin/pi, pi's managed install; or a package
+  node = pkgs.nodejs_22;                # the default: on PATH, for the launcher's `env node`
+  agentDir = ".pi/agent";               # the default: the host's pi folder in ~
+  files = config.home.file;             # home-manager's files: those under agentDir are fixed
+  settings = { defaultProvider = "local"; defaultModel = "…"; };    # settings.json, fixed
+  providers = { openrouter = { baseUrl = "https://openrouter.ai/api/v1"; api = "openai-completions";
+                               apiKey = "\${OPENROUTER_API_KEY}"; models = [ … ]; }; };   # models.json's
+  endpoints = [ { url = "https://llm.example.org"; key = "GATEWAY_KEY"; } ];   # APIs an extension reaches
+  skillSources = [ "~/src/agent-skills" ];
+};
+```
+
+- **Reach is computed from the providers.** Each provider's `baseUrl`, each model's `baseUrl` and each endpoint's
+  `url` is a `network` request: `https://HOST` is `HOST` (443), another port or `http://` is `HOST:PORT` (http's
+  default 80). Each `apiKey` of the form `"$NAME"` or `"${NAME}"`, and each endpoint's `key`, is a `credential`
+  for its host with `env = "NAME"`; bind it by reference (`credential."HOST kit=pi@all"`). A literal `apiKey` stays
+  in `models.json`. These fail evaluation, naming the provider: a url on the host's loopback (`localhost`, `127.*`,
+  `::1`: a run's loopback is its own, and `host-loopback:PORT` is reserved for a later release), a provider with no
+  `baseUrl` (pi's built-in providers are not in this kit), and an `apiKey` that runs a command (`"!…"`).
+- **The run gets its own pi home:** `state pi` at `~/.pi/agent`, scoped per instance, workspace and context
+  (sessions, project trust, caches). In it, fixed (read-only): `settings.json` and `models.json` from the
+  arguments; each `files` entry under `agentDir` outside the folders below; and pi's other configuration, neutral
+  unless the root gives it: `auth.json` and `mcp-auth.json` `{}`, `mcp.json` with no servers, `keybindings.json`
+  `{}`, empty `SYSTEM.md` and `APPEND_SYSTEM.md`, and `AGENTS.override.md` as the root's `AGENTS.md` (pi reads the
+  first of its context files), so a run leaves no configuration for a later run. `/model` switches models in a
+  session; the choice does not outlive it. A `/login` inside does not persist: OAuth providers need a host login,
+  which a run does not see.
+- **Read-only folders:** `extensions`, `skills`, `prompts` and `themes` from the host's `agentDir` (links bound by
+  their targets, as the claude-code kit's skills; `skillDirs` names real entries of `skills`), and `npm` and `git`,
+  pi's installed packages, whole.
+- **The program:** `binary = "managed"` runs `~/.pi/agent/bin/pi`, resolved on the host at each start, with `read`
+  requests for its `bin` and `install` folders. A package runs its `bin/pi`.
+- **Variables:** `PI_CODING_AGENT_DIR=~/.pi/agent`, `PI_OFFLINE=1` (no package installs, version check or catalog
+  fetch at start), `PI_SKIP_VERSION_CHECK=1`, `PI_TELEMETRY=0`.
+- **Requests:** the `read`s above and `skillSources`, the `network` items, `state pi`, `status.relay` and one
+  `credential` per host with a key.
+- **Agent data:** `markers = [ "PI_CODING_AGENT" ]` (pi sets it for its children, so `pot grant` refuses inside
+  pi); `resume` reads `~/.pi/agent/sessions/**/*.jsonl` and resumes with `--continue`. No `select.env`: name a
+  second instance with `pi@NAME`.
+- **Not in the kit:** a denial hook for the model (denials reach the exit line and `/run/pot/README.md`), MCP
+  servers, OAuth providers, Bedrock and loopback providers.
+
 ## On macOS
 
 On macOS, `pot` runs each command under `/usr/bin/sandbox-exec` with a profile that denies by default, written at
@@ -2176,6 +2225,7 @@ first on `PATH` wins; `command -v pot` says which.
 - [pot/nix/root.nix](../../pot/nix/root.nix): `graft.lib.mkRoot`, the standard set
 - [pot/nix/hm.nix](../../pot/nix/hm.nix): `homeManagerModules.pot`
 - [pot/kits/claude-code.nix](../../pot/kits/claude-code.nix): the claude-code kit, its overlay and denial hook
+- [pot/kits/pi.nix](../../pot/kits/pi.nix): the pi kit, its computed reach and fixed configuration
 - [pot/core/broker.py](../../pot/core/broker.py) and [pot/core/shim.py](../../pot/core/shim.py): the `git.fetch` broker,
   the `workmux` and ssh shims
 - [pot/lib/kits-for.nix](../../pot/lib/kits-for.nix): `graft.lib.pot.kitsFor`, `packages.<system>.pot-kits`, the

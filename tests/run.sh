@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end test of graft: providers are local bare repositories with release tags, grafted into
 # consumers as git submodules with file:// URLs. Sections: mkflake (discovery, wiring, the errors),
-# nix (the Nix behaviours graft relies on: regression tests against Nix changes), pot (graft's sandbox), add, sync, check, outdated, changelog, upgrade, graft
+# nix (the Nix behaviours graft relies on: regression tests against Nix changes), pot (graft's sandbox), pi (its pi kit), add, sync, check, outdated, changelog, upgrade, graft
 # (graft's own pin), workflows, ci, migrate. Needs nix, git and jq; fetches nixpkgs on the first run.
 # Usage: tests/run.sh [SECTION...] (from anywhere; default: every section, in order). KEEP=1 leaves the
 # work directory, to debug a failure.
@@ -3271,6 +3271,96 @@ EOF
   refuse "nothing ran" holds "args=rr"
 }
 
+# pi (pot/kits/pi.nix): a root with the pi kit, its program a stub that reports what it sees. The run's pi
+# home is its state, with pi's configuration fixed (read-only) in it and its folders read-only; it reaches
+# its providers' hosts alone; its key comes from its binding. The host's pi folder is one the host lacks, so
+# nothing of a real ~/.pi is read.
+sec_pi() {
+  local r=$work/piroot && mkdir -p "$r"
+  cat > "$r/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  inputs.nixpkgs.follows = "graft/nixpkgs";
+  outputs = { graft, nixpkgs, ... }: {
+    packages = nixpkgs.lib.genAttrs [ "$sys" ] (s: let pkgs = nixpkgs.legacyPackages.\${s}; in {
+      pot = graft.lib.mkRoot {
+        inherit pkgs;
+        name = "pi-test";
+        grantsFile = "$work/pigrants/grants.json";
+        stateDir = "$work/pistate";
+        kits."pi@t" = graft.kits.pi {
+          inherit pkgs;
+          binary = pkgs.writeShellScriptBin "pi" (builtins.readFile ./stub-pi.sh);
+          agentDir = ".pot-test-no-such-pi";
+          files.a = { target = ".pot-test-no-such-pi/AGENTS.md"; source = pkgs.writeText "agents" "root instructions"; };
+          settings.defaultProvider = "gw";
+          providers.gw = { baseUrl = "https://api.pi-test.example/v1"; apiKey = "\\\${PITEST_KEY}"; models = [ { id = "m"; } ]; };
+          providers.lan = { baseUrl = "http://lan.pi-test.example:11434/v1"; apiKey = "literal"; models = [ { id = "q"; } ]; };
+        };
+        bindings."status.relay"."*" = { workmux = true; };
+        bindings.credential."api.pi-test.example kit=pi@t" = { via = "file"; from.file = "$work/pikey"; };
+      };
+    });
+  };
+}
+EOF
+  # the stub: what pi would see, one line each (curl -p: CONNECT for http too, as pi's proxy agent does)
+  cat > "$r/stub-pi.sh" <<'STUB'
+d=$PI_CODING_AGENT_DIR
+echo "env PI_OFFLINE=$PI_OFFLINE PI_TELEMETRY=$PI_TELEMETRY PI_SKIP_VERSION_CHECK=$PI_SKIP_VERSION_CHECK dir=${d#"$HOME"}"
+echo "auth $(cat "$d/auth.json") mcp-auth $(cat "$d/mcp-auth.json") mcp $(tr -d ' \n' < "$d/mcp.json")"
+echo "agents $(cat "$d/AGENTS.md") / override $(cat "$d/AGENTS.override.md")"
+echo "models $(jq -c '[(.providers | keys[]), .providers.gw.apiKey]' "$d/models.json")"
+for f in settings.json models.json auth.json mcp.json AGENTS.override.md SYSTEM.md extensions/x.ts skills/x npm/x; do
+  if (echo planted > "$d/$f") 2>/dev/null; then echo "wrote $f"; else echo "read-only $f"; fi
+done
+mkdir -p "$d/sessions/--w--" && echo '{"type":"message","message":{"role":"user","content":"hi"}}' > "$d/sessions/--w--/t_1.jsonl" && echo "wrote sessions"
+[ "${PITEST_KEY:-}" = pi-key-value ] && echo "key set"
+for u in https://api.pi-test.example/ http://lan.pi-test.example:11434/ https://denied.pi-test.example/; do
+  echo "reach $u $(curl -s -p -o /dev/null -w '%{http_connect}' --max-time 5 "$u")"
+done
+STUB
+  (cd "$r" && quiet nix flake lock)
+  ran "pi: a root with the pi kit builds" nix build -o "$work/pir" "path:$r#packages.$sys.pot"
+  local bw && bw=$(nix build --no-link --print-out-paths "$np#bubblewrap")/bin/bwrap
+  if [ "$(uname)" = Darwin ] || ! "$bw" --unshare-all --unshare-user --disable-userns --ro-bind / / true 2>/dev/null; then
+    echo "skip pi: runs (bubblewrap's, which need an unprivileged user namespace)"
+    return 0
+  fi
+  local c=$work/piws && mkdir -p "$c" && git_ -C "$c" init -q && cd "$c" && commit init
+  # shellcheck disable=SC2317 # run through ran and expect
+  pi_() { env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u PI_CODING_AGENT POT_QUIET=1 "$work/pir/bin/pot" "$@"; }
+  # shellcheck disable=SC2317
+  pitty_() { local a=$1; shift; (sleep 2; printf '%s' "$a") | script -qec "env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u PI_CODING_AGENT $*" /dev/null; }
+  ran "pi: explain" pi_ explain pi
+  expect "the instance" holds "run        pi -> root:pi@t"
+  expect "its providers' hosts" holds "api.pi-test.example:443"
+  expect "the http one on its port" holds "lan.pi-test.example:11434"
+  expect "the key by its binding" holds "PITEST_KEY"
+  printf 'PITEST_KEY=pi-key-value\n' > "$work/pikey" && chmod 600 "$work/pikey"
+  ran "pi: pot grant pi" pitty_ $'y\ny\n' "$work/pir/bin/pot" grant pi
+  ran "pi: a run" pi_ pi
+  expect "offline at start, no telemetry, its own home" has "env PI_OFFLINE=1 PI_TELEMETRY=0 PI_SKIP_VERSION_CHECK=1 dir=/.pi/agent"
+  expect "the credential files are empty (a /login does not persist)" has 'auth {} mcp-auth {} mcp {"mcpServers":{}}'
+  expect "the root's instructions, also as the override" has "agents root instructions / override root instructions"
+  # shellcheck disable=SC2016 # pi's own interpolation, kept as text
+  expect "models.json is the root's, its key a reference" has 'models ["gw","lan","${PITEST_KEY}"]'
+  local f
+  for f in settings.json models.json auth.json mcp.json AGENTS.override.md SYSTEM.md extensions/x.ts skills/x npm/x; do
+    expect "pi: $f is read-only" has "read-only $f"
+  done
+  expect "the sessions are the run's state" has "wrote sessions"
+  expect "the key comes from its binding" has "key set"
+  expect "a provider's host is reached (allowed; no such host: 502)" has "reach https://api.pi-test.example/ 502"
+  expect "and the http one" has "reach http://lan.pi-test.example:11434/ 502"
+  expect "another host is refused" has "reach https://denied.pi-test.example/ 403"
+  expect "the session is in the run's state" test -n "$(find "$work/pistate" -name t_1.jsonl)"
+  expect "the exit line resumes it with --continue" holds "pot: resume this session with: pot pi@t --continue"
+  refused "pi: pot grant under pi's marker" env -u CLAUDECODE -u CODEX_SANDBOX PI_CODING_AGENT=true "$work/pir/bin/pot" grant
+  expect "is refused (the kit's agent.markers)" holds "pot grant is for people: PI_CODING_AGENT is set"
+  cd "$work"
+}
+
 sec_own() {
   # graft's docs check (dev/flake.nix) reads knowledge-base-kit from a flake input: the same commit as its scion
   local link rev b0 b1 c=$work/own-boundary
@@ -3287,7 +3377,7 @@ sec_own() {
   cp -r "$graft" "$c"
   b0=$(nix eval --raw "path:$c#packages.$sys.default.drvPath")
   local f
-  for f in pot/core/pot.py pot/nix/hm.nix pot/nix/root.nix pot/lib/kits-for.nix pot/kits/claude-code.nix lib/mk-flake.nix; do
+  for f in pot/core/pot.py pot/nix/hm.nix pot/nix/root.nix pot/lib/kits-for.nix pot/kits/claude-code.nix pot/kits/pi.nix lib/mk-flake.nix; do
     echo "# a comment" >> "$c/$f"
     b1=$(nix eval --raw "path:$c#packages.$sys.default.drvPath")
     expect "own: a comment in $f leaves graft's command as it was" test "$b0" = "$b1"
@@ -3297,7 +3387,7 @@ sec_own() {
   expect "own: and a comment in lib/common.sh changes it (the experiment sees graft's sources)" test "$b0" != "$b1"
 }
 
-sections=(own mkflake tarball nix try kits pot dispatch nest add sync check outdated changelog upgrade graft workflows ci migrate)
+sections=(own mkflake tarball nix try kits pot pi dispatch nest add sync check outdated changelog upgrade graft workflows ci migrate)
 [ $# -eq 0 ] || sections=("$@")
 for s in "${sections[@]}"; do
   echo "== $s"

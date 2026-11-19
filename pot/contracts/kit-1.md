@@ -253,4 +253,5 @@ identity.
   `normalise_kit`, `normalise_origin`, `repo_identity`, `scion_identity`
 - [pot/core/pot.py](../core/pot.py): choosing the instance, mirrors, resume
 - [pot/kits/claude-code.nix](../kits/claude-code.nix): a 1.1 kit
+- [pot/kits/pi.nix](../kits/pi.nix): a 1.1 kit (v2.19.0)
 - [pot's reference: Kits](../../docs/reference/pot.md#kits)

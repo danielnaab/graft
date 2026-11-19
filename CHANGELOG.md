@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **pot: the `pi` kit.** `graft.kits.pi { pkgs; settings; providers; endpoints; files; … }` runs the pi coding agent
+  in pot ([pot's reference: pi](docs/reference/pot.md#pi)). Its reach is computed from the providers: each `baseUrl`
+  is a network request and each `"${NAME}"` key a credential for its host. The run's pi home is its own, with
+  pi's configuration fixed by the root. `kit/1` and `pot-kits/1` are unchanged, and no existing grant asks again.
+
 ## v2.18.0 - 2026-11-18
 
 pot, graft's sandbox (experimental), in three parts:

@@ -56,8 +56,10 @@
       lib.mkRoot = mkRoot;
       # pot's library for a producer of kits (contract pot-lib/1): kitsFor { pkgs; self; scions; tools; files; }
       lib.pot.kitsFor = kitsFor;
-      # agent kits, for a root to call: graft.kits.claude-code { pkgs; configDir; api; … } (pot/kits)
+      # agent kits, for a root to call: graft.kits.claude-code { pkgs; configDir; api; … } and graft.kits.pi (pot/kits)
       kits.claude-code = import ./pot/kits/claude-code.nix;
+      # graft.kits.pi { pkgs; providers; settings; files; endpoints; … } (v2.19.0)
+      kits.pi = import ./pot/kits/pi.nix;
       # the APIs an agent kit can use: graft.apis.anthropic, graft.apis.bedrock { region; }, graft.apis.gateway { url; } (pot/kits/apis.nix)
       apis = import ./pot/kits/apis.nix;
       # a personal root in home-manager: programs.pot (pot/nix/hm.nix)
@@ -160,6 +162,84 @@
           assert fails (self.apis.gateway { url = "https://user@llm.example.test"; });
           assert fails (self.apis.gateway { url = "https://llm.example.test/?x=1"; });
           pkgs.runCommand "graft-pot-gateway" { } "touch $out";
+        # v2.19.0: the pi kit. Its reach is computed from the providers: each baseUrl (provider and model) and
+        # endpoint is a network request (https HOST on 443, http HOST:PORT), each "$NAME"/"${NAME}" key a credential
+        # for its host, and nothing else; pi's configuration is fixed (settings.json, models.json, auth.json and
+        # the rest); its folders are read-only; a loopback url, a provider with no baseUrl and a command key fail
+        pot-pi = let
+          fails = x: !(builtins.tryEval (builtins.deepSeq x true)).success;
+          pi = args: self.kits.pi ({ inherit pkgs; } // args);
+          agents = pkgs.writeText "agents" "x";
+          k = pi {
+            files.a = { target = ".pi/agent/AGENTS.md"; source = agents; };
+            files.b = { target = ".pi/agent/extensions/x.ts"; source = agents; };
+            files.c = { target = ".claude/CLAUDE.md"; source = agents; };
+            settings.defaultProvider = "local";
+            providers = {
+              local = { baseUrl = "http://192.168.1.52:11434/v1"; apiKey = "llama-cpp"; models = [ { id = "q"; } ]; };
+              openrouter = { baseUrl = "https://openrouter.ai/api/v1"; apiKey = "\${OPENROUTER_API_KEY}"; };
+              gw = { baseUrl = "https://LLM.example.test/openai"; apiKey = "$GW_KEY";
+                     models = [ { id = "c"; baseUrl = "https://llm.example.test:443/anthropic"; } { id = "o"; baseUrl = "https://other.example.test:8443/v1"; } ]; };
+            };
+            endpoints = [ { url = "https://ext.example.test"; key = "EXT_KEY"; } { url = "https://nokey.example.test"; } ];
+          };
+          rq = k.commands.pi.requests;
+          f = k.files;
+          fixed = lib.all (v: v.mode == "fixed") (lib.attrValues f);
+          src = n: f."~/.pi/agent/${n}".source;
+          one = p: pi { providers.p = p; };
+        in assert lib.sort lib.lessThan rq.network == lib.sort lib.lessThan [ "192.168.1.52:11434" "openrouter.ai" "llm.example.test"
+            "other.example.test:8443" "ext.example.test" "nokey.example.test" ];
+          assert lib.sort (a: b: a.host < b.host) (lib.filter (c: c.name == "credential") rq.capabilities) == [
+            { name = "credential"; host = "ext.example.test"; env = "EXT_KEY"; }
+            { name = "credential"; host = "llm.example.test"; env = "GW_KEY"; }
+            { name = "credential"; host = "openrouter.ai"; env = "OPENROUTER_API_KEY"; }
+            { name = "credential"; host = "other.example.test"; env = "GW_KEY"; } ];
+          assert lib.elem { name = "status.relay"; } rq.capabilities;
+          assert rq.read == [ "~/.pi/agent/bin" "~/.pi/agent/install" ];
+          assert rq.state == [ { name = "pi"; at = "~/.pi/agent"; } ];
+          assert !(rq ? env) && !(rq ? write) && !(rq ? socket) && !(rq ? unsandboxed);
+          assert k.commands.pi.program == { host = "~/.pi/agent/bin/pi"; };
+          assert k.env.set == { PI_CODING_AGENT_DIR = "~/.pi/agent"; PI_OFFLINE = "1"; PI_SKIP_VERSION_CHECK = "1"; PI_TELEMETRY = "0"; };
+          assert fixed;
+          assert lib.attrNames f == map (n: "~/.pi/agent/${n}") [ "AGENTS.md" "AGENTS.override.md" "APPEND_SYSTEM.md" "SYSTEM.md"
+            "auth.json" "keybindings.json" "mcp-auth.json" "mcp.json" "models.json" "settings.json" ];
+          assert src "AGENTS.md" == agents && src "AGENTS.override.md" == agents;
+          assert lib.all (d: k.commands.pi.dirs."~/.pi/agent/${d}".from == "~/.pi/agent/${d}") [ "extensions" "skills" "prompts" "themes" "npm" "git" ];
+          assert k.commands.pi.dirs."~/.pi/agent/npm".real == true && k.commands.pi.dirs."~/.pi/agent/extensions".real == [ ];
+          assert k.agent.markers == [ "PI_CODING_AGENT" ] && !(k.agent ? select);
+          assert k.agent.resume.args == [ "--continue" ];
+          # a provider at the host's loopback (host-loopback is a later release), with no baseUrl, or a command key
+          assert fails (one { baseUrl = "http://localhost:8000/api/v1"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "http://127.0.0.1:8000/v1"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "http://[::1]:8000/v1"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "https://ok.example.test"; models = [ { id = "m"; baseUrl = "http://localhost:1/v1"; } ]; }).commands.pi.requests;
+          assert fails (one { models = [ ]; }).commands.pi.requests;
+          assert fails (one { baseUrl = "ftp://x.example.test"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "https://x.example.test"; apiKey = "!pass show key"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "https://x.example.test"; apiKey = "Bearer $X"; }).commands.pi.requests;
+          assert fails (pi { endpoints = [ { url = "https://x.example.test"; header = "h"; } ]; }).commands.pi.requests;
+          assert fails (pi { binary = "host"; }).version;
+          assert (pi { binary = pkgs.hello; }).commands.pi.program == "${pkgs.hello}/bin/pi";
+          assert (pi { binary = pkgs.hello; }).commands.pi.requests.read == [ ];
+          # the files' contents, read at build (no import from derivation)
+          pkgs.runCommand "graft-pot-pi" { nativeBuildInputs = [ pkgs.jq ]; } ''
+            test "$(jq -c . ${src "auth.json"})" = '{}' && test "$(jq -c . ${src "mcp-auth.json"})" = '{}'
+            test "$(jq -c . ${src "mcp.json"})" = '{"mcpServers":{}}' && test "$(jq -c . ${src "keybindings.json"})" = '{}'
+            test ! -s ${src "SYSTEM.md"} && test ! -s ${src "APPEND_SYSTEM.md"}
+            test "$(jq -r .providers.local.apiKey ${src "models.json"})" = llama-cpp
+            test "$(jq -r .providers.openrouter.apiKey ${src "models.json"})" = '${"$"}{OPENROUTER_API_KEY}'
+            test "$(jq -c . ${src "settings.json"})" = '{"defaultProvider":"local"}'
+            touch $out
+          '';
+        # a root with the pi kit builds: its manifest validates (kit 1.1, no new field)
+        pot-root-pi = mkRoot {
+          inherit pkgs;
+          name = "check-pi";
+          kits."pi@all" = self.kits.pi { inherit pkgs;
+            providers.gw = { baseUrl = "https://llm.example.test/v1"; apiKey = "\${GW_KEY}"; models = [ { id = "m"; } ]; }; };
+          bindings.credential."llm.example.test kit=pi@all" = { via = "file"; from.file = "~/.config/x/key"; };
+        };
         # v2.16.0's deprecated forms are gone in v2.17.0: each fails evaluation (tests/run.sh kits checks the
         # message, which names its replacement); defaultInstance is checked at build (F4)
         pot-removed = let

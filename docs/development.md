@@ -26,7 +26,7 @@ calls pot's library, and pot never reads graft's files or conventions. graft's c
 | `pot/core/` | pot's Python: the command (`pot.py`), composition and checks (`compose.py`), the bubblewrap backend, the proxy, the broker and the shims. |
 | `pot/nix/` | `root.nix` (`mkRoot`, the standard set) and `hm.nix` (`homeManagerModules.pot`). |
 | `pot/lib/` | `kits-for.nix` (`kitsFor`, the seam that graft calls) and `kit.nix` (a kit as a manifest). |
-| `pot/kits/` | The agent kits: `claude-code.nix`. |
+| `pot/kits/` | The agent kits: `claude-code.nix`, `pi.nix`; `apis.nix`. |
 | `pot/contracts/` | [pot's contracts](../pot/contracts/README.md): the formats pot shares, each versioned. |
 | `pot/tests/` | pot's unit tests, its fixture bundles, and the golden grant test (`golden.json`). |
 | `dev/flake.nix` | Development-only inputs (knowledge-base-kit) and the docs check, kept out of graft's lock and so out of consumers' locks. |
