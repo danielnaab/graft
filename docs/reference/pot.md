@@ -1834,11 +1834,11 @@ repository`, which clone mode refuses).
 The exit line adds a count when it repeated: `(not in this run, 3x).` A request the proxy cannot read is
 `pot (work): the run sent the proxy a malformed request`.
 
-**The host's loopback is never reached** (v2.19.0). The proxy resolves each host once, refuses it when any of its
-addresses is loopback or unspecified (`127.0.0.0/8`, `::1`, `0.0.0.0/8`, `::`, and their IPv4-mapped forms), and
-connects to a checked address. So the host's own name, `localhost.` and a name that rebinds to `127.0.0.1` are
-refused like the literal, granted or not, on bubblewrap and Seatbelt alike (one proxy). No grant or flag changes
-it, so the refusal names no fix:
+**The host's loopback is never reached** (v2.19.0, for every kit and `--net`). The proxy resolves each host once,
+refuses it when any of its addresses is loopback or unspecified (`127.0.0.0/8`, `::1`, `0.0.0.0/8`, `::`, and their
+IPv4-mapped forms), and connects to a checked address. So the host's own name, `localhost.` and a name that
+rebinds to `127.0.0.1` are refused like the literal, granted or not, on bubblewrap and Seatbelt alike (one proxy).
+No grant or flag changes it, so the refusal names no fix:
 
 ```
 pot (work): the run tried platform-vm:18731, the host's loopback (127.0.0.1): a run cannot reach it (host-loopback is reserved for a later release).
@@ -2082,10 +2082,10 @@ A narrower kit is the same call with fewer `providers`.
 `url` is one `network` request, and nothing else is: `https://HOST` is `HOST` (port 443), `https://HOST:PORT` is
 `HOST:PORT`, and `http://HOST[:PORT]` is `HOST:PORT` (80 by default); hosts are lowercased, a trailing dot
 dropped. Each `apiKey` of the form `"$NAME"` or `"${NAME}"` (pi's own interpolation), each `headers` value of
-that form (the provider's, its models' and its `modelOverrides`'), and each endpoint's `key`, is a `credential` for
-the provider's hosts with `env = "NAME"` (a list when a host has several). Such a key travels only over https. Bind each by reference, `credential."HOST kit=pi"` (or
-`kit=pi@NAME`). A literal `apiKey`, such as a local server's placeholder, is no secret: it stays in `models.json`
-and asks for nothing.
+that form (the provider's, its models' and its `modelOverrides`'), and each endpoint's `key`, is a `credential`
+for the provider's hosts with `env = "NAME"` (a list when a host has several). Such a key travels only over
+https. Bind each by reference, `credential."HOST kit=pi"` (or `kit=pi@NAME`). A literal `apiKey`, such as a
+local server's placeholder, is no secret: it stays in `models.json` and asks for nothing.
 
 **Evaluation errors.** Each begins `graft.kits.pi: ` and names the provider (`provider P`) or the endpoint
 (`endpoints #N`, from 1):
@@ -2108,13 +2108,16 @@ and asks for nothing.
 **The loopback limit.** A run's loopback is its own, so a provider that listens on the host's `localhost` (a local
 llama.cpp or vLLM bound to 127.0.0.1) cannot be reached; the form that would forward one port,
 `host-loopback:PORT`, is reserved for a later release. Leave such a provider out of `providers`. A name that
-resolves to the host's loopback (the host's own name, say) passes this check and is refused by the proxy
-([Messages](#messages)). A server on
-another address (a LAN host, `http://192.168.1.52:11434/v1`) is an ordinary `network` request.
+resolves to the host's loopback (the host's own name, say) passes this check, and the proxy refuses it, as it
+does for every kit ([Messages](#messages)). A server on another address (a LAN host,
+`http://192.168.1.52:11434/v1`) is an ordinary `network` request.
 
 **The run gets its own pi home.** `~/.pi/agent` is `state pi`, scoped per instance, workspace and context:
-sessions, project trust (`trust.json`) and caches. pi's configuration in it is fixed (read-only) by the root, as
-Claude's is: the root configures the agent, so nothing a run writes configures a later run.
+sessions, project trust (`trust.json`), the model catalogs (`models-store.json`, which `PI_OFFLINE` keeps from
+refreshing at start) and extension caches. Those are what a run leaves for the next run of its scope
+([residual 8](#residual-risks)). pi's configuration in it is fixed (read-only) by the root, as Claude's is: the
+root configures the agent, so nothing a run writes configures a later run. A workspace's `.agents/skills` is the
+workspace's, not pi's home, and is not protected ([residual 5](#residual-risks)).
 
 - From the arguments: `settings.json`, and `models.json` (`{ providers }`).
 - From `files`: each home-manager file under `agentDir` outside the folders below (such as `AGENTS.md`).
@@ -2237,15 +2240,16 @@ first on `PATH` wins; `command -v pot` says which.
 4. **The host still runs repository and kit content:** Nix evaluation, fixed-output derivations, direnv, your own
    recipes, a provider's hand-written `.just` recipes, and kit tools where a wrapper runs unwrapped.
 5. **The working tree, transcripts and agent state are run output.** Read them as untrusted. A workspace's
-   `.agents/skills` is not protected: skills a run writes there load in a later pi session that trusts the
-   project, the host's too.
+   `AGENTS.md` and `.agents/skills` are not protected: instructions and skills a run writes there load in a later
+   agent session in that workspace, the host's too.
 6. **In place, a repo kit's code is mutable.** A powerful grant fixes its flake directory's tree hash. The rest of
    its code, and ordinary grants, are not fixed.
 7. **`pot grant` is a speed bump.** An unrestricted agent on the host can edit the grants file or script a
    terminal. A run cannot.
 8. **Within one state scope,** a run can leave transcripts and caches that the next run of that scope reads. It
-   cannot leave configuration. For pi, the state also holds its project trust (`trust.json`), catalog caches and
-   `-e` packages (`tmp/extensions`).
+   cannot leave configuration. For pi, the state also holds its project trust (`trust.json`), so a later run
+   trusts a project an earlier one trusted; its model catalogs (`models-store.json`), which a later run reads as
+   they were left; extension caches; and `-e` packages (`tmp/extensions`).
 9. **Sockets that a run creates** under a granted directory are reachable.
 10. **The terminal is shared:** OSC 52 clipboard writes, title changes, tmux passthrough. Set tmux's
     `set-clipboard off` and `allow-passthrough off`. `pot` escapes every byte that a run chose before it prints it:

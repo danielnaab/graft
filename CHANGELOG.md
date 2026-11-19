@@ -13,18 +13,22 @@
     installed packages are read-only. pi starts with `PI_OFFLINE=1`.
   - A key named by a variable (an `apiKey`, a header, an endpoint's `key`) travels only over https; header values
     follow `apiKey`'s rules. A pi run's denial names the root's pi kit as its first fix.
-- **pot never reaches the host's loopback.** The proxy resolves each host once and refuses it when an address is
-  loopback or unspecified, granted or not, so the host's own name and a name that rebinds to `127.0.0.1` are
-  refused like `127.0.0.1`; it connects to the checked address. Before, a granted loopback host or a name that
-  resolved there was reached (every kit and `--net`).
+- **Fixed: a run could reach the host's loopback** (every kit, `--net` and both backends, not only pi). The proxy
+  now resolves each host once and refuses it when an address is loopback or unspecified, granted or not, so the
+  host's own name and a name that rebinds to `127.0.0.1` are refused like `127.0.0.1`; it connects to the checked
+  address. Before, a granted loopback host, or a name that resolved there, was reached. The refusal is its own
+  denial, with no fix ([Messages](docs/reference/pot.md#messages)). A root that granted a loopback host loses it:
+  forwarding one port (`host-loopback:PORT`) is reserved for a later release.
 - `~/.pi/agent/mcp-auth.json` joins pot's hidden floor.
 - `kit/1` and `pot-kits/1` are unchanged (the second quiet release), and no existing grant asks again.
 
 ### Upgrading
 
-- Nothing is required. To run pi in pot: add `kits.pi` to the root, bind each `credential` that
+- To run pi in pot: add `kits.pi` to the root, bind each `credential` that
   `pot explain pi` lists (`credential."HOST kit=pi"`), rebuild the root, and run `pot grant pi`
   ([Set up a root](docs/guides/run-in-a-sandbox.md#set-up-a-root)).
+- A run that reached a service on the host's loopback (a granted `127.0.0.1:PORT`, or a name that resolves there)
+  is now refused: run that command on the host (`pot host CMD`), or serve it on another address.
 
 ## v2.18.0 - 2026-11-18
 
