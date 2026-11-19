@@ -69,6 +69,9 @@ DEFAULT_HIDDEN = [
 # baseProtect and agentMarkers, which reach pot in the root's manifest)
 BASE_PROTECT = ["**/flake.nix", "**/flake.lock", "**/.gitmodules", "**/.envrc", "**/justfile",
                 "**/.pre-commit-config.yaml", ".githooks", "**/.mcp.json", "**/.vscode"]
+# v2.19.1: the floor's agent configuration (design §9; BASE_PROTECT's last two and root.nix's baseProtect), which a
+# dispatch clone may change as a proposal: writable there, and flagged in review by the host's own look
+AGENT_CONFIG = ["**/.claude", "**/.mcp.json", "**/.pi", "**/.codex", "**/.vscode"]
 
 # §5: inspect's secret patterns (revision 4), as file-name patterns; *.pem and *.key only outside
 # package payload directories
@@ -1066,6 +1069,11 @@ def compose(inp):
     # v2.19.1: sealed protected folders (the root's sealedProtect, default **/.pi): under bubblewrap each entry is
     # read-only and a new entry is the run's alone (bwrap.sealed_mounts); only what is also protected
     sealed = [p for p in root.get("sealedProtect") or [] if p in protect]
+    # v2.19.1: in a clone, the floor's agent configuration is a proposal (writable, flagged in review), unless a repo
+    # kit, a scion kit or the bundle protects it too; in place nothing changes. The clone is the scratch copy, so
+    # nothing is sealed there.
+    kept = {p for p, src in protect_src if (src.get("kit") or "").startswith(("repo:", "git:")) or src.get("root") == "bundle"}
+    proposal = [p for p in AGENT_CONFIG if p in protect and p not in kept] if clone_mode else []
     network_ok = ctx["network"] == "granted"
     if not network_ok:
         item("network", "none", "limits", [{"context": ctx["name"]}])
@@ -1221,8 +1229,9 @@ def compose(inp):
 
     workspace = [{"id": w["id"], "path": w["top"],
                   "common": os.path.join(w["top"], ".git") if w.get("clone") else w["common"],
-                  "protected": protect if access == "write" else [],
-                  "sealed": sealed,
+                  "protected": [p for p in protect if p not in proposal] if access == "write" else [],
+                  "sealed": [] if clone_mode else sealed,
+                  "proposal": proposal,
                   "clone": w.get("clone")} for w in inp["workspace"]]
     policy = {
         "version": POLICY_VERSION,
@@ -1985,7 +1994,8 @@ def explain_text(policy, report, root, width=100):
 
     # ---- limits: each protected path once, with every source's label
     out.append("")
-    prot = [i for i in eff if i["kind"] == "protect"]
+    proposed = {p for w in policy.get("workspace") or [] for p in w.get("proposal") or []}
+    prot = [i for i in eff if i["kind"] == "protect" and i["value"] not in proposed]
     if policy["access"] == "write":
         labels = {}
         for i in prot:
@@ -2001,6 +2011,8 @@ def explain_text(policy, report, root, width=100):
             first = False
     else:
         out.append(f"limits     the workspace is read-only (access {policy['access']})")
+    if proposed:
+        out += wrap_words("           agent config:", [p for p in AGENT_CONFIG if p in proposed] + ["(a clone's proposal)"], width, 20)
     seal = list(dict.fromkeys(p for w in policy.get("workspace") or [] for p in w.get("sealed") or []))
     if seal:
         prot_labels = {i["value"]: src(i) for i in prot}

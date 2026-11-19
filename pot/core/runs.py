@@ -71,6 +71,8 @@ def attention(after, fetched=False):
         out.append("root changed")
     if after.get("touches_host_run"):
         out.append("host-run: " + ", ".join(after["touches_host_run"][:4]))
+    if after.get("agent_config"):
+        out.append("agent config: " + ", ".join(after["agent_config"][:4]))
     if after.get("repo_kit_change"):
         out.append("repo kit: " + ", ".join(after["repo_kit_change"][:4]))
     if after.get("gitlinks"):
@@ -138,7 +140,9 @@ def record(rid, events, alive):
                  "nested": c.get("nested") or [],
                  "fetchFailed": (af or {}).get("fetch_failed") or None,      # N2: the after event's failure, as text
                  "size": (af or {}).get("size"), "fetched": (fetch or {}).get("refs"),
-                 "discarded": (disc or {}).get("time"), "keptUntil": None}
+                 "discarded": (disc or {}).get("time"), "keptUntil": None,
+                 # v2.19.1: the agent configuration its commits change (the host's look), which loads once merged
+                 "agentConfig": (af or {}).get("agent_config") or []}
     if stop:
         state = "stopped"
     elif not ended(events) and s and alive(s):

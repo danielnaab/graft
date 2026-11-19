@@ -7,10 +7,17 @@
   and the skills they name (`Warning: Invalid settings file …: EROFS`). A protected folder that the root's new
   `sealedProtect` names (default `[ "**/.pi" ]`) is now sealed under bubblewrap: each entry stays read-only, and a
   new entry is the run's alone, gone at exit and never on the host ([Protected paths](docs/reference/pot.md#protected-paths)).
-  In place, with read access, in `inspect`, in a dispatch clone and in a nested child.
+  In place, with read access, in `inspect` and in a nested child (a dispatch clone proposes instead, below).
 - **macOS:** Seatbelt cannot seal, so there `.pi` stays plainly read-only and pi still ignores a project's
   `.pi/settings.json`.
-- policy.json's workspace entries gain `sealed` (run-env/1: a key added). `kit/1` and `pot-kits/1` are unchanged,
+- **pot: a dispatch clone can propose agent configuration.** In a clone, `**/.claude`, `**/.mcp.json`, `**/.pi`,
+  `**/.codex` and `**/.vscode` are writable (unless a repo or scion kit protects them too), and nothing is sealed.
+  What the run commits there is flagged by the host's own look: `agent config: PATH` in `pot review`,
+  `changes agent configuration: PATH (loads in agent sessions once merged)` in `pot review RUN`, `--fetch` and the
+  exit line, and runs/1's `clone.agentConfig`; nested children's clones too. In place nothing changes
+  ([Change agent configuration from a run](docs/guides/dispatch.md#change-agent-configuration-from-a-run)).
+- policy.json's workspace entries gain `sealed` and `proposal` (run-env/1: keys added); the after event gains
+  `agent_config`, and the record's `clone` gains `agentConfig` (runs/1: keys and an attention string added). `kit/1` and `pot-kits/1` are unchanged,
   and no grant asks again.
 
 ## v2.19.0 - 2026-11-19

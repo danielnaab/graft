@@ -167,6 +167,23 @@ clone. Two limits in this release: only the child's top repository comes back (c
 `clones.maxSize` does not count children's clones; `pot review 9b0e/c210 --discard` removes one. See
 [Nested dispatch](../reference/pot.md#nested-dispatch).
 
+## Change agent configuration from a run
+
+In place, agent configuration (`.pi`, `.claude`, `.mcp.json`, `.codex`, `.vscode`) is read-only. A dispatch clone
+can change it, as a proposal that loads in agent sessions only once you merge it:
+
+```
+pot dispatch pi       # pi edits .pi/settings.json, say, and commits
+pot review            # attention: agent config: .pi/settings.json
+pot review 1ac1       # changes agent configuration: .pi/settings.json (loads in agent sessions once merged)
+pot review 1ac1 --fetch
+git log -p main..pot-1ac1/main -- .pi
+git merge pot-1ac1/main
+```
+
+Read the change before you merge it: agent configuration decides what agents load (settings, skills, MCP servers).
+A path that a repo kit protects (`AGENTS.md` in flexion-assistant, say) stays read-only in the clone too.
+
 ## What the clone has, and what it doesn't
 
 - Your commit (the base) and its branch, and no other branch of yours; its scions (the first level of submodules) at their gitlinks. The
@@ -178,6 +195,9 @@ clone. Two limits in this release: only the child's top repository comes back (c
 - No LFS content: pot's git runs no filters, so LFS files are pointer files.
 - Your repository's kits, as committed at the base. A kit change that you have not committed does not apply.
 - One repository: `--repo` is refused in clone mode.
+- Writable agent configuration (v2.19.1): `**/.claude`, `**/.mcp.json`, `**/.pi`, `**/.codex` and `**/.vscode`,
+  unless a repo or scion kit protects them too ([above](#change-agent-configuration-from-a-run)). The clone's git
+  config, hooks and `info/`, the repo kit's `protect` and the scions folder stay read-only.
 
 ## Keeping clones
 

@@ -275,7 +275,7 @@ class Compose(unittest.TestCase):
                                   "mounts", "bindings", "children", "grants"})
         self.assertEqual(p["version"], 1)
         self.assertEqual(set(p["backend"]), {"name", "requires", "proved"})
-        self.assertEqual(set(p["workspace"][0]), {"id", "path", "common", "protected", "sealed", "clone"})
+        self.assertEqual(set(p["workspace"][0]), {"id", "path", "common", "protected", "sealed", "proposal", "clone"})
         self.assertEqual(set(p["mounts"]), {"state", "run", "launcher"})
         self.assertEqual(p["mounts"]["run"], "/run/pot")
         self.assertEqual(p["children"], {})
@@ -442,6 +442,32 @@ class Compose(unittest.TestCase):
         p, _ = C.compose(inp(flags={"access": "read"}))
         self.assertEqual(p["access"], "read")
         self.assertEqual(p["workspace"][0]["protected"], [])
+
+    def test_proposal(self):
+        # v2.19.1: in a clone, the floor's agent configuration is writable (a proposal) and nothing is sealed; in place
+        # it stays protected and sealed; a pattern that a repo kit protects too stays protected in the clone
+        full = ["closure-store", "own-netns", "own-pidns", "no-tiocsti", "protected-as-mounts", "in-place",
+                "same-path-clone", "root-files"]
+        ac = ["**/.claude", "**/.mcp.json", "**/.pi", "**/.codex", "**/.vscode"]
+        p, rep = C.compose(inp(context="dispatch", probe=full))
+        w = p["workspace"][0]
+        self.assertEqual(w["proposal"], ac)
+        self.assertEqual(w["sealed"], [])
+        self.assertFalse(set(ac) & set(w["protected"]))
+        self.assertIn(".githooks", w["protected"])
+        t = C.explain_text(p, rep, root())
+        self.assertIn("           agent config: **/.claude **/.mcp.json **/.pi **/.codex **/.vscode (a clone's proposal)\n", t)
+        self.assertNotIn("sealed:", t)
+        p, rep = C.compose(inp(probe=full))
+        w = p["workspace"][0]
+        self.assertEqual((w["proposal"], w["sealed"]), ([], ["**/.pi"]))
+        self.assertTrue(set(ac) <= set(w["protected"]))
+        self.assertNotIn("a clone's proposal", C.explain_text(p, rep, root()))
+        p, _ = C.compose(inp(context="dispatch", probe=full, workspace=[ws(kit={"protect": ["**/.pi", "AGENTS.md"]})]))
+        w = p["workspace"][0]
+        self.assertEqual(w["proposal"], ["**/.claude", "**/.mcp.json", "**/.codex", "**/.vscode"])
+        self.assertIn("**/.pi", w["protected"])
+        self.assertIn("AGENTS.md", w["protected"])
 
     def test_clone_mode(self):
         # v2.17.0: clone mode composes; it requires same-path-clone where the backend proves it. Seatbelt can't: its

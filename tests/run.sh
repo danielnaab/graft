@@ -2846,6 +2846,23 @@ EOF
   local ag && ag=$(d_ runs --json | jq -r '.runs[0].id')
   expect "flagged host-run" test "$(rec "$ag" '.attention | index("host-run: AGENTS.md")')" != null
   expect "not labelled repo kit (only the flake's own files are)" test "$(rec "$ag" '[.attention[] | select(startswith("repo kit"))] | length')" = 0
+  # v2.19.1: a clone proposes agent configuration (.claude here), while the repo kit's protect (AGENTS.md) and the
+  # clone's git hooks stay read-only
+  ran "dispatch: a clone proposes agent configuration" d_ dispatch bash -c 'if (echo x >> AGENTS.md) 2>/dev/null; then echo "wrote AGENTS.md"; else echo "AGENTS.md read-only"; fi
+    if (echo x > .git/hooks/post-commit) 2>/dev/null; then echo "wrote a hook"; else echo "hooks read-only"; fi
+    mkdir -p .claude && echo "{}" > .claude/settings.json && git add .claude && git commit -qm "propose claude settings" && echo committed'
+  expect "the repo kit's protect stays read-only" has "AGENTS.md read-only"
+  expect "and the clone's hooks" has "hooks read-only"
+  expect "agent configuration is writable and commits" has "committed"
+  local pc && pc=$(d_ runs --json | jq -r '.runs[0].id')
+  expect "flagged as agent configuration" test "$(rec "$pc" '.attention | index("agent config: .claude/settings.json")')" != null
+  expect "not as host-run" test "$(rec "$pc" '[.attention[] | select(startswith("host-run"))] | length')" = 0
+  expect "with clone.agentConfig" test "$(rec "$pc" '.clone.agentConfig | join(",")')" = ".claude/settings.json"
+  # in place, an existing .claude stays protected (protection covers the paths that exist at start)
+  mkdir -p .claude && echo "{}" > .claude/settings.json
+  ran "dispatch: an in-place run" d_ bash -c 'if (echo x > .claude/new.json) 2>/dev/null; then echo "wrote .claude"; else echo ".claude read-only"; fi'
+  expect "may not write .claude" has ".claude read-only"
+  case "$PWD/.claude" in "$work"/*) rm -rf -- "$PWD/.claude";; esac
   # X8: when the host signs, the sign line names a branch to rebase on
   ran "dispatch: X8, a commit to sign" d_ dispatch bash -c 'git commit -q --allow-empty -m to-sign'
   local gid && gid=$(d_ runs --json | jq -r '[.runs[] | select(.state == "review" and .clone.commits == 1)][0].id')
@@ -3176,7 +3193,7 @@ EOF
   # the clone carries core.hooksPath), writes attributes naming the filter, and the parent then plants hooks and
   # config in the child's clone, and forges host lines in its log
   cat > "$work/nparent.sh" <<'EOF'
-out=$(pot dispatch agent -c 'printf "* filter=evil diff=evil\n" > .gitattributes; echo x > n.md; git add -A; git commit -q -m nested; echo nested-ran' 2>&1)
+out=$(pot dispatch agent -c 'printf "* filter=evil diff=evil\n" > .gitattributes; echo x > n.md; mkdir -p .pi && echo "{}" > .pi/settings.json; git add -A; git commit -q -m nested; echo nested-ran' 2>&1)
 echo "$out"
 id=$(echo "$out" | sed -n 's/^pot: run \([0-9a-f]*\/[0-9a-f]*\) .*/\1/p')
 c=/run/pot/children/${id#*/}
@@ -3216,6 +3233,7 @@ EOF
   expect "lists the child in review" holds "$cid"
   ran "nest: pot review CHILD" ng_ review "$cid"
   refuse "the clone's own submodules are not new git metadata" holds "new git metadata"
+  expect "v2.19.1: a nested child's agent configuration is flagged, by the host's own look" has "changes agent configuration: .pi/settings.json (loads in agent sessions once merged)"
   # H6: a parent ref named like the child's
   git_ update-ref "refs/remotes/pot-$pid/${cid#*/}/main" HEAD
   ran "nest: pot review CHILD --fetch" ng_ review "$cid" --fetch
@@ -3481,9 +3499,28 @@ PROBE
   expect "pi reads the settings there too" has 'project settings {"skills":["./skills"]}'
   ran "pi: .pi sealed, in inspect" pi_ inspect bash probe-pi.sh read
   expect "and in inspect" has 'project settings {"skills":["./skills"]}'
-  ran "pi: .pi sealed, in a dispatch clone" pi_ dispatch bash probe-pi.sh
-  expect "and in a clone" has 'project settings {"skills":["./skills"]}'
-  expect "its entries read-only" has "read-only settings.json"
+  # v2.19.1: a clone proposes agent configuration: there .pi is writable (no seal: the clone is the scratch copy), and
+  # what it commits is flagged by the host's own look, in review and on the fetch line
+  ran "pi: a clone proposes .pi" pi_ dispatch bash -c 'bash probe-pi.sh read; echo "{\"skills\":[\"./skills\"],\"proposed\":1}" > .pi/settings.json && echo "wrote .pi in the clone"; if (echo x > .git/hooks/pre-commit) 2>/dev/null; then echo "wrote hooks"; else echo "hooks read-only"; fi; git add -A && git commit -q -m "propose pi settings" && echo committed'
+  expect "the clone reads the settings" has 'project settings {"skills":["./skills"]}'
+  expect "and writes them" has "wrote .pi in the clone"
+  expect "the clone's .git hooks stay read-only" has "hooks read-only"
+  expect "and commits" has "committed"
+  local prid && prid=$(pi_ runs --json | jq -r '[.runs[] | select(.mode == "clone" and .state == "review")][0].id')
+  expect "pi: the proposal's run id" test -n "$prid"
+  expect "the host's .pi is unchanged until merge" test "$(cat .pi/settings.json)" = '{"skills":["./skills"]}'
+  ran "pi: pot review RUN" pi_ review "$prid"
+  expect "flags the agent configuration" has "changes agent configuration: .pi/settings.json (loads in agent sessions once merged)"
+  ran "pi: pot review RUN --json" pi_ review "$prid" --json
+  expect "as clone.agentConfig" test "$(jq -c .clone.agentConfig <<<"$out")" = '[".pi/settings.json"]'
+  expect "and an attention item" test "$(jq -r '.attention[]' <<<"$out" | grep -c '^agent config: .pi/settings.json$')" = 1
+  ran "pi: pot review RUN --fetch" pi_ review "$prid" --fetch
+  expect "the fetch line flags it too" has "  changes agent configuration: .pi/settings.json (loads in agent sessions once merged)"
+  expect "the proposal came back" test "$(git_ show "refs/remotes/pot-$prid/main:.pi/settings.json")" = '{"skills":["./skills"],"proposed":1}'
+  expect "the host's .pi is still unchanged" test "$(cat .pi/settings.json)" = '{"skills":["./skills"]}'
+  ran "pi: explain dispatch names what a clone proposes" pi_ explain dispatch
+  expect "on the limits row" holds "agent config: **/.claude **/.mcp.json **/.pi **/.codex **/.vscode (a clone's proposal)"
+  refuse "and no seal there" holds "sealed: "
   # each .pi under the top is sealed on its own (a scion's, a subfolder's)
   mkdir -p sub/.pi && echo s > sub/.pi/x
   ran "pi: a subfolder's .pi, sealed too" pi_ bash -c 'cd sub && mkdir .pi/l && rmdir .pi/l && echo "sub: new entry ok"; if (echo y > .pi/x) 2>/dev/null; then echo "sub: wrote x"; else echo "sub: x read-only"; fi'

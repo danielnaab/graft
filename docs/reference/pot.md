@@ -1404,7 +1404,7 @@ pot review [RUN] [--fetch|--discard] [--since T] [--until T] [--command NAME] [-
 
   ATTENTION is the host's findings after the run, never a bare commit count: `N unsigned` (only when your git
   config signs, until the run is fetched), `root: FILE (programs.pot)`, `root: pot/grants.json` or `root changed`,
-  `host-run: FILE`, `repo kit: FILE` (only the repo kit's own files: its flake directory, or the top's `flake.nix`
+  `host-run: FILE`, `agent config: FILE` (a clone's [proposal](#protected-paths), v2.19.1), `repo kit: FILE` (only the repo kit's own files: its flake directory, or the top's `flake.nix`
   and `flake.lock`, and only where there is a repo kit), `gitlinks: PATH`, `fetch failed: …`, `N new git metadata paths` and `N denied: HOST`. A fetched
   run with no other finding drops off the list. With nothing to show, it prints
   `pot: no runs need review`, and no header. The WORKSPACE column, here and in `pot runs`, is the short name the startup line uses: the
@@ -1431,6 +1431,9 @@ pot review [RUN] [--fetch|--discard] [--since T] [--until T] [--command NAME] [-
      modules/pot.nix | 2 +-
      1 file changed, 1 insertion(+), 1 deletion(-)
   ```
+- **Agent configuration:** when the run's commits change a [proposed](#protected-paths) path, `pot review RUN` adds
+  `changes agent configuration: .pi/settings.json (loads in agent sessions once merged)` after the record, and
+  `--fetch` prints the same line, indented, before `review:`.
 - **`pot review RUN --fetch`** brings a clone's commits into your repository: host git fetches the run's staging
   into `refs/remotes/pot-<id>/*` (and a commit on a detached `HEAD` as `pot-<id>/detached`), with fsck and no tags,
   and each scion that has commits into that scion's module repository the same way. It never opens the clone. The
@@ -1764,11 +1767,24 @@ bound read-only (a link as the same link, a subfolder read-only throughout). So 
 renamed or deleted, and a new top-level entry, such as pi's `settings.json.lock` (pi takes that lock even to read
 its project `.pi/settings.json`), is the run's alone: gone at exit, never on the host, absent from the next run. An
 entry the host adds during the run is not seen. Each workspace top is sealed on its own, scions included, in place,
-with read access, in `inspect`, in a dispatch clone and in a nested child (from its parent's view). `pot explain`
+with read access, in `inspect` and in a nested child (from its parent's view). A dispatch clone is not sealed: there
+agent configuration is a proposal (below). `pot explain`
 says so under `limits`: `sealed: **/.pi (pot): read-only entries; a new one lasts for the run`. **On macOS** Seatbelt
 cannot seal (it has no mounts): a sealed folder stays plainly read-only, so pi ignores a project's
 `.pi/settings.json` there (`Warning: Invalid settings file …: EPERM`), and explain says `sealed: none (seatbelt
 cannot: **/.pi stays read-only)`.
+
+**Agent configuration in a clone is a proposal** (v2.19.1). In a dispatch clone, the floor's agent configuration,
+`**/.claude`, `**/.mcp.json`, `**/.pi`, `**/.codex` and `**/.vscode`, is writable, unless a repo kit, a scion kit or
+the bundle protects the same pattern. Everything else stays as above: the clone's git config, hooks and `info/`,
+the repo kit's `protect`, `**/graft.nix` and the scions folder. policy.json lists the patterns as the workspace's
+`proposal`, and `pot explain dispatch` says
+`agent config: **/.claude **/.mcp.json **/.pi **/.codex **/.vscode (a clone's proposal)` under `limits`. What the
+run commits there is flagged by the host's own look at the staged commits, never by the run: `pot review` lists
+`agent config: .pi/settings.json` under ATTENTION, `pot review RUN` and `--fetch` print
+`changes agent configuration: .pi/settings.json (loads in agent sessions once merged)`, the exit line says
+`pot: the run changes agent configuration: …`, and runs/1's `clone.agentConfig` lists the paths. A nested child's
+clone is flagged the same way. In place, nothing changes: agent configuration stays protected (and `.pi` sealed).
 
 In place, a protected file with a second hard link stops the run. A clone has no hard links to your repository
 (it is made with `--no-hardlinks`), so the check does not apply there. To change a protected file, edit it on the

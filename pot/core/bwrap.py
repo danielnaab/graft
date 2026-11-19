@@ -1154,7 +1154,7 @@ def after(cfg, rundir):
     except OSError:
         before = {"pins": [], "hostrun": {}, "refs": {}}
     ev = {"ev": "after", "by": "host", "commits": [], "unsigned": 0, "touches_host_run": [], "repo_kit_change": [],
-          "root_repo_change": False, "new_git_metadata": [], "denials": [], "loopback": [], "signs": bool(launch.get("hostSigns"))}
+          "root_repo_change": False, "new_git_metadata": [], "denials": [], "loopback": [], "agent_config": [], "signs": bool(launch.get("hostSigns"))}
     for b in before.get("clones") or []:
         try:
             if os.environ.get("POT_TEST_FAULT") == "after":      # the tests' fault point: an after step that fails
@@ -1382,6 +1382,8 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
                         ev["gitlinks"].append(visible(path))
             prot = w["protected"] + HOST_RUN_EXTRA
             ev["touches_host_run"] += sorted(visible(p) for p in changed if matches(p, prot))
+            # v2.19.1: agent configuration the clone proposes (policy workspace[].proposal), from the staged commits
+            ev["agent_config"] += sorted(visible(p) for p in changed if matches(p, w.get("proposal") or []))
             flake = (launch.get("repoKitPaths") or {}).get(top, [])
             ev["repo_kit_change"] += [p for p in sorted(visible(c) for c in changed) if any(p == f or p.startswith(f + "/") for f in flake)]
             if launch.get("rootRepo"):

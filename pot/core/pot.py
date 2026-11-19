@@ -1313,6 +1313,8 @@ def exit_lines(ev, policy, report, root):
                    + ", ".join(ev["new_git_metadata"][:8]) + (" …" if len(ev["new_git_metadata"]) > 8 else ""))
     if ev.get("touches_host_run"):
         out.append("pot: the run changed host-run files (review before the host runs them): " + ", ".join(ev["touches_host_run"][:8]))
+    if ev.get("agent_config"):
+        out.append("pot: the run " + agent_config_line(ev["agent_config"]))
     if ev.get("unsigned"):
         base = ev.get("base")
         how = f"git rebase --exec 'git commit --amend --no-edit -S' {base}" if base else \
@@ -2167,7 +2169,7 @@ def children_after(host, bprog, prd, pid):
         clone = os.path.join(cd, "clone")
         base = str((s.get("clone") or {}).get("base") or "")
         ev = {"ev": "after", "by": "host", "run": f"{pid}/{cid}", "commits": [], "unsigned": 0, "touches_host_run": [],
-              "repo_kit_change": [], "root_repo_change": False, "new_git_metadata": [], "denials": []}
+              "repo_kit_change": [], "root_repo_change": False, "new_git_metadata": [], "denials": [], "agent_config": []}
         if not real_dir(clone) or not real_dir(os.path.join(clone, ".git")) or not re.fullmatch(r"[0-9a-f]{40}", base):
             ev["fetch_failed"] = "the parent left no clone pot can read (or no base commit)"
             child_log(hd, ev)
@@ -2178,7 +2180,10 @@ def children_after(host, bprog, prd, pid):
                    or os.path.join(w0.get("common") or os.path.join(top, ".git"), "objects"))
         os.makedirs(hd, mode=0o700, exist_ok=True)
         with open(os.path.join(hd, "policy.json"), "w") as f:
-            json.dump({"workspace": [{"path": top, "protected": w0.get("protected") or [], "common": os.path.join(top, ".git")}],
+            # v2.19.1: a child is a clone, so its agent configuration is a proposal, flagged by this look (the floor's
+            # list: a pattern a repo kit keeps was read-only in the child's clone, so nothing there changes)
+            json.dump({"workspace": [{"path": top, "protected": [p for p in w0.get("protected") or [] if p not in C.AGENT_CONFIG],
+                                      "proposal": list(C.AGENT_CONFIG), "common": os.path.join(top, ".git")}],
                        "context": "dispatch", "items": [], "mounts": {"state": [], "run": "/run/pot"}}, f)
         with open(os.path.join(hd, "launch.json"), "w") as f:
             json.dump({"clone": {"base": base, "branch": (s.get("clone") or {}).get("branch"), "path": clone, "scions": [],
@@ -3541,6 +3546,12 @@ def staging_of(rd, name="top"):
     return p if os.path.isdir(p) else None
 
 
+def agent_config_line(paths):
+    """v2.19.1: a clone's proposed agent configuration, as review, the fetch and the exit line say it."""
+    return (f"changes agent configuration: {', '.join(paths[:8])}{' …' if len(paths) > 8 else ''} "
+            "(loads in agent sessions once merged)")
+
+
 def review_cmd(host, root, flags, args):
     if flags.get("approve"):
         raise C.Refusal("pot review --approve comes with pot serve (phase 3): no run waits for approval in this release", 2)
@@ -3595,6 +3606,9 @@ def review_cmd(host, root, flags, args):
         return 0
     for l in record_text(rec, ev, rd, review=True):
         print(l)
+    ac = (R.last(ev, "after") or {}).get("agent_config")
+    if ac:
+        print(visible(agent_config_line(ac)))
     sd = staging_of(rd)
     c = rec.get("clone")
     if sd and c and c.get("base"):
@@ -3665,6 +3679,9 @@ def fetch_back(host, rec, ev, rd):
         shown.append(f"{rn}/{b} ({n} commit{'s' if n != '1' else ''} on {short})")
     print(visible(f"pot: fetched run {rid} into {C.canon_path(src, host.home)}: " + (", ".join(shown) or "its scions' commits")))
     signs = c.get("unsigned") and run_git(host, src, "config", "--bool", "commit.gpgsign").stdout.strip() == "true"
+    ac = (R.last(ev, "after") or {}).get("agent_config")
+    if ac:
+        print(visible("  " + agent_config_line(ac)))
     if shown:
         first_ref = f"{rn}/" + order[0]
         print(visible(f"  review:  git log --stat {short}..{first_ref}"))
