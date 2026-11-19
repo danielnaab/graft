@@ -3356,6 +3356,16 @@ def granted_since(host, stop):
     return True
 
 
+def by_start(x):
+    """A (record, events, run directory) entry's sort key: its start, then (v2.19.2) its policy.json's time to the
+    nanosecond, written as it starts, so two runs that start in the same second list in the order they started."""
+    try:
+        ns = os.stat(os.path.join(x[2], "policy.json")).st_mtime_ns
+    except (OSError, TypeError, IndexError):
+        ns = 0
+    return x[0]["started"] or "", ns
+
+
 def all_records(host):
     out = []
     for rid, rd in R.run_dirs(host.state):
@@ -3366,7 +3376,7 @@ def all_records(host):
         rec["children"] = [k[0]["id"] for k in kids]
         out.append((rec, ev, rd))
         out += kids
-    out.sort(key=lambda x: x[0]["started"] or "", reverse=True)
+    out.sort(key=by_start, reverse=True)
     return out
 
 
@@ -3558,7 +3568,7 @@ def runs_list(recs, flags):
     keep = [r for r in recs if r[0]["state"] in ("running", "stopped", "review")]
     others = [r for r in recs if r not in keep]
     sel = recs if flags.get("all") else keep + others[:20]
-    sel.sort(key=lambda x: x[0]["started"] or "", reverse=True)
+    sel.sort(key=by_start, reverse=True)
     if flags.get("json"):
         print(json.dumps({"version": R.RECORD_VERSION, "runs": [r[0] for r in sel]}))
         return

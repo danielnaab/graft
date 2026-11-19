@@ -15,6 +15,8 @@ From the Mac checks of v2.19.1 (Seatbelt, which platform-vm cannot run). Both fi
   existing `.Envrc` or `FLAKE.NIX` was not pinned read-only. Now it is pinned, and a new one is flagged at exit and
   in review, as `.envrc` is. On every system, so on a case-sensitive one this only protects more
   ([Protected paths](docs/reference/pot.md#protected-paths)).
+- **pot runs:** two runs that start in the same second list in the order they started (their `policy.json`'s time
+  breaks the tie), so `pot runs`' first is the newest. Two tests that took it flaked.
 - tests/run.sh's Seatbelt section tests F4 for real: it grants `fixedtest` and makes its folders itself (they were
   in the bubblewrap part, which never runs on a Mac), and renames the folders pot made for its host memory links.
   Before, F4 failed on a Mac, or found no nested link to test.

@@ -65,5 +65,20 @@ class Matches(unittest.TestCase):
             self.assertFalse(C.protected_by(path, pat), (path, pat))
 
 
+class RunOrder(unittest.TestCase):
+    def test_same_second_runs_list_in_start_order(self):
+        import pot
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(d, ignore_errors=True))
+        ents = []
+        for n, ns in (("a", 2_000), ("b", 1_000), ("c", 3_000)):
+            os.mkdir(os.path.join(d, n))
+            open(os.path.join(d, n, "policy.json"), "w").close()
+            os.utime(os.path.join(d, n, "policy.json"), ns=(ns, ns))
+            ents.append(({"id": n, "started": "2026-11-19T12:31:34"}, [], os.path.join(d, n)))
+        ents.append(({"id": "old", "started": "2026-11-19T12:31:33"}, [], os.path.join(d, "gone")))
+        self.assertEqual([e[0]["id"] for e in sorted(ents, key=pot.by_start, reverse=True)], ["c", "a", "b", "old"])
+
+
 if __name__ == "__main__":
     unittest.main()
