@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import stat
 import subprocess
@@ -327,18 +328,54 @@ def sealed_dirs(cfg, top, patterns):
     return [d for d in out if not any(d.startswith(o + "/") for o in out)]
 
 
-def seal(mount, src, dest):
-    """v2.19.1: a sealed folder: a tmpfs of the run's own at DEST, with each entry of SRC bound read-only into it (a
-    link as the same link). So no entry can be written, replaced, renamed or deleted (a mount point), and a new entry,
-    such as pi's settings.json.lock, is the run's alone: gone at exit, never on the host. An entry the host adds
-    during the run is not seen."""
-    mount(dest, 1, ["--tmpfs", dest])
-    for e in sorted(os.listdir(src)):
+EMPTY_BLOB = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"     # git's empty blob (SHA-1)
+SEAL_MAX = 256    # entries a sealed folder takes (3 bwrap arguments each; bwrap's limit is 9000 in all)
+
+
+def seal(mount, src, dest, base):
+    """v2.19.1: a sealed folder: BASE, a folder of the run's own in its run directory, bound read-write at DEST, with
+    each entry of SRC bound read-only into it (a link as the same link). So no entry can be written, replaced, renamed
+    or deleted (a mount point), and a new entry, such as pi's settings.json.lock, lands in BASE: never on the host,
+    listed by the after step (sealed_left), and removed with the run directory. An entry the host adds during the run
+    is not seen. Returns the entries' names (their mount points in BASE are pot's, not the run's)."""
+    os.makedirs(base, mode=0o700, exist_ok=True)
+    mount(dest, 1, ["--bind", base, dest])
+    names = sorted(os.listdir(src))
+    for e in names:
         s, d = os.path.join(src, e), os.path.join(dest, e)
         if os.path.islink(s):
             mount(d, 1, ["--symlink", os.readlink(s), d])
         else:
             mount(d, 1, ["--ro-bind", s, d])
+    return names
+
+
+def sealed_left(base, entries, rel):
+    """v2.19.1: what a run left in a seal's BASE, beyond the entries' mount points: (path shown, type, size), never
+    following a link; pi's lock folders (proper-lockfile's NAME.lock) left out."""
+    out = []
+    for e in sorted(os.listdir(base)):
+        if e in entries:
+            continue
+        p = os.path.join(base, e)
+        if e.endswith(".lock") and os.path.isdir(p) and not os.path.islink(p):
+            continue
+        todo = [(p, f"{rel}/{e}")]
+        while todo:
+            q, shown = todo.pop(0)
+            st = os.lstat(q)
+            if stat.S_ISLNK(st.st_mode):
+                out.append((shown, "link", None))
+            elif stat.S_ISDIR(st.st_mode):
+                kids = sorted(os.listdir(q))
+                if not kids:
+                    out.append((shown + "/", "folder", None))
+                todo = [(os.path.join(q, k), f"{shown}/{k}") for k in kids] + todo
+            elif stat.S_ISREG(st.st_mode):
+                out.append((shown, "file", st.st_size))
+            else:
+                out.append((shown, "other", None))
+    return out
 
 
 def masked(p):
@@ -782,6 +819,12 @@ def prepare(cfg, rundir, print_cmd=False):
                 return top + p[len(src):] if p == src or p.startswith(src + "/") else p
             pins = Pins(src, os.path.join(src, ".git"), w["protected"], cfg)
             pins.compute(os.path.join(src, ".git", "hooks"))
+            # v2.19.1: a proposal path (agent configuration, writable in the clone) that is a link, or under one,
+            # stops the run as in place: what it changes through the link would go unflagged
+            pp = Pins(src, os.path.join(src, ".git"), w.get("proposal") or [], cfg)
+            pp.scan()
+            for e in pp.named:
+                pp.nolink(e, src)
             clones.append((w, pins))
             mount(top, 0, ["--bind", src, top])
             for d in pins.dirs:
@@ -811,12 +854,51 @@ def prepare(cfg, rundir, print_cmd=False):
     # v2.19.1: sealed protected folders (policy workspace[].sealed: the root's sealedProtect), in every mode: in place,
     # read access, inspect's view, a dispatch clone (from the clone, at the original path) and a nested child (from
     # its parent's view, which is itself sealed); each workspace top on its own, scions included
+    notes = []
+    sealed_runs = []
     for w in policy["workspace"]:
         src = w.get("clone") or w["path"]
         for d in sealed_dirs(cfg, src, w.get("sealed") or []):
             dest = w["path"] + d[len(src):]
+            # a hidden seal, or one under a hidden folder, stays hidden (K4: nothing is bound inside a hidden folder)
+            if dest in hidden or in_hidden(dest):
+                continue
+            n = len(os.listdir(d))
+            if n > SEAL_MAX:
+                # too many entries to bind one by one: the folder stays plainly read-only, as before v2.19.1
+                notes.append(f"pot: {tilde(dest, home)} has {n} entries, more than a sealed folder takes ({SEAL_MAX}): "
+                             "it is read-only in this run, so pi cannot take its settings lock there")
+                continue
             mounts[:] = [m for m in mounts if not (m[0] == dest and m[2][:1] == ["--ro-bind"])]
-            seal(mount, d, dest)
+            base = os.path.join(rundir, "sealed", str(len(sealed_runs)))
+            names = seal(mount, d, dest, base)
+            sealed_runs.append({"dest": dest, "base": base, "entries": names,
+                                "rel": os.path.relpath(dest, w["path"])})
+    launch["sealed"] = sealed_runs
+    # v2.19.1: a hidden path under the workspace's real path (in place and with read access; inspect's view masks its
+    # own; a clone holds only what git holds, so masking its copy protects nothing) is masked, and nothing is bound
+    # inside a hidden folder there. One that git tracks gets a start note: the run sees it empty
+    if not view:
+        ws_hidden = []
+        for w in policy["workspace"]:
+            if w.get("clone"):
+                continue
+            top = w["path"]
+            for h in hidden:
+                if (h.startswith(top + "/")) and os.path.lexists(h) and h not in ws_hidden:
+                    ws_hidden.append(h)
+                    rel = os.path.relpath(h, top)
+                    tracked = git(cfg, top, "ls-files", "-z", "--", rel).stdout
+                    if tracked:
+                        notes.append(f"pot: {tilde(h, home)} is hidden here, but git tracks it: the run sees it empty, and "
+                                     "git's history still holds it; don't commit it from this run")
+                        launch.setdefault("hiddenTracked", {}).setdefault(top, []).append(rel)
+        hdirs = [h for h in ws_hidden if os.path.isdir(h) and not os.path.islink(h)]
+        mounts[:] = [m for m in mounts if not any(m[0].startswith(h + "/") for h in hdirs)]
+        for h in ws_hidden:
+            for a in masked(h):
+                mount(h, 2, a)
+    launch["notes"] = notes
     # files, state, the run's own
     for s in policy["mounts"]["state"]:
         os.makedirs(s["dir"], exist_ok=True)
@@ -1164,6 +1246,13 @@ def after(cfg, rundir):
             FETCH_FAILED.append(visible(f"the host's look failed ({type(e).__name__}: {e})")[:300])
             print(visible(f"pot: the host's look at the clone failed: {type(e).__name__}: {e}"), file=sys.stderr)
             ev["fetch_failed"] = "; ".join(FETCH_FAILED)
+    # v2.19.1: what the run left in its sealed folders (their bases, in the run directory): listed, then discarded
+    ev["sealed_left"] = []
+    for sd in launch.get("sealed") or []:
+        try:
+            ev["sealed_left"] += [{"path": visible(p), "type": t, "size": z} for p, t, z in sealed_left(sd["base"], sd["entries"], sd["rel"])]
+        except OSError:
+            pass
     for b in before["pins"]:
         top = b["top"]
         w = next(w for w in policy["workspace"] if w["path"] == top)
@@ -1190,6 +1279,12 @@ def after(cfg, rundir):
                 sig = git(cfg, top, "log", "--no-walk", "--format=%G?", *commits).stdout.split()
                 ev["unsigned"] += sum(1 for s in sig if s == "N")
                 ev["base"] = before["refs"].get(top, {}).get("head", "")[:12]
+                # v2.19.1: a hidden path git tracks, which the run saw empty, committed empty at a new tip
+                for rel in (launch.get("hiddenTracked") or {}).get(top, []):
+                    for tip in newrefs:
+                        t = git(cfg, top, "ls-tree", "-z", tip, "--", rel).stdout.split("\0")[0]
+                        if t and t.split()[2:3] == [EMPTY_BLOB] and visible(rel) not in ev.setdefault("hidden_blanked", []):
+                            ev["hidden_blanked"].append(visible(rel))
         # the repo kit's own files only: its flake directory, or the top's flake.nix and flake.lock
         flake = (launch.get("repoKitPaths") or {}).get(top, [])
         ev["repo_kit_change"] += [p for p in ev["touches_host_run"] if any(p == f or p.startswith(f + "/") for f in flake)]
@@ -1336,6 +1431,29 @@ def matches(path, pats):
     return False
 
 
+def link_targets(cfg, gd, rev, pats):
+    """v2.19.1: in REV's tree, the links (mode 120000) at or under a path that PATS match, each resolved inside the
+    tree: the paths they name. A target outside the tree (absolute, or above its top) is left out: no commit reaches
+    it."""
+    out = set()
+    if not pats or not rev:
+        return out
+    f = host_git_z(cfg, gd, "ls-tree", "-r", "-z", rev).split("\0")
+    for e in f:
+        meta, _, path = e.partition("\t")
+        parts = meta.split()
+        if len(parts) < 3 or parts[0] != "120000" or not matches(path, pats):
+            continue
+        target = host_git(cfg, gd, "cat-file", "blob", parts[2]).stdout
+        if not target or target.startswith("/"):
+            continue
+        t = os.path.normpath(os.path.join(os.path.dirname(path), target))
+        if t == "." or t.startswith("../") or t == "..":
+            continue
+        out.add(t)
+    return out
+
+
 def clone_after(cfg, rundir, policy, launch, b, ev):
     """The after event for a clone (§9), from the staging repositories, never from the clone."""
     clone, top = b["clone"], b["top"]
@@ -1382,8 +1500,15 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
                         ev["gitlinks"].append(visible(path))
             prot = w["protected"] + HOST_RUN_EXTRA
             ev["touches_host_run"] += sorted(visible(p) for p in changed if matches(p, prot))
-            # v2.19.1: agent configuration the clone proposes (policy workspace[].proposal), from the staged commits
-            ev["agent_config"] += sorted(visible(p) for p in changed if matches(p, w.get("proposal") or []))
+            # v2.19.1: agent configuration the clone proposes (policy workspace[].proposal), from the staged commits,
+            # and what a link under it names in the tree (at the base or a tip): a change under the link's target
+            # loads as agent configuration too
+            prop = w.get("proposal") or []
+            targets = set()
+            for rev in [base] + list(moved.values()):
+                targets |= link_targets(cfg, sd, rev, prop)
+            ev["agent_config"] += sorted(visible(p) for p in changed
+                                         if matches(p, prop) or any(p == t or p.startswith(t + "/") for t in targets))
             flake = (launch.get("repoKitPaths") or {}).get(top, [])
             ev["repo_kit_change"] += [p for p in sorted(visible(c) for c in changed) if any(p == f or p.startswith(f + "/") for f in flake)]
             if launch.get("rootRepo"):
@@ -1410,6 +1535,19 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
         cs = [c[:12] for c in host_git(cfg, ssd, "rev-list", *tips, "--not", m["commit"]).stdout.split()] if tips else []
         if cs:
             ev["scions"][m["path"]] = {"commits": cs}
+            # v2.19.1: the scion's changed paths, from its base commit to each tip, under the scion's path: its agent
+            # configuration and its host-run files are the clone's as much as the top's
+            changed = set()
+            for t in tips:
+                f = host_git_z(cfg, ssd, "diff-tree", "-r", "-z", "--no-renames", "--raw", m["commit"], t).split("\0")
+                changed |= {path for meta, path in zip(f[0::2], f[1::2]) if meta.startswith(":")}
+            prot = w["protected"] + HOST_RUN_EXTRA
+            for rel in sorted(changed):
+                shown = f"{m['path']}/{rel}"
+                if matches(shown, w.get("proposal") or []):
+                    ev["agent_config"].append(visible(shown))
+                if matches(shown, prot) or matches(rel, HOST_RUN_EXTRA):
+                    ev["touches_host_run"].append(visible(shown))
     # what stays in the clone: uncommitted changes (read by the sandboxed git) and new git metadata
     r = subprocess.run(sandboxed_git(cfg, rundir, clone, ["--no-optional-locks", "status", "--porcelain", "--ignore-submodules=dirty"]),
                        capture_output=True, text=True, timeout=600)
@@ -1441,6 +1579,24 @@ def look(cfg, rundir):
     print(json.dumps({"base": base, "refs": moved, "commits": commits}))
 
 
+def remove_sealed(rundir):
+    """v2.19.1: the seals' bases (runs/<id>/sealed), what the run left there already listed by the after step: removed,
+    never following a link, a folder the run made unwritable made writable first."""
+    d = os.path.join(rundir, "sealed")
+    if not os.path.isdir(d) or os.path.islink(d):
+        return
+
+    def fix(func, path, exc):
+        try:
+            os.chmod(os.path.dirname(path), 0o700)
+            if os.path.isdir(path) and not os.path.islink(path):
+                os.chmod(path, 0o700)
+            func(path)
+        except OSError:
+            pass
+    shutil.rmtree(d, onerror=fix)
+
+
 def cleanup(rundir):
     # S1's placeholders: removed when they still hold what pot wrote (the run saw them read-only)
     try:
@@ -1463,6 +1619,7 @@ def cleanup(rundir):
             os.unlink(os.path.join(rundir, n))
         except OSError:
             pass
+    remove_sealed(rundir)
 
 
 def main(argv):

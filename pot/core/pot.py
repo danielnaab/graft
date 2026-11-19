@@ -93,6 +93,18 @@ def quiet():
     return bool(os.environ.get("POT_QUIET"))
 
 
+def backend_notes(rundir):
+    """v2.19.1: the start notes the backend's prepare step found (launch.json notes: a sealed folder over the cap, a
+    hidden path git tracks), each on its own line, quiet or not: they are warnings."""
+    try:
+        with open(os.path.join(rundir, "launch.json")) as f:
+            notes = json.load(f).get("notes") or []
+    except (OSError, ValueError):
+        notes = []
+    for n in notes:
+        err(visible(n))
+
+
 def say(msg):
     if not quiet():
         err(msg)
@@ -1315,6 +1327,12 @@ def exit_lines(ev, policy, report, root):
         out.append("pot: the run changed host-run files (review before the host runs them): " + ", ".join(ev["touches_host_run"][:8]))
     if ev.get("agent_config"):
         out.append("pot: the run " + agent_config_line(ev["agent_config"]))
+    if ev.get("sealed_left"):
+        out.append(sealed_left_line(ev["sealed_left"]))
+    if ev.get("hidden_blanked"):
+        hb = ev["hidden_blanked"]
+        out.append("pot: WARNING: the run committed " + ", ".join(hb[:8]) + " empty: hidden here, the run saw "
+                   + ("it" if len(hb) == 1 else "them") + " empty; don't push or merge that commit as it is")
     if ev.get("unsigned"):
         base = ev.get("base")
         how = f"git rebase --exec 'git commit --amend --no-edit -S' {base}" if base else \
@@ -1639,6 +1657,7 @@ def run(host, root, context, flags, cmd):
             return 1
         if not flags.get("wrapped"):
             say(startup_line(policy, report, ws, root))
+        backend_notes(rundir)
         kits = [{"id": k["kit"], "grant": k["status"]} for k in report["kits"]]
         invoker = "person" if sys.stdin.isatty() else "script"     # before --detach redirects stdin (X2)
         if detach:
@@ -1948,6 +1967,7 @@ def nest_child(root, policy, row, args, flags=None):
     cid = f"{parent}/{rid}"
     if subprocess.run([bprog, "prepare", cdir]).returncode != 0:
         return 1
+    backend_notes(cdir)
     detach = bool(flags.get("detach"))
     if detach:
         rfd, wfd = os.pipe()
@@ -1981,6 +2001,15 @@ def nest_child(root, policy, row, args, flags=None):
         status = subprocess.run([bprog, "run", cdir]).returncode
     finally:
         log(cdir, {"ev": "exit", "by": "parent", "status": status, "time": now_iso()})
+        if not cinfo:
+            # v2.19.1: an in-place child's sealed folders (in this run's state): what it left there, said here as at a
+            # top-level exit (a clone child's look is the host's, when the parent ends)
+            try:
+                left = json.loads(subprocess.run([bprog, "after", cdir], capture_output=True, text=True).stdout).get("sealed_left")
+            except (ValueError, AttributeError):
+                left = None
+            if left:
+                err(sealed_left_line(left))
         subprocess.run([bprog, "cleanup", cdir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if cinfo and not detach:
         err(f"pot: run {cid}" + (f" · exit {status}" if status else "")
@@ -2185,8 +2214,17 @@ def children_after(host, bprog, prd, pid):
             json.dump({"workspace": [{"path": top, "protected": [p for p in w0.get("protected") or [] if p not in C.AGENT_CONFIG],
                                       "proposal": list(C.AGENT_CONFIG), "common": os.path.join(top, ".git")}],
                        "context": "dispatch", "items": [], "mounts": {"state": [], "run": "/run/pot"}}, f)
+        # v2.19.1: the child's scions, from the base's .gitmodules in the repository that holds the base (the parent's
+        # clone, or the host's own), never the child's claims: each staged as a top-level clone's are
+        pc = (plaunch.get("clone") or {}).get("path")
+        srcrepo, gbase = (pc, os.path.join(pc, ".git")) if pc else (top, w0.get("common") or os.path.join(top, ".git"))
+        cscions = []
+        for m in (CL.submodules_at(host.git, srcrepo, base) if srcrepo and os.path.isdir(srcrepo) else []):
+            mobj = os.path.join(gbase, "modules", m["name"], "objects")
+            if real_dir(os.path.join(clone, ".git", "modules", m["name"])) and os.path.isdir(mobj):
+                cscions.append({"name": m["name"], "path": m["path"], "commit": m["commit"], "objects": mobj})
         with open(os.path.join(hd, "launch.json"), "w") as f:
-            json.dump({"clone": {"base": base, "branch": (s.get("clone") or {}).get("branch"), "path": clone, "scions": [],
+            json.dump({"clone": {"base": base, "branch": (s.get("clone") or {}).get("branch"), "path": clone, "scions": cscions,
                                  "objects": objects},
                        "repoKitPaths": plaunch.get("repoKitPaths") or {}, "rootRepo": plaunch.get("rootRepo"),
                        "grantsRel": plaunch.get("grantsRel"), "hostSigns": plaunch.get("hostSigns")}, f)
@@ -3544,6 +3582,17 @@ def needs_person(rec):
 def staging_of(rd, name="top"):
     p = os.path.join(rd, "staging", f"{name}.git")
     return p if os.path.isdir(p) else None
+
+
+def sealed_left_line(left):
+    """v2.19.1: what a run left in its sealed folders, discarded at exit: up to 20 entries, then how many more."""
+    def one(e):
+        if e["type"] == "file":
+            return f"{e['path']} ({e['size']} B)"
+        return f"{e['path']} (a {e['type']})"
+    shown = ", ".join(one(e) for e in left[:20]) + (f" and {len(left) - 20} more" if len(left) > 20 else "")
+    return (f"pot: the run created {shown} in a sealed folder; it was discarded (to keep agent config: pot dispatch …, "
+            "then pot review)")
 
 
 def agent_config_line(paths):

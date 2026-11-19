@@ -16,6 +16,14 @@
   `changes agent configuration: PATH (loads in agent sessions once merged)` in `pot review RUN`, `--fetch` and the
   exit line, and runs/1's `clone.agentConfig`; nested children's clones too. In place nothing changes
   ([Change agent configuration from a run](docs/guides/dispatch.md#change-agent-configuration-from-a-run)).
+- **Sealed folders, reported:** a seal's new entries land in the run's state, and what the run left there is listed
+  at exit (`pot: the run created .pi/extensions/x.ts (2 B) in a sealed folder; it was discarded …`), then removed. A
+  folder of more than 256 entries stays plainly read-only, with a start note; a hidden one stays hidden.
+- **Clone proposals, hardened:** a proposal path that is a link stops a clone as it stops in place; a change under
+  the target of a link inside agent configuration is flagged; each scion's changes are diffed and flagged too
+  (agent configuration and host-run files), nested children's scions included.
+- **pot: a hidden path inside the workspace is masked** in place and with read access (before, only `inspect` masked
+  it), never in a dispatch clone. One that git tracks gets a start note, and a commit that holds it empty is named.
 - policy.json's workspace entries gain `sealed` and `proposal` (run-env/1: keys added); the after event gains
   `agent_config`, and the record's `clone` gains `agentConfig` (runs/1: keys and an attention string added). `kit/1` and `pot-kits/1` are unchanged,
   and no grant asks again.

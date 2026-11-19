@@ -2922,6 +2922,7 @@ let
     if [ -d .pi ]; then
       if mkdir .pi/settings.json.lock 2>/dev/null; then echo "nk-chk: .pi lock ok"; rmdir .pi/settings.json.lock; else echo "nk-chk: .pi lock refused"; fi
       if (echo x > .pi/settings.json) 2>/dev/null; then echo "nk-chk: .pi wrote"; else echo "nk-chk: .pi read-only"; fi
+      echo left > .pi/child-left 2>/dev/null || true
     fi
   '';
   hook = pkgs.writeShellScriptBin "nk-hook" ''
@@ -3080,6 +3081,8 @@ EOF
   expect "the parent takes the lock" has "parent: .pi lock ok"
   expect "the child too" has "nk-chk: .pi lock ok"
   expect "and sees the files read-only" has "nk-chk: .pi read-only"
+  expect "what the child left in its seal is reported" holdsj "pot: the run created .pi/child-left (5 B) in a sealed folder; it was discarded"
+  refuse "and not on the host" test -e .pi/child-left
   expect "the host's .pi unchanged" test "$(cat .pi/settings.json)" = '{}'
   case "$PWD/.pi" in "$work"/*) rm -rf -- "$PWD/.pi";; esac
   # unshare from nk-chk's own closure (in every run here: the bundle's)
@@ -3395,6 +3398,8 @@ EOF
         bindings."status.relay"."*" = { workmux = true; };
         bindings.credential."api.pi-test.example kit=pi" = { via = "file"; from.file = "$work/pikey"; };
         contexts.readonly = { extends = "work"; access = "read"; };
+        # v2.19.1: hidden paths under the workspace (untracked, tracked, inside a sealed folder, a hidden .pi)
+        hidden = [ "$work/piws/secret.txt" "$work/piws/tracked.txt" "$work/piws/sfile/.pi/secret.json" "$work/piws/hp/.pi" ];
       };
     });
   };
@@ -3529,6 +3534,74 @@ PROBE
   case "$PWD/sub" in "$work"/*) rm -rf -- "$PWD/sub";; esac
   ran "pi: explain names the seal" pi_ explain
   expect "on the protect row" holds "sealed: **/.pi (pot)"
+
+  # fix round (v2.19.1) 5: what a run leaves in a sealed folder is reported at exit, then discarded: a file, a
+  # folder's file, a link (never followed), and no lock folder
+  # shellcheck disable=SC2016
+  ran "pi: a run leaves files in the sealed .pi" env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u PI_CODING_AGENT "$work/pir/bin/pot" bash -c 'echo x > .pi/new.txt; ln -s /etc/passwd .pi/evil; mkdir .pi/settings.json.lock; mkdir -p .pi/extensions && echo y > .pi/extensions/x.ts; echo left'
+  expect "the exit line lists them, the link as a link" holdsj "pot: the run created .pi/evil (a link), .pi/extensions/x.ts (2 B), .pi/new.txt (2 B) in a sealed folder; it was discarded (to keep agent config: pot dispatch …, then pot review)"
+  refuse "no lock folder" holds "settings.json.lock"
+  refuse "the host's .pi has none of them" test -e .pi/new.txt -o -L .pi/evil -o -e .pi/extensions
+  local srun && srun=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\)$/\1/p' <<<"$out")
+  expect "the log records them" test "$(jq -c 'select(.ev == "after") | [.sealed_left[].type]' "$work/pistate/runs/$srun/log.jsonl")" = '["link","file","file"]'
+  refuse "and the seal's base is gone" test -e "$work/pistate/runs/$srun/sealed"
+
+  # how pot shows the workspace's path (under ~, as ~/…)
+  local cshown=$c && case "$c" in "$HOME"/*) cshown="~${c#"$HOME"}";; esac
+  # fix round 3: a sealed folder over the cap (256 entries) stays plainly read-only, with a start note
+  mkdir -p x/.pi && (cd x/.pi && seq 1 300 | xargs touch)
+  ran "pi: a sealed folder over the cap" env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u PI_CODING_AGENT "$work/pir/bin/pot" bash -c 'if mkdir x/.pi/l 2>/dev/null; then echo "x: new entry"; else echo "x: read-only"; fi'
+  expect "starts, with a note" has "pot: $cshown/x/.pi has 300 entries, more than a sealed folder takes (256): it is read-only in this run, so pi cannot take its settings lock there"
+  expect "and the folder is plainly read-only" has "x: read-only"
+  case "$PWD/x" in "$work"/*) rm -rf -- "$PWD/x";; esac
+
+  # fix round 4 and the hidden finding: a hidden path under the workspace is masked in place and with read access
+  # (untracked, inside a sealed folder, a hidden .pi whose seal is skipped); a tracked one gets a start note; a clone
+  # is not masked; inspect is as before
+  echo SECRET1 > secret.txt && mkdir -p sfile/.pi hp/.pi && echo SECRET2 > sfile/.pi/secret.json && echo ok > sfile/.pi/other
+  echo HIDDENPI > hp/.pi/key && echo TRACKED > tracked.txt && git_ add tracked.txt && git_ commit -q -m tracked
+  local ctx
+  for ctx in work readonly inspect; do
+    # shellcheck disable=SC2016 # the run's own shell expands them
+    ran "pi: hidden paths under the workspace ($ctx)" env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u PI_CODING_AGENT "$work/pir/bin/pot" "$ctx" bash -c 'echo "s=$(cat secret.txt) s2=$(cat sfile/.pi/secret.json) o=$(cat sfile/.pi/other) hp=$(ls -A hp/.pi | wc -l) t=$(cat tracked.txt)"'
+    expect "masked, the sealed folder's other entry readable" has "s= s2= o=ok hp=0 t="
+    refuse "no secret" holds "SECRET"
+  done
+  ran "pi: a hidden path that git tracks" env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u PI_CODING_AGENT "$work/pir/bin/pot" bash -c 'true'
+  expect "gets a start note" has "pot: $cshown/tracked.txt is hidden here, but git tracks it: the run sees it empty, and git's history still holds it; don't commit it from this run"
+  ran "pi: a commit that holds it empty" env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u PI_CODING_AGENT "$work/pir/bin/pot" bash -c 'git commit -qam blanked && echo blanked'
+  expect "is named on the exit line" holdsj "pot: WARNING: the run committed tracked.txt empty: hidden here, the run saw it empty; don't push or merge that commit as it is"
+  local brun && brun=$(sed -n 's/^pot: run \([0-9a-f]\{4\}\)$/\1/p' <<<"$out")
+  expect "and in the run's attention" test "$(pi_ runs "$brun" --json | jq -r '.attention | index("hidden committed empty: tracked.txt")')" != null
+  git_ reset -q --hard HEAD~1
+  expect "the host's file is as it was" test "$(cat tracked.txt)" = TRACKED
+  # shellcheck disable=SC2016 # the run's own shell expands them
+  ran "pi: a clone is not masked" pi_ dispatch bash -c 'echo "t=$(cat tracked.txt)"'
+  expect "it holds what git holds" has "t=TRACKED"
+  case "$PWD/sfile" in "$work"/*) rm -rf -- "$PWD/sfile" "$PWD/hp" "$PWD/secret.txt";; esac
+
+  # fix round 1: a proposal path that is a link stops a clone as it stops in place; a link inside a real one names
+  # agent configuration where it points
+  local lw=$work/pilink && mkdir -p "$lw/agents/claude" && git_ -C "$lw" init -q && cd "$lw"
+  echo '{}' > agents/claude/settings.json && ln -s agents/claude .claude && git_ add -A && commit linked
+  refused "pi: a clone whose .claude is a link" pi_ dispatch true
+  expect "stops, as in place" holds "pot (dispatch): .claude is a symbolic link, so the sandbox can't make it read-only"
+  git_ rm -q .claude && mkdir -p .pi tools/ext && echo a > tools/ext/a.ts && ln -s ../tools/ext .pi/ext && git_ add -A && commit inner
+  ran "pi: a clone writes through a link inside .pi" pi_ dispatch bash -c 'echo b > tools/ext/b.ts && git add -A && git commit -qm through && echo committed'
+  local lid && lid=$(pi_ runs --json | jq -r '[.runs[] | select(.state == "review")][0].id')
+  expect "flagged where the link points" test "$(pi_ review "$lid" --json | jq -c .clone.agentConfig)" = '["tools/ext/b.ts"]'
+
+  # fix round 2: a scion's agent configuration and host-run files, changed in a clone, are flagged
+  local up=$work/piup sw=$work/pisub
+  mkdir -p "$up/.claude" && git_ -C "$up" init -q && echo '{}' > "$up/.claude/settings.json" && echo 1 > "$up/f" \
+    && git_ -C "$up" add -A && git_ -C "$up" commit -qm up
+  mkdir -p "$sw" && git_ -C "$sw" init -q && cd "$sw" && git_ submodule add -q "$up" kit && commit withkit
+  ran "pi: a clone changes a scion's agent configuration" pi_ dispatch bash -c 'cd kit && echo "{\"hooks\":1}" > .claude/settings.json && echo "* text" > .gitattributes && git add -A && git commit -qm "kit change" && echo committed'
+  local kid2 && kid2=$(pi_ runs --json | jq -r '[.runs[] | select(.state == "review")][0].id')
+  ran "pi: its review" pi_ review "$kid2" --json
+  expect "flags the scion's agent configuration" test "$(jq -c .clone.agentConfig <<<"$out")" = '["kit/.claude/settings.json"]'
+  expect "and its host-run file" test "$(jq -r '.attention | index("host-run: kit/.gitattributes")' <<<"$out")" != null
+  cd "$c"
   refused "pi: pot grant under pi's marker" env -u CLAUDECODE -u CODEX_SANDBOX PI_CODING_AGENT=true "$work/pir/bin/pot" grant
   expect "is refused (the kit's agent.markers)" holds "pot grant is for people: PI_CODING_AGENT is set"
   cd "$work"

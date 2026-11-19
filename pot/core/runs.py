@@ -73,6 +73,8 @@ def attention(after, fetched=False):
         out.append("host-run: " + ", ".join(after["touches_host_run"][:4]))
     if after.get("agent_config"):
         out.append("agent config: " + ", ".join(after["agent_config"][:4]))
+    if after.get("hidden_blanked"):
+        out.append("hidden committed empty: " + ", ".join(after["hidden_blanked"][:4]))
     if after.get("repo_kit_change"):
         out.append("repo kit: " + ", ".join(after["repo_kit_change"][:4]))
     if after.get("gitlinks"):

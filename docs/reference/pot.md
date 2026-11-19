@@ -1762,11 +1762,18 @@ host-run file. The exception is the git names above: an absent `commondir`, `con
 placeholder, so a run cannot create one.
 
 **Sealed folders** (v2.19.1). A protected folder that the root's `sealedProtect` names (default `[ "**/.pi" ]`)
-is sealed under bubblewrap: the run gets a folder of its own at that path, holding each entry that was there,
-bound read-only (a link as the same link, a subfolder read-only throughout). So no entry can be written, replaced,
-renamed or deleted, and a new top-level entry, such as pi's `settings.json.lock` (pi takes that lock even to read
-its project `.pi/settings.json`), is the run's alone: gone at exit, never on the host, absent from the next run. An
-entry the host adds during the run is not seen. Each workspace top is sealed on its own, scions included, in place,
+is sealed under bubblewrap: the run gets a folder of its own at that path (`runs/<id>/sealed/<n>` in pot's state),
+holding each entry that was there, bound read-only (a link as the same link, a subfolder read-only throughout). So
+no entry can be written, replaced, renamed or deleted, and a new top-level entry, such as pi's `settings.json.lock`
+(pi takes that lock even to read its project `.pi/settings.json`), is the run's alone: never on the host, absent
+from the next run. What the run left there is listed at exit, never following a link (pi's lock folders, `*.lock`,
+left out; up to 20 entries, then how many more), and then removed:
+`pot: the run created .pi/extensions/x.ts (2 B), .pi/evil (a link) in a sealed folder; it was discarded (to keep agent config: pot dispatch …, then pot review)`.
+The after event records it as `sealed_left`. A nested child's leftovers, in place, are said on its own exit, inside
+the parent. An entry the host adds during the run is not seen. A folder with more than 256 entries is not sealed: it
+stays plainly read-only, with one start note,
+`pot: ~/src/x/.pi has 2500 entries, more than a sealed folder takes (256): it is read-only in this run, so pi cannot take its settings lock there`.
+A sealed folder that is hidden, or under a hidden folder, stays hidden. Each workspace top is sealed on its own, scions included, in place,
 with read access, in `inspect` and in a nested child (from its parent's view). A dispatch clone is not sealed: there
 agent configuration is a proposal (below). `pot explain`
 says so under `limits`: `sealed: **/.pi (pot): read-only entries; a new one lasts for the run`. **On macOS** Seatbelt
@@ -1776,11 +1783,15 @@ cannot: **/.pi stays read-only)`.
 
 **Agent configuration in a clone is a proposal** (v2.19.1). In a dispatch clone, the floor's agent configuration,
 `**/.claude`, `**/.mcp.json`, `**/.pi`, `**/.codex` and `**/.vscode`, is writable, unless a repo kit, a scion kit or
-the bundle protects the same pattern. Everything else stays as above: the clone's git config, hooks and `info/`,
+the bundle protects the same pattern. One that is a link, or under a link, stops the run as it does in place (`.claude
+is a symbolic link, so the sandbox can't make it read-only …`). Everything else stays as above: the clone's git config, hooks and `info/`,
 the repo kit's `protect`, `**/graft.nix` and the scions folder. policy.json lists the patterns as the workspace's
 `proposal`, and `pot explain dispatch` says
 `agent config: **/.claude **/.mcp.json **/.pi **/.codex **/.vscode (a clone's proposal)` under `limits`. What the
-run commits there is flagged by the host's own look at the staged commits, never by the run: `pot review` lists
+run commits there is flagged by the host's own look at the staged commits, never by the run, with the paths that a link
+under agent configuration names in the tree (at the base or a tip: `.pi/ext -> ../tools/ext` flags a change to
+`tools/ext/b.ts`) and each scion's changes from its gitlink, under the scion's path (`kit/.claude/settings.json`;
+a scion's `.gitattributes` and the like are host-run too): `pot review` lists
 `agent config: .pi/settings.json` under ATTENTION, `pot review RUN` and `--fetch` print
 `changes agent configuration: .pi/settings.json (loads in agent sessions once merged)`, the exit line says
 `pot: the run changes agent configuration: …`, and runs/1's `clone.agentConfig` lists the paths. A nested child's
@@ -1792,7 +1803,14 @@ host.
 
 ## Hidden paths
 
-A hidden path is unmounted and unwritable in every run, `inspect` included. pot's default list:
+A hidden path is unmounted and unwritable in every run, `inspect` included. Inside a workspace that the run works on
+in place or with read access, it is masked too (v2.19.1: before, only `inspect` masked it there), and nothing is
+bound inside a hidden folder. A dispatch clone is not masked: it holds only what git holds, which the clone's
+objects hold anyway. A hidden path that git tracks gets a start note, and the run sees it empty:
+`pot: ~/.workstation/pot/grants.json is hidden here, but git tracks it: the run sees it empty, and git's history still holds it; don't commit it from this run`.
+A commit of the run that holds it empty is named on the exit line
+(`pot: WARNING: the run committed pot/grants.json empty: …`) and in `pot runs` as `hidden committed empty: PATH`.
+pot's default list:
 
 - `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker/config.json`, `~/.netrc`,
   `~/.git-credentials`, `~/.config/gh`, `~/.config/sops`;
