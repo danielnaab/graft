@@ -1306,6 +1306,8 @@ def exit_lines(ev, policy, report, root):
             out.append(f"pot ({ctxn}): the run sent the proxy a malformed request ({d['count']}x)")
             continue
         out.append(C.denial_text(ctxn, d["host"], fix, d["count"]))
+    for d in ev.get("loopback") or []:
+        out.append(C.loopback_text(ctxn, d["host"], d["address"], d["count"]))
     if ev.get("new_git_metadata"):
         out.append(f"pot: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from: "
                    + ", ".join(ev["new_git_metadata"][:8]) + (" …" if len(ev["new_git_metadata"]) > 8 else ""))

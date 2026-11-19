@@ -662,6 +662,23 @@ class Kit11(unittest.TestCase):
         self.assertEqual(C.agent_markers({"baseAgentMarkers": ["CODEX_SANDBOX", "CLAUDECODE"], "kits": {}}),
                          ["CODEX_SANDBOX", "CLAUDECODE", "POT"])
 
+    def test_permanent_fix_pi(self):
+        # I2 (v2.19.0): a pi run reaches what its providers name, so its first fix is the root's pi kit
+        r = root(name="home-manager", kits={"daniel": {}}, contexts={"work": {"include": ["daniel"]}})
+        _, rep = C.compose(inp(r=r, flags={"net": ["x.org"]}, workspace=[ws(kit={})]))
+        rep = dict(rep, command={"name": "pi", "kit": "root:pi"})
+        self.assertEqual(C.permanent_fix("--net", "x.org:443", rep, r),
+                         "a provider or endpoint in programs.pot.kits.pi (graft.kits.pi; home-manager switch)\n"
+                         "or requests.network in the repo kit (flake.nix, perSystem)\n"
+                         "or programs.pot.kits.daniel.requests.network, for every repository (home-manager switch)")
+        rep = dict(rep, command={"name": "pi", "kit": "root:pi@work"})
+        self.assertTrue(C.permanent_fix("--net", "x.org:443", rep, root()).startswith(
+            'a provider or endpoint in kits."pi@work" (graft.kits.pi; rebuild the root)\nor '))
+        # other flags, and other root kits, are as before
+        self.assertFalse(C.permanent_fix("--read", "/x", rep, r).startswith("a provider"))
+        rep = dict(rep, command={"name": "claude", "kit": "root:claude-code@personal"})
+        self.assertFalse(C.permanent_fix("--net", "x.org:443", rep, r).startswith("a provider"))
+
     def test_fixes_name_tools_and_only_known_files(self):
         r = root()
         w = ws(kit={})

@@ -1302,7 +1302,7 @@ EOF
         kits.rootwriter.commands.rwtest = { program = "\${nixpkgs.legacyPackages.\${s}.bashInteractive}/bin/bash";
           requests.write = [ "$work/sbrootrepo" ]; };
         hidden = [ "$work/sbhidden" ];
-        kits.daniel.requests.network = [ "127.0.0.1:1" ];
+        kits.daniel.requests.network = [ "nothing.invalid:1" ];
         # relay: a command kit with state, a reasserted file, and the status.relay, credential and mcp bindings
         kits.relay = let pkgs = nixpkgs.legacyPackages.\${s}; in {
           # kit 1.1: its transcripts, read as the claude-code kit reads Claude's
@@ -1392,7 +1392,7 @@ STUB
 
   refused "pot: never granted, no terminal" sb_loud true
   expect "stops with the diff" holds "pot (work): daniel (root:daniel) requests reach that is not granted:"
-  expect "each item" holds "  + network 127.0.0.1:1"
+  expect "each item" holds "  + network nothing.invalid:1"
   expect "and the fix" holds "  grant it: pot grant daniel"
   sb_ true >/dev/null 2>&1 && st=0 || st=$?
   expect "exit 125" test "$st" = 125
@@ -1426,7 +1426,7 @@ STUB
   expect "ordinary items together" holds "grant these? [y/N]"
   expect "and the run continues" holds "ran-after-grant"
   ran "the grants file" jq -c '.grants["root:daniel"].requests' "$work/sbgrants/grants.json"
-  expect "holds the approved set" has '["network 127.0.0.1:1"]'
+  expect "holds the approved set" has '["network nothing.invalid:1"]'
   ran "pot: pot grant KIT, nothing new" sb_ grant daniel
   expect "says so" has "pot grant: daniel is granted"
   refused "pot: pot grant with no terminal" sb_ grant relay
@@ -1496,8 +1496,31 @@ STUB
   expect "and the other" holds "             or kits.daniel.requests.network, for every repository (rebuild the root)"
   expect "and the exit line says so, line by line" test "$(grep -c -e '^pot (work): the run tried denied.example:443 (not in this run).$' -e '^  one run:   pot --net denied.example …$' <<<"$out")" -ge 4
   expect "with the run id" holds "pot: run "
-  ran "pot: a granted host (nothing listens: Bad Gateway)" sb_ bash -c "$ask" _ 127.0.0.1:1
+  ran "pot: a granted host (nothing listens: Bad Gateway)" sb_ bash -c "$ask" _ nothing.invalid:1
   expect "passes the proxy" holds "HTTP/1.1 502 Bad Gateway"
+  # F1 (v2.19.0): the host's loopback is never reached, even granted: a literal, localhost., and the host's own
+  # name (which resolves to loopback on platform-vm), with a listener there that must see no connection
+  local lp lpid hn
+  python3 -I -c 'import socket, sys, time; s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(); print(s.getsockname()[1], flush=True)
+while True:
+    c, _ = s.accept(); print("CONNECTED", flush=True); c.close()' > "$work/lo-port" &
+  lpid=$!
+  for _ in $(seq 50); do [ -s "$work/lo-port" ] && break; sleep 0.1; done
+  lp=$(head -1 "$work/lo-port")
+  hn=$(hostname)
+  local h
+  for h in "127.0.0.1:$lp" "localhost.:$lp" "$hn:$lp"; do
+    if [ "${h%%:*}" = "$hn" ] && ! getent ahosts "$hn" | awk '{print $1}' | grep -qE '^(127\.|::1$)'; then
+      echo "skip pot: $hn does not resolve to loopback here"; continue
+    fi
+    ran "pot: F1, a granted host at the host's loopback ($h)" sb_loud --net "$h" bash -c "$ask; cat /run/pot/denials" _ "$h"
+    expect "the proxy refuses it" holds "HTTP/1.1 403 Forbidden (pot: the host's loopback)"
+    expect "the run reads why" holds "pot (work): the run tried $h, the host's loopback ("
+    expect "and that no grant reaches it" holds "a run cannot reach it (host-loopback is reserved for a later release)."
+    refuse "with no --net fix (none applies)" holds "one run:   pot --net ${h%%:*}"
+  done
+  kill "$lpid" 2>/dev/null || true
+  refuse "pot: F1, nothing reached the listener" grep -q CONNECTED "$work/lo-port"
   ran "pot: the readonly context" sb_loud readonly bash -c 'echo z >> notes.md 2>&1; true'
   expect "has no write" holds "Read-only file system"
   ran "pot: a log per run" bash -c "cat '$work'/sbstate/runs/*/log.jsonl"
@@ -1770,9 +1793,9 @@ STUB
   expect "and names the included kit" has "             or kits.daniel.requests.network, for every repository (rebuild the root)"
   ran "pot: why, on the host" sb_ why justfile
   expect "protected" has "pot (work): justfile is protected (**/justfile, pot): edit it on the host"
-  ran "pot: why, inside a run" sb_ bash -c 'pot why denied.example; pot why 127.0.0.1:1; pot why ~/.ssh'
+  ran "pot: why, inside a run" sb_ bash -c 'pot why denied.example; pot why nothing.invalid:1; pot why ~/.ssh'
   expect "a host not in the run" holds "pot (work): the run tried denied.example:443 (not in this run)"
-  expect "a granted host" holds "127.0.0.1:1 is granted (daniel); in this run"
+  expect "a granted host" holds "nothing.invalid:1 is granted (daniel); in this run"
   # shellcheck disable=SC2088 # pot prints ~ literally
   expect "a hidden path" holds "~/.ssh is hidden by your root in every run"
   refused "pot: pot inside a run" sb_ pot true
@@ -1787,8 +1810,8 @@ STUB
   refuse "and no (graft) label" holds "(graft)"
   refuse "pot: the bundle's scions directory is read-only" sb_ touch scions/new2 2>/dev/null
   # pot why --json (contract run-env/1): exit 0 when reached, 1 when not
-  ran "pot: why --json, on the host, a granted host" sb_ why 127.0.0.1:1 --json
-  expect "reached" test "$(jq -c '[.version, .kind, .reach, .reached]' <<<"$out")" = '[1,"network","127.0.0.1:1",true]'
+  ran "pot: why --json, on the host, a granted host" sb_ why nothing.invalid:1 --json
+  expect "reached" test "$(jq -c '[.version, .kind, .reach, .reached]' <<<"$out")" = '[1,"network","nothing.invalid:1",true]'
   refused "pot: why --json, a host not reached" sb_ why https://other.example/o/r.git --json
   expect "says not reached, exit 1" test "$(jq -c '[.kind, .reach, .reached]' <<<"$out")" = '["network","other.example:443",false]'
   refused "pot: why --json, an ssh URL without a git.fetch binding in this run" sb_ why ssh://git@fake.example/x.git --json
@@ -1796,7 +1819,7 @@ STUB
   refused "pot: why --json, something else" sb_ why bash --json
   expect "is usage" holds "pot why --json answers a host, HOST:PORT, a git URL or a path"
   # shellcheck disable=SC2016 # the run's bash expands them
-  ran "pot: why --json, inside a run" sb_ bash -c 'pot why 127.0.0.1:1 --json; echo "exit $?"; pot why https://other.example/x --json; echo "exit $?"'
+  ran "pot: why --json, inside a run" sb_ bash -c 'pot why nothing.invalid:1 --json; echo "exit $?"; pot why https://other.example/x --json; echo "exit $?"'
   expect "reached, exit 0" has "exit 0"
   expect "not reached, exit 1" has "exit 1"
   expect "the JSON" holds '"reach": "other.example:443"'
@@ -2883,7 +2906,7 @@ let
   '';
   wide = pkgs.writeShellScriptBin "nk-wide" "echo nk-wide ran";
   net = pkgs.writeShellScriptBin "nk-net" ''
-    for p in "$@"; do curl -s --noproxy "" --proxy "$HTTP_PROXY" -o /dev/null -w "nk-net $p %{http_code}\n" "http://127.0.0.1:$p/"; done
+    for p in "$@"; do curl -s --noproxy "" --proxy "$HTTP_PROXY" -o /dev/null -w "nk-net $p %{http_code}\n" "http://nothing.invalid:$p/"; done
     cat /run/pot/denials
   '';
 in
@@ -2894,7 +2917,7 @@ in
     commands.nk-chk = { program = "${chk}/bin/nk-chk"; access = "read"; description = "the check"; };
     commands.nk-hook = { program = "${hook}/bin/nk-hook"; access = "read"; hook = "pre-commit"; };
     commands.nk-wide = { program = "${wide}/bin/nk-wide"; requests.env = [ "WIDE_TOK" ]; };
-    commands.nk-net = { program = "${net}/bin/nk-net"; access = "read"; requests.network = [ "127.0.0.1:1" ]; };
+    commands.nk-net = { program = "${net}/bin/nk-net"; access = "read"; requests.network = [ "nothing.invalid:1" ]; };
     recipes.check = { run = "nk-chk --all"; description = "Run the check"; };
     recipes.wide = "nk-wide";
   };
@@ -2983,7 +3006,7 @@ EOF
       stateDir = "$work/nstate";
       rootRepos = [ "$work/nrr" ];
       kits.agent.commands.agent = { program = "\${pkgs.bashInteractive}/bin/bash";
-        requests = { network = [ "127.0.0.1:1" "127.0.0.1:2" ]; env = [ "AGTOK" ]; }; };
+        requests = { network = [ "nothing.invalid:1" "nothing.invalid:2" ]; env = [ "AGTOK" ]; }; };
     }; in {
     packages.$sys.pot = graft.lib.mkRoot common;
     # the same state, clones kept 0 days (H5: a child in review is never pruned)
@@ -3019,7 +3042,7 @@ EOF
   expect "names its hook" has "pre-commit"
   ran "nest: explain true (no command kit)" nb_ explain true
   expect "only the workspace's commands" holds "children   nk-chk nk-hook (nkp): nest"
-  expect "and a child with network, in a run with none, is refused" holds "  nk-net: refused (needs 127.0.0.1:1)"
+  expect "and a child with network, in a run with none, is refused" holds "  nk-net: refused (needs nothing.invalid:1)"
 
   # inside a run: a wrapped command nests, under its own policy
   ran "nest: a wrapped command inside a run" nb_ agent -c 'nk-chk a b'
@@ -3035,7 +3058,7 @@ EOF
   expect "and keeps user namespaces (its table nests)" has "userns"
   refused "nest: a child that needs reach the parent lacks" nb_ agent -c 'nk-wide'
   expect "is refused at start" holds "pot (work): nk-wide needs WIDE_TOK, which this run (agent) lacks: run it on the host (just wide)"
-  # a child with network: its own proxy, out through the parent's (which reaches 127.0.0.1:1 and :2)
+  # a child with network: its own proxy, out through the parent's (which reaches nothing.invalid:1 and :2)
   ran "nest: a child with network" nb_ agent -c 'nk-net 1 2'
   expect "reaches its own host through the parent's proxy (the port is closed: 502)" has "nk-net 1 502"
   expect "and is refused, by its own proxy, a host only the parent reaches" has "nk-net 2 403"
@@ -3276,6 +3299,46 @@ EOF
 # its providers' hosts alone; its key comes from its binding. The host's pi folder is one the host lacks, so
 # nothing of a real ~/.pi is read.
 sec_pi() {
+  # the kit's evaluation errors (fix round 1: F1's trailing dot, F2, F3, I3), each by its message
+  cat > "$work/pi-err.nix" <<'EOF'
+{ graft, case }:
+let
+  g = builtins.getFlake graft;
+  pkgs = g.inputs.nixpkgs.legacyPackages.${builtins.currentSystem};
+  pi = a: g.kits.pi ({ inherit pkgs; } // a);
+  one = p: pi { providers.p = p; };
+  cases = {
+    dot = one { baseUrl = "http://localhost.:8000/v1"; };
+    cleartext = one { baseUrl = "http://x.example.test/v1"; apiKey = "\${K}"; };
+    cleartext-endpoint = pi { endpoints = [ { url = "http://x.example.test"; key = "K"; } ]; };
+    header-command = one { baseUrl = "https://x.example.test"; headers.Authorization = "!pass key"; };
+    override-command = one { baseUrl = "https://x.example.test"; modelOverrides.m.headers.X = "!cmd"; };
+    endpoint-key = pi { endpoints = [ { url = "https://x.example.test"; key = "not a name"; } ]; };
+    port = one { baseUrl = "https://x.example.test:0443/v1"; };
+    ipv6 = one { baseUrl = "https://[2001:db8::1]/v1"; };
+  };
+in cases.${case}.commands.pi.requests
+EOF
+  # shellcheck disable=SC2317 # run through refused
+  pierr() { nix eval --impure --json --expr "import $work/pi-err.nix { graft = \"path:$graft\"; case = \"$1\"; }"; }
+  refused "pi: a trailing dot at the loopback" pierr dot
+  expect "is the loopback" holds 'graft.kits.pi: provider p: http://localhost.:8000/v1 is the host'"'"'s loopback, which a run cannot reach (host-loopback is reserved for a later release): leave it out'
+  refused "pi: F2, a variable's key on http" pierr cleartext
+  expect "names the cleartext" holds 'graft.kits.pi: provider p: http://x.example.test/v1 would carry K in cleartext: give an https url, or a literal key'
+  refused "pi: F2, an endpoint's key on http" pierr cleartext-endpoint
+  expect "the same" holds 'graft.kits.pi: endpoints #1: http://x.example.test would carry K in cleartext: give an https url, or a literal key'
+  refused "pi: F3, a header that runs a command" pierr header-command
+  # shellcheck disable=SC2016 # pi's own interpolation, as text
+  expect "names the header" holds 'graft.kits.pi: provider p: headers.Authorization runs a command ("!…") in the run: give "${NAME}" and bind NAME'
+  refused "pi: F3, in modelOverrides too" pierr override-command
+  expect "names where" holds 'graft.kits.pi: provider p, modelOverrides.m: headers.X runs a command ("!…") in the run'
+  refused "pi: I3, an endpoint's key that is no variable name" pierr endpoint-key
+  expect "says key, not apiKey" holds 'graft.kits.pi: endpoints #1: key "not a name": give the variable'"'"'s name ("NAME")'
+  refused "pi: I3, a port with a leading zero" pierr port
+  expect "names the provider" holds 'graft.kits.pi: provider p: https://x.example.test:0443/v1: the port is 1 to 65535, with no leading zero'
+  refused "pi: I3, an IPv6 literal" pierr ipv6
+  expect "names the provider" holds 'graft.kits.pi: provider p: https://[2001:db8::1]/v1: an IPv6 address is not a host pot'"'"'s network requests name: give a host name'
+
   local r=$work/piroot && mkdir -p "$r"
   cat > "$r/flake.nix" <<EOF
 {
@@ -3318,7 +3381,7 @@ done
 mkdir -p "$d/sessions/--w--" && echo '{"type":"message","message":{"role":"user","content":"hi"}}' > "$d/sessions/--w--/t_1.jsonl" && echo "wrote sessions"
 [ "${PITEST_KEY:-}" = pi-key-value ] && echo "key set"
 for u in https://api.pi-test.example/ http://lan.pi-test.example:11434/ https://denied.pi-test.example/; do
-  echo "reach $u $(curl -s -p -o /dev/null -w '%{http_connect}' --max-time 5 "$u")"
+  echo "reach $u $(curl -s -p -o /dev/null -w '%{http_connect}' --max-time 20 "$u")"
 done
 STUB
   (cd "$r" && quiet nix flake lock)
@@ -3356,6 +3419,7 @@ STUB
   expect "a provider's host is reached (allowed; no such host: 502)" has "reach https://api.pi-test.example/ 502"
   expect "and the http one" has "reach http://lan.pi-test.example:11434/ 502"
   expect "another host is refused" has "reach https://denied.pi-test.example/ 403"
+  expect "its denial's first fix is the root's pi kit (I2)" holds "  permanent: a provider or endpoint in kits.pi (graft.kits.pi; rebuild the root)"
   expect "the session is in the run's state" test -n "$(find "$work/pistate" -name t_1.jsonl)"
   expect "the exit line resumes it with --continue" holds "pot: resume this session with: pot pi --continue"
   refused "pi: pot grant under pi's marker" env -u CLAUDECODE -u CODEX_SANDBOX PI_CODING_AGENT=true "$work/pir/bin/pot" grant

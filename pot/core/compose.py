@@ -1701,6 +1701,12 @@ def permanent_fix(flag, value, report, root):
         home = kit_home(f, ws.get("flakeDir")) if f else None
         return f"{kind} in {kit_short(cmd['kit'], report)}'s kit ({home + ': ' if home else ''}a kit release)"
     alt = f"\nor {pre}kits.{inc[0]}.{kind}, for every repository ({apply})" if inc else ""
+    # I2 (v2.19.0): the pi kit's network is its providers' hosts, so a pi run's first fix is the root's pi kit
+    kit = cmd.get("kit") or ""
+    if flag == "--net" and kit.startswith("root:") and kit[5:].split("@")[0] == "pi":
+        name = kit[5:] if "@" not in kit else f'"{kit[5:]}"'
+        return (f"a provider or endpoint in {pre}kits.{name} (graft.kits.pi; {apply})\nor "
+                + repo_fix(report, root, kind) + alt)
     return repo_fix(report, root, kind) + alt
 
 
@@ -1762,6 +1768,14 @@ def denial_text(ctxname, hostport, fix, count=1):
     times = f", {count}x" if count > 1 else ""
     return "\n".join([f"pot ({ctxname}): the run tried {hostport} (not in this run{times})."]
                      + fix_block(one_run(ctxname, f"--net {flag} …"), fix))
+
+
+def loopback_text(ctxname, hostport, address, count=1):
+    """A host that resolved to the host's own loopback (v2.19.0): refused by the proxy whatever the grants say, so
+    no one-run or permanent fix; proxy.py's loopback_text is the same line (without the count)."""
+    times = f", {count}x" if count > 1 else ""
+    return (f"pot ({ctxname}): the run tried {hostport}, the host's loopback ({address}{times}): a run cannot reach it "
+            f"(host-loopback is reserved for a later release).")
 
 
 def not_found_text(ctxname, name, fix, on_host=True):

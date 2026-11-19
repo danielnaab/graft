@@ -219,6 +219,32 @@
           assert fails (one { baseUrl = "https://x.example.test"; apiKey = "!pass show key"; }).commands.pi.requests;
           assert fails (one { baseUrl = "https://x.example.test"; apiKey = "Bearer $X"; }).commands.pi.requests;
           assert fails (pi { endpoints = [ { url = "https://x.example.test"; header = "h"; } ]; }).commands.pi.requests;
+          # F1 (fix round 1): a trailing dot names the same host (localhost. is loopback; Example.test. is example.test)
+          assert fails (one { baseUrl = "http://localhost.:8000/v1"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "http://LOCALHOST..:8000/v1"; }).commands.pi.requests;
+          assert (one { baseUrl = "https://Example.test./v1"; }).commands.pi.requests.network == [ "example.test" ];
+          # F2: a key named by a variable travels only over https; a literal key on http stays allowed
+          assert fails (one { baseUrl = "http://x.example.test/v1"; apiKey = "\${K}"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "https://x.example.test/v1"; apiKey = "$K"; models = [ { id = "m"; baseUrl = "http://y.example.test:8080/v1"; } ]; }).commands.pi.requests;
+          assert fails (pi { endpoints = [ { url = "http://x.example.test"; key = "K"; } ]; }).commands.pi.requests;
+          assert (one { baseUrl = "http://x.example.test:8080/v1"; apiKey = "literal"; }).commands.pi.requests.network == [ "x.example.test:8080" ];
+          # F3: every header value follows apiKey's rules: no command; "''${NAME}" is a credential for the provider's hosts
+          assert fails (one { baseUrl = "https://x.example.test"; headers.Authorization = "!pass key"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "https://x.example.test"; models = [ { id = "m"; headers.X = "!cmd"; } ]; }).commands.pi.requests;
+          assert fails (one { baseUrl = "https://x.example.test"; modelOverrides.m.headers.X = "!cmd"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "https://x.example.test"; headers.X = "Bearer $X"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "https://x.example.test"; headers.X = 1; }).commands.pi.requests;
+          assert fails (one { baseUrl = "http://x.example.test"; headers.X = "\${H}"; }).commands.pi.requests;
+          assert lib.filter (c: c.name == "credential") (one { baseUrl = "https://h.example.test"; apiKey = "\${A_KEY}";
+              headers = { X-Key = "\${H_KEY}"; X-Lit = "plain"; }; modelOverrides.m.headers.X-O = "$O_KEY";
+              models = [ { id = "n"; headers.X-M = "\${A_KEY}"; } ]; }).commands.pi.requests.capabilities
+            == [ { name = "credential"; host = "h.example.test"; env = [ "A_KEY" "H_KEY" "O_KEY" ]; } ];
+          # I3: ports 1 to 65535 with no leading zero, and no IPv6 literal (pot's network requests name hosts)
+          assert fails (one { baseUrl = "https://x.example.test:0/v1"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "https://x.example.test:99999/v1"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "https://x.example.test:0443/v1"; }).commands.pi.requests;
+          assert fails (one { baseUrl = "https://[2001:db8::1]/v1"; }).commands.pi.requests;
+          assert fails (pi { endpoints = [ { url = "https://x.example.test"; key = "not a name"; } ]; }).commands.pi.requests;
           assert fails (pi { binary = "host"; }).version;
           assert (pi { binary = pkgs.hello; }).commands.pi.program == "${pkgs.hello}/bin/pi";
           assert (pi { binary = pkgs.hello; }).commands.pi.requests.read == [ ];

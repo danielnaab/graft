@@ -34,48 +34,71 @@ let
   err = msg: throw "graft.kits.pi: ${msg}";
   upper = lib.stringToCharacters "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   lower = lib.stringToCharacters "abcdefghijklmnopqrstuvwxyz";
-  # a url's network request: https HOST (443) or HOST:PORT; http HOST:PORT (80). The host's loopback is
-  # the run's own, and host-loopback:PORT is reserved for a later release, so a loopback url fails.
+  # a url's network request: https HOST (443) or HOST:PORT; http HOST:PORT (80). Hosts are lowercased, a trailing
+  # dot dropped (the same name). The host's loopback is the run's own, and host-loopback:PORT is reserved for a
+  # later release, so a loopback url fails (pot's proxy refuses a name that resolves there too).
   reachOf = what: url:
     let
       m = builtins.match "(https?)://([A-Za-z0-9.-]+|[[][0-9A-Fa-f:.]+[]])(:([0-9]+))?(/[^?#]*)?" url;
       scheme = builtins.elemAt m 0;
-      host = builtins.replaceStrings upper lower (builtins.elemAt m 1);
-      port = let p = builtins.elemAt m 3; in if p != null then lib.toInt p else if scheme == "https" then 443 else 80;
+      raw = builtins.replaceStrings upper lower (builtins.elemAt m 1);
+      host = let t = builtins.match "(.*[^.])[.]+" raw; in if t == null then raw else builtins.head t;
+      p = builtins.elemAt m 3;
+      port = if p != null then lib.toInt p else if scheme == "https" then 443 else 80;
       loopback = host == "localhost" || lib.hasSuffix ".localhost" host || lib.hasPrefix "127." host
         || host == "[::1]" || host == "0.0.0.0" || host == "[::]";
     in
     if !(builtins.isString url) || m == null then err "${what}: url ${builtins.toJSON url}: give http(s)://HOST[:PORT][/PATH]"
     else if loopback then err "${what}: ${url} is the host's loopback, which a run cannot reach (host-loopback is reserved for a later release): leave it out"
-    else { inherit host; request = if port == 443 then host else "${host}:${toString port}"; };
-  # an apiKey (or an endpoint's key) as the variable it names: "$NAME" or "${NAME}"; a literal is no secret
-  keyOf = what: k:
+    else if lib.hasPrefix "[" host then err "${what}: ${url}: an IPv6 address is not a host pot's network requests name: give a host name"
+    else if p != null && (builtins.match "[1-9][0-9]{0,4}" p == null || port > 65535) then err "${what}: ${url}: the port is 1 to 65535, with no leading zero"
+    else { inherit host scheme url; request = if port == 443 then host else "${host}:${toString port}"; };
+  # a key's value (an apiKey, an endpoint's key, a header) as the variable it names: "$NAME" or "${NAME}"; a
+  # literal is no secret. A command ("!…") would run a program in the run, so it fails.
+  keyOf = what: label: k:
     let m = builtins.match "\\$\\{?([A-Za-z_][A-Za-z0-9_]*)}?" k; in
     if k == null then null
-    else if !(builtins.isString k) then err "${what}: apiKey must be a string"
-    else if lib.hasPrefix "!" k then err "${what}: a command apiKey (\"!…\") runs a program in the run: give \"\${NAME}\" and bind NAME"
+    else if !(builtins.isString k) then err "${what}: ${label} must be a string"
+    else if lib.hasPrefix "!" k then err "${what}: ${label} runs a command (\"!…\") in the run: give \"\${NAME}\" and bind NAME"
     else if m != null && (lib.hasPrefix "\${" k) == (lib.hasSuffix "}" k) then builtins.head m
-    else if lib.hasInfix "$" k then err "${what}: apiKey ${builtins.toJSON k}: give \"\${NAME}\" or a literal"
+    else if lib.hasInfix "$" k then err "${what}: ${label} ${builtins.toJSON k}: give \"\${NAME}\" or a literal"
     else null;
-  # every API the run reaches: { what; host; request; env; }
+  headersOf = what: h:
+    if h == null then [ ]
+    else if !(builtins.isAttrs h) then err "${what}: headers must be an attribute set"
+    else lib.mapAttrsToList (n: v: keyOf what "headers.${n}" v) h;
+  # a variable-named key travels only over https: on http it would cross the network in cleartext
+  checked = what: envs: a:
+    if a.scheme == "http" && envs != [ ]
+    then err "${what}: ${a.url} would carry ${lib.concatStringsSep ", " envs} in cleartext: give an https url, or a literal key"
+    else a // { inherit envs; };
+  # every API the run reaches: { host; request; envs; }. A provider's keys (its apiKey, and the headers of the
+  # provider, its models and its modelOverrides) go with every url of the provider.
   providerApis = lib.concatLists (lib.mapAttrsToList (name: p:
     let
       what = "provider ${name}";
-      urls = lib.optional (p ? baseUrl) p.baseUrl ++ map (m: m.baseUrl) (lib.filter (m: m ? baseUrl) (p.models or [ ]));
-      env = keyOf what (p.apiKey or null);
+      models = p.models or [ ];
+      urls = lib.optional (p ? baseUrl) p.baseUrl ++ map (m: m.baseUrl) (lib.filter (m: m ? baseUrl) models);
+      envs = lib.unique (lib.filter (e: e != null) ([ (keyOf what "apiKey" (p.apiKey or null)) ]
+        ++ headersOf what (p.headers or null)
+        ++ lib.concatMap (m: headersOf "${what}, model ${m.id or "?"}" (m.headers or null)) models
+        ++ lib.concatLists (lib.mapAttrsToList (id: o: headersOf "${what}, modelOverrides.${id}" (o.headers or null))
+          (p.modelOverrides or { }))));
     in
     if !(p ? baseUrl) then err "${what} has no baseUrl (pi's built-in providers are not in this kit): leave it out"
-    else map (u: reachOf what u // { inherit env; }) (lib.unique urls)) providers);
+    else map (u: checked what envs (reachOf what u)) (lib.unique urls)) providers);
   endpointApis = lib.imap1 (i: e:
-    let what = "endpoints #${toString i}"; in
+    let what = "endpoints #${toString i}"; key = e.key or null; in
     if !(builtins.isAttrs e) || !(e ? url) || builtins.removeAttrs e [ "url" "key" ] != { }
     then err "${what}: give { url; key ? \"NAME\"; }"
-    else reachOf what e.url // { env = keyOf what (if e ? key && e.key != null then "\${${e.key}}" else null); }) endpoints;
+    else if key != null && (!(builtins.isString key) || builtins.match "[A-Za-z_][A-Za-z0-9_]*" key == null)
+    then err "${what}: key ${builtins.toJSON key}: give the variable's name (\"NAME\")"
+    else checked what (lib.optional (key != null) key) (reachOf what e.url)) endpoints;
   apis = providerApis ++ endpointApis;
   network = lib.unique (map (a: a.request) apis);
   # one credential per host: the variables that name its keys
-  credentialHosts = lib.unique (map (a: a.host) (lib.filter (a: a.env != null) apis));
-  credentials = map (h: let envs = lib.unique (map (a: a.env) (lib.filter (a: a.host == h && a.env != null) apis)); in
+  credentialHosts = lib.unique (map (a: a.host) (lib.filter (a: a.envs != [ ]) apis));
+  credentials = map (h: let envs = lib.unique (lib.concatMap (a: a.envs) (lib.filter (a: a.host == h) apis)); in
     { name = "credential"; host = h; env = if lib.length envs == 1 then lib.head envs else envs; }) credentialHosts;
 
   # home-manager's files in pi's home, by target (store sources), except the folders bound below

@@ -1768,7 +1768,7 @@ A hidden path is unmounted and unwritable in every run, `inspect` included. pot'
 - `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker/config.json`, `~/.netrc`,
   `~/.git-credentials`, `~/.config/gh`, `~/.config/sops`;
 - the agents' credential and configuration homes: `~/.claude`, `~/.claude.json`, `~/.pi/agent/auth.json`,
-  `~/.codex/auth.json`, `~/.local/share/opencode/auth.json`;
+  `~/.pi/agent/mcp-auth.json` (v2.19.0), `~/.codex/auth.json`, `~/.local/share/opencode/auth.json`;
 - `~/.local/share/keyrings`; the browser profiles `~/.mozilla`, `~/.config/google-chrome`, `~/.config/chromium`,
   `~/.config/BraveSoftware`, `~/.config/vivaldi` and `~/snap/firefox`; `/etc/ssh/*_key`;
 - `pot`'s state directory, and every grants file;
@@ -1834,6 +1834,19 @@ repository`, which clone mode refuses).
 The exit line adds a count when it repeated: `(not in this run, 3x).` A request the proxy cannot read is
 `pot (work): the run sent the proxy a malformed request`.
 
+**The host's loopback is never reached** (v2.19.0). The proxy resolves each host once, refuses it when any of its
+addresses is loopback or unspecified (`127.0.0.0/8`, `::1`, `0.0.0.0/8`, `::`, and their IPv4-mapped forms), and
+connects to a checked address. So the host's own name, `localhost.` and a name that rebinds to `127.0.0.1` are
+refused like the literal, granted or not, on bubblewrap and Seatbelt alike (one proxy). No grant or flag changes
+it, so the refusal names no fix:
+
+```
+pot (work): the run tried platform-vm:18731, the host's loopback (127.0.0.1): a run cannot reach it (host-loopback is reserved for a later release).
+```
+
+The proxy answers `403 Forbidden (pot: the host's loopback)`; the exit line adds a count as above
+(`(127.0.0.1, 3x)`).
+
 The permanent fix depends on the root and the repository:
 
 | Where | Fix |
@@ -1843,6 +1856,7 @@ The permanent fix depends on the root and the repository:
 | Another repository, mkRoot root | `repoKits."<key>".requests.network (rebuild the root)` |
 | The context includes a kit | then a line `or programs.pot.kits.standing.requests.network, for every repository (home-manager switch)` (no `programs.pot.` prefix and `(rebuild the root)` for an mkRoot root) |
 | The command is a scion kit's | `requests.network in meeting-kit's kit (nix/agent-tools/.scions/meeting-kit/graft.nix: a kit release)` |
+| The command is the pi kit's (v2.19.0) | first `a provider or endpoint in programs.pot.kits.pi (graft.kits.pi; home-manager switch)` (`kits."pi@NAME"` for an instance), then the repository's lines, each after `or` |
 | `--package` | `programs.pot.tools (home-manager switch)`, then a line `or tools in the repo kit (…)` |
 
 The other messages, after `pot (<context>): `:
@@ -2066,9 +2080,10 @@ A narrower kit is the same call with fewer `providers`.
 
 **Reach is computed from the providers.** Each provider's `baseUrl`, each model's `baseUrl` and each endpoint's
 `url` is one `network` request, and nothing else is: `https://HOST` is `HOST` (port 443), `https://HOST:PORT` is
-`HOST:PORT`, and `http://HOST[:PORT]` is `HOST:PORT` (80 by default); hosts are lowercased. Each `apiKey` of the
-form `"$NAME"` or `"${NAME}"` (pi's own interpolation), and each endpoint's `key`, is a `credential` for its host
-with `env = "NAME"` (a list when a host has several). Bind each by reference, `credential."HOST kit=pi"` (or
+`HOST:PORT`, and `http://HOST[:PORT]` is `HOST:PORT` (80 by default); hosts are lowercased, a trailing dot
+dropped. Each `apiKey` of the form `"$NAME"` or `"${NAME}"` (pi's own interpolation), each `headers` value of
+that form (the provider's, its models' and its `modelOverrides`'), and each endpoint's `key`, is a `credential` for
+the provider's hosts with `env = "NAME"` (a list when a host has several). Such a key travels only over https. Bind each by reference, `credential."HOST kit=pi"` (or
 `kit=pi@NAME`). A literal `apiKey`, such as a local server's placeholder, is no secret: it stays in `models.json`
 and asks for nothing.
 
@@ -2080,15 +2095,21 @@ and asks for nothing.
 | A url on the host's loopback (`localhost`, `*.localhost`, `127.*`, `[::1]`, `0.0.0.0`, `[::]`) | `provider P: http://localhost:8000/v1 is the host's loopback, which a run cannot reach (host-loopback is reserved for a later release): leave it out` |
 | A provider with no `baseUrl`: model overrides of one of pi's built-in providers | `provider P has no baseUrl (pi's built-in providers are not in this kit): leave it out` |
 | A url that is not http(s) | `provider P: url "…": give http(s)://HOST[:PORT][/PATH]` |
-| A command key (`"!…"`), which would run a program in the run | `provider P: a command apiKey ("!…") runs a program in the run: give "${NAME}" and bind NAME` |
-| A key that is not a string | `provider P: apiKey must be a string` |
-| A key with `$` that is not one variable | `provider P: apiKey "…": give "${NAME}" or a literal` |
+| A command key or header (`"!…"`), which would run a program in the run | `provider P: apiKey runs a command ("!…") in the run: give "${NAME}" and bind NAME`; for a header, `provider P: headers.NAME runs …` (`provider P, model M:` or `provider P, modelOverrides.M:` for theirs) |
+| A key or header that is not a string | `provider P: apiKey must be a string` (`headers.NAME must be a string`); headers that are not an attribute set: `provider P: headers must be an attribute set` |
+| A key or header with `$` that is not one variable | `provider P: apiKey "…": give "${NAME}" or a literal` |
+| A variable's key on an `http://` url (a literal key on http is allowed) | `provider P: http://x.example/v1 would carry NAME in cleartext: give an https url, or a literal key` (`endpoints #N: …` for an endpoint) |
+| A port that is 0, above 65535 or has a leading zero | `provider P: https://x.example:0443/v1: the port is 1 to 65535, with no leading zero` |
+| An IPv6 literal | `provider P: https://[2001:db8::1]/v1: an IPv6 address is not a host pot's network requests name: give a host name` |
 | An endpoint that is not `{ url; key ? "NAME"; }` | `endpoints #N: give { url; key ? "NAME"; }` |
+| An endpoint's `key` that is not a variable's name | `endpoints #N: key "…": give the variable's name ("NAME")` |
 | `binary` neither `"managed"` nor a package | `binary = "managed" or a package` |
 
 **The loopback limit.** A run's loopback is its own, so a provider that listens on the host's `localhost` (a local
 llama.cpp or vLLM bound to 127.0.0.1) cannot be reached; the form that would forward one port,
-`host-loopback:PORT`, is reserved for a later release. Leave such a provider out of `providers`. A server on
+`host-loopback:PORT`, is reserved for a later release. Leave such a provider out of `providers`. A name that
+resolves to the host's loopback (the host's own name, say) passes this check and is refused by the proxy
+([Messages](#messages)). A server on
 another address (a LAN host, `http://192.168.1.52:11434/v1`) is an ordinary `network` request.
 
 **The run gets its own pi home.** `~/.pi/agent` is `state pi`, scoped per instance, workspace and context:

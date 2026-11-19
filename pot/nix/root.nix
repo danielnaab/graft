@@ -65,7 +65,7 @@ let
     else throw "graft.lib.mkRoot: defaultAccount is gone (v2.17.0): defaultInstance.<kit> = \"NAME\"";
   # the floor every run gets, which a root's hidden adds to and cannot remove: agents' folders and
   # credential stores, and their configuration in a workspace
-  baseHidden = [ "~/.claude" "~/.claude.json" "~/.pi/agent/auth.json" "~/.codex/auth.json" "~/.local/share/opencode/auth.json" ];
+  baseHidden = [ "~/.claude" "~/.claude.json" "~/.pi/agent/auth.json" "~/.pi/agent/mcp-auth.json" "~/.codex/auth.json" "~/.local/share/opencode/auth.json" ];
   baseProtect = [ "**/.claude" "**/.pi" "**/.codex" ];
   # pot grant refuses under an agent whatever kits the root has: the floor of agent markers
   baseAgentMarkers = [ "CODEX_SANDBOX" "CLAUDECODE" ];

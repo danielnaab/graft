@@ -11,6 +11,13 @@
     the home-manager files, and `auth.json` and `mcp-auth.json` as `{}` (OAuth providers and `/login` work only
     on the host). `/model` switches within a session and does not persist. Extensions, skills, prompts, themes and
     installed packages are read-only. pi starts with `PI_OFFLINE=1`.
+  - A key named by a variable (an `apiKey`, a header, an endpoint's `key`) travels only over https; header values
+    follow `apiKey`'s rules. A pi run's denial names the root's pi kit as its first fix.
+- **pot never reaches the host's loopback.** The proxy resolves each host once and refuses it when an address is
+  loopback or unspecified, granted or not, so the host's own name and a name that rebinds to `127.0.0.1` are
+  refused like `127.0.0.1`; it connects to the checked address. Before, a granted loopback host or a name that
+  resolved there was reached (every kit and `--net`).
+- `~/.pi/agent/mcp-auth.json` joins pot's hidden floor.
 - `kit/1` and `pot-kits/1` are unchanged (the second quiet release), and no existing grant asks again.
 
 ### Upgrading

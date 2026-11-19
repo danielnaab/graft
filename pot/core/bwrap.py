@@ -1112,7 +1112,7 @@ def after(cfg, rundir):
     except OSError:
         before = {"pins": [], "hostrun": {}, "refs": {}}
     ev = {"ev": "after", "by": "host", "commits": [], "unsigned": 0, "touches_host_run": [], "repo_kit_change": [],
-          "root_repo_change": False, "new_git_metadata": [], "denials": [], "signs": bool(launch.get("hostSigns"))}
+          "root_repo_change": False, "new_git_metadata": [], "denials": [], "loopback": [], "signs": bool(launch.get("hostSigns"))}
     for b in before.get("clones") or []:
         try:
             if os.environ.get("POT_TEST_FAULT") == "after":      # the tests' fault point: an after step that fails
@@ -1153,13 +1153,17 @@ def after(cfg, rundir):
         ev["repo_kit_change"] += [p for p in ev["touches_host_run"] if any(p == f or p.startswith(f + "/") for f in flake)]
     try:
         with open(os.path.join(rundir, "proxy.log")) as f:
-            counts = {}
+            counts, local = {}, {}
             for l in f:
                 parts = l.split()
                 if parts and parts[0] == "DENY":
                     k = " ".join(parts[1:])
                     counts[k] = counts.get(k, 0) + 1
+                elif parts[:1] == ["LOOPBACK"] and len(parts) == 3:
+                    # v2.19.0: a host that resolved to the host's loopback (proxy.py)
+                    local[(parts[1], parts[2])] = local.get((parts[1], parts[2]), 0) + 1
             ev["denials"] = [{"host": visible(k), "count": n} for k, n in sorted(counts.items())]
+            ev["loopback"] = [{"host": visible(h), "address": visible(a), "count": n} for (h, a), n in sorted(local.items())]
     except OSError:
         pass
     print(json.dumps(ev))
