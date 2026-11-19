@@ -3484,6 +3484,12 @@ PROBE
   ran "pi: .pi sealed, in a dispatch clone" pi_ dispatch bash probe-pi.sh
   expect "and in a clone" has 'project settings {"skills":["./skills"]}'
   expect "its entries read-only" has "read-only settings.json"
+  # each .pi under the top is sealed on its own (a scion's, a subfolder's)
+  mkdir -p sub/.pi && echo s > sub/.pi/x
+  ran "pi: a subfolder's .pi, sealed too" pi_ bash -c 'cd sub && mkdir .pi/l && rmdir .pi/l && echo "sub: new entry ok"; if (echo y > .pi/x) 2>/dev/null; then echo "sub: wrote x"; else echo "sub: x read-only"; fi'
+  expect "takes a new entry" has "sub: new entry ok"
+  expect "its entries read-only" has "sub: x read-only"
+  case "$PWD/sub" in "$work"/*) rm -rf -- "$PWD/sub";; esac
   ran "pi: explain names the seal" pi_ explain
   expect "on the protect row" holds "sealed: **/.pi (pot)"
   refused "pi: pot grant under pi's marker" env -u CLAUDECODE -u CODEX_SANDBOX PI_CODING_AGENT=true "$work/pir/bin/pot" grant
