@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.19.1 - unreleased
+## v2.19.1 - 2026-11-19
 
 - **pot: pi reads a project's `.pi/settings.json` in a run.** pi takes a lock beside the file even to read it
   (`mkdir settings.json.lock`), which the protected, read-only `.pi` refused, so pi ignored the project's settings

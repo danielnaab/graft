@@ -110,7 +110,7 @@ their flake, with no Nix code of theirs: one `graft.nix` at the top of your repo
 
    For a flake in a subdirectory, `try` prints `'path:DIR#…'` commands and changes nothing: a `path:` flake
    reads its working tree on every build. If `nix run .#graft` fails (your `graft.nix` does not parse, say),
-   run `nix run github:danielnaab/graft/v2.19.0 -- try -C .` instead.
+   run `nix run github:danielnaab/graft/v2.19.1 -- try -C .` instead.
 
 5. Check the contract in your own flake ([below](#check-the-contract-before-you-tag)), and run
    `nix flake check` there.
@@ -135,7 +135,7 @@ So evaluate `graft.nix` in your own flake, the way a consumer does, and assert w
 ```nix
 {
   inputs.self.submodules = true;
-  inputs.graft.url = "github:danielnaab/graft/v2.19.0";
+  inputs.graft.url = "github:danielnaab/graft/v2.19.1";
   outputs = { self, graft, ... }@inputs: graft.lib.mkFlake {
     inherit inputs;
     perSystem = { pkgs, lib, system, scions, ... }:
