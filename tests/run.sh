@@ -3312,7 +3312,8 @@ echo "auth $(cat "$d/auth.json") mcp-auth $(cat "$d/mcp-auth.json") mcp $(tr -d 
 echo "agents $(cat "$d/AGENTS.md") / override $(cat "$d/AGENTS.override.md")"
 echo "models $(jq -c '[(.providers | keys[]), .providers.gw.apiKey]' "$d/models.json")"
 for f in settings.json models.json auth.json mcp.json AGENTS.override.md SYSTEM.md extensions/x.ts skills/x npm/x; do
-  if (echo planted > "$d/$f") 2>/dev/null; then echo "wrote $f"; else echo "read-only $f"; fi
+  # a folder the run could create would be writable: only a bound, read-only one refuses
+  if (mkdir -p "$(dirname "$d/$f")" && echo planted > "$d/$f") 2>/dev/null; then echo "wrote $f"; else echo "read-only $f"; fi
 done
 mkdir -p "$d/sessions/--w--" && echo '{"type":"message","message":{"role":"user","content":"hi"}}' > "$d/sessions/--w--/t_1.jsonl" && echo "wrote sessions"
 [ "${PITEST_KEY:-}" = pi-key-value ] && echo "key set"
