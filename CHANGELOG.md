@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.19.0 - 2026-11-19
 
 - **pot: the `pi` kit.** `graft.kits.pi { pkgs; providers; settings; endpoints; files; … }` runs the pi coding
   agent in pot, named `pi` in a root (or `pi@NAME` for several) ([pot's reference: pi](docs/reference/pot.md#pi)).

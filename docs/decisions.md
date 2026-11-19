@@ -240,7 +240,7 @@ graft v1 is on the read-only `v1` branch (2025-12 to 2026-10). Earlier experimen
 | `changes:`, migration commands, atomic upgrade with rollback | The upgrade pull request is the transaction: a branch, checked by the whole `nix flake check`, merged or closed. A major version declares a break, the CHANGELOG says what to do, and `graft migrate` writes a brief. |
 | `commands:`, `graft run dep:command` | A provider's `graft.nix`: its tools go on the consumer's `PATH` through `packages.<system>.tools`, its apps and checks into the consumer's flake. A tool that is not tied to a scion can be an ordinary flake input, as graft is. |
 | State queries, run logs | The repository's own checks and CI. |
-| Grove (a terminal UI for many repositories) | Out of scope. `nix run github:danielnaab/graft/v2.18.0 -- outdated -C <repo>` reads any checkout. |
+| Grove (a terminal UI for many repositories) | Out of scope. `nix run github:danielnaab/graft/v2.19.0 -- outdated -C <repo>` reads any checkout. |
 | Scions as agent sessions | Agent tools outside graft. A scion is a grafted repository at a release tag. |
 | Transitive dependencies (`.graft/` in `.graft/`) | One level. |
 | Providers that place files anywhere in a consumer | Only graft's own workflows, by their marker. This waits for a second real case. |

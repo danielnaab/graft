@@ -41,7 +41,7 @@ those are git flakes, which copy the whole repository.
    ```nix
    {
      description = "This repository's agent tools";
-     inputs.graft.url = "github:danielnaab/graft/v2.18.0";
+     inputs.graft.url = "github:danielnaab/graft/v2.19.0";
      outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; dir = ".scions"; };
    }
    ```
@@ -74,7 +74,7 @@ those are git flakes, which copy the whole repository.
 4. Put graft's workflows at the top, where Forgejo reads them:
 
    ```
-   (cd nix/agent-tools && nix flake init -t github:danielnaab/graft/v2.18.0)
+   (cd nix/agent-tools && nix flake init -t github:danielnaab/graft/v2.19.0)
    mkdir -p .forgejo/workflows && mv -n nix/agent-tools/.forgejo/workflows/*.yaml .forgejo/workflows/ && rm -r nix/agent-tools/.forgejo
    ```
 
@@ -130,7 +130,7 @@ nix run 'path:nix/agent-tools#graft' check && test ! -e flake.nix && test -z "$(
 | Build the tools | `nix build 'path:nix/agent-tools#tools'` |
 | Upgrade | `nix run 'path:nix/agent-tools#graft' upgrade` |
 | Lock again after an edit to `flake.nix` | `nix flake lock "path:$PWD/nix/agent-tools"` |
-| Run a command from graft's own flake | `nix run github:danielnaab/graft/v2.18.0 -- outdated -C .` |
+| Run a command from graft's own flake | `nix run github:danielnaab/graft/v2.19.0 -- outdated -C .` |
 
 - **Always write `path:`.** `.` inside the subdirectory, `./nix/agent-tools` and `git+file:` references are
   git flakes, which copy the whole repository.

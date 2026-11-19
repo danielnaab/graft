@@ -27,7 +27,7 @@ and end with `graft check` passing and everything committed.
 1. At the top of the repository, write graft's template:
 
    ```
-   nix flake init -t github:danielnaab/graft/v2.18.0
+   nix flake init -t github:danielnaab/graft/v2.19.0
    ```
 
    It writes `flake.nix` and graft's two CI workflows in `.forgejo/workflows/`, and marks them for git
@@ -36,7 +36,7 @@ and end with `graft check` passing and everything committed.
    ```nix
    {
      inputs.self.submodules = true;
-     inputs.graft.url = "github:danielnaab/graft/v2.18.0";
+     inputs.graft.url = "github:danielnaab/graft/v2.19.0";
      outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };
    }
    ```
@@ -45,7 +45,7 @@ and end with `graft check` passing and everything committed.
    (`refusing to overwrite existing file`), and exits 1. Then make three changes to your own flake, and keep
    everything else:
 
-   - Add `inputs.self.submodules = true;` and `inputs.graft.url = "github:danielnaab/graft/v2.18.0";`
+   - Add `inputs.self.submodules = true;` and `inputs.graft.url = "github:danielnaab/graft/v2.19.0";`
      (inside an `inputs = { … };` block, drop the `inputs.` prefix).
    - Name the outputs function's argument `inputs`, with `...`: `outputs = { self, nixpkgs, ... }@inputs:`.
    - Pass what the function returned as `mkFlake`'s `outputs`:
@@ -183,7 +183,7 @@ nix run '.#graft' check && git ls-files --error-unmatch flake.nix flake.lock .gi
   cannot run then either: fill them with git, `git submodule update --init --recursive`.
 - **`Cannot find Git revision …`, from `nix run .#graft` on a clean tree.** Nix fetches every scion at its
   gitlink before graft runs, and one is not on its provider's remote. Push it, or run graft from its own
-  flake, which does not evaluate yours: `nix run github:danielnaab/graft/v2.18.0 -- check -C .`.
+  flake, which does not evaluate yours: `nix run github:danielnaab/graft/v2.19.0 -- check -C .`.
 - **`graft: .gitmodules registers scions/knowledge-base-kit but the flake's source lacks it: add inputs.self.submodules = true; …`.**
   Your `flake.nix` lacks the line, or Nix is older than 2.27. Add it as in step 1.
 - **`graft: scions/knowledge-base-kit exists`.** The repository already has a folder of that name. Give
