@@ -236,9 +236,9 @@
         pot-root-pi = mkRoot {
           inherit pkgs;
           name = "check-pi";
-          kits."pi@all" = self.kits.pi { inherit pkgs;
+          kits.pi = self.kits.pi { inherit pkgs;
             providers.gw = { baseUrl = "https://llm.example.test/v1"; apiKey = "\${GW_KEY}"; models = [ { id = "m"; } ]; }; };
-          bindings.credential."llm.example.test kit=pi@all" = { via = "file"; from.file = "~/.config/x/key"; };
+          bindings.credential."llm.example.test kit=pi" = { via = "file"; from.file = "~/.config/x/key"; };
         };
         # v2.16.0's deprecated forms are gone in v2.17.0: each fails evaluation (tests/run.sh kits checks the
         # message, which names its replacement); defaultInstance is checked at build (F4)

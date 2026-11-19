@@ -2037,10 +2037,11 @@ attached as quoted data ([Resume on the host](#resume-on-the-host)).
 
 ## pi
 
-`graft.kits.pi` (v2.19.0) returns a kit (data) for the pi coding agent (pi.dev). The root names the instance:
+`graft.kits.pi` (v2.19.0) returns a kit (data) for the pi coding agent (pi.dev). With one configuration, the root
+names the kit `pi`, with no instance (a second configuration would make two, `pi@NAME`):
 
 ```nix
-programs.pot.kits."pi@all" = inputs.graft.kits.pi {
+programs.pot.kits.pi = inputs.graft.kits.pi {
   inherit pkgs;
   binary = "managed";                   # the default: ~/.pi/agent/bin/pi, pi's managed install; or a package
   node = pkgs.nodejs_22;                # the default: on PATH, for the launcher's `env node`
@@ -2057,7 +2058,7 @@ programs.pot.kits."pi@all" = inputs.graft.kits.pi {
 - **Reach is computed from the providers.** Each provider's `baseUrl`, each model's `baseUrl` and each endpoint's
   `url` is a `network` request: `https://HOST` is `HOST` (443), another port or `http://` is `HOST:PORT` (http's
   default 80). Each `apiKey` of the form `"$NAME"` or `"${NAME}"`, and each endpoint's `key`, is a `credential`
-  for its host with `env = "NAME"`; bind it by reference (`credential."HOST kit=pi@all"`). A literal `apiKey` stays
+  for its host with `env = "NAME"`; bind it by reference (`credential."HOST kit=pi"`). A literal `apiKey` stays
   in `models.json`. These fail evaluation, naming the provider: a url on the host's loopback (`localhost`, `127.*`,
   `::1`: a run's loopback is its own, and `host-loopback:PORT` is reserved for a later release), a provider with no
   `baseUrl` (pi's built-in providers are not in this kit), and an `apiKey` that runs a command (`"!…"`).
@@ -2079,8 +2080,8 @@ programs.pot.kits."pi@all" = inputs.graft.kits.pi {
 - **Requests:** the `read`s above and `skillSources`, the `network` items, `state pi`, `status.relay` and one
   `credential` per host with a key.
 - **Agent data:** `markers = [ "PI_CODING_AGENT" ]` (pi sets it for its children, so `pot grant` refuses inside
-  pi); `resume` reads `~/.pi/agent/sessions/**/*.jsonl` and resumes with `--continue`. No `select.env`: name a
-  second instance with `pi@NAME`.
+  pi); `resume` reads `~/.pi/agent/sessions/**/*.jsonl` and resumes with `--continue`. No `select.env`: two
+  instances are chosen by name (`pot pi@NAME`) or the root's `defaultInstance.pi`.
 - **Not in the kit:** a denial hook for the model (denials reach the exit line and `/run/pot/README.md`), MCP
   servers, OAuth providers, Bedrock and loopback providers.
 

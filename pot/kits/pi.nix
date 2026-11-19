@@ -1,5 +1,5 @@
-# graft.kits.pi: the pi coding agent (pi.dev) as an agent kit (design §6.3). A root calls it once per
-# instance, as the root kit pi@<instance> (the instance's name is the root's kits key):
+# graft.kits.pi: the pi coding agent (pi.dev) as an agent kit (design §6.3). A root calls it once, as the
+# root kit pi, or once per instance, as pi@<instance> (the root's kits key names it):
 #
 #   graft.kits.pi {
 #     pkgs;                        # the root's nixpkgs

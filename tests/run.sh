@@ -3288,7 +3288,7 @@ sec_pi() {
         name = "pi-test";
         grantsFile = "$work/pigrants/grants.json";
         stateDir = "$work/pistate";
-        kits."pi@t" = graft.kits.pi {
+        kits.pi = graft.kits.pi {
           inherit pkgs;
           binary = pkgs.writeShellScriptBin "pi" (builtins.readFile ./stub-pi.sh);
           agentDir = ".pot-test-no-such-pi";
@@ -3298,7 +3298,7 @@ sec_pi() {
           providers.lan = { baseUrl = "http://lan.pi-test.example:11434/v1"; apiKey = "literal"; models = [ { id = "q"; } ]; };
         };
         bindings."status.relay"."*" = { workmux = true; };
-        bindings.credential."api.pi-test.example kit=pi@t" = { via = "file"; from.file = "$work/pikey"; };
+        bindings.credential."api.pi-test.example kit=pi" = { via = "file"; from.file = "$work/pikey"; };
       };
     });
   };
@@ -3333,13 +3333,14 @@ STUB
   # shellcheck disable=SC2317
   pitty_() { local a=$1; shift; (sleep 2; printf '%s' "$a") | script -qec "env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u PI_CODING_AGENT $*" /dev/null; }
   ran "pi: explain" pi_ explain pi
-  expect "the instance" holds "run        pi -> root:pi@t"
+  expect "the kit, with no instance" holds "run        pi -> root:pi"
   expect "its providers' hosts" holds "api.pi-test.example:443"
   expect "the http one on its port" holds "lan.pi-test.example:11434"
   expect "the key by its binding" holds "PITEST_KEY"
   printf 'PITEST_KEY=pi-key-value\n' > "$work/pikey" && chmod 600 "$work/pikey"
   ran "pi: pot grant pi" pitty_ $'y\ny\n' "$work/pir/bin/pot" grant pi
-  ran "pi: a run" pi_ pi
+  ran "pi: a run" env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u PI_CODING_AGENT "$work/pir/bin/pot" pi
+  expect "the startup line names no instance" grep -qE "^pot: work · piws · pot explain" <<<"$out"
   expect "offline at start, no telemetry, its own home" has "env PI_OFFLINE=1 PI_TELEMETRY=0 PI_SKIP_VERSION_CHECK=1 dir=/.pi/agent"
   expect "the credential files are empty (a /login does not persist)" has 'auth {} mcp-auth {} mcp {"mcpServers":{}}'
   expect "the root's instructions, also as the override" has "agents root instructions / override root instructions"
@@ -3355,7 +3356,7 @@ STUB
   expect "and the http one" has "reach http://lan.pi-test.example:11434/ 502"
   expect "another host is refused" has "reach https://denied.pi-test.example/ 403"
   expect "the session is in the run's state" test -n "$(find "$work/pistate" -name t_1.jsonl)"
-  expect "the exit line resumes it with --continue" holds "pot: resume this session with: pot pi@t --continue"
+  expect "the exit line resumes it with --continue" holds "pot: resume this session with: pot pi --continue"
   refused "pi: pot grant under pi's marker" env -u CLAUDECODE -u CODEX_SANDBOX PI_CODING_AGENT=true "$work/pir/bin/pot" grant
   expect "is refused (the kit's agent.markers)" holds "pot grant is for people: PI_CODING_AGENT is set"
   cd "$work"
