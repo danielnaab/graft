@@ -2,10 +2,22 @@
 
 ## Unreleased
 
-- **pot: the `pi` kit.** `graft.kits.pi { pkgs; settings; providers; endpoints; files; … }` runs the pi coding agent
-  in pot ([pot's reference: pi](docs/reference/pot.md#pi)). Its reach is computed from the providers: each `baseUrl`
-  is a network request and each `"${NAME}"` key a credential for its host. The run's pi home is its own, with
-  pi's configuration fixed by the root. `kit/1` and `pot-kits/1` are unchanged, and no existing grant asks again.
+- **pot: the `pi` kit.** `graft.kits.pi { pkgs; providers; settings; endpoints; files; … }` runs the pi coding
+  agent in pot, named `pi` in a root (or `pi@NAME` for several) ([pot's reference: pi](docs/reference/pot.md#pi)).
+  - Its reach is computed from the providers: each `baseUrl` (provider and model) and endpoint is a `network`
+    request, each `"${NAME}"` key a `credential` for its host, and nothing else. A provider on the host's loopback,
+    one with no `baseUrl`, or a command key (`"!…"`) fails evaluation, naming it.
+  - The run's pi home is its own state, with pi's configuration fixed by the root: `settings.json`, `models.json`,
+    the home-manager files, and `auth.json` and `mcp-auth.json` as `{}` (OAuth providers and `/login` work only
+    on the host). `/model` switches within a session and does not persist. Extensions, skills, prompts, themes and
+    installed packages are read-only. pi starts with `PI_OFFLINE=1`.
+- `kit/1` and `pot-kits/1` are unchanged (the second quiet release), and no existing grant asks again.
+
+### Upgrading
+
+- Nothing is required. To run pi in pot: add `kits.pi` to the root, bind each `credential` that
+  `pot explain pi` lists (`credential."HOST kit=pi"`), rebuild the root, and run `pot grant pi`
+  ([Set up a root](docs/guides/run-in-a-sandbox.md#set-up-a-root)).
 
 ## v2.18.0 - 2026-11-18
 

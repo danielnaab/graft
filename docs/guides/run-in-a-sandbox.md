@@ -326,6 +326,29 @@ kits."claude-code@personal" = inputs.graft.kits.claude-code {
 };
 ```
 
+For the pi coding agent (v2.19.0), add the `pi` kit. When home-manager writes pi's `models.json` and
+`settings.json`, give the kit the same values, so a run has the providers the host has and `/model` switches among
+them. Here `config.pi.generated` stands for your own module's computed values (a read-only option it sets):
+
+```nix
+kits.pi = inputs.graft.kits.pi {
+  inherit pkgs;
+  files = config.home.file;                         # AGENTS.md and the other files under ~/.pi/agent
+  inherit (config.pi.generated) settings endpoints; # settings.json; the APIs your extensions reach
+  providers = builtins.removeAttrs config.pi.generated.providers [ "usai-local" ];   # less one on localhost
+  skillSources = [ "~/src/agent-skills" ];
+};
+bindings.credential."openrouter.ai kit=pi" = {
+  via = "file"; from.file = "~/.config/openrouter/key.env"; };   # export OPENROUTER_API_KEY=…, mode 600
+```
+
+The run reaches only the providers' hosts, with one credential per key (`pot explain pi` lists them; bind each).
+A provider on the host's `localhost` fails evaluation, naming it: leave it out. `pot grant pi` asks once for the
+ordinary set, then for each credential on its own. Inside, pi starts offline (no package installs or update
+checks), sees your extensions, skills and themes read-only, and keeps its sessions in the run's state. OAuth
+logins (`/login`) stay on the host, so give each provider a key, and a `/model` choice lasts one session: set
+`defaultModel` in the root ([pi](../reference/pot.md#pi)).
+
 graft's command is not in a run's standard tools. A run in a graft consumer has that repository's own `graft`
 (from its `pot-kits` bundle); `tools` gives every other run one too.
 
@@ -381,5 +404,6 @@ tree, and its commits come back only when you fetch them ([Work in a clone](disp
 - [pot-kits/1](../../pot/contracts/pot-kits-1.md): how pot finds a repository's flake
 - [pot/core/pot.py](../../pot/core/pot.py): the grant prompt, the startup and exit lines
 - [pot/kits/claude-code.nix](../../pot/kits/claude-code.nix): the claude-code kit
+- [pot/kits/pi.nix](../../pot/kits/pi.nix): the pi kit
 - [pot/nix/hm.nix](../../pot/nix/hm.nix): `programs.pot`
 - [tests/run.sh](../../tests/run.sh): the `pot` section

@@ -2037,53 +2037,100 @@ attached as quoted data ([Resume on the host](#resume-on-the-host)).
 
 ## pi
 
-`graft.kits.pi` (v2.19.0) returns a kit (data) for the pi coding agent (pi.dev). With one configuration, the root
-names the kit `pi`, with no instance (a second configuration would make two, `pi@NAME`):
+`graft.kits.pi` (v2.19.0) returns a kit (data) for the pi coding agent (pi.dev). A root with one pi configuration
+names it plain `pi`, with no instance: `pot pi` runs it, `pot grant pi` grants it, and its identity is `root:pi`. A
+root that wants several names each `pi@NAME`, granted on its own; pick one with `pot pi@NAME` or
+`defaultInstance.pi` (the kit has no `agent.select.env`, so the caller's variables pick none).
 
 ```nix
 programs.pot.kits.pi = inputs.graft.kits.pi {
   inherit pkgs;
   binary = "managed";                   # the default: ~/.pi/agent/bin/pi, pi's managed install; or a package
-  node = pkgs.nodejs_22;                # the default: on PATH, for the launcher's `env node`
-  agentDir = ".pi/agent";               # the default: the host's pi folder in ~
+  node = pkgs.nodejs_22;                # the default: on PATH, for the managed launcher's `env node`
+  agentDir = ".pi/agent";               # the default: the host's pi folder under ~
   files = config.home.file;             # home-manager's files: those under agentDir are fixed
-  settings = { defaultProvider = "local"; defaultModel = "…"; };    # settings.json, fixed
-  providers = { openrouter = { baseUrl = "https://openrouter.ai/api/v1"; api = "openai-completions";
-                               apiKey = "\${OPENROUTER_API_KEY}"; models = [ … ]; }; };   # models.json's
-  endpoints = [ { url = "https://llm.example.org"; key = "GATEWAY_KEY"; } ];   # APIs an extension reaches
-  skillSources = [ "~/src/agent-skills" ];
+  settings = { defaultProvider = "openrouter"; defaultModel = "…"; };    # settings.json
+  providers = {                         # models.json's providers
+    openrouter = { baseUrl = "https://openrouter.ai/api/v1"; api = "openai-completions";
+                   apiKey = "\${OPENROUTER_API_KEY}"; models = [ … ]; };
+  };
+  endpoints = [ { url = "https://llm.example.org"; key = "GATEWAY_KEY"; } ];   # what an extension reaches
+  skillSources = [ "~/src/agent-skills" ];   # checkouts that skill links point into
+  skillDirs = [ ];                      # the default: real directories in skills/ to bind
 };
+bindings.credential."openrouter.ai kit=pi" = { via = "file"; from.file = "~/.config/openrouter/key.env"; };
+bindings.credential."llm.example.org kit=pi" = { via = "file"; from.file = "~/.config/llm-gateway/key"; };
 ```
 
-- **Reach is computed from the providers.** Each provider's `baseUrl`, each model's `baseUrl` and each endpoint's
-  `url` is a `network` request: `https://HOST` is `HOST` (443), another port or `http://` is `HOST:PORT` (http's
-  default 80). Each `apiKey` of the form `"$NAME"` or `"${NAME}"`, and each endpoint's `key`, is a `credential`
-  for its host with `env = "NAME"`; bind it by reference (`credential."HOST kit=pi"`). A literal `apiKey` stays
-  in `models.json`. These fail evaluation, naming the provider: a url on the host's loopback (`localhost`, `127.*`,
-  `::1`: a run's loopback is its own, and `host-loopback:PORT` is reserved for a later release), a provider with no
-  `baseUrl` (pi's built-in providers are not in this kit), and an `apiKey` that runs a command (`"!…"`).
-- **The run gets its own pi home:** `state pi` at `~/.pi/agent`, scoped per instance, workspace and context
-  (sessions, project trust, caches). In it, fixed (read-only): `settings.json` and `models.json` from the
-  arguments; each `files` entry under `agentDir` outside the folders below; and pi's other configuration, neutral
-  unless the root gives it: `auth.json` and `mcp-auth.json` `{}`, `mcp.json` with no servers, `keybindings.json`
-  `{}`, empty `SYSTEM.md` and `APPEND_SYSTEM.md`, and `AGENTS.override.md` as the root's `AGENTS.md` (pi reads the
-  first of its context files), so a run leaves no configuration for a later run. `/model` switches models in a
-  session; the choice does not outlive it. A `/login` inside does not persist: OAuth providers need a host login,
-  which a run does not see.
-- **Read-only folders:** `extensions`, `skills`, `prompts` and `themes` from the host's `agentDir` (links bound by
-  their targets, as the claude-code kit's skills; `skillDirs` names real entries of `skills`), and `npm` and `git`,
-  pi's installed packages, whole.
-- **The program:** `binary = "managed"` runs `~/.pi/agent/bin/pi`, resolved on the host at each start, with `read`
-  requests for its `bin` and `install` folders. A package runs its `bin/pi`.
-- **Variables:** `PI_CODING_AGENT_DIR=~/.pi/agent`, `PI_OFFLINE=1` (no package installs, version check or catalog
-  fetch at start), `PI_SKIP_VERSION_CHECK=1`, `PI_TELEMETRY=0`.
-- **Requests:** the `read`s above and `skillSources`, the `network` items, `state pi`, `status.relay` and one
-  `credential` per host with a key.
-- **Agent data:** `markers = [ "PI_CODING_AGENT" ]` (pi sets it for its children, so `pot grant` refuses inside
-  pi); `resume` reads `~/.pi/agent/sessions/**/*.jsonl` and resumes with `--continue`. No `select.env`: two
-  instances are chosen by name (`pot pi@NAME`) or the root's `defaultInstance.pi`.
-- **Not in the kit:** a denial hook for the model (denials reach the exit line and `/run/pot/README.md`), MCP
-  servers, OAuth providers, Bedrock and loopback providers.
+A narrower kit is the same call with fewer `providers`.
+
+**Reach is computed from the providers.** Each provider's `baseUrl`, each model's `baseUrl` and each endpoint's
+`url` is one `network` request, and nothing else is: `https://HOST` is `HOST` (port 443), `https://HOST:PORT` is
+`HOST:PORT`, and `http://HOST[:PORT]` is `HOST:PORT` (80 by default); hosts are lowercased. Each `apiKey` of the
+form `"$NAME"` or `"${NAME}"` (pi's own interpolation), and each endpoint's `key`, is a `credential` for its host
+with `env = "NAME"` (a list when a host has several). Bind each by reference, `credential."HOST kit=pi"` (or
+`kit=pi@NAME`). A literal `apiKey`, such as a local server's placeholder, is no secret: it stays in `models.json`
+and asks for nothing.
+
+**Evaluation errors.** Each begins `graft.kits.pi: ` and names the provider (`provider P`) or the endpoint
+(`endpoints #N`, from 1):
+
+| Cause | Message |
+|---|---|
+| A url on the host's loopback (`localhost`, `*.localhost`, `127.*`, `[::1]`, `0.0.0.0`, `[::]`) | `provider P: http://localhost:8000/v1 is the host's loopback, which a run cannot reach (host-loopback is reserved for a later release): leave it out` |
+| A provider with no `baseUrl`: model overrides of one of pi's built-in providers | `provider P has no baseUrl (pi's built-in providers are not in this kit): leave it out` |
+| A url that is not http(s) | `provider P: url "…": give http(s)://HOST[:PORT][/PATH]` |
+| A command key (`"!…"`), which would run a program in the run | `provider P: a command apiKey ("!…") runs a program in the run: give "${NAME}" and bind NAME` |
+| A key that is not a string | `provider P: apiKey must be a string` |
+| A key with `$` that is not one variable | `provider P: apiKey "…": give "${NAME}" or a literal` |
+| An endpoint that is not `{ url; key ? "NAME"; }` | `endpoints #N: give { url; key ? "NAME"; }` |
+| `binary` neither `"managed"` nor a package | `binary = "managed" or a package` |
+
+**The loopback limit.** A run's loopback is its own, so a provider that listens on the host's `localhost` (a local
+llama.cpp or vLLM bound to 127.0.0.1) cannot be reached; the form that would forward one port,
+`host-loopback:PORT`, is reserved for a later release. Leave such a provider out of `providers`. A server on
+another address (a LAN host, `http://192.168.1.52:11434/v1`) is an ordinary `network` request.
+
+**The run gets its own pi home.** `~/.pi/agent` is `state pi`, scoped per instance, workspace and context:
+sessions, project trust (`trust.json`) and caches. pi's configuration in it is fixed (read-only) by the root, as
+Claude's is: the root configures the agent, so nothing a run writes configures a later run.
+
+- From the arguments: `settings.json`, and `models.json` (`{ providers }`).
+- From `files`: each home-manager file under `agentDir` outside the folders below (such as `AGENTS.md`).
+- pi's other configuration, neutral unless `files` gives it: `keybindings.json` `{}`, `mcp.json` with no servers,
+  empty `SYSTEM.md` and `APPEND_SYSTEM.md` (pi's defaults), and `AGENTS.override.md`, the first context file pi
+  reads, as the root's `AGENTS.md` (else empty), so a run cannot plant one.
+- **`auth.json` and `mcp-auth.json` are always `{}`.** They are credential files: pi's OAuth logins and MCP
+  tokens, which pi refreshes by writing them. pot binds credentials into variables only, by reference, so a run
+  never sees the host's files. OAuth providers (a ChatGPT seat, any `/login`) work only on the host; a `/login`
+  inside a run does not persist. Give a provider a key (`"${NAME}"`) to use it in a run.
+- **`/model` does not persist.** It switches among the run's providers (`models.json`'s, and any an extension
+  adds) within a session; pi cannot write `settings.json`, so a new session starts at the root's
+  `defaultProvider` and `defaultModel`.
+
+**Read-only folders** (code and skills the run uses and cannot change): `extensions`, `skills`, `prompts`
+and `themes` from `~/<agentDir>/` on the host, each link bound by its target, one level deep (a store path, or a
+checkout under `skillSources`), and a real entry of `skills` only when `skillDirs` names it; `npm` and `git`, pi's
+installed packages, whole. `pi install` and `pi update` cannot work inside; run them on the host.
+
+**The program.** `binary = "managed"` runs `~/<agentDir>/bin/pi`, resolved on the host at each start, with `read`
+requests for `~/<agentDir>/bin` and `~/<agentDir>/install`, and `node` on `PATH`. A package runs its `bin/pi`.
+
+**Variables:** `PI_CODING_AGENT_DIR=~/.pi/agent`; `PI_OFFLINE=1`, so pi starts with no package install, version
+check or model-catalog fetch (installed packages still load; an extension that fetches a catalog at start sees
+it too, and uses its cache or built-in list); `PI_SKIP_VERSION_CHECK=1`; `PI_TELEMETRY=0`. A model call is not
+affected: it reaches its provider's host.
+
+**Requests:** `read` `~/<agentDir>/bin` and `~/<agentDir>/install` (managed) and `skillSources`; the computed
+`network`; `state pi`; the capabilities `status.relay` and one `credential` per host with a key.
+
+**Agent data:** `markers = [ "PI_CODING_AGENT" ]`, which pi sets for its children, so inside a host pi session
+`pot grant` refuses (`pot grant is for people: PI_CODING_AGENT is set`) and a stale grant exits 125;
+`resume` reads `~/.pi/agent/sessions/**/*.jsonl` and resumes with `--continue`, so the exit line says
+`pot: resume this session with: pot pi --continue`, and `pot host --resume RUN pi` works as for Claude.
+
+**Not in the kit:** a denial hook for the model (pi has none: denials reach the exit line and
+`/run/pot/README.md`), MCP servers, OAuth providers, Bedrock (SigV4) and providers on the host's loopback.
 
 ## On macOS
 
@@ -2149,6 +2196,7 @@ Seatbelt has no mounts, so links and path rules stand in for them:
 - **macOS is weaker** ([On macOS](#on-macos)): no nesting, no process or network isolation, no resource limits.
 - **No synced claude.ai skills inside a run** ([Claude Code](#claude-code)): install them as ordinary skill
   folders.
+- **pi in a run has no OAuth providers and no providers on the host's loopback** ([pi](#pi)).
 - No proxy credentials, `git.push`, `git.sign`, `ops.read`, `trust = "root"`, `delegate` (widening), or resource
   limits for an interactive run.
 
@@ -2167,13 +2215,16 @@ first on `PATH` wins; `command -v pot` says which.
    repo kits. Root kits rely on the root's lock and its review.
 4. **The host still runs repository and kit content:** Nix evaluation, fixed-output derivations, direnv, your own
    recipes, a provider's hand-written `.just` recipes, and kit tools where a wrapper runs unwrapped.
-5. **The working tree, transcripts and agent state are run output.** Read them as untrusted.
+5. **The working tree, transcripts and agent state are run output.** Read them as untrusted. A workspace's
+   `.agents/skills` is not protected: skills a run writes there load in a later pi session that trusts the
+   project, the host's too.
 6. **In place, a repo kit's code is mutable.** A powerful grant fixes its flake directory's tree hash. The rest of
    its code, and ordinary grants, are not fixed.
 7. **`pot grant` is a speed bump.** An unrestricted agent on the host can edit the grants file or script a
    terminal. A run cannot.
 8. **Within one state scope,** a run can leave transcripts and caches that the next run of that scope reads. It
-   cannot leave configuration.
+   cannot leave configuration. For pi, the state also holds its project trust (`trust.json`), catalog caches and
+   `-e` packages (`tmp/extensions`).
 9. **Sockets that a run creates** under a granted directory are reachable.
 10. **The terminal is shared:** OSC 52 clipboard writes, title changes, tmux passthrough. Set tmux's
     `set-clipboard off` and `allow-passthrough off`. `pot` escapes every byte that a run chose before it prints it:
