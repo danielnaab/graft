@@ -2914,9 +2914,7 @@ def path_answer(policy, p, cp, pre, home, facts, srcs):
         if C.under(p, w["path"]):
             rel = p[len(w["path"]) + 1:]
             for i in items:
-                if i["kind"] == "protect" and policy["access"] == "write" and rel and (
-                        (i["value"].startswith("**/") and i["value"][3:] in rel.split("/"))
-                        or rel == i["value"] or rel.startswith(i["value"].rstrip("/") + "/")):
+                if i["kind"] == "protect" and policy["access"] == "write" and rel and C.protected_by(rel, i["value"]):
                     return f"{pre} {rel} is protected ({i['value']}, {srcs(i)}): edit it on the host", True
             return f"{cp} is in the workspace {w['id']} ({policy['access']})", True
     best = None

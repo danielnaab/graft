@@ -1761,6 +1761,13 @@ or `.envrc` in a subfolder, say) is not stopped: the exit line, and `pot review`
 host-run file. The exception is the git names above: an absent `commondir`, `config.worktree` or `gitdir` gets a
 placeholder, so a run cannot create one.
 
+**Names compare folded** (v2.19.2). A `**/NAME` pattern, and `.git`, match any spelling that macOS's default
+filesystem (APFS, case- and normalization-insensitive) takes for the same name: Unicode canonical caseless matching,
+NFD(casefold(NFD(name))). So `.Envrc` and `.ENVRC` are `**/.envrc` (the file host direnv opens there), and
+`FLAKE.NIX` or `flaKe.nix` (with a Kelvin sign) are `**/flake.nix`: pinned read-only when they exist, and flagged
+when a run creates one or a clone commits one. On every system, so on a case-sensitive one this only protects more. A
+path pattern (`docs/x`) compares folded in review and `pot why`; inside a run its protection is the filesystem's own.
+
 **Sealed folders** (v2.19.1). A protected folder that the root's `sealedProtect` names (default `[ "**/.pi" ]`)
 is sealed under bubblewrap: the run gets a folder of its own at that path (`runs/<id>/sealed/<n>` in pot's state),
 holding each entry that was there, bound read-only (a link as the same link, a subfolder read-only throughout). So

@@ -102,6 +102,34 @@ def probe(cfg):
 
 # ---------------------------------------------------------------- the workspace's pins (in place)
 
+def fold(name):
+    """v2.19.2: a name as macOS's default filesystem (APFS, case- and normalization-insensitive) compares it: Unicode
+    canonical caseless matching, NFD(casefold(NFD(name))). There .Envrc, FLAKE.NIX, flaKe.nix (a Kelvin sign) and
+    ﬂake.nix (a ligature) are the files host direnv and nix open as .envrc and flake.nix, so a protect pattern's name
+    and a .git compare folded, on every system: on a case-sensitive one, that only protects more."""
+    import unicodedata
+    return unicodedata.normalize("NFD", unicodedata.normalize("NFD", name).casefold())
+
+
+GIT = fold(".git")
+
+
+def walk_named(top, names):
+    """The .git entries under TOP, and the entries a **/NAME pattern names (NAMES), each compared folded; never below
+    a .git, never through a link. Sorted."""
+    want = {fold(n) for n in names}
+    gits, named = [], []
+    for d, ds, fs in os.walk(top):
+        for e in ds + fs:
+            k = fold(e)
+            if k == GIT:
+                gits.append(os.path.join(d, e))
+            elif k in want:
+                named.append(os.path.join(d, e))
+        ds[:] = [e for e in ds if fold(e) != GIT]
+    return sorted(gits), sorted(named)
+
+
 class Pins:
     def __init__(self, top, common, protect, cfg):
         self.top, self.common, self.protect, self.cfg = top, common, protect, cfg
@@ -161,20 +189,7 @@ class Pins:
         return out
 
     def scan(self):
-        names = [p[3:] for p in self.protect if p.startswith("**/")]
-        expr = ["-name", ".git", "-prune", "-print0"]
-        if names:
-            ors = []
-            for n in names:
-                ors += (["-o"] if ors else []) + ["-name", n]
-            expr += ["-o", "("] + ors + [")", "-print0"]
-        out = subprocess.run([self.cfg["find"], self.top] + expr, capture_output=True, check=False).stdout
-        self.dotgits, self.named = [], []
-        for e in out.split(b"\0"):
-            if not e:
-                continue
-            e = os.fsdecode(e)
-            (self.dotgits if os.path.basename(e) == ".git" else self.named).append(e)
+        self.dotgits, self.named = walk_named(self.top, [p[3:] for p in self.protect if p.startswith("**/")])
 
     def allgitdirs(self):
         out = []
@@ -274,12 +289,12 @@ def hostrun_hashes(top, protect):
     import hashlib
     out = {}
     pats = [p for p in protect if not p.startswith("**/")] + HOST_RUN_EXTRA
-    names = {p[3:] for p in protect if p.startswith("**/")}
+    names = {fold(p[3:]) for p in protect if p.startswith("**/")}
 
     def h(p):
         if os.path.isdir(p) and not os.path.islink(p):
             for d, ds, fs in os.walk(p):
-                ds[:] = [x for x in ds if x != ".git"]
+                ds[:] = [x for x in ds if fold(x) != GIT]
                 for f in fs:
                     h(os.path.join(d, f))
         elif os.path.lexists(p):
@@ -291,9 +306,9 @@ def hostrun_hashes(top, protect):
     for p in pats:
         h(os.path.join(top, p))
     for d, ds, fs in os.walk(top):
-        ds[:] = [x for x in ds if x != ".git" and x != "node_modules"]
+        ds[:] = [x for x in ds if fold(x) != GIT and x != "node_modules"]
         for f in fs + ds:
-            if f in names:
+            if fold(f) in names:
                 h(os.path.join(d, f))
     return out
 
@@ -315,12 +330,7 @@ def sealed_dirs(cfg, top, patterns):
     out = []
     names = [p[3:] for p in patterns if p.startswith("**/")]
     if names and os.path.isdir(top):
-        ors = []
-        for n in names:
-            ors += (["-o"] if ors else []) + ["-name", n]
-        expr = ["-name", ".git", "-prune", "-o", "("] + ors + [")", "-type", "d", "-print0"]
-        res = subprocess.run([cfg["find"], top] + expr, capture_output=True, check=False).stdout
-        out += [os.fsdecode(e) for e in res.split(b"\0") if e]
+        out += walk_named(top, names)[1]          # folded, as Pins.scan; links and files are left out below
     for p in patterns:
         if not p.startswith("**/"):
             out.append(os.path.join(top, p.rstrip("/")))
@@ -1422,12 +1432,17 @@ def tree_size(p):
 
 
 def matches(path, pats):
+    """Whether PATH (relative to a workspace's top) is at or under a protect pattern, compared folded (v2.19.2)."""
+    parts = [fold(x) for x in path.split("/")]
+    path = "/".join(parts)
     for p in pats:
         if p.startswith("**/"):
-            if p[3:] in path.split("/"):
+            if fold(p[3:]) in parts:
                 return True
-        elif path == p.rstrip("/") or path.startswith(p.rstrip("/") + "/"):
-            return True
+        else:
+            q = "/".join(fold(x) for x in p.rstrip("/").split("/"))
+            if path == q or path.startswith(q + "/"):
+                return True
     return False
 
 
@@ -1552,8 +1567,7 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
     r = subprocess.run(sandboxed_git(cfg, rundir, clone, ["--no-optional-locks", "status", "--porcelain", "--ignore-submodules=dirty"]),
                        capture_output=True, text=True, timeout=600)
     ev["uncommitted"] = len([l for l in git_lines(r.stdout) if l.strip()]) if r.returncode == 0 else None
-    now = subprocess.run([cfg["find"], clone, "-name", ".git", "-prune", "-print0"], capture_output=True).stdout
-    gits = {os.fsdecode(e) for e in now.split(b"\0") if e}
+    gits = set(walk_named(clone, [])[0])        # folded, as the before step's (Pins.scan)
     ev["new_git_metadata"] += sorted(visible(top + g[len(clone):]).replace(top + "/", "") for g in gits - set(b.get("gits") or [])
                                      if g != os.path.join(clone, ".git"))
     ev["size"] = tree_size(clone) + tree_size(os.path.join(rundir, "staging"))

@@ -107,6 +107,15 @@ class FixRound4(unittest.TestCase):
         self.assertEqual(S.leftovers(rd, tmp, check, ps, me=99), [10, 11])
         self.assertEqual(S.leftovers(rd, tmp, None, ps, me=99), [11])      # no sandbox_check: the fallback alone
 
+    @unittest.skipUnless(os.uname().sysname == "Darwin", "sandbox_check(2) is macOS's")
+    def test_sandbox_check_answers_for_a_path(self):
+        # v2.19.2: the real call, which test_leftovers stubs. Its path is a variadic argument; passed as a fixed one
+        # (on arm64, in a register) every path check came back -1 (EINVAL), and F2 found nothing
+        # (sandboxed or not: nix's builder on macOS is itself under Seatbelt)
+        check = S.sandbox_checker()
+        self.assertIn(check(os.getpid()), (0, 1))
+        self.assertEqual(check(os.getpid(), "file-read-data", os.path.realpath(__file__)), 0)   # it reads itself
+
     def test_link_folders_are_kept(self):
         # F4: the folders made on the way to a link are kept with it
         d = tempfile.mkdtemp()

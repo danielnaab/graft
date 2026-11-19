@@ -176,6 +176,23 @@ def under(p, prefix):
     return p == prefix or p.startswith(prefix.rstrip("/") + "/")
 
 
+def fold(name):
+    """v2.19.2: a name compared as macOS's default filesystem (APFS) compares it, case- and normalization-insensitive:
+    NFD(casefold(NFD(name))). bwrap.py holds the same function (its docstring says why)."""
+    import unicodedata
+    return unicodedata.normalize("NFD", unicodedata.normalize("NFD", name).casefold())
+
+
+def protected_by(rel, value):
+    """A workspace path REL (from its top) is at or under the protect pattern VALUE (**/NAME, or a path from the
+    top), compared folded: bwrap.matches for one pattern."""
+    parts = [fold(x) for x in rel.split("/")]
+    if value.startswith("**/"):
+        return fold(value[3:]) in parts
+    q = [fold(x) for x in value.rstrip("/").split("/")]
+    return parts[:len(q)] == q
+
+
 # ---------------------------------------------------------------- identity (§4.4)
 
 def normalise_origin(url):

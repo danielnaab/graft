@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.19.2 - unreleased
+
+From the Mac checks of v2.19.1 (Seatbelt, which platform-vm cannot run). Both fixes are security fixes for macOS.
+
+- **pot (macOS): a process that leaves the run's group without its `TMPDIR` is stopped again** (F2 of v2.18.0's
+  Seatbelt review). pot asks Seatbelt (`sandbox_check`) which processes are the run's, but called it with the path
+  as a fixed argument: it is a variadic one, which arm64 passes on the stack, so every path check failed (`EINVAL`)
+  and such a process outlived the run. The call now names its fixed arguments, and a unit test makes the real call
+  on a Mac (the others stub it).
+- **pot: protected names compare folded.** A `**/NAME` pattern, and `.git`, match any spelling that APFS (macOS's
+  default, case- and normalization-insensitive filesystem) takes for the same name: NFD(casefold(NFD(name))). Before,
+  a run on a Mac could create or rewrite `.Envrc`, the file host direnv opens as `.envrc`, with no warning, and an
+  existing `.Envrc` or `FLAKE.NIX` was not pinned read-only. Now it is pinned, and a new one is flagged at exit and
+  in review, as `.envrc` is. On every system, so on a case-sensitive one this only protects more
+  ([Protected paths](docs/reference/pot.md#protected-paths)).
+- tests/run.sh's Seatbelt section tests F4 for real: it grants `fixedtest` and makes its folders itself (they were
+  in the bubblewrap part, which never runs on a Mac), and renames the folders pot made for its host memory links.
+  Before, F4 failed on a Mac, or found no nested link to test.
+
 ## v2.19.1 - 2026-11-19
 
 - **pot: pi reads a project's `.pi/settings.json` in a run.** pi takes a lock beside the file even to read it

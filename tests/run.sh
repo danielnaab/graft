@@ -2093,6 +2093,15 @@ pot_seatbelt() {
   done
   refuse "pot (seatbelt): no new hard link to a protected file" sb_ ln AGENTS.md agents-link 2>/dev/null
   expect "pot (seatbelt): the repository is writable" sb_ bash -c 'echo y >> notes.md'
+  # v2.19.2: on APFS another spelling (case, a Kelvin sign) is the same file, and refused as it is
+  for p in .GIT/CONFIG FLAKE.NIX "$(printf 'fla\xe2\x84\xaae.nix')"; do
+    refuse "pot (seatbelt): read-only, another spelling: $p" sb_ bash -c "echo x >> '$p'" 2>/dev/null
+  done
+  # a host-run file created in another spelling is what host direnv opens: reported, and protected in the next run
+  ran "pot (seatbelt): a created .Envrc" sb_loud bash -c 'echo "echo planted" > .Envrc'
+  expect "is reported after the run" holdsj "pot: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from: .Envrc"
+  refuse "and is read-only in the next run, in any spelling" sb_ bash -c 'echo x >> .ENVRC' 2>/dev/null
+  rm -f -- .Envrc
   refuse "pot (seatbelt): .git can't be renamed" sb_ mv .git .git2 2>/dev/null
   refuse "nor a scion's folder" sb_ mv scions/sbk scions/sbk2 2>/dev/null
   refuse "nor the run's HOME link to its hidden list" sb_ bash -c 'rm ~/.pot-hidden' 2>/dev/null
@@ -2142,10 +2151,15 @@ pot_seatbelt() {
   sb_ python3 -I -c 'import os; os.fork() or (os.setsid(), os.execvpe("sleep", ["sleep", "309"], {k: v for k, v in os.environ.items() if k != "TMPDIR"}))' >/dev/null 2>&1
   sleep 0.5
   refuse "pot (seatbelt): F2, a survivor with no TMPDIR is stopped too" pgrep -f "sleep 309"
-  # F4: a folder pot made in HOME on the way to a link is kept, as the link is
-  # shellcheck disable=SC2016 # the run's own variables
-  ran "pot (seatbelt): F4, a folder made for a link" sb_ fixedtest -c 'l=$(find "$HOME" -mindepth 2 -maxdepth 4 -type l | head -1); d=${l%/*}; [ -n "$l" ] || { echo no-nested-link; exit 0; }; mv "$d" "$d.moved" 2>/dev/null && echo moved || echo kept'
-  expect "can't be renamed" has "kept"
+  # F4: the folders pot makes on the way to a link are kept, as the link is: fixedtest's host memory, linked file by
+  # file at ~/.claude/projects/KEY/memory in its state. fixedtest is sec_pot's: its grant and folders are made here,
+  # since sec_pot's bubblewrap part never runs on a Mac
+  local key && key=$(pwd -P | sed 's/[^A-Za-z0-9]/-/g')
+  mkdir -p "$work/cfg/plugins" "$work/cfg/skills" "$work/cfg/projects/$key/memory"
+  echo m > "$work/cfg/projects/$key/memory/m.md"
+  ran "pot (seatbelt): pot grant fixed" tty_ $'y\n' "$work/sbr/bin/pot" grant fixed
+  ran "pot (seatbelt): F4, the folders made for a link" sb_ fixedtest -c "cd ~/.claude && test -L projects/$key/memory/m.md && for d in projects projects/$key projects/$key/memory; do mv \"\$d\" \"\$d.moved\" 2>/dev/null && echo \"moved \$d\"; done; echo done"
+  expect "can't be renamed" test "$out" = "done"
   ran "pot (seatbelt): at a terminal, the run is the foreground group" tty_ '' "$work/sbr/bin/pot" python3 -I -c '
 import fcntl, os, termios
 print("fg", os.tcgetpgrp(0) == os.getpgrp())

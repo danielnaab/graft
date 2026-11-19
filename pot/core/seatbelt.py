@@ -599,7 +599,11 @@ SANDBOX_FILTER_PATH = 1     # sandbox_check(2)'s filter type: a path
 
 def sandbox_checker():
     """sandbox_check(pid, op, type, path) from libsystem_sandbox (ctypes): 0 allowed, 1 denied; with no operation, 1
-    when the process is sandboxed. None where there is no such call (Linux)."""
+    when the process is sandboxed. None where there is no such call (Linux).
+    v2.19.2: the call is variadic after TYPE, so argtypes names the three fixed arguments and the path goes after
+    them, as a variadic one: arm64 macOS passes those on the stack, where ctypes puts them only for arguments past
+    argtypes. Without argtypes the path went in a register, every path check failed (-1, EINVAL), and a process
+    that left the run's group without its TMPDIR outlived the run (F2)."""
     import ctypes
     try:
         lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
@@ -607,11 +611,12 @@ def sandbox_checker():
         return None
     f = lib.sandbox_check
     f.restype = ctypes.c_int
+    f.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
 
     def check(pid, op=None, path=None):
         if op is None:
-            return f(ctypes.c_int(pid), None, ctypes.c_int(0))
-        return f(ctypes.c_int(pid), op.encode(), ctypes.c_int(SANDBOX_FILTER_PATH), path.encode())
+            return f(pid, None, 0)
+        return f(pid, op.encode(), SANDBOX_FILTER_PATH, ctypes.c_char_p(os.fsencode(path)))
     return check
 
 
