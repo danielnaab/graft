@@ -3804,7 +3804,7 @@ def doctor(host, root, rootjson):
         lines.append((f"! {label:<8} {first}" if label else f"{'':<9}! {first}") if bad else f"{label:<11}{first}")
         lines.extend(" " * 11 + r for r in rest)
     sp = lambda p: C.canon_path(C.expand(p, host.home), host.home) if p else p   # noqa: E731
-    ver = "v2.19.1"
+    ver = "v2.19.2"
     lines.append(f"pot doctor · root {root.get('name', '?')} · {host.machine} · pot {ver}")
     # the backend
     try:
@@ -4067,7 +4067,7 @@ def init(host, args, flags):
     f = os.path.join(d, "flake.nix")
     if os.path.exists(f):
         raise C.Refusal(f"pot init: {C.canon_path(f, host.home)} exists; edit it, or choose another folder: pot init DIR")
-    graft_url = os.environ.get("POT_INIT_GRAFT") or "github:danielnaab/graft/v2.19.1"
+    graft_url = os.environ.get("POT_INIT_GRAFT") or "github:danielnaab/graft/v2.19.2"
     os.makedirs(d, exist_ok=True)
     grants = os.path.join(C.canon_path(d, host.home), "grants.json")
     with open(f, "w") as fh:

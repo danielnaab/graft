@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.19.2 - unreleased
+## v2.19.2 - 2026-11-19
 
 From the Mac checks of v2.19.1 (Seatbelt, which platform-vm cannot run). Both fixes are security fixes for macOS.
 
