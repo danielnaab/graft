@@ -574,9 +574,9 @@ A wrapper runs `"$launcher" run --command NAME --manifest M -- ARGS`, where the 
 
 | Where | What the wrapper does |
 |---|---|
-| On the host, with a v2.18.0 or later root's launcher | `pot run`: a start under the command's own policy (below). |
-| On the host with no launcher, on macOS, or under a root's pot that predates `pot run` | Runs the program unwrapped, with one line on stderr: `pot: check-kb runs without pot (no root here: ~/.config/pot/launcher is missing)`, `(no sandbox on darwin yet)`, or `(your root's pot predates wrapped commands: take graft v2.18.0 in your root (home-manager switch))`. A command whose program is on the host (`program.host`) cannot run unwrapped: exit 126, `pot: C needs pot (<why>)`. |
-| Inside a run that a v2.18.0 or later pot started (policy.json names `mounts.launcher`, checked first) | Execs `/run/pot/launcher`, the run's own pot, a read-only mount the run cannot rename or replace; it looks the command up in the [children table](#nesting-and-the-children-table). Without it, exit 126: `pot: C: this run's launcher (/run/pot/launcher) is missing, so its children table can't be reached: run C on the host`. It never runs the program unwrapped. |
+| On the host, with a v2.18.0 or later root's launcher | `pot run`: a start under the command's own policy (below), under bubblewrap on Linux and Seatbelt on macOS. |
+| On the host with no launcher (a Mac with pot off, a container, a Nix build), or under a root's pot that predates `pot run` | Runs the program unwrapped, with one line on stderr: `pot: check-kb runs without pot (no root here: ~/.config/pot/launcher is missing)`, or `(your root's pot predates wrapped commands: take graft v2.18.0 in your root (home-manager switch))`. A command whose program is on the host (`program.host`) cannot run unwrapped: exit 126, `pot: C needs pot (<why>)`. |
+| Inside a run that a v2.18.0 or later pot started (its policy.json, `/run/pot/policy.json` or else `POT_POLICY`, names `mounts.launcher`; checked first) | Execs the run's own pot beside the policy: `/run/pot/launcher` under bubblewrap, a read-only mount the run cannot rename or replace; `<run dir>/launcher` under Seatbelt, which the run can read but not write. It looks the command up in the [children table](#nesting-and-the-children-table). Without it, exit 126: `pot: C: this run's launcher (/run/pot/launcher) is missing, so its children table can't be reached: run C on the host`. It never runs the program unwrapped. |
 | Inside a run that an older pot started (no `mounts.launcher`) | Runs the program under that run's policy, as before v2.18.0, even when a pointer is in the run's home; a host program exits 126: `pot: C: its program is on the host: run it there`. |
 
 **`pot run --command NAME --manifest PATH -- ARGS` on the host** (also in `pot --help`) checks the manifest: a
@@ -861,9 +861,16 @@ kit's reach. Keys are `<kit id>:<command>`, and `dispatch <kit id>:<command>` fo
   child's bindings must equal the parent's (capability, selector and request), else the row is refused as needing
   that capability; the child gets the parent's sockets.
 - **A parent holds everything its children get:** each row's closure and state folders are bound into the parent
-  ([residual 22](#residual-risks)).
+  ([residual 23](#residual-risks)).
+- **Seatbelt cannot nest.** On macOS every row that would nest is refused, `refused: "Seatbelt cannot nest"`, with
+  the text `pot (work): check-kb runs under its own, narrower policy, and Seatbelt cannot nest (a run on macOS
+  starts no runs inside it): run it on the host (just check-kb)` (`… dispatch claude … (pot dispatch claude)` for a
+  dispatch row), exit 1. A row whose policy equals the run's still execs in place. So once pot is on for a Mac,
+  `git commit` inside `pot claude` stops at a wrapped pre-commit hook: commit on the host, or
+  `git commit --no-verify`. An empty table reads `children   none (Seatbelt cannot nest: a run on macOS starts no
+  runs inside it)` in `pot explain`.
 - **User namespaces.** A run keeps them only when its table has a `nest` row, its context's `nest` is `true`, and
-  the backend proves `nest`; otherwise it gets `--disable-userns`. So `pot claude` keeps them (it can dispatch
+  the backend proves `nest` (bubblewrap, where its probe can nest); otherwise it gets `--disable-userns`. So `pot claude` keeps them (it can dispatch
   itself), and `pot true` or `pot inspect` does not. A child keeps them only when its own sub-table (the parent's
   rows narrower than it) has a `nest` row. **A grandchild gets no children table** (`children` is `{}`), so depth
   is at most host, parent, child, grandchild.
@@ -876,8 +883,8 @@ kit's reach. Keys are `<kit id>:<command>`, and `dispatch <kit id>:<command>` fo
   itself. A child's log lines are `by: parent` (claims), with `invoker: "run"` and `run: "PARENT/CHILD"`.
 - **A child's denials** go to its own `/run/pot/denials`, with no `one run:` line, and `permanent:` names the child
   kit: `requests.network in nkp (scions/nkp/graft.nix)`.
-- **Bound into every run:** `/run/pot/launcher`, the root's in-run pot, read-only; and `~/.config/pot/` as a
-  read-only folder whose `launcher` links to it. Bubblewrap is in every run's closure. A run with a table also gets `/run/pot/table/` (read-only, each row's
+- **Bound into every bubblewrap run:** `/run/pot/launcher`, the root's in-run pot, read-only; and `~/.config/pot/`
+  as a read-only folder whose `launcher` links to it. The backend is in every run's closure. A run with a table also gets `/run/pot/table/` (read-only, each row's
   state read-write) and `/run/pot/children/` (read-write).
 
 ## policy.json
@@ -1069,23 +1076,23 @@ proved and lacking guarantees; `resources`, whether this run gets the [resource 
 not a terminal (and in the run's `explain.txt`). `pot explain --backend-command claude` prints the whole bubblewrap
 command and Claude's assembled arguments.
 
-For Daniel's flexion-assistant, before `claude-code@personal` is granted (store hashes cut to `…`):
+For Daniel's flexion-assistant on v2.18.0, with `claude-code@flexion` granted (store hashes cut to `…`):
 
 ```
-run        claude -> root:claude-code@personal
+run        claude -> root:claude-code@flexion
 context    work: in-place, access write, bubblewrap; includes root:daniel
-workspace  repo:platform-vm:2222/daniel/flexion-assistant (write) /home/daniel/src/flexion-assistant
+workspace  repo:platform-vm:2222/daniel/flexion-assistant (write) ~/src/flexion-assistant
            scions: knowledge-base-kit, meeting-kit, notebook-kit
-next       pot grant claude-code@personal (9 requests)
-argv       /home/daniel/.local/share/claude/versions/2.1.326 --settings
+next       ready
+argv       /nix/store/…-claude-code/bin/claude --settings
            /nix/store/…-pot-claude-overlay.json --mcp-config
            /run/pot/mcp.json --strict-mcp-config
 hooks      PreToolUse, PostToolUse, PostToolUseFailure (Bash|WebFetch); SessionStart
            (pot's --settings overlay; /hooks does not list them)
 
 see        standard tools (24) · uv-0.13.4 (root) · bun-1.4.2 (root) · nodejs-22.23.4 (root) ·
-           graft (root) · glibc-2.44-57 (claude-code@personal) · pot-kits (repo)
-           claude-code@personal:
+           graft (root) · glibc-2.44-57 (claude-code@flexion) · pot-kits (repo)
+           claude-code@flexion:
              env.set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
              env.set CLAUDE_CONFIG_DIR=~/.claude
              env.set DISABLE_AUTOUPDATER=1
@@ -1097,52 +1104,51 @@ see        standard tools (24) · uv-0.13.4 (root) · bun-1.4.2 (root) · nodejs
              file ~/.claude/CLAUDE.md, read-only
              file ~/.claude/settings.json, read-only
              file ~/.claude/statusline-command.sh, read-only
-             dir ~/.claude/agents (read-only): 0 entries
-             dir ~/.claude/commands (read-only): 0 entries
-             dir ~/.claude/hooks (read-only): 0 entries
-             dir ~/.claude/plugins (read-only): 10 entries
-             dir ~/.claude/skills (read-only): 8 entries
-               left out until claude-code@personal is granted: cowork-context daily-note
-                 digital-strategy-decision grill-me homelab-ops meeting meeting-integrate
-                 meeting-prep meeting-summary meeting-synthesize session-retro vault-structured-doc
-                 workstation-edit wt-dispatch
            root:
              env.set TZ=America/Chicago
-           host memory: 3 files, read-only (what the run writes stays in its state)
 
 limits     protect: **/flake.nix **/flake.lock **/.gitmodules **/.envrc **/justfile
                     **/.pre-commit-config.yaml **/.vscode **/.pi **/.codex nix/agent-tools (pot)
                     .githooks (pot, repo)
-                    **/.mcp.json **/.claude (pot, claude-code@personal)
+                    **/.mcp.json **/.claude (pot, claude-code@flexion)
                     nix/agent-tools/ensure.sh .local AGENTS.md docs/boundaries.md **/graft.nix
                     nix/agent-tools/.scions (repo)
-           hidden: 31 paths (pot explain --json lists them)
+           hidden: 32 paths (pot explain --json lists them)
 
 reach                                                                    granted by
-  network    api.anthropic.com:443                                          claude-code@personal: not granted
-  network    claude.ai:443                                                  claude-code@personal: not granted
+  network    api.anthropic.com:443                                          claude-code@flexion
+  network    claude.ai:443                                                  claude-code@flexion
   network    pypi.org:443                                                   daniel
   network    files.pythonhosted.org:443                                     daniel
   network    registry.npmjs.org:443                                         daniel
-  read       ~/.local/share/claude                                          claude-code@personal: not granted
-  read       ~/src/agent-skills-private                                     claude-code@personal: not granted
-  read       ~/src/agent-skills                                             claude-code@personal: not granted
-  state      claude -> ~/.claude                                            claude-code@personal: not granted
-  capability status.relay                                                   claude-code@personal: not granted
-  capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN       claude-code@personal: not granted
-  capability mcp sessions                                                   claude-code@personal: not granted
+  network    mcp.crushingpennies.com:443 (mcp)                              claude-code@flexion, binding
+  read       ~/.local/share/claude                                          claude-code@flexion
+  read       ~/src/agent-skills-private                                     claude-code@flexion
+  read       ~/src/agent-skills                                             claude-code@flexion
+  state      claude -> ~/.claude                                            claude-code@flexion
+  capability status.relay: workmux relay                                    claude-code@flexion
+  capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN: file
+             ~/.config/pot/… (the run
+             holds it)
+                                                                            claude-code@flexion
+  capability mcp sessions: env METAMCP_API_KEY from
+             ~/.config/pot/… (the run
+             holds it)
+                                                                            claude-code@flexion
   capability nix: untrusted daemon relay: exposes the whole store read-only, drops closure-store
                                                                             flexion-assistant
   capability git.fetch ssh://forgejo@platform-vm:2222/*: ssh broker (fetch only), the host's ssh
              agent
                                                                             daniel
-children   none: this run keeps --disable-userns
+children   dispatch claude (claude-code@flexion): nest ·
+           check-kb check-obsidian check-tasks check-templates nb-convert nb-index nb-move nb-pre-commit upgrade-obsidian (notebook-kit): nest ·
+           claude (claude-code@flexion): exec
 
-not in run claude-code@flexion (root:claude-code@flexion): not granted:
-             capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN,
-             capability mcp sessions, capability status.relay, network api.anthropic.com:443,
-             network claude.ai:443, read ~/.local/share/claude, read ~/src/agent-skills,
-             read ~/src/agent-skills-private, state claude
+not in run claude-code@flexion-gateway (root:claude-code@flexion-gateway): not granted:
+             capability credential llm.cloud.flexion.us env=ANTHROPIC_AUTH_TOKEN,
+             capability mcp sessions, capability status.relay, network llm.cloud.flexion.us:443,
+             read ~/.local/share/claude, read ~/src/agent-skills, read ~/src/agent-skills-private,
+             state claude
 not in run claude-code@personal (root:claude-code@personal): not granted:
              capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN,
              capability mcp sessions, capability status.relay, network api.anthropic.com:443,
@@ -1150,15 +1156,11 @@ not in run claude-code@personal (root:claude-code@personal): not granted:
              read ~/src/agent-skills-private, state claude
 
 backend    bubblewrap proves own-netns own-pidns no-tiocsti protected-as-mounts local-listen
-           in-place same-path-clone private-proxy root-files; lacks closure-store resource-limits
-           separate-kernel nest
+           in-place same-path-clone private-proxy root-files nest; lacks closure-store
+           resource-limits separate-kernel
+resources  none at a terminal; a run without one gets a user systemd scope, MemoryMax=50% TasksMax=2048
+note       a kit command started in this run (its wrapper) runs under its own policy, from the children table
 ```
-
-TODO(M3): replace this sample with a real one from flexion-assistant after its bump (notebook-kit's rows, the
-`dispatch claude` row and the new `note`). The test fixture's row reads
-`children   dispatch agent (agent): nest · nk-chk nk-hook (nkp): nest · agent (agent): exec`, then
-`  nk-wide: refused (needs WIDE_TOK)`; the note is
-`note       a kit command started in this run (its wrapper) runs under its own policy, from the children table`.
 
 `daniel` here is the root kit that Daniel's `work` includes, and `flexion-assistant` is the repo kit's short
 name. The `nix` capability is why this run lacks `closure-store`. File modes are in words: `read-only` (`fixed`),
@@ -1529,21 +1531,23 @@ never their contents. It exits 1 when a line starts `!`, else 0. There is no `--
 pot doctor · root home-manager · platform-vm · pot v2.17.1
 backend    bubblewrap: user namespaces work; proves closure-store own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files nest; resource-limits: for runs without a terminal; lacks separate-kernel
 resources  user systemd: runs without a terminal get MemoryMax=50% TasksMax=2048
-grants     ~/.workstation/pot/grants.json: parses, 3 kits, no entry for platform-vm in the grants file's machines; tracked in ~/.workstation, committed
-! bindings credential api.anthropic.com kit=claude-code@flexion: file ~/.config/pot/claude-token-flexion is missing: create it, with mode 600
-         ! credential api.anthropic.com kit=claude-code@personal: file ~/.config/pot/claude-token-personal (present, 0644: others can read it; chmod 600 it)
+grants     ~/.workstation/pot/grants.json: parses, 4 kits, no entry for platform-vm in the grants file's machines
+bindings   credential api.anthropic.com kit=claude-code@flexion: file ~/.config/pot/claude-token-flexion (present, 0600)
+         ! credential api.anthropic.com kit=claude-code@personal: file ~/.config/pot/claude-token-personal is missing: claude setup-token, saved with mode 600
            credential bedrock-runtime.us-east-2.amazonaws.com kit=claude-code@flexion-bedrock: env (ai use flexion-bedrock)
+           credential llm.cloud.flexion.us kit=claude-code@flexion-gateway: file ~/.config/flexion-gateway/key (present, 0600)
          ! git.fetch ssh://forgejo@platform-vm:2222/*: ssh agent (SSH_AUTH_SOCK unset: fetches fail)
+           mcp sessions: env from file ~/.config/pot/metamcp.env (present, 0600)
            nix *: daemon-untrusted (nix on PATH)
            status.relay *: workmux on PATH; this shell is not in tmux
-instances  claude-code: flexion, flexion-bedrock, personal (default)
-           this shell's variables select claude-code@flexion-bedrock
-workspace  flexion-assistant: repo:platform-vm:2222/daniel/flexion-assistant · repo kit nix/agent-tools (pot-kits) · no scion kits
+instances  claude-code: flexion, flexion-bedrock, flexion-gateway, personal (default)
+           this shell's variables select claude-code@personal (the default: no instance matches)
+workspace  flexion-assistant: repo:platform-vm:2222/daniel/flexion-assistant · repo kit nix/agent-tools (pot-kits) · notebook-kit (unverified)
 state      ~/.local/state/pot: 0 runs, 0 clones (0 B of 20G, keepDays 14)
-! launcher ~/.config/pot/launcher -> /nix/store/…-pot/bin/pot, not this pot (home-manager switch)
+launcher   ~/.config/pot/launcher -> this pot
 ```
 
-TODO(M3): a real v2.18.0 sample (the backend row then lists `nest`).
+notebook-kit is `unverified` here because the bump branch pins it before its release tag.
 
 - `backend` is the probe (`… cannot create a user namespace here, so no run starts (pot host CMD runs unsandboxed)`
   when it fails; when `PATH` has no `true` for it to run, `! backend  bubblewrap: its probe runs true, and PATH has
@@ -1864,14 +1868,14 @@ The other messages, after `pot (<context>): `:
 | `--from`, `--detach` without clone mode (2) | `--from is clone mode: pot dispatch --from REF CMD, or pot --clone --from REF CMD` |
 | `graft-kits` only (1) | `~/DIR has graft-kits only: its graft predates v2.16.0, and this pot reads pot-kits: take graft v2.16.0 or later there (nix flake update graft), or run pot host CMD` |
 | Missing guarantee (125) | `requires separate-kernel; bubblewrap proves …` |
-| `pot` inside a run (1) | `pot inside a run starts nested runs in a later release: run it on the host`; on macOS `Seatbelt cannot nest: a run on macOS starts no runs inside it (pot dispatch, pot CONTEXT CMD); run it on the host` |
+| `pot CONTEXT CMD` inside a run (1) | `pot inside a run starts nested runs in a later release: run it on the host` (nested starts go through wrappers and `pot dispatch`); on macOS `Seatbelt cannot nest: a run on macOS starts no runs inside it (pot dispatch, pot CONTEXT CMD); run it on the host` |
 | A child that needs reach its parent lacks (1) | `meeting-kit needs WM_TOKEN, git.push, which this run (claude) lacks: run it on the host (just meeting-run)`; the parenthesis names the first `kits.just` recipe that runs the command, else `meeting-kit ARGS` |
 | A wrapper with no launcher inside a v2.18.0 run (126) | `pot: C: this run's launcher (/run/pot/launcher) is missing, so its children table can't be reached: run C on the host` |
 | A wrapper whose program is on the host, with no pot (126) | `pot: C needs pot (<why>)`; inside an older run, `pot: C: its program is on the host: run it there` |
 | A wrapper that cannot reach pot on the host (stderr note, no stop) | `pot: check-kb runs without pot (…)` ([Wrapped commands](#wrapped-commands)) |
 | A wrapper from another workspace (1) | `check-kb: this workspace's kits have no command check-kb (the wrapper comes from another workspace's tools): run it in its repository` |
 | A child whose grant does not match, inside a run (125) | `C: not granted: pot grant NAME (on the host)` |
-| The host's review verbs inside a run (2) | `pot review 9b0e/c210 --fetch is the host's: run it there` |
+| The host's review verbs inside a run (2) | `pot review 9b0e/c210 --fetch is the host's: a run's output is reviewed outside it; inside, pot review CHILD --json shows a child's commits` |
 | A missing lock | `pot (work): ~/…/nix/agent-tools/flake.lock is missing, and pot never writes one into a workspace: run nix flake lock there, on the host, and commit it` |
 | A binding file (1, v2.17.1) | `pot (work): ~/.config/pot/claude-token-flexion is missing (the credential binding api.anthropic.com kit=claude-code@flexion): claude setup-token, saved with mode 600, then start again`; `is unreadable` for one the user cannot read; before the grant prompts ([the binding check](#key-files)) |
 
@@ -2058,11 +2062,21 @@ Seatbelt has no mounts, so links and path rules stand in for them:
   `pot: dispatch · flexion-assistant · from main (83bd903) · clone at its own path · …`. A context that `requires`
   `same-path-clone` exits 125. The host's look at the clone runs git under Seatbelt, the clone read-only.
 - **Processes:** the run is its own process group, in the terminal's foreground when `pot` is (`^C` and `^Z` reach
-  it). When the command exits, what is left of the group is stopped, then any process that left it (`setsid`) but
-  carries the run's `TMPDIR`.
+  it). When the command exits, what is left of the group is stopped, then every process that left it (`setsid`):
+  one that `sandbox_check` finds sandboxed and able to read this run's `policy.json`, or that carries the run's
+  `TMPDIR` in its environment (not merely in its arguments). Each gets TERM, then KILL, pass after pass until one
+  finds none (at most 20).
+- **The host's look at a clone** runs git under its own profile (`git.sb`, kept in the run's folder) with the run
+  profile's last denies (`TIOCSTI`, the fcntls), in a session of its own, with stdin `/dev/null` (upload-pack keeps
+  its stdin to speak on).
+- **Folders pot makes in HOME** on the way to a link are kept like the link: the run cannot rename or remove them.
 - **No nesting.** `pot` inside a run on macOS refuses: `pot (work): Seatbelt cannot nest: a run on macOS starts no
   runs inside it (pot dispatch, pot CONTEXT CMD); run it on the host`. A narrower child is never flattened into its
-  parent.
+  parent: a [wrapped command](#wrapped-commands) whose row would nest is refused, naming the host recipe, and one
+  whose policy equals the run's runs in place ([Seatbelt cannot nest](#nesting-and-the-children-table)). So
+  `git commit` inside `pot claude` stops at a wrapped pre-commit hook: commit on the host, or `--no-verify`.
+- **Wrapped commands on the host** run under Seatbelt through the launcher, as on Linux. With pot off (no
+  launcher) they run unwrapped, with the `runs without pot` line.
 - **Inside a run,** `pot` knows it is in one when the process is sandboxed (`sandbox_check`, which a host process
   cannot fake) and `POT_POLICY` names a `policy.json` it can read and not write. A forged `POT_POLICY` on the host
   is a host call.
@@ -2075,8 +2089,8 @@ Seatbelt has no mounts, so links and path rules stand in for them:
 
 ## Not yet
 
-- **Wrapped commands run unwrapped where there is no root** (no launcher, macOS, a root older than v2.18.0), with
-  a stderr line; and a deployment with no root (a Windmill worker, CI) takes `tools.passthru.unwrapped` on purpose.
+- **Wrapped commands run unwrapped where there is no root** (no launcher, a root older than v2.18.0), with a
+  stderr line; and a deployment with no root (a Windmill worker, CI) takes `tools.passthru.unwrapped` on purpose.
 - **A child's bindings must equal its parent's;** narrower bindings come later.
 - **Nested children cannot outlive their parent** until `pot serve`, and a grandchild gets no children table.
 - **A nested dispatch stages only the child's top repository:** commits in its scions do not come back.
@@ -2148,7 +2162,7 @@ first on `PATH` wins; `command -v pot` says which.
 23. **A parent holds everything its children get:** their closures, state folders and the credentials their
     bindings carry. Nesting narrows the child, not the parent.
 24. **`by: parent` and `by: run` events are claims** their writers can forge. The host's own `after` for a child,
-    in the parent's log, is the evidence `pot review` uses.
+    in `runs/<parent>/child-staging/<child>/log.jsonl`, is the evidence `pot review` uses.
 
 ## Sources
 

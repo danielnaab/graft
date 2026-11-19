@@ -145,7 +145,8 @@ one you already made: including it asks for nothing new.
 
 ## Dispatch from inside a run
 
-An agent in `pot claude` can hand off a task the same way: `pot dispatch --detach -- claude -p "…"` from its Bash
+On Linux, an agent in `pot claude` can hand off a task the same way (on macOS, Seatbelt cannot nest, and
+`pot dispatch` inside a run is refused): `pot dispatch --detach -- claude -p "…"` from its Bash
 tool. It prints the child's id (`9b0e/c210`); the agent follows it with `pot runs c210` (`pot runs` lists its
 children) and reads its commits with `pot review c210 --json`. The child runs inside the parent and is killed
 when the parent exits. Without `--detach`, the agent waits for it, and its exit line says

@@ -29,7 +29,7 @@ The rest of a run's environment is described in pot's reference
 | Path | Contents |
 |---|---|
 | `/run/pot/policy.json` | The run's policy ([below](#policyjson-version-1)), read-only. |
-| `/run/pot/launcher` | The root's in-run pot, read-only; a wrapper inside the run execs it. `~/.config/pot/launcher` is a link to it, in a read-only folder. Since v2.18.0. |
+| `/run/pot/launcher` | The root's in-run pot, read-only; a wrapper inside the run execs it (under Seatbelt, `launcher` beside `POT_POLICY`). `~/.config/pot/launcher` is a link to it, in a read-only folder. Since v2.18.0. |
 | `/run/pot/table/<digest>/` | Each child policy in the table (`policy.json`, its closure), read-only; a nested row's state folders under `state/`. Since v2.18.0. |
 | `/run/pot/children/` | The parent's children folder, read-write in that parent only. Since v2.18.0. |
 | `/run/pot/denials` | One entry for each refused host and port, appended as it happens, read-only to the run: a line `pot (<context>): the run tried HOST:PORT (not in this run).`, then indented lines `  one run:   pot --net HOST …` and `  permanent: <fix>` (one more `             or <fix>` line for each other fix). Since v2.16.1; v2.16.0 wrote one line per entry. Read it as text: its layout is not part of this contract's shape. |

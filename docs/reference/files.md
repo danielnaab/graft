@@ -76,8 +76,9 @@ check-kb *args:
 
 A recipe with fixed arguments single-quotes each: `exec "{{tools}}/bin/check-kb" '--all' "$@"`.
 
-Import it after any provider's own `.just` file, with `set allow-duplicate-recipes`, so its recipes win, and define
-`tools` as the tools package's root:
+Import it after any provider's own `.just` file, with `set allow-duplicate-recipes` (just then keeps the first of
+two recipes with one name, so the provider's hand-written one runs; it calls the same wrapper from `tools`), and
+define `tools` as the tools package's root:
 
 ```just
 set allow-duplicate-recipes
@@ -90,8 +91,7 @@ Two recipes with one name fail evaluation: `pot: kitsFor: two recipes are named 
 ship one command, `pot: kitsFor: two kits ship a command named X (self and scions.a): a wrapper has one name`.
 A kit's recipe never replaces one of your own: when `kits.just` and the top `justfile`'s own recipes share a name,
 `graft check` fails and `graft sync` warns: `graft: scions/kits.just's recipe X has the name of the justfile's own X:
-rename one (a kit's recipe never replaces yours)`. (A provider's imported `.just` file is not yours: `kits.just`,
-imported after it, wins.) graft writes the file through a temporary file and refuses a link: `graft:
+rename one (a kit's recipe never replaces yours)`. (A provider's imported `.just` file is not yours: graft does not check it.) graft writes the file through a temporary file and refuses a link: `graft:
 scions/kits.just is a symbolic link; graft writes only a file there: remove it, then graft sync` (the same for the
 marker README; `graft check` reports it too).
 `graft check` fails when the file differs from what the flake generates: `graft sync` writes it again. When the

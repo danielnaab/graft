@@ -103,7 +103,9 @@ pane's status working.
 A kit's commands (`check-kb`, `just check`, the pre-commit hook) are [wrapped](../reference/pot.md#wrapped-commands):
 inside `pot claude` each runs nested, under its own policy, so it cannot reach the agent's model API, token or MCP.
 `git commit` inside the run runs the repository's hook command the same way. `pot explain claude` lists them on its
-`children` row. A command that needs reach the agent's run lacks is refused, naming where to run it:
+`children` row. On macOS, Seatbelt cannot nest: such a command is refused, and so is the pre-commit hook in
+`git commit` (commit on the host, or `--no-verify`). A command that needs reach the agent's run lacks is refused,
+naming where to run it:
 
 ```
 pot (work): meeting-kit needs WM_TOKEN, git.push, which this run (claude) lacks: run it on the host (just meeting-run)

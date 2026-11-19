@@ -30,8 +30,9 @@ pot: check-kb runs without pot (your root's pot predates wrapped commands: take 
 ## Move a consumer
 
 1. Take the release: `nix run .#graft upgrade` (or `nix flake update graft`).
-2. Import `<scions>/kits.just` in your justfile, **after** any provider's own `.just` file, so the generated recipes
-   win, then run `nix run .#graft sync`, which writes and stages the file (graft writes it only once the justfile
+2. Import `<scions>/kits.just` in your justfile after any provider's own `.just` file. With
+   `set allow-duplicate-recipes`, just keeps the first of two recipes with one name, so a provider's hand-written recipe runs; it calls the same
+   wrapper from `tools`. Then run `nix run .#graft sync`, which writes and stages the file (graft writes it only once the justfile
    names it or it exists). Commit it with the lock: `graft check` fails while it is stale.
 
    ```just
@@ -59,7 +60,10 @@ pot: check-kb runs without pot (your root's pot predates wrapped commands: take 
    ```
 
    On the host, `git commit` runs it under the command's own policy; inside `pot claude`, nested under it.
-   A dispatch clone carries a relative, tracked `core.hooksPath`, so commits in it run the hook too, nested.
+   A dispatch clone carries `core.hooksPath` only when it is relative and names a tracked folder, so set it that
+   way, once per clone: `git config core.hooksPath .githooks`. An absolute path (such as
+   `/home/daniel/src/flexion-assistant/.githooks`) still works in place, but a dispatch clone does not carry it,
+   and commits there run no hook.
    `git commit --no-verify` skips it, as for any hook.
 
 5. **Anything that must not run pot** (a CI job, a Nix check, a container, a scheduler such as a Windmill worker)
@@ -90,8 +94,11 @@ pot: check-kb runs without pot (your root's pot predates wrapped commands: take 
 - **`graft: scions/kits.just's recipe X has the name of the justfile's own X: rename one (a kit's recipe never
   replaces yours)`.** Your justfile defines a recipe a kit also generates. Drop yours if it did the same thing, or
   rename it.
-- **`pot: check-kb runs without pot (…)`.** The wrapper found no usable pot: no root here, macOS, or a root older
-  than v2.18.0. The command still ran; the parenthesis says what to do.
+- **`pot: check-kb runs without pot (…)`.** The wrapper found no usable pot: no root here (a Mac with pot off, a
+  container), or a root older than v2.18.0. The command still ran; the parenthesis says what to do.
+- **On macOS, `git commit` inside `pot claude` stops at the pre-commit hook:** `… Seatbelt cannot nest (a run on
+  macOS starts no runs inside it): run it on the host (…)`. The hook command would need its own, narrower sandbox.
+  Commit on the host, or `git commit --no-verify`.
 - **`… needs X, which this run (claude) lacks: run it on the host (just RECIPE)`.** Inside a run, that kit
   command asks for reach the agent's run does not have. Run the recipe on the host.
 

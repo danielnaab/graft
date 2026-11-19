@@ -55,7 +55,8 @@ MCP. This page is for a provider; the consumer's side is [Move to v2.18.0](move-
 ## Keep older consumers working
 
 - Keep your hand-written `.just` file and hook script while consumers on older graft use them. A consumer on
-  v2.18.0 imports it first and `kits.just` after; with `set allow-duplicate-recipes`, the generated recipes win.
+  v2.18.0 imports it first and `kits.just` after; with `set allow-duplicate-recipes`, just keeps the first of two recipes with one name, so your
+  hand-written one runs. Make it call the tool from the consumer's `tools`, so it runs the same wrapper.
 - Another provider's Nix uses your unwrapped tools, `scions.<name>.tools.<tool>`, as before. Never call a
   wrapper from a Nix build or a check.
 
@@ -65,6 +66,8 @@ MCP. This page is for a provider; the consumer's side is [Move to v2.18.0](move-
   runs that exited 0).
 - Inside `pot claude`, the same command nests: it cannot reach the agent's hosts.
 - `git commit` in the consumer runs your hook command.
+- On macOS, the command runs under Seatbelt on the host; inside a run, a row that would nest is refused, naming
+  your recipe (`run it on the host (just check-kb)`), so keep the recipe's name meaningful.
 
 ## If something goes wrong
 
