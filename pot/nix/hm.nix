@@ -25,7 +25,7 @@ let
     defaultInstance = checked;
     name = "home-manager";
     inherit (cfg) grantsFile stateDir contexts defaultContext kits hidden tools bindings rootRepos agentMarkers
-      repoKits inspect caBundle limits clones;
+      repoKits inspect caBundle limits clones sealedProtect;
   };
 in
 {
@@ -43,6 +43,7 @@ in
     defaultInstance = opt (t.attrsOf t.str) { } "Per kit, the instance a command with several gets with no @NAME, --instance or matching caller variables: { claude-code = \"personal\"; }.";
     agentMarkers = opt (t.listOf t.str) [ ] "Variables that mean an agent is the caller (pot grant refuses; no inline prompt), beyond the floor (CODEX_SANDBOX, CLAUDECODE, POT) and each kit's agent.markers.";
     hidden = opt (t.listOf t.str) [ ] "Paths hidden from every run, beyond pot's defaults.";
+    sealedProtect = opt (t.listOf t.str) [ "**/.pi" ] "Protected folders that are sealed under bubblewrap (v2.19.1): each entry stays read-only, and a new entry lasts for the run alone (pi takes a lock beside its settings.json). Each must also be protected.";
     tools = opt (t.listOf t.package) [ ] "Packages on every run's PATH, after the standard set.";
     bindings = opt (t.attrsOf (t.attrsOf (t.attrsOf t.anything))) { } "bindings.<capability>.\"<selector>\": how each capability is carried out.";
     rootRepos = opt (t.listOf t.str) [ "~/.workstation" ] "This root's source repositories: pot work refuses them. The module can't see which repository holds the home-manager flake, so the default is ~/.workstation.";

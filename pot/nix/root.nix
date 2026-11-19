@@ -12,6 +12,8 @@
 #     agentMarkers ? [ ];           # variables that mean an agent is the caller, beyond the floor
 #                                   # (CODEX_SANDBOX, CLAUDECODE) and the kits' own agent.markers
 #     hidden ? [ ];                 # beyond pot's defaults (Appendix B)
+#     sealedProtect ? [ "**/.pi" ]; # protected folders that are sealed under bubblewrap (v2.19.1): their entries
+#                                   # read-only, and a new entry the run's alone (pi's settings lock)
 #     tools ? [ ];                  # packages on every run's PATH, after the standard set
 #     bindings ? { };               # bindings.<capability>."<selector>" (§7.2; carried out from milestone 2)
 #     rootRepos ? [ ];              # the root's source repositories: work refuses them (D13, D23)
@@ -39,6 +41,7 @@ let potSrc0 = potSrc; in
 , defaultAccount ? null
 , agentMarkers ? [ ]
 , hidden ? [ ]
+, sealedProtect ? [ "**/.pi" ]
 , tools ? [ ]
 , bindings ? { }
 , rootRepos ? [ ]
@@ -177,7 +180,8 @@ let
 
   manifest = {
     version = 1;
-    inherit name grantsFile stateDir defaultContext rootRepos bindings darwin agentMarkers baseHidden baseProtect baseAgentMarkers;
+    inherit name grantsFile stateDir defaultContext rootRepos bindings darwin agentMarkers baseHidden baseProtect baseAgentMarkers
+      sealedProtect;
     defaultInstance = defaultInstance';
     limits = { memoryMax = toString limits'.memoryMax; tasksMax = toString limits'.tasksMax; };
     clones = { keepDays = clones'.keepDays; maxSize = toString clones'.maxSize; };

@@ -308,6 +308,39 @@ def refs(cfg, top):
 EMPTY = None   # <run dir>/empty, set by prepare: what a hidden file, a secret or a socket shows
 
 
+def sealed_dirs(cfg, top, patterns):
+    """v2.19.1: the real folders under TOP that a sealedProtect pattern names: **/NAME anywhere (a .git pruned, as
+    Pins.scan does), or a path from the top. The outermost only: a sealed folder's entries are read-only throughout."""
+    out = []
+    names = [p[3:] for p in patterns if p.startswith("**/")]
+    if names and os.path.isdir(top):
+        ors = []
+        for n in names:
+            ors += (["-o"] if ors else []) + ["-name", n]
+        expr = ["-name", ".git", "-prune", "-o", "("] + ors + [")", "-type", "d", "-print0"]
+        res = subprocess.run([cfg["find"], top] + expr, capture_output=True, check=False).stdout
+        out += [os.fsdecode(e) for e in res.split(b"\0") if e]
+    for p in patterns:
+        if not p.startswith("**/"):
+            out.append(os.path.join(top, p.rstrip("/")))
+    out = sorted({d for d in out if os.path.isdir(d) and not os.path.islink(d)})
+    return [d for d in out if not any(d.startswith(o + "/") for o in out)]
+
+
+def seal(mount, src, dest):
+    """v2.19.1: a sealed folder: a tmpfs of the run's own at DEST, with each entry of SRC bound read-only into it (a
+    link as the same link). So no entry can be written, replaced, renamed or deleted (a mount point), and a new entry,
+    such as pi's settings.json.lock, is the run's alone: gone at exit, never on the host. An entry the host adds
+    during the run is not seen."""
+    mount(dest, 1, ["--tmpfs", dest])
+    for e in sorted(os.listdir(src)):
+        s, d = os.path.join(src, e), os.path.join(dest, e)
+        if os.path.islink(s):
+            mount(d, 1, ["--symlink", os.readlink(s), d])
+        else:
+            mount(d, 1, ["--ro-bind", s, d])
+
+
 def masked(p):
     """bwrap arguments that hide P: a directory as an empty read-only tmpfs, anything else as an
     empty read-only file."""
@@ -775,6 +808,15 @@ def prepare(cfg, rundir, print_cmd=False):
             mount(p, 1, ["--ro-bind", p, p])
         for s in sockets_in(cfg, [top]):
             mount(s, 2, ["--ro-bind", EMPTY, s])
+    # v2.19.1: sealed protected folders (policy workspace[].sealed: the root's sealedProtect), in every mode: in place,
+    # read access, inspect's view, a dispatch clone (from the clone, at the original path) and a nested child (from
+    # its parent's view, which is itself sealed); each workspace top on its own, scions included
+    for w in policy["workspace"]:
+        src = w.get("clone") or w["path"]
+        for d in sealed_dirs(cfg, src, w.get("sealed") or []):
+            dest = w["path"] + d[len(src):]
+            mounts[:] = [m for m in mounts if not (m[0] == dest and m[2][:1] == ["--ro-bind"])]
+            seal(mount, d, dest)
     # files, state, the run's own
     for s in policy["mounts"]["state"]:
         os.makedirs(s["dir"], exist_ok=True)

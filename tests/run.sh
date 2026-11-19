@@ -2901,6 +2901,11 @@ let
     if touch nk-chk-wrote 2>/dev/null; then echo "nk-chk: wrote"; else echo "nk-chk: read-only"; fi
     if ${pkgs.util-linux}/bin/unshare -U true 2>/dev/null; then echo "nk-chk: userns"; else echo "nk-chk: no userns"; fi
     echo "nk-chk proxy=''${HTTPS_PROXY:-none} tok=''${AGTOK:-none}"
+    # v2.19.1: a project .pi, sealed in the child too (its mounts come from its parent's view)
+    if [ -d .pi ]; then
+      if mkdir .pi/settings.json.lock 2>/dev/null; then echo "nk-chk: .pi lock ok"; rmdir .pi/settings.json.lock; else echo "nk-chk: .pi lock refused"; fi
+      if (echo x > .pi/settings.json) 2>/dev/null; then echo "nk-chk: .pi wrote"; else echo "nk-chk: .pi read-only"; fi
+    fi
   '';
   hook = pkgs.writeShellScriptBin "nk-hook" ''
     echo "nk-hook POT=$POT index=''${GIT_INDEX_FILE:-unset} staged=$(git diff --cached --name-only | tr '\n' ' ')"
@@ -3052,6 +3057,14 @@ EOF
   expect "read-only, as its access says" has "nk-chk: read-only"
   expect "with no user namespaces of its own (no row of its own nests)" has "nk-chk: no userns"
   expect "without the parent's network or variable" has "nk-chk proxy=none tok=none"
+  # v2.19.1: the parent's .pi is sealed, and so is its nested child's
+  mkdir -p .pi && echo '{}' > .pi/settings.json
+  ran "nest: a sealed .pi, in a parent and its child" nb_ agent -c 'mkdir .pi/settings.json.lock && rmdir .pi/settings.json.lock && echo "parent: .pi lock ok"; nk-chk p'
+  expect "the parent takes the lock" has "parent: .pi lock ok"
+  expect "the child too" has "nk-chk: .pi lock ok"
+  expect "and sees the files read-only" has "nk-chk: .pi read-only"
+  expect "the host's .pi unchanged" test "$(cat .pi/settings.json)" = '{}'
+  case "$PWD/.pi" in "$work"/*) rm -rf -- "$PWD/.pi";; esac
   # unshare from nk-chk's own closure (in every run here: the bundle's)
   local ul && ul=$(grep -o '/nix/store/[^ ]*util-linux[^/ ]*/bin/unshare' "$(jq -r '.scions.nkp.commands["nk-chk"].program' "$work/ncpk/kit.json")" | head -1)
   ran "nest: the parent itself" nb_ agent -c "echo \"proxy=\${HTTPS_PROXY:-none} tok=\$AGTOK\"; $ul -U true 2>/dev/null && echo userns || echo no-userns"
@@ -3363,6 +3376,7 @@ EOF
         };
         bindings."status.relay"."*" = { workmux = true; };
         bindings.credential."api.pi-test.example kit=pi" = { via = "file"; from.file = "$work/pikey"; };
+        contexts.readonly = { extends = "work"; access = "read"; };
       };
     });
   };
@@ -3392,7 +3406,28 @@ STUB
     echo "skip pi: runs (bubblewrap's, which need an unprivileged user namespace)"
     return 0
   fi
-  local c=$work/piws && mkdir -p "$c" && git_ -C "$c" init -q && cd "$c" && commit init
+  local c=$work/piws && mkdir -p "$c" && git_ -C "$c" init -q && cd "$c"
+  # v2.19.1: a project's .pi (protected, **/.pi) that names a skills folder, and a probe that reads its settings as
+  # pi 1.5.2 does (proper-lockfile: mkdir settings.json.lock, read, rmdir), then tries to change the folder
+  mkdir -p .pi/skills/x && echo '{"skills":["./skills"]}' > .pi/settings.json && echo "skill x" > .pi/skills/x/SKILL.md
+  cat > probe-pi.sh <<'PROBE'
+p=$PWD/.pi
+if err=$(mkdir "$p/settings.json.lock" 2>&1); then
+  echo "project settings $(tr -d ' \n' < "$p/settings.json")"; rmdir "$p/settings.json.lock"
+else echo "WARNING the lock: $err"; fi
+[ "${1:-}" = read ] && exit 0
+for f in settings.json skills/x/SKILL.md; do (echo planted > "$p/$f") 2>/dev/null && echo "wrote $f" || echo "read-only $f"; done
+mkdir "$p/skills/y" 2>/dev/null && echo "made skills/y" || echo "read-only skills/"
+echo replaced > "$TMPDIR/s.json" 2>/dev/null || echo replaced > /tmp/s.json
+mv -f "${TMPDIR:-/tmp}/s.json" "$p/settings.json" 2>/dev/null && echo "replaced settings.json" || echo "kept settings.json"
+mv "$p/settings.json" "$p/moved.json" 2>/dev/null && echo "renamed settings.json" || echo "not renamed"
+rm -f "$p/settings.json" 2>/dev/null; rm -rf "$p/skills" 2>/dev/null
+[ "$(cat "$p/settings.json" 2>/dev/null)" = '{"skills":["./skills"]}' ] && echo "settings.json as it was" || echo "settings.json CHANGED"
+[ -e "$p/skills/x/SKILL.md" ] && echo "skills kept" || echo "skills DELETED"
+if [ -e "$p/extensions/x.ts" ]; then echo "an earlier run's extensions/x.ts is here"; else echo "no earlier extensions/x.ts"; fi
+mkdir -p "$p/extensions" && echo "x" > "$p/extensions/x.ts" && echo "made extensions/x.ts"
+PROBE
+  commit init
   # shellcheck disable=SC2317 # run through ran and expect
   pi_() { env -u CLAUDECODE -u CODEX_SANDBOX -u POT -u PI_CODING_AGENT POT_QUIET=1 "$work/pir/bin/pot" "$@"; }
   # shellcheck disable=SC2317
@@ -3423,6 +3458,34 @@ STUB
   expect "its denial's first fix is the root's pi kit (I2)" holds "  permanent: a provider or endpoint in kits.pi (graft.kits.pi; rebuild the root)"
   expect "the session is in the run's state" test -n "$(find "$work/pistate" -name t_1.jsonl)"
   expect "the exit line resumes it with --continue" holds "pot: resume this session with: pot pi --continue"
+
+  # v2.19.1: the project's .pi is sealed: pi's read lock works (a new entry, in a folder of the run's own), and every
+  # entry that was there stays read-only; a new entry lasts for the run alone
+  ran "pi: .pi sealed, in place" pi_ bash probe-pi.sh
+  expect "pi reads the project's settings, with no warning" has 'project settings {"skills":["./skills"]}'
+  refuse "no lock warning" holds "WARNING the lock"
+  expect "settings.json stays read-only" has "read-only settings.json"
+  expect "a subfolder stays read-only throughout" has "read-only skills/x/SKILL.md"
+  expect "and takes no new entry" has "read-only skills/"
+  expect "it cannot be replaced" has "kept settings.json"
+  expect "or renamed" has "not renamed"
+  expect "or deleted" has "settings.json as it was"
+  expect "nor the skills" has "skills kept"
+  expect "a new top-level entry is made" has "made extensions/x.ts"
+  expect "pi: the host's .pi is unchanged" test "$(cat .pi/settings.json)" = '{"skills":["./skills"]}'
+  refuse "and has no new entry" test -e .pi/extensions
+  refuse "and no lock left" test -e .pi/settings.json.lock
+  ran "pi: the next run" pi_ bash probe-pi.sh
+  expect "does not see the last run's new entry" has "no earlier extensions/x.ts"
+  ran "pi: .pi sealed, in a read-only context" pi_ readonly bash probe-pi.sh read
+  expect "pi reads the settings there too" has 'project settings {"skills":["./skills"]}'
+  ran "pi: .pi sealed, in inspect" pi_ inspect bash probe-pi.sh read
+  expect "and in inspect" has 'project settings {"skills":["./skills"]}'
+  ran "pi: .pi sealed, in a dispatch clone" pi_ dispatch bash probe-pi.sh
+  expect "and in a clone" has 'project settings {"skills":["./skills"]}'
+  expect "its entries read-only" has "read-only settings.json"
+  ran "pi: explain names the seal" pi_ explain
+  expect "on the protect row" holds "sealed: **/.pi (pot)"
   refused "pi: pot grant under pi's marker" env -u CLAUDECODE -u CODEX_SANDBOX PI_CODING_AGENT=true "$work/pir/bin/pot" grant
   expect "is refused (the kit's agent.markers)" holds "pot grant is for people: PI_CODING_AGENT is set"
   cd "$work"

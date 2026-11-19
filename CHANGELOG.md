@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.19.1 - unreleased
+
+- **pot: pi reads a project's `.pi/settings.json` in a run.** pi takes a lock beside the file even to read it
+  (`mkdir settings.json.lock`), which the protected, read-only `.pi` refused, so pi ignored the project's settings
+  and the skills they name (`Warning: Invalid settings file …: EROFS`). A protected folder that the root's new
+  `sealedProtect` names (default `[ "**/.pi" ]`) is now sealed under bubblewrap: each entry stays read-only, and a
+  new entry is the run's alone, gone at exit and never on the host ([Protected paths](docs/reference/pot.md#protected-paths)).
+  In place, with read access, in `inspect`, in a dispatch clone and in a nested child.
+- **macOS:** Seatbelt cannot seal, so there `.pi` stays plainly read-only and pi still ignores a project's
+  `.pi/settings.json`.
+- policy.json's workspace entries gain `sealed` (run-env/1: a key added). `kit/1` and `pot-kits/1` are unchanged,
+  and no grant asks again.
+
 ## v2.19.0 - 2026-11-19
 
 - **pot: the `pi` kit.** `graft.kits.pi { pkgs; providers; settings; endpoints; files; … }` runs the pi coding

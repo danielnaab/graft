@@ -126,6 +126,7 @@ and no default root baked into a wrapper.
 | `agentMarkers` | Variables that mean an agent is the caller, beyond the floor (`CODEX_SANDBOX`, `CLAUDECODE` and `POT`, whatever kits the root has) and each root kit's `agent.markers`. Default `[ ]`. |
 | `rootRepos` | The root's source repositories: checkout paths (`~/…`, `/…`) or origin patterns. mkRoot's default is `[ ]`; the home-manager module's is `[ "~/.workstation" ]`. See [Root repositories](#root-repositories). |
 | `hidden` | Paths hidden from every run, added to [pot's default list](#hidden-paths), which a root cannot shorten. |
+| `sealedProtect` | Protected folders that are [sealed](#protected-paths) under bubblewrap (v2.19.1), default `[ "**/.pi" ]`. A pattern that is not protected is ignored. |
 | `inspect.home` | The paths under `~` that `inspect` can read. Default `[ "~/src" ]`; a list replaces it. |
 | `inspect.homeManagerFiles` | Default `true`: `inspect` also reads home-manager's generated files. |
 | `tools` | Packages on every run's `PATH`, after the standard set. |
@@ -1757,6 +1758,18 @@ or `.envrc` in a subfolder, say) is not stopped: the exit line, and `pot review`
 host-run file. The exception is the git names above: an absent `commondir`, `config.worktree` or `gitdir` gets a
 placeholder, so a run cannot create one.
 
+**Sealed folders** (v2.19.1). A protected folder that the root's `sealedProtect` names (default `[ "**/.pi" ]`)
+is sealed under bubblewrap: the run gets a folder of its own at that path, holding each entry that was there,
+bound read-only (a link as the same link, a subfolder read-only throughout). So no entry can be written, replaced,
+renamed or deleted, and a new top-level entry, such as pi's `settings.json.lock` (pi takes that lock even to read
+its project `.pi/settings.json`), is the run's alone: gone at exit, never on the host, absent from the next run. An
+entry the host adds during the run is not seen. Each workspace top is sealed on its own, scions included, in place,
+with read access, in `inspect`, in a dispatch clone and in a nested child (from its parent's view). `pot explain`
+says so under `limits`: `sealed: **/.pi (pot): read-only entries; a new one lasts for the run`. **On macOS** Seatbelt
+cannot seal (it has no mounts): a sealed folder stays plainly read-only, so pi ignores a project's
+`.pi/settings.json` there (`Warning: Invalid settings file …: EPERM`), and explain says `sealed: none (seatbelt
+cannot: **/.pi stays read-only)`.
+
 In place, a protected file with a second hard link stops the run. A clone has no hard links to your repository
 (it is made with `--no-hardlinks`), so the check does not apply there. To change a protected file, edit it on the
 host.
@@ -2221,6 +2234,8 @@ Seatbelt has no mounts, so links and path rules stand in for them:
 - **No synced claude.ai skills inside a run** ([Claude Code](#claude-code)): install them as ordinary skill
   folders.
 - **pi in a run has no OAuth providers and no providers on the host's loopback** ([pi](#pi)).
+- **On macOS, pi ignores a project's `.pi/settings.json`** (v2.19.1): Seatbelt cannot [seal](#protected-paths)
+  `.pi`, and pi takes a lock beside the file even to read it.
 - No proxy credentials, `git.push`, `git.sign`, `ops.read`, `trust = "root"`, `delegate` (widening), or resource
   limits for an interactive run.
 

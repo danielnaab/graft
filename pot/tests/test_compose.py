@@ -17,7 +17,8 @@ def root(**kw):
          # root.nix's floor (pot/nix/root.nix): agents' folders and credential stores
          "baseHidden": ["~/.claude", "~/.claude.json", "~/.pi/agent/auth.json", "~/.codex/auth.json",
                         "~/.local/share/opencode/auth.json"],
-         "baseProtect": ["**/.claude", "**/.pi", "**/.codex"], "agentMarkers": ["CODEX_SANDBOX"]}
+         "baseProtect": ["**/.claude", "**/.pi", "**/.codex"], "agentMarkers": ["CODEX_SANDBOX"],
+         "sealedProtect": ["**/.pi"]}
     r.update(kw)
     return r
 
@@ -251,13 +252,30 @@ class Contexts(unittest.TestCase):
 
 
 class Compose(unittest.TestCase):
+    def test_sealed(self):
+        # v2.19.1: the root's sealedProtect, where it is also protected, for every workspace and every access
+        p, _ = C.compose(inp())
+        self.assertEqual(p["workspace"][0]["sealed"], ["**/.pi"])
+        p, _ = C.compose(inp(r=root(sealedProtect=["**/.pi", "not-protected"])))
+        self.assertEqual(p["workspace"][0]["sealed"], ["**/.pi"])
+        p, _ = C.compose(inp(r=root(sealedProtect=[])))
+        self.assertEqual(p["workspace"][0]["sealed"], [])
+        p, rep = C.compose(inp())
+        self.assertIn("sealed: **/.pi (pot): read-only entries; a new one lasts for the run", C.explain_text(p, rep, root()))
+        i = inp(); i["backendName"] = "seatbelt"
+        try:
+            p, rep = C.compose(i)
+        except C.Refusal:
+            return
+        self.assertIn("sealed: none (seatbelt cannot: **/.pi stays read-only)", C.explain_text(p, rep, root()))
+
     def test_shape(self):
         p, r = C.compose(inp())
         self.assertEqual(set(p), {"version", "run", "context", "mode", "access", "backend", "workspace", "items",
                                   "mounts", "bindings", "children", "grants"})
         self.assertEqual(p["version"], 1)
         self.assertEqual(set(p["backend"]), {"name", "requires", "proved"})
-        self.assertEqual(set(p["workspace"][0]), {"id", "path", "common", "protected", "clone"})
+        self.assertEqual(set(p["workspace"][0]), {"id", "path", "common", "protected", "sealed", "clone"})
         self.assertEqual(set(p["mounts"]), {"state", "run", "launcher"})
         self.assertEqual(p["mounts"]["run"], "/run/pot")
         self.assertEqual(p["children"], {})

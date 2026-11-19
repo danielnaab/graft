@@ -1063,6 +1063,9 @@ def compose(inp):
         if p not in protect:
             protect.append(p)
         item("protect", p, "limits", [src])
+    # v2.19.1: sealed protected folders (the root's sealedProtect, default **/.pi): under bubblewrap each entry is
+    # read-only and a new entry is the run's alone (bwrap.sealed_mounts); only what is also protected
+    sealed = [p for p in root.get("sealedProtect") or [] if p in protect]
     network_ok = ctx["network"] == "granted"
     if not network_ok:
         item("network", "none", "limits", [{"context": ctx["name"]}])
@@ -1219,6 +1222,7 @@ def compose(inp):
     workspace = [{"id": w["id"], "path": w["top"],
                   "common": os.path.join(w["top"], ".git") if w.get("clone") else w["common"],
                   "protected": protect if access == "write" else [],
+                  "sealed": sealed,
                   "clone": w.get("clone")} for w in inp["workspace"]]
     policy = {
         "version": POLICY_VERSION,
@@ -1997,6 +2001,14 @@ def explain_text(policy, report, root, width=100):
             first = False
     else:
         out.append(f"limits     the workspace is read-only (access {policy['access']})")
+    seal = list(dict.fromkeys(p for w in policy.get("workspace") or [] for p in w.get("sealed") or []))
+    if seal:
+        prot_labels = {i["value"]: src(i) for i in prot}
+        if policy["backend"]["name"] == "bubblewrap":
+            out.append(f"           sealed: {' '.join(seal)} ({prot_labels.get(seal[0]) or 'root'}): read-only entries; "
+                       "a new one lasts for the run")
+        else:
+            out.append(f"           sealed: none ({policy['backend']['name']} cannot: {' '.join(seal)} stays read-only)")
     hid = [i for i in eff if i["kind"] == "hidden"]
     out.append(f"           hidden: {len(hid)} paths (pot explain --json lists them)")
     if any(i["kind"] == "network" and i["value"] == "none" for i in policy["items"]):
