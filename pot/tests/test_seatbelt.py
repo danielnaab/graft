@@ -68,5 +68,54 @@ class Profile(unittest.TestCase):
             S.store_rules(S.Profile(), ['/nix/store/x") (allow default'])
 
 
+class FixRound4(unittest.TestCase):
+    def test_git_profile_denies(self):
+        # F1: the clone's git gets the run profile's last denies
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+        clos = os.path.join(d, "closure")
+        open(clos, "w").write("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-git\n")
+        os.makedirs(os.path.join(d, "clone"))
+        argv = S.sandboxed_git({"gitClosure": clos, "env": "/usr/bin/env", "git": "/nix/store/x-git/bin/git",
+                                "python": "/nix/store/x-py/bin/python3"}, d, os.path.join(d, "clone"), ["status"])
+        prof = open(os.path.join(d, "git.sb")).read()
+        self.assertIn("(deny system-fcntl (fcntl-command 80 110))", prof)
+        self.assertRegex(prof, r"\(deny file-ioctl \(ioctl-command [0-9]+\)\)")
+        self.assertLess(prof.index("(allow file-read* (subpath (param \"CLONE\")))"), prof.index("(deny file-ioctl"))
+        # a new session; stdin from /dev/null, except for upload-pack, which speaks on it
+        self.assertEqual(argv[:3], ["/nix/store/x-py/bin/python3", "-I", "-S"])
+        self.assertIn("os.setsid()", argv[4])
+        self.assertEqual(argv[5], "1")
+        up = S.sandboxed_git({"gitClosure": clos, "env": "/usr/bin/env", "git": "/g", "python": "/p"}, d,
+                             os.path.join(d, "clone"), ["upload-pack", "--strict", "/clone/.git"])
+        self.assertEqual(up[5], "0")
+
+    def test_leftovers(self):
+        # F2/F3: Seatbelt says which processes are the run's; TMPDIR only from the environment, never argv
+        rd, tmp = "/st/runs/ab12", "/st/runs/ab12/tmp"
+        plain = {10: "sleep 600", 11: "sleep 600", 12: f"grep TMPDIR={tmp}/ x", 13: "vim", 99: "pot"}
+        withenv = {10: "sleep 600", 11: f"sleep 600 TMPDIR={tmp}/ HOME=/x", 12: f"grep TMPDIR={tmp}/ x PATH=/bin",
+                   13: "vim HOME=/u", 99: f"pot TMPDIR={tmp}/"}
+        ps = lambda env: withenv if env else plain    # noqa: E731
+
+        def check(pid, op=None, path=None):
+            sandboxed = {10: 1, 11: 0, 12: 0, 13: 1, 99: 1}[pid]
+            if op is None:
+                return sandboxed
+            self.assertEqual((op, path), ("file-read-data", rd + "/policy.json"))
+            return 0 if pid in (10, 99) else 1        # 13: another run's (or another sandbox's) profile
+        self.assertEqual(S.leftovers(rd, tmp, check, ps, me=99), [10, 11])
+        self.assertEqual(S.leftovers(rd, tmp, None, ps, me=99), [11])      # no sandbox_check: the fallback alone
+
+    def test_link_folders_are_kept(self):
+        # F4: the folders made on the way to a link are kept with it
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+        os.makedirs(os.path.join(d, "a"))
+        made = []
+        S.link(d, "a/b/c/x", "/nix/store/y", made)
+        self.assertEqual(made, [os.path.join(d, "a/b"), os.path.join(d, "a/b/c"), os.path.join(d, "a/b/c/x")])
+
+
 if __name__ == "__main__":
     unittest.main()

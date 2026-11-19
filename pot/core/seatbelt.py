@@ -248,7 +248,12 @@ def link(root, rel, target, made):
     """A link at ROOT/REL (ROOT: the run's HOME or a state directory) to TARGET: what Seatbelt has for a mount.
     Never through a link below ROOT (bwrap.safe_dest): a run writes its state, and an earlier run could have planted
     one there (P3); in HOME, a link pot made for a read request leads to a host folder."""
+    # F4 (fix round 4): the folders safe_dest creates on the way are pot's too, kept as the link is (no rename,
+    # removal or replacement by the run)
+    parts = rel.strip("/").split("/")[:-1]
+    new = [os.path.join(root, *parts[:i + 1]) for i in range(len(parts)) if not os.path.lexists(os.path.join(root, *parts[:i + 1]))]
     at = B.safe_dest(root, rel.strip("/"))
+    made.extend(d for d in new if os.path.isdir(d) and not os.path.islink(d))
     if os.path.islink(at):
         os.unlink(at)
     elif os.path.lexists(at):
@@ -589,28 +594,76 @@ def start_proxy(cfg, rundir, policy, launch, net):
         raise Stop("the network proxy did not start: " + f.read())
 
 
-def leftovers(tmp):
-    """Processes of the run outside its group (setsid): found by the run's TMPDIR in their environment."""
-    r = subprocess.run(["/bin/ps", "-A", "-E", "-ww", "-o", "pid=", "-o", "command="], capture_output=True, text=True)
+SANDBOX_FILTER_PATH = 1     # sandbox_check(2)'s filter type: a path
+
+
+def sandbox_checker():
+    """sandbox_check(pid, op, type, path) from libsystem_sandbox (ctypes): 0 allowed, 1 denied; with no operation, 1
+    when the process is sandboxed. None where there is no such call (Linux)."""
+    import ctypes
+    try:
+        lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+    except OSError:
+        return None
+    f = lib.sandbox_check
+    f.restype = ctypes.c_int
+
+    def check(pid, op=None, path=None):
+        if op is None:
+            return f(ctypes.c_int(pid), None, ctypes.c_int(0))
+        return f(ctypes.c_int(pid), op.encode(), ctypes.c_int(SANDBOX_FILTER_PATH), path.encode())
+    return check
+
+
+def ps_lines(env):
+    r = subprocess.run(["/bin/ps", "-A", "-ww"] + (["-E"] if env else []) + ["-o", "pid=", "-o", "command="],
+                       capture_output=True, text=True)
+    out = {}
+    for l in r.stdout.splitlines():
+        f = l.split(None, 1)
+        if f and f[0].isdigit():
+            out[int(f[0])] = f[1] if len(f) > 1 else ""
+    return out
+
+
+def leftovers(rundir, tmp, check=None, ps=ps_lines, me=None):
+    """F2/F3 (fix round 4): the run's processes outside its group (setsid). First, by Seatbelt itself: a sandboxed
+    process (sandbox_check) whose profile lets it read this run's policy.json, which only this run's does. Then, as a
+    fallback, the run's TMPDIR in a process's environment only (in `ps -E` and not in its arguments), never argv."""
+    me = os.getpid() if me is None else me
+    pol = os.path.join(rundir, "policy.json")
+    found = set()
+    if check is not None:
+        for pid in ps(False):
+            if pid != me and check(pid) == 1 and check(pid, "file-read-data", pol) == 0:
+                found.add(pid)
     mark = f" TMPDIR={tmp}/"
-    return [int(l.split()[0]) for l in r.stdout.splitlines() if mark in l and l.split()[0].isdigit()
-            and int(l.split()[0]) != os.getpid()]
+    plain, withenv = ps(False), ps(True)
+    for pid, line in withenv.items():
+        if pid != me and mark in f" {line}" and mark not in f" {plain.get(pid, '')}":
+            found.add(pid)
+    return sorted(found)
 
 
-def stop_run(pgid, tmp):
-    """What is left of the run: its process group, then whatever carries its TMPDIR; TERM, then KILL."""
-    for sig in (signal.SIGTERM, signal.SIGKILL):
+def stop_run(pgid, rundir, tmp, check="auto", rounds=20):
+    """What is left of the run: its process group, then its other processes (leftovers), TERM then KILL, until a pass
+    finds none (or ROUNDS passes)."""
+    if check == "auto":
+        check = sandbox_checker()
+    for n in range(rounds):
         try:
-            os.killpg(pgid, sig)
+            os.killpg(pgid, signal.SIGTERM if n == 0 else signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
-        for pid in leftovers(tmp):
+        left = leftovers(rundir, tmp, check)
+        if not left and n > 0:
+            return
+        for pid in left:
             try:
-                os.kill(pid, sig)
+                os.kill(pid, signal.SIGTERM if n == 0 else signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
-        if sig == signal.SIGTERM:
-            time.sleep(0.2)
+        time.sleep(0.2 if n == 0 else 0.05)
 
 
 def wait_job(pid, fg):
@@ -681,7 +734,7 @@ def run(cfg, rundir):
         p.returncode = status
     finally:
         if pgid:
-            stop_run(pgid, sb["tmp"])
+            stop_run(pgid, rundir, sb["tmp"])
         if fg:
             try:
                 os.tcsetpgrp(0, os.getpgrp())
@@ -716,6 +769,19 @@ GIT_PROFILE = '''
 '''
 
 
+def git_denies():
+    """F1 (fix round 4): what the run's profile denies last, for the clone's git too (it runs the clone's own config:
+    an fsmonitor, a filter): no TIOCSTI, no F_MAKECOMPRESSED or F_TRANSFEREXTENTS"""
+    import termios
+    return ("; last: what no rule above may reopen (as the run's profile)\n"
+            "(deny system-fcntl (fcntl-command 80 110))\n"
+            f"(deny file-ioctl (ioctl-command {getattr(termios, 'TIOCSTI', 0x80017472)}))\n")
+
+
+# a new session (no controlling terminal), and stdin from /dev/null unless the git step speaks on it (upload-pack)
+DETACH = "import os, sys; os.setsid(); n = int(sys.argv[1]); fd = os.open(os.devnull, os.O_RDONLY)\nif n: os.dup2(fd, 0)\nos.execv(sys.argv[2], sys.argv[2:])"
+
+
 def sandboxed_git(cfg, rundir, clone, args, cwd="/clone", timeout=600):
     """bwrap.sandboxed_git, for Seatbelt: git under a profile with git's closure and the clone read-only, at the
     clone's own path (/clone… in ARGS and CWD is the clone)."""
@@ -730,14 +796,15 @@ def sandboxed_git(cfg, rundir, clone, args, cwd="/clone", timeout=600):
         store_rules(p, closure)
         p.paths("allow file-read-metadata", "literal", ancestors([clone, tmp]))
         with open(prof, "w") as f:
-            f.write(p.text() + GIT_PROFILE)
+            f.write(p.text() + GIT_PROFILE + git_denies())
         with open(prof + ".params", "w") as f:
             json.dump(p.params, f)
     with open(prof + ".params") as f:
         params = json.load(f)
     at = lambda a: clone + a[len("/clone"):] if a == "/clone" or a.startswith("/clone/") else a   # noqa: E731
     # cwd is the git directory's top: run git from there (sandbox-exec has no --chdir)
-    return [SANDBOX_EXEC, "-f", prof, *params, f"-DCLONE={clone}", f"-DTMP={tmp}", cfg["env"], "-i", f"HOME={tmp}",
+    quiet = "0" if args[:1] == ["upload-pack"] else "1"
+    return [cfg["python"], "-I", "-S", "-c", DETACH, quiet, SANDBOX_EXEC, "-f", prof, *params, f"-DCLONE={clone}", f"-DTMP={tmp}", cfg["env"], "-i", f"HOME={tmp}",
             f"PATH={os.path.dirname(cfg['git'])}", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
             cfg["git"], "-C", at(cwd), "-c", "safe.directory=*"] + [at(a) for a in args]
 
@@ -775,7 +842,8 @@ def cleanup(rundir):
                         except OSError:
                             pass
             shutil.rmtree(d, ignore_errors=True)
-    for n in ("profile.sb", "profile.run.sb", "profile.params", "git.sb", "git.sb.params", "empty"):
+    # git.sb stays: the clone's git profile, read again by a later look (pot review) and by pot_seatbelt's F1 check
+    for n in ("profile.sb", "profile.run.sb", "profile.params", "empty"):
         try:
             os.unlink(os.path.join(rundir, n))
         except OSError:

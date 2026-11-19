@@ -2114,6 +2114,14 @@ pot_seatbelt() {
   sb_ bash -c 'sleep 307 & python3 -I -c "import os; os.fork() or (os.setsid(), os.execvp(\"sleep\", [\"sleep\", \"308\"]))"' >/dev/null 2>&1
   sleep 0.5
   refuse "pot (seatbelt): survivors are stopped" pgrep -f "sleep 30[78]"
+  # F2 (fix round 4): one that leaves the group and drops TMPDIR is still the run's (sandbox_check)
+  sb_ python3 -I -c 'import os; os.fork() or (os.setsid(), os.execvpe("sleep", ["sleep", "309"], {k: v for k, v in os.environ.items() if k != "TMPDIR"}))' >/dev/null 2>&1
+  sleep 0.5
+  refuse "pot (seatbelt): F2, a survivor with no TMPDIR is stopped too" pgrep -f "sleep 309"
+  # F4: a folder pot made in HOME on the way to a link is kept, as the link is
+  # shellcheck disable=SC2016 # the run's own variables
+  ran "pot (seatbelt): F4, a folder made for a link" sb_ fixedtest -c 'l=$(find "$HOME" -mindepth 2 -maxdepth 4 -type l | head -1); d=${l%/*}; [ -n "$l" ] || { echo no-nested-link; exit 0; }; mv "$d" "$d.moved" 2>/dev/null && echo moved || echo kept'
+  expect "can't be renamed" has "kept"
   ran "pot (seatbelt): at a terminal, the run is the foreground group" tty_ '' "$work/sbr/bin/pot" python3 -I -c '
 import fcntl, os, termios
 print("fg", os.tcgetpgrp(0) == os.getpgrp())
@@ -2143,6 +2151,9 @@ except OSError as e:
   expect "names the commit" holds "from-the-clone"
   ran "pot (seatbelt): pot review --fetch" sb_ review "$id" --fetch
   expect "fetches it" test "$(git_ log -1 --format=%s "pot-$id/main")" = from-the-clone
+  # F1 (fix round 4): the clone's git ran under a profile with the run's last denies, in a session of its own
+  expect "pot (seatbelt): F1, git.sb denies TIOCSTI" grep -q '(deny file-ioctl (ioctl-command' "$work/sbstate/runs/$id/git.sb"
+  expect "and the fcntls" grep -qF '(deny system-fcntl (fcntl-command 80 110))' "$work/sbstate/runs/$id/git.sb"
 }
 
 sec_dispatch() {
