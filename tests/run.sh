@@ -1152,8 +1152,12 @@ EOF
   expect "graft has pot protect every graft.nix and its scions directory" holds '"protect":["**/graft.nix","scions"]'
   expect "its tools hold the repository's graft" test -x "$work/kpk/bin/graft"
   expect "and the repo kit's tools" test -x "$work/kpk/bin/hello"
-  ran "kits: kitArgs reaches the provider" "$work/kpk/bin/kk-tool"
+  ran "kits: kitArgs reaches the provider" "$(jq -r '.scions.kk.commands["kk-tool"].program' "$work/kpk/kit.json")"
   expect "its value" has "kk-tool hi"
+  # v2.18.0 (D4): bin/ holds the command's wrapper in place of its program (never run here: it reads the real
+  # home's launcher; sec_nest runs wrappers with a test launcher)
+  expect "kits: bin/kk-tool is the command's wrapper" test "$(readlink "$work/kpk/bin/kk-tool")" = "$(readlink -f "$work/kpk")/wrappers/bin/kk-tool"
+  expect "with its manifest" test "$(jq -c . "$work/kpk/commands/kk-tool.json")" = '{"command":"kk-tool","kit":"scions.kk","version":1}'
   expect "pot-kits has its closure" grep -q hello "$work/kpk/closure"
   # pot-lib/1's v2.17.0 additions (used from v2.18.0): recipes ? { }, and the result's passthru.wrappers
   ran "kits: pot-kits has passthru.wrappers" nix build --no-link --print-out-paths ".#packages.$sys.pot-kits.passthru.wrappers"
@@ -1750,7 +1754,7 @@ STUB
   expect "the scion kit's" holds "sbk.yaml (sbk)"
   refuse "no truncated kinds" holds "capabili "
   ran "pot: explain --json" sb_ explain --json
-  expect "is policy.json v1" test "$(jq -c '[.version, .context, .mode, (.children|length)]' <<<"$out")" = '[1,"work","in-place",0]'
+  expect "is policy.json v1 (its children table: sbk-tool)" test "$(jq -c '[.version, .context, .mode, (.children|length)]' <<<"$out")" = '[1,"work","in-place",1]'
   ran "pot: explain --backend-command" sb_ explain --backend-command true
   expect "prints bwrap's" holds "--disable-userns"
   ran "pot: why a credential's variable" sb_ why TESTTOK
@@ -1970,8 +1974,8 @@ EOF
   expect "is refused at start, naming the kit (V1)" holds "rootwriter's write $work/sbrootrepo is the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
   refused "pot: S3, --write of a root from a dispatch (it would write the root in place)" sb_ dispatch --write "$work/sbrootrepo" true
   expect "is refused too (V1)" holds "pot (dispatch): --write $work/sbrootrepo is the root $work/sbrootrepo: a run never writes a root (pot inspect reads it; pot host CMD runs unsandboxed)"
-  refused "pot: run is reserved" sb_ run true
-  expect "says so" holds "pot run is reserved"
+  refused "pot: run with no --command (the wrappers' entry)" sb_ run true
+  expect "says its form" holds "pot run --command NAME --manifest PATH -- ARGS (the wrappers' entry)"
   refused "pot: serve is reserved" sb_ serve
   refused "pot: outside a git repository" bash -c "cd '$work' && POT_QUIET=1 '$work/sbr/bin/pot' true"
   expect "names inspect and host" holds "is not inside a git repository: pot inspect CMD, or pot host CMD"
@@ -2492,7 +2496,8 @@ EOF
   ran "dispatch: F3, a clone whose objects are gone" dl dispatch bash -c 'git commit -q --allow-empty -m lost && rm -rf .git/objects/??'
   expect "N1: the exit line names the failure and pot review, not no commits" grep -qE "^pot: run [0-9a-f]{4} · fetch failed: .*: pot review [0-9a-f]{4}$" <<<"$out"
   refuse "N1: never no commits … --discard" holds "no commits; the clone is kept"
-  local f3b && f3b=$(d_ runs --json | jq -r '[.runs[] | select(.attention | any(startswith("fetch failed")))][0].id')
+  # (the run with no commit staged: two runs started in the same second sort either way)
+  local f3b && f3b=$(d_ runs --json | jq -r '[.runs[] | select((.attention | any(startswith("fetch failed"))) and .clone.commits == 0)][0].id')
   ran "dispatch: N1, pot runs ID of it" d_ runs "$f3b"
   expect "N1: next names the failure, no --fetch" has "next       pot review $f3b · pot review $f3b --discard (the staging fetch failed: nothing to fetch)"
   refuse "N1: never --fetch" holds "--fetch"
@@ -2756,7 +2761,7 @@ EOF
   # shellcheck disable=SC2016
   ran "dispatch: pot runs inside a run" d_ bash -c 'pot runs --json; pot dispatch true 2>&1; pot review 2>&1; true'
   expect "shows the run itself" test "$(head -1 <<<"$out" | jq -r '.runs[0].state')" = running
-  expect "dispatch inside a run is v2.18.0's" holds "pot (work): dispatch inside a run comes in v2.18.0 (nested dispatch): run it on the host"
+  expect "dispatch inside a run: only a children-table command (v2.18.0)" holds "pot (work): true is not a command this run may dispatch (pot explain lists its children): run it on the host"
   expect "review is the host's" holds "pot (work): pot review is the host's: a run's output is reviewed outside it"
   (
     cd "$work/drootrepo"
@@ -2849,6 +2854,412 @@ EOF
   cd "$work"
 }
 
+sec_nest() {
+  # v2.18.0: wrapped kit commands (D4) and the children table (§10). nkp: a provider whose kit 1.2 declares
+  # commands with no requests (a check, a hook command), and one that needs reach; a mkFlake consumer grafts it.
+  prov nkp
+  cat > "$work/src/nkp/graft.nix" <<'EOF'
+{ pkgs, ... }:
+let
+  chk = pkgs.writeShellScriptBin "nk-chk" ''
+    echo "nk-chk POT=$POT parent=$(${pkgs.jq}/bin/jq -r '.mounts.parent // "-"' /run/pot/policy.json 2>/dev/null) args=$*"
+    if touch nk-chk-wrote 2>/dev/null; then echo "nk-chk: wrote"; else echo "nk-chk: read-only"; fi
+    if ${pkgs.util-linux}/bin/unshare -U true 2>/dev/null; then echo "nk-chk: userns"; else echo "nk-chk: no userns"; fi
+    echo "nk-chk proxy=''${HTTPS_PROXY:-none} tok=''${AGTOK:-none}"
+  '';
+  hook = pkgs.writeShellScriptBin "nk-hook" ''
+    echo "nk-hook POT=$POT index=''${GIT_INDEX_FILE:-unset} staged=$(git diff --cached --name-only | tr '\n' ' ')"
+  '';
+  wide = pkgs.writeShellScriptBin "nk-wide" "echo nk-wide ran";
+  net = pkgs.writeShellScriptBin "nk-net" ''
+    for p in "$@"; do curl -s --noproxy "" --proxy "$HTTP_PROXY" -o /dev/null -w "nk-net $p %{http_code}\n" "http://127.0.0.1:$p/"; done
+    cat /run/pot/denials
+  '';
+in
+{
+  tools = { inherit chk hook wide net; };
+  kit = {
+    version = "1.2";
+    commands.nk-chk = { program = "${chk}/bin/nk-chk"; access = "read"; description = "the check"; };
+    commands.nk-hook = { program = "${hook}/bin/nk-hook"; access = "read"; hook = "pre-commit"; };
+    commands.nk-wide = { program = "${wide}/bin/nk-wide"; requests.env = [ "WIDE_TOK" ]; };
+    commands.nk-net = { program = "${net}/bin/nk-net"; access = "read"; requests.network = [ "127.0.0.1:1" ]; };
+    recipes.check = { run = "nk-chk --all"; description = "Run the check"; };
+    recipes.wide = "nk-wide";
+  };
+}
+EOF
+  release nkp v1.0.0
+  local c=$work/nc && consumer "$c" "$(printf '  inputs.self.submodules = true;\n  inputs.graft.url = "path:%s";\n  outputs = inputs: inputs.graft.lib.mkFlake { inherit inputs; };' "$graft")" && cd "$c"
+  echo data > notes.md && mkdir -p .githooks
+  # shellcheck disable=SC2016 # the hook's own variables
+  printf '#!/bin/sh\nexec "${POT_TOOLS:-%s/nct/bin}/nk-hook" "$@"\n' "$work" > .githooks/pre-commit && chmod +x .githooks/pre-commit
+  printf 'import? "scions/kits.just"\n' > justfile
+  by_hand nkp && commit init && quiet nix flake lock && commit lock
+
+  # the bundle and the tools (pot-lib/1, mkFlake)
+  ran "nest: pot-kits builds" nix build -o "$work/ncpk" .#pot-kits
+  expect "bin/nk-chk is the wrapper" test "$(readlink "$work/ncpk/bin/nk-chk")" = "$(readlink -f "$work/ncpk")/wrappers/bin/nk-chk"
+  expect "each command has its manifest" test "$(jq -c . "$work/ncpk/commands/nk-hook.json")" = '{"command":"nk-hook","kit":"scions.nkp","version":1}'
+  ran "nest: kits.just" cat "$work/ncpk/kits.just"
+  expect "has the kit's recipe, its words quoted" holds 'exec "{{tools}}/bin/nk-chk" '"'"'--all'"'"' "$@"'
+  expect "and graft's own" holds 'exec "{{tools}}/bin/graft" '"'"'outdated'"'"' "$@"'
+  expect "with its description" has "# Run the check"
+  ran "nest: the tools" nix build -o "$work/nct" .#tools
+  expect "hold the wrapper" grep -q 'run --command nk-chk --manifest' "$work/nct/bin/nk-chk"
+  ran "nest: tools.passthru.unwrapped" nix build -o "$work/nctu" .#tools.passthru.unwrapped
+  expect "holds the program itself" test "$(readlink -f "$work/nctu/bin/nk-chk")" = "$(jq -r '.scions.nkp.commands["nk-chk"].program' "$work/ncpk/kit.json")"
+  refused "nest: two kits with one command name" nix eval --impure --raw --expr "let g = builtins.getFlake \"path:$graft\"; pkgs = g.inputs.nixpkgs.legacyPackages.$sys; k = { kit.commands.x.program = \"/bin/true\"; file = \"f\"; }; in (g.lib.pot.kitsFor { inherit pkgs; self = k; scions.a = k; }).drvPath"
+  expect "is named" holds "pot: kitsFor: two kits ship a command named x (self and scions.a): a wrapper has one name"
+  # graft sync and check: kits.just, where the justfile imports it
+  ran "nest: graft sync writes kits.just" g sync
+  expect "says so" holds "graft: wrote scions/kits.just"
+  expect "the same bytes" cmp -s scions/kits.just "$work/ncpk/kits.just"
+  commit kitsjust
+  ran "nest: graft check, kits.just current" g check
+  echo "# edited" >> scions/kits.just
+  refused "nest: graft check, kits.just edited" g check
+  expect "names the fix" holds "graft: scions/kits.just is stale or edited: graft sync"
+  git_ checkout -q scions/kits.just
+  # F1: a kit recipe never replaces the person's own (allow-duplicate-recipes or not)
+  printf 'import? "scions/kits.just"\n\ncheck:\n    echo mine\n' > justfile && commit own-check
+  refused "nest: graft check, a kit recipe named like the justfile's own" g check
+  expect "names both" holds "graft: scions/kits.just's recipe check has the name of the justfile's own check: rename one (a kit's recipe never replaces yours)"
+  printf 'import? "scions/kits.just"\n' > justfile && commit no-own-check
+  # F1: every kit recipe is checked inside the kitsJust evaluation (graft sync writes it from nix eval, no build)
+  local exj="let g = builtins.getFlake \"path:$graft\"; pkgs = g.inputs.nixpkgs.legacyPackages.$sys; in"
+  # shellcheck disable=SC2016 # Nix text, not shell
+  for probe in 'lint = "lint $(touch /tmp/pwned)"' 'esc = "../../../run/current-system/sw/bin/sh -c id"' '"x\n    echo injected\n\nzz" = "lint"' 'pipe = "lint a|sh"'; do
+    refused "nest: kitsJust refuses the recipe $probe" nix eval --impure --raw --expr "$exj (g.lib.pot.kitsFor { inherit pkgs; scions.s = { file = \"s/graft.nix\"; kit = { commands.lint.program = \"/bin/true\"; recipes.$probe; }; }; }).kitsJust"
+    expect "with pot's check" holds "pot: s/graft.nix: recipes."
+  done
+  # F3: graft writes kits.just and README.md only as files, never through a link
+  echo keep > "$work/nlinktarget" && cp scions/kits.just "$work/nkj" && ln -sfn "$work/nlinktarget" scions/kits.just
+  refused "nest: graft sync, kits.just a link" g sync
+  expect "is refused" holds "graft: scions/kits.just is a symbolic link; graft writes only a file there"
+  expect "its target untouched" test "$(cat "$work/nlinktarget")" = keep
+  rm -f scions/kits.just && cp "$work/nkj" scions/kits.just
+  # (the link's target in the repository, staged, so the flake still evaluates: graft's own check refuses it)
+  cp scions/README.md nkeep.md && echo "keep" >> nkeep.md && git_ add nkeep.md && cp nkeep.md "$work/nkeep"
+  mv scions/README.md "$work/nreadme" && ln -sfn ../nkeep.md scions/README.md
+  out=$(g sync 2>&1) || true
+  expect "nest: graft sync, README.md a link: its target untouched" cmp -s nkeep.md "$work/nkeep"
+  rm -f scions/README.md && mv "$work/nreadme" scions/README.md && git_ rm -q -f nkeep.md
+  ran "nest: clean again" git_ status --porcelain
+  # conformance 4: graft add writes kits.just too
+  prov nkq && release nkq v1.0.0
+  git_ rm -q --cached scions/kits.just && rm -f scions/kits.just
+  ran "nest: graft add" g add "$(url nkq)"
+  expect "writes kits.just" holds "graft: wrote scions/kits.just"
+  commit nkq
+
+  # the root: an agent kit with reach (network, a variable); bubblewrap from the test's nixpkgs
+  local bw && bw=$(nix build --no-link --print-out-paths "$np#bubblewrap")/bin/bwrap
+  if ! "$bw" --unshare-all --unshare-user --disable-userns --ro-bind / / true 2>/dev/null; then
+    echo "skip nest: runs (bubblewrap can't create an unprivileged user namespace here)"
+    return 0
+  fi
+  local r=$work/nroot && mkdir -p "$r"
+  cat > "$r/flake.nix" <<EOF
+{
+  inputs.graft.url = "path:$graft";
+  inputs.nixpkgs.follows = "graft/nixpkgs";
+  outputs = { graft, nixpkgs, ... }: let pkgs = nixpkgs.legacyPackages.$sys;
+    common = {
+      inherit pkgs;
+      name = "nest";
+      grantsFile = "$work/ngrants/grants.json";
+      stateDir = "$work/nstate";
+      rootRepos = [ "$work/nrr" ];
+      kits.agent.commands.agent = { program = "\${pkgs.bashInteractive}/bin/bash";
+        requests = { network = [ "127.0.0.1:1" "127.0.0.1:2" ]; env = [ "AGTOK" ]; }; };
+    }; in {
+    packages.$sys.pot = graft.lib.mkRoot common;
+    # the same state, clones kept 0 days (H5: a child in review is never pruned)
+    packages.$sys.prune = graft.lib.mkRoot (common // { clones = { keepDays = 0; maxSize = "20G"; }; });
+  };
+}
+EOF
+  (cd "$r" && quiet nix flake lock)
+  ran "nest: the root builds" nix build -o "$work/nr" "path:$r#packages.$sys.pot"
+  expect "its pot takes pot run (share/pot/run-1)" test -e "$(readlink -f "$work/nr")/share/pot/run-1"
+  # nb_ ARGS: the test root's pot; ntty_ ANSWERS CMD: on a terminal
+  # shellcheck disable=SC2317
+  nb_() { env -u CLAUDECODE -u CODEX_SANDBOX -u POT AGTOK=secret-agtok WIDE_TOK=w "$work/nr/bin/pot" "$@"; }
+  # shellcheck disable=SC2317
+  ntty_() { local a=$1; shift; (sleep 2; printf '%s' "$a") | script -qec "env -u CLAUDECODE -u CODEX_SANDBOX -u POT AGTOK=secret-agtok $*" /dev/null; }
+  # wrapped_ CMD...: CMD on the host with the test root as the launcher (~/.config/pot/launcher, bound over the real
+  # one in a mount namespace of its own, so no test reaches the person's own pot)
+  mkdir -p "$work/nlaunch" && ln -sfn "$(readlink -f "$work/nr")/bin/pot" "$work/nlaunch/launcher"
+  # shellcheck disable=SC2317
+  wrapped_() { env -u CLAUDECODE -u CODEX_SANDBOX -u POT AGTOK=secret-agtok "$bw" --dev-bind / / \
+    --bind "$work/nlaunch" "$HOME/.config/pot" -- "$@"; }
+  ran "nest: grant the agent" ntty_ $'y\n' "$work/nr/bin/pot" grant agent
+  ran "nest: grant nkp" ntty_ $'y\n' "$work/nr/bin/pot" grant nkp
+
+  # the children table (explain)
+  ran "nest: explain agent" nb_ explain agent
+  expect "lists the children" holds "nk-chk nk-hook nk-net (nkp): nest · agent (agent): exec"
+  expect "refuses what needs reach the run lacks" holds "  nk-wide: refused (needs WIDE_TOK)"
+  ran "nest: explain --json" nb_ explain --json agent
+  expect "rows by kit and command" holds '"git:'
+  nb_ explain --json agent > "$work/nexp.json" 2>/dev/null
+  ran "the hook command's row" jq -r '.children | to_entries[] | select(.value.command == "nk-hook") | .value.hook' "$work/nexp.json"
+  expect "names its hook" has "pre-commit"
+  ran "nest: explain true (no command kit)" nb_ explain true
+  expect "only the workspace's commands" holds "children   nk-chk nk-hook (nkp): nest"
+  expect "and a child with network, in a run with none, is refused" holds "  nk-net: refused (needs 127.0.0.1:1)"
+
+  # inside a run: a wrapped command nests, under its own policy
+  ran "nest: a wrapped command inside a run" nb_ agent -c 'nk-chk a b'
+  expect "runs nested" holds "nk-chk POT=work parent="
+  refuse "with the parent's id, not -" holds "parent=- "
+  expect "read-only, as its access says" has "nk-chk: read-only"
+  expect "with no user namespaces of its own (no row of its own nests)" has "nk-chk: no userns"
+  expect "without the parent's network or variable" has "nk-chk proxy=none tok=none"
+  # unshare from nk-chk's own closure (in every run here: the bundle's)
+  local ul && ul=$(grep -o '/nix/store/[^ ]*util-linux[^/ ]*/bin/unshare' "$(jq -r '.scions.nkp.commands["nk-chk"].program' "$work/ncpk/kit.json")" | head -1)
+  ran "nest: the parent itself" nb_ agent -c "echo \"proxy=\${HTTPS_PROXY:-none} tok=\$AGTOK\"; $ul -U true 2>/dev/null && echo userns || echo no-userns"
+  expect "has its reach" holds "proxy=http://127.0.0.1:3128 tok=secret-agtok"
+  expect "and keeps user namespaces (its table nests)" has "userns"
+  refused "nest: a child that needs reach the parent lacks" nb_ agent -c 'nk-wide'
+  expect "is refused at start" holds "pot (work): nk-wide needs WIDE_TOK, which this run (agent) lacks: run it on the host (just wide)"
+  # a child with network: its own proxy, out through the parent's (which reaches 127.0.0.1:1 and :2)
+  ran "nest: a child with network" nb_ agent -c 'nk-net 1 2'
+  expect "reaches its own host through the parent's proxy (the port is closed: 502)" has "nk-net 1 502"
+  expect "and is refused, by its own proxy, a host only the parent reaches" has "nk-net 2 403"
+  expect "its denial names its kit's requests.network (conformance 5)" holds "  permanent: requests.network in nkp (scions/nkp/graft.nix)"
+  refuse "and no pot --net (the host's)" holds "one run:"
+  ran "nest: the child's run folder" bash -c "ls '$work'/nstate/runs/*/children/*/log.jsonl"
+  expect "has its log, by: parent" bash -c "grep -q '\"by\":\"parent\"' $(find "$work"/nstate/runs -path '*/children/*/log.jsonl' | head -1)"
+  mkdir -p "$work/nplain" && git_ -C "$work/nplain" init -q
+  ran "nest: a run with nothing to nest" env -C "$work/nplain" POT_QUIET=1 "$work/nr/bin/pot" --package util-linux bash -c "unshare -U true 2>/dev/null && echo userns || echo no-userns; command -v unshare"
+  expect "keeps --disable-userns" has "no-userns"
+
+  # ruling 2: inside a v2.18.0 run, a wrapper with no launcher refuses (126); a run an older pot started execs
+  # (the wrapper alone, with a stand-in /run/pot/policy.json: one a v2.18.0 pot wrote names the launcher)
+  mkdir -p "$work/nrun" && echo '{"mounts": {"launcher": "~/.config/pot/launcher"}}' > "$work/nrun/new.json" && echo '{"mounts": {}}' > "$work/nrun/old.json"
+  "$bw" --dev-bind / / --tmpfs /run --ro-bind "$work/nrun/new.json" /run/pot/policy.json --tmpfs "$HOME/.config/pot" \
+    -- "$work/nct/bin/nk-chk" >"$work/nrun/out" 2>&1 && st=0 || st=$?
+  out=$(cat "$work/nrun/out")
+  expect "nest: in a v2.18.0 run with no launcher, exit 126" test "$st" = 126
+  expect "naming the command" holds "pot: nk-chk: this run's launcher (/run/pot/launcher) is missing, so its children table can't be reached: run nk-chk on the host"
+  refuse "and nothing ran unwrapped" holds "nk-chk POT"
+  ran "nest: in a run an older pot started" "$bw" --dev-bind / / --tmpfs /run --ro-bind "$work/nrun/old.json" /run/pot/policy.json \
+    --tmpfs "$HOME/.config/pot" -- "$work/nct/bin/nk-chk" o
+  expect "execs under that run's policy, as before" holds "args=o"
+  # conformance 2: an older pot's run that shows a pointer (home-manager's, in inspect) still runs the program
+  mkdir -p "$work/nold/bin" "$work/noldl" && printf '#!/bin/sh\necho old-pot "$@"\n' > "$work/nold/bin/pot" && chmod +x "$work/nold/bin/pot"
+  ln -sfn "$work/nold/bin/pot" "$work/noldl/launcher"
+  ran "nest: in an older pot's run, with a pointer in the home" "$bw" --dev-bind / / --tmpfs /run --ro-bind "$work/nrun/old.json" /run/pot/policy.json \
+    --bind "$work/noldl" "$HOME/.config/pot" -- "$work/nct/bin/nk-chk" o2
+  expect "runs the program, never the pointer" holds "args=o2"
+  refuse "(the old pointer never runs)" holds "old-pot"
+
+  # hook commands: git commit inside a run runs the hook command nested, on the right index (-a, PATH). (Commits
+  # on the host go through wrapped_ only, so no hook reaches the real home's launcher.)
+  git_ config core.hooksPath .githooks
+  echo more >> notes.md
+  ran "nest: git commit -a inside a run" nb_ agent -c 'git commit -q -a -m a'
+  expect "runs the hook command, nested" holds "nk-hook POT=work index=$c/.git/index.lock staged=notes.md"
+  echo again >> notes.md && echo other > other.md && git_ add other.md
+  ran "nest: git commit PATH inside a run" nb_ agent -c 'git commit -q -m b notes.md'
+  # shellcheck disable=SC2016 # bash -c's own arguments
+  expect "on git's temporary index" bash -c 'grep -qE "$1" <<<"$2"' _ "index=$c/\.git/next-index-[0-9]+\.lock staged=notes\.md" "$out"
+  git_ -c core.hooksPath=/dev/null commit -q -m c
+
+  # on the host: a wrapper runs pot run, quiet, with the command's own policy
+  ran "nest: a wrapper on the host" wrapped_ "$work/nct/bin/nk-chk" x
+  expect "runs in a run of its own" holds "nk-chk POT=work parent=- args=x"
+  expect "read-only" has "nk-chk: read-only"
+  expect "without the agent's variable" has "nk-chk proxy=none tok=none"
+  refuse "quiet: no startup line" holds "pot: work ·"
+  ran "nest: logged with via: wrapper" bash -c "grep -l '\"via\":\"wrapper\"' '$work'/nstate/runs/*/log.jsonl"
+  ran "nest: pot runs hides it (exit 0)" nb_ runs
+  refuse "unless --all" holds "nk-chk x"
+  ran "nest: pot runs --all" nb_ runs --all
+  expect "lists it" holds "nk-chk x"
+  echo host >> notes.md
+  ran "nest: git commit -a on the host" wrapped_ git commit -q -a -m d
+  expect "runs the hook command through pot" holds "nk-hook POT=work index=$c/.git/index.lock staged=notes.md"
+  refused "nest: a wrapper outside its workspace" bash -c "cd '$work' && '$bw' --dev-bind / / --bind '$work/nlaunch' \"\$HOME/.config/pot\" -- '$work/nct/bin/nk-chk'"
+  expect "says where to run it" holds "pot: nk-chk runs in its repository (cd there first)"
+  refused "nest: pot run with a bad manifest" nb_ run --command nk-chk --manifest /tmp/x.json
+  expect "is usage" holds "pot run: --manifest /tmp/x.json is not a wrapper's manifest (<bundle>/commands/nk-chk.json)"
+
+  # the wrapper's fallbacks: no launcher, an older root's pot, Darwin
+  ran "nest: a wrapper with no launcher" env -u POT "$bw" --dev-bind / / --tmpfs "$HOME/.config/pot" -- "$work/nct/bin/nk-chk" y
+  expect "runs the program, saying so" holds "pot: nk-chk runs without pot (no root here: ~/.config/pot/launcher is missing)"
+  expect "unwrapped" holds "nk-chk POT= parent= args=y"
+  mkdir -p "$work/nold/bin" "$work/noldl" && printf '#!/bin/sh\necho old-pot "$@"\n' > "$work/nold/bin/pot" && chmod +x "$work/nold/bin/pot"
+  ln -sfn "$work/nold/bin/pot" "$work/noldl/launcher"
+  ran "nest: under an older root's pot" env -u POT "$bw" --dev-bind / / --bind "$work/noldl" "$HOME/.config/pot" -- "$work/nct/bin/nk-chk" z
+  expect "names the fix" holds "pot: nk-chk runs without pot (your root's pot predates wrapped commands: take graft v2.18.0 in your root (home-manager switch))"
+  refuse "never runs the old pot run" holds "old-pot"
+  # on a Mac the launcher's pot (Seatbelt) runs it; with pot off there, no launcher: the line above
+  refuse "nest: the wrapper has no Darwin case of its own" grep -q uname "$work/ncpk/wrappers/bin/nk-chk"
+
+  # ---- milestone 2: nested dispatch (decision 2) and nested --detach (decision 1)
+  ran "nest: the prune root builds" nix build -o "$work/nrp" "path:$r#packages.$sys.prune"
+  git_ -c core.hooksPath=/dev/null commit -q -a -m before-dispatch --allow-empty
+  # ruling 7: hooks that write where they ran; none may run on the host for a clone
+  mkdir -p "$work/nhm"
+  for h in post-checkout reference-transaction post-merge post-rewrite; do
+    # shellcheck disable=SC2016 # the hook's own $(pwd)
+    printf '#!/bin/sh\necho "%s $(pwd)" >> %s/nhm/log 2>/dev/null || true\n' "$h" "$work" > ".githooks/$h" && chmod +x ".githooks/$h"
+  done
+  git_ add .githooks && git_ -c core.hooksPath=/dev/null commit -q -m marker-hooks
+  # filters: the host's global config names a filter, a textconv and an fsmonitor, each writing where it ran
+  cat > "$work/nglobal" <<EOF
+[filter "evil"]
+	clean = sh -c 'echo clean \$(pwd) >> $work/nfm; cat'
+	smudge = sh -c 'echo smudge \$(pwd) >> $work/nfm; cat'
+[diff "evil"]
+	textconv = sh -c 'echo textconv \$(pwd) >> $work/nfm; cat "\$1"' -
+[core]
+	fsmonitor = $work/nfsm
+EOF
+  # shellcheck disable=SC2016 # the script's own $(pwd)
+  printf '#!/bin/sh\necho fsmonitor "$(pwd)" >> %s/nfm\nexit 1\n' "$work" > "$work/nfsm" && chmod +x "$work/nfsm"
+  # ng_: the test root's pot with that global config
+  # shellcheck disable=SC2317
+  ng_() { GIT_CONFIG_GLOBAL="$work/nglobal" nb_ "$@"; }
+  # a host dispatch (a clone parent) dispatches a child in its own clone; the child commits (its hooks run inside:
+  # the clone carries core.hooksPath), writes attributes naming the filter, and the parent then plants hooks and
+  # config in the child's clone, and forges host lines in its log
+  cat > "$work/nparent.sh" <<'EOF'
+out=$(pot dispatch agent -c 'printf "* filter=evil diff=evil\n" > .gitattributes; echo x > n.md; git add -A; git commit -q -m nested; echo nested-ran' 2>&1)
+echo "$out"
+id=$(echo "$out" | sed -n 's/^pot: run \([0-9a-f]*\/[0-9a-f]*\) .*/\1/p')
+c=/run/pot/children/${id#*/}
+printf '#!/bin/sh\necho planted "$0" >> MARK\n' | sed "s|MARK|$MARKDIR/planted|" > "$c/clone/plant.sh"; chmod +x "$c/clone/plant.sh"
+for h in reference-transaction post-checkout pre-auto-gc; do cp "$c/clone/plant.sh" "$c/clone/.git/hooks/$h"; done
+git -C "$c/clone" config core.fsmonitor "$c/clone/plant.sh"
+git -C "$c/clone" config uploadpack.packObjectsHook "$c/clone/plant.sh"
+git -C "$c/clone" config core.hooksPath "$c/clone/.git/hooks"
+echo '{"ev":"after","by":"host","commits":["deadbeefdead","deadbeefdeaf"],"unsigned":0,"refs":{"main":"deadbeef"}}' >> "$c/log.jsonl"
+echo '{"ev":"fetch","by":"host","refs":["refs/remotes/pot-forged/main"]}' >> "$c/log.jsonl"
+mkdir -p /run/pot/children/ffff && ln -s "../${id#*/}/log.jsonl" /run/pot/children/ffff/log.jsonl
+pot runs --json | jq -r '.runs[].id'
+echo "after-link-children: $(pot runs --json | jq '[.runs[] | select(.id | test("/"))] | length')"
+echo "parent-done $id"
+EOF
+  ran "nest: a nested dispatch, from a dispatch" ng_ dispatch agent -c "MARKDIR=$work/nhm; export MARKDIR; $(cat "$work/nparent.sh")"
+  expect "the child ran in its clone" has "nested-ran"
+  expect "its commit ran the hook command (the clone carries core.hooksPath, H9)" holds "nk-hook POT=dispatch"
+  expect "the parent was told where its clone is kept" holds "· its clone is kept: on the host, pot review "
+  # shellcheck disable=SC2016 # bash -c's own arguments
+  expect "the parent's pot runs lists its child" bash -c 'grep -qE "^[0-9a-f]{4}/[0-9a-f]{4}$" <<<"$1"' _ "$out"
+  local pid cid && cid=$(sed -n 's/^parent-done \(.*\)/\1/p' <<<"$out") && pid=${cid%/*}
+  expect "nest: the child's id is PARENT/CHILD" test -n "$cid"
+  expect "fix round 3 (b): inside the parent, pot runs follows no link (one child, not two)" has "after-link-children: 1"
+  ran "nest: pot runs CHILD on the host" ng_ runs "$cid" --json
+  expect "is in review" test "$(jq -r .state <<<"$out")" = review
+  expect "names its parent" test "$(jq -r .parent <<<"$out")" = "$pid"
+  expect "its workspace is the parent's, as the host recorded it" test "$(jq -r '.workspace[0].path' <<<"$out")" = "$c"
+  expect "one commit: the host's own look, not the forged after (H7)" test "$(jq -r .clone.commits <<<"$out")" = 1
+  expect "not fetched: the forged fetch is ignored" test "$(jq -r .clone.fetched <<<"$out")" = null
+  ran "nest: the parent's record" ng_ runs "$pid" --json
+  expect "lists its child" test "$(jq -r '.children[0]' <<<"$out")" = "$cid"
+  ran "nest: pot runs" ng_ runs
+  expect "lists the child" holds "$cid"
+  refuse "and no child from a link" holds "/ffff"
+  ran "nest: pot review on the host" ng_ review
+  expect "lists the child in review" holds "$cid"
+  ran "nest: pot review CHILD" ng_ review "$cid"
+  refuse "the clone's own submodules are not new git metadata" holds "new git metadata"
+  # H6: a parent ref named like the child's
+  git_ update-ref "refs/remotes/pot-$pid/${cid#*/}/main" HEAD
+  ran "nest: pot review CHILD --fetch" ng_ review "$cid" --fetch
+  expect "fetches under pot-PARENT-CHILD (H6)" holds "pot: fetched run $cid into"
+  expect "the ref" git_ rev-parse --verify -q "refs/remotes/pot-$pid-${cid#*/}/main"
+  expect "the parent-named ref is untouched" git_ rev-parse --verify -q "refs/remotes/pot-$pid/${cid#*/}/main"
+  expect "the child's commit came back" test "$(git_ log -1 --format=%s "refs/remotes/pot-$pid-${cid#*/}/main")" = nested
+  refuse "nest: nothing the parent planted ran on the host" test -e "$work/nhm/planted"
+  refuse "ruling 7: no hook of a clone ran on the host" grep -q /nstate/ "$work/nhm/log"
+  refuse "no filter, textconv or fsmonitor ran on the host" test -e "$work/nfm"
+  ran "nest: pot review PARENT --discard" ng_ review "$pid" --discard
+  ran "nest: the child (H5)" ng_ runs "$cid" --json
+  expect "is kept: fetched, not discarded" test "$(jq -r .clone.discarded <<<"$out")" = null
+  ran "nest: pot review CHILD --discard" ng_ review "$cid" --discard
+  expect "says so" holds "pot: discarded run $cid's clone"
+  refuse "its clone is gone" test -e "$work/nstate/runs/$pid/children/${cid#*/}/clone"
+  refuse "ruling 7: still no hook on the host" grep -q /nstate/ "$work/nhm/log"
+
+  # H5: keepDays never removes a child in review
+  # shellcheck disable=SC2016 # the run's own variables
+  ran "nest: a child in review" nb_ dispatch agent -c 'pot dispatch agent -c "git commit -q --allow-empty -m keep" 2>&1 | sed -n "s/^pot: run \([^ ]*\) .*/kid=\1/p"'
+  local kid && kid=$(sed -n 's/^kid=//p' <<<"$out")
+  ran "nest: a prune root's dispatch (keepDays 0)" env -u CLAUDECODE -u POT AGTOK=x "$work/nrp/bin/pot" dispatch agent -c true
+  ran "nest: the child in review" nb_ runs "$kid" --json
+  expect "is still in review, its clone kept" test "$(jq -r .state <<<"$out")" = review
+  expect "and its clone is there" test -d "$work/nstate/runs/${kid%/*}/children/${kid#*/}/clone"
+
+  # S1 (fix round 3): while the parent runs, its child's clone is the parent's: no discard, fetch or prune on the host;
+  # a child the host can't read (fetch_failed, no clone) is pruned after keepDays like any other run (low a)
+  rm -f "$c/nkid"
+  # shellcheck disable=SC2016 # the run's own variables
+  ( nb_ agent -c 'pot dispatch agent -c "git commit -q --allow-empty --no-verify -m s1" 2>&1 | sed -n "s/^pot: run \([^ ]*\) .*/\1/p" > nkid
+      mkdir -p /run/pot/children/eeee && printf "%s\n" "{\"ev\":\"start\",\"mode\":\"clone\",\"time\":\"2026-01-01T00:00:00\",\"clone\":{\"base\":\"0000000000000000000000000000000000000000\"}}" > /run/pot/children/eeee/log.jsonl
+      for _ in $(seq 100); do [ -e stop-s1 ] && break; sleep 0.1; done' >"$work/ns1.out" 2>&1 & )
+  for _ in $(seq 150); do [ -s "$c/nkid" ] && break; sleep 0.2; done
+  local s1 && s1=$(cat "$c/nkid")
+  expect "nest: S1, a child of a running parent" test -n "$s1"
+  refused "nest: S1, pot review CHILD --discard while its parent runs" nb_ review "$s1" --discard
+  expect "is refused" holds "pot: run $s1's parent ${s1%/*} is still running (or the host's look at its children is not done): its clone stays the parent's until then: pot runs ${s1%/*}"
+  refused "nest: S1, pot review CHILD --fetch while its parent runs" nb_ review "$s1" --fetch
+  ran "nest: S1, a prune root's dispatch while the parent runs" env -u CLAUDECODE -u POT AGTOK=x "$work/nrp/bin/pot" dispatch agent -c true
+  expect "the child's clone is kept" test -d "$work/nstate/runs/${s1%/*}/children/${s1#*/}/clone"
+  touch "$c/stop-s1"; for _ in $(seq 100); do nb_ runs "${s1%/*}" --json 2>/dev/null | jq -e '.state != "running"' >/dev/null && break; sleep 0.2; done
+  rm -f "$c/stop-s1" "$c/nkid"
+  ran "nest: S1, the fake child after the parent ended" nb_ runs "${s1%/*}/eeee" --json
+  expect "is in review, fetch failed (the host could not read a clone)" test "$(jq -r .state <<<"$out")" = review
+  ran "nest: low (a), a prune root's dispatch after keepDays (0)" env -u CLAUDECODE -u POT AGTOK=x "$work/nrp/bin/pot" dispatch agent -c true
+  ran "nest: low (a), the fake child" nb_ runs "${s1%/*}/eeee" --json
+  expect "is pruned (discarded, keepDays)" test "$(jq -r '.clone.discarded != null' <<<"$out")" = true
+  ran "nest: S1, the real child once its parent ended" nb_ runs "$s1" --json
+  expect "is in review, still kept" test "$(jq -r .state <<<"$out")" = review
+  ran "nest: S1, pot review CHILD --discard after the parent ended" nb_ review "$s1" --discard
+  expect "discards it" holds "pot: discarded run $s1's clone"
+
+  # nested --detach (decision 1): in the background inside the parent; killed when the parent exits
+  # shellcheck disable=SC2016 # the run's own variables
+  ran "nest: nested --detach" nb_ agent -c 'id=$(pot dispatch --detach agent -c "git commit -q --allow-empty -m bg; sleep 60"); echo "id=$id"
+    for _ in $(seq 50); do pot review "$id" --json >/dev/null 2>&1 || true; pot runs "$id" --json | jq -e ".state == \"running\"" >/dev/null && break; sleep 0.1; done
+    pot runs "$id" --json | jq -r "\"state=\" + .state"; pot runs | grep -c "^child"; pot runs "$id"
+    id2=$(pot dispatch --detach agent -c "git commit -q --allow-empty -m bg2"); for _ in $(seq 100); do pot runs "$id2" --json | jq -e ".state != \"running\"" >/dev/null && break; sleep 0.1; done
+    pot review "$id2" --json | jq -r "\"commits=\" + (.look.commits | length | tostring)"
+    pot review "$id2" --fetch; echo "fetch-exit=$?"'
+  local did && did=$(sed -n 's/^id=//p' <<<"$out")
+  expect "prints the child's id" test -n "$did"
+  expect "the parent sees it running" has "state=running"
+  expect "pot runs CHILD in text, from the parent" holds "run        $did · running · dispatch"
+  expect "pot review CHILD --json from the parent shows its commits" has "commits=1"
+  expect "--fetch stays the host's" holds "is the host's"
+  ran "nest: the detached child, after its parent exited" nb_ runs "$did" --json
+  expect "is in review (it committed)" test "$(jq -r .state <<<"$out")" = review
+  expect "killed with its parent (the host's exit)" test "$(jq -r .killed <<<"$out")" = parent
+  expect "with no status" test "$(jq -r .exit <<<"$out")" = null
+  ran "nest: the detached child, in text" nb_ runs "$did"
+  expect "says it was killed with its parent" holds "· killed with its parent ·"
+
+  # H8: a read-only kit command runs in a root repository; a write run there is refused
+  git_ clone -q --recurse-submodules "$c" "$work/nrr"
+  ran "nest: a read-only wrapped command in a root repository" bash -c "cd '$work/nrr' && '$bw' --dev-bind / / --bind '$work/nlaunch' \"\$HOME/.config/pot\" -- '$work/nct/bin/nk-chk' rr"
+  expect "runs" holds "args=rr"
+  refused "nest: a write run in the root repository" bash -c "cd '$work/nrr' && env -u POT AGTOK=x '$work/nr/bin/pot' agent -c true"
+  expect "is refused" holds "is a root"
+  # F2: the access is the kit's that runs: a read wrapper from another bundle, where this root repository's kit says write
+  # shellcheck disable=SC2016 # Nix text, not shell
+  sed -i 's/commands.nk-chk = { program = "${chk}\/bin\/nk-chk"; access = "read";/commands.nk-chk = { program = "${chk}\/bin\/nk-chk"; access = "write";/' "$work/src/nkp/graft.nix"
+  release nkp v1.1.0
+  git_ -C "$work/nrr/scions/nkp" fetch -q --tags origin && git_ -C "$work/nrr/scions/nkp" checkout -q --detach v1.1.0
+  git_ -C "$work/nrr" -c core.hooksPath=/dev/null commit -q -a -m "nkp v1.1.0"
+  refused "nest: F2, a read wrapper whose kit here writes, in a root repository" bash -c "cd '$work/nrr' && '$bw' --dev-bind / / --bind '$work/nlaunch' \"\$HOME/.config/pot\" -- '$work/nct/bin/nk-chk' rr"
+  expect "is refused, as work refuses a root" holds "is a root"
+  refuse "nothing ran" holds "args=rr"
+}
+
 sec_own() {
   # graft's docs check (dev/flake.nix) reads knowledge-base-kit from a flake input: the same commit as its scion
   local link rev b0 b1 c=$work/own-boundary
@@ -2875,7 +3286,7 @@ sec_own() {
   expect "own: and a comment in lib/common.sh changes it (the experiment sees graft's sources)" test "$b0" != "$b1"
 }
 
-sections=(own mkflake tarball nix try kits pot dispatch add sync check outdated changelog upgrade graft workflows ci migrate)
+sections=(own mkflake tarball nix try kits pot dispatch nest add sync check outdated changelog upgrade graft workflows ci migrate)
 [ $# -eq 0 ] || sections=("$@")
 for s in "${sections[@]}"; do
   echo "== $s"

@@ -139,6 +139,8 @@ cmd_add() {
   echo "graft: $path <- $tag ($(short "$commit"))"
   nested "$name" "$path"
   requires_note "$name" "$path"
+  # the new scion's recipes (v2.18.0), from the repository's own app, where the repository uses kits.just
+  [ -z "${GRAFT_IN_REPO:-}" ] || kits_just_write || true
   if [ "$FLAKE" = . ] && [ -f "$FLAKE_NIX" ] && ! declares_submodules; then
     echo "graft: next: commit; a git flake also needs inputs.self.submodules = true;"
   else
@@ -200,6 +202,7 @@ cmd_sync() {
     done < <(scions_registered .gitmodules)
   fi
   bash "$here/refresh.sh" "$SCIONS" "$FLAKE" "$GRAFT_RUN" "$template"
+  kits_just_write
   [ -z "$(try_state)" ] || echo "graft: note: graft try is on: graft try --stop turns it off before you commit"
 }
 
@@ -321,6 +324,23 @@ cmd_check() {
     if ! err=$( { nix_ eval --raw "$FLAKE_REF#packages.$system.tools.drvPath" >/dev/null && nix_ eval --json "$FLAKE_REF#checks.$system" --apply builtins.attrNames >/dev/null; } 2>&1); then
       grep -v "^warning: Git tree" <<<"$err" | tail -15 >&2
       bad "the flake's tools or checks don't evaluate (above): a provider's graft.nix fails"
+    fi
+  fi
+  # kits.just (v2.18.0): the bytes the flake's kits generate, where the repository uses it
+  if [ -z "$committed" ] && [ -n "${GRAFT_IN_REPO:-}" ] && [ "$rc" = 0 ] && kits_just_wanted; then
+    if ! lt=$(kits_just_text 2>"$GRAFT_TMP/kj.err"); then
+      tail -5 "$GRAFT_TMP/kj.err" >&2
+      bad "$SCIONS/kits.just: the flake's pot-kits doesn't evaluate (above)"
+    elif [ -L "$SCIONS/kits.just" ]; then
+      bad "$SCIONS/kits.just is a symbolic link; graft writes only a file there: remove it, then graft sync"
+    elif ! kits_just_clashes "$lt" >"$GRAFT_TMP/kjc"; then
+      while IFS= read -r l; do bad "${l#graft: }"; done <"$GRAFT_TMP/kjc"
+    elif [ ! -f "$SCIONS/kits.just" ] || [ "$(cat "$SCIONS/kits.just")" != "$lt" ]; then
+      if [ -n "${POT:-}" ]; then
+        bad "$SCIONS/kits.just is stale or edited: run graft sync on the host (the scions folder is read-only in a run)"
+      else
+        bad "$SCIONS/kits.just is stale or edited: graft sync"
+      fi
     fi
   fi
   if [ "$rc" = 0 ] && [ -n "$SCIONS" ]; then

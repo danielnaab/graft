@@ -90,7 +90,8 @@ git submodules give you a pinned clone. graft adds what makes them a dependency 
 - **A sandbox for agents (experimental).** pot, graft's sandbox: `pot claude` runs an agent, or any command, so that it writes the
   repository but reaches only what you granted from your own root, and cannot change the files that decide the
   sandbox. `pot dispatch` works in a throwaway clone, and hands its commits back for you to review and fetch.
-  Repositories and providers declare what they need as kits; only you grant it (Linux;
+  Repositories and providers declare what they need as kits; only you grant it. A kit's own commands run sandboxed
+  under their own policy, nested inside an agent's run (Linux;
   [Run commands in pot](docs/guides/run-in-a-sandbox.md)).
 
 Compared with the other ways:
@@ -168,6 +169,7 @@ and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 | Anyone: hand a task to an agent in a clone, then review and fetch its commits | [Work in a clone](docs/guides/dispatch.md) |
 | Provider: release a version | [Publish a pattern](docs/guides/publish.md) |
 | Provider: ship tools, apps and checks | [Write a provider's graft.nix](docs/guides/write-graft-nix.md) |
+| Provider: declare kit commands, recipes and hook commands | [Declare kit commands](docs/guides/kit-commands.md) |
 | Consumer on v2.12 or earlier: move to submodules | [Move from copy mode](docs/guides/move-from-copy-mode.md) |
 | Look up a command, flag, `mkFlake` argument or error | [Commands](docs/reference/commands.md) |
 | Look up a file graft reads or writes, or the `graft.nix` contract | [Files](docs/reference/files.md) |
@@ -175,6 +177,7 @@ and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 | Anyone on v2.14.0's sandbox: move to `pot` | [Move from v2.14.0's sandbox](docs/guides/move-from-the-v2-14-sandbox.md) |
 | Anyone on v2.15.0: move to v2.16.0 (`pot-kits`, the boundary between graft and pot) | [Move to v2.16.0](docs/guides/move-to-v2-16.md) |
 | Anyone on v2.16.x: move to v2.17.0 (the removed forms, dispatch) | [Move to v2.17.0](docs/guides/move-to-v2-17.md) |
+| Anyone on v2.17.x: move to v2.18.0 (wrapped kit commands, `kits.just`, hook commands) | [Move to v2.18.0](docs/guides/move-to-v2-18.md) |
 | Look up a format that pot shares with graft and other programs | [pot's contracts](pot/contracts/README.md), [provider/2](docs/reference/provider.md) |
 | Know how Nix sees a scion | [Nix behaviours](docs/reference/nix-behaviours.md) |
 | Know why graft is this small, and where graft v1 went | [Decisions](docs/decisions.md) |

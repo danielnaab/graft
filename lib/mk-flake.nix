@@ -185,8 +185,15 @@ let
         ++ lib.concatMap (k: taken "apps" k ++ taken "packages" k) [ "sandbox" "pot" "pot-kits" "graft-kits" ];
       warnEmpty = x: if empty == [ ] then x
         else lib.warn (emptyMsg empty ", so the tools leave out what ${if lib.length empty == 1 then "it gives" else "they give"}") x;
-      toolsEnv = ok (if reserved != [ ] then throw (lib.concatStringsSep "\n" reserved)
+      toolsUnwrapped = ok (if reserved != [ ] then throw (lib.concatStringsSep "\n" reserved)
         else warnEmpty (pkgs.buildEnv { name = "tools"; paths = lib.attrValues tools; }));
+      # v2.18.0 (D4): each kit command's wrapper over the tool of the same name, so pot runs kit code under its
+      # own policy; passthru.unwrapped is the tools as before, for Nix consumers and a worker that runs no pot
+      toolsEnv = ok (builtins.seq toolsUnwrapped.drvPath pkgs.buildEnv {
+        name = "tools";
+        paths = lib.attrValues tools ++ [ (lib.hiPrio potKits.wrappers) ];
+        passthru.unwrapped = toolsUnwrapped;
+      });
       # the kits, for pot: the repo kit (perSystem's `kit`) and each provider's, handed to pot's
       # library unread. v2.14.0's `sandbox` is an error that names its replacement
       kitOf = n: let r = results.${n}; in
@@ -203,6 +210,12 @@ let
         tools = lib.attrValues tools ++ [ graftForRepo ];
         # graft's own files: every provider's graft.nix and the scions directory are read-only in a run
         files = [ "**/graft.nix" dir ];
+        # graft's own recipes, in the same kits.just as the kits' (v2.18.0)
+        recipes = {
+          outdated = { run = "graft outdated"; description = "Show the pinned and newest tag of each scion"; };
+          upgrade = { run = "graft upgrade"; description = "Move scions to newer release tags (NAME, or NAME@TAG)"; };
+          graft-check = { run = "graft check"; description = "Check that every scion is clean and at a release tag"; };
+        };
       });
       devShells = lib.mapAttrs (_: ok) (results.self.devShells or { });
       ownDefault = devShells ? default || outputs ? devShells.${system}.default;
@@ -218,7 +231,7 @@ let
         acc // lib.listToAttrs (map (k: lib.nameValuePair (if n == "self" then k else "${n}-${k}")
           (ok (ctx n results.${n}.checks.${k}))) (keysStrict n "checks"))) { } units;
       devShells = devShells // lib.optionalAttrs (!ownDefault) {
-        default = ok (pkgs.mkShell { packages = [ toolsEnv ]; });
+        default = ok (pkgs.mkShell { packages = [ toolsEnv ]; });   # the wrapped tools
       };
     };
 

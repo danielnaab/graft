@@ -37,11 +37,12 @@ graft.lib.pot.kitsFor {
 | `scions.<name>` | `{ kit; file; }` | each scion's kit, by its folder name |
 | `tools` | list of packages | the workspace's tools. mkFlake passes the merged tools and the repository's own `graft`. |
 | `files` | list of strings | paths relative to the flake directory, or `**/NAME` anywhere in the repository. mkFlake passes `[ "**/graft.nix" "<dir>" ]`, its scions folder. |
-| `recipes` | attrs, default `{ }` | the producer's own recipes, in [kit/1's recipe form](kit-1.md#recipes), written into the same `kits.just` as the kits' recipes. graft's are `outdated`, `upgrade` and `graft-check`. Fixed in v2.17.0; used from v2.18.0. Another shape: `pot: kitsFor: recipes.X is "<command> <args>" or { run; description; }`. |
+| `recipes` | attrs, default `{ }` | the producer's own recipes, in [kit/1's recipe form](kit-1.md#recipes), written into the same `kits.just` as the kits' recipes. graft's are `outdated`, `upgrade` and `graft-check`. Written into `kits.just` since v2.18.0. Another shape: `pot: kitsFor: recipes.X is "<command> <args>" or { run; description; }`. |
 
-The result has `passthru.wrappers`: the declared commands' wrappers as one package, for the producer's tools. In
-v2.17.0 it is an empty package, and the bundle gains no file yet; mkFlake puts it in a consumer's tools, and the
-bundle gains its new files, from v2.18.0.
+The result has `passthru.wrappers`, the declared commands' wrappers as one package, which mkFlake puts over the
+programs in a consumer's `packages.<system>.tools` (keeping the tools without them as
+`tools.passthru.unwrapped`), and `passthru.kitsJust`, the text of `kits.just`, a plain string with no store paths.
+In v2.17.x `wrappers` was an empty package.
 
 mkFlake's call, for a consumer whose scions folder is `.scions`:
 

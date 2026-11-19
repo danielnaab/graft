@@ -14,11 +14,12 @@ status: working
 
 ```
 <out>/kit.json   { "version": 1, "self": <kit> | null, "scions": { "<name>": <kit> }, "protect": [ … ] }
-<out>/bin/       the workspace's tools, and the repo kit's tools
+<out>/bin/       the workspace's tools, and the repo kit's tools, with each declared command's wrapper in place of
+                 the program of that name
 <out>/closure    the store paths a run needs, one per line
-<out>/kits.just                the generated recipes (from v2.18.0)
-<out>/wrappers/bin/<command>   each declared command's wrapper (from v2.18.0)
-<out>/commands/<command>.json  each wrapper's manifest (from v2.18.0)
+<out>/kits.just                the generated recipes
+<out>/wrappers/bin/<command>   each declared command's wrapper
+<out>/commands/<command>.json  each wrapper's manifest
 ```
 
 | Field | Type | Meaning |
@@ -36,16 +37,17 @@ builds that name from a convention of its own.
 The bundle says nothing about identity. pot establishes each scion kit's identity from `.gitmodules` and the
 gitlinks at `HEAD`, and does not trust the bundle's list of scions ([kit/1: Identity](kit-1.md#identity)).
 
-**The bundle's other files** are fixed now and built from v2.18.0, so that this contract does not change again
-before pot's split:
+**The bundle's other files** were fixed in v2.17.0 and are built since v2.18.0, so that this contract does not
+change again before pot's split:
 
 | File | Contents |
 |---|---|
-| `kits.just` | the just recipes generated from every kit's [`recipes`](kit-1.md#recipes): graft's fixed header (no settings, no assignments, no backticks), then one line per recipe, `exec "{{tools}}/bin/<command>" <args> "$@"`. `graft sync` copies it to the scions folder; `graft check` compares the bytes. |
-| `wrappers/bin/<command>` | each declared command's wrapper, which runs `pot run --command NAME --manifest <out>/commands/NAME.json -- ARGS`, with the `pot` that `~/.config/pot/launcher` names (the home found from the password database, never `$HOME`), or the default root's |
+| `kits.just` | the just recipes generated from every kit's [`recipes`](kit-1.md#recipes): graft's fixed header (no settings, no assignments, no backticks), then one line per recipe, `exec "{{tools}}/bin/<command>" <args> "$@"`, each argument single-quoted (`'--all'`). `graft add`, `graft sync` and `graft upgrade` copy it to the scions folder (from the bundle's `passthru.kitsJust`, a string, so evaluation alone), and `graft check` compares the bytes, where the repository uses it: the file exists, or the top `justfile` names it. The importing justfile defines `tools`, the tools package's root. |
+| `wrappers/bin/<command>` | each declared command's wrapper, which runs `pot run --command NAME --manifest <out>/commands/NAME.json -- ARGS`, with the `pot` that `~/.config/pot/launcher` names (the home found from the password database, never `$HOME`). With no launcher, on Darwin, or under a root that predates `pot run`, it runs the unwrapped program, with one line on stderr. Inside a run, policy.json decides first: when it names `mounts.launcher` (a v2.18.0 or later run), the wrapper execs `/run/pot/launcher`, or refuses (exit 126); it never runs the program unwrapped. Otherwise (an older pot's run) it runs the program under that run's policy. |
 | `commands/<command>.json` | `{ "version": 1, "command": "<command>", "kit": "self" \| "scions.<name>" }`; the bundle is the file's `../..` |
 
-pot never takes a kit's identity from a manifest: it establishes it from the workspace, as for every kit.
+Only `pot run` reads a manifest, and only to name the command; a run start never reads `commands/`. pot never
+takes a kit's identity from a manifest: it establishes it from the workspace, as for every kit.
 
 pot checks the bundle when it reads it, and so does kitsFor when it writes it: the version, the fields, each kit
 (named by its `file`), and the protect list. A failure stops the run:

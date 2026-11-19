@@ -136,7 +136,11 @@ and end with `graft check` passing and everything committed.
 
    ```just
    import? "scions/notebook-kit/tools/kit.just"
+   import? "scions/kits.just"
    ```
+
+   `scions/kits.just` holds the kits' generated recipes; it needs `tools` defined
+   ([Files: kits.just](../reference/files.md#kitsjust)).
 
 8. On GitHub, delete `.forgejo/`: those workflows are for Forgejo Actions
    ([Run graft in CI and review its upgrade pull requests](ci.md)). On Forgejo, keep it. Then commit:

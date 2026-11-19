@@ -30,7 +30,7 @@ Every event has `ev` and `by`:
 | `by` | Meaning |
 |---|---|
 | `host` | a fact the host observed |
-| `parent` | written by a nested parent's in-run pot, as trustworthy as that parent. Reserved: nested runs write it from v2.18.0. |
+| `parent` | written by a nested parent's in-run pot, as trustworthy as that parent (since v2.18.0). A `by: host` line in a log the parent writes is read as `by: parent`. |
 | `run` | a claim the run reported: data, never evidence |
 
 | `ev` | When | Keys |
@@ -92,12 +92,14 @@ lock is still held, the record is `running` with `recovering: true`.
 | `command` | object | `name`, the command kit's identity `kit` (or `null`), `instance` (or `null`), and `typed`, the command as the person typed it. Text shows `typed`. (A log from before the field: `command` is `null`.) |
 | `argv` | list of strings | the command as pot started it: the kit's program and arguments |
 | `workspace` | list | each repository's identity `id`, `path`, and `name`, the short name the startup line uses: the normalised origin's last path part, else the checkout's folder |
-| `invoker` | string | `person` (at a terminal) or `script` |
+| `invoker` | string | `person` (at a terminal), `script`, or `run` for a nested child |
+| `via` | string, or absent | `"wrapper"` for a start through a [wrapper](pot-kits-1.md#shape) (`pot run`), `"dispatch"` for a nested dispatch; its `start` event has `via`, and `hook` when the command declares one. `pot runs` hides such runs that exited 0 unless `--all` |
 | `detached` | boolean | started with `--detach` |
 | `pane` | string or `null` | the tmux pane the run held |
-| `parent`, `children` | string or `null`; list | for nested runs (v2.18.0): a child's id is `PARENT/CHILD`, such as `9b0e/c210`. `null` and `[ ]` until then. |
+| `parent`, `children` | string or `null`; list | for nested runs: a child's id is `PARENT/CHILD`, such as `9b0e/c210`; its parent's `children` lists it. A child's `--fetch` refs are `refs/remotes/pot-9b0e-c210/*`. |
 | `started`, `ended` | strings or `null` | local times |
 | `exit`, `lost` | number or `null`; boolean | the exit status; whether pot ended without one |
+| `killed` | `"parent"`, or absent | a child that was still running when its parent ended (the host's `exit`); `exit` is `null` |
 | `stop` | object or `null` | for `stopped`: `{ reason, kits, fix, grantedSince }` |
 | `recovering` | `true`, or absent | another pot is completing the run's staging (its `recover.lock`), still after a reader's 15-second wait: the state is `running` until it ends |
 | `clone` | object or `null` | in clone mode: the `base` commit and `branch`, `commits` and `unsigned`, `scionCommits`, `nested` (the scions whose own submodules were not cloned), `fetchFailed` (the after event's `fetch_failed`, else `null`), the moved `refs`, `uncommitted` files left in the clone, its `size`, when it was `fetched` or `discarded`, and `keptUntil` |
@@ -116,8 +118,11 @@ Both read the logs again every half second.
 
 ### Inside a run
 
-`pot runs` inside a run shows that run alone, from its policy: `id`, `state` (`running`), `context`, `mode` and
-`workspace`; the other fields are `null`. The host's logs stay hidden.
+`pot runs` inside a run shows that run, from its policy (`id`, `state` (`running`), `context`, `mode` and
+`workspace`; the other fields are `null`), then its children, from their logs under `/run/pot/children/`. The
+host's logs stay hidden. A child's record on the host is built from its parent-written log (every line read as
+`by: parent`, only `start`, `exit` and `net` used) and the host's own lines for it in
+`runs/<parent>/child-staging/<child>/log.jsonl`.
 
 ## Compatibility
 

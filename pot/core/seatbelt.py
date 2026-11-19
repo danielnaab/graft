@@ -53,7 +53,7 @@ SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 GUARANTEES = ["closure-store", "no-tiocsti", "in-place", "private-proxy"]
 STORE_RE = re.compile(r"^/nix/store/[0-9a-z]{32}-[A-Za-z0-9+._?=-]+$")
 # the run's own files in its folder, read-only in the run (never launch.json, log.jsonl, before.json or the logs)
-OWN_FILES = ("policy.json", "README.md", "denials", "explain.txt", "why.json", "mcp.json", "bash_env", "hidden.txt",
+OWN_FILES = ("policy.json", "launcher", "README.md", "denials", "explain.txt", "why.json", "mcp.json", "bash_env", "hidden.txt",
              "gitconfig")
 OWN_DIRS = ("bin", "notfound")
 Stop = B.Stop
@@ -430,6 +430,11 @@ def prepare(cfg, rundir, print_cmd=False):
 
     # pot's own: shims, the not-found handler, the MCP configuration; the run's .gitconfig and hidden list
     B.write_own(cfg, rundir, policy, launch)
+    # the launcher pointer (v2.18.0): <run dir>/launcher, next to POT_POLICY, names this run's own pot, which a kit
+    # command's wrapper runs inside (its children table: Seatbelt cannot nest, so a row runs in place or is refused);
+    # the run reads it and cannot write it (the run folder has no write rule)
+    if launch.get("potBin") and not os.path.lexists(os.path.join(rundir, "launcher")):
+        os.symlink(os.path.join(launch["potBin"], "pot"), os.path.join(rundir, "launcher"))
     for n in ("explain.txt", "why.json"):
         if not os.path.exists(os.path.join(rundir, n)):
             with open(os.path.join(rundir, n), "w") as f:

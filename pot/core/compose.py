@@ -108,6 +108,8 @@ COMMAND_FIELDS = {"1.0": {"program", "access", "requests", "args", "fixedDirs", 
                   "1.2": {"program", "access", "requests", "args", "dirs", "settings", "description", "hook"}}
 HOOKS = ("pre-commit", "commit-msg", "prepare-commit-msg", "pre-push", "post-checkout", "post-merge")
 RECIPE_FIELDS = {"run", "description"}
+RECIPE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+RECIPE_WORD = re.compile(r"[A-Za-z0-9._/=:,@+%-]+")
 DIR_FIELDS = {"from", "mode", "real", "copy", "label"}
 AGENT_FIELDS = {"markers", "select", "resume", "hooks"}
 FILE_MODES = ("fixed", "seed", "reassert")
@@ -420,25 +422,23 @@ def validate_kit(kit, where, home, root=True):
         if isinstance(c, dict) and "hook" in c and c["hook"] not in HOOKS:
             raise KitError(f"{where}: commands.{name}.hook: one of {', '.join(HOOKS)}")
     for n, body in (kit.get("recipes") or {}).items():
-        if ver != "1.2":
-            if not isinstance(body, str) or "\n" in body:
-                raise KitError(f"{where}: recipes.{n}: one line")
-            continue
-        # 1.2: a string or { run; description; }; run's first word is one of this kit's commands, the rest
-        # literal words (graft generates the recipe from it: D11)
+        # every version (F1, v2.18.0): graft writes kits.just from these, and just runs it on the host. A recipe's name
+        # is a name; run is one of this kit's own commands, then literal words of a safe set (no shell syntax)
+        if not RECIPE_NAME.fullmatch(str(n)):
+            raise KitError(f"{where}: recipes.{n}: a recipe's name is letters, digits, _ and - (starting with a letter)")
         if isinstance(body, dict):
-            if not set(body) <= RECIPE_FIELDS or not isinstance(body.get("run"), str) \
-                    or not isinstance(body.get("description", ""), str):
+            if ver != "1.2" or not set(body) <= RECIPE_FIELDS or not isinstance(body.get("run"), str) \
+                    or not isinstance(body.get("description", ""), str) or "\n" in body.get("description", ""):
                 raise KitError(f"{where}: recipes.{n}: {{ run; description; }} (kit 1.2), or one line")
             body = body["run"]
-        if not isinstance(body, str):
+        if not isinstance(body, str) or "\n" in body:
             raise KitError(f"{where}: recipes.{n}: {{ run; description; }} (kit 1.2), or one line")
-        if any(x in body for x in ("{{", "`", "$", "\n")):
-            raise KitError(f"{where}: recipes.{n}: literal words only (no {{{{, `, $ or a newline)")
-        words = body.split()
+        words = body.split(" ")
+        if any(not RECIPE_WORD.fullmatch(w) for w in words):
+            raise KitError(f"{where}: recipes.{n}: literal words only (letters, digits and . _ / = : , @ + % -, one space apart)")
         cmds = sorted(kit.get("commands") or {})
-        if not words or words[0] not in cmds:
-            raise KitError(f"{where}: recipes.{n}: runs {words[0] if words else 'nothing'}, which is not one of this kit's "
+        if words[0] not in cmds:
+            raise KitError(f"{where}: recipes.{n}: runs {words[0]}, which is not one of this kit's "
                            f"commands ({', '.join(cmds) or 'none'})")
     return reqs
 
@@ -806,7 +806,7 @@ def compose(inp):
     machine = inp["machine"]
     grants = inp["grants"]
 
-    clone_mode = ctx["mode"] == "clone" or flags.get("mode") == "clone"
+    clone_mode = (ctx["mode"] == "clone" and flags.get("mode") != "in-place") or flags.get("mode") == "clone"
     if ctx["mode"] == "none":
         raise Refusal("pot: host runs no sandbox and composes no policy")
     trust = ctx.get("trust", "workspace")
@@ -866,7 +866,18 @@ def compose(inp):
     # ---- the command kit
     argv = list(inp.get("argv") or [])
     cmdkit, cmdname = None, argv[0] if argv else None
-    if argv and "/" not in argv[0]:
+    if argv and (flags.get("commandKit") or flags.get("commandSlot")):
+        # a children-table row, or a wrapper's start (v2.18.0): the kit is the host's, by identity or by its slot in
+        # this workspace's bundle (a workspace kit), never by a name the caller gives
+        cmdkit = next((k for k in kits if argv[0] in (k["manifest"].get("commands") or {})
+                       and (k["id"] == flags.get("commandKit")
+                            or (flags.get("commandSlot") and k["kind"] != "root" and slot_of(k) == flags["commandSlot"]))), None)
+        if cmdkit is None and flags.get("commandKit"):
+            raise Refusal(f"pot: no kit {flags['commandKit']} ships {argv[0]}", 2)
+        if cmdkit is None:
+            raise Refusal(f"pot: {argv[0]}: this workspace's kits have no command {argv[0]} (the wrapper comes from "
+                          "another workspace's tools): run it in its repository")
+    elif argv and "/" not in argv[0]:
         hit, cmdname = find_command(root_kits, ws_kits, argv[0])
         if isinstance(hit, list):
             for k in hit:
@@ -1218,13 +1229,232 @@ def compose(inp):
         "backend": {"name": inp.get("backendName", "bubblewrap"), "requires": requires, "proved": proved},
         "workspace": workspace,
         "items": items,
-        "mounts": {"state": state_mounts, "run": "/run/pot"},
+        # launcher: the in-run pointer the host binds (v2.18.0); a wrapper that finds it named here, and not in the
+        # run's home, refuses rather than run its kit code under this run's policy
+        "mounts": {"state": state_mounts, "run": "/run/pot", "launcher": "/run/pot/launcher"},
         "bindings": pbind,
         "children": {},
         "grants": [{"id": st["kit"], "digest": st["digest"], "match": st["status"] in ("match", "none")}
                    for st in report["kits"]],
     }
+    report["kitObjs"] = [{"id": k["id"], "kind": k["kind"], "name": k.get("name"), "slot": slot_of(k), "file": k.get("file"),
+                          "display": kit_display(k),
+                          "commands": sorted((k["manifest"].get("commands") or {})),
+                          "hooks": {n: c["hook"] for n, c in (k["manifest"].get("commands") or {}).items() if c.get("hook")},
+                          "recipes": {n: (r if isinstance(r, str) else r.get("run", "")).split(" ")[0]
+                                      for n, r in (k["manifest"].get("recipes") or {}).items()}}
+                         for k in kits]
     return policy, report
+
+
+# ---------------------------------------------------------------- the children table (§10, v2.18.0)
+
+def slot_of(k):
+    """Where a kit sits in its bundle, as a wrapper's manifest names it: self, scions.<name>; root for a root kit."""
+    return {"root": "root", "repo": "self"}.get(k["kind"], f"scions.{k.get('name')}")
+
+
+def eff_reach(p):
+    return [i for i in p["items"] if i["class"] == "reach" and i["effective"]]
+
+
+def binding_keys(p):
+    return {(b["capability"], b["selector"], b["request"]) for b in p.get("bindings") or []}
+
+
+def boundary(p):
+    """What decides a run's boundary: equal boundaries exec, a narrower one nests."""
+    return (p["mode"], p["access"],
+            frozenset((i["kind"], i["value"]) for i in eff_reach(p) if i["kind"] != "state"),
+            frozenset(i["value"] for i in p["items"] if i["kind"] == "protect" and i["effective"]),
+            frozenset(binding_keys(p)),
+            frozenset((s["name"], s["at"], json.dumps(s["key"])) for s in p["mounts"]["state"]))
+
+
+def lack_word(i):
+    """A missing item as the refusal names it: a variable, a capability, a host (port 443 left out), a path."""
+    if i["kind"] == "capability":
+        return i["value"]
+    if i["kind"] == "network":
+        return i["value"][:-4] if i["value"].endswith(":443") else i["value"]
+    if i["kind"] == "unsandboxed":
+        return "unsandboxed"
+    return i["value"]
+
+
+def narrower(child, parent):
+    """§10: the child's effective reach items that the parent's do not cover (empty: the child is narrower or
+    equal). State is never a lack: the host binds a child's state into its parent (a parent holds everything its
+    children get, residual 7)."""
+    pr = eff_reach(parent)
+    pnet = [i["value"] for i in pr if i["kind"] == "network"]
+    pbind = binding_keys(parent)
+    cbind = {b["request"]: b for b in child.get("bindings") or []}
+    tops = [w["path"] for w in parent["workspace"]]
+
+    def paths(kinds):
+        return [i.get("path") or i["value"] for i in pr if i["kind"] in kinds] + \
+            [i["value"] for i in pr if i["kind"] in kinds and i.get("path")]
+    lacks = []
+    if ACCESS_RANK.get(child.get("access"), 0) > ACCESS_RANK.get(parent.get("access"), 0):
+        lacks.append(f"{child['access']} access")     # (conformance 1) a write child never nests under a read run
+    for i in eff_reach(child):
+        k, v = i["kind"], i["value"]
+        if k == "network":
+            ok = v in pnet or (not any(c in v for c in "*?[") and any(fnmatch.fnmatchcase(v.lower(), p.lower()) for p in pnet))
+        elif k == "read":
+            p = i.get("path") or v
+            ok = p.startswith("/nix/store/") or any(under(p, t) for t in tops) \
+                or any(under(p, q) or under(v, q) for q in paths(("read", "write", "socket")))
+        elif k in ("write", "socket"):
+            p = i.get("path") or v
+            ok = (parent["access"] == "write" and any(under(p, t) for t in tops)) \
+                or any(under(p, q) or under(v, q) for q in paths(("write", "socket") if k == "write" else ("socket",)))
+        elif k == "env":
+            ok = any(j["kind"] == "env" and j["value"] == v for j in pr)
+        elif k == "state":
+            ok = True
+        elif k == "capability":
+            b = cbind.get(i.get("request"))
+            ok = b is not None and (b["capability"], b["selector"], b["request"]) in pbind
+        elif k == "unsandboxed":
+            ok = False
+        else:
+            ok = any(j["kind"] == k and j["value"] == v for j in pr)
+        if not ok:
+            lacks.append(lack_word(i))
+    return list(dict.fromkeys(lacks))
+
+
+def child_rows(report):
+    """The commands a run may start (§10): (context, kit, command, dispatch) for each workspace kit's command, in
+    place, and for the root kits that the context's commands list or that ship this run's command, in place and in
+    dispatch (a clone of its own)."""
+    ctx = report["context"]
+    named = set(ctx.get("commands") or [])
+    mine = (report.get("command") or {}).get("kit")
+    rows = []
+    for k in report.get("kitObjs") or []:
+        if k["kind"] in ("repo", "scion"):
+            rows += [(ctx["name"], k, c, False) for c in k["commands"]]
+        elif k["kind"] == "root" and (k["id"] == mine or k["name"] in named or k["name"].partition("@")[0] in named):
+            for c in k["commands"]:
+                rows.append((ctx["name"], k, c, False))
+                rows.append(("dispatch", k, c, True))
+    return rows
+
+
+def policy_digest(p):
+    q = {k: v for k, v in p.items() if k not in ("run", "children")}
+    return "sha256-" + hashlib.sha256(json.dumps(q, sort_keys=True).encode()).hexdigest()
+
+
+def children_table(inp, policy, report):
+    """policy.json's children: each row composed by the host with the child kit's own grant (compose(), as
+    `pot CONTEXT KIT:CMD` would be here), then exec (an equal boundary), nest (narrower) or refused (it needs reach
+    this run lacks, its grant does not match, or this run can't nest). Returns (rows, {digest: child policy})."""
+    ctx = report["context"]
+    can_nest = ctx.get("nest", True) is not False and ctx.get("trust") != "untrusted"
+    proves = "nest" in (inp.get("probe") or [])
+    parent_cmd = (report.get("command") or {}).get("name") or "the shell"
+    recipes = {}
+    for k in report.get("kitObjs") or []:
+        for n, first in sorted(k["recipes"].items()):
+            recipes.setdefault((k["id"], first), n)
+    rows, policies, built = {}, {}, {}
+    for cname, k, c, dispatch in child_rows(report):
+        # a row in the run's own context runs in place, in the run's workspace (a clone parent's clone); a dispatch
+        # row makes a clone of its own
+        key = f"dispatch {k['id']}:{c}" if dispatch else f"{k['id']}:{c}"
+        row = {"slot": k["slot"], "command": c, "kit": k["id"], "kitName": k["display"], "context": cname,
+               "mode": "clone" if dispatch else "in-place", "file": k.get("file")}
+        if k["hooks"].get(c):
+            row["hook"] = k["hooks"][c]
+        here = f"pot dispatch {c}" if dispatch else f"just {recipes[(k['id'], c)]}" if (k["id"], c) in recipes else f"{c} ARGS"
+        sub = dict(inp, context=cname, argv=[c], flags={"commandKit": k["id"], "mode": "clone" if dispatch else "in-place"},
+                   run="", workspace=[dict(w) for w in inp["workspace"]])
+        try:
+            cp, cr = compose(sub)
+            if not dispatch:
+                for w in cp["workspace"]:
+                    if w.get("clone"):
+                        # in place in a clone parent: its clone, at the original path, as the parent sees it
+                        w["clone"], w["common"] = None, os.path.join(w["path"], ".git")
+        except Refusal as e:
+            row["refused"] = e.message.split(": ", 1)[-1] if e.message.startswith("pot") else e.message
+            rows[key] = row
+            continue
+        stale = [s for s in cr["stale"]]
+        if stale:
+            row["refused"] = "not granted: pot grant " + " ".join(dict.fromkeys(s["name"] for s in stale)) + " (on the host)"
+            row["grant"] = True
+            rows[key] = row
+            continue
+        lacks = narrower(cp, policy)
+        if lacks:
+            row["refused"] = f"needs {', '.join(lacks)}"
+            row["text"] = (f"pot ({ctx['name']}): {c} needs {', '.join(lacks)}, which this run ({parent_cmd}) lacks: "
+                           f"run it on the host ({here})")
+            rows[key] = row
+            continue
+        # a dispatch row always nests: its clone is a boundary of its own
+        how = "exec" if boundary(cp) == boundary(policy) and not dispatch else "nest"
+        if how == "nest" and not can_nest:
+            row["refused"] = "this run's context is untrusted (nest = false)" if ctx.get("trust") == "untrusted" \
+                else f"context {ctx['name']} has nest = false"
+            rows[key] = row
+            continue
+        if how == "nest" and not proves:
+            if inp.get("backendName") == "seatbelt":
+                # design §10: Seatbelt cannot nest, so a narrower child is refused, never flattened into its parent
+                row["refused"] = "Seatbelt cannot nest"
+                row["text"] = (f"pot ({ctx['name']}): {'dispatch ' if dispatch else ''}{c} runs under its own, narrower "
+                               f"policy, and Seatbelt cannot nest (a run on macOS starts no runs inside it): run it on the "
+                               f"host ({here})")
+            else:
+                row["refused"] = f"{inp.get('backendName', 'this backend')} can't nest here"
+            rows[key] = row
+            continue
+        d = policy_digest(cp)
+        row.update(how=how, policy=d, argv=cr["argv"],
+                   env={i["value"].partition("=")[0]: i["value"].partition("=")[2] for i in cp["items"]
+                        if i["kind"] == "env.set" and i["effective"]})
+        rows[key] = row
+        policies.setdefault(d, cp)
+        built[key] = cp
+    # each nest row's own table: the rows narrower than it (one more level; a grandchild has none)
+    for key, row in rows.items():
+        if row.get("how") != "nest":
+            continue
+        mine = built[key]
+        subt = {}
+        for k2, r2 in rows.items():
+            if k2 == key or "policy" not in r2 or r2["context"] != mine["context"] or r2.get("mode") == "clone":
+                continue
+            if narrower(built[k2], mine):
+                continue
+            how = "exec" if boundary(built[k2]) == boundary(mine) else "nest"
+            subt[k2] = {**{x: y for x, y in r2.items() if x != "children"}, "how": how}
+        row["children"] = subt
+    return rows, policies
+
+
+def children_lines(table, width=100, seatbelt=False):
+    """explain's children rows: the commands this run may start, by how (§10)."""
+    if not table:
+        return ["children   none (Seatbelt cannot nest: a run on macOS starts no runs inside it)" if seatbelt
+                else "children   none: this run keeps --disable-userns"]
+    groups, refused = {}, []
+    for key, r in sorted(table.items()):
+        name = r["command"] if r.get("context") in (None,) or " " not in key else f"{r['context']} {r['command']}"
+        if r.get("refused"):
+            refused.append(f"  {name}: refused ({r['refused']})")
+            continue
+        kit = r.get("kitName") or r["kit"]
+        groups.setdefault((kit, r["how"]), []).append(name)
+    parts = [f"{' '.join(v)} ({k}): {how}" for (k, how), v in groups.items()]
+    out = wrap_words("children   ", [p + " ·" for p in parts[:-1]] + parts[-1:], width, 11) if parts else ["children"]
+    return out + refused
 
 
 # the words people see for a grant's status (never the internal keys)
@@ -1790,8 +2020,7 @@ def explain_text(policy, report, root, width=100):
         else:
             out.append(f"  {kind:<10} {v:<{w}} {status}")
     kind = ((root.get("backends") or {}).get(policy["backend"]["name"]) or {}).get("kind")
-    out.append("children   none (Seatbelt cannot nest: a run on macOS starts no runs)" if kind == "seatbelt"
-               else "children   none (nesting comes in a later release)")
+    out += children_lines(policy.get("children") or {}, width, seatbelt=kind == "seatbelt")
 
     # ---- not in run: each kit's items under its row, filled to the width
     nir = [k for k in report["kits"] if k["status"] in ("never", "grown", "source", "unverified")]
@@ -1820,7 +2049,7 @@ def explain_text(policy, report, root, width=100):
     else:
         out.append(f"resources  none at a terminal; a run without one gets a user systemd scope, "
                    f"MemoryMax={lim.get('memoryMax', '50%')} TasksMax={lim.get('tasksMax', 2048)}")
-    out.append("note       kit tools run as this run's own programs; sandboxing each kit command comes in a later release")
+    out.append("note       a kit command started in this run (its wrapper) runs under its own policy, from the children table")
     return "\n".join(out) + "\n"
 
 

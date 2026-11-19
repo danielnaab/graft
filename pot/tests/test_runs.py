@@ -132,7 +132,7 @@ class States(unittest.TestCase):
         r = R.record("9b0e", [CLONE, EXIT, AFTER], dead)
         self.assertEqual(sorted(r), sorted(["version", "id", "state", "context", "mode", "command", "argv", "workspace",
                                             "invoker", "detached", "pane", "parent", "started", "ended", "exit", "lost",
-                                            "stop", "clone", "attention", "children"]))
+                                            "stop", "clone", "attention", "children", "via"]))
         self.assertEqual(r["version"], 1)
         self.assertEqual(r["children"], [])
 

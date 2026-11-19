@@ -152,6 +152,7 @@ def record(rid, events, alive):
         "version": RECORD_VERSION, "id": rid, "state": state, "context": s.get("context"), "mode": mode,
         "command": s.get("command"), "argv": s.get("argv") or [], "workspace": s.get("workspace") or [],
         "invoker": s.get("invoker"), "detached": bool(s.get("detached")), "pane": s.get("pane"),
+        "via": s.get("via"),
         "parent": s.get("parent"), "started": s.get("time"), "ended": (ex or stop or {}).get("time"),
         "exit": (125 if stop else (ex or {}).get("status")), "lost": lost,
         "stop": {k: stop.get(k) for k in ("reason", "kits", "fix")} if stop else None,

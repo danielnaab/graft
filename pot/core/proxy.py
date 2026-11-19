@@ -30,7 +30,7 @@ import urllib.parse
 
 ARGS = sys.argv[2:]
 OPT = {}
-while ARGS and ARGS[0] in ("--denials", "--context", "--tmux", "--pane", "--fix"):
+while ARGS and ARGS[0] in ("--denials", "--context", "--tmux", "--pane", "--fix", "--upstream", "--nested"):
     OPT[ARGS[0][2:]] = ARGS[1]
     ARGS = ARGS[2:]
 DENIALS, CONTEXT = OPT.get("denials"), OPT.get("context")
@@ -74,7 +74,8 @@ def denied(what):
             flag = host if what.endswith(":443") else what
             # compose.denial_text's form: what was refused, then the one-run and permanent fixes
             alts = [a for a in OPT.get("fix", "the repo kit").split("\n") if a]
-            f.write(f"pot ({CONTEXT}): the run tried {what} (not in this run).\n  one run:   pot {'' if CONTEXT == 'work' else CONTEXT + ' '}--net {flag} …\n"
+            once = "" if OPT.get("nested") else f"  one run:   pot {'' if CONTEXT == 'work' else CONTEXT + ' '}--net {flag} …\n"
+            f.write(f"pot ({CONTEXT}): the run tried {what} (not in this run).\n{once}"
                     f"  permanent: {alts[0]}\n" + "".join(f"             {a}\n" for a in alts[1:]))
     if OPT.get("tmux") and OPT.get("pane"):
         import subprocess
@@ -148,8 +149,17 @@ async def handle(r, w):
         await refuse(w, "403 Forbidden (pot: not in this run)")
         return
     try:
-        ur, uw = await asyncio.open_connection(host.strip("[]"), port)
-    except OSError:
+        if OPT.get("upstream"):
+            # a nested child's proxy (v2.18.0): out through the parent's proxy, which allows what the parent reaches
+            ur, uw = await asyncio.open_unix_connection(OPT["upstream"])
+            uw.write(f"CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n".encode())
+            await uw.drain()
+            head = await ur.readuntil(b"\r\n\r\n")
+            if not head.split(b" ", 2)[1:2] == [b"200"]:
+                raise OSError("upstream refused")
+        else:
+            ur, uw = await asyncio.open_connection(host.strip("[]"), port)
+    except (OSError, asyncio.IncompleteReadError, asyncio.LimitOverrunError):
         await refuse(w, "502 Bad Gateway")
         return
     if forward is None:

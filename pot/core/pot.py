@@ -32,7 +32,7 @@ import runs as R  # noqa: E402
 
 INSIDE_POLICY = "/run/pot/policy.json"
 FLAG_ARGS = {"--package", "--read", "--write", "--net", "--env", "--access", "--mode", "--repo", "--from",
-             "--instance", "--account", "--backend", "--resume"}
+             "--instance", "--account", "--backend", "--resume", "--manifest"}
 FLAG_BOOL = {"--clone", "--detach"}
 USAGE = """usage: pot [VERB | CONTEXT] [FLAGS] [--] [CMD [ARGS...]]
 
@@ -52,6 +52,8 @@ USAGE = """usage: pot [VERB | CONTEXT] [FLAGS] [--] [CMD [ARGS...]]
                                 what needs a person; one run's commits, fetched into refs/remotes/pot-RUN/*
   pot host --resume RUN CMD     a new host conversation, with run RUN's transcript as data
   pot doctor                    the backend, bindings (by path), instances, this workspace, pot's state
+  pot run --command NAME --manifest PATH -- ARGS
+                                the wrappers' entry: a kit command, under its own policy (a wrapper runs it)
   pot init [DIR]                write a minimal root (graft.lib.mkRoot), for someone without one
 
 flags (before CMD; one run only):
@@ -329,7 +331,9 @@ def source_tree(host, top, rel):
             tmp.flush()
         except OSError:
             pass
-        r = subprocess.run([host.git, "-C", top, "write-tree"] + ([f"--prefix={rel}/"] if rel else []),
+        # no fsmonitor or hook (a clone's index is read here when the run is a dispatch: ruling 7, M2's filter check)
+        r = subprocess.run([host.git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*",
+                            "-C", top, "write-tree"] + ([f"--prefix={rel}/"] if rel else []),
                            capture_output=True, text=True, env={**os.environ, **object_env(host, top), "GIT_INDEX_FILE": tmp.name})
     return r.stdout.strip() or None
 
@@ -619,9 +623,30 @@ def resolve_hidden(host, root):
 
 
 def closure_of(paths, host):
-    """Store paths' closures, for closure-store binds (a few cached: the system's, by its target)."""
+    """Store paths' closures, for closure-store binds. Cached in pot's state by the paths (a store path's closure never
+    changes): a wrapped start would otherwise ask nix-store each time (v2.18.0)."""
     if not paths:
         return []
+    cf = os.path.join(host.state, "cache", "closures", hashlib.sha256("\n".join(sorted(paths)).encode()).hexdigest()[:24])
+    try:
+        with open(cf) as f:
+            got = f.read().split()
+        if got and all(os.path.exists(p) for p in paths):
+            return got
+    except OSError:
+        pass
+    out = closure_query(paths, host)
+    try:
+        os.makedirs(os.path.dirname(cf), exist_ok=True)
+        with open(cf + ".tmp", "w") as f:
+            f.write("\n".join(out) + "\n")
+        os.replace(cf + ".tmp", cf)
+    except OSError:
+        pass
+    return out
+
+
+def closure_query(paths, host):
     r = subprocess.run([host.root.get("nixStore") or "nix-store", "--query", "--requisites", *paths],
                        capture_output=True, text=True)
     if r.returncode != 0:
@@ -761,6 +786,12 @@ def parse(argv, root):
                 j += 1
             flags[n[2:]] = v
             j += 1
+            continue
+        if verb == "run" and a == "--command":
+            if j + 1 >= len(rest):
+                raise Usage("--command needs a value")
+            flags["command"] = rest[j + 1]
+            j += 2
             continue
         if verb in ("runs", "review", "grant") and not a.startswith("-"):   # R5: their flags parse at any position
             cmd = cmd + [a]
@@ -922,7 +953,9 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000", clones=N
             paths = paths[1:]
         else:
             raise C.Refusal(f"pot ({ctx['name']}): {C.canon_path(cwd, host.home)} is not inside a git repository: pot inspect CMD, or pot host CMD")
+    # a wrapper's start (v2.18.0) is checked after composing, by the kit that runs (F2): below
     if ctx.get("access") == "write" and not ctx.get("view") and flags.get("access") != "read" \
+            and not flags.get("wrapped") \
             and ctx["mode"] != "clone" and flags.get("mode") != "clone":
         for p in paths:
             r = repo_of(host, p)
@@ -985,6 +1018,13 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000", clones=N
            "host": {"home": host.home, "user": host.user, "env": {n: n in os.environ for n in env_names},
                     "resolve": resolve, "hidden": resolve_hidden(host, root), "tz": host.tz()}}
     policy, report = C.compose(inp)
+    if flags.get("wrapped") and policy["access"] == "write" and policy["mode"] != "clone":
+        # F2: the access of the kit that runs, from this workspace's own bundle, never from the wrapper's manifest
+        for w in ws:
+            if C.root_repo_match(w["top"], w.get("originKey"), root.get("rootRepos"), host.home):
+                raise root_refusal(host, root, ctx, w["top"], cmd)
+    # §10 (v2.18.0): the commands this run may start, each composed here with its kit's own grant
+    policy["children"], report["childPolicies"] = C.children_table(inp, policy, report)
     root_writes(host, root, ctx, policy, cmd, flags)
     record_sources(host, ws, report)
     report["scope"] = scope or {}
@@ -1315,6 +1355,8 @@ def start_event(rid, ctx, policy_backend, argv, kits, report, ws, flags, clone_i
             "command": command,
             **proc_facts(), "pane": os.environ.get("TMUX_PANE") if os.environ.get("TMUX") else None,
             "detached": detached, "parent": None,
+            **({"via": "wrapper"} if (flags or {}).get("wrapped") else {}),
+            **({"hook": (flags or {})["hook"]} if (flags or {}).get("hook") else {}),
             "oneRun": [list(x) for x in (report or {}).get("oneRun") or []],
             "clone": {"base": clone_info["base"], "branch": clone_info["branch"], "path": clone_info["path"],
                       "nested": clone_info.get("nested") or []} if clone_info else None}
@@ -1372,10 +1414,20 @@ def scope_for(host, root, ctx, flags, detach):
     mem, tasks = str(lim.get("memoryMax", "50%")), str(lim.get("tasksMax", 2048))
     sr = shutil.which("systemd-run")
     env = {**os.environ, "XDG_RUNTIME_DIR": f"/run/user/{host.uid}"}
+    # the probe, once per boot and systemd-run (v2.18.0: a wrapped start pays for it once)
+    ok_f = os.path.join(host.state, "cache", "scope-" + hashlib.sha256(f"{R.boot_id()} {sr}".encode()).hexdigest()[:16])
+    if sr and os.path.exists(ok_f):
+        return {"argv": [sr, "--user", "--scope", "--quiet", "--collect", "-p", f"MemoryMax={mem}", "-p", f"TasksMax={tasks}", "--"],
+                "env": env, "limits": f"MemoryMax={mem} TasksMax={tasks}"}
     if sr:
         r = subprocess.run([sr, "--user", "--scope", "--quiet", "--collect", "true"], env=env,
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         if r.returncode == 0:
+            try:
+                os.makedirs(os.path.dirname(ok_f), exist_ok=True)
+                open(ok_f, "w").close()
+            except OSError:
+                pass
             return {"argv": [sr, "--user", "--scope", "--quiet", "--collect", "-p", f"MemoryMax={mem}", "-p", f"TasksMax={tasks}", "--"],
                     "env": env, "limits": f"MemoryMax={mem} TasksMax={tasks}"}
     return {"note": "no resource limits (no user systemd: pot doctor)"}
@@ -1440,6 +1492,7 @@ def prepare_clone(host, root, rid, rundir, ctxname, flags):
     except CL.CloneError as e:
         raise C.Refusal(f"pot ({ctxname}): {e}") from None
     over, total, cap = CL.prune(host.state, root.get("clones") or {}, log, R.process_alive)
+    prune_children(host)
     if over:
         names = ", ".join(f"pot review {i} --discard" for i, _ in over[:3])
         err(f"pot: the clones use {CL.human(total)}, over clones.maxSize ({(root.get('clones') or {}).get('maxSize', '20G')}); "
@@ -1450,8 +1503,10 @@ def prepare_clone(host, root, rid, rundir, ctxname, flags):
         if v:
             user[k] = v
     try:
+        hooks = CL.tracked_hooks(host.git, src["top"], base,
+                                 run_git(host, src["top"], "config", "--local", "core.hooksPath").stdout)
         info = CL.make_clone(host.git, src["top"], src["common"], src["origin"], os.path.join(rundir, "clone"),
-                             base, branch, rid, user)
+                             base, branch, rid, user, hooks=hooks)
     except CL.CloneError as e:
         raise C.Refusal(f"pot ({ctxname}): the clone failed: {e}") from None
     short = run_git(host, src["top"], "rev-parse", "--short", base).stdout.strip() or base[:7]
@@ -1567,11 +1622,19 @@ def run(host, root, context, flags, cmd):
             json.dump(why_facts(policy, report, root), f)
         with open(os.path.join(rundir, "resume.json"), "w") as f:
             json.dump(report.get("resume"), f)
+        if flags.get("hook"):
+            launch["hookEnv"] = hook_env(policy, launch["cwd"], os.environ)
+        write_table(host, rundir, policy, report, launch)
+        with open(os.path.join(rundir, "policy.json"), "w") as f:
+            json.dump(policy, f, indent=1)
+        with open(os.path.join(rundir, "launch.json"), "w") as f:
+            json.dump(launch, f)
         check_command(policy, launch, ctx, given=bool(cmd))
         r = subprocess.run([bprog, "prepare", rundir])
         if r.returncode != 0:
             return 1
-        say(startup_line(policy, report, ws, root))
+        if not flags.get("wrapped"):
+            say(startup_line(policy, report, ws, root))
         kits = [{"id": k["kit"], "grant": k["status"]} for k in report["kits"]]
         invoker = "person" if sys.stdin.isatty() else "script"     # before --detach redirects stdin (X2)
         if detach:
@@ -1606,6 +1669,7 @@ def run(host, root, context, flags, cmd):
         status = subprocess.run(runargv, env=scope.get("env")).returncode
         log(rundir, {"ev": "exit", "by": "host", "status": status, "time": now_iso()})
         ev = after_event(bprog, rundir)
+        finish_children(host, rundir, rid, bprog)
         shown = dict(ev)
         if run_git(host, launch["cwd"], "config", "--bool", "commit.gpgsign").stdout.strip() != "true" or cinfo:
             shown["unsigned"] = 0    # the host does not sign (a clone's: at --fetch)
@@ -1641,7 +1705,7 @@ def run(host, root, context, flags, cmd):
                 until = (datetime.date.today() + datetime.timedelta(days=keep)).isoformat()
                 say(f"pot: run {rid}" + (f" · exit {status}" if status else "")
                     + f" · no commits; the clone is kept until {until}: pot review {rid} --discard")
-        else:
+        elif not flags.get("wrapped"):
             say(f"pot: run {rid}" + (f" · exit {status}" if status else ""))
         for line in lines:
             err(line)
@@ -1672,6 +1736,546 @@ def run(host, root, context, flags, cmd):
                     CL.remove_run_dir(host.state, rundir)
                 except CL.CloneError:
                     pass
+
+
+# ---------------------------------------------------------------- wrapped kit commands (D4, v2.18.0)
+
+def read_manifest(path, name):
+    """A wrapper's manifest (pot-kits/1: <bundle>/commands/NAME.json) and its command in that bundle's kit.json.
+    It names a command and a kit's slot; the kit's identity always comes from the workspace."""
+    rp = os.path.realpath(path or "")
+    bad = C.Refusal(f"pot run: --manifest {path} is not a wrapper's manifest (<bundle>/commands/{name}.json)", 2)
+    if not (rp.startswith("/nix/store/") and os.path.basename(os.path.dirname(rp)) == "commands"
+            and os.path.basename(rp) == f"{name}.json" and os.path.isfile(rp)):
+        raise bad
+    try:
+        with open(rp) as f:
+            m = json.load(f)
+        with open(os.path.join(os.path.dirname(os.path.dirname(rp)), "kit.json")) as f:
+            kj = json.load(f)
+    except (OSError, ValueError):
+        raise bad from None
+    slot = m.get("kit") if isinstance(m, dict) else None
+    if m.get("version") != 1 or m.get("command") != name or not isinstance(slot, str) \
+            or not (slot == "self" or slot.startswith("scions.")):
+        raise bad
+    kit = kj.get("self") if slot == "self" else (kj.get("scions") or {}).get(slot[len("scions."):])
+    c = ((kit or {}).get("commands") or {}).get(name)
+    if not isinstance(c, dict):
+        raise bad
+    return m, c
+
+
+HOOK_INDEX = re.compile(r"index|index\.lock|next-index-[0-9]+\.lock")
+
+
+def hook_env(policy, cwd, env):
+    """The variables git gives a hook that a hook command needs (§4.4 of the M0 note): GIT_INDEX_FILE only when it
+    names this repository's index (git commit -a and git commit PATH give a temporary one), and GIT_PREFIX. Any
+    other value is dropped. Never GIT_EXEC_PATH or GIT_CONFIG_PARAMETERS."""
+    out = {}
+    v = env.get("GIT_INDEX_FILE")
+    if v and "\n" not in v:
+        p = os.path.realpath(os.path.join(cwd, v))
+        gits = [os.path.realpath(w["common"]) for w in policy["workspace"] if w.get("common")]
+        if HOOK_INDEX.fullmatch(os.path.basename(p)) and any(C.under(p, g) for g in gits):
+            out["GIT_INDEX_FILE"] = p
+    pre = env.get("GIT_PREFIX")
+    if pre is not None and "\n" not in pre and ".." not in pre.split("/") and not pre.startswith("/"):
+        out["GIT_PREFIX"] = pre
+    return out
+
+
+def write_table(host, rundir, policy, report, launch):
+    """The children table's prepared rows (§10): runs/<id>/table/<digest>/policy.json for each row that nests, its
+    state folders (bound read-write into the run at /run/pot/table/<digest>/state/<name>), and the closure a child
+    binds; runs/<id>/children/ for the children's own run folders. Each row's closure joins this run's: a parent
+    holds everything its children get."""
+    rows = policy.get("children") or {}
+    nest = [r for r in rows.values() if r.get("how") == "nest"]
+    for r in list(rows.values()) + [s for r in rows.values() for s in (r.get("children") or {}).values()]:
+        if r.get("policy"):
+            r["table"] = r["policy"][7:23]
+    if not nest:
+        return
+    used = {r["policy"] for r in nest} | {s["policy"] for r in nest for s in (r.get("children") or {}).values()
+                                          if s.get("how") == "nest"}
+    tdir = os.path.join(rundir, "table")
+    os.makedirs(tdir, exist_ok=True)
+    os.makedirs(os.path.join(rundir, "children"), mode=0o700, exist_ok=True)
+    binds, extra = [], []
+    closure = set(launch.get("closure") or [])
+    for d in sorted(used):
+        cp = json.loads(json.dumps(report["childPolicies"][d]))
+        short = d[7:23]
+        fd = os.path.join(tdir, short)
+        os.makedirs(os.path.join(fd, "state"), exist_ok=True)
+        for st in cp["mounts"]["state"]:
+            os.makedirs(st["dir"], exist_ok=True)
+            os.makedirs(os.path.join(fd, "state", st["name"]), exist_ok=True)
+            at = f"/run/pot/table/{short}/state/{st['name']}"
+            binds.append([st["dir"], at])
+            st["dir"] = at
+        for i in cp["items"]:
+            if i["kind"] in ("package", "file") and i["effective"]:
+                v = i.get("source") if i["kind"] == "file" else i["value"]
+                if isinstance(v, str) and v.startswith("/nix/store/") and not any(v.startswith(c) for c in closure):
+                    extra.append(store_root(v))
+        with open(os.path.join(fd, "policy.json"), "w") as f:
+            json.dump(cp, f, indent=1)
+    for r in nest:
+        for a in r.get("argv") or []:
+            if isinstance(a, str) and a.startswith("/nix/store/") and not any(a.startswith(c) for c in closure):
+                extra.append(store_root(a))
+    if extra:
+        closure |= set(closure_of(sorted(set(extra)), host))
+        launch["closure"] = sorted(closure)
+    with open(os.path.join(tdir, "closure"), "w") as f:
+        f.write("".join(p + "\n" for p in launch.get("closure") or []))
+    launch["tableBinds"] = binds
+
+
+def wrapped_run(host, root, flags, cmd):
+    """pot run --command NAME --manifest M -- ARGS on the host: a wrapper's start. The command runs as
+    `pot KIT:NAME ARGS` would in this workspace's default context, with the kit found by its slot in the bundle pot
+    builds here; quiet (no startup or exit line), logged with via: wrapper."""
+    name = flags.get("command")
+    if not name or not flags.get("manifest"):
+        raise Usage("pot run --command NAME --manifest PATH -- ARGS (the wrappers' entry)")
+    m, c = read_manifest(flags["manifest"], name)
+    if repo_of(host, os.path.realpath(os.getcwd())) is None:
+        raise C.Refusal(f"pot: {name} runs in its repository (cd there first)")
+    fl = {k: v for k, v in flags.items() if k not in ("command", "manifest")}
+    fl.update(commandSlot=m["kit"], wrapped=True)
+    if c.get("hook"):
+        fl["hook"] = c["hook"]
+    return run(host, root, None, fl, [name] + list(cmd))
+
+
+def inner_run(root, policy, flags, cmd):
+    """pot run inside a run: the wrapper's entry. Looks the command up in the run's children table (written by
+    the host) and execs it (an equal boundary), nests it (narrower) or refuses it; a command with no row (another
+    workspace's wrapper, or a run an older pot started) execs under this run's own policy."""
+    name = flags.get("command")
+    ctxn = policy.get("context") or "run"
+    if not name or not flags.get("manifest"):
+        raise Usage("pot run --command NAME --manifest PATH -- ARGS (the wrappers' entry)")
+    m, c = read_manifest(flags["manifest"], name)
+    rows = policy.get("children") or {}
+    row = next((r for _, r in sorted(rows.items()) if r.get("slot") == m["kit"] and r.get("command") == name
+                and r.get("context") == ctxn and r.get("mode") != "clone"), None)
+    args = list(cmd)
+    if row is None:
+        prog = c.get("program")
+        if not isinstance(prog, str):
+            raise C.Refusal(f"pot ({ctxn}): {name}: not in this run's children table, and its program is on the host: run it there")
+        argv = [prog] + [str(a) for a in c.get("args") or []] + args
+        os.execv(argv[0], argv)
+    if row.get("refused"):
+        if row.get("grant"):
+            raise C.Refusal(f"pot ({ctxn}): {name}: {row['refused']}", C.EXIT_GRANT)
+        raise C.Refusal(row.get("text") or f"pot ({ctxn}): {name}: refused ({row['refused']}): run it on the host")
+    if row["how"] == "exec":
+        env = dict(os.environ)
+        env.update(row.get("env") or {})
+        argv = list(row["argv"]) + args
+        os.execve(argv[0], argv, env)
+    return nest_child(root, policy, row, args)
+
+
+def nest_child(root, policy, row, args, flags=None):
+    """Start a child nested in this run (§10): its run folder in /run/pot/children/<id> (the host's
+    runs/<parent>/children/<id>), its policy the host's row, its log lines by: parent. A dispatch row makes its
+    clone there first (decision 2: kept after the parent ends); --detach runs it in the background, inside this run
+    (decision 1)."""
+    import shutil
+    flags = flags or {}
+    parent = policy.get("run")
+    top = "parent" not in (policy.get("mounts") or {})
+    with open(f"/run/pot/table/{row['table']}/policy.json") as f:
+        cp = json.load(f)
+    rid = secrets.token_hex(2)
+    cdir = os.path.join("/run/pot/children", rid)
+    os.mkdir(cdir, 0o700)
+    cp["run"] = rid
+    cp["mounts"]["parent"] = parent
+    # one more level: a top-level run's child gets its own table; a child's child gets none
+    cp["children"] = {k: dict(v) for k, v in (row.get("children") or {}).items()} if top else {}
+    pw = pwd.getpwuid(os.getuid())
+    try:
+        group = grp.getgrgid(os.getgid()).gr_name
+    except KeyError:
+        group = pw.pw_name
+    cwd = os.path.realpath(os.getcwd())
+    tops = [w["path"] for w in cp["workspace"]]
+    if not any(C.under(cwd, t) for t in tops):
+        cwd = tops[0] if tops else "/"
+    g = {}
+    git = shutil.which("git")
+    for k in ("name", "email"):
+        if git:
+            v = subprocess.run([git, "config", f"user.{k}"], capture_output=True, text=True).stdout.strip()
+            if v:
+                g[k] = v
+    launch = {"argv": list(row["argv"]) + args, "cwd": cwd, "home": pw.pw_dir, "user": pw.pw_name, "uid": os.getuid(),
+              "gid": os.getgid(), "group": group, "closure": read_lines("/run/pot/table/closure"), "git": g,
+              "xdgRuntime": None, "potBin": os.path.dirname(os.path.realpath(shutil.which("pot") or "/run/pot/launcher")), "resolve": {}, "pane": None,
+              "hostTools": {}, "nested": True, "tableDir": "/run/pot/table"}
+    cinfo = None
+    if cp.get("mode") == "clone":
+        cinfo = inner_clone(policy, cdir, rid, flags, git)
+        w0 = cp["workspace"][0]
+        w0["clone"], w0["common"] = cinfo["path"], os.path.join(w0["path"], ".git")
+        launch["clone"] = {k: cinfo[k] for k in ("base", "branch", "path", "scions", "objects")}
+    if row.get("hook"):
+        launch["hookEnv"] = hook_env(cp, cwd, os.environ)
+    # a denial in the child names its own kit's requests.network (its file), never pot --net
+    launch["netFix"] = f"requests.network in {row.get('kitName') or row['kit']} ({row.get('file') or 'its kit'})"
+    with open(os.path.join(cdir, "policy.json"), "w") as f:
+        json.dump(cp, f, indent=1)
+    with open(os.path.join(cdir, "launch.json"), "w") as f:
+        json.dump(launch, f)
+    for n in ("explain.txt", "why.json"):
+        with open(os.path.join(cdir, n), "w") as f:
+            f.write("{}" if n.endswith(".json") else "")
+    bprog = root.get("backend")
+    if not bprog:
+        raise C.Refusal(f"pot ({policy.get('context')}): this run's pot has no backend to nest {row['command']}: run it on the host")
+    cid = f"{parent}/{rid}"
+    if subprocess.run([bprog, "prepare", cdir]).returncode != 0:
+        return 1
+    detach = bool(flags.get("detach"))
+    if detach:
+        rfd, wfd = os.pipe()
+        if os.fork():
+            os.close(wfd)
+            os.read(rfd, 1)
+            os.close(rfd)
+            print(cid, flush=True)
+            err(f"pot: run {cid} in the background · {cp['context']} · "
+                + " ".join(os.path.basename(w["path"]) for w in cp["workspace"]) + f" · pot runs {cid} · pot review {cid} --json")
+            return 0
+        os.close(rfd)
+        os.setsid()
+        out = os.open(os.path.join(cdir, "output.log"), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        nul = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(nul, 0)
+        os.dup2(out, 1)
+        os.dup2(out, 2)
+    log(cdir, {"ev": "start", "by": "parent", "run": cid, "parent": parent, "context": cp["context"],
+               "backend": cp["backend"]["name"], "argv": launch["argv"], "invoker": "run",
+               "via": "dispatch" if cinfo else "wrapper", "detached": detach, **proc_facts(),
+               "command": {"name": row["command"], "kit": row["kit"], "instance": None, "typed": [row["command"]] + args},
+               "mode": cp["mode"], "time": now_iso(), **({"hook": row["hook"]} if row.get("hook") else {}),
+               **({"clone": {"base": cinfo["base"], "branch": cinfo["branch"], "path": cinfo["path"],
+                             "nested": cinfo.get("nested") or []}} if cinfo else {})})
+    if detach:
+        os.write(wfd, b"1")
+        os.close(wfd)
+    status = 1
+    try:
+        status = subprocess.run([bprog, "run", cdir]).returncode
+    finally:
+        log(cdir, {"ev": "exit", "by": "parent", "status": status, "time": now_iso()})
+        subprocess.run([bprog, "cleanup", cdir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if cinfo and not detach:
+        err(f"pot: run {cid}" + (f" · exit {status}" if status else "")
+            + f" · its clone is kept: on the host, pot review {cid}, then pot review {cid} --fetch")
+    if detach:
+        os._exit(status & 0xff)
+    return status
+
+
+def inner_clone(policy, cdir, rid, flags, git):
+    """A nested dispatch's clone (decision 2), made by this run's own git from its workspace as it sees it, into its
+    child's folder; the host's look at it comes when the parent ends (H7)."""
+    if not git:
+        raise C.Refusal(f"pot ({policy.get('context')}): a nested dispatch needs git in this run")
+    top = policy["workspace"][0]["path"]
+    common = CL.git(git, top, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip() or os.path.join(top, ".git")
+    origin = CL.git(git, top, "remote", "get-url", "origin").stdout.strip() or None
+    try:
+        base, branch = CL.base_of(git, top, flags.get("from"))
+        user = {}
+        for k in ("name", "email"):
+            v = CL.git(git, top, "config", f"user.{k}").stdout.strip()
+            if v:
+                user[k] = v
+        hooks = CL.tracked_hooks(git, top, base, CL.git(git, top, "config", "--local", "core.hooksPath").stdout)
+        info = CL.make_clone(git, top, common, origin, os.path.join(cdir, "clone"), base, branch, rid, user, hooks=hooks)
+    except CL.CloneError as e:
+        raise C.Refusal(f"pot ({policy.get('context')}): the clone failed: {e}") from None
+    return info
+
+
+def dispatch_row(rows, name):
+    """The dispatch row for NAME, or CMD@INSTANCE (an agent kit's instance, as on the host: its kit is the root's
+    root:KIT@INSTANCE); None when this run's table has none."""
+    base, _, inst = name.partition("@")
+    for _, r in sorted(rows.items()):
+        if r.get("mode") == "clone" and r.get("command") == base and (not inst or r.get("kit", "").endswith("@" + inst)):
+            return r
+    return None
+
+
+def inner_dispatch(root, policy, flags, cmd):
+    """pot dispatch CMD inside a run (decision 2): the command's dispatch row, nested, in a clone kept in host state."""
+    ctxn = policy.get("context") or "run"
+    if flags.get("repo"):
+        raise C.Refusal(f"pot ({ctxn}): --repo comes to clone mode in a later release; a dispatch clones this repository only")
+    if not cmd:
+        raise Usage("pot dispatch [--from REF] [--detach] CMD")
+    row = dispatch_row(policy.get("children") or {}, cmd[0])
+    if row is None:
+        raise C.Refusal(f"pot ({ctxn}): {cmd[0]} is not a command this run may dispatch (pot explain lists its children): "
+                        "run it on the host")
+    if row.get("refused"):
+        if row.get("grant"):
+            raise C.Refusal(f"pot ({ctxn}): dispatch {cmd[0]}: {row['refused']}", C.EXIT_GRANT)
+        raise C.Refusal(row.get("text") or f"pot ({ctxn}): dispatch {cmd[0]}: refused ({row['refused']}): run it on the host")
+    return nest_child(root, policy, row, list(cmd[1:]), flags)
+
+
+def inner_children():
+    """This run's children, from their logs (written by this run's own pot: claims as good as the run)."""
+    out = []
+    try:
+        names = sorted(os.listdir("/run/pot/children"))
+    except OSError:
+        return out
+    for n in names:
+        if not re.fullmatch(r"[0-9a-f]{4}", n):
+            continue
+        ev = read_own_log(os.path.join("/run/pot/children", n, "log.jsonl"))
+        s = R.first(ev, "start") or {}
+        if not s:
+            continue
+        rec = R.record(s.get("run") or n, ev, R.process_alive)
+        out.append((rec, ev, os.path.join("/run/pot/children", n)))
+    return out
+
+
+# ---------------------------------------------------------------- nested runs on the host (§10, decisions 1 and 2)
+
+CHILD_ID = re.compile(r"[0-9a-f]{4}")
+CHILD_CLAIMS = ("start", "exit", "net")     # a child log's kinds the host reads; the rest are the host's own (H7)
+CHILD_LOG_MAX = 4 << 20
+
+
+def read_claims(path):
+    """A parent-written log (runs/<parent>/children/<child>/log.jsonl): opened without following a link, as a
+    regular file, size-capped; every line is a claim (by: parent, whatever it says), and only start, exit and net
+    lines are kept: the after, fetch and discard events of a child are the host's (H7)."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return []
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return []
+        data = os.read(fd, CHILD_LOG_MAX)
+    finally:
+        os.close(fd)
+    out = []
+    for l in data.decode("utf-8", "surrogateescape").split("\n"):
+        try:
+            e = json.loads(l)
+        except ValueError:
+            continue
+        if isinstance(e, dict) and e.get("ev") in CHILD_CLAIMS:
+            e["by"] = "parent"
+            out.append(e)
+    return out
+
+
+def read_own_log(path):
+    """(fix round 3, low b) a child's log as its parent reads it inside the run: no link followed, regular files only,
+    size-capped; the run's own claims, kept whole."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return []
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return []
+        data = os.read(fd, CHILD_LOG_MAX)
+    finally:
+        os.close(fd)
+    out = []
+    for l in data.decode("utf-8", "surrogateescape").split("\n"):
+        try:
+            e = json.loads(l)
+        except ValueError:
+            continue
+        if isinstance(e, dict):
+            out.append(e)
+    return out
+
+
+def real_dir(p):
+    try:
+        return stat.S_ISDIR(os.lstat(p).st_mode)
+    except OSError:
+        return False
+
+
+def child_dirs(prd):
+    """(child id, its parent-written folder, its host folder) for each child of the run in PRD."""
+    cd = os.path.join(prd, "children")
+    if not real_dir(cd):
+        return []
+    out = []
+    for n in sorted(os.listdir(cd)):
+        if CHILD_ID.fullmatch(n) and real_dir(os.path.join(cd, n)):
+            out.append((n, os.path.join(cd, n), os.path.join(prd, "child-staging", n)))
+    return out
+
+
+def child_log(hd, ev):
+    os.makedirs(hd, mode=0o700, exist_ok=True)
+    log(hd, ev)
+
+
+def child_events(cdir, hd):
+    return read_claims(os.path.join(cdir, "log.jsonl")) + R.read_log(os.path.join(hd, "log.jsonl"))
+
+
+def children_after(host, bprog, prd, pid):
+    """When a parent has ended (its after, or its recovery): each child still without an exit was killed with it
+    (decision 1: the host logs that exit); each nested dispatch clone gets the host's own look, the same sandboxed
+    upload-pack and fsck into host-owned staging (runs/<parent>/child-staging/<child>/), never a parent-written
+    one (H7)."""
+    try:
+        with open(os.path.join(prd, "policy.json")) as f:
+            ppol = json.load(f)
+        with open(os.path.join(prd, "launch.json")) as f:
+            plaunch = json.load(f)
+    except (OSError, ValueError):
+        return
+    for cid, cd, hd in child_dirs(prd):
+        claims = read_claims(os.path.join(cd, "log.jsonl"))
+        s = R.first(claims, "start")
+        if not s:
+            continue
+        hev = R.read_log(os.path.join(hd, "log.jsonl"))
+        if not R.last(claims, "exit") and not R.last(hev, "exit"):
+            child_log(hd, {"ev": "exit", "by": "host", "run": f"{pid}/{cid}", "status": None, "killed": "parent", "time": now_iso()})
+        if s.get("mode") != "clone" or R.last(hev, "after"):
+            continue
+        clone = os.path.join(cd, "clone")
+        base = str((s.get("clone") or {}).get("base") or "")
+        ev = {"ev": "after", "by": "host", "run": f"{pid}/{cid}", "commits": [], "unsigned": 0, "touches_host_run": [],
+              "repo_kit_change": [], "root_repo_change": False, "new_git_metadata": [], "denials": []}
+        if not real_dir(clone) or not real_dir(os.path.join(clone, ".git")) or not re.fullmatch(r"[0-9a-f]{40}", base):
+            ev["fetch_failed"] = "the parent left no clone pot can read (or no base commit)"
+            child_log(hd, ev)
+            continue
+        w0 = (ppol.get("workspace") or [{}])[0]
+        top = w0.get("path")
+        objects = ((plaunch.get("clone") or {}).get("objects")
+                   or os.path.join(w0.get("common") or os.path.join(top, ".git"), "objects"))
+        os.makedirs(hd, mode=0o700, exist_ok=True)
+        with open(os.path.join(hd, "policy.json"), "w") as f:
+            json.dump({"workspace": [{"path": top, "protected": w0.get("protected") or [], "common": os.path.join(top, ".git")}],
+                       "context": "dispatch", "items": [], "mounts": {"state": [], "run": "/run/pot"}}, f)
+        with open(os.path.join(hd, "launch.json"), "w") as f:
+            json.dump({"clone": {"base": base, "branch": (s.get("clone") or {}).get("branch"), "path": clone, "scions": [],
+                                 "objects": objects},
+                       "repoKitPaths": plaunch.get("repoKitPaths") or {}, "rootRepo": plaunch.get("rootRepo"),
+                       "grantsRel": plaunch.get("grantsRel"), "hostSigns": plaunch.get("hostSigns")}, f)
+        with open(os.path.join(hd, "before.json"), "w") as f:
+            json.dump({"pins": [], "hostrun": {}, "refs": {},
+                       "clones": [{"top": top, "clone": clone, "gits": [os.path.join(clone, ".git")]}]}, f)
+        a = subprocess.run([bprog, "after", hd], capture_output=True, text=True)
+        try:
+            got = json.loads(a.stdout)
+            ev.update({k: v for k, v in got.items() if k not in ("ev", "by")})
+            # the clone's own submodules (registered at the base) are not new git metadata
+            subs = {m["path"] for m in CL.submodules_at(host.git, top, base)} if os.path.isdir(top) else set()
+            ev["new_git_metadata"] = [p for p in ev.get("new_git_metadata") or [] if p.rsplit("/.git", 1)[0] not in subs
+                                      and p.rsplit("/", 1)[0] not in subs]
+        except ValueError:
+            ev["fetch_failed"] = visible(f"the host's look failed ({(a.stderr.strip().splitlines() or ['?'])[-1]})")[:300]
+        child_log(hd, ev)
+        subprocess.run([bprog, "cleanup", hd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def children_looked(prd):
+    return os.path.exists(os.path.join(prd, "child-staging", ".looked"))
+
+
+def finish_children(host, prd, pid, prog=None):
+    """The host's step for an ended parent's children, once (child-staging/.looked)."""
+    if not child_dirs(prd) or children_looked(prd):
+        return
+    if prog is None:
+        try:
+            prog = backend_cmd(host, None)[1]
+        except C.Refusal:
+            return
+    children_after(host, prog, prd, pid)
+    os.makedirs(os.path.join(prd, "child-staging"), mode=0o700, exist_ok=True)
+    open(os.path.join(prd, "child-staging", ".looked"), "w").close()
+
+
+def child_records(host, prec, prd):
+    """The records of a run's children (PARENT/CHILD): each child's claims (its parent-written log, by: parent) and
+    the host's own events about it (child-staging/<child>/log.jsonl); its workspace is the parent's, as the host
+    recorded it; it runs while its parent runs and it has no exit."""
+    pid = prec["id"]
+    if prec["state"] != "running":
+        finish_children(host, prd, pid)
+    out = []
+    for cid, cd, hd in child_dirs(prd):
+        ev = child_events(cd, hd)
+        if not R.first(ev, "start"):
+            continue
+        rec = R.record(f"{pid}/{cid}", ev, lambda s: prec["state"] == "running")
+        rec["parent"] = pid
+        rec["workspace"] = prec["workspace"]
+        if rec["state"] != "running":
+            rec["lost"] = False
+        k = R.last(ev, "exit") or {}
+        if k.get("killed"):
+            rec["killed"] = k["killed"]
+        if rec["clone"] and not rec["clone"]["discarded"] and rec["state"] != "review":
+            keep = int((host.root.get("clones") or {}).get("keepDays", 14))
+            end = R.when(rec["ended"] or rec["started"])
+            if end:
+                rec["clone"]["keptUntil"] = (end + datetime.timedelta(days=keep)).date().isoformat()
+        out.append((rec, ev, hd))
+    return out
+
+
+def prune_children(host):
+    """keepDays for nested dispatch clones (H5): each child is a run of its own; only a child that was fetched,
+    discarded or has no commits is removed, never one in review, and never with its parent."""
+    keep = int((host.root.get("clones") or {}).get("keepDays", 14))
+    now = datetime.datetime.now()
+    for rid, rd in R.run_dirs(host.state):
+        if not child_dirs(rd):
+            continue
+        prec = R.record(rid, R.read_log(os.path.join(rd, "log.jsonl")), R.process_alive)
+        if prec["state"] == "running":
+            continue          # S1: never while the parent runs
+        for rec, ev, hd in child_records(host, prec, rd):
+            if not children_looked(rd):
+                break
+            c = rec.get("clone")
+            # (fix round 3, low a) a child whose clone the host could not read (fetch_failed, no clone) is removed after
+            # keepDays like any other: there are no commits of it to keep
+            gone = c and c.get("fetchFailed") and not real_dir(os.path.join(rd, "children", rec["id"].split("/")[1], "clone"))
+            if not c or c.get("discarded") or rec["state"] == "running" or (rec["state"] == "review" and not gone):
+                continue
+            end = R.when(rec["ended"] or rec["started"]) or now
+            if now - end >= datetime.timedelta(days=keep):
+                CL.remove_child_clone(host.state, rec["id"])
+                child_log(hd, {"ev": "discard", "by": "host", "why": "keepDays", "time": now.isoformat(timespec="seconds")})
+
+
+def ref_name(rid):
+    """A run's fetched refs' folder: pot-9b0e, and pot-9b0e-c210 for a child (H6: never under the parent's)."""
+    return "pot-" + rid.replace("/", "-")
 
 
 def net_events(ev):
@@ -2715,16 +3319,29 @@ def all_records(host):
         if not os.path.exists(os.path.join(rd, "log.jsonl")):
             continue
         rec, ev = load_record(host, rid, rd)
+        kids = child_records(host, rec, rd)
+        rec["children"] = [k[0]["id"] for k in kids]
         out.append((rec, ev, rd))
+        out += kids
     out.sort(key=lambda x: x[0]["started"] or "", reverse=True)
     return out
 
 
 def one_record(host, rid, verb="runs"):
+    if re.fullmatch(r"[0-9a-f]{4}/[0-9a-f]{4}", rid or ""):
+        pid, cid = rid.split("/")
+        prd = os.path.join(host.state, "runs", pid)
+        if os.path.exists(os.path.join(prd, "log.jsonl")):
+            prec, _ = load_record(host, pid, prd)
+            k = next((k for k in child_records(host, prec, prd) if k[0]["id"] == rid), None)
+            if k:
+                return k
+        raise C.Refusal(f"pot {verb}: no run {rid} in pot's state (pot runs lists them)")
     rd = os.path.join(host.state, "runs", rid)
     if not re.fullmatch(r"[0-9a-f]{4}", rid or "") or not os.path.exists(os.path.join(rd, "log.jsonl")):
         raise C.Refusal(f"pot {verb}: no run {rid} in pot's state (pot runs lists them)")
     rec, ev = load_record(host, rid, rd)
+    rec["children"] = [k[0]["id"] for k in child_records(host, rec, rd)]
     return rec, ev, rd
 
 
@@ -2785,7 +3402,8 @@ def record_text(rec, ev, rd=None, review=False):
     elif rec["lost"]:
         lines.append("ended      unknown: " + R.LOST)
     elif rec["state"] != "running":
-        lines.append(f"ended      {(rec['ended'] or '-').replace('T', ' ')[:16]} · exit {rec['exit']}"
+        lines.append(f"ended      {(rec['ended'] or '-').replace('T', ' ')[:16]} · "
+                     + ("killed with its parent" if rec.get("killed") == "parent" else f"exit {rec['exit']}")
                      + (f" · {duration(rec['started'], rec['ended'])}" if rec["ended"] else ""))
     c = rec.get("clone")
     if c:
@@ -2891,6 +3509,9 @@ def runs_cmd(host, root, flags, args):
 
 
 def runs_list(recs, flags):
+    if not flags.get("all"):
+        # v2.18.0: a wrapped kit command that exited 0 (just check, a hook) is listed with --all only
+        recs = [r for r in recs if not (r[0].get("via") == "wrapper" and r[0]["state"] == "exited" and r[0]["exit"] == 0)]
     keep = [r for r in recs if r[0]["state"] in ("running", "stopped", "review")]
     others = [r for r in recs if r not in keep]
     sel = recs if flags.get("all") else keep + others[:20]
@@ -2992,6 +3613,9 @@ def review_cmd(host, root, flags, args):
 
 def fetch_back(host, rec, ev, rd):
     rid = rec["id"]
+    if "/" in rid:
+        child_settled(host, rid)
+        os.makedirs(rd, mode=0o700, exist_ok=True)
     c = rec.get("clone")
     if not c:
         raise C.Refusal(f"pot: run {rid} worked in place: there is nothing to fetch")
@@ -3008,14 +3632,15 @@ def fetch_back(host, rec, ev, rd):
         raise C.Refusal(f"pot: run {rid}'s repository {src} is gone")
     # G3: only the refs the run moved (a scion-only run moved none at the top: no top-level fetch)
     moved = list((R.last(ev, "after") or {}).get("refs") or {})
-    specs = [f"+refs/pot/head:refs/remotes/pot-{rid}/detached" if b == "detached" else f"+refs/heads/{b}:refs/remotes/pot-{rid}/{b}"
+    rn = ref_name(rid)
+    specs = [f"+refs/pot/head:refs/remotes/{rn}/detached" if b == "detached" else f"+refs/heads/{b}:refs/remotes/{rn}/{b}"
              for b in moved]
     if specs:
         r = run_git(host, src, "-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
                     sd, *specs)
         if r.returncode != 0:
             raise C.Refusal(f"pot: fetching run {rid} into {C.canon_path(src, host.home)} failed: {r.stderr.strip()}")
-    refs = sorted(f"refs/remotes/pot-{rid}/{b}" for b in (R.last(ev, "after") or {}).get("refs", {}))
+    refs = sorted(f"refs/remotes/{rn}/{b}" for b in (R.last(ev, "after") or {}).get("refs", {}))
     # the scions' commits, into each scion's own repository
     st = R.first(ev, "start") or {}
     common = run_git(host, src, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
@@ -3025,8 +3650,8 @@ def fetch_back(host, rec, ev, rd):
         m = next((m for m in mods if m["path"] == path), None)
         if ssd and m and os.path.isdir(os.path.join(common, "modules", m["name"])):
             run_git(host, os.path.join(common, "modules", m["name"]), "-c", "transfer.fsckObjects=true", "fetch", "-q",
-                    "--no-tags", ssd, f"+refs/heads/*:refs/remotes/pot-{rid}/*", f"+refs/pot/head:refs/remotes/pot-{rid}/detached")
-            refs.append(f"{path}: refs/remotes/pot-{rid}/*")
+                    "--no-tags", ssd, f"+refs/heads/*:refs/remotes/{rn}/*", f"+refs/pot/head:refs/remotes/{rn}/detached")
+            refs.append(f"{path}: refs/remotes/{rn}/*")
     log(rd, {"ev": "fetch", "by": "host", "refs": refs, "time": now_iso()})
     base = c["base"]
     short = run_git(host, src, "rev-parse", "--short", base).stdout.strip() or base[:7]
@@ -3034,27 +3659,41 @@ def fetch_back(host, rec, ev, rd):
     # the base's branch first, then the others by name (as the exit line counts them, R7)
     order = sorted((R.last(ev, "after") or {}).get("refs", {}), key=lambda r: (r != c.get("branch"), r))
     for b in order:
-        n = run_git(host, src, "rev-list", "--count", f"{base}..refs/remotes/pot-{rid}/{b}").stdout.strip()
-        shown.append(f"pot-{rid}/{b} ({n} commit{'s' if n != '1' else ''} on {short})")
+        n = run_git(host, src, "rev-list", "--count", f"{base}..refs/remotes/{rn}/{b}").stdout.strip()
+        shown.append(f"{rn}/{b} ({n} commit{'s' if n != '1' else ''} on {short})")
     print(visible(f"pot: fetched run {rid} into {C.canon_path(src, host.home)}: " + (", ".join(shown) or "its scions' commits")))
     signs = c.get("unsigned") and run_git(host, src, "config", "--bool", "commit.gpgsign").stdout.strip() == "true"
     if shown:
-        first_ref = f"pot-{rid}/" + order[0]
+        first_ref = f"{rn}/" + order[0]
         print(visible(f"  review:  git log --stat {short}..{first_ref}"))
     if signs:
         # D3: sign first, then take the signed branch
         b_ = order[0] if order else (c.get("branch") or "main")
-        print(visible(f"  sign:    git switch -c pot-{rid} pot-{rid}/{b_} && git rebase --exec 'git commit --amend --no-edit -S' {short}"
+        print(visible(f"  sign:    git switch -c {rn} {rn}/{b_} && git rebase --exec 'git commit --amend --no-edit -S' {short}"
                       f"   ({c['unsigned']} unsigned)"))
     if shown:
-        print(visible(f"  take it: git merge {f'pot-{rid}' if signs else first_ref}"))
+        print(visible(f"  take it: git merge {rn if signs else first_ref}"))
     for path in ((R.last(ev, "after") or {}).get("scions") or {}):
-        print(visible(f"  {path}: its commits are in that scion's refs/remotes/pot-{rid}/* (a fix there goes to its provider)"))
+        print(visible(f"  {path}: its commits are in that scion's refs/remotes/{rn}/* (a fix there goes to its provider)"))
     return 0
+
+
+def child_settled(host, rid):
+    """S1 (fix round 3): a child's clone is the host's to remove or fetch only once its parent has ended and the
+    host's own look is done (child-staging/.looked, host-written); until then the parent may still write it."""
+    pid = rid.split("/")[0]
+    prd = os.path.join(host.state, "runs", pid)
+    prec = R.record(pid, R.read_log(os.path.join(prd, "log.jsonl")), R.process_alive)
+    if prec["state"] == "running" or not children_looked(prd):
+        raise C.Refusal(f"pot: run {rid}'s parent {pid} is still running (or the host's look at its children is not done): "
+                        f"its clone stays the parent's until then: pot runs {pid}")
 
 
 def discard(host, rec, ev, rd):
     rid = rec["id"]
+    if "/" in rid:
+        child_settled(host, rid)
+        os.makedirs(rd, mode=0o700, exist_ok=True)
     if rec["state"] == "running":
         raise C.Refusal(f"pot: run {rid} is running")
     c = rec.get("clone")
@@ -3064,7 +3703,11 @@ def discard(host, rec, ev, rd):
         print(f"pot: run {rid}'s clone was discarded already ({c['discarded'][:10]})")
         return 0
     size = CL.size_of(rd, None)
-    CL.remove_clone(host.state, rd)
+    if "/" in rid:
+        size += CL.size_of(os.path.join(os.path.dirname(os.path.dirname(rd)), "children", rid.split("/")[1]), None)
+        CL.remove_child_clone(host.state, rid)
+    else:
+        CL.remove_clone(host.state, rd)
     log(rd, {"ev": "discard", "by": "host", "why": "person", "time": now_iso()})
     print(f"pot: discarded run {rid}'s clone ({CL.human(size)}); its log stays: pot runs {rid}")
     for r_ in c.get("fetched") or []:
@@ -3231,7 +3874,7 @@ def doctor(host, root, rootjson):
         how = "home-manager switch" if root.get("name") == "home-manager" else f"point {sp(lp)} at this root's bin/pot"
         row("launcher", f"{sp(lp)} -> " + ("this pot" if mine else f"{tgt}, not this pot ({how})"), not mine)
     except OSError:
-        row("launcher", f"{sp(lp)} is missing: kit wrappers (v2.18.0) fall back to the default root's pot")
+        row("launcher", f"{sp(lp)} is missing: a kit command's wrapper here runs its program without pot, and says so")
     for l in lines:
         print(visible(l))
     return 1 if any(l.lstrip().startswith("! ") for l in lines) else 0
@@ -3373,6 +4016,8 @@ def inner(root, verb, flags, cmd, context=None):
         policy = json.load(f)
     ctxn = policy.get("context", ctxn)
     rd = os.path.dirname(inside_policy())
+    if verb == "run":
+        return inner_run(root, policy, flags, cmd)
     if verb == "why":
         cmd = why_args(flags, cmd)
         facts = {}
@@ -3396,21 +4041,42 @@ def inner(root, verb, flags, cmd, context=None):
     if verb == "grant":
         raise C.Refusal("pot grant is for people, on the host: a run never writes its root's grants file")
     if verb == "runs":
-        # inside a run, pot runs shows the run itself (the host's logs stay hidden)
+        # inside a run, pot runs shows the run itself and its children (the host's logs stay hidden)
+        kids = inner_children()
+        if cmd and cmd[0] != policy.get("run"):
+            k = next((r for r in kids if cmd[0] in (r[0]["id"], r[0]["id"].split("/")[-1])), None)
+            if k is None:
+                raise C.Refusal(f"pot runs: inside a run, pot runs shows this run ({policy.get('run')}) and its children only")
+            print(json.dumps(k[0]) if flags.get("json") else visible("\n".join(record_text(k[0], k[1]))))
+            return 0
         w = [{"id": x["id"], "path": x["path"]} for x in policy.get("workspace") or []]
         rec = {"version": R.RECORD_VERSION, "id": policy.get("run"), "state": "running", "context": ctxn,
                "mode": policy.get("mode"), "command": None, "argv": [], "workspace": w, "invoker": None, "detached": None,
                "pane": None, "parent": None, "started": None, "ended": None, "exit": None, "lost": False, "stop": None,
-               "clone": None, "attention": [], "children": []}
-        if cmd and cmd[0] != rec["id"]:
-            raise C.Refusal(f"pot runs: inside a run, pot runs shows this run ({rec['id']}) only")
+               "clone": None, "attention": [], "children": [k[0]["id"] for k in kids]}
         if flags.get("json"):
-            print(json.dumps(rec if cmd else {"version": R.RECORD_VERSION, "runs": [rec]}))
+            print(json.dumps(rec if cmd else {"version": R.RECORD_VERSION, "runs": [rec] + [k[0] for k in kids]}))
         else:
             print(f"run        {rec['id']} · running · {ctxn} · " + " ".join(os.path.basename(x["path"]) for x in w))
+            for k in kids:
+                print(visible(f"child      {k[0]['id']} · {k[0]['state']} · {k[0]['context']} · {cmd_text(k[0])}"))
         return 0
     if verb == "review":
-        raise C.Refusal(f"pot ({ctxn}): pot review is the host's: a run's output is reviewed outside it", 2)
+        kids = inner_children()
+        k = next((r for r in kids if cmd and cmd[0] in (r[0]["id"], r[0]["id"].split("/")[-1])), None)
+        if k is None or flags.get("fetch") or flags.get("discard") or not flags.get("json"):
+            what = f"pot review {k[0]['id']} {'--fetch' if flags.get('fetch') else '--discard'}" if k and (flags.get("fetch") or flags.get("discard")) else "pot review"
+            raise C.Refusal(f"pot ({ctxn}): {what} is the host's: a run's output is reviewed outside it"
+                            + ("; inside, pot review CHILD --json shows a child's commits" if kids else ""), 2)
+        rec = dict(k[0])
+        if rec.get("state") != "running" and os.path.isdir(os.path.join(k[2], "clone")) and root.get("backend"):
+            r = subprocess.run([root["backend"], "look", k[2]], capture_output=True, text=True)
+            try:
+                rec["look"] = json.loads(r.stdout)
+            except ValueError:
+                rec["look"] = None
+        print(json.dumps(rec))
+        return 0
     if verb == "doctor":
         raise C.Refusal("pot doctor runs on the host; inside a run, pot explain and pot why", 2)
     if sys.platform == "darwin":
@@ -3419,7 +4085,7 @@ def inner(root, verb, flags, cmd, context=None):
         raise C.Refusal(f"pot ({ctxn}): Seatbelt cannot nest: a run on macOS starts no runs inside it (pot dispatch, "
                         "pot CONTEXT CMD); run it on the host")
     if context == "dispatch" or flags.get("mode") == "clone" or flags.get("detach") or flags.get("from"):
-        raise C.Refusal(f"pot ({ctxn}): dispatch inside a run comes in v2.18.0 (nested dispatch): run it on the host")
+        return inner_dispatch(root, policy, flags, cmd)
     raise C.Refusal(f"pot ({ctxn}): pot inside a run starts nested runs in a later release: run it on the host")
 
 
@@ -3446,8 +4112,10 @@ def main(argv):
         if root.get("inner") or inside_run():
             return inner(root, verb, flags, cmd, context)
         host = Host(root)
-        if verb in ("run", "serve"):
-            raise C.Refusal(f"pot {verb} is reserved ({'the wrappers’ entry' if verb == 'run' else 'the supervisor'})", 2)
+        if verb == "serve":
+            raise C.Refusal("pot serve is reserved (the supervisor)", 2)
+        if verb == "run":
+            return wrapped_run(host, root, flags, cmd)
         if verb == "review":
             return review_cmd(host, root, flags, cmd)
         if verb == "runs":
@@ -3471,10 +4139,16 @@ def main(argv):
         return 2
 
 
-if __name__ == "__main__":
+def entry(argv):
+    """The root's bin/pot: python3 -I -c 'import pot; pot.entry(...)', so this module comes byte-compiled from the root's
+    store copy (a script run as a file is compiled at each start)."""
     try:
-        sys.exit(main(sys.argv[1:]))
+        sys.exit(main(argv))
     except BrokenPipeError:
         # `pot explain | head`: the reader left; say nothing more
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         sys.exit(141)
+
+
+if __name__ == "__main__":
+    entry(sys.argv[1:])

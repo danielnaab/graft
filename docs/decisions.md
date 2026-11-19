@@ -168,8 +168,12 @@ Costs accepted:
   the last release with a Seatbelt sandbox until the port (a Seatbelt backend, weaker: no nesting, no process or
   network isolation, a dispatch clone at its own path). v2.15.0, a minor version, broke v2.14.0's sandbox, and its
   CHANGELOG says so.
-- **Kit tools are not sandboxed on their own yet.** A kit's commands are not wrapped and sandboxed under their own
-  policy until v2.18.0. On the host they run as before; inside `pot claude`, under the run's policy.
+- **Wrapped kit commands start a sandbox each,** and run unwrapped, with a stderr line, where there is no root's
+  pot (no launcher, or a root older than v2.18.0). A deployment with no root takes the unwrapped tools on
+  purpose. A wrapped start costs 0.30–0.45 s on platform-vm (8 ms unwrapped), and a nested child about 0.2 s.
+- **Nesting keeps user namespaces open** in every run whose children table has a `nest` row: in practice every
+  agent run. And a parent holds everything its children get, credentials included; nesting narrows the child, not
+  the parent. On macOS a row that would nest is refused (Seatbelt cannot nest).
 - **A person needs a root:** a home-manager module, graft's default root, or one that `pot init` writes.
 - **Grants are readable.** Hidden means unmounted and unwritable. A grants file is readable through the root's git
   history wherever that `.git` is readable, `inspect` included. Grants hold no secrets.
@@ -199,8 +203,7 @@ Costs accepted:
 Reopen when unprivileged user namespaces are no longer available on the machines that run graft, or when a kit's
 real needs cannot be expressed as requests that a root grants.
 
-Not yet: nesting and the children table, wrapped kit commands, generated `kits.just` and hook commands
-(v2.18.0); the `pi` kit (v2.19.0); nesting on macOS; brokers for `git.push` and proxy credentials; widening delegation through a supervisor; a VM
+Not yet: the `pi` kit (v2.19.0); children that outlive their parent, and narrower bindings for a child; nesting on macOS; brokers for `git.push` and proxy credentials; widening delegation through a supervisor; a VM
 backend for code that no one has reviewed.
 
 ## One repository, one-way arrows between graft and pot

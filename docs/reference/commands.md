@@ -39,14 +39,14 @@ For `x86_64-linux`, `aarch64-linux`, `x86_64-darwin` and `aarch64-darwin`:
 
 | Output | What |
 |---|---|
-| `packages.<system>.tools` | One environment (`buildEnv`) of every scion's `tools`. Empty when no scion has any. |
+| `packages.<system>.tools` | One environment (`buildEnv`) of every scion's `tools`, with each declared kit command's [wrapper](pot.md#wrapped-commands) in place of the program of that name. Empty when no scion has any. `tools.passthru.unwrapped` (also `tools.unwrapped`) is the same environment without wrappers: for CI, Nix checks, containers and workers that must not run pot. |
 | `packages.<system>.<name>` | Each scion's `packages`. |
 | `apps.<system>.<name>` | Each scion's `apps`. |
 | `apps.<system>.graft` | The `graft` command for this repository. |
 | `packages.<system>.pot-kits` | The workspace's kits for [`pot`](pot.md), built by pot's library (`graft.lib.pot.kitsFor`, which mkFlake calls with each kit unread): `kit.json` (`{ version = 1; self; scions.<name>; protect; }`: the repo kit and each provider's, each with its `file`, and what graft has pot protect: `**/graft.nix` and the scions directory), `bin/` (the tools, `graft` for this repository, and the repo kit's `tools`; a run gets it as `POT_TOOLS`), and `closure` (their store paths). `pot` builds it with `path:`. |
 | (reserved) | A provider, `perSystem` or `outputs` cannot define `pot-kits`, `graft-kits`, `sandbox` or `pot`. v2.15.0's `graft-kits` bundle is no longer written (since v2.17.0), and since v2.15.0 there is no `packages.<system>.sandbox`; both names stay reserved. |
 | `checks.<system>.<scion>-<name>` | Each scion's `checks`, prefixed with the scion's folder name. |
-| `devShells.<system>.<name>` | `perSystem`'s `devShells`. If none defines `default`, `devShells.<system>.default` is a shell with `tools` on `PATH`. Providers ship no dev shells. |
+| `devShells.<system>.<name>` | `perSystem`'s `devShells`. If none defines `default`, `devShells.<system>.default` is a shell with `tools` (wrapped) on `PATH`. Providers ship no dev shells. |
 
 Everything that reads scions is evaluated lazily. `apps.<system>.graft` and the repository's own `outputs`
 evaluate when a scion is empty or broken, so `nix run .#graft …` can still repair it. A provider whose
@@ -196,7 +196,8 @@ graft: scions/pa at abc1234 (untagged)
 graft: scions/pa at v1.0.0 (abc1234), not the recorded def5678: left as it is (git add scions/pa records it; git submodule update --recursive -- scions/pa goes back)
 ```
 
-Then it writes the marker README (`graft: wrote scions/README.md` when it changed) and refreshes graft's
+Then it writes the marker README (`graft: wrote scions/README.md` when it changed) and
+[`kits.just`](files.md#kitsjust) when the repository uses it (`graft: wrote scions/kits.just`), and refreshes graft's
 workflows (`graft: refreshed .forgejo/workflows/FILE`). With no scions:
 `graft: no scions here yet: graft add URL`. While [try](#try) is on it runs as usual, and ends with
 `graft: note: graft try is on: graft try --stop turns it off before you commit`.
@@ -227,6 +228,9 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 | Every gitlink is a version tag's commit | `graft: scions/pa at ec99ed1 is not a release tag of URL (nearest: v1.0.0-1-gec99ed1): release it, then graft upgrade pa@TAG (or graft upgrade pa, the newest release of its major)` (`nearest` only for a filled scion) |
 | … and that tag is upstream | `graft: scions/pa: tag v1.0.1 exists locally but not at URL: push it (git -C scions/pa push origin v1.0.1)` |
 | The tools and checks evaluate (from `nix run .#graft` only, after every other rule passed) | `graft: the flake's tools or checks don't evaluate (above): a provider's graft.nix fails` |
+| `<scions>/kits.just` matches what the flake generates, when the repository uses it (the file exists, or the top `justfile` names `<scions>/kits.just`); from `nix run .#graft` only, not `--committed` | `graft: scions/kits.just is stale or edited: graft sync`; inside a pot run, `graft: scions/kits.just is stale or edited: run graft sync on the host (the scions folder is read-only in a run)`; when the flake's bundle fails, `graft: scions/kits.just: the flake's pot-kits doesn't evaluate (above)` |
+| No `kits.just` recipe has the name of one of the top `justfile`'s own (when it is used) | `graft: scions/kits.just's recipe X has the name of the justfile's own X: rename one (a kit's recipe never replaces yours)`; `sync` warns with the same line |
+| `kits.just` is a file, not a link | `graft: scions/kits.just is a symbolic link; graft writes only a file there: remove it, then graft sync` |
 | graft's workflows match this version's | as in [Files](files.md#grafts-workflows) |
 
 - `--committed` checks only what is committed: it skips the filled, clean, at-gitlink, nested, parse and
@@ -350,7 +354,7 @@ scion's local tag, or the commit. graft's own row comes from `flake.lock` (a `pa
   `graft: pa: v2.0.0 is a new major version; not taken (graft upgrade pa@v2.0.0)`.
 - graft's own pin moves first (`graft: graft v2.13.0 -> v2.13.1`): graft rewrites the tag in `flake.nix`,
   runs `nix flake update graft`, then the new version's `lib/refresh.sh`, which writes the marker README and
-  refreshes graft's workflows. It moves graft only to v2.13.0 or later
+  `kits.just` (where the repository uses it), and refreshes graft's workflows. It moves graft only to v2.13.0 or later
   (`graft: graft upgrade moves graft only to v2.13.0 or later (submodule scions); move it by hand`), and in
   CI only from `graft ci` (`graft: not moving graft itself from a CI job that isn't graft ci (…)`).
 - A filled scion is fetched at the tag from its `.gitmodules` URL, checked out detached, its own submodules

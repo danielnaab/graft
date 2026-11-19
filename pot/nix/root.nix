@@ -26,6 +26,7 @@
 # backend: bubblewrap on Linux, Seatbelt on Darwin). Kit manifests are checked when it builds (compose.py
 # validate).
 { potSrc }:
+let potSrc0 = potSrc; in
 
 { pkgs
 , name ? "default"
@@ -50,6 +51,12 @@
 
 let
   lib = pkgs.lib;
+  # pot's programs, byte-compiled for this root's python (v2.18.0): each start (pot, its backend steps, a wrapped
+  # command's) skips compiling them again; unchecked-hash, as a store path's mtime says nothing
+  potSrc = pkgs.runCommand "graft-pot-compiled" { } ''
+    cp -r ${potSrc0} $out && chmod -R u+w $out
+    ${pkgs.python3}/bin/python3 -m compileall -q --invalidation-mode unchecked-hash $out
+  '';
   kitLib = import ../lib/kit.nix { inherit lib; };
   darwin = pkgs.stdenv.hostPlatform.isDarwin;
   python = pkgs.python3;
@@ -82,9 +89,6 @@ let
     tree ripgrep fd jq curl gnutar gzip unzip xz gnupatch python3 just gh ];
   inspectTools = with pkgs; lib.optionals (!darwin) [ procps iproute2 lsof systemdMinimal ];
 
-  # pot inside a run: explain and why, from /run/pot/policy.json
-  inner = pkgs.writeText "pot-inner.json" (builtins.toJSON { inner = true; });
-  potInner = pkgs.writeShellScriptBin "pot" ''exec ${python}/bin/python3 -I ${potSrc}/pot.py ${inner} "$@"'';
 
   netwrap = pkgs.writeShellScript "pot-net" ''
     # inside a run with network: the proxy's socket as 127.0.0.1:3128, listening before the command
@@ -128,7 +132,13 @@ let
     # fetch-back's upload-pack, sandboxed: git's closure only
     gitClosure = closureOf "pot-git-closure" [ pkgs.gitMinimal ];
   });
-  backend = pkgs.writeShellScriptBin "pot-backend-bwrap" ''exec ${python}/bin/python3 -I ${potSrc}/bwrap.py --config ${backendConfig} "$@"'';
+  backend = pkgs.writeShellScriptBin "pot-backend-bwrap" ''exec ${python}/bin/python3 -I -c 'import sys; sys.path.insert(0, "${potSrc}"); import bwrap; sys.exit(bwrap.main(sys.argv[1:]))' --config ${backendConfig} "$@"'';
+
+  # pot inside a run: explain and why from /run/pot/policy.json, and (v2.18.0) the wrappers' entry, which nests a
+  # child with the root's backend (so the backend is in every run's closure)
+  inner = pkgs.writeText "pot-inner.json" (builtins.toJSON ({ inner = true; }
+    // lib.optionalAttrs (!darwin) { backend = "${backend}/bin/pot-backend-bwrap"; }));
+  potInner = pkgs.writeShellScriptBin "pot" ''exec ${python}/bin/python3 -I -c 'import sys; sys.path.insert(0, "${potSrc}"); import pot; pot.entry(sys.argv[1:])' ${inner} "$@"'';
 
   # macOS: the Seatbelt backend (seatbelt.py, /usr/bin/sandbox-exec). Its profile is written at start, from
   # policy.json; what a run reads of the store is the closure, as with bubblewrap. No netwrap (the run's
@@ -152,7 +162,7 @@ let
     baseClosure = closureOf "pot-base-closure" [ pkgs.bashInteractive pkgs.coreutils pkgs.cacert pkgs.ncurses pkgs.tzdata python ];
     gitClosure = closureOf "pot-git-closure" [ pkgs.gitMinimal pkgs.coreutils ];
   });
-  seatbelt = pkgs.writeShellScriptBin "pot-backend-seatbelt" ''exec ${python}/bin/python3 -I ${potSrc}/seatbelt.py --config ${seatbeltConfig} "$@"'';
+  seatbelt = pkgs.writeShellScriptBin "pot-backend-seatbelt" ''exec ${python}/bin/python3 -I -c 'import sys; sys.path.insert(0, "${potSrc}"); import seatbelt; sys.exit(seatbelt.main(sys.argv[1:]))' --config ${seatbeltConfig} "$@"'';
 
   # kit.packages, tools' old name: gone at the source in v2.17.0
   noPackages = file: k: if builtins.isAttrs k && k ? packages
@@ -206,9 +216,18 @@ in
 if badContexts != [ ] then throw "pot: mkRoot: a context may not be named like a pot verb: ${lib.concatStringsSep ", " badContexts}"
 else if badLimits != [ ] then throw "graft.lib.mkRoot: limits is { memoryMax; tasksMax; } and clones { keepDays; maxSize; } (not ${lib.concatStringsSep ", " badLimits})"
 else if badDefaults != [ ] then throw "graft.lib.mkRoot: ${lib.concatStringsSep "; " badDefaults}"
-else pkgs.writeShellApplication {
-  name = "pot";
-  text = ''exec ${python}/bin/python3 -I ${potSrc}/pot.py ${rootJson} "$@"'';
+# share/pot/run-1 (v2.18.0): this pot takes `pot run`, the wrappers' entry; a wrapper looks for it beside the
+# launcher's bin/pot, and runs its command unwrapped (with one line) under an older root's pot
+else pkgs.runCommand "pot" {
   passthru = { root = manifest; inherit rootJson; backend = if darwin then seatbelt else backend; };
-  meta.description = "pot: run a command under the root's policy (${name})";
-}
+  meta = { description = "pot: run a command under the root's policy (${name})"; mainProgram = "pot"; };
+} ''
+  mkdir -p $out/bin $out/share/pot
+  cat > $out/bin/pot <<'EOF'
+  #!${pkgs.runtimeShell}
+  exec ${python}/bin/python3 -I -c 'import sys; sys.path.insert(0, "${potSrc}"); import pot; pot.entry(sys.argv[1:])' ${rootJson} "$@"
+  EOF
+  chmod +x $out/bin/pot
+  echo "pot run --command NAME --manifest PATH -- ARGS" > $out/share/pot/run-1
+
+''

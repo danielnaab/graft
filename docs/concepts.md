@@ -92,7 +92,7 @@ graft has no command of its own for it, and never starts a run by itself: a pers
 | Provider outputs | Each scion's `graft.nix`, called once per system. Its `tools` become `packages.<system>.tools`, one environment; its checks become `checks.<system>.<scion>-<name>`. |
 | Scions directory | `<dir>/`, where `dir` is a `mkFlake` argument, default `scions`, beside `flake.nix`. |
 | graft's pin | The flake input named `graft`. |
-| Kit | A provider's `graft.nix` and `perSystem` can return `kit`. mkFlake passes them to `graft.lib.pot.kitsFor`, which writes the workspace's kits and tools as `packages.<system>.pot-kits`; `pot` builds it with `path:`. |
+| Kit | A provider's `graft.nix` and `perSystem` can return `kit`. mkFlake passes them to `graft.lib.pot.kitsFor`, which writes the workspace's kits and tools as `packages.<system>.pot-kits`; `pot` builds it with `path:`. Each declared command becomes a wrapper in `tools`, which runs it in pot under its own policy, and the kits' `recipes` become `<dir>/kits.just`. |
 
 Nix and git see a scion differently, and one difference matters every day: a git flake's build reads a scion
 at its **committed** gitlink while the rest of your tree is clean, and from your working tree once any tracked

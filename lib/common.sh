@@ -105,6 +105,72 @@ flake_vars() {
   fi
 }
 
+# kits_just_wanted: whether this repository uses graft's generated kits.just (v2.18.0): the file is there, or
+# the repository's justfile imports it. Only then do sync, upgrade and check evaluate it.
+kits_just_wanted() {
+  [ -n "${SCIONS:-}" ] || return 1
+  [ -f "$SCIONS/kits.just" ] && return 0
+  [ -f justfile ] && grep -qF "$SCIONS/kits.just" justfile
+}
+
+# kits_just_text: the kits.just the flake's pot-kits generates (pot-lib/1's passthru.kitsJust), by evaluation
+# alone: no build, nothing copied that the repository's own app has not evaluated already
+kits_just_text() {
+  local system
+  system=$(nix_ eval --impure --raw --expr builtins.currentSystem) || return 1
+  nix_ eval --raw "$FLAKE_REF#packages.$system.pot-kits.kitsJust"
+}
+
+# kits_just_write: graft sync's and upgrade's step: write SCIONS/kits.just when it is wanted and differs
+kits_just_write() {
+  local want
+  kits_just_wanted || return 0
+  if ! want=$(kits_just_text 2>"$GRAFT_TMP/kj.err"); then
+    tail -3 "$GRAFT_TMP/kj.err" >&2
+    echo "graft: $SCIONS/kits.just: the flake's pot-kits doesn't evaluate (above); left as it is" >&2
+    return 0
+  fi
+  if [ -L "$SCIONS/kits.just" ]; then
+    echo "graft: $SCIONS/kits.just is a symbolic link; graft writes only a file there: remove it, then graft sync" >&2
+    return 1
+  fi
+  if [ ! -f "$SCIONS/kits.just" ] || [ "$(cat "$SCIONS/kits.just")" != "$want" ]; then
+    if [ -n "${POT:-}" ]; then
+      echo "graft: $SCIONS/kits.just is stale: run graft sync on the host (the scions folder is read-only in a run)" >&2
+      return 0
+    fi
+    write_file "$SCIONS/kits.just" "$want" || return 1
+    git add -- "$SCIONS/kits.just" 2>/dev/null || true
+    echo "graft: wrote $SCIONS/kits.just"
+  fi
+  kits_just_clashes "$want" >&2 || true
+}
+
+# write_file PATH TEXT: TEXT and a newline into PATH, never through a link (F3): a temporary file beside it, moved over
+write_file() {
+  local tmp
+  [ ! -L "$1" ] || { echo "graft: $1 is a symbolic link; graft writes only a file there: remove it, then run graft again" >&2; return 1; }
+  tmp=$(mktemp "$(dirname "$1")/.graft-XXXXXX") || return 1
+  if ! { printf '%s\n' "$2" > "$tmp" && mv -fT -- "$tmp" "$1"; }; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+}
+
+# kits_just_clashes TEXT: the generated recipes that the repository's own justfile also defines (F1: a kit recipe never
+# replaces the person's own, even under set allow-duplicate-recipes). Prints one line each; fails when there is one.
+kits_just_clashes() {
+  local mine theirs n rc=0
+  [ -f justfile ] || return 0
+  mine=$(sed -nE 's/^@?([A-Za-z][A-Za-z0-9_-]*)( [^:=]*)?:([^=].*)?$/\1/p' justfile | sort -u)
+  theirs=$(sed -nE 's/^([A-Za-z][A-Za-z0-9_-]*) \*args:$/\1/p' <<<"$1" | sort -u)
+  for n in $(comm -12 <(echo "$mine") <(echo "$theirs")); do
+    echo "graft: $SCIONS/kits.just's recipe $n has the name of the justfile's own $n: rename one (a kit's recipe never replaces yours)"
+    rc=1
+  done
+  return "$rc"
+}
+
 # flake_update NAME...: re-lock inputs of the flake locate found, as a path: flake when it's in a
 # subdirectory (needs Nix 2.19 or later for --flake), so the repo's top is never copied.
 flake_update() {

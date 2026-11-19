@@ -51,8 +51,9 @@ pot ──▶ git facts: .gitmodules and gitlinks at HEAD, the tags at a scion's
 
 - **pot's split waits for two quiet releases.** pot moves to its own repository only once `kit/1` and
   `pot-kits/1`, its two seams with graft, have held unchanged for two releases, checked after pot's phase 1b.
-  v2.17.0 makes every addition that v2.18.0's wrapped kit commands need (kit 1.2, and pot-kits/1's new files), so
-  that v2.18.0 and v2.19.0 can be those two releases.
+  v2.17.0 made every addition that v2.18.0's wrapped kit commands need (kit 1.2, and pot-kits/1's new files), so
+  that v2.18.0 and v2.19.0 can be those two releases. v2.18.0 changed neither (it filled pot-kits/1's files and
+  stated two of them more exactly: the wrapper's fallbacks and `bin/`).
 
 ## Sources
 

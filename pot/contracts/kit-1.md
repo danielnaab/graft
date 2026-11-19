@@ -49,7 +49,7 @@ kit = {
 | `protect` | 1.0 | list of strings | Workspace paths, read-only inside: relative to the repository's top, or `**/NAME`. |
 | `requests.<kind>` | 1.0 | per kind | Requests, inert until granted ([Requests](#requests)). |
 | `commands.<name>` | 1.0 | attrs | A program the kit ships ([Commands](#commands)). |
-| `recipes.<name>` | 1.0; attrs form 1.2 | string, or `{ run; description; }` | A just recipe that runs one of the kit's commands ([Recipes](#recipes)). Checked; generated from v2.18.0. |
+| `recipes.<name>` | 1.0; attrs form 1.2 | string, or `{ run; description; }` | A just recipe that runs one of the kit's commands ([Recipes](#recipes)), generated into `kits.just`. |
 | `agent` | 1.1 | attrs | How pot recognises an agent and its instances ([Agent kits](#agent-kits)). Only a root's kit may declare it. |
 
 The `files` modes: `fixed`, bound read-only; `seed`, copied into state on first use, then the run's own; and
@@ -90,17 +90,25 @@ Each request has one canonical string, which the [grants file](grants-1.md#canon
 
 A recipe is data from which graft generates a just recipe; kits ship no hand-written `.just` files. The string form
 (1.0) is `"<command> <args>"`; the attrs form (1.2) is `{ run = "<command> <args>"; description = "…"; }`. The first
-word of `run` must be a command of the same kit, and the rest are literal words: no `{{`, backtick, `$` or newline.
-kitsFor checks this when it builds: `pot: FILE: recipes.N: { run; description; } (kit 1.2), or one line`,
-`… recipes.N: literal words only (no {{, `, $ or a newline)`, `… recipes.N: runs X, which is not one of this kit's
-commands (A, B)`. Kits 1.0 and 1.1 take the string form only. From v2.18.0, graft generates one file, `kits.just`, from every kit's recipes
-([pot-kits/1](pot-kits-1.md#shape)); v2.17.0 checks recipes and generates nothing.
+word of `run` must be a command of the same kit, and the rest are literal words. pot checks this in every kit
+version, when kitsFor builds, at run start, and inside the generated text itself (so `nix eval` refuses too):
+
+- the name is `[A-Za-z][A-Za-z0-9_-]*`: `pot: FILE: recipes.N: a recipe's name is letters, digits, _ and -
+  (starting with a letter)`;
+- the words are `[A-Za-z0-9._/=:,@+%-]+`, one space apart: `pot: FILE: recipes.N: literal words only (letters,
+  digits and . _ / = : , @ + % -, one space apart)`;
+- the first word is one of the kit's commands: `pot: FILE: recipes.N: runs X, which is not one of this kit's
+  commands (A, B)`;
+- the attrs form in a 1.0 or 1.1 kit: `pot: FILE: recipes.N: { run; description; } (kit 1.2), or one line`.
+
+Kits 1.0 and 1.1 take the string form only. graft generates one file, `kits.just`, from every kit's recipes
+([pot-kits/1](pot-kits-1.md#shape)); before v2.18.0 it checked them and generated nothing.
 
 ### Hook commands
 
-`commands.<name>.hook` names the git hook that the command serves. From v2.18.0, the consumer's
-`.githooks/<hook>` execs the command's wrapper, and `git commit` inside a run gets that command's own policy from
-the children table. v2.17.0 reads and checks the field, and does nothing with it. Another value:
+`commands.<name>.hook` names the git hook that the command serves. The consumer's `.githooks/<hook>` execs the
+command's wrapper, and `git commit` inside a run gets that command's own policy from the children table (since
+v2.18.0; v2.17.x checks the field and does nothing with it). Another value:
 `pot: FILE: commands.NAME.hook: one of pre-commit, commit-msg, prepare-commit-msg, pre-push, post-checkout,
 post-merge`; in a 1.1 kit, `commands.NAME.hook is not a command field (…)`.
 
@@ -215,7 +223,9 @@ identity.
 
 - **Reader first.** pot reads a minor before any producer writes it. v2.17.0 reads 1.2; a producer writes 1.2 from
   v2.18.0, once the roots that read its kits are on v2.17.0 or later. A kit that writes 1.1 needs roots on v2.16.0
-  or later. The claude-code kit writes 1.1.
+  or later. The claude-code kit writes 1.1. A kit's `commands` (any minor) are wrapped once its consumer takes
+  graft v2.18.0; under a root older than that, the wrappers run their programs unwrapped
+  ([pot-kits/1](pot-kits-1.md#shape)).
 - **A newer minor gets one refusal, checked before any other field:**
   `pot: FILE: kit version 1.3 is newer than this pot reads (1.0, 1.1, 1.2): take a newer pot`. Another major, or a
   `version` that is not a string: `pot: FILE: kit version 'X': this pot reads kit 1.0, 1.1 and 1.2`; a number such
@@ -235,6 +245,7 @@ identity.
   commands and children table read. Nesting is in [runs/1](runs-1.md) and [run-env/1](run-env-1.md), and the
   `pi` kit is written in 1.1's fields, so neither changes kit/1. This is what lets v2.18.0 and v2.19.0 be the two
   releases with `kit/1` unchanged that pot's split waits for ([pot's contracts](README.md#how-a-contract-changes)).
+  v2.18.0 left it unchanged.
 
 ## Sources
 

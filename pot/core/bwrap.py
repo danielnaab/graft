@@ -91,7 +91,12 @@ def probe(cfg):
     if r.returncode != 0:
         print(json.dumps({"guarantees": [], "error": r.stderr.strip()}))
         return
-    print(json.dumps({"guarantees": GUARANTEES}))
+    # nest (v2.18.0): bubblewrap inside bubblewrap, the outer one keeping user namespaces
+    n = subprocess.run([cfg["bwrap"], "--unshare-all", "--unshare-user", "--ro-bind", "/", "/", "--proc", "/proc",
+                        "--dev", "/dev", "--tmpfs", "/tmp", "--", cfg["bwrap"], "--unshare-all", "--unshare-user",
+                        "--disable-userns", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
+                        "true"], capture_output=True, text=True)
+    print(json.dumps({"guarantees": GUARANTEES + (["nest"] if n.returncode == 0 else [])}))
 
 
 # ---------------------------------------------------------------- the workspace's pins (in place)
@@ -611,7 +616,12 @@ def prepare(cfg, rundir, print_cmd=False):
     os.chmod(EMPTY, 0o444)
     home, ctx = launch["home"], policy["context"]
     view = next((i for i in eff(policy, "view")), None)
-    args = [["--unshare-all"], ["--unshare-user"], ["--disable-userns"], ["--die-with-parent"], ["--hostname", "pot"]]
+    # §10: a run keeps user namespaces only when its children table has a row that nests (and the backend proved
+    # nest); every other run, and every child with no such row of its own, gets --disable-userns
+    nests = "nest" in (policy["backend"].get("proved") or []) and any(
+        r.get("how") == "nest" for r in (policy.get("children") or {}).values())
+    args = [["--unshare-all"], ["--unshare-user"]] + ([] if nests else [["--disable-userns"]]) \
+        + [["--die-with-parent"], ["--hostname", "pot"]]
     mounts = []          # (dest, priority, args): sorted by depth, then priority (write 0, read 1, hidden 2)
 
     def mount(dest, prio, a):
@@ -644,6 +654,8 @@ def prepare(cfg, rundir, print_cmd=False):
             for link, target in hm_links(home):
                 if any(link == h or link.startswith(h + "/") for h in hidden):
                     continue
+                if link.startswith(home + "/.config/pot/") and launch.get("potBin"):
+                    continue      # the run's own launcher pointer, below (v2.18.0)
                 if not any(link == r or link.startswith(r + "/") for r in readable):
                     mount(link, 1, ["--symlink", target, link])
         for w in policy["workspace"]:
@@ -805,7 +817,27 @@ def prepare(cfg, rundir, print_cmd=False):
     for b in {b["socket"]: b for b in policy.get("bindings") or [] if b.get("socket")}.values():
         if b.get("socket"):
             sock = os.path.basename(b["socket"])
-            mount(b["socket"], 1, ["--bind", os.path.join(rundir, sock), b["socket"]])
+            # a nested child uses its parent's binding (the children table allows only equal ones)
+            src = b["socket"] if launch.get("nested") else os.path.join(rundir, sock)
+            mount(b["socket"], 1, ["--bind", src, b["socket"]])
+    # the launcher pointer (v2.18.0): /run/pot/launcher is this run's own pot, a read-only mount point the run can't
+    # rename or replace, so a wrapper in the run reaches the children table and never another pot; ~/.config/pot/launcher
+    # names it too, read-only (pot doctor's and a person's path)
+    if launch.get("potBin"):
+        ld = os.path.join(rundir, "potcfg")
+        os.makedirs(ld, exist_ok=True)
+        if not os.path.lexists(os.path.join(ld, "launcher")):
+            os.symlink(f"{run_mnt}/launcher", os.path.join(ld, "launcher"))
+        mount(f"{run_mnt}/launcher", 1, ["--ro-bind", os.path.join(launch["potBin"], "pot"), f"{run_mnt}/launcher"])
+        mount(home + "/.config/pot", 1, ["--ro-bind", ld, home + "/.config/pot"])
+    # the children table's prepared rows, read-only, and the children's run folders, read-write (decision 2)
+    if nests:
+        tdir = launch.get("tableDir") or os.path.join(rundir, "table")
+        mount(f"{run_mnt}/table", 1, ["--ro-bind", tdir, f"{run_mnt}/table"])
+        os.makedirs(os.path.join(rundir, "children"), mode=0o700, exist_ok=True)
+        mount(f"{run_mnt}/children", 0, ["--bind", os.path.join(rundir, "children"), f"{run_mnt}/children"])
+        for src, at in launch.get("tableBinds") or []:
+            mount(at, 0, ["--bind", src, at])
     with open(os.path.join(rundir, "hidden.txt"), "w") as f:
         f.write("".join(i["value"] + "\n" for i in eff(policy, "hidden")))
     mount(home + "/.pot-hidden", 1, ["--ro-bind", os.path.join(rundir, "hidden.txt"), home + "/.pot-hidden"])
@@ -995,6 +1027,11 @@ def run(cfg, rundir):
         tmux = (launch.get("hostTools") or {}).get("tmux")
         live = ["--tmux", tmux, "--pane", launch["pane"]] if tmux and launch.get("pane") else []
         live += ["--fix", launch.get("netFix") or "the repo kit's requests.network"]
+        if launch.get("nested"):
+            # a nested child: its own allow list, out through its parent's proxy (the parent's covers it); its denials
+            # name its own kit's requests.network, and no one-run flag (pot --net is the host's)
+            live = ["--upstream", f"{policy['mounts']['run']}/proxy.sock", "--nested", "1",
+                    "--fix", launch.get("netFix") or "its kit's requests.network"]
         proxy = subprocess.Popen([cfg["python"], "-I", "-S", cfg["proxy"], "proxy.sock",
                                   "--denials", os.path.join(rundir, "denials"), "--context", policy["context"]] + live + allow,
                                  cwd=rundir, stdout=log, stderr=subprocess.STDOUT)
@@ -1006,9 +1043,15 @@ def run(cfg, rundir):
             log.close()
             with open(os.path.join(rundir, "proxy.log")) as f:
                 raise Stop("the network proxy did not start: " + f.read())
-    helpers = start_bindings(cfg, rundir, policy, launch)
+    helpers = [] if launch.get("nested") else start_bindings(cfg, rundir, policy, launch)
     env = run_env(cfg, policy, launch)
-    env.update(credentials(policy))
+    if launch.get("nested"):
+        # the parent holds its children's credentials (residual 7): the values are in its environment
+        env.update({n: os.environ[n] for b in binding(policy, "credential") + binding(policy, "mcp")
+                    for n in b.get("env") or [] if n in os.environ})
+    else:
+        env.update(credentials(policy))
+    env.update(launch.get("hookEnv") or {})
     with open(os.path.join(rundir, "bwrap.args"), "rb") as f:
         argbytes = f.read()
     for k, v in env.items():
@@ -1040,7 +1083,7 @@ def run(cfg, rundir):
     finally:
         signal.signal(signal.SIGINT, old)
         tools = launch.get("hostTools") or {}
-        if binding(policy, "status.relay") and tools.get("workmux") and launch.get("pane"):
+        if binding(policy, "status.relay") and tools.get("workmux") and launch.get("pane") and not launch.get("nested"):
             # the agent is gone: clear its pane (workmux has no command that unregisters an agent)
             subprocess.run([tools["workmux"], "set-window-status", "clear"], env={**os.environ, "TMUX_PANE": launch["pane"]},
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1135,7 +1178,7 @@ def sandboxed_git(cfg, rundir, clone, args, cwd="/clone", timeout=600):
     for p in closure:
         cmd += ["--ro-bind", p, p]
     cmd += ["--ro-bind", clone, "/clone", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--chdir", cwd,
-            cfg["git"], "-c", "safe.directory=*"] + args
+            cfg["git"], "-c", "safe.directory=*", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"] + args
     return cmd
 
 
@@ -1332,6 +1375,24 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
         ev["fetch_failed"] = "; ".join(FETCH_FAILED)
 
 
+def look(cfg, rundir):
+    """A nested dispatch child's commits, as its parent sees them (pot review CHILD --json inside the parent): read by
+    the sandboxed git, the clone read-only. A claim, as good as the parent; the host stages its own look (H7)."""
+    _, launch = load(rundir)
+    clone = os.path.join(rundir, "clone")
+    base = (launch.get("clone") or {}).get("base") or ""
+    r = subprocess.run(sandboxed_git(cfg, rundir, clone, ["for-each-ref", "--format=%(refname:strip=2) %(objectname)", "refs/heads"]),
+                       capture_output=True, text=True, timeout=600)
+    refs = {l.split(" ", 1)[0]: l.split(" ", 1)[1] for l in git_lines(r.stdout) if " " in l}
+    moved = {n: o for n, o in refs.items() if o != base}
+    commits = []
+    if moved and base:
+        r = subprocess.run(sandboxed_git(cfg, rundir, clone, ["log", "--format=%H%x09%s", *moved.values(), "--not", base]),
+                           capture_output=True, text=True, timeout=600)
+        commits = [{"commit": l.split("\t", 1)[0], "subject": l.split("\t", 1)[-1]} for l in git_lines(r.stdout)]
+    print(json.dumps({"base": base, "refs": moved, "commits": commits}))
+
+
 def cleanup(rundir):
     # S1's placeholders: removed when they still hold what pot wrote (the run saw them read-only)
     try:
@@ -1379,6 +1440,8 @@ def main(argv):
             after(cfg, rundir)
         elif verb == "cleanup":
             cleanup(rundir)
+        elif verb == "look":
+            look(cfg, rundir)
         else:
             print(f"backend: unknown verb {verb}", file=sys.stderr)
             return 2

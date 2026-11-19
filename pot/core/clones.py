@@ -8,7 +8,9 @@ config, hooks or fsmonitor, so the host's filters (git-lfs's smudge) never run o
 """
 import datetime
 import os
+import re
 import shutil
+import stat
 import subprocess
 
 import runs as R
@@ -98,7 +100,18 @@ def drop_heads(gitbin, repo, keep=None):
             git(gitbin, repo, "update-ref", "-d", ref)
 
 
-def make_clone(gitbin, top, common, origin, dest, base, branch, rid, user):
+def tracked_hooks(gitbin, top, base, value):
+    """H9 (v2.18.0): the source's core.hooksPath, when it is a relative path naming a tracked folder at BASE (such as
+    .githooks, protected in every run); else None. Only the run itself runs those hooks: every host git call on a
+    clone passes -c core.hooksPath=/dev/null."""
+    v = (value or "").strip().rstrip("/")
+    if not v or v.startswith(("/", "~")) or ".." in v.split("/") or "\n" in v:
+        return None
+    r = git(gitbin, top, "ls-tree", "--format=%(objecttype)", base, "--", v)
+    return v if r.returncode == 0 and r.stdout.strip() == "tree" else None
+
+
+def make_clone(gitbin, top, common, origin, dest, base, branch, rid, user, hooks=None):
     """runs/<id>/clone: a full clone of TOP at BASE (no hard links), its submodules from the source's own
     module directories, carrying user.* and the raw origin URLs only (§9.1, §9.2)."""
     r = git(gitbin, os.path.dirname(dest), "clone", "-q", "--no-hardlinks", "--no-checkout", top, dest)
@@ -111,6 +124,10 @@ def make_clone(gitbin, top, common, origin, dest, base, branch, rid, user):
         git(gitbin, dest, "remote", "remove", "origin")
     for k, v in (user or {}).items():
         git(gitbin, dest, "config", f"user.{k}", v)
+    if hooks:
+        # set before the checkout: from here on the clone names hooks, and every host git call below (checkout,
+        # update-ref, submodule) must keep core.hooksPath=/dev/null for them never to run on the host (ruling 7)
+        git(gitbin, dest, "config", "core.hooksPath", hooks)
     r = git(gitbin, dest, "checkout", "-q", "-B", name, base)
     if r.returncode != 0:
         raise CloneError(f"git checkout of {base[:12]} failed: {r.stderr.strip()}")
@@ -211,6 +228,66 @@ def remove_clone(state, rundir):
             if os.path.lexists(p):
                 writable_tree(p)
                 shutil.rmtree(p, ignore_errors=True)
+
+
+def writable_at(dfd, name):
+    """writable_tree by directory fds: every real folder below DFD/NAME made writable, links never entered."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        fd = os.open(name, flags, dir_fd=dfd)
+    except OSError:
+        return
+    try:
+        os.fchmod(fd, 0o700)
+        with os.scandir(fd) as it:
+            subs = [e.name for e in it if e.is_dir(follow_symlinks=False)]
+        for e in subs:
+            writable_at(fd, e)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def remove_child_clone(state, cid):
+    """A nested dispatch child's clone (runs/<parent>/children/<child>/clone, written by its parent) and its host
+    staging (runs/<parent>/child-staging/<child>/staging): only under pot's own runs folder, links removed, never
+    followed. Its logs stay."""
+    pid, _, child = (cid or "").partition("/")
+    if not (re.fullmatch(r"[0-9a-f]{4}", pid) and re.fullmatch(r"[0-9a-f]{4}", child)):
+        raise CloneError(f"refusing to remove {cid}: not a child run's id")
+    prd = os.path.join(os.path.realpath(state), "runs", pid)
+    # S1 (fix round 3): every step below the runs folder through directory fds opened with O_NOFOLLOW, so a parent
+    # that swaps a folder for a link between a check and the removal reaches nothing outside it
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    for sub, name in (("children", "clone"), ("child-staging", "staging")):
+        fds = []
+        try:
+            fds.append(os.open(prd, flags))
+            fds.append(os.open(sub, flags, dir_fd=fds[-1]))
+            fds.append(os.open(child, flags, dir_fd=fds[-1]))
+        except OSError:
+            for fd in fds:
+                os.close(fd)
+            continue
+        d = fds[-1]
+        try:
+            try:
+                st = os.lstat(name, dir_fd=d)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISDIR(st.st_mode):
+                os.unlink(name, dir_fd=d)
+                continue
+            try:
+                shutil.rmtree(name, dir_fd=d)
+            except OSError:
+                # read-only folders the run left: made writable without following a link, then removed again
+                writable_at(d, name)
+                shutil.rmtree(name, dir_fd=d, ignore_errors=True)
+        finally:
+            for fd in fds:
+                os.close(fd)
 
 
 def remove_run_dir(state, rundir):

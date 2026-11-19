@@ -258,7 +258,7 @@ class Compose(unittest.TestCase):
         self.assertEqual(p["version"], 1)
         self.assertEqual(set(p["backend"]), {"name", "requires", "proved"})
         self.assertEqual(set(p["workspace"][0]), {"id", "path", "common", "protected", "clone"})
-        self.assertEqual(set(p["mounts"]), {"state", "run"})
+        self.assertEqual(set(p["mounts"]), {"state", "run", "launcher"})
         self.assertEqual(p["mounts"]["run"], "/run/pot")
         self.assertEqual(p["children"], {})
         for i in p["items"]:
@@ -543,7 +543,7 @@ class Compose(unittest.TestCase):
         p, rep = C.compose(inp(flags={"net": ["x.org"]}))
         t = C.explain_text(p, rep, root())
         for s in ("context    work", "limits     protect:", "  network    x.org:443", "backend    bubblewrap proves",
-                  "standard tools (1)", "comes in a later release"):
+                  "standard tools (1)", "runs under its own policy, from the children table"):
             self.assertIn(s, t)
 
     def test_permanent_fix(self):
@@ -611,15 +611,23 @@ class Kit12(unittest.TestCase):
         C.validate_kit(self.kit(recipes={"run": "mk run", "check": {"run": "mk check --all", "description": "Check it"}}), "k", HOME)
         with self.assertRaisesRegex(C.KitError, r"k: recipes.x: runs other, which is not one of this kit's commands \(mk\)"):
             C.validate_kit(self.kit(recipes={"x": "other run"}), "k", HOME)
-        for bad in ("mk {{x}}", "mk `id`", "mk $HOME"):
-            with self.assertRaisesRegex(C.KitError, r"k: recipes.x: literal words only \(no \{\{, `, \$ or a newline\)"):
+        lit = r"k: recipes.x: literal words only \(letters, digits and \. _ / = : , @ \+ % -, one space apart\)"
+        # F1 (v2.18.0): shell syntax, quotes and runs of spaces, in every version
+        for bad in ("mk {{x}}", "mk `id`", "mk $HOME", "mk a|sh", "mk ;id", "mk 'x'", "mk  a", "mk a\\b", "mk >f"):
+            with self.assertRaisesRegex(C.KitError, lit, msg=bad):
                 C.validate_kit(self.kit(recipes={"x": bad}), "k", HOME)
         with self.assertRaisesRegex(C.KitError, r"k: recipes.x: \{ run; description; \}"):
             C.validate_kit(self.kit(recipes={"x": {"run": "mk", "shell": "sh"}}), "k", HOME)
-        # 1.0 and 1.1 keep their one-line check (a provider's 1.0 recipes keep building)
-        C.validate_kit({"recipes": {"x": "other $HOME"}}, "k", HOME)
-        with self.assertRaisesRegex(C.KitError, "recipes.x: one line"):
+        # F1: a 1.0 or 1.1 kit's recipes get the same checks (graft writes them into kits.just too)
+        with self.assertRaisesRegex(C.KitError, lit):
+            C.validate_kit({"recipes": {"x": "other $HOME"}}, "k", HOME)
+        with self.assertRaisesRegex(C.KitError, r"recipes.x: runs \.\./\.\./sh, which is not one of this kit's commands \(none\)"):
+            C.validate_kit({"recipes": {"x": "../../sh -c"}}, "k", HOME)
+        with self.assertRaisesRegex(C.KitError, "recipes.x: { run; description; } \\(kit 1.2\\), or one line"):
             C.validate_kit({"recipes": {"x": {"run": "mk"}}}, "k", HOME)
+        for name in ('x"\n    echo injected\n\nzz', "a b", "-x", "x:"):
+            with self.assertRaisesRegex(C.KitError, "a recipe's name is letters, digits, _ and -", msg=name):
+                C.validate_kit(self.kit(recipes={name: "mk"}), "k", HOME)
 
     def test_not_requests(self):
         # hook and recipes change no canonical item

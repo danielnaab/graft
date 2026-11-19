@@ -49,7 +49,7 @@ reach                                                                    granted
   capability mcp sessions                                                   claude-code@flexion-bedrock: no binding
   capability nix                                                            flexion-assistant: no binding
   capability git.fetch ssh://forgejo@platform-vm:2222/*                     daniel: no binding
-children   none (nesting comes in a later release)
+children   none: this run keeps --disable-userns
 
 not in run claude-code@flexion (root:claude-code@flexion): not granted:
              capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN,
@@ -66,4 +66,4 @@ backend    bubblewrap proves own-netns own-pidns no-tiocsti protected-as-mounts 
            lacks closure-store local-listen resource-limits separate-kernel same-path-clone nest
            private-proxy
 resources  none at a terminal; a run without one gets a user systemd scope, MemoryMax=50% TasksMax=2048
-note       kit tools run as this run's own programs; sandboxing each kit command comes in a later release
+note       a kit command started in this run (its wrapper) runs under its own policy, from the children table

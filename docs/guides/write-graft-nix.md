@@ -238,6 +238,9 @@ Use your machine's system for `x86_64-linux`.
   tool's store path does not change when the consumer commits something unrelated.
 - `tools` from every provider become one `packages.<system>.tools`, which consumers put on `PATH` with
   `nix shell .#tools`, `nix develop` or direnv. Providers ship no dev shells.
+- **Kit commands.** A program your kit declares in `commands` is wrapped in consumers' tools, so pot runs it under
+  its own policy ([Declare kit commands, recipes and hook commands](kit-commands.md)). Other providers' Nix uses
+  the unwrapped `scions.<name>.tools.<tool>`.
 - **A step after each upgrade.** If consumers must run something after an upgrade (regenerate files, say),
   give them a `just` recipe that runs `nix run .#graft upgrade` and then your app, and a check that fails when
   the generated files differ from what the new version renders. graft has no post-upgrade hook

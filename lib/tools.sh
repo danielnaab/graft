@@ -285,6 +285,8 @@ cmd_upgrade() {
   if [ -n "$moved_graft" ]; then
     GRAFT_TEMPLATE="" bash "$src/lib/refresh.sh" "$SCIONS" "$FLAKE" "$GRAFT_RUN" "$src/template"
   fi
+  # the moved scions' recipes (v2.18.0): from the repository's own app, which knows this graft's kits.just
+  [ -z "${GRAFT_IN_REPO:-}" ] || kits_just_write
 }
 
 # What upgrading would bring: for each named input (default: every one outdated reports), the

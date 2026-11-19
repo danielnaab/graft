@@ -98,6 +98,17 @@ In workmux, set the agent command to `pot claude`, and turn off workmux's own Do
 (`workmux.sandbox.enable = false`; the home-manager module asserts it). The `status.relay` capability keeps the
 pane's status working.
 
+## Kit commands inside a run
+
+A kit's commands (`check-kb`, `just check`, the pre-commit hook) are [wrapped](../reference/pot.md#wrapped-commands):
+inside `pot claude` each runs nested, under its own policy, so it cannot reach the agent's model API, token or MCP.
+`git commit` inside the run runs the repository's hook command the same way. `pot explain claude` lists them on its
+`children` row. A command that needs reach the agent's run lacks is refused, naming where to run it:
+
+```
+pot (work): meeting-kit needs WM_TOKEN, git.push, which this run (claude) lacks: run it on the host (just meeting-run)
+```
+
 ## When something is denied
 
 A denial reaches you in three ways. Under tmux, a message shows on the agent's pane:
@@ -342,6 +353,13 @@ in [Home-manager options](../reference/pot.md#home-manager-options).
   skill as an ordinary skill folder.
 - **`pot: this root has no backend for darwin`.** Your root was built by a graft before Seatbelt's return: update
   graft and rebuild the root.
+- **`pot: check-kb runs without pot (…)`.** A wrapped command found no root's pot to run it (no
+  `~/.config/pot/launcher`, as on a Mac with pot off, or a root older than v2.18.0), and ran it unwrapped. The
+  parenthesis names the fix.
+- **`… Seatbelt cannot nest …: run it on the host (just check-kb)`.** On macOS a kit command inside a run that would
+  need its own, narrower sandbox is refused; run it on the host, as the line says.
+- **A commit stops at the hook.** Read its lines: a grant (`pot grant NAME`), or `git commit --no-verify` to skip
+  the hook once.
 
 ## How it works
 

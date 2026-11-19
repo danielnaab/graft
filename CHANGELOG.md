@@ -1,12 +1,73 @@
 # Changelog
 
-## Unreleased
+## v2.18.0 - unreleased
 
-pot, graft's sandbox (experimental), runs on macOS again: a Seatbelt backend replaces the refusal that v2.15.0 to
-v2.17.1 printed there. Linux runs do not change, and no grant asks again: the canonical grant items and digests are
-unchanged (`pot-golden` holds them).
+pot, graft's sandbox (experimental), in three parts:
+
+- **Kit commands run under their own policy.** Each command a kit declares gets a wrapper in the consumer's
+  `packages.<system>.tools`, which runs it in pot: quietly on the host, nested inside an agent's run, so a kit tool,
+  a `just` recipe or a git hook never gets the agent's token or MCP. graft generates `<scions>/kits.just` from the
+  kits' recipes, and a hook command (`commands.<name>.hook`) is what `.githooks/<hook>` execs.
+- **Runs nest.** A run's children table, composed by the host, says for each command it may start whether it
+  execs, nests or is refused. `pot dispatch` works inside a run: its clone is kept in host state, and you fetch it
+  on the host with `pot review PARENT/CHILD --fetch`.
+- **pot runs on macOS again.** A Seatbelt backend replaces the refusal that v2.15.0 to v2.17.1 printed there. Linux
+  runs do not change, and the canonical grant items and digests are unchanged (`pot-golden` holds them). Seatbelt
+  cannot nest: on macOS a narrower child is refused, never flattened ([On macOS](docs/reference/pot.md#on-macos)).
+
+`kit/1` and `pot-kits/1` are unchanged (the first of the two quiet releases pot's split waits for). **No grant asks
+again** when a root takes v2.18.0; a consumer that takes it asks once for its own repo kit, and a kit whose
+commands request nothing needs no grant ([Move to v2.18.0](docs/guides/move-to-v2-18.md)).
+
+### Upgrading
+- **Roots first:** take v2.18.0 and `home-manager switch`, so `~/.config/pot/launcher` names a pot that runs
+  wrappers. A consumer that moves first still works: its wrappers run unwrapped, with one stderr line naming the fix.
+- **Consumers:** `graft sync` writes `kits.just`; commit it. Import it after any provider's own `.just` file, and
+  define `tools` as the tools package's root (`kits.just` runs `{{tools}}/bin/<command>`). Make `.githooks/<hook>`
+  exec the hook command's wrapper.
+- **Anything that must not run pot** (CI, Nix checks, containers, a scheduler's worker) takes
+  `packages.<system>.tools.passthru.unwrapped`.
+- **Providers:** declare `commands`, `recipes` and `hook` ([Declare kit commands](docs/guides/kit-commands.md)).
+- On a Mac: rebuild the root with this graft; then `pot doctor`, and `pot grant` as on Linux. Grants carry over.
+- Weaker than Linux, on purpose and stated: no nesting, no process or network isolation, no resource limits, and a
+  run can read the arguments and environment of this user's other processes (Seatbelt does not check
+  `KERN_PROCARGS2`) ([residual 22](docs/reference/pot.md#residual-risks)).
 
 ### Added
+- Wrappers for every declared kit command (any kit minor), in `tools` and `devShells.default`; `apps` and
+  `scions.<name>.tools` stay unwrapped. `tools.passthru.unwrapped` (also `tools.unwrapped`). With no launcher (pot is still off on the Macs), or
+  under a root older than v2.18.0, a wrapper runs its program unwrapped, with
+  `pot: NAME runs without pot (…)` on stderr; inside a v2.18.0 run, a missing launcher refuses with exit 126
+  (`pot: NAME: this run's launcher (/run/pot/launcher) is missing, so its children table can't be reached: run
+  NAME on the host`); policy.json decides first, so an older pot's run gets the program under its policy
+  ([Wrapped commands](docs/reference/pot.md#wrapped-commands)).
+- `pot run --command NAME --manifest M -- ARGS`, the wrappers' entry, no longer reserved. It runs in the root's
+  `defaultContext` with the command's `access`; a `read` command runs in a root repository too.
+- `<scions>/kits.just`, written by `graft add`, `sync` and `upgrade` (through a temporary file; a link is refused)
+  and compared by `graft check`, where the repository uses it: the file exists, or the top `justfile` names it.
+  Arguments are single-quoted. A kit recipe with the name of one of the justfile's own fails `graft check`
+  ([Files](docs/reference/files.md#kitsjust)).
+- Recipe checks in every kit version: a name `[A-Za-z][A-Za-z0-9_-]*`, literal words of
+  `[A-Za-z0-9._/=:,@+%-]`, one space apart (`pot: FILE: recipes.N: literal words only (letters, digits and . _ / =
+  : , @ + % -, one space apart)`).
+- Hook commands: `GIT_INDEX_FILE` passes only when it names this repository's index
+  ([Hook commands](docs/reference/pot.md#hook-commands)).
+- The children table in `policy.json` and `pot explain`'s `children` row; nested children in bubblewrap, with a
+  proxy that forwards to the parent's; the `nest` guarantee
+  ([Nesting](docs/reference/pot.md#nesting-and-the-children-table)).
+- Nested `pot dispatch` and `--detach`, through the run's `dispatch` rows: the child's clone in
+  `runs/<parent>/children/`, kept after the parent, staged by the host itself once the parent has ended;
+  `pot review PARENT/CHILD --fetch` into `refs/remotes/pot-PARENT-CHILD/*`; inside the parent, `pot runs` lists
+  children and `pot review CHILD --json` shows their commits (a claim); children killed with their parent, logged
+  by the host (`killed: "parent"`). Limits: only the child's top repository is staged (not its scions),
+  `clones.maxSize` does not count children, and a grandchild gets no children table
+  ([Nested dispatch](docs/reference/pot.md#nested-dispatch)).
+- `pot doctor`: `nest` among the proved guarantees; with no launcher, `~/.config/pot/launcher is missing: a kit
+  command's wrapper here runs its program without pot, and says so`.
+- policy.json's `mounts.launcher`: every run gets `/run/pot/launcher`, its own pot, read-only (and
+  `~/.config/pot/launcher` linking to it).
+- A child that needs write access under a read run is refused (`needs write access`). A nested child's denials
+  name its kit's `requests.network`, with no `one run:` line.
 - **The Seatbelt backend** (`pot/core/seatbelt.py`, `/usr/bin/sandbox-exec`): a Darwin root's backend is `seatbelt`.
   Its profile denies by default and is written at each start from `policy.json`, every host path a parameter.
   It proves `closure-store`, `no-tiocsti`, `in-place` and `private-proxy`; the startup line says
@@ -19,9 +80,23 @@ unchanged (`pot-golden` holds them).
   `Proxy-Authorization` password. bubblewrap's proxy, on a socket only its run sees, has none.
 
 ### Changed
+- A run keeps user namespaces when its children table has a `nest` row (every agent run); other runs keep
+  `--disable-userns`.
+- `pot explain`'s note is now `a kit command started in this run (its wrapper) runs under its own policy, from the
+  children table`.
+- Every root's drvPath changes: its pot package gains `share/pot/run-1`, the marker wrappers look for. Bubblewrap is
+  now in every run's closure.
+- **Cost:** a wrapped command on the host takes 0.30–0.45 s on platform-vm, against 8 ms unwrapped; a nested child
+  adds about 0.2 s. Each root byte-compiles pot and caches closures and the scope probe.
+- `pot runs` hides wrapped runs that exited 0 (`--all` shows them).
+- Messages inside a run: `pot dispatch` and `pot run` work; `pot review --fetch`/`--discard` say they are the host's.
 - **A dispatch on a backend without `same-path-clone` runs the clone at its own path**, said on the startup line
   (`clone at its own path`), where v2.17.0 refused it. A context that `requires` `same-path-clone` still exits 125.
   bubblewrap proves it, so Linux dispatch is unchanged.
+- **On macOS, the children table refuses every row that would nest**, naming why and the host fix
+  (`pot (work): check-kb runs under its own, narrower policy, and Seatbelt cannot nest (a run on macOS starts no
+  runs inside it): run it on the host (just check-kb)`); a row whose policy equals the run's still execs in place,
+  and a wrapper in a Seatbelt run finds its run's pot beside `POT_POLICY` (`<run dir>/launcher`).
 - **Nesting on macOS is refused**, never flattened: `pot (work): Seatbelt cannot nest: a run on macOS starts no runs
   inside it (pot dispatch, pot CONTEXT CMD); run it on the host`.
 - **The claude-code kit, on macOS only:** its denial hooks read the denials file in the run's folder
@@ -30,14 +105,13 @@ unchanged (`pot-golden` holds them).
 - The run's shims find their sockets beside `POT_POLICY` (`/run/pot` under bubblewrap, as before).
 
 ### Fixed
+- **A host `core.fsmonitor` could run in a dispatch clone on the host.** The repo kit's grant source, read from the
+  clone's index with `git write-tree`, ran without `core.fsmonitor=false`. Every host git call on a clone now runs
+  with `core.fsmonitor=false` and no hooks, so no hook or filter of the clone's runs on the host (tested with a
+  global `filter`, `textconv` and `fsmonitor` that each write a marker).
 - pot's unit tests pass on macOS: their `/home/u` fixtures were rewritten by `realpath`, as `/home` is an automount
   there.
 
-### Upgrading
-- On a Mac: rebuild the root with this graft; then `pot doctor`, and `pot grant` as on Linux. Grants carry over.
-- Weaker than Linux, on purpose and stated: no nesting, no process or network isolation, no resource limits, and a
-  run can read the arguments and environment of this user's other processes (Seatbelt does not check
-  `KERN_PROCARGS2`) ([residual 22](docs/reference/pot.md#residual-risks)).
 
 ## v2.17.1 - 2026-11-18
 
