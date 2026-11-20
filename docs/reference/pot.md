@@ -1736,10 +1736,14 @@ depth: the tree after a run is untrusted output.
   `info/`, `commondir` and `gitdir`; and every `.git` file. When `commondir`, `config.worktree` or `gitdir` is
   absent at start, pot puts a neutral read-only placeholder there for the run (`commondir` holding `.`, the others
   empty), so a run cannot create one and point host git at a config it wrote; pot removes each placeholder after
-  the run, if it still holds what pot wrote. A pot that is killed mid-run (`kill -9`, a reboot) leaves its
-  placeholders, and its sockets, behind until the next run: every run (and `inspect`) first cleans up a lost
-  in-place run, removing its sockets and the placeholders that still hold what pot wrote. Until then they are
-  harmless: host git works with them as with absent names. The rest is writable, so a run can commit. It can also delete other
+  the run, if it still holds what pot wrote. A pot that is killed mid-run (`kill -9`, `kill`, a reboot) leaves its
+  placeholders, and its sockets (the siblings' `children.sock` among them) and its tree's sibling slots
+  (`<state>/trees/<id>`), behind until the next run: every run (and `inspect`) first cleans up a lost run, removing
+  its sockets, its tree's slots and the placeholders that still hold what pot wrote. It waits for the lost run's
+  backend: a pot killed alone leaves its backend running until the command ends, and a lost run whose sockets
+  still answer is left as it is. A clone-mode run that still needs its after event gets that cleanup from its
+  recovery (`pot runs`, `pot review`). Until then they are harmless: host git works with them as with absent
+  names. The rest is writable, so a run can commit. It can also delete other
   branches' refs.
 
 Protection covers the paths that exist when the run starts. A host-run file that the run creates (a new `justfile`

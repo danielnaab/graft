@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.20.1 - unreleased
+
+- **pot: a run whose host pot was killed (`kill`, SIGTERM) leaves no siblings' socket or slots behind.** v2.20.0's
+  next start skipped a lost run whose only socket was `children.sock` (every Seatbelt run with no git binding: its
+  proxy is TCP), and left it and the tree's slots (`<state>/trees/<id>`). The next start now cleans up any lost run
+  with the backend's cleanup, on both backends, once its backend has ended (a pot killed alone leaves its backend
+  running until the command ends; a lost run whose sockets still answer is left alone). A lost run that had logged
+  its exit is cleaned up too; a clone-mode run that still needs its after event keeps getting it from its recovery
+  ([Protected paths](docs/reference/pot.md#protected-paths)).
+
 ## v2.20.0 - 2026-11-19
 
 pot: siblings, not nesting. One trust rule for every backend (Daniel's decisions 11-22): every kit command runs only

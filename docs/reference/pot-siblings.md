@@ -65,7 +65,10 @@ wrapper -> pot run --command C      the run's broker (siblings.py, started by th
   started) and sends it SIGKILL 3 s later itself. A sibling still being composed is not started. **When the run ends** the backend stops
   its broker (waiting 12 s for it), which stops every sibling the same way first and starts none after. An entry
   whose broker died stops its own session the same way. The tree's slot is held by the broker and by the entry, so
-  it stays taken while either lives. A sibling never outlives the request that started it.
+  it stays taken while either lives. A sibling never outlives the request that started it. **A caller's host pot
+  killed** (outside a sibling, say by SIGTERM) runs no cleanup of its own: its backend runs on until the command
+  ends and stops the broker then, and the next start removes the run's `children.sock` and `<state>/trees/<id>`
+  (v2.20.1; [Protected paths](pot.md#protected-paths) on a lost run).
 - **The host entry** is `pot run --sibling`, the root's own pot (`launch.json`'s `potBin`, fixed at the run's
   start). It reads the request from fd 3, never from a file a run could reach. Inside a run it is refused.
 

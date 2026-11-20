@@ -2202,6 +2202,27 @@ except OSError as e:
   ran "pot (seatbelt): the caller's run ends" sb_ --net api.sbk.example bash -c 'sbk-tool sleep 3202 & sleep 5; echo leaving'
   sleep 6
   expect "stops the sibling with it" test "$(pgrep -f 'sleep 3202' | wc -l | tr -d ' ')" = 0
+  # v2.20.1 (the v2.20.0 Mac log): a host pot killed by SIGTERM; the next start, once its backend has ended, clears
+  # its children.sock (its only socket here: Seatbelt's proxy is TCP) and its tree's slots
+  sb_ --net api.sbk.example bash -c 'sbk-tool >/dev/null; sleep 3204; true' >/dev/null 2>&1 &
+  local kbg=$! krd="" kid="" kpid="" d
+  for _ in $(seq 60); do
+    for d in "$work"/sbstate/runs/*/; do
+      [ -S "$d/children.sock" ] && [ -d "$work/sbstate/trees/$(basename "$d")" ] && krd=${d%/} && break 2
+    done
+    sleep 0.5
+  done
+  kid=$(basename "${krd:-none}") && kpid=$(jq -r 'select(.ev == "start") | .pid' "$krd/log.jsonl" 2>/dev/null || true)
+  expect "pot (seatbelt): a run with a sibling has its socket and its tree's slots" test -n "$kpid"
+  kill -TERM "$kpid" && { wait "$kbg" 2>/dev/null || true; }
+  ran "pot (seatbelt): its host pot killed by SIGTERM, another run starts while its command runs" sb_ true
+  expect "which leaves the live run's socket" test -S "$krd/children.sock"
+  pkill -f 'sleep 3204' || true
+  for _ in $(seq 30); do [ -e "$krd/status" ] && break; sleep 0.5; done
+  expect "its backend ends" test -e "$krd/status"
+  ran "pot (seatbelt): another run starts after it" sb_ true
+  expect "and clears its children.sock" test ! -e "$krd/children.sock"
+  expect "and its tree's slots" test ! -e "$work/sbstate/trees/$kid"
   refused "pot (seatbelt): pot inside a run" sb_ pot work true
   expect "is refused: no run inside a run" holds "pot inside a run starts no run"
   refused "pot (seatbelt): pot dispatch inside a run" sb_ pot dispatch true
@@ -3228,6 +3249,27 @@ EOF
   ran "sibling: the caller's run ends" nb_ agent -c 'nk-chk sleep 3104 & sleep 3; echo leaving'
   sleep 4
   expect "stops the sibling with it" test "$(pgrep -fc 'sleep 3104' || true)" = 0
+  # v2.20.1: a host pot killed by SIGTERM (outside a sibling) skips its backend's cleanup; the next start clears the
+  # run's children.sock and its tree's slots, once its backend has ended (not while it still runs)
+  nb_ agent -c 'nk-chk k >/dev/null; sleep 3106; true' >/dev/null 2>&1 &
+  local kbg=$! krd="" kid="" kpid="" d
+  for _ in $(seq 60); do
+    for d in "$work"/nstate/runs/*/; do
+      [ -S "$d/children.sock" ] && [ -d "$work/nstate/trees/$(basename "$d")" ] && krd=${d%/} && break 2
+    done
+    sleep 0.5
+  done
+  kid=$(basename "${krd:-none}") && kpid=$(jq -r 'select(.ev == "start") | .pid' "$krd/log.jsonl" 2>/dev/null || true)
+  expect "sibling: a run with a sibling has its socket and its tree's slots" test -n "$kpid"
+  kill -TERM "$kpid" && { wait "$kbg" 2>/dev/null || true; }
+  ran "sibling: its host pot killed by SIGTERM, another run starts while its command runs" nb_ agent -c true
+  expect "which leaves the live run's socket" test -S "$krd/children.sock"
+  pkill -f 'sleep 3106' || true
+  for _ in $(seq 30); do [ -e "$krd/status" ] && break; sleep 0.5; done
+  expect "its backend ends" test -e "$krd/status"
+  ran "sibling: another run starts after it" nb_ agent -c true
+  expect "and clears its children.sock" test ! -e "$krd/children.sock"
+  expect "and its tree's slots" test ! -e "$work/nstate/trees/$kid"
   # the tree-wide cap (decision 18): 16 at once; the 17th is refused
   # shellcheck disable=SC2016 # the run's own variables
   ran "sibling: 17 at once" nb_ agent -c 'for i in $(seq 17); do nk-chk sleep 3105 > /dev/null 2>"cap.$i" & done; sleep 12; cat cap.*; rm -f cap.*; kill $(jobs -p) 2>/dev/null; sleep 4; echo done'

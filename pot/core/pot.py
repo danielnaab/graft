@@ -1470,12 +1470,48 @@ def scope_for(host, root, ctx, flags, detach):
     return {"note": "no resource limits (no user systemd: pot doctor)"}
 
 
-RUN_SOCKETS = ("proxy.sock", "relay.sock", "git.sock", "nix.sock")
+# v2.20.1: children.sock too; under Seatbelt (a TCP proxy) a run with no git binding has no other
+RUN_SOCKETS = ("children.sock", "proxy.sock", "relay.sock", "git.sock", "nix.sock")
+
+
+def helpers_alive(rd):
+    """Whether a lost run's host helpers still listen: its pot is gone but its backend is not (a pot killed alone,
+    say by SIGTERM: the backend runs on until the command ends, stops its helpers, then writes `status`). One of its
+    sockets accepting a connection says so. Connected from inside the folder: the full path may be longer than
+    sun_path allows."""
+    if os.path.exists(os.path.join(rd, "status")):
+        return False
+    import socket
+    here = os.open(".", os.O_RDONLY)
+    try:
+        os.chdir(rd)
+        for n in RUN_SOCKETS:
+            if not os.path.exists(n):
+                continue
+            c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            c.settimeout(1)
+            try:
+                c.connect(n)
+                return True
+            except socket.timeout:
+                return True
+            except OSError:
+                pass
+            finally:
+                c.close()
+        return False
+    except OSError:
+        return False
+    finally:
+        os.fchdir(here)
+        os.close(here)
 
 
 def tidy_lost(host):
-    """K4: an in-place run whose pot was killed (no exit, its process gone) leaves its sockets in its run folder; the
-    next pot removes them, with the backend's cleanup (a clone-mode run's comes with its recovery)."""
+    """K4: a run whose pot was killed (its process gone) leaves its sockets in its run folder, and a top run with
+    siblings its tree's slots (<state>/trees/<id>); the next pot removes both with the backend's cleanup, once the
+    run's backend is gone too (helpers_alive). A clone-mode run that still needs its after event gets it, and its
+    cleanup, from its recovery."""
     runs = os.path.join(host.state, "runs")
     try:
         names = os.listdir(runs)
@@ -1487,7 +1523,7 @@ def tidy_lost(host):
             continue
         ev = R.read_log(os.path.join(rd, "log.jsonl"))
         s = R.first(ev, "start")
-        if not s or s.get("mode") == "clone" or R.ended(ev) or R.process_alive(s):
+        if not s or R.process_alive(s) or R.needs_after(ev, R.process_alive) or helpers_alive(rd):
             continue
         try:
             prog = backend_cmd(host, s.get("backend"))[1]
