@@ -2072,6 +2072,8 @@ def sibling_client(policy, key, row, args, hook):
         except OSError:
             d = b""
         if not d:
+            for t in outs:
+                t.join(5)
             err(f"pot ({ctxn}): {name}: this run's broker went away (the run is ending?)")
             return 1
         buf += d
@@ -2185,9 +2187,10 @@ def sibling_entry(host, root, flags):
         if hcwd == rh or hcwd.startswith(rh + "/"):
             src = w["path"]
             break
-    os.chdir(src)
-    if not os.path.realpath(os.getcwd()) == os.path.realpath(src):
-        raise C.Refusal(f"pot ({ctxn}): {row['command']}: the caller's repository {src} moved: run it on the host")
+    try:
+        os.chdir(src)
+    except OSError:
+        raise C.Refusal(f"pot ({ctxn}): {row['command']}: the caller's repository {src} is gone: run it on the host") from None
     others = [t for t in tops if t != src]
     fl = {"commandKit": row["kit"], "commandSlot": row["slot"], "wrapped": True, "noInclude": True,
           "mode": caller.get("mode") or "in-place", "repo": others, "wsFacts": plaunch.get("wsFacts")}
@@ -3654,7 +3657,7 @@ def doctor(host, root, rootjson):
         lines.append((f"! {label:<8} {first}" if label else f"{'':<9}! {first}") if bad else f"{label:<11}{first}")
         lines.extend(" " * 11 + r for r in rest)
     sp = lambda p: C.canon_path(C.expand(p, host.home), host.home) if p else p   # noqa: E731
-    ver = "v2.19.2"
+    ver = "v2.20.0"
     lines.append(f"pot doctor · root {root.get('name', '?')} · {host.machine} · pot {ver}")
     # the backend
     try:
@@ -3917,7 +3920,7 @@ def init(host, args, flags):
     f = os.path.join(d, "flake.nix")
     if os.path.exists(f):
         raise C.Refusal(f"pot init: {C.canon_path(f, host.home)} exists; edit it, or choose another folder: pot init DIR")
-    graft_url = os.environ.get("POT_INIT_GRAFT") or "github:danielnaab/graft/v2.19.2"
+    graft_url = os.environ.get("POT_INIT_GRAFT") or "github:danielnaab/graft/v2.20.0"
     os.makedirs(d, exist_ok=True)
     grants = os.path.join(C.canon_path(d, host.home), "grants.json")
     with open(f, "w") as fh:

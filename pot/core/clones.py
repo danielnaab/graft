@@ -8,9 +8,7 @@ config, hooks or fsmonitor, so the host's filters (git-lfs's smudge) never run o
 """
 import datetime
 import os
-import re
 import shutil
-import stat
 import subprocess
 
 import runs as R

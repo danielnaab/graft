@@ -94,14 +94,18 @@ def answer(c, obj):
 
 
 def stop(p):
-    """SIGTERM to the sibling's session, GRACE seconds, then SIGKILL."""
-    try:
-        os.killpg(p.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        return
+    """SIGTERM to the sibling's session, again each second (one that came while the sibling was starting is not
+    lost: the re-review's M1), up to GRACE seconds; then SIGKILL."""
     end = time.time() + GRACE
-    while time.time() < end and p.poll() is None:
-        time.sleep(0.05)
+    while p.poll() is None and time.time() < end:
+        try:
+            os.killpg(p.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            return
+        for _ in range(20):
+            if p.poll() is not None:
+                break
+            time.sleep(0.05)
     try:
         os.killpg(p.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
@@ -149,7 +153,7 @@ def serve(c):
                 and isinstance(head.get("cwd"), str) and isinstance(head.get("hook") or {}, dict)
             if not ok:
                 raise ValueError("a malformed request")
-        except (ValueError, OSError, TypeError) as e:
+        except (ValueError, OSError, TypeError, RecursionError) as e:
             if isinstance(e, OSError) and not isinstance(e, ValueError):
                 e = "no request in time" if isinstance(e, socket.timeout) else e.strerror or e
             log(f"refused: {e}")

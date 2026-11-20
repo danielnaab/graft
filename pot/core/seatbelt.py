@@ -733,6 +733,7 @@ def run(cfg, rundir):
         pass
     old = {s: signal.signal(s, signal.SIG_IGN) for s in (signal.SIGINT, signal.SIGTTOU)}
     pgid = None
+    pending = []                 # signals a sibling's broker sent before the command started
     if launch.get("siblingOf"):
         # v2.20.0: a sibling's command is its own process group, so the INT and TERM its broker sends to the session
         # are passed on to it; the finally below stops what is left
@@ -741,6 +742,9 @@ def run(cfg, rundir):
         import threading
 
         def forward(sig, _=None):
+            if not pgid:
+                pending.append(sig)      # before the command started: replayed once it has (the re-review's M1)
+                return
             if pgid:
                 try:
                     os.killpg(pgid, sig)
@@ -756,6 +760,8 @@ def run(cfg, rundir):
         # the run is its own process group, in the terminal's foreground when pot is (^C reaches it alone)
         p = subprocess.Popen(cmd, env=env, cwd=sb["cwd"], process_group=0, close_fds=True)
         pgid = p.pid
+        for sig_ in pending:
+            forward(sig_)
         if fg:
             os.tcsetpgrp(0, pgid)
             os.killpg(pgid, signal.SIGCONT)      # in case it read the terminal before it was in the foreground

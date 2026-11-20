@@ -59,9 +59,10 @@ wrapper -> pot run --command C      the run's broker (siblings.py, started by th
   apply to it as to any run.
 - **Cancellation is the socket closing** (decision 14): the client killed, the agent's tool timeout (it kills the
   client's process tree), or the client's SIGTERM or SIGHUP (it closes the socket and exits 143 or 129). The broker
-  then sends SIGTERM to the sibling's session, waits up to 10 s (longer than the sibling's own cleanup), and sends
-  SIGKILL. Under Seatbelt the command is its own process group, so the backend passes SIGTERM on to it and sends it
-  SIGKILL 3 s later itself. A sibling still being composed is not started. **When the run ends** the backend stops
+  then sends SIGTERM to the sibling's session, again each second (so one that lands while the sibling is starting
+  is not lost), for up to 10 s (longer than the sibling's own cleanup), and then SIGKILL. Under Seatbelt the command
+  is its own process group, so the backend passes SIGTERM on to it (replaying one that came before the command
+  started) and sends it SIGKILL 3 s later itself. A sibling still being composed is not started. **When the run ends** the backend stops
   its broker (waiting 12 s for it), which stops every sibling the same way first and starts none after. An entry
   whose broker died stops its own session the same way. The tree's slot is held by the broker and by the entry, so
   it stays taken while either lives. A sibling never outlives the request that started it.
@@ -171,8 +172,10 @@ policy alone, so each dimension below needs its own reason, and a test.
   as decision 7 said.
 - **No access to the caller's TMPDIR** (decision 14): a sibling's `/tmp` is its own, so a tool handed a path under
   the caller's `/tmp` does not find it. A shared request folder comes only when a real tool needs one.
-- **The per-hop cost:** a sibling is a host start (0.50 s on platform-vm for `check-tasks`, against about 0.2 s for
-  a nested child), so a commit whose hook runs two checks pays it twice.
+- **The per-hop cost:** a sibling is a host start plus about 45 ms (measured on platform-vm: 0.34 s against 0.30 s
+  for the same command started on the host, in tests/run.sh's fixture; a host start of flexion-assistant's
+  `check-tasks` takes 0.50 s), against about 0.2 s for a nested child. A commit whose hook runs two checks pays it
+  twice.
 - **macOS (residual 22):** the caller shares the user's processes with its sibling, as with every process: it can
   read a sibling's arguments and environment. Admission makes that nothing new (the sibling's variables and
   credentials are covered by the caller's); a sibling's state is the one thing of its own the caller could reach
