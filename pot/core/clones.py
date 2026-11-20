@@ -249,47 +249,6 @@ def writable_at(dfd, name):
         os.close(fd)
 
 
-def remove_child_clone(state, cid):
-    """A nested dispatch child's clone (runs/<parent>/children/<child>/clone, written by its parent) and its host
-    staging (runs/<parent>/child-staging/<child>/staging): only under pot's own runs folder, links removed, never
-    followed. Its logs stay."""
-    pid, _, child = (cid or "").partition("/")
-    if not (re.fullmatch(r"[0-9a-f]{4}", pid) and re.fullmatch(r"[0-9a-f]{4}", child)):
-        raise CloneError(f"refusing to remove {cid}: not a child run's id")
-    prd = os.path.join(os.path.realpath(state), "runs", pid)
-    # S1 (fix round 3): every step below the runs folder through directory fds opened with O_NOFOLLOW, so a parent
-    # that swaps a folder for a link between a check and the removal reaches nothing outside it
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    for sub, name in (("children", "clone"), ("child-staging", "staging")):
-        fds = []
-        try:
-            fds.append(os.open(prd, flags))
-            fds.append(os.open(sub, flags, dir_fd=fds[-1]))
-            fds.append(os.open(child, flags, dir_fd=fds[-1]))
-        except OSError:
-            for fd in fds:
-                os.close(fd)
-            continue
-        d = fds[-1]
-        try:
-            try:
-                st = os.lstat(name, dir_fd=d)
-            except FileNotFoundError:
-                continue
-            if not stat.S_ISDIR(st.st_mode):
-                os.unlink(name, dir_fd=d)
-                continue
-            try:
-                shutil.rmtree(name, dir_fd=d)
-            except OSError:
-                # read-only folders the run left: made writable without following a link, then removed again
-                writable_at(d, name)
-                shutil.rmtree(name, dir_fd=d, ignore_errors=True)
-        finally:
-            for fd in fds:
-                os.close(fd)
-
-
 def remove_run_dir(state, rundir):
     """C1: a run folder with no log (the run was refused before its start), only under pot's own runs folder; links
     inside are removed, never followed."""

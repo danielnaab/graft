@@ -163,6 +163,8 @@ def record(rid, events, alive):
         "exit": (125 if stop else (ex or {}).get("status")), "lost": lost,
         "stop": {k: stop.get(k) for k in ("reason", "kits", "fix")} if stop else None,
         "clone": clone, "attention": attention(af, fetched=bool(fetch)), "children": [],
+        # v2.20.0: a sibling whose request went away before it started (its exit event's killed)
+        **({"killed": (ex or {})["killed"]} if (ex or {}).get("killed") == "caller" else {}),
     }
 
 

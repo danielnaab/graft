@@ -7,8 +7,8 @@ The backend reads <run dir>/policy.json (policy.json v1, the contract) and the l
 carries the policy out with bubblewrap. --config names the store paths this backend was built with.
 
 Guarantees it proves (probe): closure-store own-netns own-pidns no-tiocsti protected-as-mounts
-local-listen in-place same-path-clone private-proxy root-files (nest: not in 1a, whose children
-tables are empty, so every run gets --disable-userns).
+local-listen in-place same-path-clone private-proxy root-files. Never nest (v2.20.0): a run's narrower
+children are siblings the host starts (siblings.py), and every run gets --disable-userns.
 
 What it does with the workspace (in place): the repository bound writable, each git directory, its
 config and hooks, the files that say where a repository is, and the protect list bound onto
@@ -92,12 +92,8 @@ def probe(cfg):
     if r.returncode != 0:
         print(json.dumps({"guarantees": [], "error": r.stderr.strip()}))
         return
-    # nest (v2.18.0): bubblewrap inside bubblewrap, the outer one keeping user namespaces
-    n = subprocess.run([cfg["bwrap"], "--unshare-all", "--unshare-user", "--ro-bind", "/", "/", "--proc", "/proc",
-                        "--dev", "/dev", "--tmpfs", "/tmp", "--", cfg["bwrap"], "--unshare-all", "--unshare-user",
-                        "--disable-userns", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
-                        "true"], capture_output=True, text=True)
-    print(json.dumps({"guarantees": GUARANTEES + (["nest"] if n.returncode == 0 else [])}))
+    # v2.20.0: no backend proves nest (a run starts its narrower children as siblings, on the host)
+    print(json.dumps({"guarantees": GUARANTEES}))
 
 
 # ---------------------------------------------------------------- the workspace's pins (in place)
@@ -696,12 +692,8 @@ def prepare(cfg, rundir, print_cmd=False):
     os.chmod(EMPTY, 0o444)
     home, ctx = launch["home"], policy["context"]
     view = next((i for i in eff(policy, "view")), None)
-    # §10: a run keeps user namespaces only when its children table has a row that nests (and the backend proved
-    # nest); every other run, and every child with no such row of its own, gets --disable-userns
-    nests = "nest" in (policy["backend"].get("proved") or []) and any(
-        r.get("how") == "nest" for r in (policy.get("children") or {}).values())
-    args = [["--unshare-all"], ["--unshare-user"]] + ([] if nests else [["--disable-userns"]]) \
-        + [["--die-with-parent"], ["--hostname", "pot"]]
+    # §10 (v2.20.0): no run nests, so every run gets --disable-userns (decision 13)
+    args = [["--unshare-all"], ["--unshare-user"], ["--disable-userns"], ["--die-with-parent"], ["--hostname", "pot"]]
     mounts = []          # (dest, priority, args): sorted by depth, then priority (write 0, read 1, hidden 2)
 
     def mount(dest, prio, a):
@@ -951,9 +943,10 @@ def prepare(cfg, rundir, print_cmd=False):
     for b in {b["socket"]: b for b in policy.get("bindings") or [] if b.get("socket")}.values():
         if b.get("socket"):
             sock = os.path.basename(b["socket"])
-            # a nested child uses its parent's binding (the children table allows only equal ones)
-            src = b["socket"] if launch.get("nested") else os.path.join(rundir, sock)
-            mount(b["socket"], 1, ["--bind", src, b["socket"]])
+            mount(b["socket"], 1, ["--bind", os.path.join(rundir, sock), b["socket"]])
+    # v2.20.0: the run's broker for its siblings (siblings.py), when its table has a sibling row
+    if has_siblings(policy, launch):
+        mount(f"{run_mnt}/children.sock", 1, ["--bind", os.path.join(rundir, "children.sock"), f"{run_mnt}/children.sock"])
     # the launcher pointer (v2.18.0): /run/pot/launcher is this run's own pot, a read-only mount point the run can't
     # rename or replace, so a wrapper in the run reaches the children table and never another pot; ~/.config/pot/launcher
     # names it too, read-only (pot doctor's and a person's path)
@@ -964,14 +957,6 @@ def prepare(cfg, rundir, print_cmd=False):
             os.symlink(f"{run_mnt}/launcher", os.path.join(ld, "launcher"))
         mount(f"{run_mnt}/launcher", 1, ["--ro-bind", os.path.join(launch["potBin"], "pot"), f"{run_mnt}/launcher"])
         mount(home + "/.config/pot", 1, ["--ro-bind", ld, home + "/.config/pot"])
-    # the children table's prepared rows, read-only, and the children's run folders, read-write (decision 2)
-    if nests:
-        tdir = launch.get("tableDir") or os.path.join(rundir, "table")
-        mount(f"{run_mnt}/table", 1, ["--ro-bind", tdir, f"{run_mnt}/table"])
-        os.makedirs(os.path.join(rundir, "children"), mode=0o700, exist_ok=True)
-        mount(f"{run_mnt}/children", 0, ["--bind", os.path.join(rundir, "children"), f"{run_mnt}/children"])
-        for src, at in launch.get("tableBinds") or []:
-            mount(at, 0, ["--bind", src, at])
     with open(os.path.join(rundir, "hidden.txt"), "w") as f:
         f.write("".join(i["value"] + "\n" for i in eff(policy, "hidden")))
     mount(home + "/.pot-hidden", 1, ["--ro-bind", os.path.join(rundir, "hidden.txt"), home + "/.pot-hidden"])
@@ -1015,7 +1000,8 @@ def prepare(cfg, rundir, print_cmd=False):
         before["hostrun"][pins.top] = hostrun_hashes(pins.top, pins.protect)
         before["refs"][pins.top] = refs(cfg, pins.top)
     for w, pins in clones:
-        before.setdefault("clones", []).append({"top": w["path"], "clone": w["clone"], "gits": sorted(pins.dotgits)})
+        if not launch.get("inClone"):     # a sibling in its caller's clone: the caller's end stages it (v2.20.0)
+            before.setdefault("clones", []).append({"top": w["path"], "clone": w["clone"], "gits": sorted(pins.dotgits)})
     with open(os.path.join(rundir, "before.json"), "w") as f:
         json.dump(before, f)
     with open(os.path.join(rundir, "launch.json"), "w") as f:
@@ -1134,6 +1120,19 @@ def start_bindings(cfg, rundir, policy, launch):
         socks.append("git.sock")
     if socks:
         procs.append(subprocess.Popen(cmd, cwd=rundir, stdout=subprocess.DEVNULL, stderr=log))
+    if has_siblings(policy, launch):
+        # v2.20.0: the siblings' broker (siblings.py), its socket in the run directory; the tree's slots outside every
+        # run folder, in pot's state (the run directory's grandparent)
+        state = os.path.dirname(os.path.dirname(os.path.realpath(rundir)))
+        top = os.path.basename(os.path.realpath(launch.get("tree") or rundir))
+        sp = subprocess.Popen([cfg["python"], "-I", "-S", os.path.join(os.path.dirname(cfg["broker"]), "siblings.py"),
+                               "--socket", "children.sock", "--run", os.path.realpath(rundir),
+                               "--tree", os.path.join(state, "trees", top), "--context", policy["context"],
+                               "--entry", json.dumps(launch["hostPot"])],
+                              cwd=rundir, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log)
+        sp.pot_siblings = True
+        procs.append(sp)
+        socks.append("children.sock")
     if binding(policy, "nix"):
         nix = tools.get("nix")
         if not nix:
@@ -1153,6 +1152,8 @@ def start_bindings(cfg, rundir, policy, launch):
 
 def run(cfg, rundir):
     policy, launch = load(rundir)
+    if launch.get("siblingOf"):
+        stop_signals()
     net = [i for i in eff(policy, "network") if i["class"] == "reach"]
     proxy = None
     if net:
@@ -1161,11 +1162,8 @@ def run(cfg, rundir):
         tmux = (launch.get("hostTools") or {}).get("tmux")
         live = ["--tmux", tmux, "--pane", launch["pane"]] if tmux and launch.get("pane") else []
         live += ["--fix", launch.get("netFix") or "the repo kit's requests.network"]
-        if launch.get("nested"):
-            # a nested child: its own allow list, out through its parent's proxy (the parent's covers it); its denials
-            # name its own kit's requests.network, and no one-run flag (pot --net is the host's)
-            live = ["--upstream", f"{policy['mounts']['run']}/proxy.sock", "--nested", "1",
-                    "--fix", launch.get("netFix") or "its kit's requests.network"]
+        if launch.get("siblingOf"):
+            live += ["--sibling", "1"]      # no one-run line: pot --net is the host's
         proxy = subprocess.Popen([cfg["python"], "-I", "-S", cfg["proxy"], "proxy.sock",
                                   "--denials", os.path.join(rundir, "denials"), "--context", policy["context"]] + live + allow,
                                  cwd=rundir, stdout=log, stderr=subprocess.STDOUT)
@@ -1177,14 +1175,9 @@ def run(cfg, rundir):
             log.close()
             with open(os.path.join(rundir, "proxy.log")) as f:
                 raise Stop("the network proxy did not start: " + f.read())
-    helpers = [] if launch.get("nested") else start_bindings(cfg, rundir, policy, launch)
+    helpers = start_bindings(cfg, rundir, policy, launch)
     env = run_env(cfg, policy, launch)
-    if launch.get("nested"):
-        # the parent holds its children's credentials (residual 7): the values are in its environment
-        env.update({n: os.environ[n] for b in binding(policy, "credential") + binding(policy, "mcp")
-                    for n in b.get("env") or [] if n in os.environ})
-    else:
-        env.update(credentials(policy))
+    env.update(credentials(policy))
     env.update(launch.get("hookEnv") or {})
     with open(os.path.join(rundir, "bwrap.args"), "rb") as f:
         argbytes = f.read()
@@ -1217,21 +1210,43 @@ def run(cfg, rundir):
     finally:
         signal.signal(signal.SIGINT, old)
         tools = launch.get("hostTools") or {}
-        if binding(policy, "status.relay") and tools.get("workmux") and launch.get("pane") and not launch.get("nested"):
+        if binding(policy, "status.relay") and tools.get("workmux") and launch.get("pane"):
             # the agent is gone: clear its pane (workmux has no command that unregisters an agent)
             subprocess.run([tools["workmux"], "set-window-status", "clear"], env={**os.environ, "TMUX_PANE": launch["pane"]},
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for h in ([proxy] if proxy else []) + helpers:
-            h.terminate()
-            try:
-                h.wait(2)
-            except subprocess.TimeoutExpired:
-                h.kill()
+        stop_helpers(([proxy] if proxy else []) + helpers)
     if status < 0:
         status = 128 - status
     with open(os.path.join(rundir, "status"), "w") as f:
         f.write(str(status))
     return status
+
+
+def stop_helpers(procs):
+    """The run's host helpers, at its end: SIGTERM, then SIGKILL after 2 s; the siblings' broker gets 5 s, which it
+    spends stopping each sibling (SIGTERM, 2 s, SIGKILL) before it exits."""
+    for h in procs:
+        h.terminate()
+    for h in procs:
+        try:
+            h.wait(5 if getattr(h, "pot_siblings", False) else 2)
+        except subprocess.TimeoutExpired:
+            h.kill()
+
+
+def has_siblings(policy, launch):
+    """Whether this run starts a siblings' broker: a sibling row in its table, and the host pot to start them."""
+    return bool(launch.get("hostPot")) and any(r.get("how") == "sibling" for r in (policy.get("children") or {}).values())
+
+
+def stop_signals(forward=None):
+    """A sibling's backend (v2.20.0): SIGTERM from its broker ends the run as its command's end would (the finally
+    clauses stop the helpers), never as a bare exit that leaves them; FORWARD(sig) passes a signal on first (Seatbelt,
+    whose command is its own process group)."""
+    def on(sig, _):
+        if forward:
+            forward(sig)
+    signal.signal(signal.SIGTERM, on)
 
 
 # ---------------------------------------------------------------- after
@@ -1575,24 +1590,6 @@ def clone_after(cfg, rundir, policy, launch, b, ev):
         ev["fetch_failed"] = "; ".join(FETCH_FAILED)
 
 
-def look(cfg, rundir):
-    """A nested dispatch child's commits, as its parent sees them (pot review CHILD --json inside the parent): read by
-    the sandboxed git, the clone read-only. A claim, as good as the parent; the host stages its own look (H7)."""
-    _, launch = load(rundir)
-    clone = os.path.join(rundir, "clone")
-    base = (launch.get("clone") or {}).get("base") or ""
-    r = subprocess.run(sandboxed_git(cfg, rundir, clone, ["for-each-ref", "--format=%(refname:strip=2) %(objectname)", "refs/heads"]),
-                       capture_output=True, text=True, timeout=600)
-    refs = {l.split(" ", 1)[0]: l.split(" ", 1)[1] for l in git_lines(r.stdout) if " " in l}
-    moved = {n: o for n, o in refs.items() if o != base}
-    commits = []
-    if moved and base:
-        r = subprocess.run(sandboxed_git(cfg, rundir, clone, ["log", "--format=%H%x09%s", *moved.values(), "--not", base]),
-                           capture_output=True, text=True, timeout=600)
-        commits = [{"commit": l.split("\t", 1)[0], "subject": l.split("\t", 1)[-1]} for l in git_lines(r.stdout)]
-    print(json.dumps({"base": base, "refs": moved, "commits": commits}))
-
-
 def remove_sealed(rundir):
     """v2.19.1: the seals' bases (runs/<id>/sealed), what the run left there already listed by the after step: removed,
     never following a link, a folder the run made unwritable made writable first."""
@@ -1627,7 +1624,17 @@ def cleanup(rundir):
                     pass
     except (OSError, ValueError):
         pass
-    for n in ("proxy.sock", "relay.sock", "git.sock", "nix.sock", "nix-relay", "bwrap.args", "bwrap.args.all",
+    try:
+        with open(os.path.join(rundir, "launch.json")) as f:
+            top = not json.load(f).get("siblingOf")
+    except (OSError, ValueError):
+        top = False
+    if top:
+        # v2.20.0: the tree's sibling slots, once its top run has ended (its broker stopped every sibling first)
+        import shutil
+        shutil.rmtree(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(rundir))), "trees",
+                                   os.path.basename(os.path.realpath(rundir))), ignore_errors=True)
+    for n in ("children.sock", "proxy.sock", "relay.sock", "git.sock", "nix.sock", "nix-relay", "bwrap.args", "bwrap.args.all",
               "closure.args", "passwd", "group", "hosts") + tuple(x for x in os.listdir(rundir) if x.startswith("upload-pack-")):
         try:
             os.unlink(os.path.join(rundir, n))
@@ -1659,8 +1666,6 @@ def main(argv):
             after(cfg, rundir)
         elif verb == "cleanup":
             cleanup(rundir)
-        elif verb == "look":
-            look(cfg, rundir)
         else:
             print(f"backend: unknown verb {verb}", file=sys.stderr)
             return 2

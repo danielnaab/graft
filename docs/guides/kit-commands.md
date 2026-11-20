@@ -5,8 +5,8 @@ status: working
 
 A provider's kit declares the programs it ships as `commands`. From graft v2.18.0, each consumer's tools hold a
 **wrapper** of the same name, so `pot` runs your command under its own policy: on the host, from `just`, from a git
-hook, and nested inside an agent's run. The wrapped command gets only what it requests, never the agent's token or
-MCP. This page is for a provider; the consumer's side is [Move to v2.18.0](move-to-v2-18.md).
+hook, and beside an agent's run, as a sibling the host starts (v2.20.0). The wrapped command gets only what it
+requests and the repo kit's reach, never the agent's token or MCP, nor the context's standing reach. This page is for a provider; the consumer's side is [Move to v2.18.0](move-to-v2-18.md).
 
 ## Before you begin
 
@@ -48,7 +48,7 @@ MCP. This page is for a provider; the consumer's side is [Move to v2.18.0](move-
 3. Try it in a consumer: `graft try` in the consumer, then `nix run .#graft sync` there. Check:
    - `head -3 "$(nix build --no-link --print-out-paths .#tools)/bin/check-kb"` is a wrapper (a comment names pot-kits/1);
    - `just --list` shows the generated recipes, from `<scions>/kits.just`;
-   - `pot explain claude` lists your commands on its `children` row as `nest`.
+   - `pot explain claude` lists your commands on its `children` row as `sibling`.
 
 4. Release a minor version: a new field, nothing removed.
 
@@ -64,10 +64,13 @@ MCP. This page is for a provider; the consumer's side is [Move to v2.18.0](move-
 
 - On the host, `check-kb` in the consumer runs quietly; `pot runs --all` lists it (plain `pot runs` hides wrapped
   runs that exited 0).
-- Inside `pot claude`, the same command nests: it cannot reach the agent's hosts.
+- Inside `pot claude`, the same command is a sibling: it cannot reach the agent's hosts, and the agent waits for it
+  and gets its exit code.
 - `git commit` in the consumer runs your hook command.
-- On macOS, the command runs under Seatbelt on the host; inside a run, a row that would nest is refused, naming
-  your recipe (`run it on the host (just check-kb)`), so keep the recipe's name meaningful.
+- On macOS, the command runs under Seatbelt, on the host and as a sibling alike. A row that needs reach the run
+  lacks is refused, naming your recipe (`run it on the host (just check-kb)`), so keep the recipe's name meaningful.
+- A sibling's standard input and output are the caller's terminal or pipes; a file redirected into it arrives
+  through a pipe. Its `/tmp` is its own: don't hand it the caller's temporary files.
 
 ## If something goes wrong
 

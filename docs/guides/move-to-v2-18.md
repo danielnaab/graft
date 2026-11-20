@@ -3,6 +3,8 @@ status: working
 ---
 # Move to v2.18.0
 
+Since v2.20.0 a kit command inside a run is a sibling, not a nested child: see [Move to v2.20.0](move-to-v2-20.md).
+
 graft v2.18.0 wraps kit commands: a consumer's tools hold a wrapper for each command its kits declare, which runs
 the command in pot under its own policy, nested when it starts inside an agent's run. Runs nest, and `pot dispatch`
 works inside a run. This page says what to change, in order: roots, then consumers.

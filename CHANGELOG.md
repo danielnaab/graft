@@ -1,5 +1,47 @@
 # Changelog
 
+## v2.20.0 - unreleased
+
+pot: siblings, not nesting. One trust rule for every backend (Daniel's decisions 11-22): every kit command runs only
+under its own grant, never with a caller's authority. Design, review list and residuals:
+[siblings, not nesting](docs/reference/pot-siblings.md). Moving from v2.19.x:
+[Move to v2.20.0](docs/guides/move-to-v2-20.md).
+
+- **pot: a kit command inside a run is a sibling.** A wrapped command whose policy is narrower than the run's is no
+  longer nested in it: the run's broker (new, host-side) starts it beside the run, on the host, under the command's
+  own policy alone, composed at its start and admitted only while the run that asked covers it. The caller passes
+  its terminal or pipes (`SCM_RIGHTS`), blocks, and gets the exit code; `^C` reaches the sibling; the sibling stops
+  when its caller goes (killed, a tool timeout) or the run ends. At most 16 run at once in a run's tree, and 8
+  deep. On macOS too: `git commit` inside `pot claude` now runs a wrapped pre-commit hook, where v2.19.x refused
+  (`Seatbelt cannot nest`) ([Siblings and the children table](docs/reference/pot.md#siblings-and-the-children-table)).
+- **pot: a kit command never gets the context's standing reach** (its `include`d kits, such as a personal kit's
+  `git.fetch`), on the host or inside a run: its own kit's grant and the repo kit's reach only. No grant asks again.
+- **pot: a wrapper with no row in the run's children table is refused** (exit 126: `… not in this run's children
+  table (a wrapper from another workspace?): run it on the host`); it ran under the run's own policy before.
+- **pot: a write sibling keeps its caller's protected paths:** a row with write access that lacks one of the run's
+  `protect` patterns is refused (`needs protect PATTERN`).
+- **pot: an agent's run starts no other agent run** under another policy until `pot serve` (the row is refused);
+  one identical to the run still runs in place.
+- **Removed:** nested bubblewrap and nested runs; `pot dispatch`, `pot --clone` and `--detach` inside a run (refused:
+  `pot dispatch is the host's: a run starts no clone inside it; run it on the host`); nested children's records
+  (`PARENT/CHILD` ids in `pot runs` and `pot review`, `pot review CHILD --json` inside a run; folders an older pot
+  left are not read); the table and children folders bound into a run (`/run/pot/table/`, `/run/pot/children/`); the
+  nested proxy; residual 23 (a parent held everything its children got).
+- **pot: every run gets `--disable-userns`;** no backend proves `nest`.
+- **pot: `^C` at the terminal no longer kills the host's pot** while a run goes (a traceback, and no exit or after
+  event): pot ignores it, as its backend did and the reference said, so it reaches the command alone. An agent in
+  raw mode never sent one, so only a plain command (`pot bash -c …`) met it.
+- **pot: a directory as a wrapper's standard input is `/dev/null`** (the in-run pot could not start with one).
+- Contracts: `kit/1`, `pot-kits/1` and `grants/1` unchanged. `run-env/1` stays version 1: `children`'s `how` is
+  `exec` or `sibling` (no `nest`), `/run/pot/children.sock` is added, the nested paths are no longer bound.
+  `runs/1` stays version 1: `via: "sibling"`, the `start` event's `caller` and `depth`, `killed: "caller"`;
+  `parent` and `children` are always `null` and `[ ]`.
+- Residuals added: the Windmill worker runs kit commands unconfined until it can sandbox (25, decision 22); a
+  sibling has no access to its caller's `/tmp`, and each is a host start, about 0.5 s on platform-vm (26).
+- tests/run.sh: the `nest` section is `sibling`: siblings' policies, escalation (the caller's token, standing reach,
+  write access, processes), fds, forged requests, `^C`, a killed client, a tool timeout, the run's end, the tree's
+  cap, hooks (a failing one aborts the commit) and a dispatch clone's hook.
+
 ## v2.19.2 - 2026-11-19
 
 From the Mac checks of v2.19.1 (Seatbelt, which platform-vm cannot run). Both fixes are security fixes for macOS.

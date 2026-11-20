@@ -10,7 +10,7 @@ are in [pot](../reference/pot.md#the-model).
 ## Before you begin
 
 - Linux, with unprivileged user namespaces (the default on NixOS, Debian, Ubuntu and Fedora), or macOS, where pot
-  uses Seatbelt and is weaker: no process or network isolation, no nesting ([On macOS](../reference/pot.md#on-macos)).
+  uses Seatbelt and is weaker: no process or network isolation ([On macOS](../reference/pot.md#on-macos)).
 - A root, the place where your grants live ([Set up a root](#set-up-a-root)).
 - Claude Code installed on the host.
 - tmux, if you want to see denials while the agent runs. Without it, you see them when the run ends.
@@ -101,11 +101,11 @@ pane's status working.
 ## Kit commands inside a run
 
 A kit's commands (`check-kb`, `just check`, the pre-commit hook) are [wrapped](../reference/pot.md#wrapped-commands):
-inside `pot claude` each runs nested, under its own policy, so it cannot reach the agent's model API, token or MCP.
-`git commit` inside the run runs the repository's hook command the same way. `pot explain claude` lists them on its
-`children` row. On macOS, Seatbelt cannot nest: such a command is refused, and so is the pre-commit hook in
-`git commit` (commit on the host, or `--no-verify`). A command that needs reach the agent's run lacks is refused,
-naming where to run it:
+inside `pot claude` each runs beside the agent's run, as a sibling the host starts under the command's own policy,
+so it cannot reach the agent's model API, token or MCP. The agent waits for it and gets its exit code; `^C` reaches
+it. `git commit` inside the run runs the repository's hook command the same way, on Linux and macOS, and a failing
+hook aborts the commit. `pot explain claude` lists them on its `children` row. A command that needs reach the
+agent's run lacks is refused, naming where to run it:
 
 ```
 pot (work): meeting-kit needs WM_TOKEN, git.push, which this run (claude) lacks: run it on the host (just meeting-run)
@@ -381,8 +381,9 @@ in [Home-manager options](../reference/pot.md#home-manager-options).
 - **`pot: check-kb runs without pot (…)`.** A wrapped command found no root's pot to run it (no
   `~/.config/pot/launcher`, as on a Mac with pot off, or a root older than v2.18.0), and ran it unwrapped. The
   parenthesis names the fix.
-- **`… Seatbelt cannot nest …: run it on the host (just check-kb)`.** On macOS a kit command inside a run that would
-  need its own, narrower sandbox is refused; run it on the host, as the line says.
+- **`… not in this run's children table …`** (exit 126). A wrapper from another workspace's tools: run it in its
+  own repository, or on the host.
+- **`… 16 commands already run in this run's tree …`.** pot's cap on siblings at once: wait for one to end.
 - **A commit stops at the hook.** Read its lines: a grant (`pot grant NAME`), or `git commit --no-verify` to skip
   the hook once.
 

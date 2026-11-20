@@ -137,11 +137,16 @@ let
   });
   backend = pkgs.writeShellScriptBin "pot-backend-bwrap" ''exec ${python}/bin/python3 -I -c 'import sys; sys.path.insert(0, "${potSrc}"); import bwrap; sys.exit(bwrap.main(sys.argv[1:]))' --config ${backendConfig} "$@"'';
 
-  # pot inside a run: explain and why from /run/pot/policy.json, and (v2.18.0) the wrappers' entry, which nests a
-  # child with the root's backend (so the backend is in every run's closure)
+  # pot inside a run: explain and why from /run/pot/policy.json, and (v2.18.0) the wrappers' entry, which (v2.20.0)
+  # asks the run's broker for a sibling; the backend stays named, as before
   inner = pkgs.writeText "pot-inner.json" (builtins.toJSON ({ inner = true; }
     // lib.optionalAttrs (!darwin) { backend = "${backend}/bin/pot-backend-bwrap"; }));
-  potInner = pkgs.writeShellScriptBin "pot" ''exec ${python}/bin/python3 -I -c 'import sys; sys.path.insert(0, "${potSrc}"); import pot; pot.entry(sys.argv[1:])' ${inner} "$@"'';
+  # v2.20.0: a directory as stdin (python refuses to start with one) is /dev/null: it carries no data, and a sibling
+  # never gets the caller's directory (it would reach what the sibling's own view hides)
+  potInner = pkgs.writeShellScriptBin "pot" ''
+    [ ! -d /dev/stdin ] || exec </dev/null
+    exec ${python}/bin/python3 -I -c 'import sys; sys.path.insert(0, "${potSrc}"); import pot; pot.entry(sys.argv[1:])' ${inner} "$@"
+  '';
 
   # macOS: the Seatbelt backend (seatbelt.py, /usr/bin/sandbox-exec). Its profile is written at start, from
   # policy.json; what a run reads of the store is the closure, as with bubblewrap. No netwrap (the run's

@@ -925,7 +925,9 @@ def compose(inp):
     # note, no 125; v2.16 refused it)
 
     included = []
-    for n in ctx.get("include") or []:
+    # decision 15 (v2.20.0): a kit command's run (a wrapped start, a sibling, a children-table row) gets its own grant
+    # and the repo kit's, never the context's include (standing reach)
+    for n in ([] if flags.get("noInclude") else ctx.get("include") or []):
         k = next((k for k in root_kits if k["name"] == n), None)
         if k is None:
             raise Refusal(f"pot: context {ctx['name']} includes {n!r}, which is not a root kit", 2)
@@ -1314,8 +1316,8 @@ def lack_word(i):
 
 def narrower(child, parent):
     """§10: the child's effective reach items that the parent's do not cover (empty: the child is narrower or
-    equal). State is never a lack: the host binds a child's state into its parent (a parent holds everything its
-    children get, residual 7)."""
+    equal). State is never a lack: it is the child kit's own folder, under its own grant (decision 11), bound into
+    the sibling alone (v2.20.0)."""
     pr = eff_reach(parent)
     pnet = [i["value"] for i in pr if i["kind"] == "network"]
     pbind = binding_keys(parent)
@@ -1327,7 +1329,7 @@ def narrower(child, parent):
             [i["value"] for i in pr if i["kind"] in kinds and i.get("path")]
     lacks = []
     if ACCESS_RANK.get(child.get("access"), 0) > ACCESS_RANK.get(parent.get("access"), 0):
-        lacks.append(f"{child['access']} access")     # (conformance 1) a write child never nests under a read run
+        lacks.append(f"{child['access']} access")     # (conformance 1) a write child never starts from a read run
     for i in eff_reach(child):
         k, v = i["kind"], i["value"]
         if k == "network":
@@ -1356,21 +1358,36 @@ def narrower(child, parent):
     return list(dict.fromkeys(lacks))
 
 
+def admit(child, parent):
+    """v2.20.0 (decision 13): what stops a sibling that the host composed at its start, against the run that asked:
+    narrower()'s lacks, then what nesting held for free. A write sibling keeps each protect pattern in effect for
+    its caller (it stood in the parent's read-only mounts); its mode is the caller's; its repositories are among
+    the caller's."""
+    lacks = narrower(child, parent)
+    if child.get("access") == "write":
+        mine = {i["value"] for i in child["items"] if i["kind"] == "protect" and i["effective"]}
+        lacks += [f"protect {i['value']}" for i in parent["items"]
+                  if i["kind"] == "protect" and i["effective"] and i["value"] not in mine]
+    if child.get("mode") != parent.get("mode"):
+        lacks.append(f"{child.get('mode')} mode")
+    tops = {w["path"] for w in parent["workspace"]}
+    lacks += [f"the workspace {w['path']}" for w in child["workspace"] if w["path"] not in tops]
+    return list(dict.fromkeys(lacks))
+
+
 def child_rows(report):
-    """The commands a run may start (§10): (context, kit, command, dispatch) for each workspace kit's command, in
-    place, and for the root kits that the context's commands list or that ship this run's command, in place and in
-    dispatch (a clone of its own)."""
+    """The commands a run may start (§10): (context, kit, command) for each workspace kit's command, and for the
+    root kits that the context's commands list or that ship this run's command, in the run's context. v2.20.0: no
+    dispatch rows (decision 19: dispatch is the host's)."""
     ctx = report["context"]
     named = set(ctx.get("commands") or [])
     mine = (report.get("command") or {}).get("kit")
     rows = []
     for k in report.get("kitObjs") or []:
         if k["kind"] in ("repo", "scion"):
-            rows += [(ctx["name"], k, c, False) for c in k["commands"]]
+            rows += [(ctx["name"], k, c) for c in k["commands"]]
         elif k["kind"] == "root" and (k["id"] == mine or k["name"] in named or k["name"].partition("@")[0] in named):
-            for c in k["commands"]:
-                rows.append((ctx["name"], k, c, False))
-                rows.append(("dispatch", k, c, True))
+            rows += [(ctx["name"], k, c) for c in k["commands"]]
     return rows
 
 
@@ -1380,36 +1397,35 @@ def policy_digest(p):
 
 
 def children_table(inp, policy, report):
-    """policy.json's children: each row composed by the host with the child kit's own grant (compose(), as
-    `pot CONTEXT KIT:CMD` would be here), then exec (an equal boundary), nest (narrower) or refused (it needs reach
-    this run lacks, its grant does not match, or this run can't nest). Returns (rows, {digest: child policy})."""
+    """policy.json's children (§10, v2.20.0): each row composed by the host with the child kit's own grant and the
+    repo kit's (compose(), as `pot CONTEXT KIT:CMD` would start here, without the context's include: decision 15),
+    then exec (an identical policy: decision 17), sibling (narrower: the host starts it beside this run, composing
+    it again at its start) or refused (it needs reach this run lacks, its grant does not match, or this run's
+    context starts none). Returns (rows, {digest: child policy})."""
     ctx = report["context"]
-    can_nest = ctx.get("nest", True) is not False and ctx.get("trust") != "untrusted"
-    proves = "nest" in (inp.get("probe") or [])
+    can_start = ctx.get("nest", True) is not False and ctx.get("trust") != "untrusted"
     parent_cmd = (report.get("command") or {}).get("name") or "the shell"
     recipes = {}
     for k in report.get("kitObjs") or []:
         for n, first in sorted(k["recipes"].items()):
             recipes.setdefault((k["id"], first), n)
-    rows, policies, built = {}, {}, {}
-    for cname, k, c, dispatch in child_rows(report):
-        # a row in the run's own context runs in place, in the run's workspace (a clone parent's clone); a dispatch
-        # row makes a clone of its own
-        key = f"dispatch {k['id']}:{c}" if dispatch else f"{k['id']}:{c}"
+    rows, policies = {}, {}
+    mode = policy.get("mode") or "in-place"
+    for cname, k, c in child_rows(report):
+        # a row runs in the run's own workspace and mode (a clone parent's: its clone, at the original path)
+        key = f"{k['id']}:{c}"
         row = {"slot": k["slot"], "command": c, "kit": k["id"], "kitName": k["display"], "context": cname,
-               "mode": "clone" if dispatch else "in-place", "file": k.get("file")}
+               "mode": mode, "file": k.get("file")}
         if k["hooks"].get(c):
             row["hook"] = k["hooks"][c]
-        here = f"pot dispatch {c}" if dispatch else f"just {recipes[(k['id'], c)]}" if (k["id"], c) in recipes else f"{c} ARGS"
-        sub = dict(inp, context=cname, argv=[c], flags={"commandKit": k["id"], "mode": "clone" if dispatch else "in-place"},
+        here = f"just {recipes[(k['id'], c)]}" if (k["id"], c) in recipes else f"{c} ARGS"
+        # decision 15: a workspace kit's command without the context's include; a root kit's command (an agent) is
+        # composed as `pot CMD` would start it, include and all
+        tool = k["kind"] in ("repo", "scion")
+        sub = dict(inp, context=cname, argv=[c], flags={"commandKit": k["id"], "mode": mode, "noInclude": tool},
                    run="", workspace=[dict(w) for w in inp["workspace"]])
         try:
             cp, cr = compose(sub)
-            if not dispatch:
-                for w in cp["workspace"]:
-                    if w.get("clone"):
-                        # in place in a clone parent: its clone, at the original path, as the parent sees it
-                        w["clone"], w["common"] = None, os.path.join(w["path"], ".git")
         except Refusal as e:
             row["refused"] = e.message.split(": ", 1)[-1] if e.message.startswith("pot") else e.message
             rows[key] = row
@@ -1420,29 +1436,24 @@ def children_table(inp, policy, report):
             row["grant"] = True
             rows[key] = row
             continue
-        lacks = narrower(cp, policy)
+        lacks = admit(cp, policy)
         if lacks:
             row["refused"] = f"needs {', '.join(lacks)}"
             row["text"] = (f"pot ({ctx['name']}): {c} needs {', '.join(lacks)}, which this run ({parent_cmd}) lacks: "
                            f"run it on the host ({here})")
             rows[key] = row
             continue
-        # a dispatch row always nests: its clone is a boundary of its own
-        how = "exec" if boundary(cp) == boundary(policy) and not dispatch else "nest"
-        if how == "nest" and not can_nest:
-            row["refused"] = "this run's context is untrusted (nest = false)" if ctx.get("trust") == "untrusted" \
-                else f"context {ctx['name']} has nest = false"
+        how = "exec" if boundary(cp) == boundary(policy) else "sibling"
+        if how == "sibling" and not tool:
+            # the deferred list: an agent starting another agent's run waits for pot serve (approval, depth, floods)
+            row["refused"] = "an agent's run starts no other agent run until pot serve"
+            row["text"] = (f"pot ({ctx['name']}): {c} runs under another policy than this run, and an agent's run starts "
+                           f"no other agent run until pot serve: run it on the host (pot {c})")
             rows[key] = row
             continue
-        if how == "nest" and not proves:
-            if inp.get("backendName") == "seatbelt":
-                # design §10: Seatbelt cannot nest, so a narrower child is refused, never flattened into its parent
-                row["refused"] = "Seatbelt cannot nest"
-                row["text"] = (f"pot ({ctx['name']}): {'dispatch ' if dispatch else ''}{c} runs under its own, narrower "
-                               f"policy, and Seatbelt cannot nest (a run on macOS starts no runs inside it): run it on the "
-                               f"host ({here})")
-            else:
-                row["refused"] = f"{inp.get('backendName', 'this backend')} can't nest here"
+        if how == "sibling" and not can_start:
+            row["refused"] = "this run's context is untrusted (nest = false)" if ctx.get("trust") == "untrusted" \
+                else f"context {ctx['name']} has nest = false"
             rows[key] = row
             continue
         d = policy_digest(cp)
@@ -1451,32 +1462,16 @@ def children_table(inp, policy, report):
                         if i["kind"] == "env.set" and i["effective"]})
         rows[key] = row
         policies.setdefault(d, cp)
-        built[key] = cp
-    # each nest row's own table: the rows narrower than it (one more level; a grandchild has none)
-    for key, row in rows.items():
-        if row.get("how") != "nest":
-            continue
-        mine = built[key]
-        subt = {}
-        for k2, r2 in rows.items():
-            if k2 == key or "policy" not in r2 or r2["context"] != mine["context"] or r2.get("mode") == "clone":
-                continue
-            if narrower(built[k2], mine):
-                continue
-            how = "exec" if boundary(built[k2]) == boundary(mine) else "nest"
-            subt[k2] = {**{x: y for x, y in r2.items() if x != "children"}, "how": how}
-        row["children"] = subt
     return rows, policies
 
 
 def children_lines(table, width=100, seatbelt=False):
     """explain's children rows: the commands this run may start, by how (§10)."""
     if not table:
-        return ["children   none (Seatbelt cannot nest: a run on macOS starts no runs inside it)" if seatbelt
-                else "children   none: this run keeps --disable-userns"]
+        return ["children   none"]
     groups, refused = {}, []
     for key, r in sorted(table.items()):
-        name = r["command"] if r.get("context") in (None,) or " " not in key else f"{r['context']} {r['command']}"
+        name = r["command"]
         if r.get("refused"):
             refused.append(f"  {name}: refused ({r['refused']})")
             continue

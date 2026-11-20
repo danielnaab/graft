@@ -30,8 +30,8 @@ The rest of a run's environment is described in pot's reference
 |---|---|
 | `/run/pot/policy.json` | The run's policy ([below](#policyjson-version-1)), read-only. |
 | `/run/pot/launcher` | The root's in-run pot, read-only; a wrapper inside the run execs it (under Seatbelt, `launcher` beside `POT_POLICY`). `~/.config/pot/launcher` is a link to it, in a read-only folder. Since v2.18.0. |
-| `/run/pot/table/<digest>/` | Each child policy in the table (`policy.json`, its closure), read-only; a nested row's state folders under `state/`. Since v2.18.0. |
-| `/run/pot/children/` | The parent's children folder, read-write in that parent only. Since v2.18.0. |
+| `/run/pot/children.sock` | The run's broker for its [siblings](../../docs/reference/pot.md#siblings-and-the-children-table), in a run whose table has a `sibling` row (under Seatbelt, `children.sock` beside `POT_POLICY`). Only the run's own pot speaks to it; its requests are not part of this contract. Since v2.20.0. |
+| `/run/pot/table/<digest>/`, `/run/pot/children/` | v2.18.0 to v2.19.2 only: the nested children's table and folders. Not bound since v2.20.0 (only pot's own in-run pot read them). |
 | `/run/pot/denials` | One entry for each refused host and port, appended as it happens, read-only to the run: a line `pot (<context>): the run tried HOST:PORT (not in this run).`, then indented lines `  one run:   pot --net HOST …` and `  permanent: <fix>` (one more `             or <fix>` line for each other fix). Since v2.16.1; v2.16.0 wrote one line per entry. Read it as text: its layout is not part of this contract's shape. |
 
 ### policy.json, version 1
@@ -59,12 +59,12 @@ optional key to an item, never remove or rename one.
 | `version` | number | `1` |
 | `run` | string | the run's id, four hex digits |
 | `context`, `mode`, `access` | strings | the context; `in-place` or `clone`; `read` or `write` |
-| `backend` | object | its `name`, the guarantees the context `requires`, and those it `proved` for this run (`resource-limits` only for a run that gets the resource scope; `nest` where the backend can nest) |
+| `backend` | object | its `name`, the guarantees the context `requires`, and those it `proved` for this run (`resource-limits` only for a run that gets the resource scope; `nest` never since v2.20.0) |
 | `workspace` | list | each repository: `id` (a [kit identity](kit-1.md#identity)), `path` (the original path, where the run sees it), `common`, `protected`, `sealed` (since v2.19.1: the protected patterns whose folders are sealed under bubblewrap; `[ ]` in a clone), `proposal` (since v2.19.1: in a clone, the agent-configuration patterns that are writable there, flagged in review), `clone` (`null` in place; in clone mode, the clone's host path in pot's state, and `common` is the clone's `.git`) |
 | `items` | list | every see, limits and reach item: `kind`, `value`, `class` (`see`, `limits` or `reach`), `sources`, `effective`; a file a mirror dir binds also has `memory: true` (as in v2.15.0) and, from v2.16.0, `mirror` (the dir's label, such as `"memory"`) |
-| `mounts` | object | the state directories, each with its scope `key`, the run directory, and, since v2.18.0, `launcher` (`"/run/pot/launcher"`, the run's own pot, bound read-only, by which a wrapper tells a v2.18.0 run) and, in a nested child, `parent` (the parent's id) |
+| `mounts` | object | the state directories, each with its scope `key`, the run directory, and, since v2.18.0, `launcher` (`"/run/pot/launcher"`, the run's own pot, bound read-only, by which a wrapper tells a v2.18.0 run) and, from v2.18.0 to v2.19.2, `parent` (the parent's id) in a nested child |
 | `bindings` | list | each bound capability, its socket, and the see items it adds |
-| `children` | object | the run's children table: for each command the run may start, keyed `<kit id>:<command>` (or `dispatch <kit id>:<command>`), `{ slot, command, kit, kitName, context, hook?, how: "exec" \| "nest", policy: "sha256-…", argv, env, table, children }` (a `nest` row's `children` is its sub-table), or `{ …, refused: "<why>", text?, grant? }`. Empty in v2.17.x |
+| `children` | object | the run's children table: for each command the run may start, keyed `<kit id>:<command>` (or `dispatch <kit id>:<command>`), `{ slot, command, kit, kitName, context, mode, hook?, how: "exec" \| "sibling", policy: "sha256-…", argv, env }`, or `{ …, refused: "<why>", text?, grant? }`. Empty in v2.17.x; `how: "nest"`, `table` and a row's `children` (its sub-table) from v2.18.0 to v2.19.2; `sibling` since v2.20.0 |
 | `grants` | list | each kit's grant `id`, `digest`, and whether it `match`ed |
 
 An item's `sources` say where it came from. Each is one of these objects:

@@ -480,6 +480,8 @@ def prepare(cfg, rundir, print_cmd=False):
     # sockets: the run's own (in HOME and TMPDIR), pot's bindings (the run's folder), and socket requests
     socks = [os.path.join(rundir, os.path.basename(b["socket"])) for b in policy.get("bindings") or [] if b.get("socket")]
     socks += [real(i["path"]) for i in B.eff(policy, "socket") if os.path.exists(i["path"])]
+    if B.has_siblings(policy, launch):
+        socks.append(os.path.join(rundir, "children.sock"))      # v2.20.0: the siblings' broker
     prof.rule("allow network-bind network-outbound",
               [f"(local unix-socket (subpath {prof.p(d)}))" for d in (runhome, runtmp)]
               + [f"(remote unix-socket (subpath {prof.p(d)}))" for d in (runhome, runtmp)])
@@ -508,7 +510,8 @@ def prepare(cfg, rundir, print_cmd=False):
         before["hostrun"][pins.top] = B.hostrun_hashes(pins.top, pins.protect)
         before["refs"][pins.top] = B.refs(cfg, pins.top)
     for w, pins in clones:
-        before.setdefault("clones", []).append({"top": w["path"], "clone": w["clone"], "gits": sorted(pins.dotgits)})
+        if not launch.get("inClone"):     # a sibling in its caller's clone: the caller's end stages it (v2.20.0)
+            before.setdefault("clones", []).append({"top": w["path"], "clone": w["clone"], "gits": sorted(pins.dotgits)})
     with open(os.path.join(rundir, "before.json"), "w") as f:
         json.dump(before, f)
     with open(os.path.join(rundir, "launch.json"), "w") as f:
@@ -578,6 +581,8 @@ def start_proxy(cfg, rundir, policy, launch, net):
     tmux = (launch.get("hostTools") or {}).get("tmux")
     live = ["--tmux", tmux, "--pane", launch["pane"]] if tmux and launch.get("pane") else []
     live += ["--fix", launch.get("netFix") or "the repo kit's requests.network"]
+    if launch.get("siblingOf"):
+        live += ["--sibling", "1"]      # no one-run line: pot --net is the host's
     proxy = subprocess.Popen([cfg["python"], "-I", "-S", cfg["proxy"], "tcp:127.0.0.1:0", "--denials",
                               os.path.join(rundir, "denials"), "--context", policy["context"]] + live + allow,
                              cwd=rundir, stdout=log, stderr=subprocess.STDOUT, env={**os.environ, "POT_PROXY_TOKEN": token})
@@ -728,6 +733,17 @@ def run(cfg, rundir):
         pass
     old = {s: signal.signal(s, signal.SIG_IGN) for s in (signal.SIGINT, signal.SIGTTOU)}
     pgid = None
+    if launch.get("siblingOf"):
+        # v2.20.0: a sibling's command is its own process group, so the INT and TERM its broker sends to the session
+        # are passed on to it; the finally below stops what is left
+        def forward(sig, _=None):
+            if pgid:
+                try:
+                    os.killpg(pgid, sig)
+                except (ProcessLookupError, PermissionError):
+                    pass
+        signal.signal(signal.SIGINT, forward)
+        B.stop_signals(forward)
     try:
         # the run is its own process group, in the terminal's foreground when pot is (^C reaches it alone)
         p = subprocess.Popen(cmd, env=env, cwd=sb["cwd"], process_group=0, close_fds=True)
@@ -751,12 +767,7 @@ def run(cfg, rundir):
         if B.binding(policy, "status.relay") and tools.get("workmux") and launch.get("pane"):
             subprocess.run([tools["workmux"], "set-window-status", "clear"], env={**os.environ, "TMUX_PANE": launch["pane"]},
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for h in ([proxy] if proxy else []) + helpers:
-            h.terminate()
-            try:
-                h.wait(2)
-            except subprocess.TimeoutExpired:
-                h.kill()
+        B.stop_helpers(([proxy] if proxy else []) + helpers)
     if status < 0:
         status = 128 - status
     with open(os.path.join(rundir, "status"), "w") as f:

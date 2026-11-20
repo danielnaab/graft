@@ -13,7 +13,7 @@ with graft are [pot's contracts](../../pot/contracts/README.md): [kit](../../pot
 [runs](../../pot/contracts/runs-1.md).
 
 `pot` is experimental. It runs on Linux, with bubblewrap, and on macOS, with Seatbelt (`/usr/bin/sandbox-exec`),
-which is weaker: no process or network isolation, no nesting, and a dispatch clone at its own path
+which is weaker: no process or network isolation, and a dispatch clone at its own path
 ([On macOS](#on-macos)). On a machine with no root's pot, [wrapped commands](#wrapped-commands) run unwrapped.
 
 ## The model
@@ -168,9 +168,9 @@ programs.pot.contexts.readonly = { extends = "work"; access = "read"; };
 | `requires` | guarantee names | A run for which the backend cannot prove these is refused ([Guarantees](#guarantees)). |
 | `trust` | `workspace`, `root` | Whether workspace kits are evaluated. `root` is not in v2.19.2. |
 | `include` | root kit names | Root kits in every run of the context: their reach is standing reach. |
-| `commands` | root kit names | Root kits whose commands a run may start as [children](#nesting-and-the-children-table), without their reach. |
+| `commands` | root kit names | Root kits whose commands are rows of a run's [children table](#siblings-and-the-children-table), without their reach. |
 | `network` | `granted`, `none` | `none` drops every network item. |
-| `nest` | boolean, default `true` | Whether the run may hold nested children. `trust = "untrusted"` sets it `false`. |
+| `nest` | boolean, default `true` | Whether the run may start [siblings](#siblings-and-the-children-table) (its name is older than them). `trust = "untrusted"` sets it `false`. |
 
 A context name may not be a verb: `explain`, `why`, `grant`, `review`, `runs`, `doctor`, `init`, `run` or `serve`.
 
@@ -261,7 +261,7 @@ pot [CONTEXT] --clone [--from REF] [--detach] CMD …      # --clone is --mode c
   on a detached `HEAD`, so only the refs a run moves come back.
 - **What the clone carries:** your `user.name` and `user.email`, the origin URL, and `core.hooksPath` when it is a
   relative path naming a tracked folder (`.githooks`); nothing else of your config. So commits the run makes in the
-  clone run the repository's [hook commands](#hook-commands), nested, as in place. The host's git runs every command
+  clone run the repository's [hook commands](#hook-commands), as siblings, as in place. The host's git runs every command
   in a clone with no global or system config and hooks disabled, so no hook or filter of the clone's runs on the
   host, and filters such as git-lfs's never run: LFS files stay pointer files.
 - **Scions:** the first level of submodules is cloned, from your repository's module folders, at their gitlinks;
@@ -327,49 +327,10 @@ pot [CONTEXT] --clone [--from REF] [--detach] CMD …      # --clone is --mode c
   commits, oldest first; never a running one, and **never unfetched commits**. Still over the size cap, pot names
   up to three runs waiting for review: `pot: the clones use 189.7 MB, over clones.maxSize (20G); the oldest still
   in review: pot review 9b0e --discard, pot review c41d --discard`.
-- **Inside a run**, see [Nested dispatch](#nested-dispatch).
-
-#### Nested dispatch
-
-`pot dispatch [--from REF] [--detach] CMD ARGS` (or `pot --clone …`) inside a run starts a child in a clone, through
-the command's `dispatch <kit id>:<command>` row in the run's [children table](#nesting-and-the-children-table): an
-agent's run has one for its own command. In a dispatch parent, the other rows run in place in the parent's clone.
-
-- **Refusals:** no row, `pot (work): CMD is not a command this run may dispatch (pot explain lists its children): run
-  it on the host`; a refused row, its text or `pot (work): dispatch CMD: refused (WHY): run it on the host`; `--repo`,
-  `pot (work): --repo comes to clone mode in a later release; a dispatch clones this repository only`; a grant, 125.
-- **The clone:** the run's own git clones the workspace as the run sees it into `/run/pot/children/<id>/clone`, the
-  host's `runs/<parent>/children/<id>/clone`. It carries a relative, tracked `core.hooksPath`, like a host clone.
-  It is kept after the parent ends.
-- **Its id** is `PARENT/CHILD`, such as `9b0e/c210`; inside the parent, `c210` works too. In the foreground the
-  exit line is `pot: run 9b0e/c210 · its clone is kept: on the host, pot review 9b0e/c210, then pot review 9b0e/c210
-  --fetch` (with ` · exit N` when it failed).
-- **`--detach`** prints the id on stdout and, on stderr,
-  `pot: run 9b0e/c210 in the background · dispatch · flexion-assistant · pot runs 9b0e/c210 · pot review 9b0e/c210 --json`.
-  The child's output goes to its `output.log`. It runs in the parent's pid namespace and dies when the parent ends;
-  outliving the parent waits for `pot serve`.
-- **Inside the parent:** `pot runs` lists the run, then one line per child, `child      9b0e/c210 · STATE ·
-  CONTEXT · COMMAND`; `--json` gives the run's record and its children's; `pot runs ID` takes `c210` or `9b0e/c210`.
-  `pot review ID --json` gives the child's record plus `look: { base, refs, commits: [ { commit, subject } ] }`,
-  read by a sandboxed git once the child has ended: the parent's own look, a claim. `--fetch` and `--discard` are
-  the host's (exit 2): `pot (work): pot review 9b0e/c210 --fetch is the host's: a run's output is reviewed outside
-  it; inside, pot review CHILD --json shows a child's commits`.
-- **The child's log** is written by the parent, so every line is a claim: the host reads it as a regular file
-  without following a link, at most 4 MB, takes `by` as `parent` whatever it says, and uses only its `start`,
-  `exit` and `net` lines.
-- **The host's own look**, once, when the parent has ended (at its `after`, at recovery, or at the next `pot runs`
-  or `pot review`): each child with no `exit` gets the host's `exit` with `killed: "parent"`; each clone is staged
-  by the same sandboxed `upload-pack` with fsck into host-owned `runs/<parent>/child-staging/<child>/`, and its
-  `after` is logged there, by the host alone. A clone the host cannot read gets `fetch_failed: "the parent left no
-  clone pot can read (or no base commit)"`. **Only the top repository is staged: a child's scions are not.**
-- **On the host,** `pot runs` and `pot review` list children by `PARENT/CHILD`, and the parent's record has
-  `children`. `pot review 9b0e/c210 --fetch` fetches into `refs/remotes/pot-9b0e-c210/*` in the parent's
-  repository (no `/` after the parent's id, so a parent branch named `c210/…` cannot collide):
-  `pot: fetched run 9b0e/c210 into ~/src/flexion-assistant: pot-9b0e-c210/main (1 commit on abc1234)`. Merge with
-  `git merge pot-9b0e-c210/main`. `--discard` removes the child's clone and staging; its logs stay.
-- **Keeping:** a parent's `--discard`, `keepDays` and `maxSize` never touch its children. `keepDays` removes a child
-  only when it was fetched, discarded or has no commits, never in `review`. **`maxSize` does not count children's
-  clones** in this release.
+- <a id="nested-dispatch"></a>**Inside a run,** `pot dispatch`, `pot --clone` and `--detach` are refused (exit 1): `pot (work): pot dispatch is
+  the host's: a run starts no clone inside it; run it on the host`. Until v2.19.2 a run could dispatch a child in a
+  clone of its own (nested dispatch); v2.20.0 removed it, with no nested child in 60 runs on platform-vm. An agent
+  that hands off work asks you to run `pot dispatch` on the host.
 
 ### Root repositories
 
@@ -577,7 +538,7 @@ A wrapper runs `"$launcher" run --command NAME --manifest M -- ARGS`, where the 
 |---|---|
 | On the host, with a v2.18.0 or later root's launcher | `pot run`: a start under the command's own policy (below), under bubblewrap on Linux and Seatbelt on macOS. |
 | On the host with no launcher (a Mac with pot off, a container, a Nix build), or under a root's pot that predates `pot run` | Runs the program unwrapped, with one line on stderr: `pot: check-kb runs without pot (no root here: ~/.config/pot/launcher is missing)`, or `(your root's pot predates wrapped commands: take graft v2.18.0 in your root (home-manager switch))`. A command whose program is on the host (`program.host`) cannot run unwrapped: exit 126, `pot: C needs pot (<why>)`. |
-| Inside a run that a v2.18.0 or later pot started (its policy.json, `/run/pot/policy.json` or else `POT_POLICY`, names `mounts.launcher`; checked first) | Execs the run's own pot beside the policy: `/run/pot/launcher` under bubblewrap, a read-only mount the run cannot rename or replace; `<run dir>/launcher` under Seatbelt, which the run can read but not write. It looks the command up in the [children table](#nesting-and-the-children-table). Without it, exit 126: `pot: C: this run's launcher (/run/pot/launcher) is missing, so its children table can't be reached: run C on the host`. It never runs the program unwrapped. |
+| Inside a run that a v2.18.0 or later pot started (its policy.json, `/run/pot/policy.json` or else `POT_POLICY`, names `mounts.launcher`; checked first) | Execs the run's own pot beside the policy: `/run/pot/launcher` under bubblewrap, a read-only mount the run cannot rename or replace; `<run dir>/launcher` under Seatbelt, which the run can read but not write. It looks the command up in the [children table](#siblings-and-the-children-table): it runs in place, starts as a [sibling](#siblings-and-the-children-table), or is refused (126 with no row). Without it, exit 126: `pot: C: this run's launcher (/run/pot/launcher) is missing, so its children table can't be reached: run C on the host`. It never runs the program unwrapped. |
 | Inside a run that an older pot started (no `mounts.launcher`) | Runs the program under that run's policy, as before v2.18.0, even when a pointer is in the run's home; a host program exits 126: `pot: C: its program is on the host: run it there`. |
 
 **`pot run --command NAME --manifest PATH -- ARGS` on the host** (also in `pot --help`) checks the manifest: a
@@ -593,29 +554,31 @@ manifest only names the command. It runs `pot <defaultContext> NAME ARGS` with t
 - It is quiet: no startup or exit line. Notes, denials, refusals and grant prompts print as for any run. A kit
   whose commands request nothing needs no grant. Its `start` event and record carry `"via": "wrapper"`, and
   `"hook"` for a hook command; `pot runs` hides wrapped runs that exited 0, and `--all` shows them.
-- It runs in the root's `defaultContext`, so a wrapped command keeps that context's included kits (`work`'s
-  standing reach) and the repo kit's reach, never an agent kit's API, token or MCP.
+- It runs in the root's `defaultContext`, with its own kit's grant and the repo kit's reach: never that context's
+  included kits (`work`'s standing reach, since v2.20.0), and never an agent kit's API, token or MCP.
 - Where bubblewrap cannot run (user namespaces off), it refuses as any run does; it never runs the command
   unsandboxed. Nix builds, CI and containers use `packages.<system>.tools.passthru.unwrapped`.
 - Unsandboxed on purpose: `pot host CMD`.
 
-**Cost**, on platform-vm: a wrapped command started on the host takes 0.30–0.45 s, against 8 ms unwrapped. Nested
-inside a run, a child adds about 0.2 s. Each root byte-compiles pot, and caches closures and the scope probe in
+**Cost**, on platform-vm: a wrapped command started on the host takes about 0.5 s, against 8 ms unwrapped, and a
+sibling started from inside a run the same plus a socket round trip (until v2.19.2 a nested child took about 0.2 s). Each root byte-compiles pot, and caches closures and the scope probe in
 its state (`cache/closures/`, `cache/scope-*`).
 
 ### Hook commands
 
 A command with `hook = "pre-commit"` (kit 1.2) serves that git hook. The consumer's `.githooks/pre-commit` execs
 its wrapper ([Move to v2.18.0](../guides/move-to-v2-18.md)), with `core.hooksPath` set to `.githooks`. `git commit`
-on the host then runs the command under its own policy, and `git commit` inside `pot claude` runs it nested.
+on the host then runs the command under its own policy, and `git commit` inside `pot claude` runs it as a
+[sibling](#siblings-and-the-children-table), on both backends: a failing hook aborts the commit with its own exit code.
 `.githooks/` is protected in every run, so a run cannot change what the hook runs.
 
 - The hook command gets `GIT_INDEX_FILE` (made absolute) only when it resolves inside the workspace's git common
   directory and is named `index`, `index.lock` or `next-index-<digits>.lock`, so `git commit -a` and
   `git commit PATH` check the right index; any other value is dropped. It gets `GIT_PREFIX` when relative with no
-  `..`; never `GIT_EXEC_PATH` or `GIT_CONFIG_PARAMETERS`. The same holds for a nested hook child.
-- A dispatch clone carries a relative, tracked `core.hooksPath`, so commits in it run the hook command too, nested
-  in the run. The host never runs a hook in a clone: its git runs there with hooks disabled.
+  `..`; never `GIT_EXEC_PATH` or `GIT_CONFIG_PARAMETERS`. A sibling gets the same two, checked again on the host as
+  paths in the run's view.
+- A dispatch clone carries a relative, tracked `core.hooksPath`, so commits in it run the hook command too, as a
+  sibling in the run's clone. The host never runs a hook in a clone: its git runs there with hooks disabled.
 - `git commit --no-verify` skips the hook, as for any hook; the hook command's refusals name it.
 
 ## Requests
@@ -823,70 +786,90 @@ together, each powerful item alone, recorded with its `source`. A changed repo-k
 `  source: tree A -> tree B` and up to 12 lines of `git diff --stat` between the two trees, with paths relative to
 the workspace (`nix/agent-tools/flake.nix`), both in the prompt and in the 125 message.
 
-## Nesting and the children table
+## Siblings and the children table
+
+<a id="nesting-and-the-children-table"></a>(Until v2.19.2: *Nesting and the children table*.)
+
+A run never starts a run inside it. When a [wrapped command](#wrapped-commands) starts inside a run under another
+policy than the run's, the host starts it **beside** the run, as a **sibling**, under that command's own policy
+only: its kit's grant and the repo kit's, never the run's (since v2.20.0, on both backends). The run's broker
+starts it on the host, the caller blocks until it ends, and its exit code comes back. For the design, its review
+list and its residuals, see [siblings, not nesting](pot-siblings.md).
 
 When a run starts, the host composes a policy for every command the run may start, and writes the table into the
-run's `policy.json` (`children`). The in-run pot only looks up and applies; it never computes a policy.
+run's `policy.json` (`children`). The in-run pot only looks up; it never computes a policy.
 
-**Rows:** every command of the workspace's kits (the repo kit's and each scion kit's), in the run's context; and
-the commands of the root kits that ship the run's own command (so an agent can start itself again) or that the
-context's `commands` lists, in the run's context and also in `dispatch` ([Nested dispatch](#nested-dispatch)). Each row is
-composed as `pot <context> CMD` would be there: the child kit's own grant, the context's included kits, the repo
-kit's reach. Keys are `<kit id>:<command>`, and `dispatch <kit id>:<command>` for dispatch rows. A row also holds
-`command`, `kit`, `kitName`, `argv`, `env`, `table` and, for a `nest` row, `children` (its sub-table); trimmed here:
+**Rows:** every command of the workspace's kits (the repo kit's and each scion kit's), and the commands of the
+root kits that ship the run's own command or that the context's `commands` lists, in the run's context, mode and
+workspace. A workspace kit's row is composed as `pot <context> KIT:CMD` would start there, with the kit's own
+grant and the repo kit's reach, and **never the context's included kits** (their standing reach, such as a
+personal kit's `git.fetch`); a root kit's row as `pot CMD` would start. Keys are `<kit id>:<command>`. A row also
+holds `command`, `kit`, `kitName`, `context`, `mode`, `slot`, `argv`, `env` and `hook`; trimmed here:
 
 ```json
 "children": {
-  "git:github.com/danielnaab/notebook-kit:check-kb": { "how": "nest", "policy": "sha256-…", "slot": "scions.notebook-kit", "context": "work" },
+  "git:github.com/danielnaab/notebook-kit:check-kb": { "how": "sibling", "policy": "sha256-…", "slot": "scions.notebook-kit", "context": "work" },
   "root:claude-code@flexion:claude":                 { "how": "exec", "policy": "sha256-…", "slot": "root", "context": "work" },
-  "dispatch root:claude-code@flexion:claude":        { "how": "nest", "policy": "sha256-…", "slot": "root", "context": "dispatch" },
   "git:github.com/danielnaab/meeting-kit:meeting-kit": { "refused": "needs WM_TOKEN, git.push" }
 }
 ```
 
 | `how` | When | What happens |
 |---|---|---|
-| `exec` | the boundary is equal: mode, access, effective reach, protect, bindings, state mounts | the command runs in the parent, under the parent's policy |
-| `nest` | every child item is covered by the parent's (the child is narrower) | a nested bubblewrap sandbox inside the parent, under the child's policy |
-| `refused` | the child needs something the parent lacks | refused at start, exit 1: `pot (work): meeting-kit needs WM_TOKEN, git.push, which this run (claude) lacks: run it on the host (just meeting-run)` |
+| `exec` | the policy is identical: mode, access, effective reach, protect, bindings, state mounts | the command runs in place, under the run's policy |
+| `sibling` | every item it reaches is covered by the run's (it is narrower), and it is not identical | the host starts it beside the run, under its own policy (below) |
+| `refused` | it needs something the run lacks | refused at start, exit 1: `pot (work): meeting-kit needs WM_TOKEN, git.push, which this run (claude) lacks: run it on the host (just meeting-run)` |
 
-- A child whose kit's grant does not match is `refused: "not granted: pot grant NAME (on the host)"`, and exits
+- **No entry, no run:** a wrapper whose command has no row (a wrapper from another workspace's tools) is refused,
+  exit 126: `pot (work): C: not in this run's children table (a wrapper from another workspace?): run it on the
+  host`. A run never runs a command under its own policy for want of an entry.
+- A row whose kit's grant does not match is `refused: "not granted: pot grant NAME (on the host)"`, and exits
   125: `pot (work): C: not granted: pot grant NAME (on the host)`. No prompt is shown inside a run.
 - "needs" names variables, capabilities (`git.push`) and paths as written, hosts without `:443`, `unsandboxed`,
-  and `write access` when the child's access is above the run's (a write command never nests under a read run,
-  sub-tables included). A dispatch row whose composition fails is refused with that message.
-- A wrapper whose command has no row (a wrapper from another workspace's tools) runs under the current run's
-  policy. That never widens anything: the run could run the program directly.
-- **A nested child's network** goes through a proxy inside the parent that forwards to the parent's proxy, so the
-  host still logs everything the child reaches; a host the child does not reach gets 403 from its own proxy. A
-  child's bindings must equal the parent's (capability, selector and request), else the row is refused as needing
-  that capability; the child gets the parent's sockets.
-- **A parent holds everything its children get:** each row's closure and state folders are bound into the parent
-  ([residual 23](#residual-risks)).
-- **Seatbelt cannot nest.** On macOS every row that would nest is refused, `refused: "Seatbelt cannot nest"`, with
-  the text `pot (work): check-kb runs under its own, narrower policy, and Seatbelt cannot nest (a run on macOS
-  starts no runs inside it): run it on the host (just check-kb)` (`… dispatch claude … (pot dispatch claude)` for a
-  dispatch row), exit 1. A row whose policy equals the run's still execs in place. So once pot is on for a Mac,
-  `git commit` inside `pot claude` stops at a wrapped pre-commit hook: commit on the host, or
-  `git commit --no-verify`. An empty table reads `children   none (Seatbelt cannot nest: a run on macOS starts no
-  runs inside it)` in `pot explain`.
-- **User namespaces.** A run keeps them only when its table has a `nest` row, its context's `nest` is `true`, and
-  the backend proves `nest` (bubblewrap, where its probe can nest); otherwise it gets `--disable-userns`. So `pot claude` keeps them (it can dispatch
-  itself), and `pot true` or `pot inspect` does not. A child keeps them only when its own sub-table (the parent's
-  rows narrower than it) has a `nest` row. **A grandchild gets no children table** (`children` is `{}`), so depth
-  is at most host, parent, child, grandchild.
-- `trust = "untrusted"` sets `nest = false`: its `nest` rows become `refused: "this run's context is untrusted
-  (nest = false)"`. With `nest = false` set by hand, `context work has nest = false`; where the backend cannot
-  nest, `bubblewrap can't nest here`.
-- **Inside a nested child:** `POT` is its context, `POT_POLICY` its own `/run/pot/policy.json` (its `run` is the
-  child id, `mounts.parent` the parent's id), `POT_TOOLS` the workspace bundle's `bin/` (with the wrappers). It
-  gets `HTTPS_PROXY` only when it has network, and none of the parent's granted variables it does not request
-  itself. A child's log lines are `by: parent` (claims), with `invoker: "run"` and `run: "PARENT/CHILD"`.
-- **A child's denials** go to its own `/run/pot/denials`, with no `one run:` line, and `permanent:` names the child
-  kit: `requests.network in nkp (scions/nkp/graft.nix)`.
+  `write access` when the row's access is above the run's, and `protect PATTERN` when a write row lacks a
+  protected pattern the run has (a sibling stands in no read-only mount of its caller's).
+- A root kit's row that is not identical is refused: `an agent's run starts no other agent run until pot serve`.
+- `trust = "untrusted"` and `nest = false` start no sibling: such rows are `refused: "this run's context is
+  untrusted (nest = false)"` and `"context work has nest = false"`.
+
+**A sibling's start.** The wrapper's in-run pot connects to the run's broker (`/run/pot/children.sock`; under
+Seatbelt, `children.sock` beside `POT_POLICY`), sends the row's key, the arguments, the working directory and, for
+a hook command, its two git variables, with its standard input, output and error, and waits. On the host:
+
+1. The broker takes one of the tree's **16** slots (the run, its siblings and theirs, together): `pot (work):
+   check-kb: 16 commands already run in this run's tree (pot's cap): wait for one to end, or run it on the host`
+   (exit 1).
+2. The host composes the sibling **now**, from host facts, with its grant as it is now (125 if it no longer
+   matches), and admits it only if it is still covered by the run that asked: `pot (work): C needs …, which the run
+   that asked (7f3a) lacks: run it on the host`. Each sibling's own table is composed at its start, against its
+   own policy. A start **8** deep is refused: `pot (work): C: this run is 8 starts deep (pot's cap): run it on the
+   host`.
+3. It runs as any wrapped start does: quiet, logged with `via: "sibling"`, its `caller` and its `depth`, in a run
+   folder of its own; `pot runs --all` lists it.
+
+- **The working directory** is the caller's, when it is inside a repository of the run (and on the host still
+  inside it, links resolved); otherwise that repository's top.
+- **Standard input, output and error** are the caller's terminal, pipes or sockets. Anything else (a file, as in
+  `check-kb < notes.md` or `> out.txt`; a directory) goes through a pipe the caller's pot copies, so the sibling
+  never holds the caller's file itself. A closed one is `/dev/null`.
+- **Non-interactive:** the sibling is in a session of its own, so it has no job control. `^C` at the terminal
+  reaches the sibling (the caller's pot passes it on); `^Z` stops only the caller.
+- **It never outlives its request.** When the caller's pot goes (killed, an agent's tool timeout, its SIGTERM or
+  SIGHUP), or when the run ends, the host stops the sibling: SIGTERM, then SIGKILL after 2 s. Its record says
+  `killed: "caller"` when it never started.
+- **No access to the caller's `/tmp`:** a sibling's temporary folder is its own.
+- **What it gets:** its own view, proxy, bindings (its own sockets, from the host), credentials (from their
+  binding, on the host), state folders and closure. Its caller gets none of them, and it gets none of its
+  caller's.
+- **Its denials** go to its own `denials`, and `permanent:` names its kit: `requests.network in nkp
+  (scions/nkp/graft.nix)`.
+- **In a dispatch clone,** a sibling runs in the run's clone, at the original path under bubblewrap (at the clone's
+  under Seatbelt); its commits are the dispatch's, staged when the dispatch ends.
+- **Seatbelt** starts siblings as bubblewrap does. So `git commit` inside `pot claude` runs a wrapped pre-commit
+  hook on macOS too.
+- **User namespaces:** every run gets `--disable-userns`; no backend proves `nest`.
 - **Bound into every bubblewrap run:** `/run/pot/launcher`, the root's in-run pot, read-only; and `~/.config/pot/`
-  as a read-only folder whose `launcher` links to it. The backend is in every run's closure. A run with a table also gets `/run/pot/table/` (read-only, each row's
-  state read-write) and `/run/pot/children/` (read-write).
+  as a read-only folder whose `launcher` links to it. A run with a sibling row also gets `/run/pot/children.sock`.
 
 ## policy.json
 
@@ -908,7 +891,7 @@ To ask whether a run reaches a host or URL, use `pot why TARGET --json` rather t
   "mounts": { "state": [ { "name": "claude", "at": "~/.claude", "key": [ "root:claude-code@personal", "repo:…", "work" ] } ],
               "run": "/run/pot", "launcher": "/run/pot/launcher" },
   "bindings": [ { "capability": "status.relay", "socket": "/run/pot/relay.sock", "see": [ "workmux shim" ] } ],
-  "children": { "git:github.com/danielnaab/notebook-kit:check-kb": { "how": "nest", "policy": "sha256-…", "slot": "scions.notebook-kit", "context": "work" } },
+  "children": { "git:github.com/danielnaab/notebook-kit:check-kb": { "how": "sibling", "policy": "sha256-…", "slot": "scions.notebook-kit", "context": "work" } },
   "grants": [ { "id": "root:claude-code@personal", "digest": "sha256-…", "match": true } ]
 }
 ```
@@ -920,9 +903,9 @@ To ask whether a run reaches a host or URL, use `pot why TARGET --json` rather t
 | `backend` | Its name, the guarantees that the context requires, and those that it proved. |
 | `workspace` | Each repository: identity, path (the original path, where the run sees it), git common directory, protected paths, and `clone`: `null` in place, else the clone's path in pot's state (and `common` is the clone's `.git`). |
 | `items` | Every see, limits and reach item: its kind, value, class, each source (kit, file, grant), and whether it is in effect. |
-| `mounts` | State directories with their scope key, the run directory, and `launcher` (since v2.18.0; a wrapper tells a v2.18.0 run by it), plus `parent` in a nested child. |
+| `mounts` | State directories with their scope key, the run directory, and `launcher` (since v2.18.0; a wrapper tells a v2.18.0 run by it). v2.18.0 to v2.19.2 wrote `parent` in a nested child. |
 | `bindings` | Each bound capability, its socket, and the see items it adds. |
-| `children` | The run's [children table](#nesting-and-the-children-table): for each command it may start, `how` (`exec` or `nest`) and the child policy's digest, or `refused` with what it needs. |
+| `children` | The run's [children table](#siblings-and-the-children-table): for each command it may start, `how` (`exec` or `sibling`; `nest` until v2.19.2) and the row's policy digest, or `refused` with what it needs. |
 | `grants` | Each kit's grant, and whether its digest matched. |
 
 The shape is frozen: a later version adds values, not fields.
@@ -945,14 +928,13 @@ proves …`. The startup line names the guarantees that the root's usual backend
 | `separate-kernel` | The run has its own kernel. |
 | `in-place` | The workspace is the host's working tree. |
 | `same-path-clone` | A clone appears at the original path. |
-| `nest` | A run can hold nested runs. |
+| `nest` | A run can hold nested runs. No backend proves it since v2.20.0: a run's narrower commands start as siblings. |
 | `private-proxy` | Only this run can use its network proxy. |
 | `root-files` | `files` may place a file at `/…`. |
 
 bubblewrap proves `closure-store`, `own-netns`, `own-pidns`, `no-tiocsti`, `protected-as-mounts`, `local-listen`,
 `in-place`, `same-path-clone`, `private-proxy` and `root-files`, `resource-limits` for a run in the resource
-scope, and `nest` where its probe can run bubblewrap inside bubblewrap. It lacks `separate-kernel`. A run with no
-`nest` row in its [children table](#nesting-and-the-children-table) gets `--disable-userns`. An `inspect` run lacks
+scope. It lacks `separate-kernel` and `nest`. Every run gets `--disable-userns`. An `inspect` run lacks
 `closure-store`.
 
 Seatbelt (macOS) proves `closure-store`, `no-tiocsti`, `in-place` and `private-proxy`. It lacks `own-netns`,
@@ -1019,7 +1001,6 @@ pot --repo ~/src/other claude     # a second repository in the workspace
 pot dispatch --detach claude -p "fix the index tests"   # work in a clone, in the background
 pot runs                          # every run, and its state
 pot review 9b0e --fetch           # bring a clone's commits in: git merge pot-9b0e/main
-pot review 9b0e/c210 --fetch      # a child that run 9b0e dispatched: git merge pot-9b0e-c210/main
 ```
 
 ### Flags
@@ -1038,7 +1019,7 @@ and the exit line names each one's permanent form. `--flag=value` works too.
 | `--mode clone`, `--clone` | `mode` | Runs the context in a clone ([dispatch](#dispatch)). `--mode in-place` on a clone context: `pot (dispatch): --mode in-place: dispatch works in a clone; pot work CMD works here` (exit 2). |
 | `--repo PATH` | | Adds a repository to the workspace, with its repo kit and protections. Refused in clone mode. |
 | `--from REF` | | Clone mode: the base commit, default `HEAD`. Without clone mode: `pot (work): --from is clone mode: pot dispatch --from REF CMD, or pot --clone --from REF CMD` (exit 2). |
-| `--detach` | | Clone mode: run in the background, and print the run's id ([dispatch](#dispatch)). Inside a run, the child runs in the background inside the parent ([Nested dispatch](#nested-dispatch)). Without clone mode, refused as `--from` is. |
+| `--detach` | | Clone mode: run in the background, and print the run's id ([dispatch](#dispatch)). Refused inside a run. Without clone mode, refused as `--from` is. |
 | `--instance NAME` | | Chooses an agent kit instance, as `CMD@NAME` does. Its old name, `--account`, is refused: `pot: --account is gone (v2.17.0): --instance NAME, or CMD@NAME` (exit 2). |
 | `--backend NAME` | | Chooses a backend that the root defines. |
 | `--resume RUN`, `--resume last` | | Only with `host`: passes the transcript of run `RUN` (`last`: the newest run that left one) into a new host conversation as quoted data, never as history ([Resume on the host](#resume-on-the-host)). Elsewhere: `pot: --resume RUN goes with pot host (pot host --resume RUN CMD)`. |
@@ -1052,7 +1033,7 @@ pot explain [CONTEXT] [FLAGS] [CMD] [--json] [--backend-command]
 ```
 
 Prints the run's policy without running it: every item with the kit, file or grant that it came from, and the
-[children table](#nesting-and-the-children-table). `--json` prints [policy.json](#policyjson).
+[children table](#siblings-and-the-children-table). `--json` prints [policy.json](#policyjson).
 `--backend-command` prints bubblewrap's command line, with each secret variable shown as `(the run holds it)`;
 with `host`, it prints `argv       CMD` (and `(+ the transcript of run ID, as data)` with `--resume`).
 Inside a run, `pot explain` prints the same text as on the host; `--json` prints the run's policy.json.
@@ -1069,8 +1050,8 @@ entries left out, and says `left out until KIT is granted:` when the kit is not 
 protected path once, with every label that protects it (`.githooks (pot, repo)`), and the number of hidden paths.
 `reach` lists each item with the kit or grant that gives it and each capability's binding; then `children`: the
 rows grouped by kit, with `how`, and each refused row on its own line
-(`children   check-kb check-obsidian check-tasks … (notebook-kit): nest · claude: exec · dispatch claude: nest`,
-then `  meeting-kit: refused (needs WM_TOKEN, git.push)`), or `children   none: this run keeps --disable-userns`. `not
+(`children   check-kb check-obsidian check-tasks … (notebook-kit): sibling · claude: exec`,
+then `  meeting-kit: refused (needs WM_TOKEN, git.push)`), or `children   none`. `not
 in run` lists, for each kit whose grant does not apply, its requests, filled under the row. `backend` gives the
 proved and lacking guarantees; `resources`, whether this run gets the [resource scope](#resource-limits); and
 `note`. Rows wrap to the terminal's width, or 100 columns when the output is
@@ -1141,8 +1122,7 @@ reach                                                                    granted
   capability git.fetch ssh://forgejo@platform-vm:2222/*: ssh broker (fetch only), the host's ssh
              agent
                                                                             daniel
-children   dispatch claude (claude-code@flexion): nest ·
-           check-kb check-obsidian check-tasks check-templates nb-convert nb-index nb-move nb-pre-commit upgrade-obsidian (notebook-kit): nest ·
+children   check-kb check-obsidian check-tasks check-templates nb-convert nb-index nb-move nb-pre-commit upgrade-obsidian (notebook-kit): sibling ·
            claude (claude-code@flexion): exec
 
 not in run claude-code@flexion-gateway (root:claude-code@flexion-gateway): not granted:
@@ -1157,8 +1137,8 @@ not in run claude-code@personal (root:claude-code@personal): not granted:
              read ~/src/agent-skills-private, state claude
 
 backend    bubblewrap proves own-netns own-pidns no-tiocsti protected-as-mounts local-listen
-           in-place same-path-clone private-proxy root-files nest; lacks closure-store
-           resource-limits separate-kernel
+           in-place same-path-clone private-proxy root-files; lacks closure-store
+           resource-limits separate-kernel nest
 resources  none at a terminal; a run without one gets a user systemd scope, MemoryMax=50% TasksMax=2048
 note       a kit command started in this run (its wrapper) runs under its own policy, from the children table
 ```
@@ -1533,7 +1513,7 @@ never their contents. It exits 1 when a line starts `!`, else 0. There is no `--
 
 ```
 pot doctor · root home-manager · platform-vm · pot v2.19.2
-backend    bubblewrap: user namespaces work; proves closure-store own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files nest; resource-limits: for runs without a terminal; lacks separate-kernel
+backend    bubblewrap: user namespaces work; proves closure-store own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files; resource-limits: for runs without a terminal; lacks separate-kernel nest
 resources  user systemd: runs without a terminal get MemoryMax=50% TasksMax=2048
 grants     ~/.workstation/pot/grants.json: parses, 4 kits, no entry for platform-vm in the grants file's machines
 bindings   credential api.anthropic.com kit=claude-code@flexion: file ~/.config/pot/claude-token-flexion (present, 0600)
@@ -1663,11 +1643,11 @@ pot: --net pypi.org:443 was for this run.
   ends; nothing is written back to the host.` `denials` lists the run's denials ([Denials](#denials)).
 - `~/.pot-hidden` lists the hidden paths, one per line, as the root wrote them.
 - `pot` inside a run answers `pot explain` (the same text as on the host; `--json` for policy.json), `pot why`,
-  `pot runs` (that run and its children), `pot run` (a [wrapper](#wrapped-commands) looking up the
-  [children table](#nesting-and-the-children-table)), `pot dispatch` and `--clone`
-  ([Nested dispatch](#nested-dispatch)), and `pot review ID --json` for a child. A command that is not in the table
-  runs as the run's own program. Refused: `pot review` otherwise, `pot review is the host's: a run's output is
-  reviewed outside it` (exit 2); `pot doctor`, `pot doctor runs on the host; inside a run, pot explain and pot why`
+  `pot runs` (that run alone), and `pot run` (a [wrapper](#wrapped-commands) looking up the
+  [children table](#siblings-and-the-children-table): a sibling, or 126 for a command that is not in it). Refused:
+  `pot review`, `pot review is the host's: a run's output is reviewed outside it` (exit 2); `pot dispatch`,
+  `--clone` and `--detach` ([dispatch](#dispatch)); `pot CONTEXT CMD`, `pot inside a run starts no run: a kit
+  command's wrapper starts it beside this run; run anything else on the host` (exit 1); `pot doctor`, `pot doctor runs on the host; inside a run, pot explain and pot why`
   (exit 2); `pot grant`, `pot grant is for people, on the host: a run never writes its root's grants file`.
 
 ## Environment
@@ -1776,12 +1756,11 @@ no entry can be written, replaced, renamed or deleted, and a new top-level entry
 from the next run. What the run left there is listed at exit, never following a link (pi's lock folders, `*.lock`,
 left out; up to 20 entries, then how many more), and then removed:
 `pot: the run created .pi/extensions/x.ts (2 B), .pi/evil (a link) in a sealed folder; it was discarded (to keep agent config: pot dispatch …, then pot review)`.
-The after event records it as `sealed_left`. A nested child's leftovers, in place, are said on its own exit, inside
-the parent. An entry the host adds during the run is not seen. A folder with more than 256 entries is not sealed: it
+The after event records it as `sealed_left`. A sibling seals its own folders, and says what it left on its own exit. An entry the host adds during the run is not seen. A folder with more than 256 entries is not sealed: it
 stays plainly read-only, with one start note,
 `pot: ~/src/x/.pi has 2500 entries, more than a sealed folder takes (256): it is read-only in this run, so pi cannot take its settings lock there`.
 A sealed folder that is hidden, or under a hidden folder, stays hidden. Each workspace top is sealed on its own, scions included, in place,
-with read access, in `inspect` and in a nested child (from its parent's view). A dispatch clone is not sealed: there
+with read access, in `inspect` and in a sibling (from the host's folder: what its caller left in its own seal is not there). A dispatch clone is not sealed: there
 agent configuration is a proposal (below). `pot explain`
 says so under `limits`: `sealed: **/.pi (pot): read-only entries; a new one lasts for the run`. **On macOS** Seatbelt
 cannot seal (it has no mounts): a sealed folder stays plainly read-only, so pi ignores a project's
@@ -1801,8 +1780,7 @@ under agent configuration names in the tree (at the base or a tip: `.pi/ext -> .
 a scion's `.gitattributes` and the like are host-run too): `pot review` lists
 `agent config: .pi/settings.json` under ATTENTION, `pot review RUN` and `--fetch` print
 `changes agent configuration: .pi/settings.json (loads in agent sessions once merged)`, the exit line says
-`pot: the run changes agent configuration: …`, and runs/1's `clone.agentConfig` lists the paths. A nested child's
-clone is flagged the same way. In place, nothing changes: agent configuration stays protected (and `.pi` sealed).
+`pot: the run changes agent configuration: …`, and runs/1's `clone.agentConfig` lists the paths. In place, nothing changes: agent configuration stays protected (and `.pi` sealed).
 
 In place, a protected file with a second hard link stops the run. A clone has no hard links to your repository
 (it is made with `--no-hardlinks`), so the check does not apply there. To change a protected file, edit it on the
@@ -1932,25 +1910,27 @@ The other messages, after `pot (<context>): `:
 | Stale grant (125) | `meeting-kit (git:…) asks for more than its grant:`, then each new request as `  + network api.github.com:443`, then `  grant it: pot grant meeting-kit`. Also `… requests reach that is not granted:`; `… changed source since its grant:` with `  source: tree A -> tree B` and up to 12 lines of `git diff --stat` of the defining files when they changed (`nix/agent-tools/flake.lock | 1 +`), else of the tree, and the line `    the kit as built changed` when the build differs. The text is as before. The run is recorded as `stopped`, and the launching pane set to `waiting` when the run holds it ([What pot checks at start](#what-pot-checks-at-start)). |
 | An unverified scion kit (start note, no stop) | `meeting-kit: gitlink is not a release tag at its URL; its kit is unverified and its grant does not apply`; offline, `meeting-kit: its URL did not answer, so its kit is unverified and its grant does not apply`. Its command runs without its reach. |
 | `--repo` in clone mode (1) | `--repo comes to clone mode in a later release; a dispatch clones this repository only` |
-| Nested dispatch with no row (1) | `CMD is not a command this run may dispatch (pot explain lists its children): run it on the host` |
+| `pot dispatch`, `--clone` or `--detach` inside a run (1) | `pot dispatch is the host's: a run starts no clone inside it; run it on the host` |
 | `--from`, `--detach` without clone mode (2) | `--from is clone mode: pot dispatch --from REF CMD, or pot --clone --from REF CMD` |
 | `graft-kits` only (1) | `~/DIR has graft-kits only: its graft predates v2.16.0, and this pot reads pot-kits: take graft v2.16.0 or later there (nix flake update graft), or run pot host CMD` |
 | Missing guarantee (125) | `requires separate-kernel; bubblewrap proves …` |
-| `pot CONTEXT CMD` inside a run (1) | `pot inside a run starts nested runs in a later release: run it on the host` (nested starts go through wrappers and `pot dispatch`); on macOS `Seatbelt cannot nest: a run on macOS starts no runs inside it (pot dispatch, pot CONTEXT CMD); run it on the host` |
-| A child that needs reach its parent lacks (1) | `meeting-kit needs WM_TOKEN, git.push, which this run (claude) lacks: run it on the host (just meeting-run)`; the parenthesis names the first `kits.just` recipe that runs the command, else `meeting-kit ARGS` |
+| `pot CONTEXT CMD` inside a run (1) | `pot inside a run starts no run: a kit command's wrapper starts it beside this run; run anything else on the host` |
+| A command that needs reach the run lacks (1) | `meeting-kit needs WM_TOKEN, git.push, which this run (claude) lacks: run it on the host (just meeting-run)`; the parenthesis names the first `kits.just` recipe that runs the command, else `meeting-kit ARGS`. At a sibling's start, against what the host composes then: `C needs …, which the run that asked (7f3a) lacks: run it on the host` |
+| A wrapper with no row in the run's table (126) | `C: not in this run's children table (a wrapper from another workspace?): run it on the host` |
+| A sibling over the caps (1) | `C: 16 commands already run in this run's tree (pot's cap): wait for one to end, or run it on the host`; `C: this run is 8 starts deep (pot's cap): run it on the host` |
+| A sibling whose broker is gone (1, or 126 when it never answered) | `C: this run's broker went away (the run is ending?)`; `C: this run's broker does not answer (…): run it on the host` |
+| An agent's row that is not identical (1) | `C runs under another policy than this run, and an agent's run starts no other agent run until pot serve: run it on the host (pot C)` |
 | A wrapper with no launcher inside a v2.18.0 run (126) | `pot: C: this run's launcher (/run/pot/launcher) is missing, so its children table can't be reached: run C on the host` |
 | A wrapper whose program is on the host, with no pot (126) | `pot: C needs pot (<why>)`; inside an older run, `pot: C: its program is on the host: run it there` |
 | A wrapper that cannot reach pot on the host (stderr note, no stop) | `pot: check-kb runs without pot (…)` ([Wrapped commands](#wrapped-commands)) |
 | A wrapper from another workspace (1) | `check-kb: this workspace's kits have no command check-kb (the wrapper comes from another workspace's tools): run it in its repository` |
-| A child whose grant does not match, inside a run (125) | `C: not granted: pot grant NAME (on the host)` |
-| The host's review verbs inside a run (2) | `pot review 9b0e/c210 --fetch is the host's: a run's output is reviewed outside it; inside, pot review CHILD --json shows a child's commits` |
+| A command whose grant does not match, inside a run (125) | `C: not granted: pot grant NAME (on the host)` |
+| The host's review verbs inside a run (2) | `pot review is the host's: a run's output is reviewed outside it` |
 | A missing lock | `pot (work): ~/…/nix/agent-tools/flake.lock is missing, and pot never writes one into a workspace: run nix flake lock there, on the host, and commit it` |
 | A binding file (1, v2.17.1) | `pot (work): ~/.config/pot/claude-token-flexion is missing (the credential binding api.anthropic.com kit=claude-code@flexion): claude setup-token, saved with mode 600, then start again`; `is unreadable` for one the user cannot read; before the grant prompts ([the binding check](#key-files)) |
 
 On macOS, a root built by a graft before Seatbelt's return: `pot: this root has no backend for darwin (a root built
-before Seatbelt's return): rebuild it with this graft`. A row of the children table that would nest, on macOS:
-`pot (work): check-kb runs under its own, narrower policy, and Seatbelt cannot nest (a run on macOS starts no runs
-inside it): run it on the host (just check-kb)`.
+before Seatbelt's return): rebuild it with this graft`.
 On the startup line, a requested variable that the host lacks is `env NAME unset`, and a capability with no binding
 is `CAPABILITY: no binding`.
 
@@ -1965,11 +1945,12 @@ is `CAPABILITY: no binding`.
   ship the same command, `--from` or `--detach` without clone mode, `--account`, `pot review --approve` or `--root`,
   a `pot run` manifest that is not one, `pot serve`, and `pot review --fetch`/`--discard`, `pot grant` or
   `pot doctor` inside a run.
-- `126` from a wrapper: inside a v2.18.0 run with no executable launcher, or a command whose program is on the
-  host where no pot can run it.
+- `126` from a wrapper: inside a v2.18.0 run with no executable launcher, a command with no row in the run's
+  children table (or a broker that never answered), or a command whose program is on the host where no pot can
+  run it.
 - `1` when `pot` refuses to start the run for another reason: a root repository in `work`, a hidden path in a
   flag, a conflict between kits, `--repo` in clone mode, a refused child, a wrapper outside its repository, a
-  flake with `graft-kits` only, a grants file that does not parse, or nesting on macOS. Also a `pot review` or `pot runs` that cannot act (an unknown run, a
+  flake with `graft-kits` only, a grants file that does not parse, or a sibling over pot's caps. Also a `pot review` or `pot runs` that cannot act (an unknown run, a
   discarded clone, `--discard` on a running run), and `pot doctor` with a line marked `!`.
 
 The message says why. `pot` never runs the command with a weaker policy, a weaker backend or no sandbox.
@@ -1984,9 +1965,7 @@ The message says why. `pot` never runs the command with a weaker policy, a weake
 | `runs/<id>/clone/` | A [dispatch](#dispatch) run's clone, with its scions in `clone/.git/modules/`. Removed by `pot review ID --discard`, or by `keepDays` and `maxSize` once it needs no review. |
 | `runs/<id>/staging/<key>.git` | The host's bare copies of the clone's branches and its detached `HEAD` (`top.git`, or a scion's path with `/` as `-`), which `--fetch` reads. |
 | `runs/<id>/output.log` | A `--detach` run's output. |
-| `runs/<id>/children/<child>/` | A child's run folder, written by the parent (bound read-write at `/run/pot/children/` in that parent only): its `log.jsonl` (claims), `output.log` for `--detach`, and `clone/` for nested dispatch. Kept after the parent exits, as a run of its own for `--discard` and `keepDays` (`maxSize` does not count it). |
-| `runs/<id>/child-staging/<child>/` | Host-owned: the child clone's top repository staged when the parent ends (`staging/top.git`), and the host's own `log.jsonl` for the child (its `after`); `.looked` marks the look done. `pot review PARENT/CHILD --fetch` reads them. |
-| `runs/<id>/table/<digest>/` | Each child policy in the parent's table, with its closure and state folders, bound read-only into the parent at `/run/pot/table/` (state folders read-write). |
+| `trees/<id>/slot-N` | The siblings' slots of the tree whose top run is `<id>` (16 files, each held with `flock` by a sibling's broker while it runs); removed when that run ends. |
 | `state/<hash>/<name>` | A `state` request's directory, one per kit, workspace (or `none`) and context; or per kit for `shared`. |
 | `cache/kits/` | The built `pot-kits`, or that the flake has none, by the flake directory's tree hash. |
 | `cache/sources/` | For each repo kit, the hash of the kit as built for each granted tree: what lets a grant hold across a change outside the kit's defining files ([The grants file](#the-grants-file)). |
@@ -2245,11 +2224,12 @@ Seatbelt has no mounts, so links and path rules stand in for them:
   profile's last denies (`TIOCSTI`, the fcntls), in a session of its own, with stdin `/dev/null` (upload-pack keeps
   its stdin to speak on).
 - **Folders pot makes in HOME** on the way to a link are kept like the link: the run cannot rename or remove them.
-- **No nesting.** `pot` inside a run on macOS refuses: `pot (work): Seatbelt cannot nest: a run on macOS starts no
-  runs inside it (pot dispatch, pot CONTEXT CMD); run it on the host`. A narrower child is never flattened into its
-  parent: a [wrapped command](#wrapped-commands) whose row would nest is refused, naming the host recipe, and one
-  whose policy equals the run's runs in place ([Seatbelt cannot nest](#nesting-and-the-children-table)). So
-  `git commit` inside `pot claude` stops at a wrapped pre-commit hook: commit on the host, or `--no-verify`.
+- **Siblings, as on Linux** (v2.20.0): a [wrapped command](#wrapped-commands) with its own, narrower policy starts
+  beside the run, under Seatbelt, through the run's broker (`children.sock` in the run's folder, the one socket
+  there its profile lets it reach besides the bindings'); one whose policy equals the run's runs in place
+  ([Siblings](#siblings-and-the-children-table)). So `git commit` inside `pot claude` runs a wrapped pre-commit
+  hook. The sibling's command is its own process group; its backend passes `^C` and the stop on to it. `pot`
+  inside a run refuses as on Linux.
 - **Wrapped commands on the host** run under Seatbelt through the launcher, as on Linux. With pot off (no
   launcher) they run unwrapped, with the `runs without pot` line.
 - **Inside a run,** `pot` knows it is in one when the process is sandboxed (`sandbox_check`, which a host process
@@ -2266,12 +2246,10 @@ Seatbelt has no mounts, so links and path rules stand in for them:
 
 - **Wrapped commands run unwrapped where there is no root** (no launcher, a root older than v2.18.0), with a
   stderr line; and a deployment with no root (a Windmill worker, CI) takes `tools.passthru.unwrapped` on purpose.
-- **A child's bindings must equal its parent's;** narrower bindings come later.
-- **Nested children cannot outlive their parent** until `pot serve`, and a grandchild gets no children table.
-- **A nested dispatch stages only the child's top repository:** commits in its scions do not come back.
-  `clones.maxSize` does not count children's clones.
+- **A sibling never outlives the request that started it,** and an agent's run starts no other agent run, until
+  `pot serve`. A sibling is non-interactive (no job control), and gets no request folder shared with its caller.
 - **Clone mode is one repository:** `--repo` is refused in it.
-- **macOS is weaker** ([On macOS](#on-macos)): no nesting, no process or network isolation, no resource limits.
+- **macOS is weaker** ([On macOS](#on-macos)): no process or network isolation, no resource limits.
 - **No synced claude.ai skills inside a run** ([Claude Code](#claude-code)): install them as ordinary skill
   folders.
 - **pi in a run has no OAuth providers and no providers on the host's loopback** ([pi](#pi)).
@@ -2286,9 +2264,8 @@ first on `PATH` wins; `command -v pot` says which.
 
 ## Residual risks
 
-1. **Shared kernel.** A bubblewrap run shares the host's kernel. Only a VM proves `separate-kernel`. A run whose
-   children table has a `nest` row keeps user namespaces, so in practice every agent run does, and with them the
-   kernel surface they open.
+1. **Shared kernel.** A bubblewrap run shares the host's kernel. Only a VM proves `separate-kernel`. Since v2.20.0
+   no run keeps user namespaces (`--disable-userns` in every run), which closes the kernel surface they open.
 2. **Allowed hosts carry data out.** The proxy limits where, not what. The model API carries the workspace. A run
    can use its own account on an allowed host. `inspect` gives the model API what it reads.
 3. **Ordinary grants trust a kit's future code** within their reach. Powerful grants fix the source for scion and
@@ -2338,13 +2315,18 @@ first on `PATH` wins; `command -v pot` says which.
     clone.
 22. **macOS is weaker.** A Seatbelt run shares the host's processes and network stack: it lists this user's
     processes, and Seatbelt does not check `KERN_PROCARGS2`, so a run can read the arguments and environment of
-    every process of the same user (a credential another program holds in its environment among them). Sockets it
-    creates are on the host's file system; a protected folder is a path rule, not a mount point; there is no
-    nesting and no resource limit.
-23. **A parent holds everything its children get:** their closures, state folders and the credentials their
-    bindings carry. Nesting narrows the child, not the parent.
-24. **`by: parent` and `by: run` events are claims** their writers can forge. The host's own `after` for a child,
-    in `runs/<parent>/child-staging/<child>/log.jsonl`, is the evidence `pot review` uses.
+    every process of the same user (a credential another program holds in its environment among them; its own
+    siblings' too, whose variables and credentials its own cover). Sockets it creates are on the host's file system;
+    a protected folder is a path rule, not a mount point; there is no resource limit.
+23. **Gone in v2.20.0** (a parent held everything its nested children got): a sibling holds nothing of its caller's,
+    and its caller nothing of the sibling's ([siblings, not nesting](pot-siblings.md)).
+24. **`by: run` events are claims** their writers can forge. Every line of a sibling's log is the host's (`by: host`).
+    (v2.18.0 to v2.19.2's `by: parent` lines are not read.)
+25. **The Windmill worker runs kit commands unconfined** until it can sandbox (phase 2): a deployment with no root
+    takes `tools.passthru.unwrapped` (decisions 7 and 22).
+26. **A sibling has no access to its caller's `/tmp`.** A tool handed a temporary file of its caller's does not find
+    it; a request folder shared with the caller comes only when a real tool needs one. And each sibling is a host
+    start: about 0.5 s on platform-vm, where a nested child took about 0.2 s.
 
 ## Sources
 
@@ -2363,9 +2345,10 @@ first on `PATH` wins; `command -v pot` says which.
   the `workmux` and ssh shims
 - [pot/lib/kits-for.nix](../../pot/lib/kits-for.nix): `graft.lib.pot.kitsFor`, `packages.<system>.pot-kits`, the
   wrappers and `kits.just`
-- [pot/core/compose.py](../../pot/core/compose.py) `children_table`, `narrower`, `children_lines`; pot.py `wrapped_run`,
-  `write_table`, `inner_run`, `nest_child`: the children table, nesting and `pot run`;
-  [pot/tests/test_children.py](../../pot/tests/test_children.py); tests/run.sh's `nest` section
+- [pot/core/compose.py](../../pot/core/compose.py) `children_table`, `narrower`, `admit`, `children_lines`; pot.py
+  `wrapped_run`, `inner_run`, `sibling_client`, `sibling_entry`; [pot/core/siblings.py](../../pot/core/siblings.py),
+  the broker: the children table, siblings and `pot run`; [siblings, not nesting](pot-siblings.md);
+  [pot/tests/test_children.py](../../pot/tests/test_children.py); tests/run.sh's `sibling` section
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): `kit` and `kitArgs` from each `graft.nix` and `perSystem`, and the call
   to kitsFor
 - [tests/run.sh](../../tests/run.sh): the `pot` section; [pot/tests/test_compose.py](../../pot/tests/test_compose.py)

@@ -11,7 +11,7 @@ root repository such as `~/.workstation`. The terms are in [pot](../reference/po
 ## Before you begin
 
 - `pot` set up, with your agent's kit granted ([Run commands in pot](run-in-a-sandbox.md)).
-- Linux, or macOS, where the clone runs at its own path and nesting is refused ([On macOS](../reference/pot.md#on-macos)).
+- Linux, or macOS, where the clone runs at its own path ([On macOS](../reference/pot.md#on-macos)).
 - Commit what the run should start from. The clone starts at a commit, never at your working tree, and your
   uncommitted changes stay behind.
 - The steps use `~/src/flexion-assistant` (its flake is `nix/agent-tools/flake.nix`) and the instance
@@ -145,27 +145,10 @@ one you already made: including it asks for nothing new.
 
 ## Dispatch from inside a run
 
-On Linux, an agent in `pot claude` can hand off a task the same way (on macOS, Seatbelt cannot nest, and
-`pot dispatch` inside a run is refused): `pot dispatch --detach -- claude -p "…"` from its Bash
-tool. It prints the child's id (`9b0e/c210`); the agent follows it with `pot runs c210` (`pot runs` lists its
-children) and reads its commits with `pot review c210 --json`. The child runs inside the parent and is killed
-when the parent exits. Without `--detach`, the agent waits for it, and its exit line says
-`pot: run 9b0e/c210 · its clone is kept: on the host, pot review 9b0e/c210, then pot review 9b0e/c210 --fetch`.
-
-The child's clone is kept in pot's state after the parent ends. Once the parent has ended, the host looks at it
-itself and stages its commits. On the host:
-
-```sh
-pot review                       # lists 9b0e/c210 beside your own runs
-pot review 9b0e/c210 --fetch     # into refs/remotes/pot-9b0e-c210/*
-git log main..pot-9b0e-c210/main
-git merge pot-9b0e-c210/main
-```
-
-What the parent says about its child is a claim; `pot review` shows what the host itself found in the child's
-clone. Two limits in this release: only the child's top repository comes back (commits in its scions do not), and
-`clones.maxSize` does not count children's clones; `pot review 9b0e/c210 --discard` removes one. See
-[Nested dispatch](../reference/pot.md#nested-dispatch).
+Not since v2.20.0: `pot dispatch`, `pot --clone` and `--detach` inside a run are refused, on both backends
+(`pot (work): pot dispatch is the host's: a run starts no clone inside it; run it on the host`). An agent that wants
+to hand off a task asks you to run `pot dispatch` on the host. Agents starting agents come back with `pot serve`,
+which will ask you first.
 
 ## Change agent configuration from a run
 
@@ -190,7 +173,7 @@ A path that a repo kit protects (`AGENTS.md` in flexion-assistant, say) stays re
   scions folder is read-only, as in place; a commit made in a scion's git directory comes back into that scion's
   `refs/remotes/pot-<id>/*`, and one on its detached `HEAD` as `pot-<id>/detached`.
 - Your `user.name`, `user.email`, the origin URL, and a relative `core.hooksPath` that names a tracked folder
-  (`.githooks`), so the run's commits there run your hook commands, nested. None of your other git config. Your
+  (`.githooks`), so the run's commits there run your hook commands, as siblings. None of your other git config. Your
   hooks never run on the host for the clone: pot's git there runs with hooks disabled.
 - No LFS content: pot's git runs no filters, so LFS files are pointer files.
 - Your repository's kits, as committed at the base. A kit change that you have not committed does not apply.
@@ -216,8 +199,6 @@ unfetched commits: over the cap, the startup line and `pot doctor` name the olde
 - **`ended      unknown: pot ended without an exit (killed or crashed)`.** pot was killed or crashed. The next
   `pot runs` or `pot review` copies the commits it made out of the clone, so the run is in `review` and
   `pot review 1ac1` reads them as usual.
-- **A child is `exited` with `killed: parent`.** Its parent ended first. Its commits so far are in `review` as
-  usual: `pot review PARENT/CHILD`.
 - **Anything else:** `pot doctor` checks the backend, user systemd, the grants file and the bindings.
 
 ## How it works

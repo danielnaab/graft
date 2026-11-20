@@ -49,7 +49,7 @@ reach                                                                    granted
   capability mcp sessions                                                   claude-code@flexion-bedrock: no binding
   capability nix                                                            flexion-assistant: no binding
   capability git.fetch ssh://forgejo@platform-vm:2222/*                     daniel: no binding
-children   none: this run keeps --disable-userns
+children   none
 
 not in run claude-code@flexion (root:claude-code@flexion): not granted:
              capability credential api.anthropic.com env=CLAUDE_CODE_OAUTH_TOKEN,

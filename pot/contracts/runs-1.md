@@ -30,12 +30,12 @@ Every event has `ev` and `by`:
 | `by` | Meaning |
 |---|---|
 | `host` | a fact the host observed |
-| `parent` | written by a nested parent's in-run pot, as trustworthy as that parent (since v2.18.0). A `by: host` line in a log the parent writes is read as `by: parent`. |
+| `parent` | v2.18.0 to v2.19.2: written by a nested parent's in-run pot. Not written since v2.20.0, and not read. |
 | `run` | a claim the run reported: data, never evidence |
 
 | `ev` | When | Keys |
 |---|---|---|
-| `start` | the run starts (also `pot host`) | `run`, `context`, `backend`, `argv`, `kits`, `invoker`, `time`; `mode`, `workspace`, `command`, `pid`, `boot`, `pidStart`, `pane`, `detached`, `parent`, `oneRun`, and in clone mode `clone` (`{ base, branch, path, nested }`) |
+| `start` | the run starts (also `pot host`) | `run`, `context`, `backend`, `argv`, `kits`, `invoker`, `time`; `mode`, `workspace`, `command`, `pid`, `boot`, `pidStart`, `pane`, `detached`, `parent`, `oneRun`, in clone mode `clone` (`{ base, branch, path, nested }`), and for a sibling (since v2.20.0) `caller` (the id of the run that asked) and `depth` (1 for a sibling of a top-level run) |
 | `stop` | pot refused to start the run with exit 125 | `reason` (`grant` or `guarantee`), `kits` (each `{ id, status, digest, source }`: what was wanted), `fix` (such as `pot grant flexion-assistant`), `text` (the 125 lines), `workspace`, `time` |
 | `net` | a network decision | `host`, `port`, `verdict`, `count`, `bytes_out`; a request the proxy could not read is `{ "host": null, "port": null, "verdict": "malformed" }` |
 | `cap`, `notfound` | in the shape; not written yet | |
@@ -92,14 +92,14 @@ lock is still held, the record is `running` with `recovering: true`.
 | `command` | object | `name`, the command kit's identity `kit` (or `null`), `instance` (or `null`), and `typed`, the command as the person typed it. Text shows `typed`. (A log from before the field: `command` is `null`.) |
 | `argv` | list of strings | the command as pot started it: the kit's program and arguments |
 | `workspace` | list | each repository's identity `id`, `path`, and `name`, the short name the startup line uses: the normalised origin's last path part, else the checkout's folder |
-| `invoker` | string | `person` (at a terminal), `script`, or `run` for a nested child |
-| `via` | string, or absent | `"wrapper"` for a start through a [wrapper](pot-kits-1.md#shape) (`pot run`), `"dispatch"` for a nested dispatch; its `start` event has `via`, and `hook` when the command declares one. `pot runs` hides such runs that exited 0 unless `--all` |
+| `invoker` | string | `person` (at a terminal), `script`, or `run` for a sibling (a nested child until v2.19.2) |
+| `via` | string, or absent | `"wrapper"` for a start through a [wrapper](pot-kits-1.md#shape) on the host (`pot run`), `"sibling"` for one a run asked for (since v2.20.0); `"dispatch"` was a nested dispatch (v2.18.0 to v2.19.2). Its `start` event has `via`, and `hook` when the command declares one. `pot runs` hides such runs that exited 0 unless `--all` |
 | `detached` | boolean | started with `--detach` |
 | `pane` | string or `null` | the tmux pane the run held |
-| `parent`, `children` | string or `null`; list | for nested runs: a child's id is `PARENT/CHILD`, such as `9b0e/c210`; its parent's `children` lists it. A child's `--fetch` refs are `refs/remotes/pot-9b0e-c210/*`. |
+| `parent`, `children` | `null`; `[ ]` | since v2.20.0 always: a run starts no child inside it (decision 20). v2.18.0 to v2.19.2 listed nested children here, as `PARENT/CHILD`; their folders are not read any more. A sibling names the run that asked in its `start` event's `caller`. |
 | `started`, `ended` | strings or `null` | local times |
 | `exit`, `lost` | number or `null`; boolean | the exit status; whether pot ended without one |
-| `killed` | `"parent"`, or absent | a child that was still running when its parent ended (the host's `exit`); `exit` is `null` |
+| `killed` | `"caller"`, or absent | since v2.20.0: a sibling whose request went away before it started (its `exit` is 143). `"parent"` (v2.18.0 to v2.19.2) is not written any more |
 | `stop` | object or `null` | for `stopped`: `{ reason, kits, fix, grantedSince }` |
 | `recovering` | `true`, or absent | another pot is completing the run's staging (its `recover.lock`), still after a reader's 15-second wait: the state is `running` until it ends |
 | `clone` | object or `null` | in clone mode: the `base` commit and `branch`, `commits` and `unsigned`, `scionCommits`, `nested` (the scions whose own submodules were not cloned), `fetchFailed` (the after event's `fetch_failed`, else `null`), the moved `refs`, `uncommitted` files left in the clone, its `size`, when it was `fetched` or `discarded`, `keptUntil`, and, since v2.19.1, `agentConfig` (the after event's `agent_config`; `[ ]` when none) |
@@ -119,16 +119,13 @@ Both read the logs again every half second.
 ### Inside a run
 
 `pot runs` inside a run shows that run, from its policy (`id`, `state` (`running`), `context`, `mode` and
-`workspace`; the other fields are `null`), then its children, from their logs under `/run/pot/children/`. The
-host's logs stay hidden. A child's record on the host is built from its parent-written log (every line read as
-`by: parent`, only `start`, `exit` and `net` used) and the host's own lines for it in
-`runs/<parent>/child-staging/<child>/log.jsonl`.
+`workspace`; the other fields are `null`), alone. The host's logs stay hidden, its siblings' too.
 
 ## Compatibility
 
 - **Values are added, never fields,** within version 1: new event kinds, new keys in an event, new `attention`
   strings. A reader ignores what it does not know, and treats a state it does not know as one it does not act on.
-- **`by` decides trust.** Only `by: host` lines are evidence. `by: parent` and `by: run` lines are claims.
+- **`by` decides trust.** Only `by: host` lines are evidence. `by: run` lines are claims (and v2.18.0 to v2.19.2's `by: parent` lines).
 - **The state folder is not the contract.** A reader uses `pot runs --json`. The layout of `runs/<id>/` is pot's
   own, and may change in any release.
 
