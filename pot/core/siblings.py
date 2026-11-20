@@ -10,7 +10,7 @@ when their holder ends however it ends), and starts the host entry (`pot run --s
 a session of its own, with the caller's fds 0-2 and the request on FD. Then:
   - a line `INT` from the client: SIGINT to the sibling's session (pot and the backend ignore it; the command's
     is the default again);
-  - the socket closing (the client killed, its tool timeout, its SIGTERM): SIGTERM to the session, 2 s, SIGKILL;
+  - the socket closing (the client killed, its tool timeout, its SIGTERM): SIGTERM to the session, 10 s, SIGKILL;
   - the sibling ending: one JSON line back, {"exit": N}.
 A refusal before the start is {"refused": TEXT, "exit": N}. On SIGTERM (the run is ending) the broker stops every
 sibling first, the same way. It exits when the backend, its parent, is gone.
@@ -35,10 +35,11 @@ while args:
 HEAD_MAX = 256 << 10       # the request line
 HEAD_TIME = 5.0            # seconds for the request to arrive
 SLOTS = int(A.get("slots") or 16)      # decision 18: per tree
-GRACE = 2.0
+GRACE = 10.0               # SIGTERM to SIGKILL: longer than a sibling's own cleanup (its backend's helpers, after, cleanup)
 PENDING = threading.BoundedSemaphore(64)   # connections still sending their request: more are closed at once
 live = {}                  # pid -> Popen
 lock = threading.Lock()
+closing = False            # set by ending(): no sibling starts after it
 
 
 def log(what):
@@ -108,25 +109,28 @@ def stop(p):
 
 
 def read_head(c):
-    """The request line and the fds that came with it, within HEAD_TIME and HEAD_MAX."""
+    """The request line and the fds that came with it, within HEAD_TIME and HEAD_MAX. On any failure the fds that
+    came are closed (no leak from a partial or malformed request)."""
     c.settimeout(HEAD_TIME)
     end = time.time() + HEAD_TIME
-    msg, fds, _, _ = socket.recv_fds(c, 65536, 3)
-    buf = msg
-    while b"\n" not in buf:
-        if len(buf) > HEAD_MAX or time.time() > end or not msg:
-            for f in fds:
-                os.close(f)
-            raise ValueError("no request")
-        msg = c.recv(65536)
-        buf += msg
-    c.settimeout(None)
-    line = buf.split(b"\n", 1)[0]
-    if len(line) > HEAD_MAX:
+    fds = []
+    try:
+        msg, fds, _, _ = socket.recv_fds(c, 65536, 3)
+        buf = msg
+        while b"\n" not in buf:
+            if len(buf) > HEAD_MAX or time.time() > end or not msg:
+                raise ValueError("no request")
+            msg = c.recv(65536)
+            buf += msg
+        c.settimeout(None)
+        line = buf.split(b"\n", 1)[0]
+        if len(line) > HEAD_MAX:
+            raise ValueError("a request over 256 KiB")
+        return json.loads(line), fds
+    except BaseException:
         for f in fds:
             os.close(f)
-        raise ValueError("a request over 256 KiB")
-    return json.loads(line), fds
+        raise
 
 
 def serve(c):
@@ -146,6 +150,8 @@ def serve(c):
             if not ok:
                 raise ValueError("a malformed request")
         except (ValueError, OSError, TypeError) as e:
+            if isinstance(e, OSError) and not isinstance(e, ValueError):
+                e = "no request in time" if isinstance(e, socket.timeout) else e.strerror or e
             log(f"refused: {e}")
             answer(c, {"refused": f"pot ({A['context']}): the run's broker refused the request ({e})", "exit": 2})
             return
@@ -165,39 +171,64 @@ def serve(c):
                                   "wait for one to end, or run it on the host", "exit": 1})
             return
         r, w = os.pipe()
-        req = {"parent": A["run"], "key": head["key"], "args": head["args"], "cwd": head["cwd"],
+        req = {"parent": A["run"], "broker": os.getpid(), "key": head["key"], "args": head["args"], "cwd": head["cwd"],
                "hook": {k: v for k, v in (head.get("hook") or {}).items() if k in ("GIT_INDEX_FILE", "GIT_PREFIX")
                         and isinstance(v, str)}}
-        p = subprocess.Popen(ENTRY + ["run", "--sibling", str(r)], stdin=fds[0], stdout=fds[1], stderr=fds[2],
-                             pass_fds=(r,), start_new_session=True, close_fds=True)
+        with lock:
+            if closing:
+                os.close(r)
+                os.close(w)
+                answer(c, {"refused": f"pot ({A['context']}): {name}: this run is ending", "exit": 1})
+                return
+            # the entry holds the slot too (pass_fds), so the slot stays taken while it lives, whatever happens here
+            try:
+                p = subprocess.Popen(ENTRY + ["run", "--sibling", str(r)], stdin=fds[0], stdout=fds[1], stderr=fds[2],
+                                     pass_fds=(r, slot), start_new_session=True, close_fds=True)
+            except OSError as e:
+                os.close(r)
+                os.close(w)
+                answer(c, {"refused": f"pot ({A['context']}): {name}: the host could not start it ({e.strerror})", "exit": 1})
+                return
+            live[p.pid] = p
         os.close(r)
         for f in fds:
             os.close(f)
         fds = []
-        with os.fdopen(w, "wb") as f:
-            f.write(json.dumps(req).encode())
-        with lock:
-            live[p.pid] = p
+        try:
+            with os.fdopen(w, "wb") as f:
+                f.write(json.dumps(req).encode())
+        except OSError:
+            pass            # the entry went first; its status comes back below
         log(f"start {name} (pid {p.pid})")
         gone = False
-        while p.poll() is None:
-            rd, _, _ = select.select([c], [], [], 0.1)
-            if not rd:
-                continue
-            try:
-                d = c.recv(64)
-            except OSError:
-                d = b""
-            if not d:
-                log(f"stop {name} (pid {p.pid}): the request went away")
-                gone = True
-                stop(p)
-                break
-            if b"INT" in d:
+        # poll, not select: no ceiling on the fd's number (the review's F2); any failure here stops the sibling
+        poller = select.poll()
+        poller.register(c, select.POLLIN | select.POLLHUP | select.POLLERR)
+        try:
+            while p.poll() is None:
+                if not poller.poll(100):
+                    continue
                 try:
-                    os.killpg(p.pid, signal.SIGINT)
-                except (ProcessLookupError, PermissionError):
-                    pass
+                    d = c.recv(64)
+                except OSError:
+                    d = b""
+                if not d:
+                    log(f"stop {name} (pid {p.pid}): the request went away")
+                    gone = True
+                    stop(p)
+                    break
+                if b"INT" in d:
+                    try:
+                        os.killpg(p.pid, signal.SIGINT)
+                    except (ProcessLookupError, PermissionError):
+                        pass
+        except BaseException:
+            gone = True
+            stop(p)
+            p.wait()
+            with lock:
+                live.pop(p.pid, None)
+            raise
         st = p.wait()
         with lock:
             live.pop(p.pid, None)
@@ -213,8 +244,10 @@ def serve(c):
 
 
 def ending(*_):
-    """The run is ending: every sibling stops first."""
+    """The run is ending: every sibling stops first, and none starts after this."""
+    global closing
     with lock:
+        closing = True
         ps = list(live.values())
     ts = [threading.Thread(target=stop, args=(p,)) for p in ps]
     for t in ts:

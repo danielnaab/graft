@@ -43,11 +43,13 @@ wrapper -> pot run --command C      the run's broker (siblings.py, started by th
   - `refused`: the row's text, exit 1 (125 for a grant), as before.
   - **No row: exit 126** (decision 16): `pot (work): C: not in this run's children table (a wrapper from another
     workspace?): run it on the host`. A run never runs a command under its own policy because it has no entry.
-- **fds 0-2 cross only as what names no path.** The broker accepts a terminal, a pipe or FIFO, a socket, or
-  `/dev/null`. The spike showed why: a directory fd passed as stdin let the child read a file its own view hides
-  (`/proc/self/fd/0/…`). The client therefore puts a pipe in front of any other kind (a regular file, as in
-  `check-kb < notes.md` or `> out.txt`; a directory) and copies, so the caller's authority over that file stays the
-  caller's. A closed fd is `/dev/null`.
+- **fds 0-2 cross only as what a sibling cannot reopen into more.** A terminal, a socket or `/dev/null` crosses as
+  it is. The spike showed why: a directory fd passed as stdin let the child read a file its own view hides
+  (`/proc/self/fd/0/…`); and the review found that a pipe, reopened the other way round through `/proc`, let a
+  sibling write into its caller's input. The client therefore puts a pipe of its own in front of any other kind (a
+  pipe or FIFO, a regular file, as in `check-kb < notes.md` or `> out.txt`) and copies, so the caller's authority
+  over it stays the caller's; the broker takes a pipe too (the client's). The cost: a sibling's piped input is read
+  ahead, so what it leaves unread is not left for its caller. A directory or a closed fd is `/dev/null`.
 - **The terminal is passed, not given.** The sibling is in a session of its own: the caller's terminal is not its
   controlling terminal, so it has no job control (decision 14: non-interactive), and `^C` reaches only the caller's
   foreground group, where the client turns it into `INT` on the socket. The broker sends SIGINT to the sibling's
@@ -57,16 +59,21 @@ wrapper -> pot run --command C      the run's broker (siblings.py, started by th
   apply to it as to any run.
 - **Cancellation is the socket closing** (decision 14): the client killed, the agent's tool timeout (it kills the
   client's process tree), or the client's SIGTERM or SIGHUP (it closes the socket and exits 143 or 129). The broker
-  then sends SIGTERM to the sibling's session, waits 2 s, and sends SIGKILL. A sibling still being composed is not
-  started. **When the run ends** the backend stops its broker, which stops every sibling the same way first. A
-  sibling never outlives the request that started it.
+  then sends SIGTERM to the sibling's session, waits up to 10 s (longer than the sibling's own cleanup), and sends
+  SIGKILL. Under Seatbelt the command is its own process group, so the backend passes SIGTERM on to it and sends it
+  SIGKILL 3 s later itself. A sibling still being composed is not started. **When the run ends** the backend stops
+  its broker (waiting 12 s for it), which stops every sibling the same way first and starts none after. An entry
+  whose broker died stops its own session the same way. The tree's slot is held by the broker and by the entry, so
+  it stays taken while either lives. A sibling never outlives the request that started it.
 - **The host entry** is `pot run --sibling`, the root's own pot (`launch.json`'s `potBin`, fixed at the run's
   start). It reads the request from fd 3, never from a file a run could reach. Inside a run it is refused.
 
 ## Admission
 
 The entry composes the sibling **at its start**, from host facts, as `pot <context> KIT:C` would start there, with
-the caller's context and the caller's workspace (in a clone, the caller's clone, at the original path), and then
+the caller's context and the caller's workspace (from the top of the caller's repository that holds the cwd, with
+its other repositories as `--repo`, never from the cwd itself; in a clone, the caller's clone, at the original
+path), and then
 admits it only if every check below holds against the caller's policy, read from the caller's `policy.json` in its
 run folder and checked against the digest the host recorded when the caller started.
 

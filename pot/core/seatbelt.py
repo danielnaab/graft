@@ -736,12 +736,20 @@ def run(cfg, rundir):
     if launch.get("siblingOf"):
         # v2.20.0: a sibling's command is its own process group, so the INT and TERM its broker sends to the session
         # are passed on to it; the finally below stops what is left
+        # SIGTERM escalates to SIGKILL on that group after 3 s (the review: the broker's own SIGKILL, 10 s on, reaches
+        # the entry's session only, never this group); the finally below then sweeps what left it
+        import threading
+
         def forward(sig, _=None):
             if pgid:
                 try:
                     os.killpg(pgid, sig)
                 except (ProcessLookupError, PermissionError):
                     pass
+                if sig == signal.SIGTERM:
+                    t = threading.Timer(3.0, forward, (signal.SIGKILL,))
+                    t.daemon = True
+                    t.start()
         signal.signal(signal.SIGINT, forward)
         B.stop_signals(forward)
     try:

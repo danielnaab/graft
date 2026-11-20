@@ -10,7 +10,7 @@ under its own grant, never with a caller's authority. Design, review list and re
 - **pot: a kit command inside a run is a sibling.** A wrapped command whose policy is narrower than the run's is no
   longer nested in it: the run's broker (new, host-side) starts it beside the run, on the host, under the command's
   own policy alone, composed at its start and admitted only while the run that asked covers it. The caller passes
-  its terminal or pipes (`SCM_RIGHTS`), blocks, and gets the exit code; `^C` reaches the sibling; the sibling stops
+  its terminal (`SCM_RIGHTS`; pipes and files through a pipe of its own), blocks, and gets the exit code; `^C` reaches the sibling; the sibling stops
   when its caller goes (killed, a tool timeout) or the run ends. At most 16 run at once in a run's tree, and 8
   deep. On macOS too: `git commit` inside `pot claude` now runs a wrapped pre-commit hook, where v2.19.x refused
   (`Seatbelt cannot nest`) ([Siblings and the children table](docs/reference/pot.md#siblings-and-the-children-table)).

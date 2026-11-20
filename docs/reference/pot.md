@@ -827,7 +827,9 @@ holds `command`, `kit`, `kitName`, `context`, `mode`, `slot`, `argv`, `env` and 
   125: `pot (work): C: not granted: pot grant NAME (on the host)`. No prompt is shown inside a run.
 - "needs" names variables, capabilities (`git.push`) and paths as written, hosts without `:443`, `unsandboxed`,
   `write access` when the row's access is above the run's, and `protect PATTERN` when a write row lacks a
-  protected pattern the run has (a sibling stands in no read-only mount of its caller's).
+  protected pattern the run has (a sibling stands in no read-only mount of its caller's). So a pattern that only
+  the run's agent kit or its included kits protect refuses every write row: put it in the floor (`baseProtect`) or
+  in the kit.
 - A root kit's row that is not identical is refused: `an agent's run starts no other agent run until pot serve`.
 - `trust = "untrusted"` and `nest = false` start no sibling: such rows are `refused: "this run's context is
   untrusted (nest = false)"` and `"context work has nest = false"`.
@@ -849,14 +851,17 @@ a hook command, its two git variables, with its standard input, output and error
 
 - **The working directory** is the caller's, when it is inside a repository of the run (and on the host still
   inside it, links resolved); otherwise that repository's top.
-- **Standard input, output and error** are the caller's terminal, pipes or sockets. Anything else (a file, as in
-  `check-kb < notes.md` or `> out.txt`; a directory) goes through a pipe the caller's pot copies, so the sibling
-  never holds the caller's file itself. A closed one is `/dev/null`.
+- **Standard input, output and error** cross as they are when they are a terminal, a socket or `/dev/null`.
+  Anything else (a pipe, as in `git log | check-kb`; a file, as in `check-kb < notes.md` or `> out.txt`; a directory)
+  goes through a pipe the caller's pot copies, so the sibling never holds the caller's pipe or file itself (it could
+  reopen it the other way round). So a sibling's piped input is read ahead: what it leaves unread is not left for
+  its caller (`while read …; do check-kb; done < list` gives the first `check-kb` the rest of the list). A directory
+  is `/dev/null`; a closed one too.
 - **Non-interactive:** the sibling is in a session of its own, so it has no job control. `^C` at the terminal
   reaches the sibling (the caller's pot passes it on); `^Z` stops only the caller.
 - **It never outlives its request.** When the caller's pot goes (killed, an agent's tool timeout, its SIGTERM or
-  SIGHUP), or when the run ends, the host stops the sibling: SIGTERM, then SIGKILL after 2 s. Its record says
-  `killed: "caller"` when it never started.
+  SIGHUP), or when the run ends, the host stops the sibling: SIGTERM, then SIGKILL after 10 s (under Seatbelt the
+  command's own group gets SIGKILL 3 s after its SIGTERM). Its record says `killed: "caller"` when it never started.
 - **No access to the caller's `/tmp`:** a sibling's temporary folder is its own.
 - **What it gets:** its own view, proxy, bindings (its own sockets, from the host), credentials (from their
   binding, on the host), state folders and closure. Its caller gets none of them, and it gets none of its

@@ -155,6 +155,9 @@ class Admit(unittest.TestCase):
         self.assertEqual(C.admit(self.policy(protect=["**/flake.nix", "**/.claude", "x"]), caller), [])
         # a read sibling writes nothing, so the caller's protect needs no copy
         self.assertEqual(C.admit(self.policy(access="read"), caller), [])
+        # a read sibling with a write item keeps them too
+        self.assertEqual(C.admit(self.policy(access="read", items=[{"kind": "write", "value": "/w/x", "path": "/w/x"}]),
+                                 caller), ["protect **/.claude", "protect **/flake.nix"])
 
     def test_mode_and_workspace(self):
         caller = self.policy(tops=("/w", "/v"))
@@ -292,8 +295,10 @@ class Sibling(unittest.TestCase):
         f = os.open(os.path.join(d, "f"), os.O_RDWR | os.O_CREAT)
         dfd = os.open(d, os.O_RDONLY)
         n = os.open(os.devnull, os.O_RDWR)
-        self.assertTrue(pot.crossable(r))
+        self.assertFalse(pot.crossable(r))        # a pipe: the client pipes it (a sibling could reopen it the other way)
         self.assertTrue(pot.crossable(n))
+        a, b = __import__("socket").socketpair()
+        self.assertTrue(pot.crossable(a.fileno()))
         self.assertFalse(pot.crossable(f))        # a regular file: the client pipes it
         self.assertFalse(pot.crossable(dfd))      # a directory: it would carry the caller's view (the spike)
         if hasattr(os, "O_PATH"):

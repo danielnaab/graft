@@ -1223,13 +1223,13 @@ def run(cfg, rundir):
 
 
 def stop_helpers(procs):
-    """The run's host helpers, at its end: SIGTERM, then SIGKILL after 2 s; the siblings' broker gets 5 s, which it
-    spends stopping each sibling (SIGTERM, 2 s, SIGKILL) before it exits."""
+    """The run's host helpers, at its end: SIGTERM, then SIGKILL after 2 s; the siblings' broker gets 12 s, which it
+    spends stopping each sibling (SIGTERM, up to 10 s, SIGKILL) before it exits."""
     for h in procs:
         h.terminate()
     for h in procs:
         try:
-            h.wait(5 if getattr(h, "pot_siblings", False) else 2)
+            h.wait(12 if getattr(h, "pot_siblings", False) else 2)
         except subprocess.TimeoutExpired:
             h.kill()
 

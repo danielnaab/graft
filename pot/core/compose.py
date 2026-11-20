@@ -1364,7 +1364,8 @@ def admit(child, parent):
     its caller (it stood in the parent's read-only mounts); its mode is the caller's; its repositories are among
     the caller's."""
     lacks = narrower(child, parent)
-    if child.get("access") == "write":
+    if child.get("access") == "write" or any(i["kind"] == "write" for i in eff_reach(child)):
+        # (a write item too, whatever its access: the review)
         mine = {i["value"] for i in child["items"] if i["kind"] == "protect" and i["effective"]}
         lacks += [f"protect {i['value']}" for i in parent["items"]
                   if i["kind"] == "protect" and i["effective"] and i["value"] not in mine]

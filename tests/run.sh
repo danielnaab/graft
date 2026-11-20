@@ -1269,6 +1269,7 @@ sec_pot() {
           case "''\${1:-}" in
             fail) echo "sbk-tool: failing"; exit 7 ;;
             sleep) trap 'echo "sbk-tool: INT"; exit 130' INT; echo "sbk-tool: sleeping"; \${pkgs.coreutils}/bin/sleep "\$2" & wait; exit 0 ;;
+            noterm) trap "" TERM; \${pkgs.coreutils}/bin/sleep "\$2" & wait; exit 0 ;;
           esac
           echo sbk-tool hi
         ''; in {
@@ -2195,6 +2196,9 @@ except OSError as e:
   expect "whose status comes back" holds "client-exit=130"
   ran "pot (seatbelt): the client killed" sb_ --net api.sbk.example bash -c 'sbk-tool sleep 3201 & sleep 5; kill -9 $!; sleep 5; echo done'
   expect "stops the sibling" test "$(pgrep -f 'sleep 3201' | wc -l | tr -d ' ')" = 0
+  # the review: under Seatbelt the command is its own process group; one that ignores SIGTERM gets SIGKILL anyway
+  ran "pot (seatbelt): a sibling that ignores SIGTERM, its client killed" sb_ --net api.sbk.example bash -c 'sbk-tool noterm 3203 & sleep 5; kill -9 $!; sleep 8; echo done'
+  expect "is stopped too" test "$(pgrep -f 'sleep 3203' | wc -l | tr -d ' ')" = 0
   ran "pot (seatbelt): the caller's run ends" sb_ --net api.sbk.example bash -c 'sbk-tool sleep 3202 & sleep 5; echo leaving'
   sleep 6
   expect "stops the sibling with it" test "$(pgrep -f 'sleep 3202' | wc -l | tr -d ' ')" = 0
@@ -2962,6 +2966,7 @@ let
       fd0) if [ -p /dev/stdin ]; then echo "nk-chk fd0: a pipe"; else echo "nk-chk fd0: not a pipe"; fi
         if ${pkgs.coreutils}/bin/ls /proc/self/fd/0/ >/dev/null 2>&1; then echo "nk-chk fd0: a directory it can list"; fi; exit 0 ;;
       cat) exec ${pkgs.coreutils}/bin/cat ;;
+      inject) (echo injected > /proc/self/fd/0) 2>/dev/null; echo "nk-chk: tried"; exit 0 ;;
       procs) n=0; for p in /proc/[0-9]*; do case "$(${pkgs.coreutils}/bin/tr '\0' ' ' < "$p/cmdline" 2>/dev/null)" in *"sleep 3100"*) n=$((n+1)) ;; esac; done
         echo "nk-chk procs=$n"; exit 0 ;;
     esac
@@ -3141,6 +3146,11 @@ EOF
   ran "sibling: its stdin and stdout" nb_ agent -c 'echo piped | nk-chk cat; nk-chk cat < notes.md; nk-chk cat < notes.md > out.txt; cat out.txt; rm out.txt'
   expect "a pipe passes" has "piped"
   expect "a file is piped by the client" holds "data"
+  # the review (v2.20.0): a caller's pipe never crosses as it is, so a sibling cannot write into its caller's input
+  # shellcheck disable=SC2016 # the run's own variables
+  ran "sibling: a caller's input pipe" nb_ agent -c '(sleep 4; echo later) | { nk-chk inject; read -r x; echo "caller-read:$x"; }'
+  expect "the sibling ran" has "nk-chk: tried"
+  expect "and the caller reads only its own input" has "caller-read:later"
   ran "sibling: a directory as stdin" nb_ agent -c 'nk-chk fd0 < .'
   expect "gets /dev/null for it: nothing of the caller's view" has "nk-chk fd0: not a pipe"
   refuse "and lists nothing through it" holds "a directory it can list"
@@ -3180,6 +3190,10 @@ ask({"v": 1, "key": key, "args": ["fd0"], "cwd": os.getcwd(), "hook": {}}, [d, 1
 ask({"v": 1, "key": "root:agent:agent", "args": [], "cwd": "/", "hook": {}}, [0, 1, 2])
 ask({"v": 1, "key": "nope", "args": [], "cwd": "/", "hook": {}}, [0, 1, 2])
 ask(None, [0, 1, 2], raw=b"{not json\n")
+# the review's F2: malformed requests with fds, past select()'s ceiling (1024) had their fds leaked
+for _ in range(400):
+    ask(None, [0, 1, 2], raw=b"{not json\n")
+print("leaks-sent")
 EOF
   cp "$work/nforge.py" nforge.py
   ran "sibling: forged requests" nb_ agent -c "$py -I nforge.py"
@@ -3187,6 +3201,17 @@ EOF
   expect "an exec row is no sibling" holds '"refused": "pot (work): agent: not a sibling row in this run'"'"'s children table: run it on the host", "exit": 126'
   expect "an unknown key neither" holds '"refused": "pot (work): nope: not a sibling row'
   expect "and a malformed request is refused" holds "the run's broker refused the request"
+  expect "400 more were sent" has "leaks-sent"
+  local st2; nb_ agent -c 'nk-chk fail' >/dev/null 2>&1 && st2=0 || st2=$?
+  expect "sibling: after them, a sibling still runs and returns its code (no fd leaked)" test "$st2" = 7
+  # the review's F1: a sibling never makes the host evaluate what the run wrote (a nested flake, here)
+  # shellcheck disable=SC2016 # the run's own variables
+  ran "sibling: from a nested repository the run made, with a flake" nb_ agent -c 'mkdir -p nest && git -C nest init -q &&
+    printf "{ outputs = _: builtins.trace \"SIBLING-EVAL-MARKER\" { }; }\n" > nest/flake.nix && git -C nest add flake.nix &&
+    cd nest && nk-chk n; cd ..; rm -rf nest'
+  expect "the sibling runs (from the caller's repository top)" holds "nk-chk POT=work parent=- args=n"
+  refuse "and the host evaluated nothing the run wrote" holds "SIBLING-EVAL-MARKER"
+  refuse "nor built a repo kit at the sibling's start" holds "building the repo kit"
   rm -f nforge.py
 
   # cancellation (decision 14): ^C, the client killed (the agent's tool timeout), the caller's run ending

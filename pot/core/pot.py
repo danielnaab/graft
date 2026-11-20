@@ -996,7 +996,15 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000", clones=N
         r = repo_of(host, p)
         if r and (C.under(host.state, r["top"])):
             raise C.Refusal(f"pot ({ctx['name']}): pot's state directory {host.state} is inside the workspace {r['top']}: move programs.pot.stateDir")
-    ws = workspace_facts(host, paths, ctx, cache, clones)
+    # v2.20.0 (the review's F1): a sibling never evaluates anything on the host. Its workspace facts (the repo kit's
+    # bundle, the scions and their verification) are the caller's, recorded at the caller's start, from which the
+    # caller's children table was composed: content the caller wrote since then never reaches the host's nix
+    if flags.get("wsFacts") is not None:
+        ws = json.loads(json.dumps(flags["wsFacts"]))
+        flags = {k: v for k, v in flags.items() if k != "wsFacts"}
+    else:
+        ws = workspace_facts(host, paths, ctx, cache, clones)
+    facts = json.loads(json.dumps(ws))      # as found, before grants narrow them and compose links kits into them
     os.makedirs(os.path.dirname(cache_f), exist_ok=True)
     with open(cache_f, "w") as f:
         json.dump(cache, f)
@@ -1046,6 +1054,7 @@ def gather(host, root, context, flags, cmd, rundir=None, run_id="0000", clones=N
     root_writes(host, root, ctx, policy, cmd, flags)
     record_sources(host, ws, report)
     report["scope"] = scope or {}
+    report["wsFacts"] = facts
     if scope and scope.get("note"):
         report["notes"].append(scope["note"])
     for w in ws:
@@ -1634,8 +1643,10 @@ def run(host, root, context, flags, cmd):
         launch["toolsFix"] = "{}tools ({})".format(*C.root_paths(root))
         launch["root"] = {"contexts": root.get("contexts") or {}}
         launch["hostSigns"] = run_git(host, launch["cwd"], "config", "--bool", "commit.gpgsign").stdout.strip() == "true"
-        # v2.20.0: what this run's broker needs to start its siblings: the host pot, the tree's slots and its depth
+        # v2.20.0: what this run's broker needs to start its siblings: the host pot, the tree's slots and its depth;
+        # and the workspace facts its siblings are composed from (never evaluated again)
         launch["hostPot"] = host_pot()
+        launch["wsFacts"] = report["wsFacts"]
         launch["tree"] = (sib or {}).get("tree") or rundir
         launch["depth"] = (sib or {}).get("depth") or 0
         if sib:
@@ -1719,7 +1730,8 @@ def run(host, root, context, flags, cmd):
             os.write(wfd, b"1")
             os.close(wfd)
         started = time.time()
-        if sib and SIBLING_STOP:
+        never = bool(sib and SIBLING_STOP)
+        if never:
             status = 143        # the request went away while the sibling was being composed: never started
         else:
             runargv = (scope.get("argv") or []) + [bprog, "run", rundir]
@@ -1731,8 +1743,10 @@ def run(host, root, context, flags, cmd):
                 status = subprocess.run(runargv, env=scope.get("env")).returncode
             finally:
                 signal.signal(signal.SIGINT, was)
+            if status < 0:
+                status = 128 - status       # killed by a signal (a scope's systemd-run): as the backend records it
         log(rundir, {"ev": "exit", "by": "host", "status": status, "time": now_iso(),
-                     **({"killed": "caller"} if sib and SIBLING_STOP else {})})
+                     **({"killed": "caller"} if never else {})})
         ev = after_event(bprog, rundir)
         shown = dict(ev)
         if run_git(host, launch["cwd"], "config", "--bool", "commit.gpgsign").stdout.strip() != "true" or cinfo:
@@ -1915,7 +1929,7 @@ def host_pot():
     return [sys.executable, "-I", "-c", code, ROOT_PATH] if ROOT_PATH else None
 
 
-def sibling_signals():
+def sibling_signals(broker=None):
     """The host entry's signals: SIGINT is the command's alone (the broker sends it to the whole session; pot and
     the backend ignore it, the command's is the default again); SIGTERM marks the request gone, so a sibling still
     being composed never starts, and one running ends with its backend; a broker that died leaves the entry
@@ -1928,23 +1942,27 @@ def sibling_signals():
         SIBLING_STOP = True
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     signal.signal(signal.SIGTERM, stop)
-    parent = os.getppid()
+    parent = broker or os.getppid()
 
     def watch():
         while os.getppid() == parent:
             time.sleep(1)
         stop()
-        try:
-            os.killpg(os.getpgrp(), signal.SIGTERM)
-        except OSError:
-            pass
+        # the broker is gone: stop this session as it would have (SIGTERM, 10 s, SIGKILL)
+        for sig, wait in ((signal.SIGTERM, 10), (signal.SIGKILL, 0)):
+            try:
+                os.killpg(os.getpgrp(), sig)
+            except OSError:
+                pass
+            time.sleep(wait)
     threading.Thread(target=watch, daemon=True).start()
 
 
 def crossable(fd):
-    """Whether fd may cross to a sibling as it is (the design note): a terminal, a pipe or FIFO, a socket, or
-    /dev/null, none of which names a path a sibling could reopen with its caller's authority (a directory fd let a
-    child read what its own view hides, in the spike). None for a closed fd. The broker checks the same."""
+    """Whether fd may cross to a sibling as it is (the design note): a terminal, a socket, or /dev/null, none of
+    which a sibling could reopen into more of its caller's authority (a directory fd let a child read what its own
+    view hides, in the spike; a pipe could be reopened the other way round). None for a closed fd. Anything else
+    goes through a pipe of the client's own. The broker also takes a pipe: the client's own."""
     try:
         st = os.fstat(fd)
         fl = __import__("fcntl").fcntl(fd, __import__("fcntl").F_GETFL)
@@ -1952,7 +1970,7 @@ def crossable(fd):
         return None
     if fl & getattr(os, "O_PATH", 0):
         return False
-    if stat.S_ISFIFO(st.st_mode) or stat.S_ISSOCK(st.st_mode):
+    if stat.S_ISSOCK(st.st_mode):
         return True
     if stat.S_ISCHR(st.st_mode):
         try:
@@ -1960,6 +1978,8 @@ def crossable(fd):
         except OSError:
             null = None
         return os.isatty(fd) or st.st_rdev == null
+    # a pipe or FIFO is never passed as it is: under bubblewrap a sibling could reopen /proc/self/fd/N the other way
+    # round (write into its caller's stdin pipe); the client puts a pipe of its own in front (the review, v2.20.0)
     return False
 
 
@@ -2126,18 +2146,23 @@ def sibling_entry(host, root, flags):
     the request on FD. It reads the caller's policy from its run folder (checked against the digest the host
     recorded at the caller's start), finds the row, and starts the command as `pot CONTEXT KIT:CMD` would there,
     composed now, admitted by run() against the caller's policy (decision 13)."""
-    sibling_signals()
     try:
         fd = int(flags.get("sibling") or "")
         with os.fdopen(fd, "rb") as f:
             req = json.loads(f.read(SIBLING_HEAD_MAX * 2))
+    except (OSError, ValueError, TypeError) as e:
+        raise C.Refusal(f"pot: pot run --sibling: not a broker's request ({e})", 2) from None
+    # the broker's pid from the request: a broker that died before this line still counts as gone (the review)
+    sibling_signals(req.get("broker") if isinstance(req, dict) and isinstance(req.get("broker"), int) else None)
+    try:
         prd = req["parent"]
         with open(os.path.join(prd, "launch.json")) as f:
             plaunch = json.load(f)
-        if file_digest(os.path.join(prd, "policy.json")) != plaunch.get("policyDigest"):
+        with open(os.path.join(prd, "policy.json"), "rb") as f:
+            raw = f.read()       # read once: the digest and the policy are the same bytes
+        if "sha256-" + hashlib.sha256(raw).hexdigest() != plaunch.get("policyDigest"):
             raise ValueError("the caller's policy.json changed")
-        with open(os.path.join(prd, "policy.json")) as f:
-            caller = json.load(f)
+        caller = json.loads(raw)
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise C.Refusal(f"pot: pot run --sibling: not a broker's request ({e})", 2) from None
     ctxn = caller.get("context") or "work"
@@ -2150,15 +2175,24 @@ def sibling_entry(host, root, flags):
         raise C.Refusal(f"pot ({ctxn}): {name}: this run is {SIBLING_DEPTH} starts deep (pot's cap): run it on the host")
     vcwd, hcwd = sibling_cwd(caller, req.get("cwd"))
     clones = {w["path"]: w["clone"] for w in caller["workspace"] if w.get("clone")}
-    # identity comes from the source repository (a clone's: its original path), content from the clone (§8)
-    src = hcwd
-    for vt, ht in view_tops(caller):
-        if clones and (hcwd == ht or hcwd.startswith(ht + "/")):
-            w = next(w for w in caller["workspace"] if w.get("clone") == ht)
+    # the composition starts at the top of the caller's repository that holds the cwd, never at the cwd itself (which
+    # the caller can change after the check): identity from the source repository (a clone's: its original path),
+    # content from the clone (§8); the caller's other repositories come too, as --repo
+    tops = [w["path"] for w in caller["workspace"]]
+    src = tops[0] if tops else hcwd
+    for (vt, ht), w in zip(view_tops(caller), caller["workspace"]):
+        rh = os.path.realpath(ht)
+        if hcwd == rh or hcwd.startswith(rh + "/"):
             src = w["path"]
-    os.chdir(src if os.path.isdir(src) else hcwd)
+            break
+    os.chdir(src)
+    if not os.path.realpath(os.getcwd()) == os.path.realpath(src):
+        raise C.Refusal(f"pot ({ctxn}): {row['command']}: the caller's repository {src} moved: run it on the host")
+    others = [t for t in tops if t != src]
     fl = {"commandKit": row["kit"], "commandSlot": row["slot"], "wrapped": True, "noInclude": True,
-          "mode": caller.get("mode") or "in-place"}
+          "mode": caller.get("mode") or "in-place", "repo": others, "wsFacts": plaunch.get("wsFacts")}
+    if fl["wsFacts"] is None:
+        raise C.Refusal(f"pot ({ctxn}): {row['command']}: the caller's start recorded no workspace facts: run it on the host")
     if row.get("hook"):
         fl["hook"] = row["hook"]
     fl["siblingOf"] = {"caller": caller, "callerId": caller.get("run"), "callerDir": prd, "depth": depth,
