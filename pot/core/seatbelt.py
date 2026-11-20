@@ -636,28 +636,54 @@ def ps_lines(env):
     return out
 
 
-def leftovers(rundir, tmp, check=None, ps=ps_lines, me=None):
+def ps_starts():
+    """Each process's start, in seconds since the epoch (`ps -o lstart`, whole seconds, C locale)."""
+    r = subprocess.run(["/bin/ps", "-A", "-ww", "-o", "pid=", "-o", "lstart="], capture_output=True, text=True,
+                       env={**os.environ, "LC_ALL": "C"})
+    out = {}
+    for l in r.stdout.splitlines():
+        f = l.split(None, 1)
+        if len(f) == 2 and f[0].isdigit():
+            try:
+                out[int(f[0])] = time.mktime(time.strptime(" ".join(f[1].split()), "%a %b %d %H:%M:%S %Y"))
+            except ValueError:
+                pass
+    return out
+
+
+def leftovers(rundir, tmp, check=None, ps=ps_lines, me=None, since=None, starts=ps_starts):
     """F2/F3 (fix round 4): the run's processes outside its group (setsid). First, by Seatbelt itself: a sandboxed
-    process (sandbox_check) whose profile lets it read this run's policy.json, which only this run's does. Then, as a
-    fallback, the run's TMPDIR in a process's environment only (in `ps -E` and not in its arguments), never argv."""
+    process (sandbox_check) whose profile lets it read this run's policy.json and not its launch.json, which only
+    this run's profile does. Then, as a fallback, the run's TMPDIR in a process's environment only (in `ps -E` and
+    not in its arguments), never argv.
+    v2.20.2: v2.20.0 asked only for policy.json, and once v2.19.2 made the path check work, every stock macOS profile
+    that may read the user's folders matched (neagent, Tailscale's tunnel host; rapportd, secd, tccd …: 80-130
+    processes), and each Seatbelt run's end signalled them. A run's profile allows its policy.json and never the
+    launch.json beside it; a broad profile allows both. And with SINCE (the run's start), a process that started
+    before the run is never one of its own (whole seconds: one started in the run's first second counts)."""
     me = os.getpid() if me is None else me
     pol = os.path.join(rundir, "policy.json")
+    lau = os.path.join(rundir, "launch.json")
     found = set()
     if check is not None:
         for pid in ps(False):
-            if pid != me and check(pid) == 1 and check(pid, "file-read-data", pol) == 0:
+            if pid != me and check(pid) == 1 and check(pid, "file-read-data", pol) == 0 \
+                    and check(pid, "file-read-data", lau) == 1:
                 found.add(pid)
     mark = f" TMPDIR={tmp}/"
     plain, withenv = ps(False), ps(True)
     for pid, line in withenv.items():
         if pid != me and mark in f" {line}" and mark not in f" {plain.get(pid, '')}":
             found.add(pid)
+    if since is not None and found:
+        began = starts()
+        found = {pid for pid in found if pid in began and began[pid] >= int(since)}
     return sorted(found)
 
 
-def stop_run(pgid, rundir, tmp, check="auto", rounds=20):
-    """What is left of the run: its process group, then its other processes (leftovers), TERM then KILL, until a pass
-    finds none (or ROUNDS passes)."""
+def stop_run(pgid, rundir, tmp, check="auto", rounds=20, since=None):
+    """What is left of the run: its process group, then its other processes (leftovers, none older than SINCE), TERM
+    then KILL, until a pass finds none (or ROUNDS passes)."""
     if check == "auto":
         check = sandbox_checker()
     for n in range(rounds):
@@ -665,7 +691,7 @@ def stop_run(pgid, rundir, tmp, check="auto", rounds=20):
             os.killpg(pgid, signal.SIGTERM if n == 0 else signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
-        left = leftovers(rundir, tmp, check)
+        left = leftovers(rundir, tmp, check, since=since)
         if not left and n > 0:
             return
         for pid in left:
@@ -758,6 +784,7 @@ def run(cfg, rundir):
         B.stop_signals(forward)
     try:
         # the run is its own process group, in the terminal's foreground when pot is (^C reaches it alone)
+        started = time.time()       # v2.20.2: leftovers never older than the run
         p = subprocess.Popen(cmd, env=env, cwd=sb["cwd"], process_group=0, close_fds=True)
         pgid = p.pid
         for sig_ in pending:
@@ -769,7 +796,7 @@ def run(cfg, rundir):
         p.returncode = status
     finally:
         if pgid:
-            stop_run(pgid, rundir, sb["tmp"])
+            stop_run(pgid, rundir, sb["tmp"], since=started)
         if fg:
             try:
                 os.tcsetpgrp(0, os.getpgrp())

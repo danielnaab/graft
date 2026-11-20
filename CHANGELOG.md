@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.20.2 - UNRELEASED
+
+- **pot (macOS): a run's end no longer signals other sandboxed processes.** Seatbelt's sweep for what left a run's
+  group (`setsid`) took any sandboxed process whose profile may read the run's `policy.json`, and once v2.19.2 made
+  that path check work, every stock macOS profile that may read the user's folders matched: each run's end sent
+  SIGTERM, then SIGKILL, to 80-130 of the user's processes (`neagent`, so Tailscale's tunnel; `rapportd`, `secd`,
+  `tccd`, `trustd` …). A process is now the run's only when its profile reads `policy.json` and not the `launch.json`
+  beside it, which only the run's own profile does, and never when it started before the run
+  ([On macOS](docs/reference/pot.md#on-macos)).
+- **pot doctor names its own version.** v2.20.1's said `pot v2.20.0`; a test now holds it to this file's latest.
+
 ## v2.20.1 - 2026-11-19
 
 - **pot: a run whose host pot was killed (`kill`, SIGTERM) leaves no siblings' socket or slots behind.** v2.20.0's

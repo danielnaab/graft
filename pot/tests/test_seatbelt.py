@@ -102,10 +102,56 @@ class FixRound4(unittest.TestCase):
             sandboxed = {10: 1, 11: 0, 12: 0, 13: 1, 99: 1}[pid]
             if op is None:
                 return sandboxed
-            self.assertEqual((op, path), ("file-read-data", rd + "/policy.json"))
+            self.assertEqual(op, "file-read-data")
+            self.assertIn(path, (rd + "/policy.json", rd + "/launch.json"))
+            if path.endswith("launch.json"):
+                return 1                              # no run's profile reads launch.json
             return 0 if pid in (10, 99) else 1        # 13: another run's (or another sandbox's) profile
         self.assertEqual(S.leftovers(rd, tmp, check, ps, me=99), [10, 11])
         self.assertEqual(S.leftovers(rd, tmp, None, ps, me=99), [11])      # no sandbox_check: the fallback alone
+
+    def test_leftovers_v2202_a_broad_profile_is_not_the_run(self):
+        # v2.20.2: a stock macOS profile that may read the user's folders reads policy.json AND launch.json (neagent,
+        # rapportd, secd …); v2.20.0-v2.20.1 counted it as the run's and signalled it at every run's end
+        rd, tmp = "/st/runs/ab12", "/st/runs/ab12/tmp"
+        plain = {10: "sleep 600", 20: "neagent", 99: "pot"}
+        ps = lambda env: plain    # noqa: E731
+
+        def check(pid, op=None, path=None):
+            if op is None:
+                return 1                              # all sandboxed
+            if pid == 20:
+                return 0                              # broad: reads both
+            return 1 if path.endswith("launch.json") else 0
+        self.assertEqual(S.leftovers(rd, tmp, check, ps, me=99), [10])
+
+    def test_leftovers_v2202_never_older_than_the_run(self):
+        # v2.20.2: with since (the run's start), a process that started before it is never the run's, whatever matched
+        rd, tmp = "/st/runs/ab12", "/st/runs/ab12/tmp"
+        plain = {10: "sleep 600", 11: "sleep 600", 12: "sleep 600", 99: "pot"}
+        withenv = {10: "sleep 600", 11: f"sleep 600 TMPDIR={tmp}/", 12: "sleep 600", 99: "pot"}
+        ps = lambda env: withenv if env else plain    # noqa: E731
+
+        def check(pid, op=None, path=None):
+            if op is None:
+                return 1 if pid in (10, 12) else 0
+            return 1 if path.endswith("launch.json") else 0
+        starts = lambda: {10: 1000.0, 11: 999.0, 12: 1000.0}    # noqa: E731  (12: the run's first second)
+        self.assertEqual(S.leftovers(rd, tmp, check, ps, me=99), [10, 11, 12])
+        self.assertEqual(S.leftovers(rd, tmp, check, ps, me=99, since=1000.4, starts=starts), [10, 12])
+        self.assertEqual(S.leftovers(rd, tmp, check, ps, me=99, since=1001.0, starts=starts), [])
+        # a process with no start (gone between the two ps) is not signalled
+        self.assertEqual(S.leftovers(rd, tmp, check, ps, me=99, since=0, starts=lambda: {10: 5.0}), [10])
+
+    @unittest.skipUnless(os.uname().sysname == "Darwin", "macOS's /bin/ps")
+    def test_ps_starts_v2202(self):
+        import time
+        try:
+            st = S.ps_starts()
+        except OSError:
+            self.skipTest("no /bin/ps to run (nix's build sandbox)")
+        self.assertLessEqual(st[os.getpid()], time.time())
+        self.assertGreater(st[os.getpid()], time.time() - 3600)
 
     @unittest.skipUnless(os.uname().sysname == "Darwin", "sandbox_check(2) is macOS's")
     def test_sandbox_check_answers_for_a_path(self):

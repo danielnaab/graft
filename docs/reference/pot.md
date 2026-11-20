@@ -2227,9 +2227,12 @@ Seatbelt has no mounts, so links and path rules stand in for them:
   `same-path-clone` exits 125. The host's look at the clone runs git under Seatbelt, the clone read-only.
 - **Processes:** the run is its own process group, in the terminal's foreground when `pot` is (`^C` and `^Z` reach
   it). When the command exits, what is left of the group is stopped, then every process that left it (`setsid`):
-  one that `sandbox_check` finds sandboxed and able to read this run's `policy.json`, or that carries the run's
-  `TMPDIR` in its environment (not merely in its arguments). Each gets TERM, then KILL, pass after pass until one
-  finds none (at most 20).
+  one that `sandbox_check` finds sandboxed, able to read this run's `policy.json` and not its `launch.json` (only the
+  run's own profile draws that line; a broad profile, as many of macOS's own agents' are, reads both), or that
+  carries the run's `TMPDIR` in its environment (not merely in its arguments); and never one that started before the
+  run. Each gets TERM, then KILL, pass after pass until one finds none (at most 20). Before v2.20.2 the first test
+  asked only for `policy.json`, and every Seatbelt run's end signalled unrelated sandboxed user processes (Tailscale's
+  tunnel host among them).
 - **The host's look at a clone** runs git under its own profile (`git.sb`, kept in the run's folder) with the run
   profile's last denies (`TIOCSTI`, the fcntls), in a session of its own, with stdin `/dev/null` (upload-pack keeps
   its stdin to speak on).

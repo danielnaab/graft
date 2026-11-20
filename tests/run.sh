@@ -2159,6 +2159,21 @@ pot_seatbelt() {
   sb_ python3 -I -c 'import os; os.fork() or (os.setsid(), os.execvpe("sleep", ["sleep", "309"], {k: v for k, v in os.environ.items() if k != "TMPDIR"}))' >/dev/null 2>&1
   sleep 0.5
   refuse "pot (seatbelt): F2, a survivor with no TMPDIR is stopped too" pgrep -f "sleep 309"
+  # v2.20.2: a run's end leaves other sandboxed processes alone. A broad profile (allow default, as many of macOS's
+  # own agents' may read the user's folders) reads the run's policy.json too; v2.20.0-v2.20.1 signalled them all
+  # (neagent, so Tailscale; rapportd, secd …). One started before the run, one during it (only the profile tells)
+  sandbox-exec -p '(version 1)(allow default)' sleep 311 >/dev/null 2>&1 &
+  local by1=$!
+  sb_ bash -c 'sleep 3' >/dev/null 2>&1 &
+  local sbr=$!
+  sleep 1
+  sandbox-exec -p '(version 1)(allow default)' sleep 312 >/dev/null 2>&1 &
+  local by2=$!
+  wait "$sbr" || true
+  sleep 0.5
+  expect "pot (seatbelt): v2.20.2, a sandboxed process from before the run outlives its end" kill -0 "$by1"
+  expect "pot (seatbelt): v2.20.2, and one started during the run" kill -0 "$by2"
+  kill "$by1" "$by2" 2>/dev/null || true
   # F4: the folders pot makes on the way to a link are kept, as the link is: fixedtest's host memory, linked file by
   # file at ~/.claude/projects/KEY/memory in its state. fixedtest is sec_pot's: its grant and folders are made here,
   # since sec_pot's bubblewrap part never runs on a Mac
@@ -2778,6 +2793,7 @@ EOF
   # this workspace, pot's state, the launcher; exit 1 when a line starts with !
   echo "SECRET-VALUE-$RANDOM" > "$work/dtoken" && chmod 600 "$work/dtoken"
   refused "dispatch: pot doctor" d_ doctor
+  expect "names pot's version, the CHANGELOG's latest" holds "pot $(sed -n 's/^## \(v[0-9.]*\) .*/\1/p' "$src/CHANGELOG.md" | head -1)"
   expect "the backend" holds "backend    bubblewrap: user namespaces work; proves closure-store"
   expect "the grants file" holds "grants     $work/dgrants/grants.json: parses"
   expect "a binding file, by path" holds "credential api.example: file $work/dtoken (present, 0600)"
