@@ -2059,8 +2059,8 @@ def sibling_client(policy, key, row, args, hook):
         ans = json.loads(buf.split(b"\n", 1)[0])
     except ValueError:
         ans = {}
-    for t in outs:      # drain what the sibling wrote through a pipe
-        t.join(5)
+    for t in outs:      # drain what the sibling wrote through a pipe (its processes are gone: EOF soon)
+        t.join(30)
     if ans.get("refused"):
         err(ans["refused"])
     st = ans.get("exit")

@@ -1264,7 +1264,14 @@ sec_pot() {
   inputs.graft.url = "path:$graft";
   outputs = { graft, ... }: {
     packages = graft.inputs.nixpkgs.lib.genAttrs [ "$sys" ] (s: let pkgs = graft.inputs.nixpkgs.legacyPackages.\${s};
-        tool = pkgs.writeShellScriptBin "sbk-tool" "echo sbk-tool hi"; in {
+        # v2.20.0: fail and sleep, for pot_seatbelt's siblings
+        tool = pkgs.writeShellScriptBin "sbk-tool" ''
+          case "''\${1:-}" in
+            fail) echo "sbk-tool: failing"; exit 7 ;;
+            sleep) trap 'echo "sbk-tool: INT"; exit 130' INT; echo "sbk-tool: sleeping"; \${pkgs.coreutils}/bin/sleep "\$2" & wait; exit 0 ;;
+          esac
+          echo sbk-tool hi
+        ''; in {
       pot-kits = graft.lib.pot.kitsFor {
         inherit pkgs;
         self = { kit = { protect = [ "AGENTS.md" ]; tools = [ pkgs.hello ]; }; file = "flake.nix (fixture)"; };
@@ -2170,7 +2177,27 @@ except OSError as e:
   expect "in the foreground" holds "fg True"
   expect "TIOCSTI is refused (no-tiocsti)" holds "TIOCSTI 1"
 
-  # v2.20.0: a run starts no run inside it (a kit command's wrapper starts a sibling: the Mac checklist)
+  # v2.20.0: a run starts no run inside it; a kit command's wrapper starts a sibling, under Seatbelt too. sbk-tool
+  # asks for api.sbk.example (its kit's grant); a run with that host for one run covers it, so it starts as a sibling
+  ran "pot (seatbelt): grant sbk" tty_ $'y\n' "$work/sbr/bin/pot" grant sbk
+  ran "pot (seatbelt): explain, a run that covers sbk-tool" sb_ explain --net api.sbk.example bash
+  expect "lists it as a sibling" holds "sbk-tool (sbk): sibling"
+  # shellcheck disable=SC2016 # the run's own $?
+  ran "pot (seatbelt): a sibling" sb_ --net api.sbk.example bash -c 'sbk-tool; sbk-tool fail; echo "exit=$?"'
+  expect "runs" has "sbk-tool hi"
+  expect "and its exit code comes back" has "exit=7"
+  ran "pot (seatbelt): its record" bash -c "grep -h '\"via\":\"sibling\"' '$work'/sbstate/runs/*/log.jsonl | head -1"
+  # shellcheck disable=SC2016 # bash -c's own $1
+  expect "is a sibling's, by the host" bash -c 'jq -e "select(.by == \"host\" and .invoker == \"run\")" <<<"$1" >/dev/null' _ "$out"
+  # shellcheck disable=SC2016 # the run's own $?
+  ran "pot (seatbelt): ^C at the terminal" tty_ $'\003' "$work/sbr/bin/pot" --net api.sbk.example bash -c 'sbk-tool sleep 3200; echo "client-exit=$?"'
+  expect "reaches the sibling" holds "sbk-tool: INT"
+  expect "whose status comes back" holds "client-exit=130"
+  ran "pot (seatbelt): the client killed" sb_ --net api.sbk.example bash -c 'sbk-tool sleep 3201 & sleep 5; kill -9 $!; sleep 5; echo done'
+  expect "stops the sibling" test "$(pgrep -f 'sleep 3201' | wc -l | tr -d ' ')" = 0
+  ran "pot (seatbelt): the caller's run ends" sb_ --net api.sbk.example bash -c 'sbk-tool sleep 3202 & sleep 5; echo leaving'
+  sleep 6
+  expect "stops the sibling with it" test "$(pgrep -f 'sleep 3202' | wc -l | tr -d ' ')" = 0
   refused "pot (seatbelt): pot inside a run" sb_ pot work true
   expect "is refused: no run inside a run" holds "pot inside a run starts no run"
   refused "pot (seatbelt): pot dispatch inside a run" sb_ pot dispatch true
