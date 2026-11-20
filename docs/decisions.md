@@ -170,8 +170,8 @@ Costs accepted:
   CHANGELOG says so.
 - **Wrapped kit commands start a sandbox each,** and run unwrapped, with a stderr line, where there is no root's
   pot (no launcher, or a root older than v2.18.0). A deployment with no root takes the unwrapped tools on
-  purpose. A wrapped start costs about 0.5 s on platform-vm (8 ms unwrapped), and so does a sibling started from
-  inside a run (a nested child took about 0.2 s until v2.19.2).
+  purpose. A wrapped start costs 0.3–0.5 s on platform-vm (8 ms unwrapped), and a sibling started from inside a
+  run about 45 ms more (a nested child took about 0.2 s until v2.19.2).
 - **Siblings, not nesting (v2.20.0).** A kit command with its own, narrower policy is started by the host beside the
   run that asked, under its own grant only: a sibling holds nothing of its caller's, and its caller nothing of the
   sibling's, on Linux and macOS alike. The price is that `narrower()` is now the only containment between them:
@@ -244,7 +244,7 @@ graft v1 is on the read-only `v1` branch (2025-12 to 2026-10). Earlier experimen
 | `changes:`, migration commands, atomic upgrade with rollback | The upgrade pull request is the transaction: a branch, checked by the whole `nix flake check`, merged or closed. A major version declares a break, the CHANGELOG says what to do, and `graft migrate` writes a brief. |
 | `commands:`, `graft run dep:command` | A provider's `graft.nix`: its tools go on the consumer's `PATH` through `packages.<system>.tools`, its apps and checks into the consumer's flake. A tool that is not tied to a scion can be an ordinary flake input, as graft is. |
 | State queries, run logs | The repository's own checks and CI. |
-| Grove (a terminal UI for many repositories) | Out of scope. `nix run github:danielnaab/graft/v2.19.2 -- outdated -C <repo>` reads any checkout. |
+| Grove (a terminal UI for many repositories) | Out of scope. `nix run github:danielnaab/graft/v2.20.0 -- outdated -C <repo>` reads any checkout. |
 | Scions as agent sessions | Agent tools outside graft. A scion is a grafted repository at a release tag. |
 | Transitive dependencies (`.graft/` in `.graft/`) | One level. |
 | Providers that place files anywhere in a consumer | Only graft's own workflows, by their marker. This waits for a second real case. |

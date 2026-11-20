@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.20.0 - unreleased
+## v2.20.0 - 2026-11-19
 
 pot: siblings, not nesting. One trust rule for every backend (Daniel's decisions 11-22): every kit command runs only
 under its own grant, never with a caller's authority. Design, review list and residuals:
@@ -37,7 +37,8 @@ under its own grant, never with a caller's authority. Design, review list and re
   `runs/1` stays version 1: `via: "sibling"`, the `start` event's `caller` and `depth`, `killed: "caller"`;
   `parent` and `children` are always `null` and `[ ]`.
 - Residuals added: the Windmill worker runs kit commands unconfined until it can sandbox (25, decision 22); a
-  sibling has no access to its caller's `/tmp`, and each is a host start, about 0.5 s on platform-vm (26).
+  sibling has no access to its caller's `/tmp`, and each is a host start plus about 45 ms (0.34 s against 0.30 s on
+  platform-vm, where a nested child took about 0.2 s) (26).
 - tests/run.sh: the `nest` section is `sibling`: siblings' policies, escalation (the caller's token, standing reach,
   write access, processes), fds, forged requests, `^C`, a killed client, a tool timeout, the run's end, the tree's
   cap, hooks (a failing one aborts the commit) and a dispatch clone's hook.

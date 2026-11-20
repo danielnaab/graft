@@ -55,7 +55,7 @@ Terms built from these:
 | **state** | A reach request for a private persistent directory. |
 | **command** | A program that a kit ships. |
 | **command kit**, **repo kit**, **scion kit**, **root kit**, **agent kit** | A kit by its place: the kit whose command runs; a repository's own needs; a grafted provider's kit; a kit the root defines; a kit that describes an agent, such as Claude Code. |
-| **allowance** | The bounds on a `delegate` grant (not in v2.19.2). |
+| **allowance** | The bounds on a `delegate` grant (not in v2.20.0). |
 | **digest**, **source** | What a grant is fixed to: a hash of the kit's request set, and for powerful items the code it came from. |
 
 graft's other terms keep their meaning. A provider ships a kit in `graft.nix`. A consumer's own kit is its repo
@@ -72,7 +72,7 @@ A root is where the person's authority lives. A run never writes a root in place
 | Root | Where | For |
 |---|---|---|
 | A home-manager root | `programs.pot` in your home-manager configuration, from `inputs.graft.homeManagerModules.pot` | Your own machine. Its source repository is a [root repository](#root-repositories). |
-| graft's default root | `nix run github:danielnaab/graft/v2.19.2#pot -- CMD` (`packages.<system>.pot`, `apps.<system>.pot`) | Someone without a root. Its grants file is `~/.config/pot/grants.json`. |
+| graft's default root | `nix run github:danielnaab/graft/v2.20.0#pot -- CMD` (`packages.<system>.pot`, `apps.<system>.pot`) | Someone without a root. Its grants file is `~/.config/pot/grants.json`. |
 | A minimal root of your own | `pot init DIR` writes `DIR/flake.nix`, built with `graft.lib.mkRoot` | A start for a root that you then edit and commit. |
 
 graft's default root and the root that `pot init` writes have graft's contexts, hidden list and standard tools,
@@ -166,7 +166,7 @@ programs.pot.contexts.readonly = { extends = "work"; access = "read"; };
 | `access` | `write`, `read`, `none` | What the run may do to its workspace. |
 | `backend` | a backend name, default `auto` | The backend that enforces the run. |
 | `requires` | guarantee names | A run for which the backend cannot prove these is refused ([Guarantees](#guarantees)). |
-| `trust` | `workspace`, `root` | Whether workspace kits are evaluated. `root` is not in v2.19.2. |
+| `trust` | `workspace`, `root` | Whether workspace kits are evaluated. `root` is not in v2.20.0. |
 | `include` | root kit names | Root kits in every run of the context: their reach is standing reach. |
 | `commands` | root kit names | Root kits whose commands are rows of a run's [children table](#siblings-and-the-children-table), without their reach. |
 | `network` | `granted`, `none` | `none` drops every network item. |
@@ -560,8 +560,9 @@ manifest only names the command. It runs `pot <defaultContext> NAME ARGS` with t
   unsandboxed. Nix builds, CI and containers use `packages.<system>.tools.passthru.unwrapped`.
 - Unsandboxed on purpose: `pot host CMD`.
 
-**Cost**, on platform-vm: a wrapped command started on the host takes about 0.5 s, against 8 ms unwrapped, and a
-sibling started from inside a run the same plus a socket round trip (until v2.19.2 a nested child took about 0.2 s). Each root byte-compiles pot, and caches closures and the scope probe in
+**Cost**, on platform-vm: a wrapped command started on the host takes 0.3–0.5 s (tests/run.sh's fixture 0.30 s,
+flexion-assistant's `check-tasks` 0.50 s), against 8 ms unwrapped; a sibling started from inside a run takes a host
+start plus about 45 ms (0.34 s in the fixture). Until v2.19.2 a nested child took about 0.2 s. Each root byte-compiles pot, and caches closures and the scope probe in
 its state (`cache/closures/`, `cache/scope-*`).
 
 ### Hook commands
@@ -603,9 +604,9 @@ item on its own.
 ### Capabilities
 
 A capability is a request named by its effect, and a root [binding](#bindings) carries it out. Every name is
-reserved now. v2.19.2 binds the first five; the others come in a later release.
+reserved now. v2.20.0 binds the first five; the others come in a later release.
 
-| Capability | Binding in v2.19.2 | Class |
+| Capability | Binding in v2.20.0 | Class |
 |---|---|---|
 | `status.relay` | a relay and a `workmux` shim | ordinary |
 | `git.fetch { remote }` | an ssh shim and a host broker that allows only `git-upload-pack` | ordinary |
@@ -854,8 +855,8 @@ a hook command, its two git variables, with its standard input, output and error
 - **Standard input, output and error** cross as they are when they are a terminal, a socket or `/dev/null`.
   Anything else (a pipe, as in `git log | check-kb`; a file, as in `check-kb < notes.md` or `> out.txt`; a directory)
   goes through a pipe the caller's pot copies, so the sibling never holds the caller's pipe or file itself (it could
-  reopen it the other way round). So a sibling's piped input is read ahead: what it leaves unread is not left for
-  its caller (`while read …; do check-kb; done < list` gives the first `check-kb` the rest of the list). A directory
+  reopen it the other way round). So a sibling's piped input is read ahead (from the request on, even when the
+  start is then refused): what it leaves unread is not left for its caller (`while read …; do check-kb; done < list` gives the first `check-kb` the rest of the list). A directory
   is `/dev/null`; a closed one too.
 - **Non-interactive:** the sibling is in a session of its own, so it has no job control. `^C` at the terminal
   reaches the sibling (the caller's pot passes it on); `^Z` stops only the caller.
@@ -1352,7 +1353,7 @@ It is a speed bump, not a guarantee: an unrestricted agent on the host can edit 
 pot init DIR
 ```
 
-Writes `DIR/flake.nix`: a minimal root built with `graft.lib.mkRoot`, from `github:danielnaab/graft/v2.19.2`, with
+Writes `DIR/flake.nix`: a minimal root built with `graft.lib.mkRoot`, from `github:danielnaab/graft/v2.20.0`, with
 its grants file at `DIR/grants.json`. It has the default root's [claude-code instance, token binding and
 nix](#roots). A root is a repository you edit and commit, so `pot init` refuses:
 
@@ -1517,7 +1518,7 @@ On the host only. It checks what a run depends on, and reads no secret: binding 
 never their contents. It exits 1 when a line starts `!`, else 0. There is no `--json` yet.
 
 ```
-pot doctor · root home-manager · platform-vm · pot v2.19.2
+pot doctor · root home-manager · platform-vm · pot v2.20.0
 backend    bubblewrap: user namespaces work; proves closure-store own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files; resource-limits: for runs without a terminal; lacks separate-kernel nest
 resources  user systemd: runs without a terminal get MemoryMax=50% TasksMax=2048
 grants     ~/.workstation/pot/grants.json: parses, 4 kits, no entry for platform-vm in the grants file's machines
@@ -2331,7 +2332,7 @@ first on `PATH` wins; `command -v pot` says which.
     takes `tools.passthru.unwrapped` (decisions 7 and 22).
 26. **A sibling has no access to its caller's `/tmp`.** A tool handed a temporary file of its caller's does not find
     it; a request folder shared with the caller comes only when a real tool needs one. And each sibling is a host
-    start: about 0.5 s on platform-vm, where a nested child took about 0.2 s.
+    start plus about 45 ms: 0.34–0.55 s on platform-vm, where a nested child took about 0.2 s.
 
 ## Sources
 
