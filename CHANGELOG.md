@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.20.1 - unreleased
+## v2.20.1 - 2026-11-19
 
 - **pot: a run whose host pot was killed (`kill`, SIGTERM) leaves no siblings' socket or slots behind.** v2.20.0's
   next start skipped a lost run whose only socket was `children.sock` (every Seatbelt run with no git binding: its
