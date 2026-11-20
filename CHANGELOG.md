@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.20.2 - UNRELEASED
+## v2.20.2 - 2026-11-20
 
 - **pot (macOS): a run's end no longer signals other sandboxed processes.** Seatbelt's sweep for what left a run's
   group (`setsid`) took any sandboxed process whose profile may read the run's `policy.json`, and once v2.19.2 made
