@@ -1,0 +1,41 @@
+{
+ "version": 1,
+ "id": "c0f3",
+ "state": "exited",
+ "context": "work",
+ "mode": "in-place",
+ "command": {
+  "name": "kb-lint",
+  "kit": "scion:knowledge-base-kit",
+  "instance": null,
+  "typed": [
+   "kb-lint",
+   "docs"
+  ]
+ },
+ "argv": [
+  "/nix/store/8x2q0zq3n1x9v7p4k6m2c8b5a1d3f7h9-kb-lint/bin/kb-lint",
+  "docs"
+ ],
+ "workspace": [
+  {
+   "id": "repo:platform-vm:2222/daniel/team-kb",
+   "path": "/home/daniel/src/team-kb",
+   "name": "team-kb"
+  }
+ ],
+ "invoker": "run",
+ "detached": false,
+ "pane": null,
+ "via": "sibling",
+ "parent": null,
+ "started": "2026-11-20T10:05:12",
+ "ended": "2026-11-20T10:05:12",
+ "exit": 143,
+ "lost": false,
+ "stop": null,
+ "clone": null,
+ "attention": [],
+ "children": [],
+ "killed": "caller"
+}

@@ -8,9 +8,15 @@ and its reader are pinned by different parties: a provider's tag and a consumer'
 root's pot, or the pots of two machines that share one grants file. A file that one build both writes and reads
 stays internal, so the backend protocol (`launch.json`) and the root manifest have no version.
 
-**Who owns a contract.** pot owns every contract that pot touches. graft owns only the contract that graft alone
-reads, `provider/2`. graft emits nothing that pot reads: the bundle a run reads is written by pot's own Nix
-library, which graft's mkFlake calls.
+**Who owns a contract.** pot owns every contract that pot touches. graft owns `provider/2`, which graft alone reads,
+and [`status/1`](../../contracts/status-1.md), which graft writes for programs such as grove (in graft's own
+`contracts/`). graft emits nothing that pot reads: the bundle a run reads is written by pot's own Nix library,
+which graft's mkFlake calls.
+
+**What a contract is.** Prose, a JSON Schema (2020-12) and golden fixtures, all owned by the producer: the prose
+says what the values mean, the schema what this release emits, and the fixtures are what readers test against.
+The producer tests that what it really emits validates; a reader tests against the fixtures, never against the
+producer's live output. `runs/1` and `status/1` have all three; the others are prose until their next change.
 
 | Contract | Version | Producer | Reader | Owner |
 |---|---|---|---|---|

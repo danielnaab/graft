@@ -1,0 +1,196 @@
+{
+ "version": 1,
+ "runs": [
+  {
+   "version": 1,
+   "id": "7d21",
+   "state": "exited",
+   "context": "work",
+   "mode": "none",
+   "command": null,
+   "argv": [
+    "git",
+    "commit",
+    "-m",
+    "notes: the week's review"
+   ],
+   "workspace": [],
+   "invoker": "script",
+   "detached": false,
+   "pane": null,
+   "via": null,
+   "parent": null,
+   "started": "2026-11-20T16:40:00",
+   "ended": "2026-11-20T16:40:01",
+   "exit": 0,
+   "lost": false,
+   "stop": null,
+   "clone": null,
+   "attention": [],
+   "children": [],
+   "commits": [
+    {
+     "commit": "5e8b1d2c3f40",
+     "status": "G",
+     "signer": "daniel@routine",
+     "key": "SHA256:q2Vh0mJxK7f1yZ8pL3cD9eR4tU6wA5bN0sG1hI2jK3l",
+     "subject": "notes: the week's review"
+    }
+   ]
+  },
+  {
+   "version": 1,
+   "id": "c0f3",
+   "state": "exited",
+   "context": "work",
+   "mode": "in-place",
+   "command": {
+    "name": "kb-lint",
+    "kit": "scion:knowledge-base-kit",
+    "instance": null,
+    "typed": [
+     "kb-lint",
+     "docs"
+    ]
+   },
+   "argv": [
+    "/nix/store/8x2q0zq3n1x9v7p4k6m2c8b5a1d3f7h9-kb-lint/bin/kb-lint",
+    "docs"
+   ],
+   "workspace": [
+    {
+     "id": "repo:platform-vm:2222/daniel/team-kb",
+     "path": "/home/daniel/src/team-kb",
+     "name": "team-kb"
+    }
+   ],
+   "invoker": "run",
+   "detached": false,
+   "pane": null,
+   "via": "sibling",
+   "parent": null,
+   "started": "2026-11-20T10:05:12",
+   "ended": "2026-11-20T10:05:12",
+   "exit": 143,
+   "lost": false,
+   "stop": null,
+   "clone": null,
+   "attention": [],
+   "children": [],
+   "killed": "caller"
+  },
+  {
+   "version": 1,
+   "id": "41c7",
+   "state": "stopped",
+   "context": "work",
+   "mode": "in-place",
+   "command": {
+    "name": "claude",
+    "kit": "root:claude-code@personal",
+    "instance": "personal",
+    "typed": [
+     "claude"
+    ]
+   },
+   "argv": [
+    "claude"
+   ],
+   "workspace": [
+    {
+     "id": "repo:platform-vm:2222/daniel/graft",
+     "path": "/home/daniel/src/graft",
+     "name": "graft"
+    }
+   ],
+   "invoker": "person",
+   "detached": false,
+   "pane": null,
+   "via": null,
+   "parent": null,
+   "started": "2026-11-18T09:12:03",
+   "ended": "2026-11-18T09:12:04",
+   "exit": 125,
+   "lost": false,
+   "stop": {
+    "reason": "grant",
+    "kits": [
+     {
+      "id": "root:claude-code@personal",
+      "status": "ungranted",
+      "digest": "sha256:3f9a0c1e",
+      "source": null
+     }
+    ],
+    "fix": "pot grant claude-code",
+    "grantedSince": false
+   },
+   "clone": null,
+   "attention": [],
+   "children": []
+  },
+  {
+   "version": 1,
+   "id": "9b0e",
+   "state": "review",
+   "context": "dispatch",
+   "mode": "clone",
+   "command": {
+    "name": "claude",
+    "kit": "root:claude-code@flexion",
+    "instance": "flexion",
+    "typed": [
+     "claude@flexion",
+     "-p",
+     "migrate tasks to schema v3"
+    ]
+   },
+   "argv": [
+    "claude",
+    "-p",
+    "migrate tasks to schema v3"
+   ],
+   "workspace": [
+    {
+     "id": "repo:platform-vm:2222/daniel/flexion-assistant",
+     "path": "/home/daniel/src/flexion-assistant",
+     "name": "flexion-assistant"
+    }
+   ],
+   "invoker": "person",
+   "detached": true,
+   "pane": "%12",
+   "via": null,
+   "parent": null,
+   "started": "2026-11-17T14:02:11",
+   "ended": "2026-11-17T14:31:40",
+   "exit": 0,
+   "lost": false,
+   "stop": null,
+   "clone": {
+    "base": "c9996c5a1b2d",
+    "branch": "main",
+    "commits": 3,
+    "scionCommits": 0,
+    "unsigned": 1,
+    "refs": {
+     "main": "e91d2c7f3a10"
+    },
+    "uncommitted": 0,
+    "nested": [],
+    "fetchFailed": null,
+    "size": 201326592,
+    "fetched": null,
+    "discarded": null,
+    "keptUntil": null,
+    "agentConfig": []
+   },
+   "attention": [
+    "1 unsigned",
+    "host-run: justfile",
+    "2 denied: registry.npmjs.org:443"
+   ],
+   "children": []
+  }
+ ]
+}

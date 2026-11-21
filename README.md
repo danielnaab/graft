@@ -179,7 +179,7 @@ and [Ship and take an incompatible change](docs/guides/incompatible-change.md).
 | Anyone on v2.16.x: move to v2.17.0 (the removed forms, dispatch) | [Move to v2.17.0](docs/guides/move-to-v2-17.md) |
 | Anyone on v2.17.x: move to v2.18.0 (wrapped kit commands, `kits.just`, hook commands) | [Move to v2.18.0](docs/guides/move-to-v2-18.md) |
 | Anyone on v2.19.x: move to v2.20.0 (kit commands as siblings, no nested dispatch) | [Move to v2.20.0](docs/guides/move-to-v2-20.md) |
-| Look up a format that pot shares with graft and other programs | [pot's contracts](pot/contracts/README.md), [provider/2](docs/reference/provider.md) |
+| Look up a format that graft or pot shares with other programs | [pot's contracts](pot/contracts/README.md), [provider/2](docs/reference/provider.md), [status/1](contracts/status-1.md) |
 | Know how Nix sees a scion | [Nix behaviours](docs/reference/nix-behaviours.md) |
 | Know why graft is this small, and where graft v1 went | [Decisions](docs/decisions.md) |
 | Change graft itself | [Development](docs/development.md) |

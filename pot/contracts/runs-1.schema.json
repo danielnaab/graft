@@ -1,0 +1,476 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danielnaab/graft/blob/v2/pot/contracts/runs-1.schema.json",
+  "title": "runs/1: pot runs --json and pot review --json",
+  "description": "pot runs --json (and pot review --json): { version, runs: [record] }; pot runs ID --json: one record. The prose is pot/contracts/runs-1.md; a log line is runs-1.event.schema.json. This schema is what this release emits: a reader takes a value it does not know (a state, an attention string) as one it does not act on, and never rejects a newer pot's output with it.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/list"
+    },
+    {
+      "$ref": "#/$defs/record"
+    }
+  ],
+  "$defs": {
+    "list": {
+      "type": "object",
+      "required": [
+        "version",
+        "runs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/record"
+          }
+        }
+      }
+    },
+    "time": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "strings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "record": {
+      "type": "object",
+      "required": [
+        "version",
+        "id",
+        "state",
+        "context",
+        "mode",
+        "command",
+        "argv",
+        "workspace",
+        "invoker",
+        "detached",
+        "pane",
+        "parent",
+        "started",
+        "ended",
+        "exit",
+        "lost",
+        "stop",
+        "clone",
+        "attention",
+        "children"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{4}$"
+        },
+        "state": {
+          "enum": [
+            "running",
+            "exited",
+            "stopped",
+            "review",
+            "pending"
+          ]
+        },
+        "context": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "in-place",
+            "clone",
+            "none"
+          ]
+        },
+        "command": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "instance": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "typed": {
+                  "$ref": "#/$defs/strings"
+                }
+              }
+            }
+          ]
+        },
+        "argv": {
+          "$ref": "#/$defs/strings"
+        },
+        "workspace": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "path"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "invoker": {
+          "enum": [
+            "person",
+            "script",
+            "run",
+            null
+          ]
+        },
+        "via": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detached": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "pane": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "children": {
+          "type": "array"
+        },
+        "started": {
+          "$ref": "#/$defs/time"
+        },
+        "ended": {
+          "$ref": "#/$defs/time"
+        },
+        "exit": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lost": {
+          "type": "boolean"
+        },
+        "killed": {
+          "enum": [
+            "caller",
+            "parent"
+          ]
+        },
+        "recovering": {
+          "const": true
+        },
+        "stop": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "reason",
+                "kits",
+                "fix"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kits": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "$ref": "#/$defs/stopKit"
+                  }
+                },
+                "fix": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "grantedSince": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
+        },
+        "commits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/signature"
+          }
+        },
+        "clone": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "base",
+                "branch",
+                "commits",
+                "scionCommits",
+                "unsigned",
+                "refs",
+                "uncommitted",
+                "nested",
+                "fetchFailed",
+                "size",
+                "fetched",
+                "discarded",
+                "keptUntil",
+                "agentConfig"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "base": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "branch": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "commits": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "scionCommits": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "unsigned": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "refs": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "uncommitted": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "nested": {
+                  "type": "array"
+                },
+                "fetchFailed": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "size": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "fetched": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "discarded": {
+                  "$ref": "#/$defs/time"
+                },
+                "keptUntil": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "agentConfig": {
+                  "$ref": "#/$defs/strings"
+                }
+              }
+            }
+          ]
+        },
+        "attention": {
+          "$ref": "#/$defs/strings"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "stopped"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stop": {
+                "type": "object"
+              },
+              "exit": {
+                "const": 125
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "review"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "clone": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "stopKit": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {}
+      }
+    },
+    "signature": {
+      "type": "object",
+      "required": [
+        "commit",
+        "status",
+        "signer",
+        "key",
+        "subject"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{12}$"
+        },
+        "status": {
+          "type": "string"
+        },
+        "signer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subject": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

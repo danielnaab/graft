@@ -1,0 +1,50 @@
+{
+ "version": 1,
+ "id": "41c7",
+ "state": "stopped",
+ "context": "work",
+ "mode": "in-place",
+ "command": {
+  "name": "claude",
+  "kit": "root:claude-code@personal",
+  "instance": "personal",
+  "typed": [
+   "claude"
+  ]
+ },
+ "argv": [
+  "claude"
+ ],
+ "workspace": [
+  {
+   "id": "repo:platform-vm:2222/daniel/graft",
+   "path": "/home/daniel/src/graft",
+   "name": "graft"
+  }
+ ],
+ "invoker": "person",
+ "detached": false,
+ "pane": null,
+ "via": null,
+ "parent": null,
+ "started": "2026-11-18T09:12:03",
+ "ended": "2026-11-18T09:12:04",
+ "exit": 125,
+ "lost": false,
+ "stop": {
+  "reason": "grant",
+  "kits": [
+   {
+    "id": "root:claude-code@personal",
+    "status": "ungranted",
+    "digest": "sha256:3f9a0c1e",
+    "source": null
+   }
+  ],
+  "fix": "pot grant claude-code",
+  "grantedSince": false
+ },
+ "clone": null,
+ "attention": [],
+ "children": []
+}

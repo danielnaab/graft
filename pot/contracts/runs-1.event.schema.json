@@ -1,0 +1,463 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danielnaab/graft/blob/v2/pot/contracts/runs-1.event.schema.json",
+  "title": "runs/1: one line of a run's log.jsonl",
+  "description": "One event of a run's log (runs/<id>/log.jsonl, and pot runs ID --follow --json), as pot/contracts/runs-1.md defines it. Every event has ev and by; the known kinds' keys have the types below. Events are open: a release may add an event kind or a key to an event (values, not fields), so a reader ignores what it does not know.",
+  "type": "object",
+  "required": [
+    "ev",
+    "by"
+  ],
+  "properties": {
+    "ev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "by": {
+      "enum": [
+        "host",
+        "run",
+        "parent"
+      ]
+    },
+    "time": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ev": {
+            "const": "start"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "run",
+          "context",
+          "argv",
+          "time"
+        ],
+        "properties": {
+          "run": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{4}$"
+          },
+          "context": {
+            "type": "string"
+          },
+          "backend": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kits": {
+            "type": "array"
+          },
+          "invoker": {
+            "enum": [
+              "person",
+              "script",
+              "run"
+            ]
+          },
+          "mode": {
+            "enum": [
+              "in-place",
+              "clone",
+              "none"
+            ]
+          },
+          "workspace": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "path"
+              ]
+            }
+          },
+          "command": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "pid": {
+            "type": "integer"
+          },
+          "pidStart": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "boot": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pane": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detached": {
+            "type": "boolean"
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "oneRun": {
+            "type": "array"
+          },
+          "clone": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "base",
+                  "branch",
+                  "path"
+                ]
+              }
+            ]
+          },
+          "via": {
+            "type": "string"
+          },
+          "hook": {},
+          "caller": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ev": {
+            "const": "stop"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "reason",
+          "kits",
+          "fix",
+          "text",
+          "time"
+        ],
+        "properties": {
+          "reason": {
+            "enum": [
+              "grant",
+              "guarantee"
+            ]
+          },
+          "kits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id"
+              ]
+            }
+          },
+          "fix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "workspace": {
+            "type": "array"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ev": {
+            "const": "net"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "host",
+          "port",
+          "verdict"
+        ],
+        "properties": {
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "port": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "verdict": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "bytes_out": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ev": {
+            "const": "exit"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "status",
+          "time"
+        ],
+        "properties": {
+          "status": {
+            "type": "integer"
+          },
+          "killed": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ev": {
+            "const": "after"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "commits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unsigned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "signs": {
+            "type": "boolean"
+          },
+          "base": {
+            "type": "string"
+          },
+          "more": {
+            "type": "integer"
+          },
+          "signatures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "commit",
+                "status",
+                "signer",
+                "key",
+                "subject"
+              ]
+            }
+          },
+          "touches_host_run": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "repo_kit_change": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "root_repo_change": {
+            "type": "boolean"
+          },
+          "new_git_metadata": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "denials": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "host"
+              ]
+            }
+          },
+          "loopback": {
+            "type": "array"
+          },
+          "agent_config": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sealed_left": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "type"
+              ]
+            }
+          },
+          "hidden_blanked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "refs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "refCommits": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "scions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object"
+            }
+          },
+          "gitlinks": {
+            "type": "array"
+          },
+          "root_attention": {
+            "type": "array"
+          },
+          "uncommitted": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "size": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "fetch_failed": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "recovered": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ev": {
+            "const": "fetch"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "refs",
+          "time"
+        ],
+        "properties": {
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ev": {
+            "const": "discard"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "why",
+          "time"
+        ],
+        "properties": {
+          "why": {
+            "enum": [
+              "person",
+              "keepDays",
+              "maxSize"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

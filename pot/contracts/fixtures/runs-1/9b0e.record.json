@@ -1,0 +1,63 @@
+{
+ "version": 1,
+ "id": "9b0e",
+ "state": "review",
+ "context": "dispatch",
+ "mode": "clone",
+ "command": {
+  "name": "claude",
+  "kit": "root:claude-code@flexion",
+  "instance": "flexion",
+  "typed": [
+   "claude@flexion",
+   "-p",
+   "migrate tasks to schema v3"
+  ]
+ },
+ "argv": [
+  "claude",
+  "-p",
+  "migrate tasks to schema v3"
+ ],
+ "workspace": [
+  {
+   "id": "repo:platform-vm:2222/daniel/flexion-assistant",
+   "path": "/home/daniel/src/flexion-assistant",
+   "name": "flexion-assistant"
+  }
+ ],
+ "invoker": "person",
+ "detached": true,
+ "pane": "%12",
+ "via": null,
+ "parent": null,
+ "started": "2026-11-17T14:02:11",
+ "ended": "2026-11-17T14:31:40",
+ "exit": 0,
+ "lost": false,
+ "stop": null,
+ "clone": {
+  "base": "c9996c5a1b2d",
+  "branch": "main",
+  "commits": 3,
+  "scionCommits": 0,
+  "unsigned": 1,
+  "refs": {
+   "main": "e91d2c7f3a10"
+  },
+  "uncommitted": 0,
+  "nested": [],
+  "fetchFailed": null,
+  "size": 201326592,
+  "fetched": null,
+  "discarded": null,
+  "keptUntil": null,
+  "agentConfig": []
+ },
+ "attention": [
+  "1 unsigned",
+  "host-run: justfile",
+  "2 denied: registry.npmjs.org:443"
+ ],
+ "children": []
+}

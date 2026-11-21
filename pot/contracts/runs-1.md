@@ -13,6 +13,8 @@ of pot's state folder.
 | Producer | pot, which writes each run's log on the host |
 | Reader | `pot runs` and `pot review`; workmux, Windmill jobs, later grove |
 | Owner | pot |
+| Schema | [runs-1.schema.json](runs-1.schema.json): `pot runs --json`, `pot runs ID --json`, `pot review --json`; [runs-1.event.schema.json](runs-1.event.schema.json): one line of `log.jsonl` (JSON Schema 2020-12) |
+| Fixtures | [fixtures/runs-1/](fixtures/runs-1/) |
 
 ## Shape
 
@@ -123,6 +125,24 @@ Both read the logs again every half second.
 `pot runs` inside a run shows that run, from its policy (`id`, `state` (`running`), `context`, `mode` and
 `workspace`; the other fields are `null`), alone. The host's logs stay hidden, its siblings' too.
 
+## Schema and fixtures
+
+- [runs-1.schema.json](runs-1.schema.json) is a list (`{ "version": 1, "runs": [ … ] }`) or one record. A record's
+  fields are closed (`additionalProperties: false`): a new field is runs/2. It accepts the records that this pot
+  computes from older logs too (`command` without `typed`, or `null`; v2.18.0's `parent`, `via` and `killed`),
+  since `pot runs --all` reads every log still in pot's state.
+- [runs-1.event.schema.json](runs-1.event.schema.json) is one line of a run's log. Every event needs `ev` and `by`;
+  each known kind's keys have their types, and the kinds and keys that this version may add are allowed.
+- [fixtures/runs-1/](fixtures/runs-1/) holds four runs' logs (`<id>.log.jsonl`: a clone in review, a stop for a
+  grant, a `pot host` run with its signatures, a sibling whose caller went away), each run's record as pot computes
+  it from that log (`<id>.record.json`), the list of the four (`list.json`), and a record as `pot runs --json`
+  prints it inside a run (`inside-run.record.json`). Readers test against these.
+- pot's tests hold pot to them: `tests/run.sh contracts` validates the fixtures and checks that each record is
+  what `pot/core/runs.py` computes from its log; the `pot`, `dispatch`, `sibling` and `pi` sections validate every
+  log line their runs wrote, and `pot runs --json --all` and `pot runs ID --json`, against the schemas.
+- The schemas describe what this release emits. A reader takes a value that it does not know as one it does not
+  act on, and never rejects a newer pot's output with them.
+
 ## Compatibility
 
 - **Values are added, never fields,** within version 1: new event kinds, new keys in an event, new `attention`
@@ -134,5 +154,6 @@ Both read the logs again every half second.
 ## Sources
 
 - [pot/core/runs.py](../core/runs.py): a record from a run's log, the states
+- [tests/run.sh](../../tests/run.sh): the `contracts` section, and `runs_valid`
 - [pot/core/pot.py](../core/pot.py): the run log, `pot runs`, `pot review`
 - [pot's reference: State](../../docs/reference/pot.md#state)

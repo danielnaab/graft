@@ -12,6 +12,14 @@ Schema (2020-12) and golden fixtures owned by its producer.
   [status/1](contracts/status-1.md): a value that needs the network and cannot be read is `null` with a `reason`.
   Its [schema](contracts/status-1.schema.json) and [fixtures](contracts/fixtures/status-1/) are in `contracts/`;
   `tests/run.sh status` validates every report graft writes against it ([status](docs/reference/commands.md#status)).
+- **runs/1's schema and fixtures.** [runs-1.schema.json](pot/contracts/runs-1.schema.json) (`pot runs --json`, one
+  record, `pot review --json`) and [runs-1.event.schema.json](pot/contracts/runs-1.event.schema.json) (one line of a
+  run's `log.jsonl`), with four runs' logs and records in [fixtures/runs-1/](pot/contracts/fixtures/runs-1/) for
+  readers. `tests/run.sh contracts` checks that each fixture record is what pot computes from its log, and the
+  `pot`, `dispatch`, `sibling` and `pi` sections validate every log line and record their runs wrote
+  ([runs/1](pot/contracts/runs-1.md#schema-and-fixtures)). The contract itself is unchanged.
+- **A contract is prose, a JSON Schema and golden fixtures, owned by its producer**, which tests that what it emits
+  validates; readers test against the fixtures ([pot's contracts](pot/contracts/README.md)).
 - `graft check`, `outdated`, `changelog` and `upgrade` list an upstream that cannot be read once per run, not once
   per use.
 

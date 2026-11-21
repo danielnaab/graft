@@ -54,11 +54,18 @@ jsv() {
     --expr "(builtins.getFlake \"path:$graft\").inputs.nixpkgs.legacyPackages.$sys.check-jsonschema")/bin/check-jsonschema
   "$jsv_bin" "$@"
 }
+# py ARGS: python3 from the same nixpkgs (pot's own code, read by the contracts section)
+py_bin=""
+py() {
+  [ -n "$py_bin" ] || py_bin=$(nix build --no-link --print-out-paths --impure \
+    --expr "(builtins.getFlake \"path:$graft\").inputs.nixpkgs.legacyPackages.$sys.python3")/bin/python3
+  "$py_bin" -I "$@"
+}
 # valid SCHEMA [FILE...]: each FILE (default: $out, one JSON document) validates against SCHEMA, a path in the checkout
 valid() {
   local s=$1 r; shift
   if [ $# -eq 0 ]; then printf '%s\n' "$out" > "$work/valid.json"; set -- "$work/valid.json"; fi
-  r=$(jsv --schemafile "$src/$s" "$@" 2>&1) || { echo "$r" >&2; return 1; }
+  r=$(jsv --default-filetype json --schemafile "$src/$s" "$@" 2>&1) || { echo "$r" >&2; return 1; }
 }
 # valid_lines SCHEMA FILE...: each line of each FILE (JSON Lines) validates against SCHEMA
 valid_lines() {
@@ -648,6 +655,42 @@ sec_contracts() {
   refuse "contracts: status/1 refuses a field it does not define (a new field is a new version)" quiet valid "$st"
   out=$(jq 'del(.graft)' "$src/contracts/fixtures/status-1/clean.json")
   refuse "contracts: status/1 refuses a report without graft (a value is null, never left out)" quiet valid "$st"
+  # runs/1 (pot's): pot runs --json, and a log's lines
+  local rs=pot/contracts/runs-1.schema.json es=pot/contracts/runs-1.event.schema.json fx=$src/pot/contracts/fixtures/runs-1 f
+  expect "contracts: runs/1's schemas are 2020-12 schemas" quiet jsv --check-metaschema "$src/$rs" "$src/$es"
+  expect "contracts: runs/1's record and list fixtures validate" valid "$rs" "$fx"/*.json
+  expect "contracts: runs/1's log fixtures validate, line by line" valid_lines "$es" "$fx"/*.log.jsonl
+  # each record fixture is what pot's own code (pot/core/runs.py) computes from its log, as pot runs does (a
+  # stopped run's grantedSince: false, as load_record adds it when no grant covers it since)
+  for f in "$fx"/*.log.jsonl; do
+    out=$(py -c 'import json, os, sys; sys.path.insert(0, sys.argv[1]); import runs as R
+rid = os.path.basename(sys.argv[2])[:4]; rec = R.record(rid, R.read_log(sys.argv[2]), lambda s: False)
+if rec["state"] == "stopped" and rec["stop"]: rec["stop"]["grantedSince"] = False
+print(json.dumps(rec))' "$src/pot/core" "$f")
+    expect "contracts: runs/1's $(basename "$f" .log.jsonl).record.json is pot's record of its log" \
+      test "$(jq -cS . <<<"$out")" = "$(jq -cS . "${f%.log.jsonl}.record.json")"
+  done
+  expect "contracts: runs/1's list.json holds those records, newest first" \
+    test "$(jq -cS '.runs' "$fx/list.json")" = "$(jq -cS -s 'sort_by(.started) | reverse' "$fx"/[0-9a-f][0-9a-f][0-9a-f][0-9a-f].record.json)"
+  out=$(jq '.state = "review" | .clone = null' "$fx/41c7.record.json")
+  refuse "contracts: runs/1 refuses a review with no clone" quiet valid "$rs"
+  out=$(jq '.runs[0].owner = "ada"' "$fx/list.json")
+  refuse "contracts: runs/1 refuses a record field it does not define" quiet valid "$rs"
+  printf '%s\n' '{"ev":"exit","by":"host","time":"2026-11-20T10:00:00"}' > "$work/bad.jsonl"
+  refuse "contracts: runs/1 refuses an exit event with no status" quiet valid_lines "$es" "$work/bad.jsonl"
+}
+# runs_valid STATE CMD...: every line of every run log under STATE, and CMD's `runs --json --all`, validate against
+# runs/1's schemas (pot/contracts/runs-1*.schema.json): what pot really wrote, in each section that runs it
+runs_valid() {
+  local st=$1 logs id; shift
+  logs=$(find "$st" -name log.jsonl -size +0 | sort)
+  [ -n "$logs" ] || { echo "runs_valid: no logs under $st" >&2; return 1; }
+  # shellcheck disable=SC2086 # one path per line, no spaces (the tests' own folders)
+  valid_lines pot/contracts/runs-1.event.schema.json $logs || return 1
+  out=$("$@" runs --json --all 2>/dev/null) && valid pot/contracts/runs-1.schema.json || return 1
+  id=$(jq -r '.runs[0].id // empty' <<<"$out")
+  [ -n "$id" ] || { echo "runs_valid: pot runs --json --all listed no run" >&2; return 1; }
+  out=$("$@" runs "$id" --json 2>/dev/null) && valid pot/contracts/runs-1.schema.json
 }
 
 # graft status (status/1): every --json report validates against contracts/status-1.schema.json. Runs after
@@ -2251,6 +2294,7 @@ EOF
   expect "asks for one" holds "pot init DIR: name the folder"
   (cd "$i" && quiet nix flake lock)
   ran "pot: the init flake builds" nix build --no-link "path:$i#packages.$sys.pot"
+  expect "pot: runs/1, every log line and record this section's runs wrote validates" runs_valid "$work/sbstate" sb_
   cd "$work"
 }
 
@@ -2461,6 +2505,7 @@ except OSError as e:
   # F1 (fix round 4): the clone's git ran under a profile with the run's last denies, in a session of its own
   expect "pot (seatbelt): F1, git.sb denies TIOCSTI" grep -q '(deny file-ioctl (ioctl-command' "$work/sbstate/runs/$id/git.sb"
   expect "and the fcntls" grep -qF '(deny system-fcntl (fcntl-command 80 110))' "$work/sbstate/runs/$id/git.sb"
+  expect "pot (seatbelt): runs/1, every log line and record validates" runs_valid "$work/sbstate" sb_
 }
 
 sec_dispatch() {
@@ -3080,6 +3125,7 @@ EOF
   # shellcheck disable=SC2016
   ran "dispatch: pot runs inside a run" d_ bash -c 'pot runs --json; pot dispatch true 2>&1; pot review 2>&1; true'
   expect "shows the run itself" test "$(head -1 <<<"$out" | jq -r '.runs[0].state')" = running
+  expect "runs/1: inside a run, the list validates" valid pot/contracts/runs-1.schema.json <(head -1 <<<"$out")
   expect "dispatch inside a run: the host's (decision 19, v2.20.0)" holds "pot (work): pot dispatch is the host's: a run starts no clone inside it; run it on the host"
   expect "review is the host's" holds "pot (work): pot review is the host's: a run's output is reviewed outside it"
   (
@@ -3187,6 +3233,7 @@ EOF
   # shellcheck disable=SC2016 # the inner bash expands them
   ran "dispatch: G4, a dispatch where .gitmodules names a submodule ../../evil" bash -c 'cd "$1" && env -u POT -u CLAUDECODE POT_QUIET=1 "$2" dispatch bash -c "ls -A sub 2>&1; true" </dev/null' _ "$gm" "$work/dr/bin/pot"
   refuse "G4: its submodule is not cloned from the name's path" holds PLANTED
+  expect "dispatch: runs/1, every log line and record validates (clone, review, stop, fetch, discard, recovered)" runs_valid "$work/dstate" d_
   cd "$work"
 }
 
@@ -3574,6 +3621,7 @@ EOF
   expect "is the host's" holds "pot (work): pot review is the host's: a run's output is reviewed outside it"
   ran "sibling: pot runs inside a run" nb_ agent -c 'pot runs --json'
   expect "lists the run alone" test "$(grep '^{' <<<"$out" | jq '.runs | length')" = 1
+  expect "runs/1: and validates" valid pot/contracts/runs-1.schema.json <(grep '^{' <<<"$out")
   git_ -c core.hooksPath=/dev/null commit -q -a -m before-dispatch --allow-empty
   ran "sibling: a host dispatch whose commit runs the hook" nb_ dispatch agent -c 'echo x > n.md; git add n.md; git commit -q -m in-clone; echo committed'
   expect "the hook command ran, in the clone (as a sibling)" holds "nk-hook POT=dispatch index=$c/.git/index staged=n.md"
@@ -3598,6 +3646,7 @@ EOF
   refused "sibling: F2, a read wrapper whose kit here writes, in a root repository" bash -c "cd '$work/nrr' && '$bw' --dev-bind / / --bind '$work/nlaunch' \"\$HOME/.config/pot\" -- '$work/nct/bin/nk-chk' rr"
   expect "is refused, as work refuses a root" holds "is a root"
   refuse "nothing ran" holds "args=rr"
+  expect "sibling: runs/1, every log line and record validates (siblings, wrappers, hooks)" runs_valid "$work/nstate" nb_
 }
 
 # pi (pot/kits/pi.nix): a root with the pi kit, its program a stub that reports what it sees. The run's pi
@@ -3875,6 +3924,7 @@ PROBE
   cd "$c"
   refused "pi: pot grant under pi's marker" env -u CLAUDECODE -u CODEX_SANDBOX PI_CODING_AGENT=true "$work/pir/bin/pot" grant
   expect "is refused (the kit's agent.markers)" holds "pot grant is for people: PI_CODING_AGENT is set"
+  expect "pi: runs/1, every log line and record validates" runs_valid "$work/pistate" pi_
   cd "$work"
 }
 
