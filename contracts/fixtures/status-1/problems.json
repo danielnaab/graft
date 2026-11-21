@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "repo": "/home/ada/src/ops",
+  "scions_dir": "nix/agent-tools/scions",
+  "graft": {
+    "url": null,
+    "commit": null,
+    "tag": null,
+    "latest": { "status": "untagged", "tag": null, "major": null, "reason": null }
+  },
+  "scions": [
+    {
+      "name": "pa",
+      "path": "nix/agent-tools/scions/pa",
+      "url": "https://forge.example/ada/pa.git",
+      "registered": true,
+      "commit": "5d41402abc4b2a76b9719d911017c592ae1f0e3b",
+      "tag": null,
+      "tag_from": "upstream",
+      "filled": true,
+      "head": "7b52009b64fd0a2a49e6d8a939753077792b0554",
+      "clean": false,
+      "latest": { "status": "untagged", "tag": "v1.2.0", "major": "v2.0.0", "reason": null },
+      "problems": [
+        "uncommitted edits in nix/agent-tools/scions/pa: version (a path: flake's builds use them)",
+        "nix/agent-tools/scions/pa is checked out at 7b52009 but the repository records 5d41402: git add nix/agent-tools/scions/pa to record it, or git submodule update --recursive -- nix/agent-tools/scions/pa to go back",
+        "nix/agent-tools/scions/pa at 5d41402 is not a release tag of https://forge.example/ada/pa.git (nearest: v1.0.1-1-g5d41402): release it, then graft upgrade pa@TAG (or graft upgrade pa, the newest release of its major)"
+      ]
+    },
+    {
+      "name": "stray",
+      "path": "nix/agent-tools/scions/stray",
+      "url": null,
+      "registered": false,
+      "commit": null,
+      "tag": null,
+      "tag_from": null,
+      "filled": false,
+      "head": null,
+      "clean": null,
+      "latest": { "status": "unknown", "tag": null, "major": null, "reason": ".gitmodules does not register it" },
+      "problems": [
+        "nix/agent-tools/scions/stray is not a submodule: graft add URL, or remove it"
+      ]
+    }
+  ],
+  "problems": [
+    "graft try is on (.graft-try): Nix builds read the working tree, scions included: graft try --stop turns it off"
+  ]
+}

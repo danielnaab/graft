@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "repo": "/home/ada/src/team-kb",
+  "scions_dir": "scions",
+  "graft": {
+    "url": "https://github.com/danielnaab/graft.git",
+    "commit": "928a18800e5b8d8d6b7e1f3b5a9f2c1d4e6a7b8c",
+    "tag": "v2.21.0",
+    "latest": { "status": "unknown", "tag": null, "major": null, "reason": "can't list tags at https://github.com/danielnaab/graft.git: fatal: unable to access 'https://github.com/danielnaab/graft.git/': Could not resolve host: github.com" }
+  },
+  "scions": [
+    {
+      "name": "knowledge-base-kit",
+      "path": "scions/knowledge-base-kit",
+      "url": "https://github.com/danielnaab/knowledge-base-kit",
+      "registered": true,
+      "commit": "348eff0aa27fd519507ba168d440f2854ee54189",
+      "tag": "v2.1.0",
+      "tag_from": "local",
+      "filled": true,
+      "head": "348eff0aa27fd519507ba168d440f2854ee54189",
+      "clean": true,
+      "latest": { "status": "unknown", "tag": null, "major": null, "reason": "https://github.com/danielnaab/knowledge-base-kit is not reachable from this pot run" },
+      "problems": []
+    },
+    {
+      "name": "private-kit",
+      "path": "scions/private-kit",
+      "url": "git@forge.example:ada/private-kit.git",
+      "registered": true,
+      "commit": "a9993e364706816aba3e25717850c26c9cd0d89d",
+      "tag": null,
+      "tag_from": null,
+      "filled": false,
+      "head": null,
+      "clean": null,
+      "latest": { "status": "unknown", "tag": null, "major": null, "reason": "can't list tags at git@forge.example:ada/private-kit.git: git@forge.example: Permission denied (publickey)." },
+      "problems": [
+        "scions/private-kit is empty: git submodule update --init --recursive -- scions/private-kit (or graft sync)"
+      ]
+    }
+  ],
+  "problems": []
+}

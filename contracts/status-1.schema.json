@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danielnaab/graft/blob/v2/contracts/status-1.schema.json",
+  "title": "status/1: graft status --json",
+  "description": "A repository's scions and graft's own pin, as graft status --json prints them. The prose is contracts/status-1.md. This schema is what this release emits: a reader takes a value it does not know (a new latest.status, say) as one it does not act on, and never rejects a newer producer's output with it.",
+  "type": "object",
+  "required": ["version", "repo", "scions_dir", "graft", "scions", "problems"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "repo": { "type": "string", "minLength": 1, "description": "the checkout's top, an absolute path" },
+    "scions_dir": { "type": ["string", "null"], "description": "the scions directory from the top; null when the repository has none yet" },
+    "graft": {
+      "description": "graft's own pin, the flake input named graft in flake.lock; null when there is none",
+      "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/graft" } ]
+    },
+    "scions": { "type": "array", "items": { "$ref": "#/$defs/scion" } },
+    "problems": {
+      "type": "array", "items": { "type": "string" },
+      "description": "graft check's messages that concern the repository, not one scion"
+    }
+  },
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$" },
+    "tag": { "type": "string", "pattern": "^v?[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "latest": {
+      "type": "object",
+      "required": ["status", "tag", "major", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["current", "outdated", "untagged", "unknown"] },
+        "tag": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/tag" } ] },
+        "major": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/tag" } ] },
+        "reason": { "type": ["string", "null"] }
+      },
+      "if": { "properties": { "status": { "const": "unknown" } } },
+      "then": { "properties": { "reason": { "type": "string", "minLength": 1 }, "tag": { "type": "null" }, "major": { "type": "null" } } },
+      "else": { "properties": { "reason": { "type": "null" } } }
+    },
+    "graft": {
+      "type": "object",
+      "required": ["url", "commit", "tag", "latest"],
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": ["string", "null"] },
+        "commit": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/commit" } ] },
+        "tag": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/tag" } ] },
+        "latest": { "$ref": "#/$defs/latest" }
+      }
+    },
+    "scion": {
+      "type": "object",
+      "required": ["name", "path", "url", "registered", "commit", "tag", "tag_from", "filled", "head", "clean", "latest", "problems"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "url": { "type": ["string", "null"] },
+        "registered": { "type": "boolean" },
+        "commit": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/commit" } ] },
+        "tag": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/tag" } ] },
+        "tag_from": { "enum": ["upstream", "local", null] },
+        "filled": { "type": "boolean" },
+        "head": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/commit" } ] },
+        "clean": { "type": ["boolean", "null"] },
+        "latest": { "$ref": "#/$defs/latest" },
+        "problems": { "type": "array", "items": { "type": "string" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "tag_from": { "const": null } } }, "then": { "properties": { "tag": { "type": "null" } } } },
+        { "if": { "properties": { "filled": { "const": false } } }, "then": { "properties": { "head": { "type": "null" }, "clean": { "type": "null" } } } },
+        { "if": { "properties": { "filled": { "const": true } } }, "then": { "properties": { "clean": { "type": "boolean" } } } },
+        { "if": { "properties": { "registered": { "const": false } } }, "then": { "properties": { "url": { "type": "null" } } } },
+        { "if": { "properties": { "commit": { "type": "null" } } }, "then": { "properties": { "tag": { "type": "null" }, "tag_from": { "const": null } } } }
+      ]
+    }
+  }
+}
