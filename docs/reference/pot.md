@@ -55,7 +55,7 @@ Terms built from these:
 | **state** | A reach request for a private persistent directory. |
 | **command** | A program that a kit ships. |
 | **command kit**, **repo kit**, **scion kit**, **root kit**, **agent kit** | A kit by its place: the kit whose command runs; a repository's own needs; a grafted provider's kit; a kit the root defines; a kit that describes an agent, such as Claude Code. |
-| **allowance** | The bounds on a `delegate` grant (not in v2.21.0). |
+| **allowance** | The bounds on a `delegate` grant (not in v2.22.0). |
 | **digest**, **source** | What a grant is fixed to: a hash of the kit's request set, and for powerful items the code it came from. |
 
 graft's other terms keep their meaning. A provider ships a kit in `graft.nix`. A consumer's own kit is its repo
@@ -72,7 +72,7 @@ A root is where the person's authority lives. A run never writes a root in place
 | Root | Where | For |
 |---|---|---|
 | A home-manager root | `programs.pot` in your home-manager configuration, from `inputs.graft.homeManagerModules.pot` | Your own machine. Its source repository is a [root repository](#root-repositories). |
-| graft's default root | `nix run github:danielnaab/graft/v2.21.0#pot -- CMD` (`packages.<system>.pot`, `apps.<system>.pot`) | Someone without a root. Its grants file is `~/.config/pot/grants.json`. |
+| graft's default root | `nix run github:danielnaab/graft/v2.22.0#pot -- CMD` (`packages.<system>.pot`, `apps.<system>.pot`) | Someone without a root. Its grants file is `~/.config/pot/grants.json`. |
 | A minimal root of your own | `pot init DIR` writes `DIR/flake.nix`, built with `graft.lib.mkRoot` | A start for a root that you then edit and commit. |
 
 graft's default root and the root that `pot init` writes have graft's contexts, hidden list and standard tools,
@@ -166,7 +166,7 @@ programs.pot.contexts.readonly = { extends = "work"; access = "read"; };
 | `access` | `write`, `read`, `none` | What the run may do to its workspace. |
 | `backend` | a backend name, default `auto` | The backend that enforces the run. |
 | `requires` | guarantee names | A run for which the backend cannot prove these is refused ([Guarantees](#guarantees)). |
-| `trust` | `workspace`, `root` | Whether workspace kits are evaluated. `root` is not in v2.21.0. |
+| `trust` | `workspace`, `root` | Whether workspace kits are evaluated. `root` is not in v2.22.0. |
 | `include` | root kit names | Root kits in every run of the context: their reach is standing reach. |
 | `commands` | root kit names | Root kits whose commands are rows of a run's [children table](#siblings-and-the-children-table), without their reach. |
 | `network` | `granted`, `none` | `none` drops every network item. |
@@ -642,9 +642,9 @@ item on its own.
 ### Capabilities
 
 A capability is a request named by its effect, and a root [binding](#bindings) carries it out. Every name is
-reserved now. v2.21.0 binds the first five; the others come in a later release.
+reserved now. v2.22.0 binds the first five; the others come in a later release.
 
-| Capability | Binding in v2.21.0 | Class |
+| Capability | Binding in v2.22.0 | Class |
 |---|---|---|
 | `status.relay` | a relay and a `workmux` shim | ordinary |
 | `git.fetch { remote }` | an ssh shim and a host broker that allows only `git-upload-pack` | ordinary |
@@ -1391,7 +1391,7 @@ It is a speed bump, not a guarantee: an unrestricted agent on the host can edit 
 pot init DIR
 ```
 
-Writes `DIR/flake.nix`: a minimal root built with `graft.lib.mkRoot`, from `github:danielnaab/graft/v2.21.0`, with
+Writes `DIR/flake.nix`: a minimal root built with `graft.lib.mkRoot`, from `github:danielnaab/graft/v2.22.0`, with
 its grants file at `DIR/grants.json`. It has the default root's [claude-code instance, token binding and
 nix](#roots). A root is a repository you edit and commit, so `pot init` refuses:
 
@@ -1556,7 +1556,7 @@ On the host only. It checks what a run depends on, and reads no secret: binding 
 never their contents. It exits 1 when a line starts `!`, else 0. There is no `--json` yet.
 
 ```
-pot doctor · root home-manager · platform-vm · pot v2.21.0
+pot doctor · root home-manager · platform-vm · pot v2.22.0
 backend    bubblewrap: user namespaces work; proves closure-store own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files; resource-limits: for runs without a terminal; lacks separate-kernel nest
 resources  user systemd: runs without a terminal get MemoryMax=50% TasksMax=2048
 grants     ~/.workstation/pot/grants.json: parses, 4 kits, no entry for platform-vm in the grants file's machines

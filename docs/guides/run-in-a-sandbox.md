@@ -4,7 +4,7 @@ status: working
 # Run commands in pot
 
 Run Claude Code, or any command, with pot, graft's sandbox, so that it can change your repository but cannot read your keys,
-reach hosts that you did not grant, or change what decides the sandbox. `pot` is experimental in v2.21.0. The terms
+reach hosts that you did not grant, or change what decides the sandbox. `pot` is experimental in v2.22.0. The terms
 are in [pot](../reference/pot.md#the-model).
 
 ## Before you begin
@@ -239,7 +239,7 @@ If the repository's `ensure.sh` or `justfile` builds tools with `nix`, make it u
 | Root | Use it when | Start it with |
 |---|---|---|
 | A home-manager root | You manage your home with home-manager. | `programs.pot` (below) |
-| graft's default root | You have no root and want to try `pot`. | `nix run github:danielnaab/graft/v2.21.0#pot -- claude` |
+| graft's default root | You have no root and want to try `pot`. | `nix run github:danielnaab/graft/v2.22.0#pot -- claude` |
 | A minimal root of your own | You want a root without home-manager. | `pot init ~/src/pot-root`, then the steps that it prints |
 
 graft's default root and the root that `pot init` writes work without home-manager. Each has a

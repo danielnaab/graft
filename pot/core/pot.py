@@ -3806,7 +3806,7 @@ def doctor(host, root, rootjson):
         lines.append((f"! {label:<8} {first}" if label else f"{'':<9}! {first}") if bad else f"{label:<11}{first}")
         lines.extend(" " * 11 + r for r in rest)
     sp = lambda p: C.canon_path(C.expand(p, host.home), host.home) if p else p   # noqa: E731
-    ver = "v2.21.0"
+    ver = "v2.22.0"
     lines.append(f"pot doctor · root {root.get('name', '?')} · {host.machine} · pot {ver}")
     # the backend
     try:

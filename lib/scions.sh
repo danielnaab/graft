@@ -352,7 +352,7 @@ cmd_check() {
         # a graft.nix that doesn't parse breaks every output of the flake, graft's app too
         if [ -f "$path/graft.nix" ] && ! err=$(nix_ eval --impure --expr "builtins.isFunction (import $(pwd -P)/$path/graft.nix)" 2>&1); then
           echo "$err" | tail -5 >&2
-          bad "$path/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- $path), or from outside: nix run github:danielnaab/graft/v2.21.0 -- upgrade -C . $name@TAG"
+          bad "$path/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- $path), or from outside: nix run github:danielnaab/graft/v2.22.0 -- upgrade -C . $name@TAG"
         fi
       fi
     done <<<"$registered"

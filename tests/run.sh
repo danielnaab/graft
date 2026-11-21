@@ -267,7 +267,7 @@ sec_mkflake() {
   printf '{ pkgs, ... }: { tools.x = pkgs.hello;\n' > "$work/src/bad/graft.nix" && release bad v1.0.1
   git_ -C scions/bad fetch -q --tags && git_ -C scions/bad checkout -q --detach v1.0.1 && commit "bad v1.0.1"
   refused "check: a graft.nix that doesn't parse, from graft's own flake" G check -C .
-  expect "names it" holds "graft: scions/bad/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/bad), or from outside: nix run github:danielnaab/graft/v2.21.0 -- upgrade -C . bad@TAG"
+  expect "names it" holds "graft: scions/bad/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/bad), or from outside: nix run github:danielnaab/graft/v2.22.0 -- upgrade -C . bad@TAG"
   git_ rm -q scions/bad && commit "no bad"
 
   # a scion with no graft.nix, and one with its own pinned source

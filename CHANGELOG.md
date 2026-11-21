@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.22.0 - 2026-11-21
 
 The next minor release, v2.22.0: graft's and pot's contracts that grove reads are enforceable, each as prose, a JSON
 Schema (2020-12) and golden fixtures owned by its producer.
