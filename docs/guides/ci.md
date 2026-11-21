@@ -306,7 +306,9 @@ a push; its findings are warnings in the job's log.
    one warning per finding ([ci signers](../reference/commands.md#ci)).
 
 The file the check trusts is the one the branch had before the push, so a push that changes the file is checked
-against the old one; a tag or a new branch is checked against the default branch's.
+against the old one; a tag or a new branch is checked against the default branch's. The push that adds the file
+therefore reports `no .forgejo/allowed_signers at BEFORE` and every key as unknown; the next push is the first
+real check.
 
 ## Related
 
