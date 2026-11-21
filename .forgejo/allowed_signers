@@ -1,0 +1,12 @@
+# Signers for graft's report-only signer check (graft ci signers, v2.21.0+). One key per line: PRINCIPAL KEYTYPE KEY.
+# Class after the last @: person = hardware key, routine = everyday key, agent@HOST = a host agent's key.
+# Changes to this file need a daniel@person signature.
+# YubiKey (Flexion Mac, 2026-11-20)
+daniel@person sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIEwftENIqN6U43rdLL6XDvA/qV36w+dtvJ9qinjdj7+AAAAABHNzaDo=
+# platform-vm ~/.ssh/id_ed25519
+daniel@routine ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPJV9ItKELwbAa0u8vK/MtVCqls2i1Wzx54u/C3us3PP
+# Flexion Mac ~/.ssh/id_ed25519
+daniel@routine ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK3dchmfwKjHTcJ/RTCM6f7KfCXveLKImWhR+7ZQ6IRW
+# host agents (~/.ssh/agent_signing, ~/.workstation modules/agent-identity.nix)
+agent@platform-vm ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH6Api3suPnjA6yDfc6usayjVN9QWWtNR5q5ZZH+UC4a
+agent@flexion-mac-L4C4WDQCLK ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFh3l2uJpLWCeHc7Ai1+q+4JH0EYpOYFs3wH6YkJojtS
