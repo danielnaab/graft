@@ -3628,7 +3628,7 @@ EOF
   expect "says where to run it" holds "pot: nk-chk runs in its repository (cd there first)"
   refused "sibling: pot run with a bad manifest" nb_ run --command nk-chk --manifest /tmp/x.json
   expect "is usage" holds "pot run: --manifest /tmp/x.json is not a wrapper's manifest (<bundle>/commands/nk-chk.json)"
-  refused "sibling: pot run --sibling by hand, with no request" nb_ run --sibling 0
+  refused "sibling: pot run --sibling by hand, with no request" nb_ run --sibling 0 </dev/null
   expect "is not a broker's request" holds "pot: pot run --sibling: not a broker's request"
 
   # the wrapper's fallbacks: no launcher, an older root's pot, Darwin
