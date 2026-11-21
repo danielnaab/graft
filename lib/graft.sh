@@ -7,6 +7,7 @@
 #   add       graft another repository as a submodule at a release tag (lib/scions.sh)
 #   sync      fill empty scions, write graft's README and workflows (the default in a repo's own app)
 #   check     every scion registered, initialised, clean and at a release tag (lib/scions.sh)
+#   status    check's facts and outdated's newest release, per scion; --json is status/1 (lib/scions.sh)
 #   try       make Nix builds read the scions' working trees, new files included, and undo it
 #             (lib/scions.sh)
 #   outdated  graft's and each scion's tag against the newest upstream (lib/tools.sh)
@@ -28,6 +29,7 @@ usage: nix run .#graft [COMMAND] (a flag needs `--`: nix run .#graft -- outdated
   sync                                  fill empty scions; write graft's README and workflows (the
                                         default; a repo's own app only)
   check [-C REPO] [--committed]         every scion registered, initialised, clean, at a release tag
+  status [-C REPO] [--json]             each scion's pin, its state and the newest release (status/1)
   try [-C REPO] [NAME...]               make Nix builds read the scions' working trees until
                                         try --stop; say how to make the named ones' (default: all)
                                         new files visible
@@ -46,7 +48,7 @@ cmd=${1:-}
 [ $# -eq 0 ] || shift
 if [ -z "$cmd" ] && [ -n "${GRAFT_IN_REPO:-}" ]; then cmd=sync; fi
 case $cmd in
-  add|sync|check|try) exec bash "$here/scions.sh" "$cmd" "$@" ;;
+  add|sync|check|status|try) exec bash "$here/scions.sh" "$cmd" "$@" ;;
   outdated|upgrade|changelog) exec bash "$here/tools.sh" "$cmd" "$@" ;;
   migrate) exec bash "$here/migrate.sh" "$@" ;;
   ci) exec bash "$here/ci.sh" "$@" ;;

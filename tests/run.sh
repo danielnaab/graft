@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end test of graft: providers are local bare repositories with release tags, grafted into
 # consumers as git submodules with file:// URLs. Sections: mkflake (discovery, wiring, the errors),
-# nix (the Nix behaviours graft relies on: regression tests against Nix changes), pot (graft's sandbox), pi (its pi kit), add, sync, check, outdated, changelog, upgrade, graft
+# nix (the Nix behaviours graft relies on: regression tests against Nix changes), pot (graft's sandbox), pi (its pi kit), add, sync, check, outdated, status, changelog, upgrade, graft
 # (graft's own pin), workflows, ci, migrate. Needs nix, git and jq; fetches nixpkgs on the first run.
 # Usage: tests/run.sh [SECTION...] (from anywhere; default: every section, in order). KEEP=1 leaves the
 # work directory, to debug a failure.
@@ -47,6 +47,31 @@ has() { grep -qxF -- "$1" <<<"$out"; }
 holds() { grep -qF -- "$1" <<<"$out"; }
 # holdsj TEXT: TEXT in $out with wrapped lines (continuations indented 4) joined again (pot's long exit lines)
 holdsj() { grep -qF -- "$1" <<<"$(awk 'NR > 1 && /^    [^ ]/ { sub(/^    /, " "); printf "%s", $0; next } { if (NR > 1) print ""; printf "%s", $0 } END { print "" }' <<<"$out")"; }
+# jsv ARGS: check-jsonschema (the contracts' validator), from the nixpkgs graft's flake.lock pins, built once
+jsv_bin=""
+jsv() {
+  [ -n "$jsv_bin" ] || jsv_bin=$(nix build --no-link --print-out-paths --impure \
+    --expr "(builtins.getFlake \"path:$graft\").inputs.nixpkgs.legacyPackages.$sys.check-jsonschema")/bin/check-jsonschema
+  "$jsv_bin" "$@"
+}
+# valid SCHEMA [FILE...]: each FILE (default: $out, one JSON document) validates against SCHEMA, a path in the checkout
+valid() {
+  local s=$1 r; shift
+  if [ $# -eq 0 ]; then printf '%s\n' "$out" > "$work/valid.json"; set -- "$work/valid.json"; fi
+  r=$(jsv --schemafile "$src/$s" "$@" 2>&1) || { echo "$r" >&2; return 1; }
+}
+# valid_lines SCHEMA FILE...: each line of each FILE (JSON Lines) validates against SCHEMA
+valid_lines() {
+  local s=$1 f n=0 d; shift
+  d=$(mktemp -d -p "$work")
+  for f in "$@"; do while IFS= read -r l; do n=$((n + 1)); printf '%s\n' "$l" > "$d/$n.json"; done < "$f"; done
+  [ "$n" -gt 0 ] || { echo "valid_lines: no lines in $*" >&2; return 1; }
+  valid "$s" "$d"/*.json
+}
+# stdout_of CMD...: CMD's stdout alone (its stderr in $work/stderr), for ran: a JSON document to parse
+stdout_of() { "$@" 2>"$work/stderr"; }
+# exit_of CMD...: CMD's exit status, printed (its output in $work/exit.out)
+exit_of() { local rc=0; "$@" >"$work/exit.out" 2>&1 || rc=$?; echo "$rc"; }
 # rest_first TEXT: the first quoted line of upstream notes' "The rest of its CHANGELOG.md" part
 rest_first() { awk '/^The rest of its CHANGELOG.md/ { getline; getline; print; exit }' <<<"$1"; }
 # graft ci as CI runs it: the nixos/nix image has little beyond nix, so every tool graft ci needs
@@ -609,6 +634,110 @@ sec_outdated() {
   ran "outdated: an upstream it can't list" G outdated -C .
   expect "unknown" grep -qE "^docs +scions +v1.0.0 +- +unknown" <<<"$out"
   command mv "$work/docs.away" "$work/docs.git"
+}
+
+# The contracts' schemas are JSON Schema 2020-12, and their golden fixtures (what readers test against) validate.
+# What graft and pot really print is validated where they print it: status, pot, dispatch, sibling, pi.
+sec_contracts() {
+  local st=contracts/status-1.schema.json
+  expect "contracts: status/1's schema is a 2020-12 schema" quiet jsv --check-metaschema "$src/$st"
+  expect "contracts: status/1's fixtures validate" valid "$st" "$src"/contracts/fixtures/status-1/*.json
+  out=$(jq '.scions[0].latest.status = "unknown"' "$src/contracts/fixtures/status-1/clean.json")
+  refuse "contracts: status/1 refuses an unknown latest with no reason" quiet valid "$st"
+  out=$(jq '.scions[0].owner = "ada"' "$src/contracts/fixtures/status-1/clean.json")
+  refuse "contracts: status/1 refuses a field it does not define (a new field is a new version)" quiet valid "$st"
+  out=$(jq 'del(.graft)' "$src/contracts/fixtures/status-1/clean.json")
+  refuse "contracts: status/1 refuses a report without graft (a value is null, never left out)" quiet valid "$st"
+}
+
+# graft status (status/1): every --json report validates against contracts/status-1.schema.json. Runs after
+# outdated (pa at v1.1.0, with v1.2.0 and v2.0.0 upstream), and leaves $work/cmd as it found it.
+sj() { stdout_of g status --json; }
+# shellcheck disable=SC2016 # jq's own $variables
+sec_status() {
+  cd "$work/cmd"
+  local pa11 rc st=contracts/status-1.schema.json
+  pa11=$(sha pa v1.1.0)
+  ran "status --json: a report" sj
+  expect "validates against status/1's schema" valid "$st"
+  expect "version 1, the top, the scions directory" quiet jq -e --arg r "$(pwd -P)" '.version == 1 and .repo == $r and .scions_dir == "scions" and .problems == []' <<<"$out"
+  expect "one entry per scion, by name" test "$(jq -c '[.scions[].name]' <<<"$out")" = '["docs","nest","pa"]'
+  expect "pa: its pin, its tag upstream, clean at its gitlink, no problems" quiet jq -e --arg c "$pa11" --arg u "$(url pa)" \
+    '.scions[] | select(.name == "pa") | .path == "scions/pa" and .url == $u and .registered and .commit == $c and .tag == "v1.1.0"
+       and .tag_from == "upstream" and .filled and .head == $c and .clean == true and .problems == []' <<<"$out"
+  expect "pa: outdated, as graft outdated says, with the later major" quiet jq -e \
+    '.scions[] | select(.name == "pa") | .latest == {status: "outdated", tag: "v1.2.0", major: "v2.0.0", reason: null}' <<<"$out"
+  expect "docs: current" quiet jq -e '.scions[] | select(.name == "docs") | .latest == {status: "current", tag: "v1.0.0", major: null, reason: null}' <<<"$out"
+  expect "graft by path: untagged, no commit" quiet jq -e '.graft == {url: null, commit: null, tag: null, latest: {status: "untagged", tag: null, major: null, reason: null}}' <<<"$out"
+  ran "status: a table" g status
+  expect "a header" grep -qE "^NAME +PATH +TAG +COMMIT +CHECKOUT +LATEST" <<<"$out"
+  expect "pa's row" grep -qE "^pa +scions/pa +v1.1.0 +${pa11:0:7} +clean +v1.2.0 \(outdated; v2.0.0 is a new major\)$" <<<"$out"
+  expect "graft's row" grep -qE "^graft +- +- +- +- +untagged$" <<<"$out"
+  ran "status -C, from graft's flake" stdout_of G status -C "$work/cmd" --json
+  expect "the same report" quiet jq -e '[.scions[].name] == ["docs","nest","pa"]' <<<"$out"
+  # a dirty scion, away from its gitlink: reported, exit 0 (graft check is the gate)
+  printf edited > scions/pa/version
+  ran "status: an uncommitted edit, still exit 0" sj
+  expect "validates" valid "$st"
+  expect "clean false, and check's message" quiet jq -e '.scions[] | select(.name == "pa") | .clean == false
+    and (.problems | index("uncommitted edits in scions/pa: version (Nix builds ignore them while the rest of the tree is clean)"))' <<<"$out"
+  git_ -C scions/pa checkout -q -- version
+  git_ -C scions/pa checkout -q --detach v1.0.1
+  ran "status: a scion checked out away from its gitlink" sj
+  expect "head is the checkout, commit the gitlink, check's message" quiet jq -e --arg c "$pa11" --arg h "$(sha pa v1.0.1)" \
+    '.scions[] | select(.name == "pa") | .commit == $c and .head == $h and .clean == true
+       and (.problems | any(startswith("scions/pa is checked out at ")))' <<<"$out"
+  git_ -C scions/pa checkout -q --detach "$pa11"
+  # a gitlink at no release
+  git_ -C scions/docs commit -q --allow-empty -m wip && git_ add scions/docs
+  ran "status: a gitlink at no release" sj
+  expect "validates" valid "$st"
+  expect "no tag (read upstream), untagged, check's message" quiet jq -e \
+    '.scions[] | select(.name == "docs") | .tag == null and .tag_from == "upstream" and .latest.status == "untagged" and .latest.tag == "v1.0.0"
+       and (.problems | any(contains("is not a release tag of")))' <<<"$out"
+  git_ -C scions/docs checkout -q --detach HEAD~1 && git_ add scions/docs
+  # an upstream it can't list: null and a reason, never left out; the tag from the scion's own clone
+  command mv "$work/pa.git" "$work/pa.away"
+  ran "status: an upstream it can't list (from graft's flake: the repo's own would fetch pa)" stdout_of G status --json -C .
+  command mv "$work/pa.away" "$work/pa.git"
+  expect "validates" valid "$st"
+  expect "latest unknown, with git's reason" quiet jq -e --arg u "$(url pa)" \
+    '.scions[] | select(.name == "pa") | .latest.status == "unknown" and .latest.tag == null and .latest.major == null
+       and (.latest.reason | startswith("can'"'"'t list tags at \($u): "))' <<<"$out"
+  expect "the tag from the scion's clone" quiet jq -e '.scions[] | select(.name == "pa") | .tag == "v1.1.0" and .tag_from == "local" and .problems == []' <<<"$out"
+  # a folder .gitmodules doesn't register, and graft try left on
+  mkdir -p scions/stray && echo x > scions/stray/a.md
+  quiet g try
+  ran "status: a stray folder, try on" sj
+  quiet g try --stop
+  rm -rf scions/stray
+  expect "validates" valid "$st"
+  expect "the folder: not registered, check's message, unknown with a reason" quiet jq -e \
+    '.scions[] | select(.name == "stray") | .registered == false and .url == null and .commit == null and .filled == false
+       and .problems == ["scions/stray is not a submodule: graft add URL, or remove it"] and .latest.status == "unknown" and (.latest.reason | length > 0)' <<<"$out"
+  expect "try: a repository problem" quiet jq -e '.problems | any(startswith("graft try is on (.graft-try)"))' <<<"$out"
+  # a fresh clone: empty scions
+  rm -rf "$work/cmd-status" && git_ clone -q "$work/cmd" "$work/cmd-status" && cd "$work/cmd-status"
+  ran "status: a fresh clone's empty scions" sj
+  expect "validates" valid "$st"
+  expect "filled false, head and clean null, the tag still read upstream" quiet jq -e --arg c "$pa11" \
+    '.scions[] | select(.name == "pa") | .filled == false and .head == null and .clean == null and .commit == $c and .tag == "v1.1.0"
+       and .problems == ["scions/pa is empty: git submodule update --init --recursive -- scions/pa (or graft sync)"]' <<<"$out"
+  # a repository with no scions
+  local c=$work/status-none && consumer "$c" && cd "$c" && commit init
+  ran "status: no scions" stdout_of G status --json -C "$c"
+  expect "validates" valid "$st"
+  expect "scions_dir null, no scions, no graft pin (no lock)" quiet jq -e '.scions_dir == null and .scions == [] and .graft == null' <<<"$out"
+  # exit statuses: 1 for a repository it can't read, 2 for a usage error
+  mkdir -p "$work/not-git"
+  rc=$(exit_of G status --json -C "$work/not-git")
+  expect "status: not a git work tree: exit 1" test "$rc" = 1
+  expect "says so" grep -qF "graft: not inside a git work tree: $work/not-git" "$work/exit.out"
+  rc=$(exit_of G status --nope)
+  expect "status: an unknown option: exit 2" test "$rc" = 2
+  expect "names it, and the usage" grep -qF "usage: graft status [-C REPO] [--json]" "$work/exit.out"
+  cd "$work/cmd"
+  expect "status changed nothing" git_ diff --quiet HEAD
 }
 
 sec_changelog() {
@@ -3775,7 +3904,7 @@ sec_own() {
   expect "own: and a comment in lib/common.sh changes it (the experiment sees graft's sources)" test "$b0" != "$b1"
 }
 
-sections=(own mkflake tarball nix try kits pot pi dispatch sibling add sync check outdated changelog upgrade graft workflows ci migrate)
+sections=(own contracts mkflake tarball nix try kits pot pi dispatch sibling add sync check outdated status changelog upgrade graft workflows ci migrate)
 [ $# -eq 0 ] || sections=("$@")
 for s in "${sections[@]}"; do
   echo "== $s"

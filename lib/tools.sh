@@ -33,83 +33,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # flake.lock's node for a root input, as JSON, or nothing.
 node() { lock_node "$FLAKE_LOCK" "$1"; }
 
-remote() {  # the git URL of a locked input's upstream
-  jq -r 'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo).git"
-         elif .original.type=="git" then .original.url
-         else empty end' <<<"$1"
-}
-
-# row NAME DIR URL PINNED: name<TAB>dir<TAB>pinned<TAB>latest<TAB>status<TAB>major. PINNED is a tag,
-# or "untagged:WHAT" (shown as WHAT), or "unknown". latest is the newest tag of the pinned major;
-# status one of current|outdated|untagged|unknown, against it; major the newest tag of a later
-# major series, or -.
-row() {
-  local name=$1 dir=$2 url=$3 ref=$4 tags t series latest="" major="" status
-  case $ref in
-    untagged:*:*)
-      # an untagged scion with a release behind it (git describe): its major's newest is the target
-      # `graft upgrade NAME` takes; the status stays untagged
-      t=${ref#untagged:}
-      row "$name" "$dir" "$url" "${t#*:}" | awk -F'\t' -v OFS='\t' -v p="${t%%:*}" '{ $3 = p; $5 = "untagged"; print }'
-      return ;;
-    untagged:*) printf '%s\t%s\t%s\t-\tuntagged\t-\n' "$name" "$dir" "${ref#untagged:}"; return ;;
-    unknown:*) printf '%s\t%s\t%s\t-\tunknown\t-\n' "$name" "$dir" "${ref#unknown:}"; return ;;
-  esac
-  if ! tags=$(tags_of "$url" | awk '{ print $2 }'); then
-    printf '%s\t%s\t%s\t-\tunknown\t-\n' "$name" "$dir" "$ref"; return
-  fi
-  # spelled like the pinned tag (with or without the v)
-  if [[ $ref == v* ]]; then tags=$(grep '^v' <<<"$tags" || true); else tags=$(grep -v '^v' <<<"$tags" || true); fi
-  series=$(major_of "$ref")
-  while IFS= read -r t; do
-    [ -n "$t" ] || continue
-    if [ "$(major_of "$t")" = "$series" ]; then latest=$t
-    elif newer "$ref" "$t"; then major=$t; fi
-  done <<<"$tags"
-  status=current
-  if [ -z "$tags" ]; then status=unknown; latest=-
-  elif [ -z "$latest" ]; then latest=$ref
-  elif newer "$ref" "$latest"; then status=outdated
-  else latest=$ref
-  fi
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$dir" "$ref" "$latest" "$status" "${major:--}"
-}
-
-# scion_pin PATH URL: the pinned tag of the scion at PATH (the gitlink's version upstream), or
-# untagged:SHA12, or unknown:SHA12 when upstream can't be listed
-scion_pin() {
-  local link v
-  link=$(gitlink "$1")
-  [ -n "$link" ] || { echo "unknown:-"; return; }
-  if ! v=$(version_at "$2" "$link"); then
-    # upstream unreadable: the scion's own tags say what it is, if it's filled
-    v=$(local_version_at "$1" "$link"); echo "unknown:${v:-${link:0:12}}"; return
-  fi
-  if [ -n "$v" ]; then echo "$v"; return; fi
-  # the nearest release behind it, from the scion's own clone (filled only)
-  v=$(git -C "$1" describe --tags --abbrev=0 "$link" 2>/dev/null) || v=""
-  if is_semver "$v"; then echo "untagged:${link:0:12}:$v"; else echo "untagged:${link:0:12}"; fi
-}
-
 # URLS: name<TAB>url for every row (graft's, then the scions'), for upgrade and changelog
 declare -A URLS=() PATHS=()
-
-# Rows for graft's own input (DIR `-`), when the flake has one, then for every scion.
-report() {
-  local n ref url name path
-  n=$(node graft)
-  if [ -n "$n" ] && ! scions_registered .gitmodules | cut -f1 | grep -qxF graft; then
-    ref=$(jq -r '.original.ref // empty' <<<"$n"); url=$(remote "$n")
-    if [ -z "$url" ] || ! is_semver "$ref"; then
-      ref="untagged:${ref:-$(jq -r '.locked.rev[0:12] // .original.type // "-"' <<<"$n")}"
-    fi
-    row graft - "$url" "$ref"
-  fi
-  while IFS=$'\t' read -r name path url; do
-    [ -n "$name" ] || continue
-    row "$name" "$SCIONS" "$url" "$(scion_pin "$path" "$url")"
-  done < <(scions_registered .gitmodules)
-}
 
 urls() {
   local name path url n

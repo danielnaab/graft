@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+The next minor release, v2.22.0: graft's and pot's contracts that grove reads are enforceable, each as prose, a JSON
+Schema (2020-12) and golden fixtures owned by its producer.
+
+- **graft status, and its contract status/1.** `graft status [-C REPO] [--json]` reports, for graft's own pin and
+  each scion, the pinned commit, the tag it is at, whether it is registered, filled and clean, the newest release of
+  its major and a later major, and `graft check`'s messages for it, in one read of each upstream's tags. It changes
+  nothing and evaluates nothing, and exits 0 whatever the scions' state (`graft check` is the gate). `--json` prints
+  [status/1](contracts/status-1.md): a value that needs the network and cannot be read is `null` with a `reason`.
+  Its [schema](contracts/status-1.schema.json) and [fixtures](contracts/fixtures/status-1/) are in `contracts/`;
+  `tests/run.sh status` validates every report graft writes against it ([status](docs/reference/commands.md#status)).
+- `graft check`, `outdated`, `changelog` and `upgrade` list an upstream that cannot be read once per run, not once
+  per use.
+
 ## v2.21.0 - 2026-11-20
 
 Attribution for host-level agents (R0.5): a host run's commits are recorded with their signers, every pot run's

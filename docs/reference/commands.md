@@ -140,6 +140,7 @@ Every command first refuses a copy-mode scions README (one with a `| Scion | Com
 | `add [-C REPO] [--scions PATH] URL[@TAG] [NAME]` | Adds a scion at `TAG`, default the newest version upstream. `NAME` defaults to the URL's last segment without `.git`. Runs `git submodule add`, checks out the tag's commit, writes the marker README if it is missing, and stages `.gitmodules`, the gitlink and the README. |
 | `sync` (the default) | Fills every empty scion and its own submodules, writes the marker README, and refreshes graft's workflows. Never moves a gitlink, and never moves a filled scion. In the repository's own flake only. |
 | `check [-C REPO] [--committed]` | Fails unless every rule in [Check](#check) holds. |
+| `status [-C REPO] [--json]` | For graft and each scion: the pin, the tag it is at, whether it is registered, filled and clean, the newest release, and `check`'s messages. Changes nothing; exit 0 whatever their state. `--json` prints [status/1](../../contracts/status-1.md). See [status](#status). |
 | `try [-C REPO] [NAME...]`, `try [-C REPO] --stop` | Makes Nix builds read the scions' working trees, reports what each build will see, and prints the `git add` that makes the named scions' (default: all) new files visible; `--stop` undoes it. See [try](#try). |
 | `outdated [-C REPO] [--json]` | For graft and each scion: the pinned version, the newest version in its major, the status, and the newest later major. |
 | `changelog [-C REPO] [--json] [NAME[@TAG]...]` | Each provider's CHANGELOG sections between the pin and the target, **Upgrading** first, or its commits. Changes nothing. |
@@ -246,7 +247,8 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
   behind, and the scion's local tags decide. `check` then prints one line for the whole check, not one per scion:
   `graft: upstream tags are not reachable from this pot run: checked each scion's local tags`. Other commands
   that list tags (`add`, `outdated`, `changelog`, `upgrade`) fail for that URL with
-  `graft: URL is not reachable from this pot run`: run them on the host.
+  `graft: URL is not reachable from this pot run`: run them on the host. `status` reports it as the scion's
+  `latest` reason.
 - A scion with submodules of its own prints `graft: note: scions/nest has its own submodules (scions/docs) …`
   on stdout: a git flake on a clean tree fetches them from their URLs too.
 - Success: `graft: N scions clean and at release tags` (`1 scion`); with `--committed`,
@@ -256,6 +258,36 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 
 `check` does not compare the marker README's text: the marker line is what finds the scions directory. Each
 message and its fix: [`graft check` fails](../guides/check-fails.md).
+
+### status
+
+`status [-C REPO] [--json]` joins what `check` and `outdated` read: for each scion, `check`'s facts and messages,
+and the newest release as `outdated` reports it. It reads each upstream's tags once (`git ls-remote`), and does not
+evaluate Nix, compare graft's workflows, or read a provider's `graft.nix`: those are `check`'s alone. It is for a
+person or a program looking across checkouts; `check` is the gate.
+
+```
+NAME        PATH               TAG      COMMIT   CHECKOUT  LATEST
+graft       -                  v2.21.0  928a188  -         v2.22.0 (outdated)
+page-rules  scions/page-rules  v1.0.0   4f1c2d9  dirty     v1.1.0 (outdated; v2.0.0 is a new major)
+graft: uncommitted edits in scions/page-rules: docs/status.md (Nix builds ignore them while the rest of the tree is clean)
+```
+
+- `TAG` is the highest version tag at the gitlink, upstream; when the upstream cannot be read, the scion's own
+  tag (as `check` reads it), else `?`. `untagged`: the gitlink is no release.
+- `CHECKOUT` is `clean`, `dirty` (uncommitted edits to tracked files), `moved` (checked out away from the
+  gitlink), `empty` (not filled) or `unregistered` (a folder or submodule in the scions directory that
+  `.gitmodules` does not register).
+- `LATEST` is `current`, `vX (outdated)`, `untagged`, or `unknown`, with one more line saying why:
+  `graft: NAME: can't list tags at URL: …`, or `graft: NAME: URL is not reachable from this pot run`.
+- Then `check`'s messages, one `graft:` line each: the repository's, then each scion's. Without scions or a graft
+  input: `graft: no scions here (no README.md carrying graft's marker), and no graft input; graft add URL grafts one`.
+- `--json` prints the report that [status/1](../../contracts/status-1.md) defines, with its
+  [schema](../../contracts/status-1.schema.json): a value that needs the network and cannot be read is `null`,
+  with a `reason`.
+- Exit 0 when it printed the report, whatever the scions' state; 1 when it cannot read the repository (not a git
+  work tree, two scions directories, a copy-mode README); 2 for an argument it does not take
+  (`graft: status takes no argument ARG`, then `usage: graft status [-C REPO] [--json]`).
 
 ### try
 
@@ -439,6 +471,8 @@ prints a brief, also when checks fail.
   `graft: NAME: TAG is not a version tag`, `graft: NAME: no tag TAG upstream` (exit 1).
 - `migrate`: `graft: usage: graft migrate [-C REPO] [--base REF] [--no-check] [--json]` (exit 1).
 - `sync` and `check` take no arguments: `graft: sync takes no arguments`, exit 2.
+- `status`: `graft: status takes no argument ARG` or `graft: -C needs a repository`, then
+  `usage: graft status [-C REPO] [--json]`, exit 2.
 - `try`: `graft: unknown option OPTION (usage: graft try [-C REPO] [NAME...], or graft try [-C REPO] --stop)`,
   `graft: try --stop takes no names: it undoes all that try did`, `graft: no scion named NAME` (exit 1).
 - `ci` with another step: `graft: usage: graft ci check|upgrade|pr|signers`, exit 1.
@@ -449,7 +483,7 @@ prints a brief, also when checks fail.
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): arguments, discovery, outputs, and the evaluation errors
 - [pot/lib/kits-for.nix](../../pot/lib/kits-for.nix) and [pot/lib/kit.nix](../../pot/lib/kit.nix): `pot.lib.kitsFor`, the kit manifests in `packages.<system>.pot-kits`
 - [lib/graft.sh](../../lib/graft.sh): commands and usage
-- [lib/scions.sh](../../lib/scions.sh): `add`, `sync`, `check`, `try`
+- [lib/scions.sh](../../lib/scions.sh): `add`, `sync`, `check`, `status`, `try`
 - [lib/tools.sh](../../lib/tools.sh): `outdated`, `changelog`, `upgrade`
 - [lib/common.sh](../../lib/common.sh): finding the scions directory, tags with `git ls-remote`, `pot_reaches`
 - [lib/migrate.sh](../../lib/migrate.sh), [lib/ci.sh](../../lib/ci.sh)

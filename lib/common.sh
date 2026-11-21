@@ -212,19 +212,21 @@ newer() { [ "$(printf '%s\n%s\n' "$(semver_key "$1")" "$(semver_key "$2")" | sor
 
 # tags_of URL: "COMMIT TAG" for each semver tag at URL (an annotated tag by the commit it peels to),
 # oldest first; listed once per URL per run. Fails, with git's error on stderr, when URL can't be
-# listed. http.extraHeader is cleared: a header the repo configured for its own server (a CI
-# checkout's token) must never be sent to a provider's.
+# listed (tried once per run too: tags_error gives the message again). http.extraHeader is cleared: a
+# header the repo configured for its own server (a CI checkout's token) must never be sent to a provider's.
 tags_of() {
   local url=$1 key out
   key=$GRAFT_TMP/tags.$(printf '%s' "$url" | cksum | cut -d' ' -f1)
+  if [ -f "$key.fail" ]; then echo "graft: $(cat "$key.fail")" >&2; return 1; fi
   # inside a pot run, only what the run reaches is tried: no refusal left behind
   if [ ! -f "$key" ] && [ -n "${POT:-}" ] && ! pot_reaches "$url"; then
-    echo "graft: $url is not reachable from this pot run" >&2
+    echo "$url is not reachable from this pot run" > "$key.fail"
+    echo "graft: $(cat "$key.fail")" >&2
     return 1
   fi
   if [ ! -f "$key" ]; then
     out=$(git -c http.extraHeader= ls-remote --tags -- "$url" 2>&1) \
-      || { echo "graft: can't list tags at $url: $(tail -1 <<<"$out")" >&2; return 1; }
+      || { echo "can't list tags at $url: $(tail -1 <<<"$out")" > "$key.fail"; echo "graft: $(cat "$key.fail")" >&2; return 1; }
     awk '$2 ~ /^refs\/tags\// { t = substr($2, 11); if (t ~ /\^\{\}$/) { peeled[substr(t, 1, length(t) - 3)] = $1 } else { obj[t] = $1 } }
          END { for (t in obj) print (t in peeled ? peeled[t] : obj[t]), t }' <<<"$out" \
       | while read -r c t; do is_semver "$t" && printf '%s %s\n' "$c" "$t"; done \
@@ -232,6 +234,13 @@ tags_of() {
     mv "$key.part" "$key"
   fi
   cat "$key"
+}
+
+# tags_error URL: why tags_of URL failed in this run (its message, without `graft: `), or nothing
+tags_error() {
+  local key
+  key=$GRAFT_TMP/tags.$(printf '%s' "$1" | cksum | cut -d' ' -f1)
+  [ ! -f "$key.fail" ] || cat "$key.fail"
 }
 
 # pot_reaches URL: inside a pot run (POT set), whether the run reaches URL, as pot answers it
@@ -270,6 +279,83 @@ scion_node() {
     ([$url | capture("^https://github\\.com/(?<o>[A-Za-z0-9._-]+)/(?<r>[A-Za-z0-9._-]+?)(\\.git)?/?$")] | .[0]) as $g
     | if $g then {original: {type: "github", owner: $g.o, repo: $g.r, ref: $ref}}
       else {original: {type: "git", url: $url, ref: $ref}} end'
+}
+
+# graft outdated's rows, which graft status reads too (remote, row, scion_pin, report)
+
+remote() {  # the git URL of a locked input's upstream
+  jq -r 'if .original.type=="github" then "https://github.com/\(.original.owner)/\(.original.repo).git"
+         elif .original.type=="git" then .original.url
+         else empty end' <<<"$1"
+}
+
+# row NAME DIR URL PINNED: name<TAB>dir<TAB>pinned<TAB>latest<TAB>status<TAB>major. PINNED is a tag,
+# or "untagged:WHAT" (shown as WHAT), or "unknown". latest is the newest tag of the pinned major;
+# status one of current|outdated|untagged|unknown, against it; major the newest tag of a later
+# major series, or -.
+row() {
+  local name=$1 dir=$2 url=$3 ref=$4 tags t series latest="" major="" status
+  case $ref in
+    untagged:*:*)
+      # an untagged scion with a release behind it (git describe): its major's newest is the target
+      # `graft upgrade NAME` takes; the status stays untagged
+      t=${ref#untagged:}
+      row "$name" "$dir" "$url" "${t#*:}" | awk -F'\t' -v OFS='\t' -v p="${t%%:*}" '{ $3 = p; $5 = "untagged"; print }'
+      return ;;
+    untagged:*) printf '%s\t%s\t%s\t-\tuntagged\t-\n' "$name" "$dir" "${ref#untagged:}"; return ;;
+    unknown:*) printf '%s\t%s\t%s\t-\tunknown\t-\n' "$name" "$dir" "${ref#unknown:}"; return ;;
+  esac
+  if ! tags=$(tags_of "$url" | awk '{ print $2 }'); then
+    printf '%s\t%s\t%s\t-\tunknown\t-\n' "$name" "$dir" "$ref"; return
+  fi
+  # spelled like the pinned tag (with or without the v)
+  if [[ $ref == v* ]]; then tags=$(grep '^v' <<<"$tags" || true); else tags=$(grep -v '^v' <<<"$tags" || true); fi
+  series=$(major_of "$ref")
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    if [ "$(major_of "$t")" = "$series" ]; then latest=$t
+    elif newer "$ref" "$t"; then major=$t; fi
+  done <<<"$tags"
+  status=current
+  if [ -z "$tags" ]; then status=unknown; latest=-
+  elif [ -z "$latest" ]; then latest=$ref
+  elif newer "$ref" "$latest"; then status=outdated
+  else latest=$ref
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$dir" "$ref" "$latest" "$status" "${major:--}"
+}
+
+# scion_pin PATH URL: the pinned tag of the scion at PATH (the gitlink's version upstream), or
+# untagged:SHA12, or unknown:SHA12 when upstream can't be listed
+scion_pin() {
+  local link v
+  link=$(gitlink "$1")
+  [ -n "$link" ] || { echo "unknown:-"; return; }
+  if ! v=$(version_at "$2" "$link"); then
+    # upstream unreadable: the scion's own tags say what it is, if it's filled
+    v=$(local_version_at "$1" "$link"); echo "unknown:${v:-${link:0:12}}"; return
+  fi
+  if [ -n "$v" ]; then echo "$v"; return; fi
+  # the nearest release behind it, from the scion's own clone (filled only)
+  v=$(git -C "$1" describe --tags --abbrev=0 "$link" 2>/dev/null) || v=""
+  if is_semver "$v"; then echo "untagged:${link:0:12}:$v"; else echo "untagged:${link:0:12}"; fi
+}
+
+# Rows for graft's own input (DIR `-`), when the flake has one, then for every scion.
+report() {
+  local n ref url name path
+  n=$(lock_node "$FLAKE_LOCK" graft)
+  if [ -n "$n" ] && ! scions_registered .gitmodules | cut -f1 | grep -qxF graft; then
+    ref=$(jq -r '.original.ref // empty' <<<"$n"); url=$(remote "$n")
+    if [ -z "$url" ] || ! is_semver "$ref"; then
+      ref="untagged:${ref:-$(jq -r '.locked.rev[0:12] // .original.type // "-"' <<<"$n")}"
+    fi
+    row graft - "$url" "$ref"
+  fi
+  while IFS=$'\t' read -r name path url; do
+    [ -n "$name" ] || continue
+    row "$name" "$SCIONS" "$url" "$(scion_pin "$path" "$url")"
+  done < <(scions_registered .gitmodules)
 }
 
 # One root input's node in the flake.lock at $1, as JSON, or nothing.
