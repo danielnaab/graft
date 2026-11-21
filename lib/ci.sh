@@ -17,6 +17,10 @@
 #            and a branch other than $BRANCH checked out (a detached HEAD is fine). The check runs
 #            the code of the versions just moved to before anyone reviewed them, so this step
 #            must hold no secret beyond the job's own token (and a read-only key for private scions).
+#   signers  report-only (R0.5): who signed what a push brought, against the repo's
+#            .forgejo/allowed_signers (see signers() below). Always exits 0; findings are ::warning::
+#            lines and a summary. Reads only git objects and the signers file as data; runs nothing
+#            from the repo.
 #   pr       open a PR from $BRANCH into $BASE, or retitle the open one (the push updated it).
 #            Needs API, WEB, BASE, BRANCH and PR_TOKEN. Run it in a job of its own, checked out at
 #            the default branch: then it runs the graft that branch pins and never evaluates the
@@ -245,9 +249,121 @@ pr() {
   exit 1
 }
 
+# --------------------------------------------------------------------------------------------- signers
+# The signer check (R0.5), report-only. Env: REF (the pushed ref: refs/heads/B or refs/tags/T), BEFORE (the
+# ref's old commit; all zeros or empty for a new ref), AFTER (its new commit; default HEAD).
+#
+# The signers file is .forgejo/allowed_signers as BEFORE had it, so a push can't vouch for itself. A tag, a new
+# branch, or a force-push whose old commit is gone reads it from SIGNERS_REF (the workflow fetches the default
+# branch there), else from AFTER, and says so. Its principals name a class after the last @: daniel@person (a person's
+# hardware key), daniel@routine (a person's everyday key), agent@HOST (a host agent's key); any other principal
+# is a known signer of no class. Rules, per commit BEFORE..AFTER (a new branch: the newest $GRAFT_SIGNERS_MAX):
+#   - a signature that verifies against the file (%G? G), else reported: unsigned, unknown key, bad, ...;
+#   - an agent@ signature carries a Pot-Run: trailer;
+#   - a change to a protected path ($GRAFT_SIGNERS_PERSON: shell patterns, where * also matches /) is signed by
+#     a @person key.
+# A tag: annotated and signed by @person or @routine (for now: tags from the phone use the routine key).
+GRAFT_SIGNERS_FILE=${GRAFT_SIGNERS_FILE:-.forgejo/allowed_signers}
+GRAFT_SIGNERS_PERSON=${GRAFT_SIGNERS_PERSON:-"grants.json */grants.json .forgejo/allowed_signers AGENTS.md */AGENTS.md CLAUDE.md */CLAUDE.md .claude/* */.claude/* .pi/* */.pi/*"}
+GRAFT_SIGNERS_MAX=${GRAFT_SIGNERS_MAX:-100}
+
+signers_class() {   # PRINCIPAL -> person | routine | agent | other | none
+  case $1 in
+    "") echo none ;; *@person) echo person ;; *@routine) echo routine ;; agent@*) echo agent ;; *) echo other ;;
+  esac
+}
+
+signers_status() {   # %G? -> words
+  case $1 in
+    G) echo "signed" ;; N) echo "unsigned" ;; U) echo "signed by a key not in $GRAFT_SIGNERS_FILE" ;;
+    B) echo "a bad signature" ;; E) echo "a signature that can't be checked" ;;
+    X|Y) echo "an expired signature or key" ;; R) echo "signed by a revoked key" ;; *) echo "signature status $1" ;;
+  esac
+}
+
+signers_report() {
+  set +e
+  local ref=${REF:-} before=${BEFORE:-} after=${AFTER:-HEAD} file base note="" findings=0 n=0
+  local zero=0000000000000000000000000000000000000000
+  # what reaches the log is the run's text: no control characters, so no line of its own (a workflow command)
+  clean() { printf '%s' "${1//[$'\x01'-$'\x1f'$'\x7f']/?}"; }
+  find_() { findings=$((findings + 1)); echo "::warning::graft signers: $(clean "$*")"; }
+  after=$(git rev-parse --verify -q "$after^{object}") || { echo "::warning::graft signers: AFTER is not in this checkout"; return 0; }
+  if [ -n "$before" ] && [ "$before" != "$zero" ] && [[ $ref != refs/tags/* ]] && git cat-file -e "$before^{commit}" 2>/dev/null; then
+    base=$before
+  else
+    if [ -n "$before" ] && [ "$before" != "$zero" ] && [[ $ref != refs/tags/* ]]; then
+      find_ "the push's old commit ${before:0:12} is not in this checkout (a force-push?): its commits can't be told apart"
+    fi
+    before=""
+    if [ -n "${SIGNERS_REF:-}" ] && base=$(git rev-parse --verify -q "$SIGNERS_REF^{commit}"); then
+      note=" (the signers file is $SIGNERS_REF's)"
+    else
+      base=$(git rev-parse --verify -q "$after^{commit}")
+      note=" (the signers file is the pushed one's: no SIGNERS_REF)"
+    fi
+  fi
+  file=$(mktemp -p "$GRAFT_TMP")
+  if ! git show "$base:$GRAFT_SIGNERS_FILE" > "$file" 2>/dev/null; then
+    echo "::warning::graft signers: no $GRAFT_SIGNERS_FILE at ${base:0:12}: every signature is unknown. Commit one (principals daniel@person, daniel@routine, agent@HOST)."
+    : > "$file"
+  fi
+  local g=(git -c "gpg.ssh.allowedSignersFile=$file" -c core.hooksPath=/dev/null -c core.fsmonitor=false)
+
+  if [[ $ref == refs/tags/* ]]; then
+    local tag=${ref#refs/tags/} out who cls
+    if [ "$(git cat-file -t "$after")" != tag ]; then
+      find_ "tag $tag is lightweight: a release tag is annotated and signed (git tag -s)"
+    else
+      out=$("${g[@]}" verify-tag "$after" 2>&1)
+      who=$(sed -n 's/^Good "git" signature for \(.*\) with .* key .*/\1/p' <<<"$out" | head -1)
+      cls=$(signers_class "$who")
+      if [ -z "$who" ]; then
+        find_ "tag $tag: no signature that verifies against $GRAFT_SIGNERS_FILE"
+      elif [ "$cls" != person ] && [ "$cls" != routine ]; then
+        find_ "tag $tag is signed by $who: a tag needs a @person or @routine key"
+      fi
+    fi
+    echo "graft: signers: tag $tag, $findings finding(s)$note (report-only)"
+    return 0
+  fi
+
+  local range=()
+  if [ -n "$before" ]; then range=("$before..$after"); else range=("--max-count=$GRAFT_SIGNERS_MAX" "$after"); fi
+  local c st who run subject cls f pat files hit
+  while IFS=$'\x1f' read -r -d $'\x1e' c st who run subject; do
+    c=${c#$'\n'}
+    [ -n "$c" ] || continue
+    n=$((n + 1))
+    cls=$(signers_class "$who")
+    if [ "$st" != G ]; then
+      find_ "${c:0:12} ($subject): $(signers_status "$st")"
+    elif [ "$cls" = agent ] && [ -z "$run" ]; then
+      find_ "${c:0:12} ($subject): signed by $who with no Pot-Run: trailer"
+    fi
+    files=$(git diff-tree --no-commit-id --name-only -r --root "$c" 2>/dev/null)
+    hit=""
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      for pat in $GRAFT_SIGNERS_PERSON; do
+        # shellcheck disable=SC2053 # a pattern, on purpose
+        if [[ $f == $pat ]]; then hit=$f; break 2; fi
+      done
+    done <<<"$files"
+    if [ -n "$hit" ] && { [ "$st" != G ] || [ "$cls" != person ]; }; then
+      find_ "${c:0:12} ($subject): changes $hit, which needs a @person signature (it has ${who:-none})"
+    fi
+  done < <("${g[@]}" log --format='%H%x1f%G?%x1f%GS%x1f%(trailers:key=Pot-Run,valueonly,separator=%x2C)%x1f%s%x1e' "${range[@]}" 2>/dev/null)
+  echo "graft: signers: $n commit(s) on ${ref:-HEAD}, $findings finding(s)$note (report-only)"
+  return 0
+}
+
+signers() { signers_report || true; exit 0; }
+
 case ${1:-} in
   check) check ;;
+  signers) signers ;;
   upgrade) upgrade ;;
   pr) pr ;;
-  *) die "usage: graft ci check|upgrade|pr" ;;
+  *) die "usage: graft ci check|upgrade|pr|signers" ;;
 esac

@@ -241,7 +241,8 @@ EOF
 # The steps of graft's workflows that run graft (and so fetch scions)
 graft_steps=("      - name: Scions registered and at release tags"
              "      - name: Upgrade, check the result, push it to graft/upgrade"
-             "      - name: Open (or update) the PR")
+             "      - name: Open (or update) the PR"
+             "      - name: Signers (report-only)")
 
 # render_ssh FILE LINE: FILE with LINE (a `# graft ssh:` line, graft's form) above its first line
 # that isn't a comment, and ssh_step before each step that runs graft. Fails, saying why, when FILE

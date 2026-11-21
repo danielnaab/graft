@@ -24,7 +24,7 @@
       # graft's own package sets nothing, and reads any checkout with -C.
       cli = pkgs: env: pkgs.writeShellApplication {
         name = "graft";
-        runtimeInputs = with pkgs; [ bash coreutils diffutils findutils gawk gnugrep gnused jq git util-linux curl ];
+        runtimeInputs = with pkgs; [ bash coreutils diffutils findutils gawk gnugrep gnused jq git util-linux curl openssh ];
         text = ''
           ${lib.concatStrings (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}\n") env)}
           export GRAFT_TEMPLATE=${./template}
@@ -71,7 +71,7 @@
       packages = forAll (pkgs: {
         default = cli pkgs { };
         tools = pkgs.buildEnv { name = "tools"; paths = [ ]; };
-        # graft's default root's pot (experimental, v2.20.2): nix run github:danielnaab/graft#pot -- CMD
+        # graft's default root's pot (experimental, v2.21.0): nix run github:danielnaab/graft#pot -- CMD
         pot = defaultRoot pkgs;
       });
 
@@ -89,7 +89,7 @@
         description = "A repo that grafts other repositories, with graft's Forgejo workflows";
         welcomeText = ''
           Graft a first repository (a git submodule at its newest release tag), then commit:
-            nix run github:danielnaab/graft/v2.20.2 -- add -C . URL
+            nix run github:danielnaab/graft/v2.21.0 -- add -C . URL
           See https://github.com/danielnaab/graft.
         '';
       };
@@ -103,7 +103,7 @@
           touch $out
         '';
         # pot's unit tests: composition, identity, normalisation, digests, merge rules, grants
-        pot-unit = pkgs.runCommand "graft-pot-unit" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+        pot-unit = pkgs.runCommand "graft-pot-unit" { nativeBuildInputs = [ pkgs.python3 pkgs.git ]; } ''
           cp -r ${potSrc} pot && chmod -R u+w pot && cp ${./pot/tests}/test_*.py pot/ && cp -r ${./pot/tests/output} pot/output
           cd pot && python3 -I -m unittest discover -s . -p 'test_*.py' -v
           touch $out

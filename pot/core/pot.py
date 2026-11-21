@@ -51,6 +51,7 @@ USAGE = """usage: pot [VERB | CONTEXT] [FLAGS] [--] [CMD [ARGS...]]
   pot review [RUN] [--fetch|--discard] [--since T] [--until T] [--command NAME] [--flags] [--json]
                                 what needs a person; one run's commits, fetched into refs/remotes/pot-RUN/*
   pot host --resume RUN CMD     a new host conversation, with run RUN's transcript as data
+  pot trailer MSGFILE [SOURCE]  git's prepare-commit-msg hook: adds Pot-Run: $POT_RUN (pot host and runs set it)
   pot doctor                    the backend, bindings (by path), instances, this workspace, pot's state
   pot run --command NAME --manifest PATH -- ARGS
                                 the wrappers' entry: a kit command, under its own policy (a wrapper runs it)
@@ -2416,7 +2417,9 @@ def check_command(policy, launch, ctx, given=True):
 
 
 def host_run(host, root, ctx, flags, cmd, quiet_line=False):
-    """`pot host CMD`: no sandbox, said out loud, logged as by: person at a terminal, by: script otherwise."""
+    """`pot host CMD`: no sandbox, said out loud, logged as by: person at a terminal, by: script otherwise.
+    v2.21.0 (R0.5): CMD gets POT_RUN (this run's id; `pot trailer` writes it into commit messages), and at its end
+    pot looks at the commits it left on the checkout's HEAD (the after look) and logs them."""
     if not cmd:
         cmd = [os.environ.get("SHELL") or "bash"]
     if flags.get("resume"):
@@ -2427,14 +2430,124 @@ def host_run(host, root, ctx, flags, cmd, quiet_line=False):
     if not quiet_line:
         say(f"pot: host · no sandbox · logged as {rid}")
     log(rundir, {"ev": "start", "by": "host", "run": rid, "context": ctx["name"], "backend": None, "argv": cmd,
-                 "invoker": by, "time": datetime.datetime.now().isoformat(timespec="seconds")})
+                 "invoker": by, "time": now_iso(), "mode": "none", **proc_facts()})
+    before = host_look_before(host, os.getcwd())
     try:
-        status = subprocess.run(cmd).returncode
+        proc = subprocess.Popen(cmd, env={**os.environ, "POT_RUN": rid})
     except FileNotFoundError:
         err(f"pot: {cmd[0]}: not found")
-        status = 127
-    log(rundir, {"ev": "exit", "by": "host", "status": status})
+        log(rundir, {"ev": "exit", "by": "host", "status": 127, "time": now_iso()})
+        return 127
+    # ^C is the command's (an agent's interrupt): pot waits for it, and logs its end, rather than dying with it
+    import signal
+    was = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        status = proc.wait()
+    finally:
+        signal.signal(signal.SIGINT, was)
+    if status < 0:
+        status = 128 - status
+    log(rundir, {"ev": "exit", "by": "host", "status": status, "time": now_iso()})
+    if before:
+        ev = host_look_after(host, before)
+        log(rundir, ev)
+        for line in host_after_lines(rid, ev):
+            err(line)
     return status
+
+
+HOST_LOOK_MAX = 200     # commits the after look of pot host records; the rest are counted
+
+
+def host_look_before(host, cwd):
+    """What pot host's after look compares: the checkout's top, HEAD, and every branch, remote branch and tag at
+    the start. None outside a git repository."""
+    r = run_git(host, cwd, "rev-parse", "--show-toplevel")
+    if r.returncode != 0:
+        return None
+    top = r.stdout.strip()
+    head = run_git(host, top, "rev-parse", "--verify", "-q", "HEAD").stdout.strip()
+    tips = run_git(host, top, "for-each-ref", "--format=%(objectname)", "refs/heads", "refs/remotes", "refs/tags").stdout.split()
+    signs = run_git(host, top, "config", "--bool", "commit.gpgsign").stdout.strip() == "true"
+    return {"top": top, "head": head, "tips": sorted(set(tips + ([head] if head else []))), "signs": signs}
+
+
+def host_look_after(host, before):
+    """pot host's after event: the commits on the checkout's HEAD at the end that nothing held at the start
+    (no branch, remote branch, tag or HEAD), each with its signature as host git reports it (%G?, and the
+    signer's principal from gpg.ssh.allowedSignersFile, else its key)."""
+    top = before["top"]
+    ev = {"ev": "after", "by": "host", "commits": [], "unsigned": 0, "signs": before["signs"],
+          "base": before["head"][:12], "signatures": []}
+    head = run_git(host, top, "rev-parse", "--verify", "-q", "HEAD").stdout.strip()
+    if not head or head == before["head"]:
+        return ev
+    stdin = head + "\n" + "".join(f"^{t}\n" for t in before["tips"])
+    r = subprocess.run([host.git, "-c", "core.fsmonitor=false", "-C", top, "rev-list", "--stdin"],
+                       input=stdin.encode(), capture_output=True)
+    commits = r.stdout.decode().split() if r.returncode == 0 else []
+    if len(commits) > HOST_LOOK_MAX:
+        ev["more"] = len(commits) - HOST_LOOK_MAX
+        commits = commits[:HOST_LOOK_MAX]
+    ev["commits"] = [c[:12] for c in commits]
+    if not commits:
+        return ev
+    out = run_git(host, top, "log", "--no-walk=unsorted", "--format=%H%x00%G?%x00%GS%x00%GK%x00%s%x1e", *commits).stdout
+    for rec in out.split("\x1e"):
+        f = rec.strip("\n").split("\x00")
+        if len(f) != 5:
+            continue
+        sha, st, signer, key, subject = f
+        ev["signatures"].append({"commit": sha[:12], "status": st, "signer": visible(signer) or None,
+                                 "key": key or None, "subject": visible(subject)[:120]})
+        if st == "N":
+            ev["unsigned"] += 1
+    return ev
+
+
+def host_after_lines(rid, ev):
+    """The after look's lines, on stderr: one per commit (up to 20), its signature status and signer."""
+    sigs = ev.get("signatures") or []
+    n = len(ev.get("commits") or []) + (ev.get("more") or 0)
+    if not n:
+        return []
+    out = [f"pot: host run {rid} · {n} {'commit' if n == 1 else 'commits'} on HEAD" +
+           (f" · {ev['unsigned']} unsigned" if ev.get("unsigned") and ev.get("signs") else "")]
+    for x in sigs[:20]:
+        who = x.get("signer") or x.get("key") or "-"
+        out.append(f"  {x['commit'][:9]} {x['status']} {who}  {x['subject']}")
+    if n > 20:
+        out.append(f"  … {n - 20} more: pot runs {rid} --json")
+    return out
+
+
+def trailer(args):
+    """`pot trailer MSGFILE [SOURCE [SHA]]`, git's prepare-commit-msg hook (R0.5): with POT_RUN set to a run's id,
+    adds `Pot-Run: ID` to the message once (git interpret-trailers --if-exists doNothing). It is a claim, not
+    evidence: the host's after look lists the run's commits. Never fails a commit: every error exits 0. An
+    editor's message (no SOURCE, or template) and an empty one are left alone, so an emptied message still aborts
+    the commit."""
+    try:
+        rid = os.environ.get("POT_RUN", "")
+        if not args or not re.fullmatch(r"[0-9a-f]{4}", rid):
+            return 0
+        source = args[1] if len(args) > 1 else ""
+        if source not in ("message", "commit", "merge", "squash"):
+            return 0
+        with open(args[0], encoding="utf-8", errors="replace") as f:
+            text = f.read()
+        if not any(l.strip() and not l.startswith("#") for l in text.splitlines()):
+            return 0
+        # outside any repository, with no git configuration but its own: a repository's trailer.<key>.cmd (or a
+        # global one) would run a command; interpret-trailers needs neither
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CEILING_DIRECTORIES": "/"})
+        subprocess.run(["git", "interpret-trailers", "--in-place", "--if-exists", "doNothing",
+                        "--trailer", f"Pot-Run: {rid}", os.path.abspath(args[0])], cwd="/", env=env,
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+    except Exception:
+        pass
+    return 0
 
 
 def bundle_command(host, ctx, name):
@@ -3693,7 +3806,7 @@ def doctor(host, root, rootjson):
         lines.append((f"! {label:<8} {first}" if label else f"{'':<9}! {first}") if bad else f"{label:<11}{first}")
         lines.extend(" " * 11 + r for r in rest)
     sp = lambda p: C.canon_path(C.expand(p, host.home), host.home) if p else p   # noqa: E731
-    ver = "v2.20.2"
+    ver = "v2.21.0"
     lines.append(f"pot doctor · root {root.get('name', '?')} · {host.machine} · pot {ver}")
     # the backend
     try:
@@ -4040,6 +4153,8 @@ def main(argv):
         root = json.load(f)
     ROOT_PATH = os.path.abspath(argv[0])
     args = argv[1:]
+    if args[:1] == ["trailer"]:
+        return trailer(args[1:])     # git's hook, on the host and inside a run: nothing else is read
     if (sys.platform == "darwin" or root.get("darwin")) and not root.get("inner") and not root.get("backends"):
         err("pot: this root has no backend for darwin (a root built before Seatbelt's return): rebuild it with this graft")
         return 1

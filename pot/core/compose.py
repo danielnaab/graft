@@ -22,7 +22,7 @@ GRANTS_VERSION = 1
 CANONICAL = 1
 EXIT_GRANT = 125
 
-VERBS = ("explain", "why", "grant", "review", "init", "run", "serve", "runs", "doctor")
+VERBS = ("explain", "why", "grant", "review", "init", "run", "serve", "runs", "doctor", "trailer")
 CONTEXT_FIELDS = {"extends", "mode", "access", "backend", "requires", "trust", "include", "commands",
                   "network", "nest"}
 MODES = ("in-place", "clone", "none")
@@ -1553,7 +1553,7 @@ def binding_entry(k, r, b, inp, ctx):
         env = [env] if isinstance(env, str) else list(env or [])
         via = cfg.get("via", "env")
         if via not in ("env", "file"):
-            raise Refusal(f"pot ({ctx['name']}): bindings.{r.value}.\"{sel}\".via = {via!r}: v2.20.2 carries "
+            raise Refusal(f"pot ({ctx['name']}): bindings.{r.value}.\"{sel}\".via = {via!r}: v2.21.0 carries "
                           "env and file; proxy comes in a later release")
         e.update(via=via, env=env, **{"from": cfg.get("from") or {}}, holds="the run holds it",
                  **({"refresh": cfg["refresh"]} if cfg.get("refresh") else {}))

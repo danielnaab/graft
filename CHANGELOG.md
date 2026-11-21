@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.21.0 - 2026-11-20
+
+Attribution for host-level agents (R0.5): a host run's commits are recorded with their signers, every pot run's
+commits name their run, and a report-only CI check says who signed what reached the default branch.
+
+- **pot host: the after look.** `pot host CMD` now sets `POT_RUN` (the run's id) for `CMD`, and at its end lists the
+  commits it left on the checkout's `HEAD` with their signatures (`%G?` and the signer's principal), on stderr and
+  in the run's log: an `after` event, and `commits` in a `pot host` run's runs/1 record. Its start event now records
+  `mode` `none` and the pid, as the contract said. `^C` is the command's: pot no longer dies with it and takes the
+  command down ([host](docs/reference/pot.md#host)).
+- **pot trailer.** A new verb, git's `prepare-commit-msg` hook: with `POT_RUN` set, it adds `Pot-Run: <id>` to the
+  message, once. A message written in an editor, and an empty one, are left alone, and it never fails a commit. A
+  run's generated `~/.gitconfig` wires it, and every run sets `POT_RUN` (run-env/1); on the host, wire it in your
+  git config. `trailer` is now a verb, so no context may take the name ([trailer](docs/reference/pot.md#trailer)).
+- **graft ci signers and graft-signers.yaml.** A new managed workflow and step, report-only: each push to the
+  default branch and each tag is checked against the repository's `.forgejo/allowed_signers` as it was before the
+  push. Principals name a class (`daniel@person`, `daniel@routine`, `agent@HOST`): an agent's commit needs a
+  `Pot-Run:` trailer, a change to grants, the signers file or agent instructions needs a `@person` key, and a tag
+  is annotated and signed by `@person` or `@routine`. Copy the workflow in to use it
+  ([ci signers](docs/reference/commands.md#ci), [Report who signed each commit](docs/guides/ci.md#report-who-signed-each-commit)).
+- graft's package puts `openssh` on its `PATH` (`ssh-keygen`, for the signer check).
+
 ## v2.20.2 - 2026-11-20
 
 - **pot (macOS): a run's end no longer signals other sandboxed processes.** Seatbelt's sweep for what left a run's

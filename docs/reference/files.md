@@ -228,6 +228,11 @@ The workflows find the flake from the marker README: its directory's parent; two
 because a `path:` flake reads the working tree. A top-level git flake does not need that: Nix fetches the
 scions itself. graft-check's step is named `Scions registered and at release tags`.
 
+`graft-signers.yaml` (since v2.21.0) runs [`ci signers`](commands.md#ci) on each push to the default branch and
+each tag: report-only, it never fails. Its `branches:` line is yours, as graft-check's is; its step that runs
+graft is `Signers (report-only)`. It needs `.forgejo/allowed_signers` in the repository: an ssh
+`allowed_signers` file whose principals are `daniel@person`, `daniel@routine` and `agent@HOST`.
+
 ### Keep your own edits to a workflow
 
 1. Delete the marker line. Do this before you run `nix run .#graft sync`: while the marker is there, sync puts

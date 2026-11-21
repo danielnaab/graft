@@ -57,7 +57,7 @@ under `… while evaluating scions/NAME/graft.nix (graft calls it for the scion 
 
 One failure Nix cannot contain: a `graft.nix` that does not **parse** breaks every output of the flake,
 `apps.<system>.graft` too. Run graft from outside to see it and move the scion back:
-`nix run github:danielnaab/graft/v2.20.2 -- check -C .` names it
+`nix run github:danielnaab/graft/v2.21.0 -- check -C .` names it
 ([`graft check` fails](../guides/check-fails.md)).
 
 ### Evaluation errors
@@ -111,14 +111,14 @@ Run it as `nix run .#graft COMMAND`. A flag needs `--` before it, because Nix ot
 the repository's top.
 
 Every command except `sync` also runs from graft's own flake, against any checkout:
-`nix run github:danielnaab/graft/v2.20.2 -- COMMAND -C REPO`. graft then reads the repository as data, and
+`nix run github:danielnaab/graft/v2.21.0 -- COMMAND -C REPO`. graft then reads the repository as data, and
 never evaluates its flake outputs.
 
 `nix run .#graft` evaluates the repository's flake first, and for a git flake with
 `inputs.self.submodules = true` Nix fetches **every** submodule of the repository (not only the scions) at
 its gitlink, from its URL, while the tree is clean. A gitlink at a commit the provider's remote lacks (an
 unpushed fix) then stops `nix run .#graft` before graft runs (`Cannot find Git revision …`). Use
-`nix run github:danielnaab/graft/v2.20.2 -- COMMAND -C .` in that state.
+`nix run github:danielnaab/graft/v2.21.0 -- COMMAND -C .` in that state.
 
 In zsh with `extendedglob` set, `#` is a glob character, so a flake reference that holds one fails with
 `zsh: no matches found`. Quote it: `'.#graft'`, `'path:DIR#graft'`. The docs quote every `path:` form, and
@@ -145,7 +145,7 @@ Every command first refuses a copy-mode scions README (one with a `| Scion | Com
 | `changelog [-C REPO] [--json] [NAME[@TAG]...]` | Each provider's CHANGELOG sections between the pin and the target, **Upgrading** first, or its commits. Changes nothing. |
 | `upgrade [-C REPO] [NAME[@TAG]...]` | Moves pins. With no names: graft and every outdated scion, each in its major version. `NAME@TAG` is the only way to cross a major. |
 | `migrate [-C REPO] [--base REF] [--no-check] [--json]` | Prints a migration brief for an upgraded branch. |
-| `ci check\|upgrade\|pr` | The steps of graft's workflows. See [CI](#ci). |
+| `ci check\|upgrade\|pr\|signers` | The steps of graft's workflows. See [CI](#ci). |
 | `help` | Prints the usage, one line per command. |
 
 There is no `remove`: `git rm scions/NAME` removes a scion, and git edits `.gitmodules`. There is no
@@ -224,7 +224,7 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 | Every scion is clean: no modified or staged tracked file (untracked files do not count) | `graft: uncommitted edits in scions/pa: docs/status.md (Nix builds ignore them while the rest of the tree is clean)`; the end is `(graft try is on: Nix builds use them)` while try is on, and `(a path: flake's builds use them)` for a flake in a subdirectory |
 | Every scion is checked out at its gitlink | `graft: scions/pa is checked out at e3f04b8 but the repository records 9147b3c: git add scions/pa to record it, or git submodule update --recursive -- scions/pa to go back` |
 | Every scion's own submodules are filled | `graft: scions/nest's own submodules are empty (scions/docs): git -C scions/nest submodule update --init --recursive (or graft sync); Nix fails on them while the repo's tree has a modified file` |
-| Every `graft.nix` parses | `graft: scions/x/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/x), or from outside: nix run github:danielnaab/graft/v2.20.2 -- upgrade -C . x@TAG` |
+| Every `graft.nix` parses | `graft: scions/x/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/x), or from outside: nix run github:danielnaab/graft/v2.21.0 -- upgrade -C . x@TAG` |
 | Every gitlink is a version tag's commit | `graft: scions/pa at ec99ed1 is not a release tag of URL (nearest: v1.0.0-1-gec99ed1): release it, then graft upgrade pa@TAG (or graft upgrade pa, the newest release of its major)` (`nearest` only for a filled scion) |
 | … and that tag is upstream | `graft: scions/pa: tag v1.0.1 exists locally but not at URL: push it (git -C scions/pa push origin v1.0.1)` |
 | The tools and checks evaluate (from `nix run .#graft` only, after every other rule passed) | `graft: the flake's tools or checks don't evaluate (above): a provider's graft.nix fails` |
@@ -327,7 +327,7 @@ While the marker exists, `check` (and `check --committed`, so `ci check`) fails 
 and `sync` adds a note. `git stash` in the repository fails while `.graft-try` is marked
 (`error: Entry '.graft-try' not uptodate. Cannot merge.`), and so do `git pull --autostash` and
 `git rebase --autostash`: run `graft try --stop` first. `try` reads no flake output, so
-`nix run github:danielnaab/graft/v2.20.2 -- try -C .` works while the repository's flake cannot evaluate, or
+`nix run github:danielnaab/graft/v2.21.0 -- try -C .` works while the repository's flake cannot evaluate, or
 Nix cannot fetch a scion's gitlink (an unpushed commit).
 
 ### outdated
@@ -408,6 +408,26 @@ prints a brief, also when checks fail.
   `flake.lock`, gitlinks of scions that the default branch's `.gitmodules` registers, and the marker README
   when graft's own pin moved. A change to `.forgejo/` is refused (`… changes CI workflows …`), also when
   graft moved; so is `.gitmodules` and any other file (`… changes files graft upgrade never writes: …`).
+- `ci signers` (since v2.21.0): report-only; it always exits 0. It reads `REF` (the pushed ref), `BEFORE` (its
+  old commit; empty or all zeros for a new ref) and `AFTER` (its new commit, default `HEAD`), and checks what the
+  push brought against `.forgejo/allowed_signers` as `BEFORE` had it, so a push cannot vouch for itself. A tag, a
+  new branch, or a force-push whose old commit is not in the checkout (itself a finding) reads the file from
+  `SIGNERS_REF` (the workflow fetches the default branch there), else from `AFTER`; the summary says which. A principal's class is what follows its last `@`:
+  `daniel@person` (a person's hardware key), `daniel@routine` (a person's everyday key), `agent@HOST` (a host
+  agent's key). Each finding is a `::warning::graft signers: …` line:
+  - a commit whose signature does not verify against the file: unsigned, `signed by a key not in
+    .forgejo/allowed_signers`, a bad, expired or revoked signature;
+  - an `agent@` signature with no `Pot-Run:` trailer;
+  - a change to a protected path not signed by a `@person` key. The paths are `GRAFT_SIGNERS_PERSON`, shell
+    patterns where `*` also matches `/` (default: `grants.json`, `.forgejo/allowed_signers`, `AGENTS.md`,
+    `CLAUDE.md`, `.claude/*`, `.pi/*`, each at any depth);
+  - a tag that is lightweight, unsigned, or signed by neither a `@person` nor a `@routine` key.
+
+  A new branch checks its newest `GRAFT_SIGNERS_MAX` commits (100). No signers file is itself a finding.
+  The summary: `graft: signers: N commit(s) on REF, M finding(s) (report-only)`. It reads git objects and the
+  signers file as data, and runs nothing from the repository (a commit's subject and a principal reach the log
+  with control characters replaced, so no text of theirs starts a line); the workflow that calls it does evaluate the
+  repository's flake for `nix run .#graft`, as graft-check does.
 
 ### Argument errors
 
@@ -421,7 +441,7 @@ prints a brief, also when checks fail.
 - `sync` and `check` take no arguments: `graft: sync takes no arguments`, exit 2.
 - `try`: `graft: unknown option OPTION (usage: graft try [-C REPO] [NAME...], or graft try [-C REPO] --stop)`,
   `graft: try --stop takes no names: it undoes all that try did`, `graft: no scion named NAME` (exit 1).
-- `ci` with another step: `graft: usage: graft ci check|upgrade|pr`, exit 1.
+- `ci` with another step: `graft: usage: graft ci check|upgrade|pr|signers`, exit 1.
 - An unknown command prints the usage on stderr, and exits 2.
 
 ## Sources

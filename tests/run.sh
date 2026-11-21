@@ -50,9 +50,10 @@ holdsj() { grep -qF -- "$1" <<<"$(awk 'NR > 1 && /^    [^ ]/ { sub(/^    /, " ")
 # rest_first TEXT: the first quoted line of upstream notes' "The rest of its CHANGELOG.md" part
 rest_first() { awk '/^The rest of its CHANGELOG.md/ { getline; getline; print; exit }' <<<"$1"; }
 # graft ci as CI runs it: the nixos/nix image has little beyond nix, so every tool graft ci needs
-# must come from its own runtimeInputs. ci_ runs it with nothing but nix on PATH.
+# must come from its own runtimeInputs. ci_ runs it with nothing but nix and git on PATH (the image has git,
+# which the workflows' checkout step uses, and Nix runs it to read a git flake's submodules).
 bare=$work/bare-bin
-mkdir -p "$bare" && ln -s "$(command -v nix)" "$bare/nix"
+mkdir -p "$bare" && ln -s "$(command -v nix)" "$bare/nix" && ln -s "$(command -v git)" "$bare/git"
 # ci_ [VAR=VALUE...] STEP
 ci_() { local vars=(); while [[ ${1:-} == *=* ]]; do vars+=("$1"); shift; done; env "${vars[@]}" PATH="$bare" nix run .#graft -- ci "$@"; }
 # graft from graft's own flake, as `nix run github:danielnaab/graft -- ...` runs it
@@ -234,7 +235,7 @@ sec_mkflake() {
   printf '{ pkgs, ... }: { tools.x = pkgs.hello;\n' > "$work/src/bad/graft.nix" && release bad v1.0.1
   git_ -C scions/bad fetch -q --tags && git_ -C scions/bad checkout -q --detach v1.0.1 && commit "bad v1.0.1"
   refused "check: a graft.nix that doesn't parse, from graft's own flake" G check -C .
-  expect "names it" holds "graft: scions/bad/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/bad), or from outside: nix run github:danielnaab/graft/v2.20.2 -- upgrade -C . bad@TAG"
+  expect "names it" holds "graft: scions/bad/graft.nix doesn't evaluate (above): every output of this flake fails until it does, graft's own app too; move the scion back (git submodule update --recursive -- scions/bad), or from outside: nix run github:danielnaab/graft/v2.21.0 -- upgrade -C . bad@TAG"
   git_ rm -q scions/bad && commit "no bad"
 
   # a scion with no graft.nix, and one with its own pinned source
@@ -936,6 +937,54 @@ sec_ci() {
   git_ clone -q "$work/gate-ok-ci" "$work/nolock" && cd "$work/nolock"
   refused "ci check: a flake.lock never committed" nix run .#graft -- ci check
   expect "says so" holds "graft: flake.lock is not committed, so nothing is pinned"
+
+  # ci signers (v2.21.0, R0.5): report-only, against .forgejo/allowed_signers as BEFORE had it
+  git_ clone -q "$work/gate-ok.git" "$work/signers" && cd "$work/signers"
+  local k
+  for k in person routine agent; do ssh-keygen -q -t ed25519 -N '' -C "$k" -f "$work/sk-$k"; done
+  { echo "daniel@person $(cut -d' ' -f1,2 "$work/sk-person.pub")"; echo "daniel@routine $(cut -d' ' -f1,2 "$work/sk-routine.pub")"
+    echo "agent@h $(cut -d' ' -f1,2 "$work/sk-agent.pub")"; } > .forgejo/allowed_signers
+  sg() { local key=$1; shift; git_ -c gpg.format=ssh -c user.signingkey="$work/sk-$key" -c commit.gpgsign=true -c tag.gpgsign=true "$@"; }
+  git_ add .forgejo/allowed_signers && sg person commit -qm "signers"
+  local before && before=$(git_ rev-parse HEAD)
+  sg agent commit -q --allow-empty -m "agent, no trailer"
+  sg agent commit -q --allow-empty -m $'agent\n\nPot-Run: ab12'
+  git_ -c commit.gpgsign=false commit -q --allow-empty -m "nobody"
+  echo x > AGENTS.md && git_ add AGENTS.md && sg routine commit -qm "instructions, routine"
+  echo y > AGENTS.md && git_ add AGENTS.md && sg person commit -qm "instructions, person"
+  ran "ci signers: a push to main (report-only: exit 0)" ci_ REF=refs/heads/main BEFORE="$before" AFTER=HEAD signers
+  expect "counts the push" has "graft: signers: 5 commit(s) on refs/heads/main, 3 finding(s) (report-only)"
+  expect "an agent's commit needs a trailer" holds "(agent, no trailer): signed by agent@h with no Pot-Run: trailer"
+  expect "an unsigned commit" holds "(nobody): unsigned"
+  expect "instructions need a person" holds "(instructions, routine): changes AGENTS.md, which needs a @person signature (it has daniel@routine)"
+  refuse "a person's change to them passes" holds "(instructions, person)"
+  refuse "the agent's commit with a trailer passes" holds "(agent):"
+  # a push can't vouch for itself: a key the push adds is unknown to it
+  ssh-keygen -q -t ed25519 -N '' -C new -f "$work/sk-new"
+  before=$(git_ rev-parse HEAD)
+  echo "agent@new $(cut -d' ' -f1,2 "$work/sk-new.pub")" >> .forgejo/allowed_signers
+  git_ add .forgejo/allowed_signers && sg new commit -qm $'add my key\n\nPot-Run: cd34'
+  ran "ci signers: a push that adds its own key" ci_ REF=refs/heads/main BEFORE="$before" AFTER=HEAD signers
+  expect "is checked against the old file" holds "(add my key): signed by a key not in .forgejo/allowed_signers"
+  expect "and the file needs a person" holds "changes .forgejo/allowed_signers, which needs a @person signature"
+  sg routine tag -s -m v1 v1 && sg agent tag -s -m v2 v2 && git_ -c tag.gpgsign=false tag v3
+  ran "ci signers: a routine tag" ci_ REF=refs/tags/v1 AFTER=refs/tags/v1 signers
+  expect "passes (for now)" has "graft: signers: tag v1, 0 finding(s) (the signers file is the pushed one's: no SIGNERS_REF) (report-only)"
+  ran "ci signers: an agent's tag" ci_ REF=refs/tags/v2 AFTER=refs/tags/v2 signers
+  expect "is reported" holds "tag v2 is signed by agent@h: a tag needs a @person or @routine key"
+  ran "ci signers: a lightweight tag" ci_ REF=refs/tags/v3 AFTER=refs/tags/v3 signers
+  expect "is reported" holds "tag v3 is lightweight"
+  # a tag on a commit that adds its own key: checked against the default branch's file (SIGNERS_REF)
+  sg new tag -s -m v4 v4
+  ran "ci signers: a tag signed by the key its commit adds" ci_ REF=refs/tags/v4 AFTER=refs/tags/v4 SIGNERS_REF="$before" signers
+  expect "does not vouch for itself" holds "tag v4: no signature that verifies against .forgejo/allowed_signers"
+  expect "and says which file" holds "(the signers file is $before's)"
+  ran "ci signers: a force-push's old commit, gone" ci_ REF=refs/heads/main BEFORE=1111111111111111111111111111111111111111 AFTER=HEAD SIGNERS_REF="$before" signers
+  expect "is reported" holds "the push's old commit 111111111111 is not in this checkout (a force-push?)"
+  git_ rm -q .forgejo/allowed_signers && git_ -c commit.gpgsign=false commit -qm "no signers" && before=$(git_ rev-parse HEAD)
+  git_ -c commit.gpgsign=false commit -q --allow-empty -m "after"
+  ran "ci signers: no signers file" ci_ REF=refs/heads/main BEFORE="$before" AFTER=HEAD signers
+  expect "is reported, not an error" holds "::warning::graft signers: no .forgejo/allowed_signers at"
 }
 
 sec_migrate() {
@@ -1468,6 +1517,30 @@ STUB
   refuse "pot: nor a scion's folder" sb_ mv scions/sbk scions/sbk2 2>/dev/null
   ran "pot: a commit inside" sb_ bash -c 'git add notes.md && git commit -qm inside && git log -1 --format=%s'
   expect "is made" has "inside"
+  # v2.21.0 (R0.5): the run's gitconfig runs pot trailer, which writes POT_RUN into the message
+  # shellcheck disable=SC2016 # the run's shell expands it
+  ran "pot: POT_RUN, and a commit's trailer" sb_ bash -c 'echo "run=$POT_RUN"; git commit -q --allow-empty -m trailer && git log -1 --format="%(trailers:key=Pot-Run,valueonly)"'
+  expect "POT_RUN is the run's id" grep -qE '^run=[0-9a-f]{4}$' <<<"$out"
+  # git's config-based hooks are 2.54 and later: an older git in the run ignores the hook (no trailer, no failure)
+  # shellcheck disable=SC2016 # the run's shell expands them
+  if sb_ bash -c 'v=$(git --version | cut -d" " -f3); [ "$(printf "%s\n2.54\n" "$v" | sort -V | head -1)" = 2.54 ]'; then
+    expect "the commit carries it" test "$(sed -n 's/^run=//p' <<<"$out")" = "$(tail -1 <<<"$out")"
+  else
+    expect "an older git: no trailer, and the commit is made" test -z "$(tail -1 <<<"$out" | grep -v '^run=')"
+  fi
+  # pot host: POT_RUN, the after look, the log's after event
+  git_ config hook.pot-trailer.event prepare-commit-msg && git_ config hook.pot-trailer.command "$work/sbr/bin/pot trailer"
+  # shellcheck disable=SC2016 # the command's shell expands it
+  ran "pot: pot host, a commit" sb_loud host bash -c 'git -c commit.gpgsign=false commit -q --allow-empty -m "host side" && echo "run=$POT_RUN"'
+  git_ config --unset hook.pot-trailer.event && git_ config --unset hook.pot-trailer.command
+  local hrid && hrid=$(sed -n 's/^run=//p' <<<"$out")
+  expect "the after look names the commit" holds "pot: host run $hrid · 1 commit on HEAD"
+  expect "with its status and subject" grep -qE "^  [0-9a-f]{9} N -  host side$" <<<"$out"
+  if [ "$(printf '%s\n2.54\n' "$(git_ --version | cut -d' ' -f3)" | sort -V | head -1)" = 2.54 ]; then
+    expect "the commit carries the run" test "$(git_ log -1 --format='%(trailers:key=Pot-Run,valueonly)')" = "$hrid"
+  fi
+  ran "pot: pot runs, a host run" sb_ runs "$hrid" --json
+  expect "its record lists the commit" test "$(jq -r '.commits[0].subject + " " + .commits[0].status + " " + .mode' <<<"$out")" = "host side N none"
   ran "pot: a nested repository, made inside" sb_loud bash -c 'mkdir evil && git -C evil init -q'
   expect "is reported after the run" holdsj "pot: WARNING: the run created what host git, a shell prompt, an editor or direnv reads, and may run code from: evil/.git"
   rm -rf -- "$c/evil"

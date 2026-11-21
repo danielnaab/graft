@@ -20,6 +20,7 @@ status: working
 | `POT_POLICY` | `/run/pot/policy.json` |
 | `POT_TOOLS` | The `bin/` of the workspace's [pot-kits](pot-kits-1.md) bundle, when the workspace has a repo kit. |
 | `POT_CLONE` | `1` in clone mode (since v2.17.0); unset in place. |
+| `POT_RUN` | The run's id, four hex digits (since v2.21.0). The run's `~/.gitconfig` runs `pot trailer`, which writes it into commit messages as `Pot-Run: <id>`. |
 
 The rest of a run's environment is described in pot's reference
 ([Environment](../../docs/reference/pot.md#environment)); it is not part of this contract.

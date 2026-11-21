@@ -55,7 +55,7 @@ Terms built from these:
 | **state** | A reach request for a private persistent directory. |
 | **command** | A program that a kit ships. |
 | **command kit**, **repo kit**, **scion kit**, **root kit**, **agent kit** | A kit by its place: the kit whose command runs; a repository's own needs; a grafted provider's kit; a kit the root defines; a kit that describes an agent, such as Claude Code. |
-| **allowance** | The bounds on a `delegate` grant (not in v2.20.2). |
+| **allowance** | The bounds on a `delegate` grant (not in v2.21.0). |
 | **digest**, **source** | What a grant is fixed to: a hash of the kit's request set, and for powerful items the code it came from. |
 
 graft's other terms keep their meaning. A provider ships a kit in `graft.nix`. A consumer's own kit is its repo
@@ -72,7 +72,7 @@ A root is where the person's authority lives. A run never writes a root in place
 | Root | Where | For |
 |---|---|---|
 | A home-manager root | `programs.pot` in your home-manager configuration, from `inputs.graft.homeManagerModules.pot` | Your own machine. Its source repository is a [root repository](#root-repositories). |
-| graft's default root | `nix run github:danielnaab/graft/v2.20.2#pot -- CMD` (`packages.<system>.pot`, `apps.<system>.pot`) | Someone without a root. Its grants file is `~/.config/pot/grants.json`. |
+| graft's default root | `nix run github:danielnaab/graft/v2.21.0#pot -- CMD` (`packages.<system>.pot`, `apps.<system>.pot`) | Someone without a root. Its grants file is `~/.config/pot/grants.json`. |
 | A minimal root of your own | `pot init DIR` writes `DIR/flake.nix`, built with `graft.lib.mkRoot` | A start for a root that you then edit and commit. |
 
 graft's default root and the root that `pot init` writes have graft's contexts, hidden list and standard tools,
@@ -166,13 +166,13 @@ programs.pot.contexts.readonly = { extends = "work"; access = "read"; };
 | `access` | `write`, `read`, `none` | What the run may do to its workspace. |
 | `backend` | a backend name, default `auto` | The backend that enforces the run. |
 | `requires` | guarantee names | A run for which the backend cannot prove these is refused ([Guarantees](#guarantees)). |
-| `trust` | `workspace`, `root` | Whether workspace kits are evaluated. `root` is not in v2.20.2. |
+| `trust` | `workspace`, `root` | Whether workspace kits are evaluated. `root` is not in v2.21.0. |
 | `include` | root kit names | Root kits in every run of the context: their reach is standing reach. |
 | `commands` | root kit names | Root kits whose commands are rows of a run's [children table](#siblings-and-the-children-table), without their reach. |
 | `network` | `granted`, `none` | `none` drops every network item. |
 | `nest` | boolean, default `true` | Whether the run may start [siblings](#siblings-and-the-children-table) (its name is older than them). `trust = "untrusted"` sets it `false`. |
 
-A context name may not be a verb: `explain`, `why`, `grant`, `review`, `runs`, `doctor`, `init`, `run` or `serve`.
+A context name may not be a verb: `explain`, `why`, `grant`, `review`, `runs`, `doctor`, `init`, `run`, `serve` or `trailer`.
 
 ### host
 
@@ -186,6 +186,44 @@ pot: host · no sandbox · logged as 7f3a
 
 The log records `invoker` as `person` at a terminal, and `script` otherwise; a `--detach` run typed at a terminal is
 `person`.
+
+Since v2.21.0 (attribution for host-level agents), `CMD` gets `POT_RUN`, the run's id, which
+[pot trailer](#trailer) writes into its commit messages. `^C` is the command's: pot waits for it to end and logs
+its exit, where earlier versions died with it and took it down. At the end, when `CMD` ran in a git checkout,
+pot looks at what it left there: the commits on the checkout's `HEAD` that no branch, remote branch, tag or `HEAD`
+held at the start, each with its signature as host git reports it (`%G?`, and the signer's principal from
+`gpg.ssh.allowedSignersFile`, else its key). It prints them on stderr, up to 20:
+
+```
+pot: host run 7f3a · 2 commits on HEAD
+  a1b2c3d4e G agent@platform-vm  pot: the after look of pot host
+  9f8e7d6c5 N -  wip
+```
+
+and logs them as the run's `after` event ([runs/1](../../pot/contracts/runs-1.md): a `pot host` run's record has
+`commits`). A commit elsewhere (another branch left off `HEAD`, another worktree) is not looked at. The look reads
+git only: it is a record of what happened, not a gate.
+
+### trailer
+
+`pot trailer MSGFILE [SOURCE [SHA]]` is git's `prepare-commit-msg` hook. With `POT_RUN` set to a run's id, it adds
+`Pot-Run: <id>` to the message, once (`git interpret-trailers --if-exists doNothing`: an amend keeps the run that
+made the commit first). It leaves alone a message the person writes in an editor (no `SOURCE`, or `template`) and
+an empty one, so emptying the message still aborts the commit; it adds the trailer for `-m`/`-F` (`message`),
+`-c`/`-C`/`--amend` (`commit`), merges and squashes. It never fails a commit: every error exits 0.
+
+A run's generated `~/.gitconfig` wires it ([Environment](#environment)), as a config-based hook: git 2.54 or
+later runs it, beside a repository's own hooks, and an older git in the run ignores it (no trailer, nothing
+fails). On the host, wire it in your global git config the same way:
+
+```
+[hook "pot-trailer"]
+	event = prepare-commit-msg
+	command = pot trailer
+```
+
+The trailer is a claim the command could forge (it sets its own environment), never evidence: the run's `after`
+event, which the host writes, is what ties a commit to a run.
 
 When `CMD` is not on the host's `PATH`, `pot host` runs the workspace bundle's command of that name: a kit
 command's store `program`, else `pot-kits`' `bin/CMD`. So `pot host meeting-kit` works in a graft consumer, as the
@@ -604,9 +642,9 @@ item on its own.
 ### Capabilities
 
 A capability is a request named by its effect, and a root [binding](#bindings) carries it out. Every name is
-reserved now. v2.20.2 binds the first five; the others come in a later release.
+reserved now. v2.21.0 binds the first five; the others come in a later release.
 
-| Capability | Binding in v2.20.2 | Class |
+| Capability | Binding in v2.21.0 | Class |
 |---|---|---|
 | `status.relay` | a relay and a `workmux` shim | ordinary |
 | `git.fetch { remote }` | an ssh shim and a host broker that allows only `git-upload-pack` | ordinary |
@@ -1353,7 +1391,7 @@ It is a speed bump, not a guarantee: an unrestricted agent on the host can edit 
 pot init DIR
 ```
 
-Writes `DIR/flake.nix`: a minimal root built with `graft.lib.mkRoot`, from `github:danielnaab/graft/v2.20.2`, with
+Writes `DIR/flake.nix`: a minimal root built with `graft.lib.mkRoot`, from `github:danielnaab/graft/v2.21.0`, with
 its grants file at `DIR/grants.json`. It has the default root's [claude-code instance, token binding and
 nix](#roots). A root is a repository you edit and commit, so `pot init` refuses:
 
@@ -1518,7 +1556,7 @@ On the host only. It checks what a run depends on, and reads no secret: binding 
 never their contents. It exits 1 when a line starts `!`, else 0. There is no `--json` yet.
 
 ```
-pot doctor · root home-manager · platform-vm · pot v2.20.2
+pot doctor · root home-manager · platform-vm · pot v2.21.0
 backend    bubblewrap: user namespaces work; proves closure-store own-netns own-pidns no-tiocsti protected-as-mounts local-listen in-place same-path-clone private-proxy root-files; resource-limits: for runs without a terminal; lacks separate-kernel nest
 resources  user systemd: runs without a terminal get MemoryMax=50% TasksMax=2048
 grants     ~/.workstation/pot/grants.json: parses, 4 kits, no entry for platform-vm in the grants file's machines
@@ -1666,6 +1704,7 @@ pot: --net pypi.org:443 was for this run.
 | `POT_TOOLS` | The `bin/` of `packages.<system>.pot-kits`, which `pot` built and cached on the host. Set when the workspace has a repo kit. |
 | `POT_POLICY` | `/run/pot/policy.json`. |
 | `POT_CLONE` | `1` in clone mode ([dispatch](#dispatch)); unset in place. |
+| `POT_RUN` | The run's id, four hex digits, such as `7f3a` (since v2.21.0). `pot host` sets it too. [pot trailer](#trailer) writes it into commit messages. |
 | `PATH` | `/run/pot/bin` (the capabilities' shims) first, then the standard set, the root's tools, the kits' tools and the workspace's tools, and `/run/pot/notfound` last. |
 | `BASH_ENV` | `/run/pot/bash_env`, which defines bash's `command_not_found_handle`. |
 | `BASH_FUNC_command_not_found_handle%%` | The same handler, exported as a function. |
@@ -1706,7 +1745,9 @@ handler is also exported to the run as the function `BASH_FUNC_command_not_found
 when it is absent.
 
 Inside, git uses a generated `~/.gitconfig`: `user.name` and `user.email` from the host's git config at the
-workspace, `commit.gpgsign` and `tag.gpgsign` false, and `safe.directory = *`. Commits are unsigned.
+workspace, `commit.gpgsign` and `tag.gpgsign` false, and `safe.directory = *`. Commits are unsigned. Since v2.21.0
+it also wires the run's pot as a `prepare-commit-msg` hook (`hook.pot-trailer`, [pot trailer](#trailer)), so the
+run's commits carry `Pot-Run: <id>`.
 
 `/run/current-system` is bound read-only where it exists, as a link into the store. It resolves only where the run
 sees the whole store: in `inspect`, and in a run with the `nix` capability. Otherwise the run sees its closure

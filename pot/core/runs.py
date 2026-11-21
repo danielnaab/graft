@@ -165,6 +165,8 @@ def record(rid, events, alive):
         "clone": clone, "attention": attention(af, fetched=bool(fetch)), "children": [],
         # v2.20.0: a sibling whose request went away before it started (its exit event's killed)
         **({"killed": (ex or {})["killed"]} if (ex or {}).get("killed") == "caller" else {}),
+        # v2.21.0 (R0.5): a pot host run's commits on HEAD, with their signatures (its after look)
+        **({"commits": (af or {}).get("signatures") or []} if mode == "none" and af else {}),
     }
 
 

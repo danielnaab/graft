@@ -9,7 +9,7 @@ merge it or fix it.
 ## Before you begin
 
 - graft's two workflows are in `.forgejo/workflows/`: `graft-check.yaml` and `graft-upgrade.yaml`.
-  `nix flake init -t github:danielnaab/graft/v2.20.2` writes them. If you did not use it, copy graft's
+  `nix flake init -t github:danielnaab/graft/v2.21.0` writes them. If you did not use it, copy graft's
   [template/.forgejo/workflows/](../../template/.forgejo/workflows/) there, and commit them. graft keeps
   them current ([Files](../reference/files.md#grafts-workflows)).
 - A Forgejo Actions runner has the label `nixos-latest`, mapped to `docker://nixos/nix`. Each job must get a
@@ -282,8 +282,31 @@ it. A status `unknown` means that graft cannot read the provider's repository.
   each checkout:
 
   ```
-  for r in ~/src/team-kb ~/src/handbook; do echo "$r"; nix run github:danielnaab/graft/v2.20.2 -- outdated -C "$r"; done
+  for r in ~/src/team-kb ~/src/handbook; do echo "$r"; nix run github:danielnaab/graft/v2.21.0 -- outdated -C "$r"; done
   ```
+
+## Report who signed each commit
+
+Since v2.21.0, a third workflow reports who signed what reaches the default branch, and each tag. It never fails
+a push; its findings are warnings in the job's log.
+
+1. Write `.forgejo/allowed_signers`: one line per key, `PRINCIPAL KEYTYPE KEY`, as `ssh-keygen -Y verify` reads
+   it. The principal's class follows its last `@`: `daniel@person` for a hardware key, `daniel@routine` for an
+   everyday key, `agent@platform-vm` for a host agent's key.
+
+   ```
+   daniel@person sk-ssh-ed25519@openssh.com AAAAGnNr...
+   daniel@routine ssh-ed25519 AAAAC3Nz...
+   agent@platform-vm ssh-ed25519 AAAAC3Nz...
+   ```
+
+2. Commit it signed with the `@person` key, and copy `template/.forgejo/workflows/graft-signers.yaml` (at the
+   version you pin) to `.forgejo/workflows/`. Set its `branches:` line to your default branch.
+3. Push. The job's log ends `graft: signers: N commit(s) on refs/heads/main, M finding(s) (report-only)`, with
+   one warning per finding ([ci signers](../reference/commands.md#ci)).
+
+The file the check trusts is the one the branch had before the push, so a push that changes the file is checked
+against the old one; a tag or a new branch is checked against the default branch's.
 
 ## Related
 
