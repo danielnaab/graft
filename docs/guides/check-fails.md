@@ -216,6 +216,22 @@ The scion's commit carries a release tag in your clone only: the provider's rele
 pushed. Push it, `git -C scions/NAME push origin vX.Y.Z`, and run the check again. Until then, Nix (which
 fetches from the URL) cannot fetch that commit unless a pushed branch holds it.
 
+### graft: flake.lock pins NAME at vX.Y.Z (abc1234) with narHash sha256-…, but its tag's git archive hashes to sha256-…: …
+
+The lock holds the hash of a tree that is not the tag's: Nix's fetch cache on the machine that locked it had the
+commit from another fetch (a `git+file:` or `.` fetch keeps the files the provider export-ignores), and gave that
+tree to the lock. Builds pass on that machine and fail elsewhere, in CI first, with
+`NAR hash mismatch in input 'github:…'`
+([A polluted fetch cache](../reference/nix-behaviours.md#a-polluted-fetch-cache-locks-the-wrong-tree)). Re-lock the
+input through an empty fetch cache, as the message says:
+
+```
+XDG_CACHE_HOME=$(mktemp -d) nix flake update NAME
+```
+
+Run the check again: the message is gone, and `git diff flake.lock` shows the `narHash` changed to the second hash
+of the message. Commit it.
+
 ### graft: scions/NAME/graft.nix doesn't evaluate (above): every output of this flake fails until it does, …
 
 The provider's `graft.nix` does not parse (the lines above show Nix's error). Nix cannot contain a parse

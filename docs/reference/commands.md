@@ -232,6 +232,7 @@ The marker README's commands name this flake's run command: `nix run .#graft` fo
 | `<scions>/kits.just` matches what the flake generates, when the repository uses it (the file exists, or the top `justfile` names `<scions>/kits.just`); from `nix run .#graft` only, not `--committed` | `graft: scions/kits.just is stale or edited: graft sync`; inside a pot run, `graft: scions/kits.just is stale or edited: run graft sync on the host (the scions folder is read-only in a run)`; when the flake's bundle fails, `graft: scions/kits.just: the flake's pot-kits doesn't evaluate (above)` |
 | No `kits.just` recipe has the name of one of the top `justfile`'s own (when it is used) | `graft: scions/kits.just's recipe X has the name of the justfile's own X: rename one (a kit's recipe never replaces yours)`; `sync` warns with the same line |
 | `kits.just` is a file, not a link | `graft: scions/kits.just is a symbolic link; graft writes only a file there: remove it, then graft sync` |
+| Each root input of the flake's `flake.lock` at a version tag (`github:`, or `git` such as graft's own pin) holds its tag's tree: its `narHash` is the NAR hash of `git archive` of the locked commit, fetched by its tag, with the provider's `export-ignore` rules for `github:` and `exportIgnore` inputs and without them for other `git` inputs (both modes) | `graft: flake.lock pins graft at v2.21.0 (928a188) with narHash sha256-…, but its tag's git archive hashes to sha256-…: Nix's fetch cache probably gave the lock a tree that another fetch of that commit left there (a git+file: or . fetch keeps the files a provider export-ignores), and a machine without that cache, such as CI, fails with NAR hash mismatch: re-lock graft through an empty fetch cache: XDG_CACHE_HOME=$(mktemp -d) nix flake update graft` (for a flake in a subdirectory, `nix flake update --flake path:… graft`). A pin it cannot fetch gets a note and no failure: `graft: can't fetch graft's v2.21.0 from URL (…): flake.lock's narHash for it not compared with its tag's git archive` |
 | graft's workflows match this version's | as in [Files](files.md#grafts-workflows) |
 
 - `--committed` checks only what is committed: it skips the filled, clean, at-gitlink, nested, parse and
@@ -385,7 +386,10 @@ scion's local tag, or the commit. graft's own row comes from `flake.lock` (a `pa
   `NAME` without a tag reports a newer major that it did not take:
   `graft: pa: v2.0.0 is a new major version; not taken (graft upgrade pa@v2.0.0)`.
 - graft's own pin moves first (`graft: graft v2.13.0 -> v2.13.1`): graft rewrites the tag in `flake.nix`,
-  runs `nix flake update graft`, then the new version's `lib/refresh.sh`, which writes the marker README and
+  fetches the new tag and runs `nix flake update graft` through an empty fetch cache of its own (an
+  `XDG_CACHE_HOME` in its temporary folder, and no global flake registry), so the lock holds the tag's own tree
+  ([A polluted fetch cache](nix-behaviours.md#a-polluted-fetch-cache-locks-the-wrong-tree)), then runs the new
+  version's `lib/refresh.sh`, which writes the marker README and
   `kits.just` (where the repository uses it), and refreshes graft's workflows. It moves graft only to v2.13.0 or later
   (`graft: graft upgrade moves graft only to v2.13.0 or later (submodule scions); move it by hand`), and in
   CI only from `graft ci` (`graft: not moving graft itself from a CI job that isn't graft ci (…)`).

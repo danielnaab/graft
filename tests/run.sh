@@ -895,7 +895,11 @@ sec_graft() {
   expect "and changes nothing" git_ diff --quiet
   ran "graft: under CI (not graft ci), graft itself isn't moved" env CI=true nix run .#graft upgrade
   expect "graft's pin as it was" grep -q "ref=v9.0.0" flake.nix
-  ran "graft: upgrade moves graft" g upgrade
+  # the fetch-cache guard: graft's new tag is fetched and locked through an empty fetch cache of graft's own, never
+  # the person's (where a git+file: or . fetch of that commit may have left the tree without export-ignore)
+  local xdg=$work/xdg-graft r91 && r91=$(git_ -C "$gr" rev-parse v9.1.0) && mkdir -p "$xdg"
+  ran "graft: upgrade moves graft" env XDG_CACHE_HOME="$xdg" nix run .#graft -- upgrade
+  refuse "graft: upgrade fetched and locked the new tag through an empty fetch cache, not the person's" grep -rqF "$r91" "$xdg"
   expect "says so" has "graft: graft v9.0.0 -> v9.1.0"
   expect "the ref in flake.nix" grep -q "ref=v9.1.0" flake.nix
   # shellcheck disable=SC2016 # jq's $r
@@ -904,8 +908,34 @@ sec_graft() {
   expect "and its workflow" cmp -s .forgejo/workflows/graft-check.yaml "$gr/template/.forgejo/workflows/graft-check.yaml"
   expect "a workflow without the marker untouched" cmp -s .forgejo/workflows/graft-upgrade.yaml "$work/mine.yaml"
   commit "graft v9.1.0"
-  ran "graft: check passes under the new pin" g check
+  ran "graft: check passes under the new pin (its narHash is its tag's git archive's)" g check
   expect "one scion, singular" has "graft: 1 scion clean and at release tags"
+  # a pin whose narHash is not its tag's git archive: what a polluted fetch cache locks, and CI then fails on with
+  # NAR hash mismatch (graft's own flake: it reads the lock as data; the repo's own would fail evaluating it)
+  local ei full && cp flake.lock "$work/lock-good"
+  full=$(jq -r '.nodes.graft.locked.narHash' flake.lock)
+  ei=$(XDG_CACHE_HOME=$(mktemp -d -p "$work") nix --option flake-registry '' flake prefetch --json "git+file://$gr?ref=v9.1.0&exportIgnore=1" 2>/dev/null | jq -r .hash)
+  expect "(graft's repository export-ignores files: the two trees differ)" test -n "$ei" -a "$ei" != "$full"
+  jq --arg h "$ei" '.nodes.graft.locked.narHash = $h' "$work/lock-good" > flake.lock
+  refused "graft: check, a pin whose narHash is not its tag's git archive" G check -C .
+  expect "names the pin and both hashes" holds "graft: flake.lock pins graft at v9.1.0 (${r91:0:7}) with narHash $ei, but its tag's git archive hashes to $full: "
+  expect "the fetch cache as the likely cause" holds "Nix's fetch cache probably gave the lock a tree that another fetch of that commit left there"
+  # shellcheck disable=SC2016 # the literal text
+  expect "and the fix" holds 're-lock graft through an empty fetch cache: XDG_CACHE_HOME=$(mktemp -d) nix flake update graft'
+  # an exportIgnore input is its tag's archive with the provider's export-ignore rules (as a github: input's is)
+  jq --arg h "$ei" '.nodes.graft.locked.narHash = $h | .nodes.graft.locked.exportIgnore = true' "$work/lock-good" > flake.lock
+  out=$(G check -C . 2>&1) || true
+  refuse "graft: check, an exportIgnore pin at its tag's export: no narHash message" holds "narHash"
+  jq '.nodes.graft.locked.exportIgnore = true' "$work/lock-good" > flake.lock
+  refused "graft: check, an exportIgnore pin holding the whole tree" G check -C .
+  expect "names it" holds "graft: flake.lock pins graft at v9.1.0 (${r91:0:7}) with narHash $full, but its tag's git archive hashes to $ei: "
+  # an upstream it can't fetch: a note, not a failure of its own
+  command mv "$gr" "$gr.away"
+  out=$(G check -C . 2>&1) || true
+  command mv "$gr.away" "$gr"
+  expect "graft: check, a pin it can't fetch: says so" holds "graft: can't fetch graft's v9.1.0 from file://$gr"
+  refuse "and fails nothing on it" holds "with narHash"
+  cp "$work/lock-good" flake.lock
   # v2.12's upgrade, moving its graft to this version, runs this version's lib/assemble.sh: a stub
   refused "graft: lib/assemble.sh (what a v2.12 upgrade runs) stops it" bash "$graft/lib/assemble.sh" out scions x=y=z
   expect "naming the Upgrading steps" holds "graft v2.13.0 replaced copied scions with git submodules"

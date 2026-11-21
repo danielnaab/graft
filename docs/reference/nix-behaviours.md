@@ -133,6 +133,22 @@ path`); Nix 2.34 does. Lock with the absolute path, `nix flake lock "path:$PWD/D
 that a flake fetches with `?exportIgnore=1` therefore cannot see a scion. A flake that needs another
 repository's scion takes that provider as an input of its own instead. **tested**
 
+## A polluted fetch cache locks the wrong tree
+
+Nix's fetch cache (`$XDG_CACHE_HOME/nix`, by default `~/.cache/nix`) keeps the tree of each commit it has
+fetched. A `git+file:` or `.` fetch of a commit keeps every file, the ones that the repository's `.gitattributes`
+marks `export-ignore` too; a `github:` input of the same commit is GitHub's tarball, without them. On a machine
+that fetched the commit the first way, a later `nix flake lock` or `nix flake update` of a `github:` input of it can
+take the cached tree, and write that tree's `narHash` into `flake.lock`. Every build there passes; a machine
+without that cache, such as CI, fetches the tarball and fails with `NAR hash mismatch in input 'github:…'`. graft
+hit this three times (2026-11-14, -19 and -20), each time after a `git+file:` fetch had left the commit's whole tree
+in the cache.
+
+graft guards against it twice: `graft upgrade` fetches and locks graft's pin through an empty fetch cache of its
+own, and `graft check` compares each pin at a version tag with its tag's `git archive`
+([check](commands.md#check)). To lock by hand, use an empty cache:
+`XDG_CACHE_HOME=$(mktemp -d) nix flake update INPUT`.
+
 ## A whole-source path drags in the whole consumer
 
 Interpolating a sub-path of `inputs.self` (`"${inputs.self}/scions/kb"`) makes a store path that depends on
@@ -153,4 +169,6 @@ Nix store on every evaluation. Nix 2.24 and 2.34 have no lazy trees. See
   tree), discovery without `self.submodules`, nested scions, and scion isolation.
 - [lib/mk-flake.nix](../../lib/mk-flake.nix): the `.gitmodules` cross-check, the empty-scion error, and the
   per-scion `builtins.path`.
+- [lib/common.sh](../../lib/common.sh): `nix_clean` (an empty fetch cache) and `pin_hash_problems` (each pin
+  against its tag's `git archive`).
 - The v2.13.0 design's prototypes P1 to P12 (Nix 2.34.6, git 2.56.0), from which the tests were written.

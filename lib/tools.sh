@@ -93,7 +93,8 @@ graft_src() {
                               elif .original.type=="git" then "git+\(.original.url)?ref=\($t)"
                               else empty end' <<<"$n")
   [ -n "$ref" ] || die "can't fetch this repo's graft input ($(jq -r .locked.type <<<"$n"))"
-  path=$(nix_ flake prefetch --json "$ref" | jq -r .storePath) || die "can't fetch graft at $ref"
+  # through an empty fetch cache, as flake_update re-locks it: the tag's own tree
+  path=$(nix_clean flake prefetch --json "$ref" | jq -r .storePath) || die "can't fetch graft at $ref"
   echo "$path"
 }
 

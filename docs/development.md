@@ -70,8 +70,10 @@ its flake's source, so graft does not call `mkFlake` on itself:
   flake it sees only what git tracks: `git add` a new page before you check it. It reads knowledge-base-kit's
   checker from the `knowledge-base-kit` input (`flake = false`), at the scion's gitlink, and `tests/run.sh own`
   fails when the two differ. When you move the scion (`nix run .#graft upgrade knowledge-base-kit`, or the weekly
-  job), move the input too: set its tag in `dev/flake.nix`, run `nix flake update knowledge-base-kit --flake
-  ./dev`, and commit both. To check the docs against an unreleased edit in the scion:
+  job), move the input too: set its tag in `dev/flake.nix`, run
+  `XDG_CACHE_HOME=$(mktemp -d) nix flake update knowledge-base-kit --flake ./dev` (an empty fetch cache: the scion's
+  own checkout may have left the commit's whole tree in yours, [A polluted fetch cache](reference/nix-behaviours.md#a-polluted-fetch-cache-locks-the-wrong-tree)),
+  and commit both. To check the docs against an unreleased edit in the scion:
   `nix flake check ./dev --override-input knowledge-base-kit path:$PWD/scions/knowledge-base-kit`.
 - `apps.graft` is graft's own app, as `mkFlake` gives a consumer one (`nix run .#graft check`, `sync`,
   `ci …`); `packages.tools` is an empty environment, which `graft check` evaluates.
@@ -119,10 +121,22 @@ upgrade the kit with `nix run .#graft upgrade`, change their tag too.
 
 ## Release
 
-1. Add a section at the top of `CHANGELOG.md`: `## vX.Y.Z - YYYY-MM-DD`. A major version needs an
+Release from a shell with an empty fetch cache of its own. The checks fetch graft's checkout as `git+file:`, which
+keeps the files that `.gitattributes` export-ignores; in your own cache, that tree would reach the next lock of
+`github:danielnaab/graft/vX.Y.Z` on this machine, and CI would refuse it
+([A polluted fetch cache](reference/nix-behaviours.md#a-polluted-fetch-cache-locks-the-wrong-tree)).
+
+1. Start the release shell: `export XDG_CACHE_HOME=$(mktemp -d)`.
+2. Add a section at the top of `CHANGELOG.md`: `## vX.Y.Z - YYYY-MM-DD`. A major version needs an
    `### Upgrading` subsection.
-2. Change the graft tag in `template/flake.nix`, `README.md` and the docs to the new version.
-3. Run `nix flake check`, `nix flake check ./dev` and `tests/run.sh`.
-4. Commit.
-5. Tag the commit: `git tag -a -m vX.Y.Z vX.Y.Z`.
-6. Push the `v2` branch and the tag.
+3. Change the graft tag in `template/flake.nix`, `README.md` and the docs to the new version.
+4. Run `nix flake check`, `nix flake check ./dev` and `tests/run.sh`.
+5. Commit.
+6. Tag the commit: `git tag -a -m vX.Y.Z vX.Y.Z`.
+7. Push the `v2` branch and the tag.
+8. Print the hash that consumers lock, through another empty cache:
+   `XDG_CACHE_HOME=$(mktemp -d) nix flake prefetch --json github:danielnaab/graft/vX.Y.Z | jq -r .hash`.
+
+Take the release into other repositories with `nix run .#graft upgrade`, which fetches and locks graft's pin through
+an empty fetch cache of its own, or by hand with `XDG_CACHE_HOME=$(mktemp -d) nix flake update graft`. Their
+`graft check` fails when a lock's `narHash` is not the tag's (step 8's hash).

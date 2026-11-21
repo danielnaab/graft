@@ -20,6 +20,18 @@ Schema (2020-12) and golden fixtures owned by its producer.
   ([runs/1](pot/contracts/runs-1.md#schema-and-fixtures)). The contract itself is unchanged.
 - **A contract is prose, a JSON Schema and golden fixtures, owned by its producer**, which tests that what it emits
   validates; readers test against the fixtures ([pot's contracts](pot/contracts/README.md)).
+- **The fetch-cache guard.** Three NAR hash mismatches (2026-11-14, -19 and -20) came from a lock written through
+  a Nix fetch cache that a `git+file:` fetch had filled with the commit's whole tree, export-ignored files included
+  ([A polluted fetch cache](docs/reference/nix-behaviours.md#a-polluted-fetch-cache-locks-the-wrong-tree)).
+  - `graft upgrade` fetches graft's new tag and re-locks it (`nix flake update graft`) through an empty fetch cache
+    of its own, without the global flake registry ([upgrade](docs/reference/commands.md#upgrade)). graft's own
+    release and its `dev/` input bump now run with an empty `XDG_CACHE_HOME`
+    ([Release](docs/development.md#release)).
+  - `graft check` compares the `narHash` of each pin at a version tag in the flake's `flake.lock` (graft's own, and
+    any `github:` or `git` input at a tag) with the NAR hash of its tag's `git archive`, and fails on a mismatch,
+    naming the fetch cache and the re-lock: `XDG_CACHE_HOME=$(mktemp -d) nix flake update NAME`. A pin it cannot
+    fetch gets a note ([check](docs/reference/commands.md#check),
+    [`graft check` fails](docs/guides/check-fails.md)).
 - `graft check`, `outdated`, `changelog` and `upgrade` list an upstream that cannot be read once per run, not once
   per use.
 

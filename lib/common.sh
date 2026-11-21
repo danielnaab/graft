@@ -21,6 +21,15 @@ MARKER="<!-- managed by graft: https://github.com/danielnaab/graft -->"
 # shellcheck disable=SC2034 # used by the scripts that source this file
 WORKFLOW_MARKER='# managed by graft: '
 nix_() { nix --extra-experimental-features 'nix-command flakes' "$@"; }
+# nix_clean ARGS: nix_ through an empty fetch cache of this run's own (XDG_CACHE_HOME in GRAFT_TMP), and without the
+# global flake registry (which an empty cache would download again; graft names every input in full). A pin it
+# locks is the tag's own tree: never one that another fetch of that commit left in the person's cache (a git+file:
+# or . fetch keeps the files a provider export-ignores, and a github: input of the commit then locks their hash,
+# which a machine without that cache, CI, refuses: NAR hash mismatch).
+nix_clean() {
+  mkdir -p "$GRAFT_TMP/nix-cache"
+  XDG_CACHE_HOME=$GRAFT_TMP/nix-cache nix_ --option flake-registry '' "$@"
+}
 # git whose output parses the same whatever the user's config: no colour, no grep column
 git() { command git -c color.ui=never -c grep.column=false "$@"; }
 # graft's lib/, for jq's -L: upstream.jq's helpers (clean: upstream text as plain lines)
@@ -172,9 +181,10 @@ kits_just_clashes() {
 }
 
 # flake_update NAME...: re-lock inputs of the flake locate found, as a path: flake when it's in a
-# subdirectory (needs Nix 2.19 or later for --flake), so the repo's top is never copied.
+# subdirectory (needs Nix 2.19 or later for --flake), so the repo's top is never copied; through an empty
+# fetch cache (nix_clean), so the lock holds each input's own tree.
 flake_update() {
-  if [ "$FLAKE" = . ]; then nix_ flake update "$@"; else nix_ flake update --flake "$FLAKE_REF" "$@"; fi
+  if [ "$FLAKE" = . ]; then nix_clean flake update "$@"; else nix_clean flake update --flake "$FLAKE_REF" "$@"; fi
 }
 
 # scions_registered [GITMODULES]: name<TAB>path<TAB>url for each submodule that .gitmodules (or the
@@ -356,6 +366,57 @@ report() {
     [ -n "$name" ] || continue
     row "$name" "$SCIONS" "$url" "$(scion_pin "$path" "$url")"
   done < <(scions_registered .gitmodules)
+}
+
+# archive_hash URL TAG REV [EXPORT]: the NAR hash (SRI) of `git archive` of commit REV, fetched from URL by its tag
+# TAG (else by the commit) into a bare repository of graft's own (no checkout: no hooks or filters run), without
+# http.extraHeader. With EXPORT, under the provider's export-ignore and export-subst rules: the tree of GitHub's
+# tarball, and of a git input with exportIgnore; without, a git input's whole tree. Hashed by Nix's own tarball
+# unpacking, through an empty fetch cache. Fails, with the reason on stderr, when it can't.
+archive_hash() {
+  local url=$1 tag=$2 rev=$3 ei=${4:-} g out
+  g=$(mktemp -d -p "$GRAFT_TMP") && git init -q --bare "$g/git" || return 1
+  out=$(git -C "$g/git" -c http.extraHeader= fetch -q --depth 1 --no-tags -- "$url" "refs/tags/$tag" 2>&1) || true
+  if ! git -C "$g/git" cat-file -e "$rev^{commit}" 2>/dev/null; then
+    out=$(git -C "$g/git" -c http.extraHeader= fetch -q --depth 1 --no-tags -- "$url" "$rev" 2>&1) \
+      || { tail -1 <<<"$out" >&2; return 1; }
+  fi
+  if [ -z "$ei" ]; then mkdir -p "$g/git/info" && printf '* -export-ignore -export-subst\n' > "$g/git/info/attributes"; fi
+  git -C "$g/git" archive --format=tar --prefix=source/ -o "$g/archive.tar" "$rev" || return 1
+  nix_clean flake prefetch --json "tarball+file://$g/archive.tar" 2>"$g/err" | jq -er .hash \
+    || { tail -1 "$g/err" >&2; return 1; }
+}
+
+# pin_hash_problems: graft check's message (one line, without `graft: `) for each root input of the flake's lock,
+# pinned at a version tag (github:, or git), whose narHash is not the NAR hash of its tag's `git archive`
+# (archive_hash): the sign of a lock written through a polluted fetch cache. A pin it can't fetch gets a note on
+# stderr, and no message.
+pin_hash_problems() {
+  local name n type url ref rev nar ei sub want err upd
+  [ -f "$FLAKE_LOCK" ] || return 0
+  if [ "$FLAKE" = . ]; then upd="nix flake update"; else upd="nix flake update --flake $FLAKE_REF"; fi
+  while IFS= read -r name; do
+    n=$(lock_node "$FLAKE_LOCK" "$name")
+    [ -n "$n" ] || continue
+    IFS=$'\x1f' read -r type ref rev nar ei sub < <(jq -r '[.locked.type // "", .original.ref // .locked.ref // "",
+      .locked.rev // "", .locked.narHash // "", (if (.locked.exportIgnore // .original.exportIgnore // false) then "1" else "" end),
+      (if (.locked.submodules // .original.submodules // false) then "1" else "" end)] | join("\u001f")' <<<"$n")
+    case $type in github) ei=1 ;; git) ;; *) continue ;; esac
+    if ! is_semver "$ref" || ! [[ $rev =~ ^[0-9a-f]{40}$ ]] || [ -z "$nar" ] || [ -n "$sub" ]; then continue; fi
+    url=$(remote "$n")
+    [ -n "$url" ] || continue
+    if [ -n "${POT:-}" ] && ! pot_reaches "$url"; then
+      echo "graft: $url is not reachable from this pot run: $FLAKE_LOCK's narHash for $name not compared with its tag's git archive" >&2
+      continue
+    fi
+    if ! want=$(archive_hash "$url" "$ref" "$rev" "$ei" 2>"$GRAFT_TMP/ah.err"); then
+      err=$(tail -1 "$GRAFT_TMP/ah.err")
+      echo "graft: can't fetch $name's $ref from $url${err:+ ($err)}: $FLAKE_LOCK's narHash for it not compared with its tag's git archive" >&2
+      continue
+    fi
+    [ "$want" = "$nar" ] && continue
+    echo "$FLAKE_LOCK pins $name at $ref (${rev:0:7}) with narHash $nar, but its tag's git archive hashes to $want: Nix's fetch cache probably gave the lock a tree that another fetch of that commit left there (a git+file: or . fetch keeps the files a provider export-ignores), and a machine without that cache, such as CI, fails with NAR hash mismatch: re-lock $name through an empty fetch cache: XDG_CACHE_HOME=\$(mktemp -d) $upd $name"
+  done < <(jq -r '.nodes.root.inputs // {} | keys[]' "$FLAKE_LOCK")
 }
 
 # One root input's node in the flake.lock at $1, as JSON, or nothing.

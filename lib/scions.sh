@@ -360,6 +360,9 @@ cmd_check() {
     msg=$(submodules_problem "$n")
     [ -z "$msg" ] || bad "$msg"
   fi
+  # each pin at a version tag in the flake's lock (graft's own) holds its tag's tree: a polluted fetch cache's
+  # isn't, and fails CI's NAR hash check
+  while IFS= read -r msg; do [ -z "$msg" ] || bad "$msg"; done < <(pin_hash_problems)
   bash "$here/workflows.sh" check . "$template/.forgejo/workflows" "$GRAFT_RUN" "$FLAKE" ${SCIONS:+"$SCIONS"} || rc=1
   # every provider evaluates (a graft.nix that throws fails here, naming it): from the repo's own app,
   # which has evaluated the flake already (from outside, -C, nothing of the repo's is evaluated)
